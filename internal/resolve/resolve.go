@@ -1578,7 +1578,7 @@ func (r *Resolver) untypedHop(fd *parser.FunctionDef, comp, hop string, call *pa
 		return ret, "", false
 	}
 
-	if r.engineValueReturn(fd) {
+	if r.engineValueReturn(fd, comp) {
 		tr.addf("chain hop %q returns what a built-in function hands back — the rest of the chain is dynamic", hop)
 		tr.hit(TargetDynamic, "", nil)
 
@@ -2027,7 +2027,7 @@ func (r *Resolver) resolveBareChain(call *parser.CallSite, pr *parser.ParseResul
 	}
 
 	if ret == "" {
-		if r.engineValueReturn(def) {
+		if r.engineValueReturn(def, pr.URI.Path()) {
 			tr.addf("%q returns what a built-in function hands back — the rest of the chain is dynamic", first)
 			tr.hit(TargetDynamic, "", nil)
 
@@ -2516,7 +2516,7 @@ func (r *Resolver) returnComponentOf(fd *parser.FunctionDef, depth int, budget *
 		// A value the function adds members to before returning it is not
 		// its component, documented or inferred: ColdBox's execute() returns a
 		// RequestContext with getRenderedContent() and two more attached.
-		if method != nil && producerAugmentsReturn(method.body) {
+		if method != nil && producerAugmentsReturn(method.body) && !r.producerScalarSelfSetter(method, fd, "") {
 			return ""
 		}
 

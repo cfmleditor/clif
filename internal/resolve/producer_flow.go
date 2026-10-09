@@ -189,7 +189,7 @@ func (e *producerEvaluation) call(fd *parser.FunctionDef, receiver string, argum
 		}
 	}
 
-	if method == nil || producerAugmentsReturn(method.body) {
+	if method == nil || producerAugmentsReturn(method.body) && !e.resolver.producerScalarSelfSetter(method, fd, receiver) {
 		return producerUnknown()
 	}
 
@@ -325,6 +325,11 @@ func (e *producerEvaluation) execute(nodes []producerNode, environment producerE
 			result.environment = child.environment
 			result.returns = append(result.returns, child.returns...)
 			result.stopped = child.stopped
+		case "switch":
+			child := e.switchBranch(node, env)
+			result.environment = child.environment
+			result.returns = append(result.returns, child.returns...)
+			result.stopped = child.stopped
 
 		default:
 		}
@@ -336,6 +341,78 @@ func (e *producerEvaluation) execute(nodes []producerNode, environment producerE
 	}
 
 	return result
+}
+
+func (e *producerEvaluation) switchBranch(node *producerNode, env producerEnvironment) producerResult {
+	unknown := producerResult{environment: env, returns: []producerValue{producerUnknown()}, stopped: true}
+	if producerConditionMutation(producerTokens(node.expression)) {
+		return unknown
+	}
+
+	selector := e.expression(node.expression, env)
+	if selector.unknown || !selector.literalKnown || !producerSwitchString(selector.literal) {
+		return unknown
+	}
+
+	selected, fallback := -1, -1
+
+	for i := range node.body {
+		arm := &node.body[i]
+		if arm.kind == "default" {
+			fallback = i
+
+			continue
+		}
+
+		label := e.expression(arm.expression, env)
+		if !label.literalKnown || !producerSwitchString(label.literal) {
+			return unknown
+		}
+
+		if strings.EqualFold(selector.literal, label.literal) {
+			if selected >= 0 {
+				return unknown
+			}
+
+			selected = i
+		}
+	}
+
+	if selected < 0 {
+		selected = fallback
+	}
+
+	if selected < 0 {
+		return producerResult{environment: env}
+	}
+
+	var body []producerNode
+	for i := selected; i < len(node.body); i++ {
+		arm := &node.body[i]
+
+		body = append(body, arm.body...)
+		if arm.target == "break" {
+			break
+		}
+	}
+
+	return e.execute(body, env)
+}
+
+// This rule proves textual dispatch; numeric and boolean coercion is outside
+// its contract.
+func producerSwitchString(value string) bool {
+	if _, err := strconv.ParseFloat(strings.TrimSpace(value), 64); err == nil {
+		return false
+	}
+
+	for _, boolean := range []string{"true", "false", "yes", "no"} {
+		if strings.EqualFold(strings.TrimSpace(value), boolean) {
+			return false
+		}
+	}
+
+	return true
 }
 
 func normalizeProducerPath(path string) string {
@@ -1158,6 +1235,21 @@ func (e *producerEvaluation) rootCall(tokens []parser.Token, open, end int, befo
 		return e.concrete(before, dir)
 	}
 
+	path := normalizeProducerPath(before)
+	if _, shadowed := env[path]; shadowed {
+		return producerUnknown()
+	}
+
+	if !strings.Contains(path, ".") {
+		if _, shadowed := env["arguments."+path]; shadowed {
+			return producerUnknown()
+		}
+
+		if _, shadowed := env["variables."+path]; shadowed {
+			return producerUnknown()
+		}
+	}
+
 	if strings.EqualFold(before, "createObject") && e.resolver.ResolveFunc(e.methodOwner(), "createObject", e.baseDir) == nil {
 		parts := producerSplit(tokens[open+1 : end])
 		if len(parts) == 2 {
@@ -1318,6 +1410,10 @@ func producerConditionMutation(tokens []parser.Token) bool {
 				calls = calls[:len(calls)-1]
 			}
 		case parser.TokEquals:
+			if i+1 < len(tokens) && tokens[i+1].Kind == parser.TokEquals || i > 0 && (tokens[i-1].Kind == parser.TokEquals || tokens[i-1].Kind == parser.TokBang || tokens[i-1].Kind == parser.TokLT || tokens[i-1].Kind == parser.TokGT) {
+				continue
+			}
+
 			if len(calls) == 0 || !calls[len(calls)-1] || i < 2 || tokens[i-1].Kind != parser.TokIdent || (tokens[i-2].Kind != parser.TokLParen && tokens[i-2].Kind != parser.TokComma) {
 				return true
 			}

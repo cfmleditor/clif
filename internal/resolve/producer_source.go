@@ -2,6 +2,7 @@ package resolve
 
 import (
 	"maps"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -224,7 +225,7 @@ func scriptProducerMethods(source string, methods map[string]*producerMethod) {
 		} else {
 			expression := producerText(tokens[start+1 : finish])
 			method.body = []producerNode{{kind: "unsafe", expression: expression}}
-			method.sensitive = producerSensitive([]producerNode{{kind: "if", expression: expression}})
+			method.sensitive = producerSensitive(method.body)
 			methods[name] = method
 		}
 
@@ -430,13 +431,100 @@ func (p *producerScript) statement() producerNode {
 		}
 
 		return producerNode{kind: "try", body: body, alternative: producerHandlers(catches)}
-	case "function", "switch", "do", "finally", "break", "continue":
+	case "switch":
+		return p.switchStatement()
+	case "function", "do", "finally", "break", "continue":
 		p.failed = true
 
 		return producerNode{}
 	}
 
 	return p.expressionStatement()
+}
+
+// Dispatch is limited to literal string labels. Keep
+// top-level breaks on the arm rather than the method: falling through an arm
+// continues the switch, while a return still exits the method. Nested breaks
+// remain unsupported by statement(), so they cannot be mistaken for returns.
+func (p *producerScript) switchStatement() producerNode {
+	node := producerNode{kind: "switch", expression: producerText(p.takeParens())}
+	if p.position >= len(p.tokens) || p.tokens[p.position].Kind != parser.TokLBrace {
+		p.failed = true
+
+		return node
+	}
+
+	p.position++
+	seen := map[string]bool{}
+
+	for !p.failed && p.position < len(p.tokens) && p.tokens[p.position].Kind != parser.TokRBrace {
+		label := p.tokens[p.position]
+		p.position++
+
+		arm := producerNode{kind: strings.ToLower(label.Value)}
+		switch arm.kind {
+		case "case":
+			if p.position >= len(p.tokens) || p.tokens[p.position].Kind != parser.TokString || strings.Contains(p.tokens[p.position].Value, "#") {
+				p.failed = true
+
+				return node
+			}
+
+			arm.expression = p.tokens[p.position].Value
+			if len(arm.expression) < 2 || arm.expression[len(arm.expression)-1:] != arm.expression[:1] {
+				p.failed = true
+
+				return node
+			}
+
+			p.position++
+		case "default":
+		default:
+			p.failed = true
+
+			return node
+		}
+
+		key := arm.kind
+		if arm.kind == "case" {
+			quote := arm.expression[:1]
+			key += strings.ToLower(strings.ReplaceAll(arm.expression[1:len(arm.expression)-1], quote+quote, quote))
+		}
+
+		if seen[key] || p.position >= len(p.tokens) || p.tokens[p.position].Kind != parser.TokColon {
+			p.failed = true
+
+			return node
+		}
+
+		seen[key] = true
+
+		p.position++
+		for !p.failed && p.position < len(p.tokens) && p.tokens[p.position].Kind != parser.TokRBrace && !strings.EqualFold(p.tokens[p.position].Value, "case") && !strings.EqualFold(p.tokens[p.position].Value, "default") {
+			if strings.EqualFold(p.tokens[p.position].Value, "break") {
+				p.position++
+				if p.position < len(p.tokens) && p.tokens[p.position].Kind == parser.TokSemicolon {
+					p.position++
+				}
+
+				arm.target = "break"
+
+				break
+			}
+
+			arm.body = append(arm.body, p.statement())
+		}
+
+		node.body = append(node.body, arm)
+	}
+
+	if p.position >= len(p.tokens) {
+		p.failed = true
+	} else {
+		p.position++
+	}
+
+	return node
 }
 
 // producerStatementBreak reports whether a line break between prev and next
@@ -526,6 +614,51 @@ func producerAugmentsReturn(nodes []producerNode) bool {
 	return writes(nodes)
 }
 
+// A scalar setter adds state, rather than a callable member, to this object.
+// Restrict the proof to one assignment from a declared scalar parameter and
+// an immediate self return, so argument mutation and callback installation
+// cannot be mistaken for the same contract.
+func (r *Resolver) producerScalarSelfSetter(method *producerMethod, fd *parser.FunctionDef, receiver string) bool {
+	if method == nil || fd == nil || len(method.body) != 2 {
+		return false
+	}
+
+	assignment, returned := &method.body[0], &method.body[1]
+	if assignment.kind != "set" || !strings.HasPrefix(assignment.target, "this.") || strings.Count(assignment.target, ".") != 1 || returned.kind != "return" || producerPath(producerUnwrap(producerTokens(returned.expression))) != "this" {
+		return false
+	}
+
+	if receiver == "" {
+		receiver = fd.URI.Path()
+	}
+
+	if r.ResolveFunc(receiver, strings.TrimPrefix(assignment.target, "this."), filepath.Dir(fd.URI.Path())) != nil {
+		return false
+	}
+
+	path := producerPath(producerTokens(assignment.expression))
+
+	name, ok := strings.CutPrefix(path, "arguments.")
+	if !ok {
+		return false
+	}
+
+	for _, argument := range fd.Arguments {
+		if !strings.EqualFold(argument.Name, name) {
+			continue
+		}
+
+		switch strings.ToLower(argument.Type) {
+		case "string", "numeric", "boolean":
+			return true
+		default:
+			return false
+		}
+	}
+
+	return false
+}
+
 // producerHandlers is a try's catch clauses as one alternative: each starts
 // from the state the failure left, and which one runs is not in the source,
 // so they are the branches of an if whose condition is unknown.
@@ -598,6 +731,12 @@ func producerAssignment(tokens []parser.Token) producerNode {
 
 			target := producerPath(tokens[:i])
 			if target != "" {
+				if !local {
+					if node, ok := producerChainedAssignment(tokens, i, target); ok {
+						return node
+					}
+				}
+
 				if local {
 					target = "local." + target
 				}
@@ -617,7 +756,43 @@ func producerAssignment(tokens []parser.Token) producerNode {
 		}
 	}
 
+	if local {
+		if name := producerPath(tokens); name != "" && !strings.Contains(name, ".") {
+			return producerNode{kind: "set", target: "local." + name}
+		}
+	}
+
 	return producerNode{kind: "effect", expression: producerText(tokens)}
+}
+
+func producerChainedAssignment(tokens []parser.Token, assignment int, target string) (producerNode, bool) {
+	if !producerSharedSlot(target) {
+		return producerNode{}, false
+	}
+
+	for j := assignment + 1; j < len(tokens) && tokens[j].Kind != parser.TokLParen; j++ {
+		if tokens[j].Kind != parser.TokEquals {
+			continue
+		}
+
+		right := producerPath(tokens[assignment+1 : j])
+		if producerSharedSlot(right) && j+1 < len(tokens) && strings.EqualFold(tokens[j+1].Value, "new") {
+			return producerNode{kind: "block", body: []producerNode{
+				{kind: "set", target: right, expression: producerText(tokens[j+1:])},
+				{kind: "set", target: target, expression: right},
+			}}, true
+		}
+
+		break
+	}
+
+	return producerNode{}, false
+}
+
+func producerSharedSlot(path string) bool {
+	scope, name, ok := strings.Cut(path, ".")
+
+	return ok && name != "" && !strings.Contains(name, ".") && (scope == "this" || scope == "variables")
 }
 
 func producerPath(tokens []parser.Token) string {
@@ -637,9 +812,17 @@ func producerPath(tokens []parser.Token) string {
 func producerSensitive(nodes []producerNode) bool {
 	for i := range nodes {
 		n := &nodes[i]
+		if n.kind == "switch" {
+			return true
+		}
+
 		if n.kind == "if" || n.kind == "unsafe" {
 			tokens := producerTokens(n.expression)
 			for j := range tokens {
+				if n.kind == "unsafe" && strings.EqualFold(tokens[j].Value, "switch") && j+1 < len(tokens) && tokens[j+1].Kind == parser.TokLParen {
+					return true
+				}
+
 				if producerGuardSensitive(tokens, j) {
 					return true
 				}
@@ -1093,7 +1276,7 @@ func producerWanted(nodes []producerNode) map[string]bool {
 	seed = func(nodes []producerNode) {
 		for i := range nodes {
 			node := &nodes[i]
-			if node.kind == "query" || node.kind == "return" || node.kind == "if" {
+			if node.kind == "query" || node.kind == "return" || node.kind == "if" || node.kind == "switch" {
 				producerReadPaths(node.expression, wanted)
 			}
 

@@ -1,6 +1,7 @@
 package resolve
 
 import (
+	"path/filepath"
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/docs"
@@ -23,7 +24,15 @@ import (
 
 // closureStruct is what fd returns when it is such a struct: each closure
 // member's lowercased name, and whether that member returns the struct.
-func (r *Resolver) closureStruct(fd *parser.FunctionDef) map[string]bool {
+func (r *Resolver) closureStruct(fd *parser.FunctionDef, component string) map[string]bool {
+	return r.closureStructDepth(fd, component, 0)
+}
+
+func (r *Resolver) closureStructDepth(fd *parser.FunctionDef, component string, depth int) map[string]bool {
+	if depth >= 8 {
+		return nil
+	}
+
 	_, tokens, open, end, ok := r.fnBody(fd)
 	if !ok {
 		return nil
@@ -31,6 +40,17 @@ func (r *Resolver) closureStruct(fd *parser.FunctionDef) map[string]bool {
 
 	held := structReturnedLocal(tokens, open+1, end)
 	if held == "" {
+		if members := returnedClosureLiteral(tokens[open+1 : end]); len(members) > 0 {
+			return members
+		}
+
+		if method := forwardedNoArgMethod(r.producerFor(fd)); method != "" {
+			called := r.ResolveFunc(component, method, filepath.Dir(fd.URI.Path()))
+			if called != nil && len(called.Arguments) == 0 {
+				return r.closureStructDepth(called, component, depth+1)
+			}
+		}
+
 		return nil
 	}
 
@@ -47,6 +67,165 @@ func (r *Resolver) closureStruct(fd *parser.FunctionDef) map[string]bool {
 	}
 
 	return members
+}
+
+// A single literal return has no intervening writes or alternate producers.
+// Its closures cannot return this anonymous struct by a local name, so each
+// member ends the statically checked part of a chain.
+func returnedClosureLiteral(tokens []parser.Token) map[string]bool {
+	if len(tokens) < 4 || !strings.EqualFold(tokens[0].Value, "return") {
+		return nil
+	}
+
+	if tokens[len(tokens)-1].Kind == parser.TokSemicolon {
+		tokens = tokens[:len(tokens)-1]
+	}
+
+	if tokens[1].Kind != parser.TokLBrace || matchingBrace(tokens, 1) != len(tokens)-1 {
+		return nil
+	}
+
+	members := map[string]bool{}
+	seen := map[string]bool{}
+
+	for _, entry := range producerSplit(tokens[2 : len(tokens)-1]) {
+		if len(entry) < 3 || entry[0].Kind != parser.TokIdent && entry[0].Kind != parser.TokString || entry[1].Kind != parser.TokColon && entry[1].Kind != parser.TokEquals {
+			return nil
+		}
+
+		name := strings.ToLower(strings.Trim(entry[0].Value, `"'`))
+		if strings.Contains(name, "#") || seen[name] {
+			return nil
+		}
+
+		seen[name] = true
+
+		if !strings.EqualFold(entry[2].Value, "function") {
+			continue
+		}
+
+		if len(entry) < 6 || entry[3].Kind != parser.TokLParen {
+			return nil
+		}
+
+		endArgs := producerGroupEnd(entry, 3, parser.TokLParen, parser.TokRParen)
+		if endArgs < 0 || endArgs+1 >= len(entry) || entry[endArgs+1].Kind != parser.TokLBrace || matchingBrace(entry, endArgs+1) != len(entry)-1 {
+			return nil
+		}
+
+		members[name] = false
+	}
+
+	return members
+}
+
+// A wrapper must end with a return and every return must forward the same
+// no-argument method on this receiver. Unsupported control flow and local
+// shadowing withhold the return contract. Callees are looked up on the actual
+// receiver, so an inherited wrapper observes the subclass's override.
+func forwardedNoArgMethod(plan *producerMethod) string {
+	if plan == nil || len(plan.body) == 0 || plan.body[len(plan.body)-1].kind != "return" {
+		return ""
+	}
+
+	method, valid := "", true
+
+	var visit func([]producerNode)
+
+	visit = func(nodes []producerNode) {
+		for i := range nodes {
+			node := &nodes[i]
+			if forwardedUnsafeExpression(node.expression) {
+				valid = false
+			}
+
+			switch node.kind {
+			case "return":
+				called := forwardedMethodCall(node.expression)
+				if called == "" || method != "" && !strings.EqualFold(method, called) {
+					valid = false
+				} else {
+					method = called
+				}
+			case "if":
+				if producerConditionMutation(producerTokens(node.expression)) {
+					valid = false
+				}
+			case "set", "effect", "block", "noop":
+			default:
+				valid = false
+			}
+
+			visit(node.body)
+			visit(node.alternative)
+		}
+	}
+	visit(plan.body)
+
+	if !valid || method == "" {
+		return ""
+	}
+
+	for _, parameter := range plan.parameters {
+		if strings.EqualFold(parameter, method) {
+			return ""
+		}
+	}
+
+	if forwardedShadows(plan.body, method) {
+		return ""
+	}
+
+	return method
+}
+
+func forwardedMethodCall(expression string) string {
+	receiver, calls, ok := callChain(expression)
+	if !ok || len(calls) != 1 || strings.TrimSpace(calls[0].args) != "" || receiver != "" && !strings.EqualFold(receiver, "this") && !strings.EqualFold(receiver, "variables") {
+		return ""
+	}
+
+	return calls[0].name
+}
+
+func forwardedUnsafeExpression(expression string) bool {
+	tokens := producerTokens(expression)
+	for i, token := range tokens {
+		if token.Kind != parser.TokIdent {
+			continue
+		}
+
+		switch strings.ToLower(token.Value) {
+		case "evaluate", "include", "function":
+			return true
+		case "this", "variables", "local":
+			// Passing or aliasing a whole scope can replace the forwarded method.
+			if (i == 0 || tokens[i-1].Kind != parser.TokDot) && (i+1 == len(tokens) || tokens[i+1].Kind != parser.TokDot) {
+				return true
+			}
+		default:
+		}
+	}
+
+	return false
+}
+
+func forwardedShadows(nodes []producerNode, method string) bool {
+	for i := range nodes {
+		node := &nodes[i]
+		if node.kind == "set" {
+			target := strings.ToLower(node.target)
+			if strings.EqualFold(target, method) || target == "local."+strings.ToLower(method) || target == "variables."+strings.ToLower(method) || target == "this."+strings.ToLower(method) || target == "variables" || target == "this" || target == "local" {
+				return true
+			}
+		}
+
+		if forwardedShadows(node.body, method) || forwardedShadows(node.alternative, method) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // fnBody is the tokens of fd's function and the indexes of its body's braces.
@@ -88,7 +267,15 @@ func (r *Resolver) fnBody(fd *parser.FunctionDef) (pr *parser.ParseResult, token
 // `getPageContext().getResponse()`, or a struct standing in for one under the
 // CLI. What the engine hands back is dynamic, as a call chained on a built-in
 // is where it is written.
-func (r *Resolver) engineValueReturn(fd *parser.FunctionDef) bool {
+func (r *Resolver) engineValueReturn(fd *parser.FunctionDef, component string) bool {
+	return r.engineValueReturnDepth(fd, component, 0)
+}
+
+func (r *Resolver) engineValueReturnDepth(fd *parser.FunctionDef, component string, depth int) bool {
+	if depth >= 8 {
+		return false
+	}
+
 	pr, tokens, open, end, ok := r.fnBody(fd)
 	if !ok {
 		return false
@@ -111,6 +298,13 @@ func (r *Resolver) engineValueReturn(fd *parser.FunctionDef) bool {
 
 			kind := returnKind(tokens, i+1, end, pr)
 			if kind == retOther {
+				if method := forwardedNoArgMethod(r.producerFor(fd)); method != "" {
+					called := r.ResolveFunc(component, method, filepath.Dir(fd.URI.Path()))
+					if called != nil && len(called.Arguments) == 0 {
+						return r.engineValueReturnDepth(called, component, depth+1)
+					}
+				}
+
 				return false
 			}
 
@@ -196,7 +390,7 @@ func headKind(tokens []parser.Token, i int, pr *parser.ParseResult) retKindT {
 // struct fd returns. It answers whether it settled the call and, if so, the
 // reason ("" for accepted).
 func (r *Resolver) closureStructHops(fd *parser.FunctionDef, comp, hop string, call *parser.CallSite, i int, tr *callTrace) (reason string, done bool) {
-	members := r.closureStruct(fd)
+	members := r.closureStruct(fd, comp)
 	if members == nil {
 		return "", false
 	}

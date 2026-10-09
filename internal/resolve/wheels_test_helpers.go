@@ -24,7 +24,7 @@ func (r *Resolver) wheelsTestGlobalFunc(chain []string, name string) *parser.Fun
 		}
 
 		source := r.wheelsSource(path)
-		if source.methods["init"].body != wheelsTokens(`$bindApplicationHelpers();return this;`) || source.methods["$bindapplicationhelpers"].body != wheelsTokens(wheelsTestBinder) {
+		if !wheelsTestBinds(source) {
 			continue
 		}
 
@@ -82,3 +82,78 @@ const wheelsTestBinder = `
   this[local.key] = application.wo[local.key];
  }
  return this;`
+
+// Both shipped layouts copy the same public UDFs. The inline layout must be
+// the pseudo-constructor itself, followed only by named method declarations;
+// a matching string, closure or unused method is not startup evidence.
+func wheelsTestBinds(source wheelsSource) bool {
+	if source.methods["init"].body == wheelsTokens(`$bindApplicationHelpers();return this;`) && source.methods["$bindapplicationhelpers"].body == wheelsTokens(wheelsTestBinder) {
+		return true
+	}
+
+	scanner := parser.NewScanner(source.content)
+	if t := scanner.NextSkipComments(); t.Kind != parser.TokIdent || !strings.EqualFold(t.Value, "component") {
+		return false
+	}
+
+	for {
+		t := scanner.NextSkipComments()
+		if t.Kind == parser.TokEOF {
+			return false
+		}
+
+		if t.Kind == parser.TokLBrace {
+			break
+		}
+	}
+
+	for _, expected := range significantTokens(wheelsTestInlineBinder) {
+		actual := scanner.NextSkipComments()
+		if wheelsTokens(actual.Value) != wheelsTokens(expected.Value) {
+			return false
+		}
+	}
+
+	var header []parser.Token
+
+	for {
+		t := scanner.NextSkipComments()
+		if t.Kind == parser.TokRBrace {
+			return len(header) == 0 && scanner.NextSkipComments().Kind == parser.TokEOF
+		}
+
+		if t.Kind != parser.TokIdent {
+			return false
+		}
+
+		if !strings.EqualFold(t.Value, "function") {
+			if len(header) >= 4 {
+				return false
+			}
+
+			header = append(header, t)
+
+			continue
+		}
+
+		name, _ := wheelsReadMethod(scanner, header)
+		if name == "" {
+			return false
+		}
+
+		header = nil
+	}
+}
+
+const wheelsTestInlineBinder = `
+ if (structKeyExists(application, "wo")) {
+ local.metaIndex = {};
+ for (local.fn in getMetaData(application.wo).functions) {local.metaIndex[local.fn.name] = local.fn.access;}
+ for (local.key in application.wo) {
+  if (!isCustomFunction(application.wo[local.key])) {continue;}
+  if (structKeyExists(local.metaIndex, local.key) && local.metaIndex[local.key] neq "public") {continue;}
+  if (structKeyExists(variables, local.key) || structKeyExists(this, local.key)) {continue;}
+  variables[local.key] = application.wo[local.key];
+  this[local.key] = application.wo[local.key];
+ }
+ }`

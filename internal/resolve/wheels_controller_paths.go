@@ -107,12 +107,16 @@ func (r *Resolver) wheelsControllerClass(name, config string) string {
 // any, else the framework's own default. ok is false when a write there is
 // computed.
 func (r *Resolver) wheelsControllerPaths(dir, framework string) ([]string, bool) {
+	return r.wheelsObjectPaths(dir, framework, "controllerPath")
+}
+
+func (r *Resolver) wheelsObjectPaths(dir, framework, property string) ([]string, bool) {
 	for d := dir; ; d = filepath.Dir(d) {
 		if !r.inWorkspace(d) {
 			break
 		}
 
-		values, found, ok := r.controllerPathWrites(d)
+		values, found, ok := r.objectPathWrites(d, property)
 		if !ok {
 			return nil, false
 		}
@@ -126,7 +130,7 @@ func (r *Resolver) wheelsControllerPaths(dir, framework string) ([]string, bool)
 		}
 	}
 
-	values, found, ok := r.controllerPathWrites(filepath.Join(framework, "events", "init"))
+	values, found, ok := r.objectPathWrites(filepath.Join(framework, "events", "init"), property)
 	if !ok || !found {
 		return nil, false
 	}
@@ -153,13 +157,13 @@ type controllerPaths struct {
 	found, ok bool
 }
 
-// controllerPathWrites reads the CFML files directly in dir for writes of
-// controllerPath: `x.controllerPath = …` and `set( controllerPath = … )`.
+// objectPathWrites reads the CFML files directly in dir for writes of the
+// selected path setting: a member assignment or a named setter argument.
 // found says whether there were any; ok is false when one is not a literal.
 // Every call from a directory walks the same ancestors, so the answer is kept
 // per directory until InvalidatePaths.
-func (r *Resolver) controllerPathWrites(dir string) (values []string, found, ok bool) {
-	key := pathKey(dir)
+func (r *Resolver) objectPathWrites(dir, property string) (values []string, found, ok bool) {
+	key := pathKey(dir) + "\t" + strings.ToLower(property)
 
 	r.mu.RLock()
 	cached, hit := r.ctlPathCache[key]
@@ -169,7 +173,7 @@ func (r *Resolver) controllerPathWrites(dir string) (values []string, found, ok 
 		return cached.values, cached.found, cached.ok
 	}
 
-	values, found, ok = r.readControllerPathWrites(dir)
+	values, found, ok = r.readObjectPathWrites(dir, property)
 
 	r.mu.Lock()
 	if r.ctlPathCache == nil {
@@ -182,7 +186,7 @@ func (r *Resolver) controllerPathWrites(dir string) (values []string, found, ok 
 	return values, found, ok
 }
 
-func (r *Resolver) readControllerPathWrites(dir string) (values []string, found, ok bool) {
+func (r *Resolver) readObjectPathWrites(dir, property string) (values []string, found, ok bool) {
 	entries, err := r.fs().ReadDir(dir)
 	if err != nil {
 		return nil, false, true
@@ -194,17 +198,23 @@ func (r *Resolver) readControllerPathWrites(dir string) (values []string, found,
 		}
 
 		data, err := r.fs().ReadFile(filepath.Join(dir, entry.Name()))
-		if err != nil || !strings.Contains(strings.ToLower(string(data)), "controllerpath") {
+		if err != nil || !strings.Contains(strings.ToLower(string(data)), strings.ToLower(property)) {
 			continue
 		}
 
 		tokens := producerTokens(string(data))
 		if tokens == nil {
-			return nil, true, false
+			// A large read-only spec must not hide a runner's literal setting.
+			// Only a potential write exceeds this evaluator's token budget.
+			if objectPathMayWrite(string(data), property) {
+				return nil, true, false
+			}
+
+			continue
 		}
 
 		for i := range tokens {
-			value, write := controllerPathWrite(tokens, i)
+			value, write := objectPathWrite(tokens, i, property)
 			if !write {
 				continue
 			}
@@ -225,10 +235,10 @@ func (r *Resolver) readControllerPathWrites(dir string) (values []string, found,
 	return values, found, true
 }
 
-// controllerPathWrite reports whether tokens[i] names controllerPath as the
+// objectPathWrite reports whether tokens[i] names the selected setting as the
 // target of a write, and the tokens of the value written.
-func controllerPathWrite(tokens []parser.Token, i int) ([]parser.Token, bool) {
-	if tokens[i].Kind != parser.TokIdent || !strings.EqualFold(tokens[i].Value, "controllerPath") || i+1 >= len(tokens) || tokens[i+1].Kind != parser.TokEquals || i+2 < len(tokens) && tokens[i+2].Kind == parser.TokEquals {
+func objectPathWrite(tokens []parser.Token, i int, property string) ([]parser.Token, bool) {
+	if tokens[i].Kind != parser.TokIdent || !strings.EqualFold(tokens[i].Value, property) || i+1 >= len(tokens) || tokens[i+1].Kind != parser.TokEquals || i+2 < len(tokens) && tokens[i+2].Kind == parser.TokEquals {
 		return nil, false
 	}
 
@@ -380,5 +390,28 @@ func producerWrites(tokens []parser.Token, j int) bool {
 		return next == parser.TokEquals
 	default:
 		return false
+	}
+}
+
+func objectPathMayWrite(content, property string) bool {
+	scanner := parser.NewScanner(content)
+	previous := parser.TokEOF
+
+	for {
+		t := scanner.NextSkipComments()
+		if t.Kind == parser.TokEOF {
+			return false
+		}
+
+		if t.Kind == parser.TokIdent && strings.EqualFold(t.Value, property) && (previous == parser.TokDot || previous == parser.TokLParen || previous == parser.TokComma) {
+			cursor := *scanner
+
+			tokens := []parser.Token{t, cursor.NextSkipComments(), cursor.NextSkipComments()}
+			if producerWrites(tokens, 1) {
+				return true
+			}
+		}
+
+		previous = t.Kind
 	}
 }

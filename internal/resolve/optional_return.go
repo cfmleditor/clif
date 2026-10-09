@@ -15,7 +15,7 @@ func (r *Resolver) expressionReturn(fd *parser.FunctionDef, expression, baseDir,
 		return ret
 	}
 
-	return r.wheelsFactoryReturn(fd, expression, baseDir)
+	return r.wheelsFactoryReturnFor(fd, expression, baseDir, component)
 }
 
 // Keep conditional returns out of the unconditional method contract. Only a

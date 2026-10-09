@@ -2843,3 +2843,453 @@ name is now `$any`; `entityLoad("user", …)` resolves to `beans/user.cfc`
 of the same name; FW/1 tests' `variables.fw.enableTracing = _enableTracing`
 is accepted via `AssignsMember`; Mura's `arguments.event.event()` passes under
 the type-check guard.
+
+
+### Literal string switch producers (local follow-up, 2026-10-09)
+
+The producer interpreter now specializes script `switch` bodies when the actual
+selector is a known textual literal and every case label is a literal string.
+Defaults, named arguments, argument forwarding, local selector assignments,
+stacked labels, fall-through, nested switches and top-level `break` retain their
+normal control flow. A break ends the switch; a return ends the method. Mixed
+`cffunction`/`cfscript` producers use the same plan. The script fall-through
+semantics are documented in [Lucee's case reference](https://docs.lucee.org/reference/tags/case.html).
+
+Unknown selectors, computed/interpolated labels, duplicate labels, numeric or
+boolean dispatch, nested breaks/continues and unproven mutations withhold an
+identity. A failed switch plan also suppresses the parser's unconditional return
+guess. Declared component return types keep the existing priority. Source
+plans retain no caller-specific types and refresh against changed source bytes.
+Selector dependencies participate in the existing backward slice.
+
+`TestLiteralSwitchProducer` checks assignments and direct chains, including a
+missing method on a proven Product, plus script/tag callers and mixed bodies.
+`TestSwitchProducerBoundaries` checks the unsupported cases.
+`TestSwitchProducerRefreshesSource` checks an edited factory using the same
+resolver. Disabling switch-plan parsing makes the positive regressions fail
+behaviorally; restoring it passes them. Independently disabling unsupported
+switch sensitivity makes the boundary regression fail with speculative Product
+and Other returns; restoring it passes. The fallback-to-this case also checks
+that an unknown selector cannot take the final return unconditionally.
+
+This closes literal switch dispatch, not Wheels Module's entire cached
+`getService` contract. Its `structKeyExists(variables.services, name)` guard and
+`variables.services[name]` return still need a sound proof of the keyed shared
+cache and its writers. No runtime-name routing or blanket service type is added.
+
+Seven available local corpus copies were compared per full finding, without
+preset configs. They are not the historical pinned checkouts: for example,
+explicit Wheels vendor coverage here indexes/scans 1,710 files rather than
+1,195. Every indexed/scanned count is preserved between the local runs.
+
+| Scan | Files indexed/scanned | Before → after unresolved | Removed / added | Accepted before → after |
+|---|---:|---:|---:|---:|
+| Wheels, vendor included | 1,710 | 11,855 → 11,855 | 0 / 0 | 48,071 → 48,071 |
+| ColdBox | 652 | 3,080 → 3,080 | 0 / 0 | 16,277 → 16,277 |
+| ContentBox | 724 | 6,828 → 6,829 | 0 / 1 | 9,990 → 9,989 |
+| FW/1 | 305 | 499 → 499 | 0 / 0 | 2,112 → 2,112 |
+| TestBox | 145 | 606 → 606 | 0 / 0 | 3,421 → 3,421 |
+| Lucee | 3,776 | 1,440 → 1,440 | 0 / 0 | 37,612 → 37,612 |
+| MuraCMS | 839 | 20,418 → 20,418 | 0 / 0 | 9,510 → 9,510 |
+
+The sole addition is ContentBox `ContentService.importFromStruct`, line 1175:
+`getServiceByType(thisRelatedContent.contentType).findWhere(...)`. The selector
+is unknown. `getServiceByType` returns different injected services for Page,
+Entry and ContentStore and only otherwise returns `this`; the unconditional
+ContentService guess was not proven. This is an inference limitation, not an
+established missing runtime method. There is no measured corpus reduction in
+this batch. Findings and logs are in `target/resolution/switch-before` and
+`target/resolution/switch-after`; the mutation proof is in
+`target/resolution/switch-mutation.log`. These filtered CLI findings and accepted
+counts are not a raw parser-call coverage audit.
+
+Local build, vet, full short tests, full short race tests, pinned lint and diff
+checks pass. Test suites use `GOMAXPROCS=2` and `-p 1`; corpus scans run separately
+from the race suite. Socket/HTTP-server tests require approved execution outside
+the local sandbox. The installed toolchain cache is isolated from `go ./...`
+with an ignored `target/go.mod` module boundary. No published-head CI was run
+because this batch has not been published.
+
+
+## Twenty further candidate attempts (local follow-up, 2026-10-09)
+
+This batch continues the uncommitted switch, closure-wrapper and dual shared
+constructor work above. Twenty attempts include new producer shapes and audits
+of their inference boundaries; they are not twenty successful fixes. The last
+available seven-project report (`target/resolution/round-06`) is this batch's
+baseline. The local extracted corpora differ from the historical pinned versions
+and have no preset configurations, so their counts are not directly comparable
+with the earlier configured tables.
+
+| Attempt | Candidate | Outcome |
+|---:|---|---|
+| 1 | Direct anonymous struct of closures returned by a method | Added a narrow single-literal-return contract; known members resolve and missing members are diagnosed. |
+| 2 | Duplicate or computed closure-literal keys and alternative returns | Regression coverage withholds the contract; no union of conflicting keys or branches. |
+| 3 | Wrapper passes or aliases a whole scope | Tightened forwarding proof; scope escapes, replacement, evaluated code and closure mutations withhold inference. |
+| 4 | Uninitialized local shadows a component method | Producer plans now retain the declaration as an unknown local; calls on shadowed local/argument names no longer resolve to the component method. |
+| 5 | Comparison in a forwarding wrapper's condition | Distinguished comparison operators from assignment; mutation checks still reject assignment. This preserves FW/1's six earlier removals. |
+| 6 | Dual shared constructor has another writer | Added conflicting-writer regression; an unknown replacement blocks the field contract. |
+| 7 | Triple, computed or call-based chained assignment | Added boundary regressions; retained only the earlier exact two-slot constructor shape. |
+| 8 | TestBox Env.getJavaSystem lazy Java cache | Inspected all local writes and producer value representation. Dynamic Java values need a dedicated proof rather than broadening concrete CFC identity to every dynamic value. Open. |
+| 9 | Lucee LDEV0907.exe returns a query statement's output | Query-output value kind is not propagated to the return. A producer-only CFC rule would be inappropriate. Open. |
+| 10 | Lucee AntiSamyService._getAntiSamy | Getter reads a field populated through an untyped setter argument. Needs construction/setter flow and writer agreement. Open. |
+| 11 | TestBox Expectation.withContext scalar self setter | Added an immediate scalar-parameter assignment plus self-return contract. Subclass identity is retained; callback installation and replacement of existing methods remain untyped. |
+| 12 | FW/1 getDefaultBeanFactory | Returns application factory state configured through setBeanFactory(any); several DI engines are supported. No unconditional class proof. Open. |
+| 13 | FW/1 getSubsystemBeanFactory | Returns a keyed registry entry configured with an arbitrary factory. Needs call-specific registry ownership. Open. |
+| 14 | ContentBox CBHelper.site | Returns a callback cache result, request PRC value or discovery result. Needs agreement across all three sources. Open. |
+| 15 | ContentBox BaseWidget.getSite | Both branches depend on the unresolved site producers; typing just the wrapper would invent evidence. Open. |
+| 16 | ContentBox BaseContent.getActiveContent | Can return a string projection, caller-set content, or an ORM collection member. Needs argument-sensitive element and field contracts. Open. |
+| 17 | ColdBoxProxy.getController | Returns application[getColdboxAppKey()]. Needs startup ownership and computed-key proof. Open. |
+| 18 | AbstractCacheBoxProvider.getEventManager | Field is supplied by an untyped setter. No component identity can be established from the getter alone. Open. |
+| 19 | AbstractAppender.getCustomLayout | Runtime constructor path comes from arguments.layout, with an empty-string initial value. Requires caller/constructor flow. Open. |
+| 20 | Mura content renderer and inherited bean factory returns | Renderer paths depend on site/theme configuration and runtime method merging; getBean delegates to metadata-driven resolveBean or a configured parent. Needs registry and configuration evidence. Open. |
+
+The forwarding contracts remain bounded to eight method steps, with a final
+return and agreement across every supported return. Callees are looked up on the
+actual receiver, including subclass overrides. No-argument forwarding only
+follows callees with no declared parameters. Direct closure literals require
+fixed unique keys and a single return statement; a closure's own return is not
+assumed to return the anonymous struct. Scalar self setters require exactly one
+public field assignment from a string, numeric or boolean parameter and an
+immediate self return, and cannot overwrite an indexed method.
+
+Corpus reports, mutation logs and check logs are under
+`target/resolution/iterate20-*`. New positive and negative tests exercise actual
+resolver results rather than just checking the plan's structure. The temporary
+probe was removed; no corpus source or config was changed.
+
+
+Final corpus comparison against `round-06`:
+
+| Scan | Indexed / scanned files | Unresolved before → after | Removed / added | Accepted before → after |
+|---|---:|---:|---:|---:|
+| wheels | 1710 / 1710 | 11855 → 11855 | 0 / 0 | 48071 → 48071 |
+| coldbox | 652 / 652 | 3080 → 3080 | 0 / 0 | 16277 → 16277 |
+| fw1 | 305 / 305 | 493 → 493 | 0 / 0 | 2118 → 2118 |
+| testbox | 145 / 145 | 606 → 599 | 7 / 0 | 3421 → 3428 |
+| contentbox | 724 / 724 | 6829 → 6829 | 0 / 0 | 9989 → 9989 |
+| lucee | 3776 / 3776 | 1440 → 1440 | 0 / 0 | 37612 → 37612 |
+| masa | 839 / 839 | 20418 → 20418 | 0 / 0 | 9510 → 9510 |
+
+All seven removals are TestBox BDDTest's withContext matcher chains, audited
+against the source and recorded individually in `iterate20-audit.txt`. Every
+other finding is identical, including the six FW/1 findings removed by the
+previous wrapper batch. Indexed/scanned file counts are unchanged. These are
+filtered accepted/report counts; raw parser call records were not separately
+instrumented for this resolver-only batch.
+
+Cumulatively since the pre-switch local reports, this working tree removes
+thirteen findings (six FW/1, seven TestBox) and adds the one previously audited
+ContentBox unknown-selector finding. That addition is retained rather than
+restoring the unsupported receiver guess.
+
+
+Validation: `go build ./...`, `go vet ./...`, full `go test -short ./...`,
+full `go test -short -race ./...`, pinned `make lint` (zero issues), and
+`git diff --check` pass. The full suites used GOMAXPROCS=2 and -p 1; tests
+requiring local sockets ran with approved execution permissions, separately
+from corpus scans. Ten independent fix/boundary mutations produced behavioral
+regression failures, and every source file was restored before final validation:
+literal returns, builder forwarding, engine forwarding, scope escapes, local
+declarations, method-name shadowing, comparisons, scalar setters, scalar method
+replacement and dual shared assignment. Switch mutation evidence is in the
+preceding section. Changes remain uncommitted; no published-head CI result is
+claimed.
+
+
+## Review of the low corpus yield (2026-10-09)
+
+The latest twenty-attempt batch removed seven call-site findings, all from one
+producer: TestBox Expectation.withContext. The earlier six removals came from
+FW/1 renderData's closure-builder return. Thus thirteen removals represent two
+root producer cases, not thirteen different methods. Including the retained
+ContentBox unknown-selector addition, the cumulative net reduction is twelve.
+
+The attempt count overstated implementation breadth: five attempts changed
+behavior, three added boundary coverage, and twelve inspected sources or designs
+without landing a fix. Several behavior changes prevent speculative inference
+or preserve the previous FW/1 gain, so their value does not appear as additional
+removed findings. Direct closure literals, engine forwarding and the dual shared
+constructor shape have regression evidence but no additional measured corpus
+removals. They must not be presented as corpus wins.
+
+The targeting was also too narrow. The final seven local reports contain:
+
+| Failure category | Findings | Share |
+|---|---:|---:|
+| Unknown receiver variable | 36,663 | 82.0% |
+| Method lookup | 4,644 | 10.4% |
+| Component/object lookup | 2,088 | 4.7% |
+| Return type | 1,319 | 3.0% |
+| Total | 44,714 | 100% |
+
+Most work concentrated on return contracts, while the much larger receiver
+population received little implementation effort. Fixing a method's return
+cannot reach a call whose receiver is not connected to the defining component.
+
+The local baseline also lacks preset configurations and has unresolved runtime
+mappings. Mura's /mura mapping is declared in an included application settings
+file, but the scan still reports Mura.cfobject unresolved for 93 files containing
+1,695 calls. Wheels similarly reports missing ../base, ./base and
+modules.BaseModule bases. These are signals to investigate setup, included
+mapping discovery and inheritance; they are not proven counts of findings a
+single fix would remove. Configured and automatic modes must be measured
+separately so configuration effects cannot masquerade as code improvements.
+
+A more productive order for subsequent work is:
+
+1. Establish reproducible configured and no-preset baselines on these same
+   copies, including their real application mappings. Preserve the existing
+   automatic-mode baseline for regression comparisons.
+2. Trace the highest-frequency receiver groups to their actual writers and
+   owners: Wheels g (2,403) and _controller (1,594), Mura $ (1,955), variables.$
+   (1,185), variables.configbean (1,078), and ContentBox event (1,368). These are
+   grouped unresolved call sites, not guaranteed fix counts.
+3. Implement and validate one reusable ownership/assignment contract at a time.
+   Measure per-entry corpus impact immediately and use that evidence to choose
+   the next implementation. Boundary tests should accompany that work rather
+   than be counted as separate resolution rounds.
+4. After receivers resolve, revisit high-frequency producer families: Mura
+   getBean (199 return findings), Wheels $mapper (177) and model (116), ColdBox
+   getController (83) and getLogger (50), and TestBox getMockBox (46).
+   Grouping by producer name alone is preliminary: different owners and
+   runtime configurations may require different contracts.
+
+This review makes no new resolver changes or corpus scans. Counts come from
+`iterate20-final`; mapping evidence is in Mura core/appcfc/applicationSettings.cfm
+and missing-base evidence is in the retained scan logs.
+
+
+## Higher-yield pattern investigation (2026-10-09)
+
+Source tracing and controlled configuration probes identify these implementation
+targets ahead of additional isolated return-shape work:
+
+1. **Included application setup supplies mappings and bean ownership.** Mura's
+   root Application.cfc includes core/appcfc/applicationSettings.cfm, which writes
+   the /mura and other mappings. Its startup include constructs application.configBean,
+   creates the DI/1 service factory, and adds configBean as an explicit bean.
+   Admin controllers receive those objects through inherited setters. Connecting
+   include execution, path evaluation and bean ownership allows existing managed
+   setter inference to reach hundreds of receivers without guessing their names.
+   Unknown included writes and application boundaries still need to invalidate
+   evidence. The base directory here is computed through configuration-path
+   string operations, so simply collecting includes is not the entire fix.
+
+2. **A container binding feeds a shared object, aliases and factory results.**
+   Wheels public/Application.cfc creates new wheels.Injector("wheels.Bindings")
+   and assigns application.wo=application.wheelsdi.getInstance("global"). The
+   binder explicitly maps global to wheels.Global. Specs assign g=application.wo;
+   beforeEach callbacks then assign _controller=g.controller(literalName,...).
+   This is one dependency chain behind thousands of findings, rather than
+   thousands of unrelated unknown variables. A source-proven container identity,
+   literal binding and conflict-aware shared-slot/alias propagation are the
+   prerequisites. In this source version WheelsTest's public helper copier is
+   in the pseudo-constructor, whereas the existing source contract checks an init
+   method calling $bindApplicationHelpers. That version mismatch also needs a
+   separate source-checked contract, rather than widening the old body match.
+
+3. **Providers determine callback parameter identity.** ContentBox migrations
+   call schema.alter(tableName,function(table){table.modifyColumn(...);...}).
+   The 884 table receiver findings are a useful group to investigate. First prove
+   the schema argument's owner from the migration runner; then prove which table
+   object its alter/create method passes to the callback. Generic closure flow
+   should be driven by that provider's invocation, with positional argument
+   binding and rejection of conflicting callers, not a global table-name rule.
+   ColdBox handler event arguments (1,368 unqualified event findings in ContentBox)
+   are a related dispatcher-supplied-argument candidate.
+
+The ignored diagnostic harness is target/pattern-probe/main.go. It calls the
+existing unresolved.Scan API and leaves every corpus source/config untouched.
+File collection follows the CLI's skipped-directory rules and explicitly includes
+Wheels vendor/wheels. Counts are compared by file, line, caller, receiver,
+function, reason, text and unchecked count; candidate annotation changes are
+excluded from finding identity in these probes.
+
+| Probe | Same indexed/scanned files | Before → after unresolved | Removed / added | Net reduction |
+|---|---:|---:|---:|---:|
+| Mura explicit mappings | 839 | 20,418 → 17,612 | 3,035 / 229 | 2,806 |
+| Mura mappings + startup include | 839 | 20,418 → 16,753 | 4,087 / 422 | 3,665 |
+| Wheels explicit mapping | 1,710 | 11,855 → 11,855 | 0 / 0 | 0 |
+| Wheels mapping + Application startup | 1,710 | 11,855 → 11,841 | 15 / 1 | 14 |
+| Wheels mapping + Wheels preset | 1,710 | 11,855 → 8,397 | 6,482 / 3,024 | 3,458 |
+
+Mura's diagnostic mappings are /mura=core/mura, /muraWRM=the corpus root,
+/core=core, and /config=config. Its startup file is
+core/appcfc/onApplicationStart_include.cfm. Wheels maps /wheels=vendor/wheels;
+its startup probe names public/Application.cfc, and its preset probe enables
+only Wheels' component resolvers, implicit bases, helper scopes and stubs.
+The probe presets and startup files are separate modes, not cumulative options.
+
+Relative to Mura's mapping-only probe, startup alone removes 1,052 and adds 193,
+net 859. Large reductions include variables.configBean, application.configBean,
+variables.settingsManager and application.rbFactory. Additions expose unresolved
+bean/resource-bundle paths and deeper chains; their counts require auditing when
+implementing automatic discovery. Wheels' preset removes all 2,403 g findings
+and 1,594 _controller findings, but additions include missing finder methods and
+inheritance gaps on the newly supplied classes. Lower totals do not prove all
+preset-supplied identities are correct for this source version.
+
+These measurements establish configuration sensitivity and implementation
+priorities. They are not added to the thirteen removals from the prior code
+changes. No new production resolver code changed during this investigation.
+Raw parser coverage was not separately instrumented; indexed/scanned coverage
+is unchanged. The harness built successfully and git diff --check passes.
+Reports and option-specific logs are retained in target/pattern-probe/.
+
+### Higher-yield source layouts — implemented and reviewed (2026-10-09)
+
+The option probes above did not establish missing application mapping support.
+The root and admin Mura mappings already load through their literal includes.
+Many source components instead sit below a separate, access-restricting
+Application.cfc. Supplying outer mappings explicitly changes that execution
+context; automatically borrowing them would be unsound. Those configuration
+probe gains remain excluded from the implementation results.
+
+The implemented batch follows actual Wheels source layouts:
+
+- Recognize the inline WheelsTest pseudo-constructor that copies public Global
+  functions, as well as the existing init/helper layout. Only the exact live
+  copy sequence followed by named methods qualifies; nested/unused loaders,
+  altered access filters, alternate copy sources and later writes do not.
+- Recognize the earlier root factory without the model-object fast path, in
+  addition to the newer supported factory. Both ordinary paths Invoke the
+  requested initializer and return its result. Existing initializer validation
+  still governs literal construction; this is not a general getInstance rule.
+- Infer literal model(name) results from the actual model method, cache lookup,
+  class loader, loader defaults, root factory and literal modelPath settings.
+  Test asset paths take precedence; ordered path lists retain the final base
+  Model fallback. Computed names/settings, altered loaders/defaults, missing
+  assets and loader overrides on the actual receiver withhold the result.
+- Share the controller/model path-setting scanner and distinguish large files
+  that merely read a setting from possible writers that exceed its token
+  budget. Large writers still withhold the type; the scan does not evaluate
+  unbounded expressions.
+
+Final automatic comparison against target/resolution/iterate20-final:
+
+| Corpus | Indexed/scanned files | Before | After | Removed findings | Added findings |
+|---|---:|---:|---:|---:|---:|
+| Wheels, vendor root explicit | 1,710 | 11,855 | 11,527 | 770 | 442 |
+| ColdBox | 652 | 3,080 | 3,080 | 0 | 0 |
+| FW/1 | 305 | 493 | 493 | 0 | 0 |
+| TestBox | 145 | 599 | 599 | 0 | 0 |
+| ContentBox | 724 | 6,829 | 6,829 | 0 | 0 |
+| Lucee | 3,776 | 1,440 | 1,440 | 0 | 0 |
+| Mura | 839 | 20,418 | 20,418 | 0 | 0 |
+
+Coverage, roots, corpus files and configuration are unchanged. These are the
+same local extracted corpus versions as the preceding iteration batch, not the
+historical pinned six-project reports. Raw parser coverage was not separately
+instrumented. No presets, explicit mappings or startup overrides were supplied
+for these measurements.
+
+The per-entry comparison preserves multiplicity. Keys include file, zero-based
+line, caller, variable, function, text, unchecked marker and reason, excluding
+candidate annotations. A second comparison omits only the reason to distinguish
+accepted sites from changed diagnoses: **328 finding sites disappear, 442 keep
+being reported with a changed reason, and zero new sites appear**. The accepted
+sites span 48 distinct method names, including 149 model calls and actual
+Plugins/Mapper helpers such as getPlugins, getPluginMeta, getRoutes and inspect.
+This is a net reduction of 328 findings, not 770 accepted calls. The final CLI
+accepted-call total is 48,484 versus 48,071 before; that aggregate uses the CLI's
+call counting, rather than the finding-site comparison.
+
+The 442 replacements include 85 Mapper.$draw chains to end and 78 direct
+$draw calls, plus model finder/query methods. They now report missing methods
+on a supplied component instead of an unknown factory/receiver. Those remaining
+source-loader gaps have not been marked resolved. The original helper-only
+probe produced 291 removed/132 added (net 159). A preliminary combined probe
+produced 823/495; checking loader overrides on the actual receiver narrowed the
+final reclassifications to 770/442 without changing the 328 accepted sites.
+
+Five separate mutation proofs failed behaviorally with the corresponding fix
+removed and passed after restoration: inline binder recognition, literal model
+factory inference, legacy root factory recognition, large read-only settings,
+and receiver loader-override protection. Positive/negative regressions also
+cover private Global methods, unknown model names, changed factories/cache
+returns/defaults, restored/computed settings and absent assets. Mutation logs
+are under target/resolution/pattern-mutations; final finding deltas and site
+audit are under target/resolution/pattern-final.
+
+Build, vet, full short tests, full short race tests, lint and git diff --check
+were run on the final restored code; validation logs are retained under
+target/resolution/pattern-validation. No PR was published or CI pass claimed.
+
+The large g/application.wo group still requires source evidence identifying
+what the runner supplies, including its application proxy and Injector binding
+lifecycle. This batch does not type g by its name or borrow a framework preset.
+ContentBox migration callback arguments and computed Mura include paths remain
+separate candidates for the next batch.
+
+### Relationship research checkpoint (2026-10-09)
+
+[Resolution relationships](RESOLUTION-RELATIONSHIPS.md) records the next source
+investigation, evidence review, relationship model and staged implementation
+plan. It reproduces the Mapper inline-reference contract mismatch and the
+Wheels application proxy/parent discovery gap, surveys all 115 files containing
+the 2,403 unresolved g findings, and traces migration callbacks through their
+providers with a QueryBuilder-versus-Blueprint counterexample. Counts are
+baseline envelopes, not claimed reductions. No production resolver changes or
+expanded corpus coverage were introduced by this research.
+
+### Planning refinement checkpoint (2026-10-09)
+
+The second checkpoint in [Resolution relationships](RESOLUTION-RELATIONSHIPS.md)
+turns the research into work packages with implementation boundaries, observable
+completion criteria and cache/invalidation obligations. New read-only probes
+show why basename tie-breaking cannot certify application ancestry and why
+same-line closures require finer identity before provider callback inference.
+The plan now separates ancestry bootstrap from mappings/lifecycle discovery,
+and instance-specific factory origin from class return metadata. The first
+recommended implementation remains the narrow inline mixin-record mismatch.
+No production resolver code changed and no new corpus reduction is claimed.
+
+### Implicit DI planning refinement (2026-10-09)
+
+[Resolution relationships](RESOLUTION-RELATIONSHIPS.md) now distinguishes
+generated directory bindings, framework defaults, ordered lazy discovery and
+direct-path fallback from explicit registrations. ContentBox's @cb aliases are
+created by mapDirectory; WireBox scan locations and Wheels direct construction
+require different contracts. C gains a binding-policy design subpackage retaining
+factory ownership, precedence, completeness and injection eligibility. Existing
+DI/1 convention support is preserved and is not counted as a new resolution gain.
+
+### Research before further implementation (2026-10-09)
+
+[DI rules research](DI-RULES-RESEARCH.md) now takes precedence over the immediate
+implementation recommendation. The review follows framework bodies and tests,
+records source fingerprints, separates runtime predictions from executed tests,
+and identifies registration order, alias timing and factory-specific constructor
+rules. Further implementation waits for worked unresolved-use traces and paired
+counterexamples. This checkpoint changes documentation only.
+
+### Relationship lifetime research (2026-10-09)
+
+[Wheels relationship trace](WHEELS-RELATIONSHIP-TRACE.md) connects the startup
+sequence to stored Global objects, current/captured containers, service helper
+eligibility and copied methods. The source shows separate plugin/package boot
+phases and failure cleanup that does not itself reverse DI mutations. A lexical
+survey confirms scope distinctions within the g group. Review correction: the
+reported 32/35 versus editor 33/36 examples reflect zero-based versus one-based
+coordinates, not source drift. Implementation remains paused.
+
+### Cross-corpus coverage and relationship research (2026-10-09)
+
+[Research coverage](RESOLUTION-RESEARCH-COVERAGE.md) audits all 44,386 remaining
+report entries. Earlier selected families comprised 14.05%; the broader Mura and
+ColdBox/ContentBox research selects families containing 35.86%. These percentages
+describe research scope, not explained or fixable entries. New source traces
+cover service-name loops, supplied-factory controller wiring, request-scope
+objects, renderer interception and include context. Full per-entry causal
+coverage remains unmeasured. No implementation change is authorized by this plan.
+
+### Call-chain and counterexample review (2026-10-09)
+
+[The call-chain ledger](RESOLUTION-CALL-CHAIN-LEDGER.md) adds source traces for
+Wheels method-host context and Mura argument/return/event relationships. It
+separates object origin from dynamic method dispatch and definite assignment,
+and rejects unconditional fluent-return and event-parameter assumptions. The
+research-family inventory reaches 43.62%; causal coverage remains unmeasured.
+Next work is per-entry attribution, synthesized-method registration and runtime
+fixture design. No production implementation is authorized by this checkpoint.
