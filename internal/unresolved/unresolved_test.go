@@ -192,7 +192,7 @@ func TestCallsOnAComponentWithAMissingBaseAreOneEntry(t *testing.T) {
 	for name, src := range map[string]string{
 		"Service.cfc": "component extends=\"vendor.orm.VirtualEntityService\" {}\n",
 		"Handler.cfc": "component extends=\"vendor.missing.EventHandler\" {\n" +
-			"\tproperty name=\"svc\" inject=\"Service@app\";\n" +
+			"\tproperty name=\"svc\" inject=\"Service\";\n" +
 			"\tfunction index( event ) {\n\t\tsvc.findWhere();\n\t\tsvc.save();\n\t\tsetNextEvent();\n\t}\n}\n",
 	} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(src), 0o600); err != nil {

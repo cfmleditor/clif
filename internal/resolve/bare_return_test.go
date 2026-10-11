@@ -32,7 +32,7 @@ func TestABareReturnTypeNamesTheComponentBesideIt(t *testing.T) {
 	expectReasons(t, reasonsIn(t, dir, "Page.cfc"), map[string]string{
 		"s.task.call":    "",
 		"s.task.missing": "method 'missing' not found in Task",
-		"s.rows.nope":    "method 'rows' in lib.Scheduler has no component return type (chain to 'nope')",
+		"s.rows.nope":    "method 'nope' not found on builtin native.query",
 		"s.other.go":     "method 'other' in lib.Scheduler has no component return type (chain to 'go')",
 	})
 }

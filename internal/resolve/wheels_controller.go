@@ -9,20 +9,20 @@ import (
 	cfpath "github.com/cfmleditor/clif/internal/path"
 )
 
-// Controller integrates controller/view packages after its inherited methods.
+// Controller and Model integrate their packages after inherited methods.
 // A normal method never replaces an own method; super<name> is the original
 // framework method only when an actual own/inherited override is present.
-func (r *Resolver) wheelsControllerFunc(chain []string, name string) *parser.FunctionDef {
+func (r *Resolver) wheelsObjectMixinFunc(chain []string, name string) *parser.FunctionDef {
 	for at, path := range chain {
-		if !strings.EqualFold(filepath.Base(path), "Controller.cfc") {
+		if !strings.EqualFold(filepath.Base(path), "Controller.cfc") && !strings.EqualFold(filepath.Base(path), "Model.cfc") {
 			continue
 		}
 
-		if !r.wheelsControllerIntegrates(path) {
+		if !r.wheelsObjectIntegrates(path) {
 			continue
 		}
 
-		if !r.wheelsControllerInheritsLoader(chain[:at]) || !r.wheelsControllerExtendsGlobal(chain, at) {
+		if !r.wheelsObjectInheritsLoader(chain[:at]) || !r.wheelsObjectExtendsGlobal(chain, at) {
 			return nil
 		}
 
@@ -31,12 +31,12 @@ func (r *Resolver) wheelsControllerFunc(chain []string, name string) *parser.Fun
 		alias := strings.HasPrefix(strings.ToLower(name), "super")
 		if alias {
 			lookup = name[len("super"):]
-			if !r.wheelsOwnFunc(chain, lookup) {
+			if !r.wheelsObjectOwnFunc(chain, lookup) {
 				return nil
 			}
 		}
 
-		found := r.wheelsControllerPackageFunc(path, lookup)
+		found := r.wheelsObjectPackageFunc(path, lookup)
 
 		if found != nil && alias {
 			bound := *found
@@ -51,34 +51,43 @@ func (r *Resolver) wheelsControllerFunc(chain []string, name string) *parser.Fun
 	return nil
 }
 
-// wheelsControllerIntegrates reports whether path is Wheels' Controller.cfc
-// as pinned: an init that integrates the controller and view packages, and
+// wheelsObjectIntegrates recognizes Controller or Model init and
 // the loader that copies their public methods in.
-func (r *Resolver) wheelsControllerIntegrates(path string) bool {
+func (r *Resolver) wheelsObjectIntegrates(path string) bool {
 	source := r.wheelsSource(path)
 
-	return source.methods["init"].body == wheelsTokens(`$integrateComponents("wheels.controller"); $integrateComponents("wheels.view"); return this;`) &&
-		source.methods["$integratecomponents"].body == wheelsTokens(`local.plan = $componentIntegrationPlan(arguments.path); local.overrideSet = $mixinOverrideSet("controller"); local.iEnd = ArrayLen(local.plan); for (local.i = 1; local.i <= local.iEnd; local.i++) { $integrateFunctions(local.plan[local.i].publicMethods, local.overrideSet); }`) &&
+	kind := "controller"
+	init := `$integrateComponents("wheels.controller"); $integrateComponents("wheels.view"); return this;`
+
+	if strings.EqualFold(filepath.Base(path), "Model.cfc") {
+		kind = "model"
+		init = `$integrateComponents("wheels.model"); return this;`
+	}
+
+	loader := strings.ReplaceAll(`local.plan = $componentIntegrationPlan(arguments.path); local.overrideSet = $mixinOverrideSet("controller"); local.iEnd = ArrayLen(local.plan); for (local.i = 1; local.i <= local.iEnd; local.i++) { $integrateFunctions(local.plan[local.i].publicMethods, local.overrideSet); }`, `"controller"`, `"`+kind+`"`)
+
+	return source.methods["init"].body == wheelsTokens(init) &&
+		source.methods["$integratecomponents"].body == wheelsTokens(loader) &&
 		source.methods["$integratefunctions"].body == wheelsTokens(wheelsControllerCopy)
 }
 
-// wheelsControllerExtendsGlobal reports whether chain[at], the Controller,
+// wheelsObjectExtendsGlobal reports whether chain[at], the Controller,
 // extends wheels.Global holding the integration plan it calls.
-func (r *Resolver) wheelsControllerExtendsGlobal(chain []string, at int) bool {
+func (r *Resolver) wheelsObjectExtendsGlobal(chain []string, at int) bool {
 	global := r.ComponentPath("wheels.Global", filepath.Dir(chain[at]))
 
 	return global != "" && at+1 < len(chain) && samePath(chain[at+1], global) && r.wheelsIntegrationPlan(global) && r.wheelsPlanFunc(global, "$mixinOverrideSet") != nil
 }
 
 // wheelsMixinHostFunc answers a bare call made in one of the components
-// Controller.cfc integrates (wheels/controller/*.cfc, wheels/view/*.cfc).
-// Such a component is never instantiated; its public methods are copied into
-// every controller and run there, so a name it calls is the controller's
+// Controller or Model integrates (controller/view or model package files).
+// The recognized loader copies public methods from these components into
+// its host and invokes them there, so their helper calls use the host API
 // (and wheels/mapper/*.cfc's the Mapper's, wheelsMapperMixinFunc):
 // Controller's own, wheels.Global's chain and includes, or another integrated
 // package method. Nothing answers unless the Controller beside the package is
-// the pinned one and integrates this very file.
-func (r *Resolver) wheelsMixinHostFunc(pr *parser.ParseResult, name string) *parser.FunctionDef {
+// the recognized one and integrates this very file.
+func (r *Resolver) wheelsMixinHostFunc(pr *parser.ParseResult, name string, caller ...string) *parser.FunctionDef {
 	if !pr.URI.IsFile() || r.fileExtends(pr) != "" {
 		return nil
 	}
@@ -87,17 +96,28 @@ func (r *Resolver) wheelsMixinHostFunc(pr *parser.ParseResult, name string) *par
 	dir := filepath.Dir(file)
 	pkg := strings.ToLower(filepath.Base(dir))
 
+	// Model helper context is proved only inside a copied public body.
+	// Parameter defaults and private helper bodies need separate binding evidence.
+	if pkg == "model" && (len(caller) == 0 || caller[0] == "" || !r.wheelsSource(file).methods[strings.ToLower(caller[0])].public) {
+		return nil
+	}
+
 	if pkg == "mapper" {
 		return r.wheelsMapperMixinFunc(file, name)
 	}
 
-	if pkg != "controller" && pkg != "view" {
+	if pkg != "controller" && pkg != "view" && pkg != "model" {
 		return nil
 	}
 
-	host := filepath.Join(filepath.Dir(dir), "Controller.cfc")
+	hostName := "Controller"
+	if pkg == "model" {
+		hostName = "Model"
+	}
+
+	host := filepath.Join(filepath.Dir(dir), hostName+".cfc")
 	if !samePath(file, r.ComponentPath("wheels."+pkg+"."+strings.TrimSuffix(filepath.Base(file), filepath.Ext(file)), filepath.Dir(dir))) ||
-		!samePath(host, r.ComponentPath("wheels.Controller", filepath.Dir(dir))) || !r.wheelsControllerIntegrates(host) {
+		!samePath(host, r.ComponentPath("wheels."+hostName, filepath.Dir(dir))) || !r.wheelsObjectIntegrates(host) {
 		return nil
 	}
 
@@ -113,7 +133,7 @@ func (r *Resolver) wheelsMixinHostFunc(pr *parser.ParseResult, name string) *par
 		base, baseDir = r.extendsOfPath(next), filepath.Dir(next)
 	}
 
-	if !r.wheelsControllerExtendsGlobal(chain, 0) {
+	if !r.wheelsObjectExtendsGlobal(chain, 0) {
 		return nil
 	}
 
@@ -121,7 +141,7 @@ func (r *Resolver) wheelsMixinHostFunc(pr *parser.ParseResult, name string) *par
 		return def
 	}
 
-	return r.wheelsControllerFunc(chain, name)
+	return r.wheelsObjectMixinFunc(chain, name)
 }
 
 // wheelsMapperMixinFunc is wheelsMixinHostFunc for wheels/mapper/*.cfc, whose
@@ -149,7 +169,7 @@ func (r *Resolver) extendsOfPath(path string) string {
 	return base
 }
 
-func (r *Resolver) wheelsControllerInheritsLoader(descendants []string) bool {
+func (r *Resolver) wheelsObjectInheritsLoader(descendants []string) bool {
 	for _, path := range descendants {
 		methods := r.wheelsSource(path).methods
 		if _, ok := methods["$integratecomponents"]; ok {
@@ -174,7 +194,7 @@ func (r *Resolver) wheelsControllerInheritsLoader(descendants []string) bool {
 	return true
 }
 
-func (r *Resolver) wheelsOwnFunc(chain []string, name string) bool {
+func (r *Resolver) wheelsObjectOwnFunc(chain []string, name string) bool {
 	for _, path := range chain {
 		for _, def := range r.EnsureIndexed(path) {
 			if strings.EqualFold(def.Name, name) {
@@ -244,29 +264,29 @@ func (r *Resolver) inheritedFunc(pr *parser.ParseResult, name, baseDir string) *
 	}
 
 	for _, path := range chain[1:] {
-		if !strings.EqualFold(filepath.Base(path), "Controller.cfc") {
+		if !strings.EqualFold(filepath.Base(path), "Controller.cfc") && !strings.EqualFold(filepath.Base(path), "Model.cfc") {
 			continue
 		}
 
-		if r.wheelsSource(path).methods["init"].body != wheelsTokens(`$integrateComponents("wheels.controller"); $integrateComponents("wheels.view"); return this;`) {
+		if !r.wheelsObjectIntegrates(path) {
 			continue
 		}
 
 		if def != nil && def.URI.IsFile() {
 			dir := filepath.Dir(def.URI.Path())
-			if !samePath(dir, filepath.Join(filepath.Dir(path), "controller")) && !samePath(dir, filepath.Join(filepath.Dir(path), "view")) {
+			if !samePath(dir, filepath.Join(filepath.Dir(path), "controller")) && !samePath(dir, filepath.Join(filepath.Dir(path), "view")) && !samePath(dir, filepath.Join(filepath.Dir(path), "model")) {
 				return def
 			}
 		}
 
-		mixed := r.wheelsControllerFunc(chain, name)
+		mixed := r.wheelsObjectMixinFunc(chain, name)
 		if mixed != nil {
 			return mixed
 		}
 
 		if def != nil {
 			dir := filepath.Dir(def.URI.Path())
-			if samePath(dir, filepath.Join(filepath.Dir(path), "controller")) || samePath(dir, filepath.Join(filepath.Dir(path), "view")) {
+			if samePath(dir, filepath.Join(filepath.Dir(path), "controller")) || samePath(dir, filepath.Join(filepath.Dir(path), "view")) || samePath(dir, filepath.Join(filepath.Dir(path), "model")) {
 				return nil
 			}
 		}
@@ -275,10 +295,15 @@ func (r *Resolver) inheritedFunc(pr *parser.ParseResult, name, baseDir string) *
 	return def
 }
 
-func (r *Resolver) wheelsControllerPackageFunc(path, lookup string) *parser.FunctionDef {
+func (r *Resolver) wheelsObjectPackageFunc(path, lookup string) *parser.FunctionDef {
 	var found *parser.FunctionDef
 
-	for _, packageName := range []string{"controller", "view"} {
+	packages := []string{"controller", "view"}
+	if strings.EqualFold(filepath.Base(path), "Model.cfc") {
+		packages = []string{"model"}
+	}
+
+	for _, packageName := range packages {
 		entries, err := r.fs().ReadDir(filepath.Join(filepath.Dir(path), packageName))
 		if err != nil || len(entries) > 128 {
 			return nil

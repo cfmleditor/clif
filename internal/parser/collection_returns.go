@@ -12,10 +12,11 @@ type collectionWrite struct {
 }
 
 type collectionNode struct {
-	sources                     map[string]ReturnSource
-	structure, invalid, written bool
-	dependencies                []string
-	aliases                     []string
+	sources                        map[string]ReturnSource
+	structure, invalid, written    bool
+	structSeed, arraySeed, escaped bool
+	dependencies                   []string
+	aliases                        []string
 }
 
 // collectionTarget reads static paths with at most one final subscript. The
@@ -83,8 +84,8 @@ func collectionReturnExpressions(calls []pendingCall) map[string][]string {
 
 	for i := range calls {
 		c := &calls[i]
-		if c.returnExpr && strings.Contains(c.varName, "[") {
-			if _, element := collectionRead(c.varName); element {
+		if c.returnExpr {
+			if root, _ := collectionRead(c.varName); root != "" {
 				candidates = true
 
 				break
@@ -189,15 +190,7 @@ func (pr *ParseResult) applyCollectionReturns(calls []pendingCall) {
 		pr.recordCollectionWrite(writes[i], roots, locals, key, node)
 	}
 
-	for _, w := range writes {
-		if w.target == "" && w.unknown {
-			for _, n := range nodes {
-				n.invalid = true
-			}
-
-			break
-		}
-	}
+	invalidateClosureCollections(writes, pr.Scopes, nodes)
 
 	invalidateCollectionParents(writes, key, nodes)
 
@@ -213,10 +206,47 @@ func (pr *ParseResult) applyCollectionReturns(calls []pendingCall) {
 	}
 
 	settleCollections(nodes)
+	pr.markCollectionEscapes(key, nodes)
 
 	for i := range pr.Funcs {
 		f := &pr.Funcs[i]
+		f.CollectionValues = wholeStructValues(f, returns[keys[int(f.Line)]], keys[int(f.Line)], key, nodes)
 		pr.applyCollectionFunction(f, returns[keys[int(f.Line)]], keys[int(f.Line)], key, nodes)
+	}
+}
+
+// Closure writes still use their enclosing named function's identity. Withhold
+// that function's locals and every shared field, but do not let an unrelated
+// closure invalidate another named function's locals. Alias settlement carries
+// invalidation from shared fields back to any local collection exposed there.
+func invalidateClosureCollections(writes []collectionWrite, scopes []FuncScope, nodes map[string]*collectionNode) {
+	functions := map[string]bool{}
+
+	for _, w := range writes {
+		if w.target == "" && w.unknown {
+			functions[w.function] = true
+		}
+	}
+
+	if len(functions) == 0 {
+		return
+	}
+
+	// Nested named functions can capture enclosing locals. Their write scopes
+	// are not yet lexical identities, so retain the old veto for overlaps,
+	// including ambiguous functions that share a source line.
+	overlapping, end := false, -1
+
+	for _, scope := range scopes {
+		overlapping = overlapping || scope.Start <= end
+		end = max(end, scope.End)
+	}
+
+	for k, n := range nodes {
+		function, _, local := strings.Cut(k, "\t")
+		if overlapping || !local || functions[function] {
+			n.invalid = true
+		}
 	}
 }
 
@@ -309,6 +339,8 @@ func (pr *ParseResult) recordCollectionWrite(w collectionWrite, roots map[string
 	if !w.element {
 		if emptyCollection(w.expression) {
 			n.structure = true
+			n.arraySeed = n.arraySeed || strings.HasPrefix(strings.TrimSpace(w.expression), "[")
+			n.structSeed = n.structSeed || strings.HasPrefix(strings.TrimSpace(w.expression), "{") || !n.arraySeed && !pr.Declares("structNew")
 		} else {
 			n.invalid = true
 		}
@@ -464,6 +496,8 @@ func settleCollections(nodes map[string]*collectionNode) {
 				dst := nodes[target]
 
 				count, structure, invalid := len(dst.sources), dst.structure, dst.invalid
+
+				structSeed, arraySeed := dst.structSeed, dst.arraySeed
 				if n.invalid {
 					dst.invalid = true
 				}
@@ -475,10 +509,12 @@ func settleCollections(nodes map[string]*collectionNode) {
 				for _, alias := range dst.aliases {
 					if alias == key && n.structure {
 						dst.structure = true
+						dst.structSeed = dst.structSeed || n.structSeed
+						dst.arraySeed = dst.arraySeed || n.arraySeed
 					}
 				}
 
-				if len(dst.sources) != count || dst.structure != structure || dst.invalid != invalid {
+				if len(dst.sources) != count || dst.structure != structure || dst.invalid != invalid || dst.structSeed != structSeed || dst.arraySeed != arraySeed {
 					queue = append(queue, target)
 				}
 			}

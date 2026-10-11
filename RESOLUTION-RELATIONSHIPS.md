@@ -1,5 +1,9 @@
 # Resolution relationships: research and implementation plan
 
+Current implementation checkpoint: [implementation status](RESOLUTION-IMPLEMENTATION-STATUS.md).
+The user has authorized implementation; research-only statements below describe
+the earlier checkpoint. Only the explicitly recorded contracts are implemented.
+
 Research checkpoint: 2026-10-09. This is a source investigation and plan, not a
 resolver change or a new reduction claim. It uses the automatic seven-corpus
 baseline in `target/resolution/pattern-final`, including the explicit Wheels
@@ -514,3 +518,20 @@ candidate for investigation, not a promised reduction count. Existing convention
 must first be inventoried against unresolved sites so already-supported behavior
 is not counted as a new opportunity. No production behavior changes in this
 checkpoint.
+
+## Measured improvement follow-up
+
+[Improvement probes](RESOLUTION-IMPROVEMENT-PROBES.md) quantify the shared Wheels
+record mismatch using an isolated source-copy experiment: 1,525 sites disappear,
+seven change diagnosis, and no new sites appear. The unchanged mirror and a
+wrong-instance control match the saved baseline per entry. This is evidence for
+a narrow recognition proposal, not an implementation or claimed shipped gain.
+
+## Implementation checkpoint: bounded ancestry and callback execution
+
+Physical/mapped ancestry, constructor extraction, selected shared startup,
+source-byte closure stores and closed provider invocation contracts are now
+implemented. See RESOLUTION-IMPLEMENTATION-STATUS.md checkpoint 2 for exact
+boundaries, regressions, mutation proofs and remaining obligations. The broader
+factory/registry proposals in this document remain proposals unless explicitly
+covered there; source presence is not a substitute for execution ownership.

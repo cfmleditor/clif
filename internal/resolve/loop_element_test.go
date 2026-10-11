@@ -66,3 +66,55 @@ function scriptLoops( svc ){
 		"row.later":   "variable 'row' has no component ref",
 	})
 }
+
+func TestLoadedEntityCollectionsTypeLoopsAndEachCallbacks(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{
+		"models/Item.cfc":   `component persistent="true" entityname="LoadedItem" { function ready(){} }`,
+		"models/Holder.cfc": `component persistent="true" { property name="items" fieldtype="one-to-many" cfc="Item"; }`,
+		"Use.cfc": `component { function run(){
+   var rows=entityLoad("LoadedItem");
+   for(var row in rows){ row.ready(); row.missing(); }
+   rows.each(function(entry){entry.ready();entry.missing();});
+   var filtered=entityLoad("LoadedItem", {enabled=true});
+   for(var f in filtered){f.ready();}
+   var singleton=entityLoad("LoadedItem", {}, true);
+   for(var single in singleton){single.ready();}
+   var uncertain=entityLoad("LoadedItem", {}, uniqueFlag);
+   for(var unsure in uncertain){unsure.ready();}
+   var holder=new models.Holder();
+   var related=holder.getItems();
+   related.each(function(item,index){ item.ready(); item.missing(); index.ready(); });
+   related.each(function(changed){ changed=unknownValue; changed.ready(); });
+   var unknown=unknownList();
+   unknown.each(function(untyped){untyped.ready();});
+  } }`,
+	})
+	expectReasons(t, reasonsWith(t, &Resolver{}, dir, "Use.cfc"), map[string]string{
+		"row.ready": "", "row.missing": "method 'missing' not found in Item", "entry.ready": "", "entry.missing": "method 'missing' not found in Item", "f.ready": "", "item.ready": "", "item.missing": "method 'missing' not found in Item", "changed.ready": "variable 'changed' has no component ref",
+		"single.ready": "variable 'single' has no component ref", "unsure.ready": "variable 'unsure' has no component ref", "index.ready": "variable 'index' has no component ref", "untyped.ready": "variable 'untyped' has no component ref",
+	})
+}
+
+func TestEntityLoadCollectionEvidenceRejectsUnknownsAndShadows(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{
+		"models/Item.cfc":  `component persistent="true" entityname="LoadedItem" { function ready(){} }`,
+		"models/Plain.cfc": `component { function ready(){} }`,
+		"Unknown.cfc": `component { function run(){
+   for(var dynamic in entityLoad(name)){dynamic.ready();}
+   for(var missing in entityLoad("NotRegistered")){missing.ready();}
+   for(var plain in entityLoad("Plain")){plain.ready();}
+   for(var unique in entityLoad("LoadedItem", {}, true)){unique.ready();}
+   for(var known in entityLoad("LoadedItem", {}, false)){known.ready();}
+  } }`,
+		"Shadow.cfc": `component { function entityLoad(name){return [];} function run(){for(var shadow in entityLoad("LoadedItem")){shadow.ready();}} }`,
+		"Use.cfm": `<cfset rows=entityLoad("LoadedItem")>
+<cfloop array="#rows#" index="tagRow"><cfoutput>#tagRow.ready()#</cfoutput></cfloop>`,
+	})
+	expectReasons(t, reasonsWith(t, &Resolver{}, dir, "Unknown.cfc"), map[string]string{
+		"dynamic.ready": "variable 'dynamic' has no component ref", "missing.ready": "variable 'missing' has no component ref", "plain.ready": "variable 'plain' has no component ref", "unique.ready": "variable 'unique' has no component ref", "known.ready": "",
+	})
+	expectReasons(t, reasonsWith(t, &Resolver{}, dir, "Shadow.cfc"), map[string]string{"shadow.ready": "variable 'shadow' has no component ref"})
+	expectReasons(t, reasonsWith(t, &Resolver{}, dir, "Use.cfm"), map[string]string{"tagRow.ready": ""})
+}

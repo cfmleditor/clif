@@ -50,6 +50,72 @@ type Candidate struct {
 	Basis      []string `json:"basis"`
 }
 
+// MethodEvidence describes declarations in the scan's index, not runtime
+// existence or a proven call-to-definition relationship. Generated source
+// accessors count as source declarations; framework stubs do not.
+type MethodEvidence struct {
+	Function            string `json:"function"`
+	IndexedDeclarations int    `json:"indexedDeclarations"`
+	SourceDeclarations  int    `json:"sourceDeclarations"`
+	NameStatus          string `json:"nameStatus"`
+	Relationship        string `json:"relationship"`
+	Ownership           string `json:"ownership"`
+}
+
+var failedMethodRe = regexp.MustCompile(`^method '([^']+)' not found`)
+
+func missingMethodName(c *Call) string {
+	if m := failedMethodRe.FindStringSubmatch(c.Reason); m != nil {
+		return m[1]
+	}
+
+	return c.Function
+}
+
+func (a *annotator) methodEvidence(c *Call) *MethodEvidence {
+	name := missingMethodName(c)
+	source := 0
+
+	for _, def := range a.resolver.Index.Lookup(name) {
+		if def.URI.IsFile() && !frameworkapi.IsStub(def.URI.Path()) {
+			source++
+		}
+	}
+
+	status := "no-source-declaration"
+	if source == 1 {
+		status = "unique-source-declaration"
+	} else if source > 1 {
+		status = "ambiguous-source-declarations"
+	}
+
+	relationship := "binding-unproven"
+
+	switch c.Category {
+	case CategoryVariable:
+		relationship = "receiver-type-unproven"
+	case CategoryReturnType:
+		relationship = "return-type-unproven"
+	case CategoryObject:
+		relationship = "source-or-context-missing"
+	case CategoryMethod:
+		if failedMethodRe.MatchString(c.Reason) {
+			relationship = "selected-contract-mismatch"
+			if strings.Contains(c.Reason, "not found on builtin ") {
+				relationship = "native-contract-mismatch"
+			}
+		} else if strings.Contains(c.Reason, "parent component") || strings.Contains(c.Reason, "extends chain") {
+			relationship = "inheritance-binding-unproven"
+		}
+	}
+
+	return &MethodEvidence{
+		Function: name, IndexedDeclarations: a.resolver.Index.CountFunctions(name),
+		SourceDeclarations: source, NameStatus: status,
+		Relationship: relationship, Ownership: "unproven",
+	}
+}
+
 // Category classifies a finding's reason.
 func Category(reason string) string {
 	switch {
@@ -99,7 +165,7 @@ func annotateAll(fsys vfs.FS, resolver *resolve.Resolver, files []string, calls 
 
 		pr := Parse(resolver, file, string(data), opt)
 		sites := pr.AllCalls()
-		a := &annotator{resolver: resolver, pr: pr, calls: sites, file: file}
+		a := &annotator{resolver: resolver, pr: pr, calls: sites, file: file, receiverRoles: opt.receiverRoles, unlimitedCandidates: opt.unlimitedCandidates}
 
 		for _, i := range byFile[file] {
 			c := &calls[i]
@@ -109,10 +175,17 @@ func annotateAll(fsys vfs.FS, resolver *resolve.Resolver, files []string, calls 
 				continue
 			}
 
+			if opt.methodTargets {
+				// A direct final-method shortcut deliberately bypasses failed
+				// intermediate hops. Keep ordinary failed-hop candidates intact.
+				c.methodTargets = a.methodCandidates(&parser.CallSite{FuncName: c.Function}, "")
+			}
+
 			if site := matchingSite(sites, c); site != nil {
 				a.annotate(c, site)
 			} else {
 				c.Category = Category(c.Reason)
+				c.MethodEvidence = a.methodEvidence(c)
 			}
 		}
 	})
@@ -153,15 +226,52 @@ func parallel(items []string, fn func(string)) {
 
 // annotator holds what one file's findings are annotated from.
 type annotator struct {
-	resolver *resolve.Resolver
-	pr       *parser.ParseResult
-	calls    []parser.CallSite
-	file     string
+	receiverRoles       bool
+	unlimitedCandidates bool
+	resolver            *resolve.Resolver
+	pr                  *parser.ParseResult
+	calls               []parser.CallSite
+	file                string
+}
+
+// baseReceiverCandidates constrains the original receiver using its first
+// method, independently of the methods called on returned objects.
+func (a *annotator) baseReceiverCandidates(call *parser.CallSite) []Candidate {
+	base := *call
+	if len(base.Chain) > 0 {
+		if strings.HasPrefix(base.Chain[0], "$property:") {
+			return nil
+		}
+
+		base.FuncName = parser.CallHopName(base.Chain[0])
+		base.Chain = nil
+	}
+
+	sites := make([]parser.CallSite, 0, len(a.calls))
+	for i := range a.calls {
+		site := a.calls[i]
+		if len(site.Chain) > 0 {
+			if strings.HasPrefix(site.Chain[0], "$property:") {
+				continue
+			}
+
+			site.FuncName = parser.CallHopName(site.Chain[0])
+			site.Chain = nil
+		}
+
+		sites = append(sites, site)
+	}
+
+	baseAnnotator := *a
+	baseAnnotator.calls = sites
+
+	return baseAnnotator.receiverCandidates(&base)
 }
 
 // annotate sets c's category and candidates.
 func (a *annotator) annotate(c *Call, call *parser.CallSite) {
 	c.Category = Category(c.Reason)
+	c.MethodEvidence = a.methodEvidence(c)
 
 	defs := a.resolver.Index.CountFunctions(call.FuncName)
 	c.Definitions = &defs
@@ -170,7 +280,11 @@ func (a *annotator) annotate(c *Call, call *parser.CallSite) {
 
 	switch c.Category {
 	case CategoryVariable, CategoryReturnType:
-		cands = a.receiverCandidates(call)
+		if c.Category == CategoryVariable && a.receiverRoles {
+			cands = a.baseReceiverCandidates(call)
+		} else {
+			cands = a.receiverCandidates(call)
+		}
 	case CategoryMethod:
 		cands = a.methodCandidates(call, c.Reason)
 	case CategoryObject:
@@ -178,7 +292,7 @@ func (a *annotator) annotate(c *Call, call *parser.CallSite) {
 	}
 
 	c.CandidateCount = len(cands)
-	if len(cands) > maxCandidates {
+	if !a.unlimitedCandidates && len(cands) > maxCandidates {
 		cands = cands[:maxCandidates]
 	}
 
@@ -294,7 +408,8 @@ func (a *annotator) methodCandidates(call *parser.CallSite, reason string) []Can
 
 	var out []Candidate
 
-	for _, def := range a.resolver.Index.Lookup(call.FuncName) {
+	name := missingMethodName(&Call{Function: call.FuncName, Reason: reason})
+	for _, def := range a.resolver.Index.Lookup(name) {
 		if !def.URI.IsFile() || frameworkapi.IsStub(def.URI.Path()) {
 			continue
 		}

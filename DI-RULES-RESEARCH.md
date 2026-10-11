@@ -1,5 +1,9 @@
 # DI rules: source evidence before implementation
 
+Current implementation checkpoint: [implementation status](RESOLUTION-IMPLEMENTATION-STATUS.md).
+The user has authorized implementation; research-only statements below describe
+the earlier checkpoint. Only the explicitly recorded contracts are implemented.
+
 Research review: 2026-10-09. Production implementation is paused while the
 relationships and their counterexamples are investigated. This ledger supersedes
 the immediate implementation recommendation in RESOLUTION-RELATIONSHIPS.md.
@@ -222,3 +226,9 @@ SHA-256 of the inspected local bodies; all roots are under the corpus directory.
 | cfwheels_cfwheels/vendor/wheels/Bindings.cfc | 02f32a3e59c5d6f5118eb21becf5ab79438a771bd2c87efc6074a1fc52826882 |
 | cfwheels_cfwheels/public/Application.cfc | c20c3eeb00136e0972d1eb6002bb468de52fe44b5972cd7c71a63735d2d6cb1e |
 | Ortus-Solutions_ContentBox/modules/contentbox/ModuleConfig.cfc | 8d8c6bbcbb4376cef2a85b743c8f48f1dfa0bfe9f8aa60c8dfa87d3481449d87 |
+
+Implementation checkpoint: application shared-startup discovery now follows
+bounded inherited lifecycle selection, and provider callbacks can transfer
+actual invocation argument identity. This does not yet make diSources an
+effective lifecycle evaluator or give a factory class constructor-specific
+binder identity. See RESOLUTION-IMPLEMENTATION-STATUS.md checkpoint 2.

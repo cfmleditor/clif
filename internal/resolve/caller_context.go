@@ -21,12 +21,15 @@ func (r *Resolver) forCaller(baseDir string) *Resolver {
 	}
 
 	view = &Resolver{
-		FS: r.FS, WorkspaceFolders: r.WorkspaceFolders, Mappings: r.Mappings,
+		NativeEngine:         r.NativeEngine,
+		Discovery:            r.Discovery,
+		SpeculativeReceivers: r.SpeculativeReceivers,
+		FS:                   r.FS, WorkspaceFolders: r.WorkspaceFolders, Mappings: r.Mappings,
 		BeanPaths: r.BeanPaths, StartupFiles: r.StartupFiles,
 		ExpressionMappings: r.ExpressionMappings, Index: r.Index, IndexTracksFiles: r.IndexTracksFiles,
 		Resolvers: r.Resolvers, ImplicitExtends: r.ImplicitExtends,
-		HelperScope: r.HelperScope, Stubs: r.Stubs, InferArgsFiles: r.InferArgsFiles, stubFS: r.fs(),
-		callerMappings: r.effectiveMappings(baseDir), indexer: r,
+		HelperScope: r.HelperScope, Stubs: r.Stubs, InferArgsFiles: r.InferArgsFiles, CallerInferenceLimits: r.CallerInferenceLimits, stubFS: r.fs(),
+		callerApplication: root, callerMappings: r.effectiveMappings(baseDir), indexer: r,
 	}
 	// Source indexing is deliberately delegated to the original resolver. Shared
 	// metadata must not acquire whichever caller happened to index a CFC first.
@@ -44,4 +47,14 @@ func (r *Resolver) forCaller(baseDir string) *Resolver {
 	r.contextViews[root] = view
 
 	return view
+}
+
+// executionApplication retains an explicit caller even when it has no
+// Application.cfc; crossing a library must not manufacture a request context.
+func (r *Resolver) executionApplication(baseDir string) string {
+	if r.indexer != nil {
+		return r.callerApplication
+	}
+
+	return r.FindApplicationRoot(baseDir)
 }

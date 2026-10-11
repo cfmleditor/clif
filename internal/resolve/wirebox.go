@@ -1,10 +1,13 @@
 package resolve
 
 import (
+	"maps"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/cfmleditor/clif/internal/parser"
 )
 
 // WireBox registers a model under an id, and most ids are not the path to
@@ -26,6 +29,7 @@ import (
 type wireboxWorkspace struct {
 	key        string
 	namespaces map[string][]string // lowercased namespace -> module directories
+	modelRoots map[string][]string // eligible auto-mapped roots in those modules
 	cfmappings map[string]string   // lowercased cfmapping -> module directory
 	ids        map[string]idTarget // lowercased id -> what it is mapped to
 }
@@ -35,11 +39,7 @@ type idTarget struct {
 	path, dir string
 }
 
-var (
-	modelNamespaceRe = regexp.MustCompile(`(?i)this\.modelNamespace\s*=\s*["']([^"']*)["']`)
-	cfmappingRe      = regexp.MustCompile(`(?i)this\.cfmapping\s*=\s*["']([^"']*)["']`)
-	binderMapRe      = regexp.MustCompile(`(?is)\bmap\(\s*["']([^"'#]+)["']\s*\)\s*\.\s*to\(\s*["']([^"']+)["']\s*\)`)
-)
+var binderMapRe = regexp.MustCompile(`(?is)\bmap\(\s*["']([^"'#]+)["']\s*\)\s*\.\s*to\(\s*["']([^"']+)["']\s*\)`)
 
 // wirebox reads every ModuleConfig.cfc and config/WireBox.cfc the index
 // holds, remembered until that set of files changes, as applicationHelpers
@@ -72,6 +72,7 @@ func (r *Resolver) wirebox() *wireboxWorkspace {
 	wb := &wireboxWorkspace{
 		key:        key,
 		namespaces: map[string][]string{},
+		modelRoots: map[string][]string{},
 		cfmappings: map[string]string{},
 		ids:        map[string]idTarget{},
 	}
@@ -84,16 +85,35 @@ func (r *Resolver) wirebox() *wireboxWorkspace {
 
 		src := string(data)
 		dir := filepath.Dir(m)
+		constructor, _ := parser.ApplicationSections(src)
+		properties, propertiesKnown := moduleAssignments(constructor, true)
 
 		ns := filepath.Base(dir)
-		if sm := modelNamespaceRe.FindStringSubmatch(src); sm != nil && strings.TrimSpace(sm[1]) != "" {
-			ns = strings.TrimSpace(sm[1])
+		if value := diString(properties["modelnamespace"]); propertiesKnown && value != "" {
+			ns = strings.TrimSpace(value)
 		}
 
 		wb.namespaces[strings.ToLower(ns)] = append(wb.namespaces[strings.ToLower(ns)], dir)
+		if root := moduleModelRoot(src, dir); root != "" {
+			wb.modelRoots[strings.ToLower(ns)] = append(wb.modelRoots[strings.ToLower(ns)], root)
+		}
 
-		if sm := cfmappingRe.FindStringSubmatch(src); sm != nil && strings.TrimSpace(sm[1]) != "" {
-			wb.cfmappings[strings.ToLower(strings.Trim(strings.TrimSpace(sm[1]), "/"))] = dir
+		disabled, disabledSet := properties["disabled"]
+
+		registered := propertiesKnown && (!disabledSet || len(disabled) == 1 && strings.EqualFold(disabled[0].Value, "false"))
+		if registered {
+			mapping := diString(properties["cfmapping"])
+			if value, exists := properties["classmapping"]; exists {
+				if class := diString(value); class != "" {
+					mapping = class
+				} else if len(value) != 1 || value[0].Kind != parser.TokString {
+					mapping = ""
+				}
+			}
+
+			if mapping != "" {
+				wb.cfmappings[strings.ToLower(strings.Trim(strings.TrimSpace(mapping), "/"))] = dir
+			}
 		}
 
 		wb.addMaps(src, dir)
@@ -128,7 +148,7 @@ func (wb *wireboxWorkspace) addMaps(src, dir string) {
 // target, and `Name@namespace` the Name in that module's models. It reports
 // whether component was an id it answers for; a plain dot-path is not, and
 // is left to the lookups after it.
-func (r *Resolver) wireboxID(component, baseDir string) (string, bool) {
+func (r *Resolver) wireboxID(component, _ string) (string, bool) {
 	wb := r.wirebox()
 
 	// Ids are looked up only for a component with no dot: a mapped target is
@@ -146,15 +166,14 @@ func (r *Resolver) wireboxID(component, baseDir string) (string, bool) {
 	}
 
 	if wb != nil {
-		if p := r.inModuleModels(name, wb.namespaces[strings.ToLower(ns)]); p != "" {
-			return p, true
+		if _, installed := wb.namespaces[strings.ToLower(ns)]; installed {
+			return r.inModuleModels(name, wb.modelRoots[strings.ToLower(ns)]), true
 		}
 	}
 
-	// Not among the module's models, or a module the workspace does not
-	// hold: the name alone, as it was always read. When that names nothing
-	// either, uninstalledModule says whether it is a finding.
-	return r.ComponentPath(name, baseDir), true
+	// A namespace is part of the registration identity. Stripping it can
+	// borrow an unrelated application's component of the same basename.
+	return "", true
 }
 
 // idTargetPath is the file a `map( id ).to( path )` names.
@@ -190,7 +209,7 @@ func (r *Resolver) inModuleModels(name string, dirs []string) string {
 
 	for _, c := range r.Index.FindFilesByBasename(name) {
 		for _, d := range dirs {
-			if strings.HasPrefix(strings.ToLower(c), strings.ToLower(filepath.Join(d, "models"))+string(filepath.Separator)) {
+			if underAny([]string{d}, c) {
 				hits = append(hits, c)
 			}
 		}
@@ -202,7 +221,189 @@ func (r *Resolver) inModuleModels(name string, dirs []string) string {
 
 	slices.Sort(hits)
 
+	hits = slices.Compact(hits)
+	if len(hits) != 1 {
+		return ""
+	}
+
 	return hits[0]
+}
+
+// moduleModelRoot follows the two ColdBox configuration stages: public
+// properties are captured before configure(), and variables.conventions after.
+// Unknown control flow and child injector ownership are withheld.
+func moduleModelRoot(content, dir string) string {
+	constructor, methods := parser.ApplicationSections(content)
+
+	flags, ok := moduleAssignments(constructor, true)
+	if !ok {
+		return ""
+	}
+
+	for key, required := range map[string]bool{"automapmodels": true, "activate": true, "disabled": false, "moduleinjector": false} {
+		if value, exists := flags[key]; exists {
+			if len(value) != 1 || !strings.EqualFold(value[0].Value, "true") && !strings.EqualFold(value[0].Value, "false") || strings.EqualFold(value[0].Value, "true") != required {
+				return ""
+			}
+		}
+	}
+
+	if value, exists := flags["modelnamespace"]; exists && diString(value) == "" {
+		return ""
+	}
+
+	cfg, ok := moduleAssignments(constructor, false)
+	if !ok {
+		return ""
+	}
+
+	if configure, exists := methods["configure"]; exists {
+		if configure == "" {
+			return ""
+		}
+
+		writes, valid := moduleAssignments(configure, false)
+		if !valid {
+			return ""
+		}
+
+		maps.Copy(cfg, writes)
+	}
+	// Environment methods execute after configure when selected at runtime. An
+	// unknown environment must not turn a potentially changed root into a default.
+	for name, method := range methods {
+		if name == "configure" || name == "onload" || name == "onunload" {
+			continue
+		}
+
+		for _, token := range allTokens(method) {
+			if strings.EqualFold(token.Value, "conventions") {
+				return ""
+			}
+		}
+	}
+
+	folder := "models"
+	if value, exists := cfg["conventions.modelslocation"]; exists {
+		folder = diString(value)
+	}
+
+	if folder == "" || strings.ContainsAny(folder, "#\\") {
+		return ""
+	}
+
+	root := filepath.Join(dir, filepath.FromSlash(folder))
+	if !underAny([]string{dir}, root) || root == dir {
+		return ""
+	}
+
+	return root
+}
+
+// moduleAssignments reads literal dot/bracket writes in source order. A whole
+// conventions struct replaces earlier fields, including the default location.
+func moduleAssignments(source string, public bool) (map[string][]parser.Token, bool) {
+	result := map[string][]parser.Token{}
+	sc := parser.NewScanner(source)
+
+	var prefix []parser.Token
+
+	guarded := false
+
+	for {
+		token := sc.NextSkipComments()
+		if token.Kind == parser.TokEOF {
+			if !public && moduleConventionsReference(prefix) {
+				return nil, false
+			}
+
+			break
+		}
+
+		if token.Kind == parser.TokIdent && slices.Contains([]string{"if", "else", "switch", "for", "while", "try", "catch"}, strings.ToLower(token.Value)) {
+			guarded = true
+		}
+
+		if token.Kind != parser.TokEquals {
+			prefix = append(prefix, token)
+
+			continue
+		}
+
+		target, from := diConfigAssignmentTarget(prefix)
+		if !public && (moduleConventionsReference(prefix[:max(0, from)]) || from > 0 && strings.EqualFold(prefix[from-1].Value, "var") && moduleConventionsReference(prefix[from:])) {
+			return nil, false
+		}
+
+		lhs := prefix
+		target = strings.ToLower(target)
+
+		value := diReadValue(sc)
+		if !public && moduleConventionsReference(value) {
+			return nil, false
+		}
+
+		prefix = nil
+
+		var key string
+
+		switch {
+		case public && strings.HasPrefix(target, "this."):
+			key = strings.TrimPrefix(target, "this.")
+			if !slices.Contains([]string{"automapmodels", "modelnamespace", "moduleinjector", "activate", "disabled", "cfmapping", "classmapping"}, key) {
+				continue
+			}
+		case !public:
+			key = strings.TrimPrefix(target, "variables.")
+			if key != "conventions" && key != "conventions.modelslocation" {
+				if moduleConventionsReference(lhs) {
+					return nil, false
+				}
+
+				continue
+			}
+		default:
+			continue
+		}
+
+		if guarded {
+			return nil, false
+		}
+
+		if key == "conventions" {
+			fields, ok := diStruct(value)
+			if !ok {
+				return nil, false
+			}
+
+			result["conventions.modelslocation"] = []parser.Token{{Kind: parser.TokString, Value: `"models"`}}
+			if location, exists := fields["modelslocation"]; exists {
+				result["conventions.modelslocation"] = location
+			}
+		} else {
+			result[key] = value
+		}
+	}
+
+	return result, true
+}
+
+// Only bare/variables conventions are the configuration value. A public or
+// other object's member of the same name is unrelated.
+func moduleConventionsReference(tokens []parser.Token) bool {
+	for i, token := range tokens {
+		if token.Kind != parser.TokIdent || !strings.EqualFold(token.Value, "conventions") {
+			continue
+		}
+
+		if i > 0 && tokens[i-1].Kind == parser.TokDot && (i < 2 || !strings.EqualFold(tokens[i-2].Value, "variables")) {
+			continue
+		}
+
+		return true
+	}
+
+	return false
 }
 
 // inModuleMapping resolves a dot-path whose first segment is a module's

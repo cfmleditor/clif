@@ -46,7 +46,8 @@ func (r *Resolver) wheelsMapperFunc(path, name string) (*parser.FunctionDef, boo
 		// The loader's metadata scan is nonrecursive and reads this component's
 		// public functions. Do not import includes, inherited or private methods.
 		fileMethods := r.wheelsSource(file).methods
-		for key, method := range fileMethods {
+		for key := range fileMethods {
+			method := fileMethods[key]
 			if !method.public {
 				continue
 			}
@@ -86,6 +87,7 @@ func (r *Resolver) wheelsMapperFunc(path, name string) (*parser.FunctionDef, boo
 			bound := *found
 			bound.ReturnComponent = path
 			bound.ReturnSources = nil
+			bound.CollectionValues = nil
 
 			return &bound, true
 		}
@@ -122,8 +124,6 @@ func (r *Resolver) wheelsIntegrationPlan(global string) bool {
 		`local.folderPath = ExpandPath("/#Replace(arguments.path, ".", "/", "all")#");`,
 		`local.fileList = DirectoryList(local.folderPath, false, "name", "*.cfc");`,
 		`local.instance = CreateObject("component", "#arguments.path#.#local.componentName#");`,
-		`if (local.fns[local.f].access == "public") { local.ref = local.instance[local.fns[local.f].name];`,
-		`ArrayAppend(local.publicMethods, {name = local.fns[local.f].name, ref = local.ref});`,
 		`publicMethods = local.publicMethods`,
 		`return local.rv;`,
 	} {
@@ -132,7 +132,12 @@ func (r *Resolver) wheelsIntegrationPlan(global string) bool {
 		}
 	}
 
-	return strings.Contains(planBody, wheelsTokens(`$buildComponentIntegrationPlan(arguments.path)`))
+	// The member name and reference must stay paired inside the public filter.
+	// Requiring a contiguous body excludes intervening rewrites and escapes.
+	split := `if (local.fns[local.f].access == "public") { local.ref = local.instance[local.fns[local.f].name]; ArrayAppend(local.publicMethods, {name = local.fns[local.f].name, ref = local.ref}); }`
+	inline := `if (local.fns[local.f].access == "public") { ArrayAppend(local.publicMethods, {name = local.fns[local.f].name, ref = local.instance[local.fns[local.f].name]}); }`
+
+	return (strings.Contains(builderBody, wheelsTokens(split)) || strings.Contains(builderBody, wheelsTokens(inline))) && strings.Contains(planBody, wheelsTokens(`$buildComponentIntegrationPlan(arguments.path)`))
 }
 
 // Global's known integration helpers are declared directly or in literal
@@ -162,10 +167,12 @@ func (r *Resolver) wheelsPlanFunc(global, name string) *parser.FunctionDef {
 }
 
 type wheelsMethod struct {
-	body             string
-	public           bool
-	noArgsReturn     string
-	selfDefaultParam string
+	body              string
+	public            bool
+	literalDefaults   bool
+	noArgsReturn      string
+	selfDefaultParam  string
+	selfExcludedModes []string
 }
 
 type wheelsSource struct {
@@ -359,19 +366,33 @@ func wheelsReadMethod(scanner *parser.Scanner, header []parser.Token) (string, w
 	}
 
 	text := body.String()
+	parameter, modes := defaultSelfReturnModes(params, text)
 
 	return strings.ToLower(name.Value), wheelsMethod{
-		body: text, public: public, noArgsReturn: absentArgumentReturn(params, tokens),
-		selfDefaultParam: defaultSelfReturnParameter(params, text),
+		body: text, public: public, literalDefaults: wheelsLiteralDefaults(params), noArgsReturn: absentArgumentReturn(params, tokens),
+		selfDefaultParam: parameter, selfExcludedModes: modes,
 	}
 }
 
-// defaultSelfReturnParameter recognizes a final literal-mode dispatch whose
+func wheelsLiteralDefaults(params [][]parser.Token) bool {
+	method := &producerMethod{defaults: map[string]string{}}
+
+	for i, param := range params {
+		eq := slices.IndexFunc(param, func(token parser.Token) bool { return token.Kind == parser.TokEquals })
+		if eq >= 0 {
+			method.defaults[producerPosition(i)] = producerText(param[eq+1:])
+		}
+	}
+
+	return instanceLiteralDefaults(method)
+}
+
+// defaultSelfReturnModes recognizes a final literal-mode dispatch whose
 // default parameter value selects `return this`. Work before the final dispatch
 // may be too dynamic for a producer plan (beanORM.loadBy builds SQL with
 // savecontent). The prefix must still exclude earlier returns and uses of the
 // selected parameter or arguments scope that could change the final dispatch.
-func defaultSelfReturnParameter(params [][]parser.Token, body string) string {
+func defaultSelfReturnModes(params [][]parser.Token, body string) (string, []string) {
 	for _, param := range params {
 		eq := slices.IndexFunc(param, func(t parser.Token) bool { return t.Kind == parser.TokEquals })
 		if eq < 1 || eq+2 != len(param) || param[eq-1].Kind != parser.TokIdent || param[eq+1].Kind != parser.TokString || !strings.EqualFold(strings.Trim(param[eq+1].Value, "\"'"), "self") {
@@ -389,11 +410,18 @@ func defaultSelfReturnParameter(params [][]parser.Token, body string) string {
 
 		match := body[loc[0]:loc[1]]
 		if !strings.Contains(match, name+"\teq\t\"self\"") && !strings.Contains(match, name+"\t=\t=\t\"self\"") {
-			return name
+			selector := regexp.MustCompile(`arguments\t\.\t` + regexp.QuoteMeta(name) + `\t(?:eq|=\t=)\t"([^"#]*)"`)
+
+			var modes []string
+			for _, mode := range selector.FindAllStringSubmatch(match, -1) {
+				modes = append(modes, strings.ToLower(mode[1]))
+			}
+
+			return name, modes
 		}
 	}
 
-	return ""
+	return "", nil
 }
 
 // A suffix match alone says nothing about the code that precedes it. Keep the

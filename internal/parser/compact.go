@@ -32,18 +32,12 @@ func CompactDefs(defs []FunctionDef) []FunctionDef {
 		d.ReturnComponent = strings.Clone(d.ReturnComponent)
 
 		d.DocReturn = strings.Clone(d.DocReturn)
+		if d.CollectionValues != nil {
+			d.CollectionValues = &CollectionValues{Sources: compactReturnSources(d.CollectionValues.Sources)}
+		}
+
 		if len(d.ReturnSources) > 0 {
-			sources := make([]ReturnSource, len(d.ReturnSources))
-			for j, source := range d.ReturnSources {
-				sources[j].Component = strings.Clone(source.Component)
-
-				sources[j].Methods = make([]string, len(source.Methods))
-				for k, method := range source.Methods {
-					sources[j].Methods[k] = strings.Clone(method)
-				}
-			}
-
-			d.ReturnSources = sources
+			d.ReturnSources = compactReturnSources(d.ReturnSources)
 		} else {
 			d.ReturnSources = nil
 		}
@@ -76,6 +70,20 @@ func CompactDefs(defs []FunctionDef) []FunctionDef {
 	}
 
 	return out
+}
+
+func compactReturnSources(sources []ReturnSource) []ReturnSource {
+	compacted := make([]ReturnSource, len(sources))
+	for i, source := range sources {
+		compacted[i].Component = strings.Clone(source.Component)
+
+		compacted[i].Methods = make([]string, len(source.Methods))
+		for j, method := range source.Methods {
+			compacted[i].Methods[j] = strings.Clone(method)
+		}
+	}
+
+	return compacted
 }
 
 // CompactRefs is CompactDefs for component references, for the same reason.

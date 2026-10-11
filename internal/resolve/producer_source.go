@@ -744,7 +744,7 @@ func producerAssignment(tokens []parser.Token) producerNode {
 				return producerNode{kind: "set", target: target, expression: producerText(tokens[i+1:])}
 			}
 
-			return producerNode{kind: "unsafe"}
+			return producerIndexedAssignment(tokens, i)
 		}
 	}
 
@@ -763,6 +763,14 @@ func producerAssignment(tokens []parser.Token) producerNode {
 	}
 
 	return producerNode{kind: "effect", expression: producerText(tokens)}
+}
+
+func producerIndexedAssignment(tokens []parser.Token, at int) producerNode {
+	if _, _, ok := instanceIndexTarget(tokens[:at]); ok {
+		return producerNode{kind: "private-index-set", target: producerText(tokens[:at]), expression: producerText(tokens[at+1:])}
+	}
+
+	return producerNode{kind: "unsafe"}
 }
 
 func producerChainedAssignment(tokens []parser.Token, assignment int, target string) (producerNode, bool) {
@@ -1424,7 +1432,38 @@ func producerCallBinding(nodes []producerNode) bool {
 // Scalar-call specialization replaces component guesses, not the established
 // builtin or dynamic contracts. Object guards still need per-call proof.
 func producerNeedsSpecialization(method *producerMethod, fd *parser.FunctionDef) bool {
-	if method == nil || !method.sensitive {
+	if method == nil {
+		return false
+	}
+
+	if fd.DocReturn == "" && fd.ReturnComponent != "$any" && !strings.HasPrefix(fd.ReturnComponent, "$builtin.") {
+		for i := range method.body {
+			node := &method.body[i]
+			if node.kind != "return" {
+				continue
+			}
+
+			tokens := producerUnwrap(producerTokens(node.expression))
+			if len(tokens) == 0 || !strings.EqualFold(tokens[0].Value, "new") {
+				continue
+			}
+
+			for j, token := range tokens {
+				if token.Kind != parser.TokLParen {
+					continue
+				}
+
+				end := producerGroupEnd(tokens, j, parser.TokLParen, parser.TokRParen)
+				if end >= 0 && end+3 < len(tokens) && tokens[end+1].Kind == parser.TokDot && tokens[end+2].Kind == parser.TokIdent && tokens[end+3].Kind == parser.TokLParen {
+					return true
+				}
+
+				break
+			}
+		}
+	}
+
+	if !method.sensitive {
 		return false
 	}
 

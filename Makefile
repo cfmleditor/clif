@@ -278,8 +278,7 @@ check: $(GOLANGCI_BIN)
 	if [ ! -e $$archive ]; then touch $$archive; trap 'rm -f '$$archive EXIT; trap 'exit 130' INT TERM; fi; \
 	go vet -tags cflint_embed ./internal/cflint/ ./cmd/clif/ \
 		&& go test -short -tags cflint_embed ./internal/cflint/
-	@unformatted=$$(gofmt -l .); if [ -n "$$unformatted" ]; then \
-		echo "gofmt needed on:"; echo "$$unformatted"; exit 1; fi
+	@bash scripts/check-go-format.sh
 	go test -short -race ./...
 	$(GOLANGCI_BIN) run ./...
 	$(MAKE) --no-print-directory vuln

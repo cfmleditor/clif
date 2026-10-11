@@ -1208,6 +1208,43 @@ placed or typed leaves it untyped. It is the **last** step of `canResolveCall`:
 inside `receiverComponent` it ran before the dynamic rules and turned accepted
 calls into findings. `TestAnUntypedArgumentHoldsWhatEveryCallerPasses`.
 
+Chained-call continuation records capture each hop's byte origin before consuming
+its arguments; emission still follows nested argument calls. The hop's line is
+its own token line. This lets the ordinary caller omission proof distinguish
+same-named calls and prevents interpolated tag-expression top-up from duplicating
+one lexical call. Synthetic/ambiguous origins retain their existing safeguards.
+`TestChainedCallsKeepEachHopByteIdentity` and
+`TestChainedInterpolationCallsAreNotDuplicated` cover source offsets, tag/script
+forms and repeated names.
+
+Caller inference scans all indexed candidates without file or call-site count
+cutoffs by default, including constructor callers. Optional `.clif.json`
+`callerInferenceLimits` bounds candidate files, owner files, sites and constructor
+files independently; positive values enable limits and nonpositive values leave
+them unlimited. The policy block replaces an inherited block as a whole. Unplaced receivers and unknown supplied
+values still withhold inference. An ordinary call with an unknown receiver is
+ignored only when exact byte identity and balanced syntax prove that it omits
+the target argument. Opaque `argumentCollection` and unknown `invoke` owners
+still withhold inference. Runtime component paths containing interpolation
+markers cannot become caller-derived literal types; recursive inference retains
+its depth bound.
+It runs only in batch scans and can cost more for common names in large corpora.
+`TestArgumentCallerBudgetUsesOwnership` and
+`TestArgumentInferenceBeyondFormerLimits` cover unrelated owners, former limits,
+constructors and an unknown value after the former site cutoff.
+
+Literal array-returning `entityLoad` forms use indexed persistent-entity metadata
+for loop element types: a literal entity name, optionally a filter struct and an
+explicit `false` unique flag. Shadowed calls, dynamic names, scalar-ID overloads,
+unknown/true unique flags and unsupported options stay unknown. Native array
+`.each(function(element){...})` can use the same independently established
+collection element contract (including existing ORM relationships and cborm
+`getAll`). Only the first positional callback parameter is typed, only for an
+exact closure call span and stable parameter. This assumes the collection keeps
+its producer's homogeneous element contract; it does not establish types after
+arbitrary runtime mutations or escapes. See `collection_callbacks.go` and
+`TestLoadedEntityCollectionsTypeLoopsAndEachCallbacks`.
+
 ## Capabilities the VS Code extension has and this server does not
 
 The `cfmleditor` extension stands its own language providers down whenever this

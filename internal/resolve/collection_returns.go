@@ -11,10 +11,14 @@ import (
 // Compact source contracts let closed indexing defer cross-component method
 // lookup. Following them uses normal indexed lookup and a shared work budget.
 func (r *Resolver) collectionReturnOf(fd *parser.FunctionDef, depth int, budget *int) string {
+	return r.collectionSourcesOf(fd, fd.ReturnSources, depth, budget)
+}
+
+func (r *Resolver) collectionSourcesOf(fd *parser.FunctionDef, sources []parser.ReturnSource, depth int, budget *int) string {
 	baseDir := filepath.Dir(cfpath.FromURI(string(fd.URI)))
 	answer := ""
 
-	for _, source := range fd.ReturnSources {
+	for _, source := range sources {
 		if *budget <= 0 {
 			return ""
 		}

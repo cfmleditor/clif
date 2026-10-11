@@ -156,6 +156,7 @@ func (s *Server) exportScope(kind string) (roots, targets []string, err error) {
 // session's settings, and splits it across targets.
 func (s *Server) unresolvedReports(files, targets []string) ([]report, int) {
 	opt := unresolved.Options{
+		CallerInferenceLimits:    s.CallerInferenceLimits,
 		Mappings:                 s.Mappings,
 		ExpressionMappings:       s.ExpressionMappings,
 		ServicePropertyResolvers: s.ServicePropertyResolvers,

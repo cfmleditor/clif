@@ -1,6 +1,10 @@
 package server
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/cfmleditor/clif/internal/config"
+)
 
 // Both keys are parsed by config.JSON, merged by config.Merge and — since this
 // change — carried by config.Resolve, but applyConfig is the last hop into the
@@ -25,5 +29,29 @@ func TestInitializeAppliesServicePropertyResolvers(t *testing.T) {
 
 	if got := s.ServicePropertyResolvers["package"]; got != "packages.${name}" {
 		t.Errorf("servicePropertyResolvers not applied to the server: got %q", got)
+	}
+}
+
+func TestInitializeAppliesCallerInferenceLimits(t *testing.T) {
+	s := initializeWithConfig(t, `{"callerInferenceLimits":{"maxCandidateFiles":12,"maxCallSites":4}}`)
+	if s.CallerInferenceLimits.MaxCandidateFiles != 12 || s.CallerInferenceLimits.MaxCallSites != 4 {
+		t.Fatalf("limits did not reach session: %+v", s.CallerInferenceLimits)
+	}
+
+	// Restoration is tested on an idle session; initialization starts indexing.
+	s = &Server{CallerInferenceLimits: s.CallerInferenceLimits}
+	prev := s.optionalBlocks()
+	s.CallerInferenceLimits.MaxCallSites = 0
+	s.restoreUnmentionedBlocks(&config.JSON{}, &prev)
+
+	if s.CallerInferenceLimits.MaxCallSites != 4 {
+		t.Fatal("omitted block lost limits")
+	}
+
+	s.CallerInferenceLimits.MaxCallSites = 0
+	s.restoreUnmentionedBlocks(&config.JSON{CallerInferenceLimits: &config.CallerInferenceLimits{}}, &prev)
+
+	if s.CallerInferenceLimits.MaxCallSites != 0 {
+		t.Fatal("explicit empty block failed to reset limits")
 	}
 }

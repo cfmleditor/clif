@@ -1,0 +1,11 @@
+{
+  "engine": {"name": "ColdFusion Server", "version": "2025,0,10,331899"},
+  "providerInterpolated": {"ok": true, "result": {"value": "provider", "bodyReceiver": "provider"}},
+  "providerDirect": {"ok": true, "result": {"value": "provider", "bodyReceiver": "provider"}},
+  "copiedInterpolatedOmitted": {"ok": true, "result": {"value": "host", "bodyReceiver": "host"}},
+  "copiedDirectOmitted": {"ok": true, "result": {"value": "host", "bodyReceiver": "host"}},
+  "copiedInterpolatedSupplied": {"ok": true, "result": {"value": "explicit", "bodyReceiver": "host"}},
+  "copiedDirectSupplied": {"ok": true, "result": {"value": "explicit", "bodyReceiver": "host"}},
+  "extractedInterpolated": {"ok": false, "type": "Expression", "message": "Variable PRIMARYKEY is undefined."},
+  "extractedDirect": {"ok": false, "type": "Expression", "message": "Variable PRIMARYKEYS is undefined."}
+}

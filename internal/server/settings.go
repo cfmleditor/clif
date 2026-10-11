@@ -20,6 +20,7 @@ import (
 // Adding a config key now means adding a field here and a line in Apply,
 // rather than remembering three call sites.
 type Settings struct {
+	CallerInferenceLimits config.CallerInferenceLimits
 	// ConfigPath is the .clif.json these settings were read from, empty
 	// when the daemon's own walk found none. It is what tells a session
 	// whether its configuration has already been discovered for it — see
@@ -51,6 +52,7 @@ type Settings struct {
 
 // Apply copies the settings onto a freshly created Server.
 func (set *Settings) Apply(s *Server) {
+	s.CallerInferenceLimits = set.CallerInferenceLimits
 	s.ConfigPath = set.ConfigPath
 	s.WorkspaceFolders = set.WorkspaceFolders
 	s.IndexGlobs = set.IndexGlobs

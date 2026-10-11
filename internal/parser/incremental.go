@@ -229,6 +229,13 @@ func (pr *ParseResult) resetFuncCaches() {
 
 func (pr *ParseResult) resetGlobalCaches() {
 	pr.mu.Lock()
+	// A writer in any function can affect a whole returned collection.
+	// Rebuild these contracts on the next full parse, rather than retaining
+	// a contract computed from the previous file contents.
+	for i := range pr.Funcs {
+		pr.Funcs[i].CollectionValues = nil
+	}
+
 	pr.scopedDone = false
 	pr.allVarsDone = false
 	pr.globalVars = nil

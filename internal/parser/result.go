@@ -485,6 +485,7 @@ func (o *openLocals) namesFor(key string) []string {
 // returning its pending calls for resolvePendingCalls.
 func (pr *ParseResult) mergeScriptRegion(r *Region, tagScopes []FuncScope, open *openLocals) []pendingCall {
 	sp := newScriptParser(r.Text, string(pr.URI), r.StartLine, pr.Resolvers).asCFScript()
+	sp.baseOffset = r.Offset
 	sp.resolverSet = pr.resolverSet
 	sp.extractLinks = pr.extractLinks
 	sp.extractCalls = pr.extractCalls
@@ -915,8 +916,7 @@ func (pr *ParseResult) walkChainRest(comp string, rest []string) string {
 		switch {
 		case comp == "" || comp == "$any":
 			return comp
-		case strings.HasPrefix(comp, "$builtin."):
-			return "$any"
+
 		case strings.EqualFold(name, "init"), IsMockDecoration(name):
 			// A MockBox decoration returns the mock it is called on.
 			continue
@@ -1219,6 +1219,10 @@ func (pr *ParseResult) funcReturnsFor(calls []pendingCall) map[string]string {
 // pendingCallComponent is the component the call c assigns its variable, or
 // "" when nothing says. It may clear c.rest, when the chain ends in a mock.
 func (pr *ParseResult) pendingCallComponent(c *pendingCall, funcReturns map[string]string, globals []ComponentRef) string {
+	if c.baseVar == "" && (c.baseLocal || pr.pendingArgumentShadows(c)) {
+		return ""
+	}
+
 	var comp string
 	if c.callsOwnFunction() || pr.receiverIsThisFile(c) {
 		comp = funcReturns[strings.ToLower(c.funcName)]
@@ -1239,6 +1243,23 @@ func (pr *ParseResult) pendingCallComponent(c *pendingCall, funcReturns map[stri
 
 	if comp == "" && c.baseVar == "" && c.expression != "" && pr.FuncLookup != nil && pr.URI.IsFile() {
 		comp = pr.FuncLookup(pr.URI.Path(), CallHop(c.expression))
+	}
+
+	// Native globals are typed only after declared functions have had priority.
+	if comp == "" && c.baseVar == "" && pr.BuiltinReturnLookup != nil {
+		declared := false
+
+		for i := range pr.Funcs {
+			if strings.EqualFold(pr.Funcs[i].Name, c.funcName) {
+				declared = true
+
+				break
+			}
+		}
+
+		if !declared {
+			comp = pr.BuiltinReturnLookup(c.funcName)
+		}
 	}
 
 	// A mock made through the MockBox a spec holds,
@@ -1263,6 +1284,24 @@ func (pr *ParseResult) pendingCallComponent(c *pendingCall, funcReturns map[stri
 	}
 
 	return comp
+}
+
+// A callable argument is source-owned, even when its name matches a builtin.
+// Enclosing named-function arguments also remain visible inside callbacks.
+func (pr *ParseResult) pendingArgumentShadows(c *pendingCall) bool {
+	for _, scope := range pr.Scopes {
+		if int(c.line) < scope.Start || int(c.line) > scope.End {
+			continue
+		}
+
+		for _, arg := range pr.argsOfFuncAt(scope.Start) {
+			if strings.EqualFold(arg.Name, c.funcName) {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 // callsOwnFunction reports whether c calls a function of the file's own
@@ -1292,8 +1331,9 @@ func (pr *ParseResult) addPendingRef(c *pendingCall, comp string) bool {
 		Variable: c.varName, Component: comp, ChainRest: c.rest,
 		URI: pr.URI, Line: c.line, This: c.refThis, Rebinds: c.rebinds, BaseGuess: c.baseGuess,
 		VisibleFrom: c.visibleFrom, VisibleTo: c.visibleTo,
+		ClosureFrom: c.closureFrom, ClosureTo: c.closureTo, HasClosureSpan: c.hasClosureSpan,
 	}
-	if c.funcKey == "" || c.global {
+	if c.funcKey == "" && !c.hasClosureSpan || c.global {
 		pr.ComponentRefs = append(pr.ComponentRefs, ref)
 	} else {
 		pr.funcRefsMap = appendKeyed(pr.funcRefsMap, c.funcKey, []ComponentRef{ref})
@@ -1456,7 +1496,7 @@ func (pr *ParseResult) settleReturnVars(pending []returnPending, calls []pending
 			// returns. An unscoped name the function never declared is a
 			// variables-scope one, as settleReturnComponent reads it: a
 			// pending call assigning it settles at component level.
-			refs, admit = pr.funcRefsMap[rp.funcKey], func(ref *ComponentRef) bool { return ref.VisibleTo == 0 }
+			refs, admit = pr.funcRefsMap[rp.funcKey], func(ref *ComponentRef) bool { return ref.VisibleTo == 0 && !ref.HasClosureSpan }
 			if refReaching(refs, name, rp.line, admit) == nil {
 				refs, admit = pr.ComponentRefs, func(*ComponentRef) bool { return true }
 			}
@@ -1543,7 +1583,7 @@ func (pr *ParseResult) hasRefFor(c *pendingCall) bool {
 		refs := pr.funcRefsMap[c.funcKey]
 		for i := range refs {
 			if ref := &refs[i]; ref.Line == c.line && strings.EqualFold(ref.Variable, c.varName) &&
-				ref.VisibleFrom == c.visibleFrom && ref.VisibleTo == c.visibleTo {
+				ref.VisibleFrom == c.visibleFrom && ref.VisibleTo == c.visibleTo && ref.HasClosureSpan == c.hasClosureSpan && ref.ClosureFrom == c.closureFrom && ref.ClosureTo == c.closureTo {
 				return true
 			}
 		}
@@ -1775,6 +1815,7 @@ func (pr *ParseResult) generatePropertyAccessors() {
 			getterDef := FunctionDef{
 				Name: "get" + capName, URI: u, Line: prop.line,
 				ReturnType: prop.typeName,
+				Generated:  true,
 			}
 			if pr.Persistent {
 				getterDef.ElementComponent = prop.collectionEntity()
@@ -1789,6 +1830,7 @@ func (pr *ParseResult) generatePropertyAccessors() {
 
 			pr.Funcs = append(pr.Funcs, FunctionDef{
 				Name: "set" + capName, URI: u, Line: prop.line,
+				Generated:       true,
 				Arguments:       []Argument{{Name: prop.name, Type: prop.typeName}},
 				ReturnComponent: self,
 			})
@@ -1798,7 +1840,7 @@ func (pr *ParseResult) generatePropertyAccessors() {
 			if !existing[strings.ToLower(m)] {
 				existing[strings.ToLower(m)] = true
 
-				pr.Funcs = append(pr.Funcs, FunctionDef{Name: m, URI: u, Line: prop.line})
+				pr.Funcs = append(pr.Funcs, FunctionDef{Name: m, URI: u, Line: prop.line, Generated: true})
 			}
 		}
 
@@ -2796,7 +2838,7 @@ func (pr *ParseResult) FuncComponentRefs(funcStart, funcEnd int) []ComponentRef 
 	scoped := 0
 
 	for i := range refs {
-		if refs[i].VisibleTo != 0 {
+		if refs[i].VisibleTo != 0 || refs[i].HasClosureSpan {
 			scoped++
 		}
 	}
@@ -2808,7 +2850,7 @@ func (pr *ParseResult) FuncComponentRefs(funcStart, funcEnd int) []ComponentRef 
 	wide := make([]ComponentRef, 0, len(refs)-scoped)
 
 	for i := range refs {
-		if refs[i].VisibleTo == 0 {
+		if refs[i].VisibleTo == 0 && !refs[i].HasClosureSpan {
 			wide = append(wide, refs[i])
 		}
 	}
@@ -2843,6 +2885,15 @@ func (pr *ParseResult) FuncComponentRefsAt(funcStart, funcEnd int, line uint32) 
 // FuncRefs returns cached component refs and document links for a function body.
 func (pr *ParseResult) FuncRefs(funcStart, funcEnd int) ([]ComponentRef, []DocumentLink) {
 	return pr.cachedFuncRefs(funcStart, funcEnd)
+}
+
+// TopLevelClosureRefs returns the full parse's anonymous-function bindings.
+// They are keyed separately from named functions and never become file globals.
+func (pr *ParseResult) TopLevelClosureRefs() []ComponentRef {
+	pr.funcRefsMu.Lock()
+	defer pr.funcRefsMu.Unlock()
+
+	return slices.Clone(pr.funcRefsMap[""])
 }
 
 // FuncLinks returns document links for a function body from the parse-time cache.
@@ -2944,6 +2995,7 @@ func (pr *ParseResult) funcRefsUncached(funcStart, funcEnd int) ([]ComponentRef,
 
 	if regionKind == RegionScript {
 		sp := newScriptParser(body, string(pr.URI), funcStart, pr.Resolvers)
+		sp.baseOffset = start
 		sp.resolverSet = pr.resolverSet
 		sp.extractLinks = true
 		sp.argumentTypes = pr.argumentTypeLookup()
@@ -2961,6 +3013,7 @@ func (pr *ParseResult) funcRefsUncached(funcStart, funcEnd int) ([]ComponentRef,
 		}
 	} else {
 		tp := newTagParser(body, string(pr.URI))
+		tp.srcOffset = start
 		tp.resolvers = pr.Resolvers
 		tp.resolverSet = pr.resolverSet
 		tp.extractLinks = true
@@ -3303,6 +3356,7 @@ func (pr *ParseResult) funcCallsUncached(funcStart, funcEnd int) []CallSite {
 
 	if regionKind == RegionScript {
 		sp := newScriptParser(body, string(pr.URI), funcStart, pr.Resolvers)
+		sp.baseOffset = start
 		sp.resolverSet = pr.resolverSet
 		sp.extractCalls = true
 		sp.parse()
@@ -3313,6 +3367,7 @@ func (pr *ParseResult) funcCallsUncached(funcStart, funcEnd int) []CallSite {
 		}
 	} else {
 		tp := newTagParser(body, string(pr.URI))
+		tp.srcOffset = start
 		tp.resolvers = pr.Resolvers
 		tp.resolverSet = pr.resolverSet
 		tp.extractCalls = true

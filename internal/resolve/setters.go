@@ -9,11 +9,19 @@ import (
 )
 
 // SetterLookup supplies dependency types only for components inside configured
-// bean roots or source-proven FW/1 controller/service scopes. Merely naming a
+// bean roots, source-discovered DI/1 policies or proven FW/1 controller/service
+// scopes. Merely naming a
 // parameter after a CFC does not imply injection.
 func (r *Resolver) SetterLookup(file string) func(string) string {
 	if !cfpath.IsCFCFile(file) || r.discoveringDI {
 		return nil
+	}
+
+	// A discovered factory owns its actual roots even when they differ from
+	// conventional bean folders. Its lookup keeps exclusions and lifetime
+	// checks; it must not fall back to generic bean names when blocked.
+	if lookup := r.factoryDependencyLookup(file, true); lookup != nil {
+		return lookup
 	}
 
 	roots := r.managedBeanPaths()

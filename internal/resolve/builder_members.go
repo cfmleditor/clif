@@ -30,15 +30,17 @@ const (
 // closureSpan is a function literal with parameters, the lines of its body and
 // whether it is the target of a builder's when().
 type closureSpan struct {
-	params     []string // lowercased
-	start, end int      // body lines
-	builder    bool
+	params       []string // lowercased
+	start, end   int      // body lines
+	from, to     int      // byte interval, end exclusive
+	functionFrom int
+	builder      bool
 }
 
 // closureParamBuilder is the builder component when name is the first
 // parameter of the innermost closure around line that is a builder chain's
 // when() target, or "".
-func (r *Resolver) closureParamBuilder(name string, line uint32, pr *parser.ParseResult) string {
+func (r *Resolver) closureParamBuilder(name string, line uint32, pr *parser.ParseResult, call *parser.CallSite) string {
 	name = strings.ToLower(strings.TrimPrefix(strings.ToLower(name), "arguments."))
 	if name == "" || strings.Contains(name, ".") {
 		return ""
@@ -54,12 +56,29 @@ func (r *Resolver) closureParamBuilder(name string, line uint32, pr *parser.Pars
 			continue
 		}
 
-		if best == nil || s.end-s.start < best.end-best.start {
+		if call != nil && call.HasSpan && (int(call.StartByte) < s.from || int(call.StartByte) >= s.to) {
+			continue
+		}
+
+		if best == nil || s.to-s.from < best.to-best.from {
 			best = s
+		}
+	}
+	// A line-only request cannot identify sibling or nested same-line closures.
+	if best != nil && (call == nil || !call.HasSpan) {
+		for _, s := range spans {
+			if int(line) >= s.start && int(line) <= s.end && s.from != best.from &&
+				(s.to <= best.from || s.from >= best.to || s.start == best.start && s.end == best.end) {
+				return ""
+			}
 		}
 	}
 
 	if best == nil || !best.builder || len(best.params) == 0 || best.params[0] != name {
+		return ""
+	}
+
+	if call != nil && call.HasSpan && !callbackParameterStable(pr.Content, best.from, int(call.StartByte), name) {
 		return ""
 	}
 
@@ -97,23 +116,36 @@ func (r *Resolver) findClosures(pr *parser.ParseResult) []closureSpan {
 	var out []closureSpan
 
 	for i := 0; i+2 < len(tokens); i++ {
-		if !strings.EqualFold(tokens[i].Value, "function") || tokens[i+1].Kind != parser.TokLParen {
+		body, paramsFrom, paramsTo := -1, -1, -1
+
+		switch {
+		case strings.EqualFold(tokens[i].Value, "function") && tokens[i+1].Kind == parser.TokLParen:
+			endParams := producerGroupEnd(tokens, i+1, parser.TokLParen, parser.TokRParen)
+			if endParams >= 0 && endParams+1 < len(tokens) && tokens[endParams+1].Kind == parser.TokLBrace {
+				body, paramsFrom, paramsTo = endParams+1, i+2, endParams
+			}
+		case tokens[i].Kind == parser.TokLParen:
+			endParams := producerGroupEnd(tokens, i, parser.TokLParen, parser.TokRParen)
+			if endParams >= 0 && endParams+3 < len(tokens) && tokens[endParams+1].Kind == parser.TokEquals && tokens[endParams+2].Kind == parser.TokGT && tokens[endParams+3].Kind == parser.TokLBrace {
+				body, paramsFrom, paramsTo = endParams+3, i+1, endParams
+			}
+		case tokens[i].Kind == parser.TokIdent && tokens[i+1].Kind == parser.TokEquals && tokens[i+2].Kind == parser.TokGT && i+3 < len(tokens) && tokens[i+3].Kind == parser.TokLBrace:
+			if i == 0 || tokens[i-1].Kind != parser.TokDot {
+				body, paramsFrom, paramsTo = i+3, i, i+1
+			}
+		}
+
+		if body < 0 {
 			continue
 		}
 
-		closeParen := producerGroupEnd(tokens, i+1, parser.TokLParen, parser.TokRParen)
-		if closeParen < 0 || closeParen+1 >= len(tokens) || tokens[closeParen+1].Kind != parser.TokLBrace {
-			continue
-		}
-
-		closeBrace := producerGroupEnd(tokens, closeParen+1, parser.TokLBrace, parser.TokRBrace)
+		closeBrace := producerGroupEnd(tokens, body, parser.TokLBrace, parser.TokRBrace)
 		if closeBrace < 0 {
 			continue
 		}
 
-		span := closureSpan{start: tokens[closeParen+1].Line, end: tokens[closeBrace].Line}
-
-		span.params = paramNames(tokens[i+2 : closeParen])
+		span := closureSpan{start: tokens[body].Line, end: tokens[closeBrace].Line, from: tokens[body].Offset, to: tokens[closeBrace].Offset + 1, functionFrom: tokens[i].Offset}
+		span.params = paramNames(tokens[paramsFrom:paramsTo])
 		span.builder = r.isBuilderWhenTarget(tokens, i, pr, span.start)
 
 		out = append(out, span)
@@ -247,13 +279,13 @@ func (r *Resolver) builderChainEndingAt(tokens []parser.Token, dot int, pr *pars
 
 // builderMember types a closure's builder parameter (`c` in `when( test,
 // function( c ){ … } )`) and a builder's `restrictions`.
-func (r *Resolver) builderMember(variable string, line uint32, caller, funcName string, pr *parser.ParseResult, baseDir string, tr *callTrace) string {
+func (r *Resolver) builderMember(variable string, line uint32, caller, funcName string, pr *parser.ParseResult, baseDir string, tr *callTrace, ctx lookupCtx) string {
 	if pr == nil || strings.ContainsAny(variable, "[(") {
 		return ""
 	}
 
 	if root, member, ok := strings.Cut(variable, "."); ok && strings.EqualFold(member, "restrictions") && !isScopeWord(root) {
-		comp, _ := r.receiverComponent(root, line, caller, funcName, pr, baseDir, nil)
+		comp, _ := r.receiverComponentD(root, line, caller, funcName, pr, baseDir, nil, ctx)
 		if isBuilderComponent(comp) {
 			tr.addf("resolved %q to %q: a criteria builder's restrictions", variable, restrictionsComponent)
 
@@ -263,8 +295,14 @@ func (r *Resolver) builderMember(variable string, line uint32, caller, funcName 
 		return ""
 	}
 
-	if comp := r.closureParamBuilder(variable, line, pr); comp != "" {
+	if comp := r.closureParamBuilder(variable, line, pr, ctx.call); comp != "" {
 		tr.addf("resolved %q to %q: the builder when() hands its closure", variable, comp)
+
+		return comp
+	}
+
+	if comp := r.callbackParameterComponent(variable, pr, baseDir, ctx); comp != "" {
+		tr.addf("resolved %q to %q from the provider's callback invocation", variable, comp)
 
 		return comp
 	}

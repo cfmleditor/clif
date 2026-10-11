@@ -34,10 +34,9 @@ const maxStartupTemplates = 64
 var sharedScopes = []string{"request", "session", "application", "server"}
 
 var (
-	tagSharedAssign    = regexp.MustCompile(`(?i)<cfset\s+(request|session|application|server)\.([A-Za-z_$][\w$]*)\s*=`)
-	scriptSharedAssign = regexp.MustCompile(`(?im)^[ \t]*(request|session|application|server)\.([A-Za-z_$][\w$]*)\s*=`)
-	createdComponent   = regexp.MustCompile(`(?i)^createObject\s*\(\s*["']component["']\s*,\s*["']([^"']+)["']`)
-	newComponent       = regexp.MustCompile(`(?i)^new\s+(?:cfml:)?([A-Za-z_$#][\w$.#]*)\s*\(`)
+	tagSharedAssign  = regexp.MustCompile(`(?i)<cfset\s+(request|session|application|server)\.([A-Za-z_$][\w$]*)\s*=`)
+	createdComponent = regexp.MustCompile(`(?i)^createObject\s*\(\s*["']component["']\s*,\s*["']([^"']+)["']`)
+	newComponent     = regexp.MustCompile(`(?i)^new\s+(?:cfml:)?([A-Za-z_$#][\w$.#]*)\s*\(`)
 )
 
 // startupAssign is one shared-scope assignment a startup template makes.
@@ -46,7 +45,9 @@ type startupAssign struct {
 	rhs           string
 	dir           string // the template's directory, for resolving what the RHS names
 	factory, bean string
-	strict        bool // populated only by a bounded service-list loop
+	strict        bool   // populated only by a bounded service-list loop
+	anchor        bool   // declaration belongs to a parent outside the application directory
+	component     string // source-verified immediate Injector result
 }
 
 // splitSharedScope splits "REQUEST.context" into its lowercased key, or reports
@@ -73,7 +74,7 @@ func splitSharedScope(variable string) (string, bool) {
 // life of the resolver, which the server drops wherever a path answer may
 // have gone stale.
 func (r *Resolver) startupAssigns(baseDir string) []startupAssign {
-	appDir := r.FindApplicationRoot(baseDir)
+	appDir := r.executionApplication(baseDir)
 	if appDir == "" && len(r.StartupFiles) == 0 {
 		return nil
 	}
@@ -87,9 +88,10 @@ func (r *Resolver) startupAssigns(baseDir string) []startupAssign {
 	}
 
 	var (
-		out   []startupAssign
-		seen  = map[string]bool{}
-		queue []string
+		out     []startupAssign
+		seen    = map[string]bool{}
+		anchors = map[string]bool{}
+		queue   []string
 	)
 
 	if appDir != "" {
@@ -115,21 +117,33 @@ func (r *Resolver) startupAssigns(baseDir string) []startupAssign {
 			continue
 		}
 
-		content := string(data)
-		out = append(out, sharedAssignments(content, filepath.Dir(file))...)
+		sources := r.startupSources(file, string(data))
 
-		pr := parser.Parse(cfpath.ToURI(file), content, r.Resolvers)
-		for _, assignment := range pr.StartupVariableAssignments() {
-			out = append(out, startupAssign{key: strings.ToLower(assignment.Variable), rhs: assignment.Expression, dir: filepath.Dir(file), strict: true})
-		}
+		for _, source := range sources {
+			anchor := anchors[pathKey(file)] || filepath.Dir(source.file) != filepath.Dir(file)
+			file, content := source.file, source.content
+			before := len(out)
+			out = append(out, sharedAssignments(content, filepath.Dir(file))...)
+			r.bindWheelsStartup(out[before:], content, filepath.Dir(file))
 
-		for _, binding := range parser.StartupBeanBindings(content) {
-			out = append(out, startupAssign{key: strings.ToLower(binding.Variable), dir: filepath.Dir(file), factory: strings.ToLower(binding.Factory), bean: binding.Bean})
-		}
+			pr := parser.Parse(cfpath.ToURI(file), content, r.Resolvers)
+			for _, assignment := range pr.StartupVariableAssignments() {
+				out = append(out, startupAssign{key: strings.ToLower(assignment.Variable), rhs: assignment.Expression, dir: filepath.Dir(file), strict: true})
+			}
 
-		for _, raw := range parser.ExtractIncludes(content) {
-			if target := r.IncludePath(raw, file); target != "" {
-				queue = append(queue, target)
+			for _, binding := range parser.StartupBeanBindings(content) {
+				out = append(out, startupAssign{key: strings.ToLower(binding.Variable), dir: filepath.Dir(file), factory: strings.ToLower(binding.Factory), bean: binding.Bean})
+			}
+
+			for i := before; i < len(out); i++ {
+				out[i].anchor = anchor
+			}
+
+			for _, raw := range parser.ExtractIncludes(content) {
+				if target := r.IncludePath(raw, file); target != "" {
+					anchors[pathKey(target)] = anchors[pathKey(target)] || anchor
+					queue = append(queue, target)
+				}
 			}
 		}
 	}
@@ -193,8 +207,38 @@ func sharedAssignments(content, dir string) []startupAssign {
 		out = appendAssign(out, content, m, '>', dir)
 	}
 
-	for _, m := range scriptSharedAssign.FindAllStringSubmatchIndex(content, -1) {
-		out = appendAssign(out, content, m, ';', dir)
+	sc := parser.NewScanner(content)
+	previous := parser.Token{}
+
+	for {
+		t := sc.NextSkipComments()
+		if t.Kind == parser.TokEOF {
+			break
+		}
+
+		before := previous
+
+		previous = t
+		if t.Kind != parser.TokIdent || before.Kind == parser.TokDot || strings.EqualFold(before.Value, "cfset") || !slices.Contains(sharedScopes, strings.ToLower(t.Value)) {
+			continue
+		}
+
+		cursor := *sc
+		if cursor.NextSkipComments().Kind != parser.TokDot {
+			continue
+		}
+
+		name := cursor.NextSkipComments()
+		if name.Kind != parser.TokIdent || cursor.NextSkipComments().Kind != parser.TokEquals || cursor.PeekSkipComments().Kind == parser.TokEquals {
+			continue
+		}
+
+		start := cursor.PeekSkipComments().Offset
+
+		end := assignEnd(content[start:], ';')
+		if end >= 0 {
+			out = append(out, startupAssign{key: strings.ToLower(t.Value + "." + name.Value), rhs: strings.TrimSpace(content[start : start+end]), dir: dir})
+		}
 	}
 
 	return out
@@ -274,6 +318,13 @@ func (r *Resolver) startupComponent(variable, baseDir string, tr *callTrace) str
 		return ""
 	}
 
+	if r.indexer != nil && r.callerApplication != "" && !underAny([]string{r.callerApplication}, baseDir) {
+		assigns = slices.Clone(assigns)
+		for i := range assigns {
+			assigns[i].anchor = true
+		}
+	}
+
 	comp := r.typeOfShared(key, assigns, map[string]bool{})
 	if comp != "" {
 		tr.addf("resolved %q to %q from an assignment in a startup template (one the Application.cfc includes, or a configured startupFiles entry)", variable, comp)
@@ -297,7 +348,7 @@ func (r *Resolver) typeOfShared(key string, assigns []startupAssign, visiting ma
 
 	for i := range assigns {
 		a := &assigns[i]
-		if a.key == key && (a.bean != "" || a.strict) {
+		if a.key == key && (a.bean != "" || a.strict || a.component != "") {
 			strict = true
 
 			break
@@ -311,8 +362,19 @@ func (r *Resolver) typeOfShared(key string, assigns []startupAssign, visiting ma
 		}
 
 		c := r.typeOfExpr(a.rhs, a.dir, assigns, visiting)
+		if a.component != "" {
+			c = a.component
+		}
+
 		if a.bean != "" {
 			c = r.startupLoopBean(a, assigns, visiting)
+		}
+		// A declaring-relative type must retain its source context when a page
+		// outside that directory consumes the shared value.
+		if a.anchor && c != "" && !strings.HasPrefix(c, "$") {
+			if path := r.ComponentPath(c, a.dir); path != "" {
+				c = path
+			}
 		}
 
 		if strict && (c == "" || len(comps) > 0 && comps[0] != c) {

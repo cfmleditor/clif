@@ -7,7 +7,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/cfmleditor/clif/internal/conv"
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
 )
@@ -33,7 +32,6 @@ import (
 var (
 	loopTagRe      = regexp.MustCompile(`(?is)<(/?)cfloop\b([^>]*)>`)
 	loopAttrRe     = regexp.MustCompile(`(?i)\b(array|index|item)\s*=\s*["']([^"']*)["']`)
-	loopCallRe     = regexp.MustCompile(`^(?:([\w.]+)\.)?(\w+)\s*\((.*)\)$`)
 	loopPathRe     = regexp.MustCompile(`^(?:(local|variables|this|arguments)\.)?(\w+)$`)
 	maxElementHops = 4
 )
@@ -294,17 +292,8 @@ func (r *Resolver) elementOf(expression string, header, start int, caller string
 
 	self := pr.URI.Path()
 
-	if m := loopCallRe.FindStringSubmatch(expression); m != nil {
-		receiver, method, arguments := m[1], m[2], m[3]
-
-		target := self
-
-		if receiver != "" && !strings.EqualFold(receiver, "this") && !strings.EqualFold(receiver, "variables") {
-			comp, _ := r.receiverComponentD(receiver, conv.Uint32(header), caller, method, pr, baseDir, nil, lookupCtx{leaf: leaf})
-			target = comp
-		}
-
-		return r.methodElement(target, method, arguments, baseDir)
+	if receiver, calls, ok := callChain(expression); ok {
+		return r.collectionExpressionElement(receiver, calls, header, start, caller, pr, baseDir, depth, leaf)
 	}
 
 	// A view's prc.X is what the handler action rendering the view assigns,
@@ -379,6 +368,10 @@ func (r *Resolver) methodElement(comp, method, arguments, baseDir string) string
 
 	if fd.ElementComponent != "" {
 		return r.withSubclasses(r.ComponentPath(fd.ElementComponent, filepath.Dir(fd.URI.Path())))
+	}
+
+	if fd.CollectionValues != nil {
+		return "$builtin.native.string"
 	}
 
 	// cborm: a service bound to an entity returns an array of it from getAll(),

@@ -34,6 +34,7 @@ const maxAssignedDepth = 3
 type lookupCtx struct {
 	depth int
 	leaf  string
+	call  *parser.CallSite
 }
 
 func (r *Resolver) assignedFromCall(variable string, line uint32, caller string, pr *parser.ParseResult, baseDir string, tr *callTrace, ctx lookupCtx) string {
@@ -110,12 +111,38 @@ func (r *Resolver) assignedFromCall(variable string, line uint32, caller string,
 		return ""
 	}
 
+	if native := nativeLiteral(rhs); native != "" {
+		if container == "" && !scoped && evalCaller == caller {
+			if output, written := r.literalQueryOutput(pr, name, at, int(line), caller, baseDir, ctx.call); written {
+				native = output
+				if native == "" {
+					return ""
+				}
+			}
+		}
+
+		// A loop header assigns its receiver anew. An earlier literal
+		// initializer does not describe an unknown collection element.
+		end := -1
+		if scope, found := enclosingScope(pr, line); found {
+			end = scope.End
+		}
+
+		if _, _, loop := enclosingLoop(r.loopsOf(pr), strings.ToLower(name), int(line), start, end); loop {
+			return ""
+		}
+
+		tr.addf("resolved %q to %q from its local assignment and output lifetime", variable, native)
+
+		return native
+	}
+
 	// `var mmRBF = application.rbFactory`: an alias of a name, which is
 	// typed as that name is at the line (Masa's form builder reads the
 	// resource bundle factory a startup template assigns).
 	if aliasRe.MatchString(rhs) && !strings.EqualFold(rhs, variable) && !strings.EqualFold(rhs, name) {
 		comp, _ := r.receiverComponentD(rhs, evalLine, evalCaller, "", pr, baseDir, nil, lookupCtx{depth: depth + 1, leaf: ctx.leaf})
-		if comp != "" && !strings.HasPrefix(comp, "$") {
+		if comp != "" && !strings.HasPrefix(comp, "$") && !strings.HasPrefix(comp, "$builtin.") {
 			tr.addf("resolved %q to %q: it is assigned %s", variable, comp, rhs)
 
 			return comp
@@ -164,7 +191,7 @@ func (r *Resolver) typeCallExpr(rhs string, line uint32, caller string, pr *pars
 	var comp string
 
 	if receiver == "" {
-		comp = r.typeBareCallExpr(calls[0].name, calls[0].args, line, pr, baseDir)
+		comp = r.typeBareCallExpr(calls[0].name, calls[0].args, line, caller, pr, baseDir)
 		calls = calls[1:]
 	} else {
 		comp, _ = r.receiverComponentD(receiver, line, caller, calls[0].name, pr, baseDir, nil, lookupCtx{depth: ctx.depth + 1, leaf: ctx.leaf})
@@ -179,14 +206,14 @@ func (r *Resolver) typeCallExpr(rhs string, line uint32, caller string, pr *pars
 
 	// Each call in a chain is made on what the one before it returns.
 	for _, c := range calls {
-		if comp == "" || strings.HasPrefix(comp, "$") {
+		if comp == "" || strings.HasPrefix(comp, "$") && !strings.HasPrefix(comp, "$builtin.") {
 			return ""
 		}
 
 		comp = hopReturns(lookup, comp, c)
 	}
 
-	if strings.HasPrefix(comp, "$") {
+	if strings.HasPrefix(comp, "$") && !strings.HasPrefix(comp, "$builtin.") {
 		return ""
 	}
 
@@ -206,7 +233,7 @@ func hopReturns(lookup func(string, string) string, comp string, c chainCall) st
 			ret = lookup(alt, parser.CallHop(c.name+"("+c.args+")"))
 		}
 
-		if ret == "" || strings.HasPrefix(ret, "$") {
+		if ret == "" || strings.HasPrefix(ret, "$") && !strings.HasPrefix(ret, "$builtin.") {
 			return ""
 		}
 
@@ -223,16 +250,20 @@ func hopReturns(lookup func(string, string) string, comp string, c chainCall) st
 // `pluginObj = $pluginObj( config )`, whose wrapper hands config to Wheels'
 // $createObjectFromRoot. A struct literal held in an argument's local is
 // written into the call in its place (inlineStructArg).
-func (r *Resolver) typeBareCallExpr(method, args string, line uint32, pr *parser.ParseResult, baseDir string) string {
-	def := r.bareFunc(method, pr, baseDir)
-	if def == nil {
+func (r *Resolver) typeBareCallExpr(method, args string, line uint32, caller string, pr *parser.ParseResult, baseDir string) string {
+	if r.builtinCallShadowed(method, line, caller, pr) {
 		return ""
+	}
+
+	def := r.bareFunc(method, pr, baseDir, caller)
+	if def == nil {
+		return r.BuiltinReturnLookup(method)
 	}
 
 	// A declared return answers when the parse could not see the function:
 	// a module's helper stub (cbvalidation's validate()) is found only here.
 	if ret := r.ReturnComponentOf(def); ret != "" {
-		if strings.HasPrefix(ret, "$") {
+		if strings.HasPrefix(ret, "$") && !strings.HasPrefix(ret, "$builtin.") {
 			return ""
 		}
 
@@ -251,7 +282,7 @@ func (r *Resolver) typeBareCallExpr(method, args string, line uint32, pr *parser
 	}
 
 	ret := r.expressionReturn(def, method+"("+args+")", baseDir, pr.URI.Path())
-	if strings.HasPrefix(ret, "$") {
+	if strings.HasPrefix(ret, "$") && !strings.HasPrefix(ret, "$builtin.") {
 		return ""
 	}
 

@@ -3293,3 +3293,467 @@ and rejects unconditional fluent-return and event-parameter assumptions. The
 research-family inventory reaches 43.62%; causal coverage remains unmeasured.
 Next work is per-entry attribution, synthesized-method registration and runtime
 fixture design. No production implementation is authorized by this checkpoint.
+
+### Mura synthesized relationship research (2026-10-09)
+
+[Mura dynamic relationships](MURA-DYNAMIC-RELATIONSHIPS.md) connects property
+metadata to a mutable application registry and missing-method dispatch. Inverse
+registration, restored mappings, retained rebuild state and caller argument
+precedence are explicit proof obligations. Two approval-view report sites are
+correlated with source; no reduction is claimed. Implementation remains paused.
+
+### Measured resolution opportunities (2026-10-09)
+
+[Improvement probes](RESOLUTION-IMPROVEMENT-PROBES.md) prioritize the equivalent
+Wheels method-record layout with a controlled source-copy measurement: 11,527
+to 10,002 findings, 1,525 disappearing sites across 97 files and zero new sites.
+Seven engine-adapter chains only change diagnosis. Model method integration
+remains a separate 404-entry research lead. Mura receiver-origin work takes
+priority over enumerating methods already dynamically accepted by the resolver.
+Production sources remain unchanged; all proposals remain unimplemented.
+
+### Model integration opportunity audit (2026-10-09)
+
+[Model research](WHEELS-MODEL-RESEARCH.md) audits all 404 unscoped Model-provider
+findings, locating unique public candidates for 388 plain calls and separating
+16 chained-return sites. Two parameter defaults need specific binding evidence.
+The plan distinguishes installed methods, copied-body host context, and factory/
+return identity. No implementation or additional reduction is claimed.
+
+### Adapter common-API and lifecycle research (2026-10-09)
+
+[Adapter research](WHEELS-ADAPTER-RESEARCH.md) connects engine-selected constructors,
+staged/published application slots and their shared public API. A hypothetical
+return-contract probe measures 18 disappearing sites, or 25 after the earlier
+record-layout experiment. These overlap and are not implemented gains. The
+source distinguishes host-slot invocation from detached references on BoxLang;
+runtime fixtures and complete writer provenance remain required.
+
+### Relationship implementation batch (2026-10-09)
+
+[Implementation status](RESOLUTION-IMPLEMENTATION-STATUS.md) records the newly
+authorized equivalent-record and Model-integration implementations. The actual
+seven-corpus comparison removes 2,541 finding sites with zero new sites; Wheels
+is 8,986, and the other reports are unchanged. Two Model defaults remain withheld.
+Both positive regressions fail with the corresponding rule disabled. The status
+record also lists the unimplemented DI, ancestry, lifecycle, callback, adapter
+and Mura proposals; the research programme is not complete.
+
+
+### Implementation follow-up (2026-10-10)
+
+Checkpoint 10 in [Implementation status](RESOLUTION-IMPLEMENTATION-STATUS.md)
+implements caller startup context, supplied-unknown argument bags, callback
+mutation guards/block arrows, source cache invalidation, and ordered module
+configuration stages. The seven-corpus audit is 41,707 -> 41,537 report entries;
+only 139 removals are demonstrated resolutions (0.33%). Namespace/reporting
+changes account for the remaining removals and expose 39 findings. ContentBox
+checked-call coverage differs by three. The 30% target and substantive mutable
+factory/framework relationship contracts remain open; this checkpoint does not
+complete the proposed programme.
+
+### Guard and return-mode follow-up (2026-10-10)
+
+Checkpoint 11 in [Implementation status](RESOLUTION-IMPLEMENTATION-STATUS.md)
+adds stable positive type-guard receiver identity, interpolation-aware escape
+checks and bounded literal fallback return modes. The identical seven-corpus
+coverage resolves 40 additional entries (20 Lucee, 19 ContentBox, one Mura),
+with zero new findings: 41,537 -> 41,497. There are now 179 demonstrated
+resolutions against the 41,707 baseline; prior reporting/coverage differences
+remain separate. Mura loadBy effects and the larger mutable factory/registry,
+ordered-hook and collection contracts remain unfinished. Eight mutation proofs
+and the required validation are recorded in the status document.
+
+### User-review fixes (2026-10-10)
+
+Checkpoint 12 in [Implementation status](RESOLUTION-IMPLEMENTATION-STATUS.md)
+implements the three concrete fixes identified in
+[the review report](RESOLUTION-USER-REVIEW.md): script elseif extraction, scoped
+checks in mandatory AND conditions, and literal TestBox assertion registration.
+The seven-corpus audit is 41,497 -> 41,490, with zero added findings. Four entries
+are demonstrated resolutions/registration recognitions; three are phantom calls
+removed from extraction, accounting exactly for the three-call coverage drop.
+The intentional exception-test call remains reported. Required validation and
+four mutation proofs pass. The larger relationship programme remains open.
+
+### Wheels immediate Injector result and remaining root context
+
+Checkpoint 13 implements literal, fresh, immediate startup Injector lookups and
+ordinary alias propagation; details are in RESOLUTION-IMPLEMENTATION-STATUS.md.
+Default seven-corpus findings remain 41,490, unchanged per entry. With an explicit
+public root mapping, a separate same-options Wheels probe removes 5,434 entries
+and exposes 11 deeper gaps (8,861 -> 3,438, same 1,711 files on both sides).
+This conditional deployment-context gain is not counted in the default baseline.
+
+The next prerequisite is a source-declared deployment document root available
+before resolving ApplicationProxy ancestry. Read an explicit deployment config
+rather than assume that a folder called public is active. Resolve relative roots
+beside that config, preserve explicit mapping precedence, isolate applications,
+and invalidate discovery when the declaring config changes. Unknown/conflicting
+roots stay untyped. Existing CFConfig and constructor mapping support does not
+currently discover a separate deployment web-root setting.
+
+## Source-backed assumptions delivered (checkpoint 14)
+
+The authorized default policy is implemented for Wheels root context, declared
+framework namespaces and automatic existing framework presets. Default findings
+are now 28,093 across the same 8,151 files (32.6% below the original baseline).
+See PROJECT-ASSUMPTIONS.md and checkpoint 14 in RESOLUTION-IMPLEMENTATION-STATUS.md
+for per-entry changes, new findings, coverage and the distinction between source
+proofs and runtime assumptions. Explicit config overrides remain authoritative.
+
+Next useful work: Masa's bean/service/event return relationships and FW/1 injected
+services; evidence-backed defaults for external bean roots, module namespaces,
+startup includes and helper hosts. Do not count candidate matches as resolutions
+or assume all newly reported chained methods are application defects.
+
+Checkpoint 15 closes the omitted Mura preset default: combined findings 24,560
+(41.1% below the original baseline). Next source-backed default opportunity is
+the Mura startup service factory, including roots, exclusions and aliases; see
+checkpoint 15's research boundaries before enabling generic getBean inference.
+
+Checkpoints 16–19 deliver the factory context, object helpers and named standard
+application/request beans. Current combined total 13,709; Masa 5,318. See
+PROJECT-ASSUMPTIONS.md for overrides and RESOLUTION-IMPLEMENTATION-STATUS.md for
+per-batch changes and coverage. Remaining candidates include typed argument-bean
+ownership, engine-alternative alias common bases, entity-dependent feed results
+and event/serializer returns. Avoid guessing a component for generic `bean` or
+property-valued helpers.
+
+
+Checkpoint 20 resolves engine-alternative aliases when every source-resolved
+alternative extends an actual registered base target. Retrieval shares that base
+API; singleton injection remains exact. This removes another 86 diagnostics with
+none added: total 13,623, Masa 5,232, with unchanged file coverage. Next candidates
+remain argument ownership, entity-dependent feed results and event/serializer
+returns; their names alone do not establish a component contract.
+
+
+Checkpoints 21–22 add standard admin payload and application service conventions,
+with source evidence and config overrides in PROJECT-ASSUMPTIONS.md. Current
+combined total 13,049; Masa 4,658. The two batches remove 574 net findings while
+retaining all 8,151 files. Further opportunities are argument ownership, config
+bean injection and entity-specific feed results; plural receiver names and trash
+payloads require return-path evidence rather than name guesses.
+
+
+Checkpoint 23 connects source-discovered factory ownership to setter inference,
+retaining policy guards. Current total 12,570; Masa 4,179, 479 fewer net. Source
+configBean fields and downstream chains improve without global argument-name
+assumptions. Next candidates include settingsBean's layered resource-bundle
+factory returns, manager.save forwarding and constructor-owned login providers.
+
+
+Checkpoints 24–25 complete a 20-pass source-tooling review: standard migration
+entry points and CommandBox host APIs now select existing presets by default.
+Current total 10,740, 1,830 fewer net than checkpoint 23 (14.6%). The related
+ReadDir discovery-cache gap is also fixed. See RESOLUTION-ITERATION-REVIEW.md for
+all passes, evaluated opportunities and withheld rules. Next broad gains need
+owner-aware caller indexing and collection-element contracts; raising global
+caller limits or guessing installed module names is not yet justified.
+
+## Checkpoint 26: caller budgets follow method ownership
+
+The batch resolver now applies its 60-caller-file budget after checking whether
+calls belong to the target method. Lexical candidates for common names include
+other components, declarations and comments; those no longer consume the owner
+budget. A separate 512-candidate-file bound limits the search. The existing
+40-passed-call-site bound remains. Unknown receivers, unknown supplied values,
+unreadable files and exceeded bounds still withhold inference. Constructor
+argument inference retains its separate existing 60-candidate-file policy.
+
+This is source-based caller inference, enabled only for batch scans with
+InferArgsFiles. It assumes the indexed callers describe the possible values;
+external callers, runtime dispatch and plugin replacement are not proven by this
+analysis. `--no-infer-args` disables it. No bean-name preset or API stub was added.
+It uses existing ownership checks and does not yet build a dedicated index by
+resolved owner or change those checks' inheritance/alternative semantics.
+
+The same seven-corpus scan drops **10,740 -> 10,371**, with **369 findings removed
+and zero added**, all in Masa (**4,179 -> 3,810**). Other corpora are identical.
+The removals are bean calls in settingsDAO (135), userDAO (75),
+feedDAO (72), categoryDAO (35), emailDAO (29), memberDAO (10), reminderDAO (8)
+and mailinglistDAO (5). For example, feedManager reads a feedBean through feedDAO
+and passes it to that DAO's update method; unrelated update receivers no longer
+prevent following that source relationship. Plugin events can still mutate runtime
+objects, which remains an inference limitation.
+
+Coverage remains **8,151 files**; filtered checked calls increase by one,
+**179,807 -> 179,808**. These are not raw parser-call equivalence counts. The
+positive ownership-budget regression fails before the fix and passes after it;
+unknown receivers, missing methods and all three budget boundaries have tests.
+Reports and per-entry diffs are under target/resolution/owner-caller-budget.
+
+Checkpoint 26 validation: `make check` (build, vet, short race tests, pinned lint
+and vulnerability check), separate `go test -short ./...`, and `git diff --check`
+pass. No CFML runtime execution or published CI result is claimed.
+
+The final repeat scan in target/resolution/owner-caller-repeat matches every
+diagnostic and file/filtered-check count across all seven corpora.
+
+## Checkpoint 27: remove caller count limits
+
+At the user's request, ordinary-method and constructor argument inference no
+longer stop at a candidate-file, owner-file or supplied-call-site count. The
+former 512/60/40 bounds and their bookkeeping are removed. Candidate lookup,
+cached parsing and per-argument memoization remain; recursive inference still
+has its existing depth bound. This applies only to batch caller inference,
+not to unrelated parser/resolver traversal guards or cache capacity policies.
+
+Unknown receivers, unknown argument expressions, missing source and conflicting
+source evidence retain their existing handling. Source inference still assumes
+indexed callers describe the possible inputs; external calls, dynamic dispatch
+and plugin mutation remain limitations. `--no-infer-args` disables caller
+inference. Large common-name buckets can now cost more work, since no count
+cutoff substitutes an empty answer. No performance equivalence is claimed.
+
+The replacement regressions demonstrate inference past each former limit,
+including 66 constructor caller files. All four positive cases fail with the
+old limits enabled and pass after removal. An unknown argument after the former
+40-site cutoff still withholds inference, and missing methods remain checked.
+
+The seven-corpus report remains **10,371** unresolved across **8,151 files**,
+with **zero removed and zero added per diagnostic identity** and identical
+filtered coverage (**179,808 checked**). This change removes a general coverage
+restriction but adds no measured resolution gains to this corpus. The historical
+checkpoint 26 limits above are superseded. Reports, before-fix failures and
+per-entry audits are under target/resolution/uncapped-callers.
+
+Checkpoint 27 validation: full `make check`, separate `go test -short ./...`,
+and `git diff --check` pass. No CFML runtime or published CI result is claimed.
+
+## Checkpoint 28: optional caller inference limits
+
+Caller file and call-site limits are now optional through `.clif.json`:
+
+```json
+{
+  "callerInferenceLimits": {
+    "maxCandidateFiles": 512,
+    "maxCallerFiles": 60,
+    "maxCallSites": 40,
+    "maxConstructorFiles": 60
+  }
+}
+```
+
+All defaults remain unlimited. Each positive value enables that cutoff;
+omitted, zero and negative values leave it unlimited. Candidate files include
+lexical matches for ordinary methods; owner files contain calls assigned to the
+target method. Constructor candidates have their own file setting. Supplied
+argument sites share maxCallSites across method and constructor inference.
+Exceeding a limit withholds the type instead of accepting a partial caller set.
+The policy block replaces an inherited policy as a whole; an explicit empty
+block resets every limit. Unknown receiver/value handling and the recursive
+depth guard remain unchanged. `--no-infer-args` disables inference altogether.
+
+The policy flows through config decoding/merge, daemon settings, scan options,
+the batch resolver and caller execution-context views. Editor sessions preserve
+it when later configs omit the block, but live editor resolution still does not
+build the caller index. Server exports retain the policy without enabling caller
+inference that was previously off. CLI unresolved/explain and the MCP scan path
+share the batch options. Large unlimited searches may require more work.
+
+Five enabled-limit regression cases fail before enforcement and pass afterward.
+Fixtures cover default/nonpositive unlimited values, unrelated owners, ordinary
+and constructor limits, config-to-scan propagation, exact boundary behavior,
+policy replacement/reset and session preservation. The full checks initially
+caught the new optional block missing from session preservation; that plumbing
+was corrected without weakening the reflective regression.
+
+The default seven-corpus result stays at **10,371 findings**, **8,151 files** and
+**179,808 filtered checked calls**, with **zero additions or removals per entry**.
+No project corpus configs were added. Reports and failure/audit evidence are in
+target/resolution/optional-caller-limits. Earlier unconditional limit removal is
+superseded by this optional policy; the unlimited default is retained.
+
+Checkpoint 28 validation: full `make check` passes (build, vet, short race tests,
+pinned lint and vulnerability check), as do the full short suite and whitespace
+checks. The new session-restoration test initially mutated an indexing session;
+its restoration assertions now use an idle session and pass under the race
+detector. No CFML runtime execution or published CI result is claimed.
+
+## Checkpoint 29 review: 136 more resolutions, no additions
+
+The caller-argument omission fix is implemented and audited: seven-corpus totals
+fall **10,371 → 10,235**, with 49 removals in Wheels and 87 in Masa, zero additions,
+and unchanged 8,151-file / 179,808-filtered-check coverage. Unknown ordinary calls
+can be ignored only when exact balanced syntax proves the target argument absent;
+unknown supplied arguments and opaque argument collections still block inference.
+An intermediate TestBox reason change uncovered runtime component interpolation
+being treated as a literal; its regression-backed guard restores the previous
+seven diagnostics. Literal ORM load/array `each` element support is also implemented
+with rejection coverage, but has zero measured corpus gains.
+
+Full `make check`, the separate short suite and whitespace checks pass. Details,
+assumptions, rejected forms and next proof gaps are recorded in checkpoint 29 of
+`RESOLUTION-IMPLEMENTATION-STATUS.md` and `PROJECT-ASSUMPTIONS.md`. Final audit
+artifacts are in `target/resolution/omitted-callers-final/`. Future work should
+prioritize source-backed mutable iterator/instance contracts and return paths;
+this checkpoint does not complete those remaining plans.
+
+## Planning review after checkpoint 29
+
+Further implementation is deferred pending current root-cause attribution.
+[RESOLUTION-REMAINING-CAUSES.md](RESOLUTION-REMAINING-CAUSES.md) records the full
+symptom inventory, source traces, 1,132 calls compressed into 46 missing-base
+summaries, and evidence required to justify the next shared rule. Unknown
+receivers/returns comprise 84.7% of entries, but their counts are not proven
+fixability estimates. The recent generic collection batch's zero corpus gain
+and remaining contextual/state/native contracts require a prioritization reset.
+No production behavior or corpus counts changed in this review.
+
+### Causal trace follow-up (research only)
+
+The current root-cause review now records a controlled Lucee `/admin` mapping
+scenario (99 removals, zero additions, control identical to the default), a
+supplied Mura loadBy result with explicit bean/array alternatives, and a spanless
+chained save that blocks the omitted-argument rule for a 65-entry changeset
+cohort. The latter is a parser identity lead, not a verified gain. No production
+implementation or default result changed; the total remains 10,235. See the
+follow-up section of RESOLUTION-REMAINING-CAUSES.md for evidence and revised
+priorities. Size/depth-limit removal is not the observed remedy for these traces.
+
+## Implementation follow-up: checkpoint 30
+
+The chain-origin and Lucee source-context findings are implemented. Default total:
+10,136, down 99; 292 diagnostic pairs correct hop locations. Two duplicate extracted
+getSite records are removed, retaining the real calls. Missing-base coverage is
+unchanged. The changeset chain omission is now proven, but another uncertain
+caller still blocks the 65-entry cohort. The heterogeneous feed return is also
+withheld. See checkpoint 30 of RESOLUTION-IMPLEMENTATION-STATUS.md for the complete
+per-entry, coverage and validation audit; earlier research-only figures above
+remain historical. No broader return/state or native API rule was implemented.
+
+
+## Ten-pass research follow-up after checkpoint 30
+
+See [Ten research passes](RESOLUTION-TEN-PASS-RESEARCH.md). Default remains
+10,136 entries; no implementation in this batch. A controlled Mura admin-only
+implicit-context scenario produces 362 removals/two reason replacements (net
+360), retains 839 files, and adds one checked call record. The full FW/1 preset
+instead regresses and reduces extracted records; automatic project-wide enabling
+is not supported. A logging overlay confirms another spanless parser emission
+path in a script island, still blocking the 65-entry changeset cohort. Renderer
+argument scopes, cache/record origins, selector-dependent alternatives, native
+APIs and missing host bases have separate evidence and outstanding proof steps.
+The quantified cohorts are investigation populations, not an additive gains plan.
+
+
+## Checkpoint 32: earlier-finding closure audit and native contracts
+
+The [completion audit](RESOLUTION-COMPLETION-AUDIT.md) is the current family-level
+closure checklist. It maps earlier findings to code and tests, distinguishes
+implemented bounded rules, source-layout assumptions and experimental policies,
+and lists relationships still requiring implementation. Historical research-only
+restrictions and remaining-work lists must be read with this current record.
+
+The known tag script-island origin gap is fixed and removes all 65 investigated
+changeset argument findings plus 41 other Mura sites. Native producer/public
+method/result contracts remove the ten explicit ORM audit findings, and a
+separate off-by-default native-family guess flag is delivered. Corrected member
+reporting changes the counting coverage: the reporting-only control is 19,484,
+current strict is 13,707, CFC guesses 10,676, native guesses 13,015 and both 10,040.
+Guessed reductions remain unreliable. See checkpoint 32 in
+[implementation status](RESOLUTION-IMPLEMENTATION-STATUS.md) for per-corpus
+comparisons, assumptions, coverage, regression evidence and validation.
+
+The larger mutable factory/registry, adapter publication, copied defaults,
+heterogeneous selector/iterator, custom template and missing dependency
+relationships are still open; this batch does not declare the full programme
+implemented.
+
+
+## Checkpoint 33: bounded embedded Mura admin owner implemented
+
+The standard admin execution-owner opportunity from the ten-pass research is now
+implemented with source/layout guards, explicit-policy priority and dependency
+invalidation. Strict total is 13,346 (361 fewer); only Mura changes. Same files and
+checked-record coverage. Experimental composed totals are 10,322 CFC, 12,656 native
+and 9,686 both, with fresh Mura scans and six reused checkpoint-32 experimental
+reports. See checkpoint 33 in [implementation status](RESOLUTION-IMPLEMENTATION-STATUS.md)
+and [the documented assumption](PROJECT-ASSUMPTIONS.md#embedded-mura-admin-rendering-owner-checkpoint-33).
+Custom execution/template selection and mutable factory/iterator/record identities
+remain open; no full-programme closure is claimed.
+
+
+## Ten further research passes on non-strict shortcuts
+
+[Current research](RESOLUTION-SHORTCUT-TEN-PASS.md) evaluates candidate-set
+intersection/ranking/truncation, omitted primitive native families, caller
+relaxation, context conventions and chain roles. Forty-two fresh overlay scans
+produce a strongest unreliable total of 8,575, preserving file/record coverage;
+strict remains 13,346. Primitive fallback after existing native-family guesses
+removes 1,111 additional entries against current both flags, with zero additions.
+Counterexamples and origin-role problems remain; configuration design is
+proposed, not implemented. No eligibility population is credited as a fix.
+
+
+## Checkpoint 34: staged primitive fallback delivered
+
+The strongest shortcut research policy is implemented under the existing
+`--speculative-native` opt-in flag. It preserves an existing unique native-family
+answer before trying String/Array/Struct/StringBuilder, and labels primitive
+connections separately. CFC candidates still take precedence when both flags
+are enabled. Known origins and incomplete groups retain their boundaries.
+Strict behavior is unchanged; candidate ranking/intersection and caller relaxation
+remain research-only. See checkpoint 34 in
+[implementation status](RESOLUTION-IMPLEMENTATION-STATUS.md) for final corpus
+results and tests, and [policy boundaries](RESOLUTION-SPECULATIVE-CONNECTIONS.md#delivered-primitive-family-fallback-checkpoint-34).
+
+
+## Further shortcut research after checkpoint 34
+
+The [follow-up review](RESOLUTION-SHORTCUT-FOLLOWUP.md) measures complete internal
+candidate lists plus ranking and relaxed caller consensus: strongest combined
+7,733 versus current speculative 8,575, net 842. These are unreliable reductions,
+with counterexamples and 15 added diagnostics. Strict remains 13,346. The next
+proposed correction separates original receiver constraints from returned-hop
+constraints before scoring; complete lists should be internal rather than an
+unbounded presentation default. No gain is credited to that unimplemented
+role-aware algorithm. The current accepted-removal audit distinguishes source
+and builtin checks from dynamic acceptance while preserving unproven origin.
+
+
+## Receiver-role research follow-up
+
+[The receiver-role study](RESOLUTION-RECEIVER-ROLE-RESEARCH.md) completes 14
+additional corpus scans. Separating original receivers from returned objects
+leaves 7,593 experimental findings (1,060 removed / 78 added against delivered
+both-mode 8,575), preserving coverage. A new numeric-supplier probe still exposes
+wrong-origin guessing. Requiring two observed methods restores many existing
+guesses and leaves 10,299. The next source-grounded opportunity is a 178-entry
+Lucee Field/Group collection cohort; its improvement is not yet measured.
+Production remains 13,346 strict / 8,575 with both flags; all new policies remain
+research overlays.
+
+
+## Twenty-idea research follow-up
+
+[The twenty-idea review](RESOLUTION-TWENTY-IDEA-RESEARCH.md) completes 49 corpus
+scans and 112 paired structural probe scans. Proximity leaves 6,824 experimental
+findings, but selects Probe for explicitly constructed RateLimiter receivers
+in 36 removed corpus entries. Role + caller relaxation leaves 7,315. The study
+identifies scalar factory return precedence, literal collection elements, union
+guards, record fields and closure lifetime as connected source-based targets;
+blanket if specialization is rejected after dynamic acceptance and corpus losses.
+Production remains 13,346 strict / 8,575 with both flags; no new policy is delivered.
+
+
+## Source-relationship research follow-up
+
+[The source-relationship study](RESOLUTION-SOURCE-RELATIONSHIP-RESEARCH.md)
+measures top-level callback constructors, literal collection elements and scalar
+factory relationships. The callback prototype removes 46 strict findings / 42
+with both flags, with no additions and a source-declaration acceptance audit.
+Refined literal arrays change no corpus findings. Scalar selection needs argument
+preservation and separate uncertainty handling; its conservative combined policy
+restores 2,569 strict findings and remains research-only. Production is unchanged.
+
+### Liberal implementation and separate assumption audit
+
+See [the implementation report](RESOLUTION-LIBERAL-IMPLEMENTATION.md) for the
+source-backed callback/constructor-chain fixes, opt-in ranked receiver matching,
+and open-world assumptions. The low open-world remainder is a triage count;
+original unproven diagnostics remain in `assumedCalls` and are not counted as
+resolved. Scalar unknown-return policy and literal-array inference remain deferred.

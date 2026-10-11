@@ -40,7 +40,7 @@ func (r *Resolver) inferInitArgument(fd *parser.FunctionDef, pos int, file strin
 		}
 	}
 
-	if len(files) == 0 || len(files) > maxArgCallerFiles {
+	if len(files) == 0 || exceedsCallerLimit(len(files), r.CallerInferenceLimits.MaxConstructorFiles) {
 		return ""
 	}
 
@@ -77,7 +77,7 @@ type initArgSites struct {
 // hpr. It reports false when the construction cannot be typed.
 func (a *initArgSites) take(expr []parser.Token, line uint32, caller string, hpr *parser.ParseResult, dir string) bool {
 	a.sites++
-	if a.sites > maxArgCallSites {
+	if exceedsCallerLimit(a.sites, a.r.CallerInferenceLimits.MaxCallSites) {
 		return false
 	}
 
@@ -135,7 +135,7 @@ func (a *initArgSites) scan(path string) bool {
 
 		read[int(call.Line)] = true
 
-		expr, passed := callArgument(tokens, call.FuncName, int(call.Line), a.pos, a.argName)
+		expr, passed := callSiteArgument(tokens, call, a.pos, a.argName)
 		if passed && !a.take(expr, call.Line, call.Caller, hpr, dir) {
 			return false
 		}

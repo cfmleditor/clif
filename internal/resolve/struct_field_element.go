@@ -43,12 +43,12 @@ var (
 // fieldElement is the element of the collection field of the struct the call
 // expression returns, or "".
 func (r *Resolver) fieldElement(call, field string, header int, caller string, pr *parser.ParseResult, baseDir, leaf string) string {
-	m := loopCallRe.FindStringSubmatch(call)
-	if m == nil {
+	receiver, calls, ok := callChain(call)
+	if !ok || len(calls) != 1 {
 		return ""
 	}
 
-	receiver, method, arguments := m[1], m[2], m[3]
+	method, arguments := calls[0].name, calls[0].args
 
 	target := pr.URI.Path()
 

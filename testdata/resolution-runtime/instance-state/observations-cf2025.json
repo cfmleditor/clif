@@ -1,0 +1,17 @@
+{
+  "engine": {"name": "ColdFusion Server", "version": "2025,0,10,331899"},
+  "first": "A",
+  "second": "B",
+  "replaced": "B",
+  "reversed": "A",
+  "registered": "A",
+  "rebound": "B",
+  "fluent": "A",
+  "fluentRebound": "B",
+  "orderedRegister": "A",
+  "forwarded": "B",
+  "forwardedCollection": "A",
+  "independentPending": "A",
+  "beforeAliasWrite": "A",
+  "afterAliasWrite": "B"
+}

@@ -41,11 +41,13 @@ type CodeMap struct {
 
 // JSON is the on-disk shape of .clif.json.
 type JSON struct {
-	WorkspaceName       string            `json:"workspaceName"`
-	WorkspacePaths      []string          `json:"workspacePaths"`
-	WorkspaceIndexGlobs []string          `json:"workspaceIndexGlobs"`
-	Mappings            map[string]string `json:"mappings"`
-	ExpressionMappings  map[string]string `json:"expressionMappings"`
+	// CallerInferenceLimits optionally bounds batch caller-based argument inference.
+	CallerInferenceLimits *CallerInferenceLimits `json:"callerInferenceLimits,omitempty"`
+	WorkspaceName         string                 `json:"workspaceName"`
+	WorkspacePaths        []string               `json:"workspacePaths"`
+	WorkspaceIndexGlobs   []string               `json:"workspaceIndexGlobs"`
+	Mappings              map[string]string      `json:"mappings"`
+	ExpressionMappings    map[string]string      `json:"expressionMappings"`
 	// StartupFiles names templates that set up shared-scope variables for the
 	// whole workspace — a bootstrap included by every application, say.
 	// Their REQUEST, SESSION, APPLICATION and SERVER assignments type a
@@ -635,6 +637,7 @@ func IntDefault(p *int, def int) int {
 
 // Resolved holds fully resolved configuration ready for use by the server.
 type Resolved struct {
+	CallerInferenceLimits    CallerInferenceLimits
 	Mappings                 map[string]string
 	StartupFiles             []string // absolute
 	ExpressionMappings       map[string]string
@@ -684,6 +687,10 @@ type ResolvedFormatting struct {
 // Resolve takes a parsed JSON config and its directory, returning a fully resolved config.
 func Resolve(cfg *JSON, dir string) *Resolved {
 	r := &Resolved{}
+	if cfg.CallerInferenceLimits != nil {
+		r.CallerInferenceLimits = *cfg.CallerInferenceLimits
+	}
+
 	if len(cfg.StartupFiles) > 0 {
 		r.StartupFiles = ResolvePathList(cfg.StartupFiles, dir)
 	}
@@ -896,6 +903,11 @@ func Merge(base, over *JSON) *JSON {
 	// A child names the frameworks it adds; its parent's still apply.
 	out.Frameworks = mergeFrameworks(base.Frameworks, over.Frameworks)
 	out.PropertyResolvers = slices.Concat(over.PropertyResolvers, base.PropertyResolvers)
+
+	// Limits are an explicit policy block; an empty block resets every limit.
+	if over.CallerInferenceLimits != nil {
+		out.CallerInferenceLimits = over.CallerInferenceLimits
+	}
 
 	out.Formatting = mergeFormatting(base.Formatting, over.Formatting)
 

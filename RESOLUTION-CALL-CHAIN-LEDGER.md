@@ -1,7 +1,10 @@
 # Call-chain research ledger — 2026-10-09
 
-Research and planning only. No resolver implementation is authorized by this
-ledger. It extends [the coverage audit](RESOLUTION-RESEARCH-COVERAGE.md) with
+Current implementation checkpoint: [implementation status](RESOLUTION-IMPLEMENTATION-STATUS.md).
+The user has authorized implementation. The research-only restrictions below
+describe the earlier checkpoint; completed contracts are recorded separately.
+
+This research ledger extends [the coverage audit](RESOLUTION-RESEARCH-COVERAGE.md) with
 representative chains and counterexamples. Source evidence establishes what
 these checked-out bodies do; it does not establish every reachable application
 configuration or CFML runtime behavior.
@@ -237,3 +240,19 @@ Review: nine saved sites match their source lines, selection counts reproduce
 the earlier audit and additions do not overlap it. Source hashes are recorded
 in `target/relationship-research/call-chain-sources.json`. No runtime fixtures,
 resolver changes or new corpus scan were performed for this ledger.
+
+## Dynamic-registration follow-up
+
+[Mura dynamic relationships](MURA-DYNAMIC-RELATIONSHIPS.md) traces metadata-built
+and restored registries, inverse methods, assignment/default precedence and
+caller overrides. The approval view combines an explicit return method with a
+generated iterator method. New counterexamples prevent suffix-based typing and
+class-only registry assumptions. This deepens the evidence without increasing
+the family-coverage percentage or implementing a resolver rule.
+
+Implementation checkpoint: script calls and closure-local stores now carry byte
+origins, including same-line/nested closures and mixed script-region offsets.
+A closed provider callback receives its actual invoked argument type, independent
+of the provider return type. Configured migration target routing remains outside
+this contract; unsupported provider execution is withheld. Exact implementation
+and evidence are in RESOLUTION-IMPLEMENTATION-STATUS.md checkpoint 2.

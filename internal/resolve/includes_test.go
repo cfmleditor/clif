@@ -127,3 +127,16 @@ func TestIncludeGraphFollowsReindex(t *testing.T) {
 		t.Error("api-b.cfm still resolves through api.cfc after api.cfc stopped including it")
 	}
 }
+
+func TestLuceeSourceMappingConnectsIncludedHelpers(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{
+		"core/src/main/java/resource/component/org/lucee/cfml/test/LuceeTestCase.cfc": `component {}`,
+		"core/src/main/cfml/context/admin/services.update.functions.cfm":              `<cfscript>function stable(){}</cfscript>`,
+		"core/src/main/cfml/context/admin/ext.functions.cfm":                          `<cfscript>function sortable(){}</cfscript>`,
+		"test/tickets/Example.cfc":                                                    `component {function beforeAll(){include template="/admin/services.update.functions.cfm";include template="/admin/ext.functions.cfm";}function run(){stable();sortable();absent();}}`,
+	})
+	cfpath.InvalidateAppMappingsCache()
+	t.Cleanup(cfpath.InvalidateAppMappingsCache)
+	expectReasons(t, reasonsWith(t, &Resolver{}, dir, "test/tickets/Example.cfc"), map[string]string{"stable": "", "sortable": "", "absent": "no qualifier, not in file"})
+}

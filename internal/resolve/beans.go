@@ -25,6 +25,10 @@ func (r *Resolver) BeanResolvers(beanPaths map[string]string) []parser.Resolver 
 		r.mu.Unlock()
 	}()
 
+	if assumed := r.assumedMuraBeans(beanPaths); len(assumed) > 0 {
+		return append(slices.Clone(r.Resolvers), assumed...)
+	}
+
 	insertion := -1
 
 	for i := range r.Resolvers {
@@ -68,39 +72,15 @@ func (r *Resolver) BeanResolvers(beanPaths map[string]string) []parser.Resolver 
 			continue
 		}
 
-		content := string(data)
+		for _, source := range r.startupSources(file, string(data)) {
+			file, content := source.file, source.content
 
-		pr := parser.Parse(cfpath.ToURI(file), content, r.Resolvers)
+			r.collectBeanRegistrations(file, content, factories)
 
-		calls := beanCalls(content)
-		for i := range calls {
-			call := &calls[i]
-			if call.method != "addalias" && call.method != "declarebean" {
-				continue
-			}
-
-			comp, _ := r.receiverComponent(call.receiver, call.line, "", call.method, pr, filepath.Dir(file), nil)
-
-			name, entry, valid := r.beanRegistration(comp, call, filepath.Dir(file))
-			if !valid {
-				continue
-			}
-
-			factoryKey := strings.ToLower(comp + ":" + call.receiver)
-
-			registrations := factories[factoryKey]
-			if registrations == nil {
-				registrations = map[string][]beanRegistration{}
-				factories[factoryKey] = registrations
-			}
-
-			key := strings.ToLower(name)
-			registrations[key] = append(registrations[key], entry)
-		}
-
-		for _, raw := range parser.ExtractIncludes(content) {
-			if target := r.IncludePath(raw, file); target != "" {
-				queue = append(queue, target)
+			for _, raw := range parser.ExtractIncludes(content) {
+				if target := r.IncludePath(raw, file); target != "" {
+					queue = append(queue, target)
+				}
 			}
 		}
 	}
@@ -157,6 +137,44 @@ func (r *Resolver) BeanResolvers(beanPaths map[string]string) []parser.Resolver 
 	}
 
 	return out
+}
+
+func (r *Resolver) collectBeanRegistrations(file, content string, factories map[string]map[string][]beanRegistration) {
+	pr := parser.Parse(cfpath.ToURI(file), content, r.Resolvers)
+
+	calls := beanCalls(content)
+	for i := range calls {
+		call := &calls[i]
+		if call.method != "addalias" && call.method != "declarebean" {
+			continue
+		}
+
+		caller := ""
+		if scope, ok := enclosingScope(pr, call.line); ok {
+			caller = scope.Name
+		}
+
+		comp, _ := r.receiverComponent(call.receiver, call.line, caller, call.method, pr, filepath.Dir(file), nil)
+
+		name, entry, valid := r.beanRegistration(comp, call, filepath.Dir(file))
+		if !valid {
+			continue
+		}
+
+		factoryKey := strings.ToLower(comp + ":" + call.receiver)
+		if caller != "" && !strings.Contains(call.receiver, ".") {
+			factoryKey += ":" + file + ":" + strings.ToLower(caller)
+		}
+
+		registrations := factories[factoryKey]
+		if registrations == nil {
+			registrations = map[string][]beanRegistration{}
+			factories[factoryKey] = registrations
+		}
+
+		key := strings.ToLower(name)
+		registrations[key] = append(registrations[key], entry)
+	}
 }
 
 type beanRegistration struct {

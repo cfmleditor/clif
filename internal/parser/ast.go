@@ -26,15 +26,23 @@ type ReturnSource struct {
 	Methods   []string
 }
 
+// CollectionValues describes the values of a whole returned struct. It is
+// separate from ReturnSources, which describes the returned object itself.
+type CollectionValues struct {
+	Sources []ReturnSource
+}
+
 // FunctionDef represents a user-defined function found in a CFC file.
 type FunctionDef struct {
-	Name            string
-	URI             uri.URI
-	Line            uint32
-	Arguments       []Argument
-	ReturnType      string         // declared return type (e.g. "query", "models.User")
-	ReturnSources   []ReturnSource // uniform collection element sources, resolved on demand
-	ReturnComponent string         // inferred component from return statements (e.g. "services.Foo")
+	Name             string
+	URI              uri.URI
+	Line             uint32
+	Arguments        []Argument
+	ReturnType       string            // declared return type (e.g. "query", "models.User")
+	Generated        bool              // synthetic property/relationship accessor, not a source function
+	ReturnSources    []ReturnSource    // uniform collection element sources, resolved on demand
+	CollectionValues *CollectionValues // closed source contract for struct values
+	ReturnComponent  string            // inferred component from return statements (e.g. "services.Foo")
 	// ElementComponent is the entity each element of the collection a
 	// generated getter returns holds: a persistent entity's one-to-many or
 	// many-to-many property names it in its cfc attribute. The getter itself
@@ -200,7 +208,8 @@ type ComponentRef struct {
 	// fluent component, which a parse with FuncLookup replaces by m's
 	// return. Mura's `variables.$ = variables.event.getValue("muraScope")`
 	// is not an event; a reader wanting what the source states skips it.
-	BaseGuess bool
+	BaseGuess      bool
+	HasClosureSpan bool
 	// New factory chains require a concrete result, not dynamic acceptance
 	// when a suffix method has an unknown return.
 	strictChain bool
@@ -228,12 +237,22 @@ type ComponentRef struct {
 	// whole function (or file) sees. FuncComponentRefs leaves ranged refs out
 	// and FuncComponentRefsAt includes the ones in force at a line.
 	VisibleFrom, VisibleTo uint32
+	ClosureFrom, ClosureTo uint32 // source bytes, end exclusive
 }
 
 // VisibleAt reports whether the ref is in force at line: always, unless a
 // closure declared it and line is outside that closure.
 func (r *ComponentRef) VisibleAt(line uint32) bool {
-	return r.VisibleTo == 0 || line >= r.VisibleFrom && line <= r.VisibleTo
+	return !r.HasClosureSpan && r.VisibleTo == 0 || line >= r.VisibleFrom && line <= r.VisibleTo
+}
+
+// VisibleAtCall additionally distinguishes same-line and nested closure stores.
+func (r *ComponentRef) VisibleAtCall(line uint32, call *CallSite) bool {
+	if !r.VisibleAt(line) {
+		return false
+	}
+
+	return !r.HasClosureSpan || call == nil || !call.HasSpan || call.StartByte >= r.ClosureFrom && call.StartByte < r.ClosureTo
 }
 
 // DocumentLink represents a file path reference in source (cfinclude, href, etc.).
@@ -250,10 +269,14 @@ type CallSite struct {
 	Component string // resolved component (from variable ref), empty if unresolved
 	Variable  string // the variable/qualifier before the dot (empty if bare call)
 	Line      uint32
-	Resolved  bool   // true if qualified (obj.func), false if bare call
+	Resolved  bool // true if qualified (obj.func), false if bare call
+	HasSpan   bool
 	This      bool   // written `this.f()`, which is recorded as the bare f(); see onScope
 	Caller    string // enclosing function name (empty if global)
 	Text      string // the trimmed line text
+	// StartByte identifies the called method token, EndByte the byte after
+	// its argument list. HasSpan distinguishes an unknown origin from byte 0.
+	StartByte, EndByte uint32
 
 	// Chain lists the method-name hops between the resolved base (Variable or
 	// Component) and this call, for calls chained off a prior call's return value

@@ -261,9 +261,9 @@ func TestAHopChainedOntoAScopeMemberCallKeepsItsReceiver(t *testing.T) {
 		{`variables.helper().c();`, []string{"?.helper", "?[helper].c"}},
 		{`this.init().run();`, []string{"?.init", "?[init].run"}},
 		{`variables.helper().c().d();`, []string{"?.helper", "?[helper c].d", "?[helper].c"}},
-		{`request.get().c();`, []string{"request{$any}.c", "request{$any}.get"}},
-		{`request.get().c().d();`, []string{"request{$any}.c", "request{$any}.d", "request{$any}.get"}},
-		{`local.fn().c();`, []string{"local{$any}.c", "local{$any}.fn"}},
+		{`request.get().c();`, []string{"request{$any}.get", "request{$any}[get].c"}},
+		{`request.get().c().d();`, []string{"request{$any}.get", "request{$any}[get c].d", "request{$any}[get].c"}},
+		{`local.fn().c();`, []string{"local{$any}.fn", "local{$any}[fn].c"}},
 	} {
 		t.Run(c.stmt, func(t *testing.T) {
 			if got := render(c.stmt); !slices.Equal(got, c.want) {

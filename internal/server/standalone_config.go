@@ -106,6 +106,7 @@ func (s *Server) configureSession(editorCfg *config.JSON) {
 // optionalBlockState is what a config can leave out, and what has to survive a
 // config that does.
 type optionalBlockState struct {
+	CallerInferenceLimits    config.CallerInferenceLimits
 	Formatting               config.ResolvedFormatting
 	Features                 config.ResolvedFeatures
 	Linting                  bool
@@ -120,6 +121,7 @@ type optionalBlockState struct {
 
 func (s *Server) optionalBlocks() optionalBlockState {
 	return optionalBlockState{
+		CallerInferenceLimits:    s.CallerInferenceLimits,
 		Formatting:               s.Formatting,
 		Features:                 s.Features,
 		Linting:                  s.Linting,
@@ -142,6 +144,10 @@ func (s *Server) optionalBlocks() optionalBlockState {
 // difference between "this config turns the feature on" and "this config has
 // nothing to say about the feature".
 func (s *Server) restoreUnmentionedBlocks(merged *config.JSON, prev *optionalBlockState) {
+	if merged.CallerInferenceLimits == nil {
+		s.CallerInferenceLimits = prev.CallerInferenceLimits
+	}
+
 	if merged.Formatting == nil {
 		s.Formatting = prev.Formatting
 	}
@@ -271,6 +277,7 @@ func (s *Server) findConfigUpwards(dir string) (string, *config.JSON) {
 
 func (s *Server) applyConfig(r *config.Resolved) {
 	s.invalidateResolver()
+	s.CallerInferenceLimits = r.CallerInferenceLimits
 
 	if len(r.Mappings) > 0 && len(s.Mappings) == 0 {
 		s.Mappings = r.Mappings

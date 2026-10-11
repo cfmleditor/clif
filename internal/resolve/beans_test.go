@@ -94,6 +94,31 @@ func TestStartupBeanRegistrations(t *testing.T) {
 	}
 }
 
+func TestBeanRegistrationsUseSelectedLifecycle(t *testing.T) {
+	for _, method := range []string{"onApplicationStart", "unused"} {
+		dir := t.TempDir()
+		write := startupFixtureWriter(t, dir)
+		write("Factory.cfc", `component {function getBean(beanName){}function addAlias(aliasName,beanName){}function declareBean(beanName,dottedPath){}}`)
+		write("beans/Item.cfc", `component {}`)
+		write("Application.cfc", `component {function `+method+`(){
+ var factory=new Factory();
+ factory.declareBean("selected","beans.Item");
+ include "included.cfm";
+ }}`)
+		write("included.cfm", `<cfscript>var factory=new Factory();factory.declareBean("included","beans.Item");</cfscript>`)
+
+		r := &resolve.Resolver{FS: vfs.OS{}, Index: index.New(), WorkspaceFolders: []string{dir}, StartupFiles: []string{filepath.Join(dir, "Application.cfc")}, Resolvers: []parser.Resolver{{Match: `getBean("$1")`, Resolve: "$1", Prefix: "getBean"}}}
+
+		rules := r.BeanResolvers(nil)
+		for _, name := range []string{"selected", "included"} {
+			got := parser.ResolveFromCall(`getBean("`+name+`")`, rules)
+			if (got == filepath.Join(dir, "beans", "Item.cfc")) != (method == "onApplicationStart") {
+				t.Fatalf("%s/%s: %s", method, name, got)
+			}
+		}
+	}
+}
+
 // TestARegistrationThatDependsOnTheEngineIsTheirCommonBase: Mura aliases
 // contentGateway to contentGatewayAdobe on Adobe ColdFusion and to
 // contentGatewayLucee, which extends it, everywhere else. Either way the bean

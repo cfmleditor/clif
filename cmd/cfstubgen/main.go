@@ -793,6 +793,10 @@ func (g *generator) returnType(src *source, def *parser.FunctionDef) string {
 // componentReturn is the component def returns by its return statements or,
 // failing that, its doc comment.
 func (g *generator) componentReturn(src *source, def *parser.FunctionDef) string {
+	if contract := g.explicitInterfaceReturn(src, def); contract != "" {
+		return contract
+	}
+
 	dir := filepath.Dir(src.path)
 
 	switch rc := def.ReturnComponent; {
@@ -829,6 +833,44 @@ func (g *generator) componentReturn(src *source, def *parser.FunctionDef) string
 	}
 
 	return g.delegatedReturn(src, def)
+}
+
+var interfaceDocReturnRe = regexp.MustCompile(`(?im)^@returns?\s+([A-Za-z_]\w*(?:\.\w+)*)\b`)
+
+// An interface explicitly included in Sources.Extra is a selected public
+// contract. Prefer its documented identity to one inferred factory branch.
+// Other interfaces retain the existing conservative documentation behavior.
+func (g *generator) explicitInterfaceReturn(src *source, def *parser.FunctionDef) string {
+	match := interfaceDocReturnRe.FindStringSubmatch(funcDoc(src, def))
+	if match == nil {
+		return ""
+	}
+
+	name := match[1][strings.LastIndexByte(match[1], '.')+1:]
+	answer, selected := "", ""
+
+	for _, component := range g.src.Extra {
+		if !strings.EqualFold(component[strings.LastIndexByte(component, '.')+1:], name) {
+			continue
+		}
+
+		abs, qualified := g.resolve(component, filepath.Dir(src.path))
+		if abs == "" || qualified == "" || !isInterface(abs) {
+			continue
+		}
+
+		if answer != "" && !strings.EqualFold(answer, qualified) {
+			return ""
+		}
+
+		answer, selected = qualified, abs
+	}
+
+	if answer != "" {
+		g.todo = append(g.todo, selected)
+	}
+
+	return answer
 }
 
 var delegateRe = regexp.MustCompile(`(?is)^\s*\{\s*return\s+([A-Za-z_]\w*)\s*\(\s*\)\s*;?\s*\}\s*$`)

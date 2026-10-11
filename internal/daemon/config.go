@@ -549,6 +549,7 @@ func SettingsFrom(c *Config) server.Settings {
 	comp := c.ResolvedCompletions()
 
 	return server.Settings{
+		CallerInferenceLimits:    c.CallerInferenceLimits(),
 		ConfigPath:               c.Path,
 		Routes:                   c.Routes(),
 		CodeMap:                  c.CodeMap(),
@@ -645,4 +646,14 @@ func (c *Config) ResolvedFormatting() config.ResolvedFormatting {
 		AttrBreakThreshold:     c.FormattingAttrBreakThreshold(),
 		IndentWidth:            c.FormattingIndentWidth(),
 	}
+}
+
+// CallerInferenceLimits returns the optional batch caller inference policy.
+func (c *Config) CallerInferenceLimits() config.CallerInferenceLimits {
+	raw := c.raw()
+	if raw == nil || raw.CallerInferenceLimits == nil {
+		return config.CallerInferenceLimits{}
+	}
+
+	return *raw.CallerInferenceLimits
 }

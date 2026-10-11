@@ -79,5 +79,5 @@ component extends="coldbox.system.remote.ColdboxProxy" {
 	 *
 	 * @return cborm.models.util.IORMUtil
 	 */
-	private function getOrm() {}
+	private cborm.models.util.support.IORMUtil function getOrm() {}
 }

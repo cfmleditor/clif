@@ -1,11 +1,14 @@
 package resolve
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/cfmleditor/clif/internal/config"
 	"github.com/cfmleditor/clif/internal/parser"
 )
 
@@ -330,4 +333,216 @@ func TestADeclarationIsNotTheCallOnItsLine(t *testing.T) {
 	expectReasons(t, reasonsWith(t, &Resolver{InferArgsFiles: cfmlFilesIn(t, dir)}, dir, "Util.cfc"), map[string]string{
 		"arguments.renderer.own": "",
 	})
+}
+
+// Common names must spend the caller budget on their resolved owner, not on
+// unrelated methods or lexical matches. Unknown receivers still veto inference.
+func TestArgumentCallerBudgetUsesOwnership(t *testing.T) {
+	for _, unknown := range []bool{false, true} {
+		t.Run(fmt.Sprint("unknown=", unknown), func(t *testing.T) {
+			dir := t.TempDir()
+
+			files := map[string]string{
+				"Item.cfc":   `component { function ready(){} }`,
+				"DAO.cfc":    `component { function update(bean){ arguments.bean.ready(); arguments.bean.missing(); } }`,
+				"Caller.cfc": `component { function run(){ new DAO().update(new Item()); } }`,
+				"Other.cfc":  `component { function update(bean){} }`,
+			}
+			for i := range 61 {
+				files[fmt.Sprintf("noise/N%d.cfc", i)] = `component { function run(){ new Other().update("not a bean"); } }`
+			}
+
+			if unknown {
+				files["Unknown.cfc"] = `component { function run(x){ x.update(new Item()); } }`
+			}
+
+			writeFiles(t, dir, files)
+
+			got := reasonsWith(t, &Resolver{InferArgsFiles: cfmlFilesIn(t, dir), CallerInferenceLimits: config.CallerInferenceLimits{MaxCallerFiles: 1}}, dir, "DAO.cfc")
+			if unknown {
+				if !strings.Contains(got["arguments.bean.ready"], "no component ref") {
+					t.Fatalf("unknown caller was ignored: %v", got)
+				}
+			} else {
+				expectReasons(t, got, map[string]string{"arguments.bean.ready": "", "arguments.bean.missing": "method 'missing' not found in Item"})
+			}
+		})
+	}
+}
+
+func TestArgumentInferenceBeyondFormerLimits(t *testing.T) {
+	for _, kind := range []string{"candidates", "owners", "sites", "constructors", "late unknown"} {
+		t.Run(kind, func(t *testing.T) {
+			dir := t.TempDir()
+			files := map[string]string{
+				"Item.cfc":   `component { function ready(){} }`,
+				"DAO.cfc":    `component { function update(bean){ arguments.bean.ready(); } }`,
+				"Caller.cfc": `component { function run(){ new DAO().update(new Item()); } }`,
+			}
+
+			switch kind {
+			case "candidates":
+				for i := range 513 {
+					files[fmt.Sprintf("noise/N%d.cfc", i)] = `component { /* update( */ }`
+				}
+			case "owners":
+				for i := range 61 {
+					files[fmt.Sprintf("noise/N%d.cfc", i)] = `component { function run(){ new DAO().update(); } }`
+				}
+			case "sites":
+				files["Caller.cfc"] = `component { function run(){` + strings.Repeat(`new DAO().update(new Item());`, 41) + `} }`
+			case "constructors":
+				files["DAO.cfc"] = `component { function init(bean){ arguments.bean.ready(); arguments.bean.missing(); } }`
+
+				files["Caller.cfc"] = `component { function run(){ new DAO(new Item()); } }`
+				for i := range 65 {
+					files[fmt.Sprintf("noise/N%d.cfc", i)] = `component { function run(){ new DAO(new Item()); } }`
+				}
+			case "late unknown":
+				files["Caller.cfc"] = `component { function run(x){` + strings.Repeat(`new DAO().update(new Item());`, 41) + `new DAO().update(x); } }`
+			}
+
+			writeFiles(t, dir, files)
+
+			got := reasonsWith(t, &Resolver{InferArgsFiles: cfmlFilesIn(t, dir)}, dir, "DAO.cfc")
+			if kind == "late unknown" {
+				if !strings.Contains(got["arguments.bean.ready"], "no component ref") {
+					t.Fatalf("late unknown value was ignored: %v", got)
+				}
+			} else {
+				if got["arguments.bean.ready"] != "" {
+					t.Fatalf("%s still prevents inference: %v", kind, got)
+				}
+
+				if kind == "constructors" && !strings.Contains(got["arguments.bean.missing"], "not found") {
+					t.Fatalf("constructor inference did not check missing method: %v", got)
+				}
+			}
+		})
+	}
+}
+
+func TestOptionalCallerInferenceLimits(t *testing.T) {
+	for _, kind := range []string{"candidates", "owners", "sites", "constructors", "constructor sites", "unlimited"} {
+		t.Run(kind, func(t *testing.T) {
+			dir := t.TempDir()
+			files := map[string]string{
+				"Item.cfc":   `component { function ready(){} }`,
+				"DAO.cfc":    `component { function update(bean){ arguments.bean.ready(); } }`,
+				"Caller.cfc": `component { function run(){ new DAO().update(new Item()); new DAO().update(new Item()); } }`,
+				"Other.cfc":  `component { /* update( */ }`,
+			}
+			limits := config.CallerInferenceLimits{}
+
+			switch kind {
+			case "candidates":
+				limits.MaxCandidateFiles = 1
+			case "owners":
+				limits.MaxCallerFiles = 1
+				files["Second.cfc"] = `component { function run(){ new DAO().update(new Item()); } }`
+			case "sites":
+				limits.MaxCallSites = 1
+			case "constructors", "constructor sites":
+				files["DAO.cfc"] = `component { function init(bean){ arguments.bean.ready(); } }`
+				files["Caller.cfc"] = `component { function run(){ new DAO(new Item()); new DAO(new Item()); } }`
+				files["Second.cfc"] = `component { function run(){ new DAO(new Item()); } }`
+
+				if kind == "constructors" {
+					limits.MaxConstructorFiles = 1
+				} else {
+					limits.MaxCallSites = 1
+				}
+			case "unlimited":
+				limits = config.CallerInferenceLimits{MaxCandidateFiles: -1, MaxCallerFiles: -1, MaxCallSites: -1, MaxConstructorFiles: -1}
+			}
+
+			writeFiles(t, dir, files)
+
+			got := reasonsWith(t, &Resolver{InferArgsFiles: cfmlFilesIn(t, dir), CallerInferenceLimits: limits}, dir, "DAO.cfc")["arguments.bean.ready"]
+			if kind == "unlimited" {
+				if got != "" {
+					t.Fatalf("nonpositive limits prevented inference: %s", got)
+				}
+			} else if !strings.Contains(got, "no component ref") {
+				t.Fatalf("%s limit did not withhold inference: %s", kind, got)
+			}
+		})
+	}
+}
+
+func TestUnknownReceiverWithoutTheArgumentDoesNotBlockInference(t *testing.T) {
+	for _, passed := range []bool{false, true} {
+		t.Run(fmt.Sprint("passed=", passed), func(t *testing.T) {
+			dir := t.TempDir()
+
+			unknown := `x.use();`
+			if passed {
+				unknown = `x.use(argumentCollection=runtimeValues);`
+			}
+
+			writeFiles(t, dir, map[string]string{
+				"Item.cfc":    `component {function ready(){}}`,
+				"Service.cfc": `component {function use(bean){arguments.bean.ready();arguments.bean.missing();}}`,
+				"Caller.cfc":  `component {function run(x){new Service().use(new Item());` + unknown + `}}`,
+			})
+
+			got := reasonsWith(t, &Resolver{InferArgsFiles: cfmlFilesIn(t, dir)}, dir, "Service.cfc")
+			if passed {
+				if !strings.Contains(got["arguments.bean.ready"], "no component ref") {
+					t.Fatalf("unknown collection did not block: %v", got)
+				}
+			} else {
+				expectReasons(t, got, map[string]string{"arguments.bean.ready": "", "arguments.bean.missing": "method 'missing' not found in Item"})
+			}
+		})
+	}
+}
+
+func TestCallerInferenceDoesNotTreatRuntimeComponentNameAsLiteral(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{
+		"Service.cfc": `component {function use(target){arguments.target.ready();}}`,
+		"Caller.cfc": `component {function make(name){
+   try {var bundle=createObject("component","#arguments.name#");} catch(any e){rethrow;}
+   return bundle;
+  } function run(name,x){
+   var target=make(name);
+   var service=new Service();
+   service.use(target);
+   x.use();
+  }}`,
+	})
+
+	got := reasonsWith(t, &Resolver{InferArgsFiles: cfmlFilesIn(t, dir)}, dir, "Service.cfc")["arguments.target.ready"]
+	if !strings.Contains(got, "no component ref") {
+		t.Fatalf("runtime name was inferred as a literal component: %s", got)
+	}
+}
+
+func TestChainedUnknownCallOmittingArgumentDoesNotVeto(t *testing.T) {
+	for _, supplied := range []bool{false, true} {
+		t.Run(strconv.FormatBool(supplied), func(t *testing.T) {
+			dir := t.TempDir()
+
+			args := ""
+			if supplied {
+				args = "bean=unknownValue"
+			}
+
+			writeFiles(t, dir, map[string]string{
+				"Item.cfc":    `component {function ready(){}}`,
+				"Service.cfc": `component {function use(bean){arguments.bean.ready();arguments.bean.missing();}}`,
+				"Caller.cfc":  `component {function run(x){new Service().use(new Item());x.getStats().setLockID(1).use(` + args + `);}}`,
+			})
+
+			got := reasonsWith(t, &Resolver{InferArgsFiles: cfmlFilesIn(t, dir)}, dir, "Service.cfc")
+			if supplied {
+				if !strings.Contains(got["arguments.bean.ready"], "no component ref") {
+					t.Fatalf("unknown supplied chain was ignored: %v", got)
+				}
+			} else {
+				expectReasons(t, got, map[string]string{"arguments.bean.ready": "", "arguments.bean.missing": "method 'missing' not found in Item"})
+			}
+		})
+	}
 }

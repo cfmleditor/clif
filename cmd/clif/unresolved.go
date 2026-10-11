@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -37,23 +38,46 @@ does not exist. Reads the .clif.json above the first directory.
                        return-type, method) and the liberal matches a strict
                        resolver refuses, each with a confidence; they never
                        resolve it. Shown with --json
+  --speculative        opt in to unreliable sole-candidate receiver connections;
+                       --verbose lists proposed guesses (off by default)
+  --no-speculative     explicitly disable speculation; the last flag wins
+  --speculative-native guess a native family, then a primitive family fallback
+  --no-speculative-native explicitly disable native family guessing
+  --speculative-methods link calls directly to ranked global source declarations
+  --no-speculative-methods disable direct method shortcuts (off by default)
+  --speculative-ranked guess the unique best candidate matching receiver roles
+  --no-speculative-ranked disable ranked guesses; ties remain unresolved
+  --assume-open-world classify unknown receivers/returns, absent components and
+                       bare runtime mixins as assumptions, not resolved calls;
+                       --json emits {calls, assumedCalls, ...} with audit evidence
+  --no-assume-open-world restore ordinary diagnostic reporting
+  --native-engine <name> runtime API profile: auto (default), generic or lucee
   --no-infer-args      do not type an untyped argument from what its callers
                        pass it
+
+Optional batch limits are set with callerInferenceLimits in .clif.json.
+They are unlimited by default; see README.md for the policy keys.
 
 To see why one call resolved as it did: clif explain <file> <line>
 `
 
 // unresolvedFlags is what cmdUnresolved's flags ask for.
 type unresolvedFlags struct {
-	relativeTo       string
-	json             bool
-	knownIssues      bool
-	write            bool
-	includeWorkspace bool
-	verbose          bool
-	globalDefs       bool
-	candidates       bool
-	noInferArgs      bool
+	speculativeMethods bool
+	speculativeRanked  bool
+	assumeOpenWorld    bool
+	relativeTo         string
+	nativeEngine       string
+	json               bool
+	knownIssues        bool
+	write              bool
+	includeWorkspace   bool
+	verbose            bool
+	globalDefs         bool
+	candidates         bool
+	noInferArgs        bool
+	speculative        bool
+	speculativeNative  bool
 }
 
 // parseUnresolvedFlags splits the flags from the files and directories.
@@ -68,6 +92,19 @@ func parseUnresolvedFlags(args []string) (unresolvedFlags, []string) {
 
 		if v, ok := strings.CutPrefix(a, "--relative-to="); ok {
 			fl.relativeTo = v
+
+			continue
+		}
+
+		if v, ok := strings.CutPrefix(a, "--native-engine="); ok {
+			fl.nativeEngine = nativeEngineFlag(v)
+
+			continue
+		}
+
+		if a == "--native-engine" && i+1 < len(args) {
+			i++
+			fl.nativeEngine = nativeEngineFlag(args[i])
 
 			continue
 		}
@@ -92,8 +129,28 @@ func parseUnresolvedFlags(args []string) (unresolvedFlags, []string) {
 			fl.verbose = true
 		case "--global-defs":
 			fl.globalDefs = true
+		case "--speculative-methods":
+			fl.speculativeMethods = true
+		case "--no-speculative-methods":
+			fl.speculativeMethods = false
 		case "--candidates":
 			fl.candidates = true
+		case "--speculative":
+			fl.speculative = true
+		case "--speculative-ranked":
+			fl.speculativeRanked = true
+		case "--no-speculative-ranked":
+			fl.speculativeRanked = false
+		case "--assume-open-world":
+			fl.assumeOpenWorld = true
+		case "--no-assume-open-world":
+			fl.assumeOpenWorld = false
+		case "--speculative-native":
+			fl.speculativeNative = true
+		case "--no-speculative-native":
+			fl.speculativeNative = false
+		case "--no-speculative":
+			fl.speculative = false
 		case "--no-infer-args":
 			fl.noInferArgs = true
 		default:
@@ -111,6 +168,10 @@ func cmdUnresolved(args []string) {
 	}
 
 	fl, args := parseUnresolvedFlags(args)
+	if (fl.assumeOpenWorld || fl.speculativeMethods) && (fl.write || fl.knownIssues) {
+		fmt.Fprintln(os.Stderr, "--assume-open-world and --speculative-methods need an audit report; use --json instead of --write or --known-issues")
+		os.Exit(1)
+	}
 
 	if len(args) == 0 {
 		fmt.Fprint(os.Stderr, unresolvedUsage)
@@ -118,11 +179,36 @@ func cmdUnresolved(args []string) {
 	}
 
 	rep, cfg, searchDir := scanUnresolved(args, &fl)
-	if !writeUnresolved(rep.Calls, cfg, args, searchDir, &fl) {
+	if (fl.assumeOpenWorld || fl.speculativeMethods) && fl.json && !fl.write {
+		if err := writeOpenWorldJSON(os.Stdout, &rep); err != nil {
+			fmt.Fprintf(os.Stderr, "writing JSON: %v\n", err)
+			os.Exit(1)
+		}
+	} else if !writeUnresolved(rep.Calls, cfg, args, searchDir, &fl) {
+		if fl.speculativeMethods {
+			fmt.Fprintf(os.Stderr, "%d provisional method connections retained in audit (not resolved). Use --json to review.\n", len(rep.SpeculativeMethodConnections))
+		}
+
+		if fl.assumeOpenWorld {
+			fmt.Fprintf(os.Stderr, "%d assumed calls retained in open-world audit (not resolved). Use --json to review.\n", len(rep.AssumedCalls))
+		}
+
 		return
 	}
 
 	fmt.Fprintf(os.Stderr, "%d unresolved calls found (%d resolved)\n", len(rep.Calls), rep.Resolved)
+
+	if fl.speculativeMethods {
+		fmt.Fprintf(os.Stderr, "Method shortcuts: %d provisional declaration connections, separate from resolved calls. Use --json to review targets and original diagnostics.\n", len(rep.SpeculativeMethodConnections))
+	}
+
+	if fl.speculative || fl.speculativeNative || fl.speculativeRanked {
+		fmt.Fprintf(os.Stderr, "Speculative mode: %d proposed receiver connections; reductions are not verified fixes. Use --verbose to review.\n", len(rep.SpeculativeConnections))
+	}
+
+	if fl.assumeOpenWorld {
+		fmt.Fprintf(os.Stderr, "Open-world mode: %d assumed calls, separate from %d resolved calls. Assumptions can conceal defects; use --json to review original diagnostics.\n", len(rep.AssumedCalls), rep.Resolved)
+	}
 
 	if bases := unresolved.MissingBases(rep.Calls); len(bases) > 0 {
 		fmt.Fprintf(os.Stderr, "\nBase components that do not resolve (a mapping or workspace path for each checks its calls):\n")
@@ -140,6 +226,23 @@ func cmdUnresolved(args []string) {
 	fmt.Fprintf(os.Stderr, "  Index:  %v (%d files)\n", rep.IndexTime, rep.Indexed)
 	fmt.Fprintf(os.Stderr, "  Scan:   %v (%d files)\n", rep.ScanTime, rep.Scanned)
 	fmt.Fprintf(os.Stderr, "  Total:  %v\n", rep.IndexTime+rep.ScanTime)
+}
+
+func writeOpenWorldJSON(out io.Writer, rep *unresolved.Report) error {
+	enc := json.NewEncoder(out)
+	enc.SetIndent("", "  ")
+
+	audit := struct {
+		Calls        []unresolved.Call                        `json:"calls"`
+		AssumedCalls []unresolved.AssumedCall                 `json:"assumedCalls"`
+		Connections  []unresolved.SpeculativeConnection       `json:"speculativeConnections"`
+		Methods      []unresolved.SpeculativeMethodConnection `json:"speculativeMethodConnections,omitempty"`
+		Resolved     int                                      `json:"resolved"`
+		Indexed      int                                      `json:"indexed"`
+		Scanned      int                                      `json:"scanned"`
+	}{Calls: rep.Calls, AssumedCalls: rep.AssumedCalls, Connections: rep.SpeculativeConnections, Methods: rep.SpeculativeMethodConnections, Resolved: rep.Resolved, Indexed: rep.Indexed, Scanned: rep.Scanned}
+
+	return enc.Encode(audit)
 }
 
 // scanUnresolved runs the scan the unresolved command reports: it indexes the
@@ -177,12 +280,13 @@ func scanUnresolved(args []string, fl *unresolvedFlags) (unresolved.Report, *dae
 // unresolvedOptions builds the scan's options from the config, or from the
 // paths given when there is none.
 func unresolvedOptions(cfg *daemon.Config, args []string, fl *unresolvedFlags) *unresolved.Options {
-	opt := &unresolved.Options{GlobalDefs: fl.globalDefs, Candidates: fl.candidates, InferArgs: !fl.noInferArgs, WorkspaceFolders: cliWorkspaceFolders(vfs.OS{}, cfg, args)}
+	opt := &unresolved.Options{SpeculativeMethods: fl.speculativeMethods, SpeculativeRanked: fl.speculativeRanked, AssumeOpenWorld: fl.assumeOpenWorld, SpeculativeNative: fl.speculativeNative, NativeEngine: fl.nativeEngine, Speculative: fl.speculative, GlobalDefs: fl.globalDefs, Candidates: fl.candidates, InferArgs: !fl.noInferArgs, WorkspaceFolders: cliWorkspaceFolders(vfs.OS{}, cfg, args)}
 	if fl.verbose {
 		opt.Verbose = os.Stderr
 	}
 
 	if cfg != nil {
+		opt.CallerInferenceLimits = cfg.CallerInferenceLimits()
 		opt.Mappings = cfg.Mappings()
 		opt.StartupFiles = cfg.StartupFiles()
 		opt.ExpressionMappings = cfg.ExpressionMappings()
@@ -211,6 +315,19 @@ func unresolvedOptions(cfg *daemon.Config, args []string, fl *unresolvedFlags) *
 	if fl.write {
 		fmt.Fprintf(os.Stderr, "--write needs a .clif.json to say where the report goes\n")
 		os.Exit(1)
+	}
+
+	assumed := config.AssumedFrameworks(opt.WorkspaceFolders, vfs.OS{}.ReadFile, vfs.OS{}.ReadDir)
+	for _, rule := range config.FrameworkResolvers(assumed) {
+		opt.Resolvers = append(opt.Resolvers, rule.Parser())
+	}
+
+	opt.ImplicitExtends = config.ImplicitExtends(assumed)
+	opt.HelperScope = config.HelperScope(assumed)
+
+	opt.Stubs = frameworkapi.For(assumed)
+	if len(assumed) > 0 {
+		fmt.Fprintf(os.Stderr, "Assuming framework context from project source: %s (override with .clif.json)\n", strings.Join(assumed, ", "))
 	}
 
 	return opt
@@ -402,4 +519,18 @@ func scanTargets(fsys vfs.FS, args []string, indexWiderThanArgs bool) []string {
 	}
 
 	return files
+}
+
+func nativeEngineFlag(value string) string {
+	switch value {
+	case "auto":
+		return ""
+	case "generic", "lucee":
+		return value
+	default:
+		fmt.Fprintln(os.Stderr, "native-engine must be auto, generic or lucee")
+		os.Exit(1)
+
+		return ""
+	}
 }

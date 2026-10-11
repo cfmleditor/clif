@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/cfmleditor/clif/internal/docs"
+	"github.com/cfmleditor/clif/internal/nativetype"
 	"github.com/cfmleditor/clif/internal/parser"
 )
 
@@ -19,6 +21,7 @@ type producerValue struct {
 	literal                                   string
 	literalKnown                              bool
 	fields                                    map[string]producerValue
+	instance                                  *producerInstance
 }
 
 func producerUnknown() producerValue { return producerValue{unknown: true} }
@@ -31,6 +34,10 @@ func producerMerge(a, b producerValue) producerValue {
 	}
 
 	result := producerValue{literal: a.literal, literalKnown: a.literalKnown && b.literalKnown && a.literal == b.literal, primitive: a.primitive || b.primitive, components: slices.Clone(a.components), presenceKnown: presenceKnown, absent: absent}
+	if a.instance == b.instance {
+		result.instance = a.instance
+	}
+
 	for _, comp := range b.components {
 		if !slices.Contains(result.components, comp) {
 			result.components = append(result.components, comp)
@@ -83,6 +90,7 @@ type producerEvaluation struct {
 	wanted            map[string]bool
 	argumentsKnown    bool
 	callerArguments   bool
+	instance          *producerInstance
 }
 type producerResult struct {
 	environment producerEnvironment
@@ -142,21 +150,53 @@ func (r *Resolver) producerExpressionValue(fd *parser.FunctionDef, expression, b
 	return eval.call(fd, component, arguments, true)
 }
 
-func (e *producerEvaluation) call(fd *parser.FunctionDef, receiver string, arguments map[string]producerValue, specific bool) producerValue {
+func (e *producerEvaluation) call(fd *parser.FunctionDef, receiver string, arguments map[string]producerValue, specific bool, instances ...*producerInstance) producerValue {
 	if fd == nil || e.depth > 8 || *e.budget <= 0 {
 		return producerUnknown()
 	}
 
 	*e.budget--
 
-	if specific && receiver != "" {
+	method := e.resolver.producerFor(fd)
+
+	forwarding := false
+	if method != nil && len(instances) > 0 && instances[0] != nil && instances[0].valid {
+		forwarding = !instanceSetter(method.body) && instanceSetterContract(fd.Name, e.resolver.wheelsSource(fd.URI.Path()).producers.all(), instances[0].values, nil)
+	}
+
+	if method != nil && len(instances) > 0 && instances[0] != nil && instances[0].valid && instanceSetter(method.body) {
+		if !e.instanceSelfReturnCompatible(fd, receiver) {
+			instances[0].valid = false
+
+			return producerUnknown()
+		}
+
+		return e.updateInstance(fd, method, receiver, instances[0], arguments)
+	}
+
+	if !forwarding && specific && receiver != "" {
 		source := e.resolver.wheelsSource(fd.URI.Path()).methods[strings.ToLower(fd.Name)]
-		if source.selfDefaultParam != "" && e.selfModeSelected(fd, source.selfDefaultParam, arguments) {
+		if source.selfDefaultParam != "" && !source.literalDefaults {
+			return producerUnknown()
+		}
+
+		if source.selfDefaultParam != "" && e.instanceSelfReturnCompatible(fd, receiver) && e.selfModeSelected(fd, source.selfDefaultParam, source.selfExcludedModes, arguments) {
 			return e.concrete(receiver, e.baseDir)
 		}
 	}
 
-	switch strings.ToLower(fd.ReturnType) {
+	returnType := strings.ToLower(fd.ReturnType)
+	if forwarding {
+		if !e.instanceSelfReturnCompatible(fd, receiver) {
+			instances[0].valid = false
+
+			return producerUnknown()
+		}
+
+		returnType = "any"
+	}
+
+	switch returnType {
 	case "", "any", "object", "component":
 	default:
 		if cfmlTypes[strings.ToLower(fd.ReturnType)] {
@@ -174,10 +214,9 @@ func (e *producerEvaluation) call(fd *parser.FunctionDef, receiver string, argum
 		return producerUnknown()
 	}
 
-	method := e.resolver.producerFor(fd)
 	// Existing concrete/declared contracts take priority unless the source
 	// contains an object guard, whose supplied-object path needs specialization.
-	if !producerNeedsSpecialization(method, fd) {
+	if !producerNeedsSpecialization(method, fd) && (len(instances) == 0 || instances[0] == nil || !instances[0].valid) {
 		if fd.ReturnComponent != "" && fd.ReturnComponent != "$any" || len(fd.ReturnSources) > 0 || fd.DocReturn != "" {
 			if ret := e.resolver.returnComponentOf(fd, e.depth+1, e.budget); ret != "" && ret != "$any" {
 				if self := e.resolver.selfTyped(receiver, e.baseDir, fd, ret); self != "" {
@@ -199,16 +238,39 @@ func (e *producerEvaluation) call(fd *parser.FunctionDef, receiver string, argum
 	local.argumentsKnown = specific
 	local.wanted = method.wanted
 
+	local.instance = nil
+	if len(instances) > 0 && instances[0] != nil && instances[0].valid {
+		local.instance = instances[0]
+	}
+
 	local.receiver = receiver
 	if receiver == "" && producerReturnsThis(method.body) {
 		local.receiver = fd.URI.Path()
 	}
 
 	local.depth++
-	env := local.bindArguments(fd, method, arguments, specific)
 
-	result := local.execute(method.body, env)
+	return local.executeBoundCall(fd, method, arguments, specific, forwarding)
+}
+
+func (e *producerEvaluation) executeBoundCall(fd *parser.FunctionDef, method *producerMethod, arguments map[string]producerValue, specific, forwarding bool) producerValue {
+	env := e.bindArguments(fd, method, arguments, specific)
+	if e.instance != nil {
+		if !e.instance.valid || !instanceArgumentsCompatible(fd, env) {
+			e.instance.valid = false
+
+			return producerUnknown()
+		}
+
+		maps.Copy(env, e.instance.values)
+	}
+
+	result := e.execute(method.body, env)
 	if !result.stopped || len(result.returns) == 0 {
+		if forwarding {
+			e.instance.valid = false
+		}
+
 		return producerUnknown()
 	}
 
@@ -217,22 +279,40 @@ func (e *producerEvaluation) call(fd *parser.FunctionDef, receiver string, argum
 		value = producerMerge(value, ret)
 	}
 
+	if forwarding && value.instance != e.instance {
+		e.instance.valid = false
+
+		return producerUnknown()
+	}
+
 	return value
 }
 
-func (e *producerEvaluation) selfModeSelected(fd *parser.FunctionDef, name string, arguments map[string]producerValue) bool {
-	value, supplied := arguments[name]
-	if !supplied {
-		for i := range fd.Arguments {
-			if strings.EqualFold(fd.Arguments[i].Name, name) {
-				value, supplied = arguments[producerPosition(i)]
+func (e *producerEvaluation) selfModeSelected(fd *parser.FunctionDef, name string, excluded []string, arguments map[string]producerValue) bool {
+	position := -1
 
-				break
-			}
+	for i := range fd.Arguments {
+		if strings.EqualFold(fd.Arguments[i].Name, name) {
+			position = i
+
+			break
 		}
 	}
 
-	return !supplied || value.literalKnown && strings.EqualFold(value.literal, "self")
+	if position < 0 {
+		return false
+	}
+
+	value, supplied := arguments[name]
+	if !supplied {
+		value, supplied = arguments[producerPosition(position)]
+	}
+
+	if !supplied || value.presenceKnown && value.absent {
+		return true
+	}
+
+	return value.literalKnown && !slices.Contains(excluded, strings.ToLower(value.literal))
 }
 
 // producerFor is fd's source plan. The plan is read from the file while fd
@@ -255,6 +335,10 @@ func (r *Resolver) producerFor(fd *parser.FunctionDef) *producerMethod {
 }
 
 func (e *producerEvaluation) concrete(component, baseDir string) producerValue {
+	if strings.HasPrefix(component, "$builtin.") {
+		return producerValue{components: []string{component}}
+	}
+
 	if component == "" || strings.HasPrefix(component, "$") || strings.Contains(component, "|") {
 		return producerUnknown()
 	}
@@ -292,7 +376,7 @@ func (e *producerEvaluation) execute(nodes []producerNode, environment producerE
 			result.stopped = true
 		case "stop":
 			result.stopped = true
-		case "unsafe":
+		case "unsafe", "private-index-set":
 			result.returns = append(result.returns, producerUnknown())
 			result.stopped = true
 		case "query":
@@ -344,6 +428,8 @@ func (e *producerEvaluation) execute(nodes []producerNode, environment producerE
 }
 
 func (e *producerEvaluation) switchBranch(node *producerNode, env producerEnvironment) producerResult {
+	invalidateProducerInstances(env)
+
 	unknown := producerResult{environment: env, returns: []producerValue{producerUnknown()}, stopped: true}
 	if producerConditionMutation(producerTokens(node.expression)) {
 		return unknown
@@ -480,6 +566,10 @@ func (e *producerEvaluation) condition(expression string, env producerEnvironmen
 
 		if !value.primitive && len(value.components) > 0 {
 			choice = 1
+		}
+
+		if value.component() == nativetype.Type("string") || value.component() == nativetype.Type("numeric") || value.component() == nativetype.Type("boolean") {
+			choice = -1
 		}
 	}
 
@@ -755,7 +845,10 @@ func (e *producerEvaluation) read(path string, env producerEnvironment) producer
 	}
 
 	if path == "this" {
-		return e.concrete(e.receiver, e.baseDir)
+		value := e.concrete(e.receiver, e.baseDir)
+		value.instance = e.instance
+
+		return value
 	}
 
 	if path == "arguments" {
@@ -871,6 +964,10 @@ func (e *producerEvaluation) expression(expression string, env producerEnvironme
 				return producerUnknown()
 			}
 
+			if _, duplicate := fields[key]; duplicate {
+				return producerUnknown()
+			}
+
 			value := e.expression(producerText(entry[2:]), env)
 			value.presenceKnown = true
 			fields[key] = value
@@ -881,6 +978,10 @@ func (e *producerEvaluation) expression(expression string, env producerEnvironme
 
 	if path := producerPath(tokens); path != "" {
 		return e.read(path, env)
+	}
+
+	if tokens[len(tokens)-1].Kind == parser.TokRBracket {
+		return e.recordElement(tokens, env)
 	}
 
 	construct := strings.EqualFold(tokens[0].Value, "new")
@@ -933,14 +1034,43 @@ func (e *producerEvaluation) expression(expression string, env producerEnvironme
 				return producerUnknown()
 			}
 
-			fd := e.resolver.ResolveFunc(value.component(), method, e.baseDir)
-			value = e.call(fd, value.component(), args, true)
+			value = e.methodResult(value, method, args)
+		} else if value.instance != nil {
+			value.instance.valid = false
 		}
 
 		position = end + 1
 	}
 
 	return value
+}
+
+func (e *producerEvaluation) recordElement(tokens []parser.Token, env producerEnvironment) producerValue {
+	for i, token := range tokens {
+		if token.Kind != parser.TokLBracket {
+			continue
+		}
+
+		if producerGroupEnd(tokens, i, parser.TokLBracket, parser.TokRBracket) != len(tokens)-1 {
+			break
+		}
+
+		path := producerPath(tokens[:i])
+
+		key := e.expression(producerText(tokens[i+1:len(tokens)-1]), env)
+		if path == "" || !key.literalKnown {
+			return producerUnknown()
+		}
+
+		value := e.read(path, env)
+		if field, exists := value.fields[strings.ToLower(key.literal)]; exists {
+			return field
+		}
+
+		return producerUnknown()
+	}
+
+	return producerUnknown()
 }
 
 func (e *producerEvaluation) arguments(tokens []parser.Token, env producerEnvironment) (map[string]producerValue, bool) {
@@ -973,6 +1103,10 @@ func (e *producerEvaluation) arguments(tokens []parser.Token, env producerEnviro
 			}
 
 			for _, field := range value.fields {
+				if field.instance != nil {
+					field.instance.valid = false
+				}
+
 				if !field.presenceKnown {
 					return nil, false
 				}
@@ -990,7 +1124,11 @@ func (e *producerEvaluation) arguments(tokens []parser.Token, env producerEnviro
 		}
 
 		value := e.expression(producerText(piece), env)
-		if value.fields != nil {
+		if value.instance != nil {
+			value.instance.valid = false
+		}
+
+		if value.fields != nil && (!producerLiteralRecord(value) || len(piece) == 0 || piece[0].Kind != parser.TokLBrace) {
 			value = producerUnknown()
 		}
 
@@ -1004,6 +1142,16 @@ func producerPosition(position int) string { return "@" + strconv.Itoa(position)
 
 func (e *producerEvaluation) effect(expression string, env producerEnvironment) {
 	tokens := producerTokens(expression)
+	if e.instanceSetterEffect(tokens, env) || e.closedConstructionEffect(tokens, env) {
+		return
+	}
+
+	for _, value := range env {
+		if value.instance != nil {
+			value.instance.valid = false
+		}
+	}
+
 	if e.argumentMutation(tokens, env) {
 		return
 	}
@@ -1072,6 +1220,8 @@ func (e *producerEvaluation) methodOwner() string {
 }
 
 func (e *producerEvaluation) loop(node *producerNode, environment producerEnvironment) producerResult {
+	invalidateProducerInstances(environment)
+
 	result := producerResult{environment: maps.Clone(environment)}
 	for range 16 {
 		input := maps.Clone(result.environment)
@@ -1104,7 +1254,7 @@ func producerEnvironmentsEqual(a, b producerEnvironment) bool {
 
 	for key, x := range a {
 		y, ok := b[key]
-		if !ok || x.unknown != y.unknown || x.primitive != y.primitive || x.absent != y.absent || x.presenceKnown != y.presenceKnown || x.literalKnown != y.literalKnown || x.literal != y.literal || !reflect.DeepEqual(x.fields, y.fields) || len(x.components) != len(y.components) {
+		if !ok || x.unknown != y.unknown || x.primitive != y.primitive || x.absent != y.absent || x.presenceKnown != y.presenceKnown || x.literalKnown != y.literalKnown || x.literal != y.literal || x.instance != y.instance || !reflect.DeepEqual(x.fields, y.fields) || len(x.components) != len(y.components) {
 			return false
 		}
 
@@ -1232,7 +1382,14 @@ func (e *producerEvaluation) rootCall(tokens []parser.Token, open, end int, befo
 			dir = e.baseDir
 		}
 
-		return e.concrete(before, dir)
+		value := e.concrete(before, dir)
+
+		args, known := e.arguments(tokens[open+1:end], env)
+		if known {
+			value.instance = e.constructedInstance(value.component(), dir, args)
+		}
+
+		return value
 	}
 
 	path := normalizeProducerPath(before)
@@ -1251,27 +1408,18 @@ func (e *producerEvaluation) rootCall(tokens []parser.Token, open, end int, befo
 	}
 
 	if strings.EqualFold(before, "createObject") && e.resolver.ResolveFunc(e.methodOwner(), "createObject", e.baseDir) == nil {
-		parts := producerSplit(tokens[open+1 : end])
-		if len(parts) == 2 {
-			kind := e.expression(producerText(parts[0]), env)
-
-			name := e.expression(producerText(parts[1]), env)
-			if kind.literalKnown && strings.EqualFold(kind.literal, "component") && name.literalKnown {
-				dir := filepath.Dir(e.fd.URI.Path())
-				if e.callerArguments {
-					dir = e.baseDir
-				}
-
-				return e.concrete(name.literal, dir)
-			}
-		}
-
-		return producerUnknown()
+		return e.createObjectResult(tokens, open, end, env)
 	}
 
 	component, noFollow, soft := e.resolver.matchResolver(producerCallText(tokens[:end+1]), nil, nil)
 	if component != "" && !noFollow && !soft {
 		return e.concrete(component, e.baseDir)
+	}
+
+	if !strings.Contains(before, ".") && e.resolver.ResolveFunc(e.methodOwner(), before, e.baseDir) == nil {
+		if ret := e.resolver.BuiltinReturnLookup(before); ret != "" {
+			return e.concrete(ret, e.baseDir)
+		}
 	}
 
 	if e.callerArguments {
@@ -1281,6 +1429,8 @@ func (e *producerEvaluation) rootCall(tokens []parser.Token, open, end int, befo
 	receiver, method, qualified := strings.CutLast(before, ".")
 
 	target := e.receiver
+
+	instance := e.instance
 	if target == "" {
 		target = e.fd.URI.Path()
 	}
@@ -1292,7 +1442,8 @@ func (e *producerEvaluation) rootCall(tokens []parser.Token, open, end int, befo
 	case !qualified:
 		method = before
 	case !strings.EqualFold(receiver, "this") && !strings.EqualFold(receiver, "variables"):
-		target = e.read(receiver, env).component()
+		value := e.read(receiver, env)
+		target, instance = value.component(), value.instance
 	}
 
 	if target == "" {
@@ -1304,7 +1455,15 @@ func (e *producerEvaluation) rootCall(tokens []parser.Token, open, end int, befo
 		return producerUnknown()
 	}
 
-	return e.call(e.resolver.ResolveFunc(target, method, e.baseDir), target, args, true)
+	if strings.EqualFold(method, "init") && instance != nil {
+		instance.valid = false
+	}
+
+	if ret, ok := docs.LookupBuiltinMethodReturn(target, method); ok {
+		return e.concrete(ret, e.baseDir)
+	}
+
+	return e.call(e.resolver.ResolveFunc(target, method, e.baseDir), target, args, true, instance)
 }
 
 func (e *producerEvaluation) bindArguments(fd *parser.FunctionDef, method *producerMethod, arguments map[string]producerValue, specific bool) producerEnvironment {
@@ -1353,6 +1512,7 @@ func (e *producerEvaluation) bindArguments(fd *parser.FunctionDef, method *produ
 }
 
 func (e *producerEvaluation) branches(node *producerNode, env producerEnvironment) producerResult {
+	invalidateProducerInstances(env)
 	result := producerResult{environment: env}
 
 	yes, no, choice := e.condition(node.expression, env)
@@ -1398,6 +1558,14 @@ func (e *producerEvaluation) branches(node *producerNode, env producerEnvironmen
 	return result
 }
 
+func invalidateProducerInstances(env producerEnvironment) {
+	for _, value := range env {
+		if value.instance != nil {
+			value.instance.valid = false
+		}
+	}
+}
+
 func producerConditionMutation(tokens []parser.Token) bool {
 	calls := []bool{}
 
@@ -1429,6 +1597,9 @@ func producerConditionMutation(tokens []parser.Token) bool {
 }
 
 func (e *producerEvaluation) assign(node *producerNode, env producerEnvironment) bool {
+	_, existingLocal := env[normalizeProducerPath(node.target)]
+	localTarget := strings.HasPrefix(strings.ToLower(node.target), "local.") || !strings.Contains(node.target, ".") && existingLocal
+
 	sourcePath := producerPath(producerTokens(node.expression))
 	if sourcePath == "arguments" || sourcePath == "variables" || sourcePath == "local" || sourcePath != "" && e.read(sourcePath, env).fields != nil {
 		return false
@@ -1460,8 +1631,14 @@ func (e *producerEvaluation) assign(node *producerNode, env producerEnvironment)
 		}
 	}
 
-	if producerWantedTarget(node.target, e.wanted) {
+	// Keep another closed factory even when the final return does not read it:
+	// its proved setters must retain their own identity and effects.
+	if producerWantedTarget(node.target, e.wanted) || localTarget && e.closedConstructionEffect(producerTokens(node.expression), env) {
 		env[target] = e.expression(node.expression, env)
+		if value := env[target]; value.instance != nil && !localTarget {
+			value.instance.valid = false
+		}
+
 		if strings.HasPrefix(target, "arguments.") {
 			value := env[target]
 			value.presenceKnown = true
@@ -1500,4 +1677,45 @@ func (r *Resolver) producerIgnoresArguments(fd *parser.FunctionDef) bool {
 	}
 
 	return r.producerFor(fd) == nil
+}
+
+func (e *producerEvaluation) methodResult(value producerValue, method string, args map[string]producerValue) producerValue {
+	if ret, ok := docs.LookupBuiltinMethodReturn(value.component(), method); ok {
+		return e.concrete(ret, e.baseDir)
+	}
+
+	fd := e.resolver.ResolveFunc(value.component(), method, e.baseDir)
+
+	return e.call(fd, value.component(), args, true, value.instance)
+}
+
+func (e *producerEvaluation) createObjectResult(tokens []parser.Token, open, end int, env producerEnvironment) producerValue {
+	if configured, noFollow, soft := e.resolver.matchResolver(producerCallText(tokens[:end+1]), nil, nil); configured != "" {
+		if noFollow || soft {
+			return producerUnknown()
+		}
+
+		return e.concrete(configured, e.baseDir)
+	}
+
+	parts := producerSplit(tokens[open+1 : end])
+	if len(parts) == 2 {
+		kind := e.expression(producerText(parts[0]), env)
+
+		name := e.expression(producerText(parts[1]), env)
+		if kind.literalKnown && strings.EqualFold(kind.literal, "java") && name.literalKnown {
+			return e.concrete(nativetype.Java(name.literal), e.baseDir)
+		}
+
+		if kind.literalKnown && strings.EqualFold(kind.literal, "component") && name.literalKnown {
+			dir := filepath.Dir(e.fd.URI.Path())
+			if e.callerArguments {
+				dir = e.baseDir
+			}
+
+			return e.concrete(name.literal, dir)
+		}
+	}
+
+	return producerUnknown()
 }
