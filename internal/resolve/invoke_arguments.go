@@ -6,6 +6,12 @@ import (
 	"github.com/cfmleditor/clif/internal/parser"
 )
 
+// Source-owned invoke calls use ordinary caller inference, even when the
+// declaration has the same name as the builtin dispatcher.
+func (r *Resolver) builtinInvoke(call *parser.CallSite, pr *parser.ParseResult, dir string) bool {
+	return strings.EqualFold(call.FuncName, "invoke") && call.Variable == "" && call.Component == "" && r.bareFunc("invoke", pr, dir, call.Caller) == nil && !r.builtinCallShadowed("invoke", call.Line, call.Caller, pr)
+}
+
 // invokeArgument admits positional and named builtin forms with a literal
 // method selector. Unknown selectors are outside the caller index's coverage.
 // Unknown targets/bags for a matching selector block inference rather than

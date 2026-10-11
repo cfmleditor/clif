@@ -319,7 +319,7 @@ func (r *Resolver) inferArgument(fd *parser.FunctionDef, pos int, file string, c
 		for ci := range calls {
 			call := &calls[ci]
 
-			invoke := strings.EqualFold(call.FuncName, "invoke") && call.Variable == "" && call.Component == ""
+			invoke := r.builtinInvoke(call, hpr, filepath.Dir(path))
 			if !invoke && !strings.EqualFold(call.FuncName, fd.Name) {
 				continue
 			}
@@ -392,7 +392,7 @@ func (r *Resolver) appendArgumentComponents(comps []string, comp, dir string) []
 }
 
 func (r *Resolver) callerArgument(call *parser.CallSite, pr *parser.ParseResult, path string, fd *parser.FunctionDef, file, dir string, pos int, name string, ctx lookupCtx) (expr []parser.Token, passed, ours, known bool) {
-	if strings.EqualFold(call.FuncName, "invoke") && call.Variable == "" && call.Component == "" {
+	if r.builtinInvoke(call, pr, dir) {
 		return r.invokeArgument(call, pr, fd, pos, name, dir, ctx)
 	}
 

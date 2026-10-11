@@ -1,6 +1,7 @@
 package resolve
 
 import (
+	"path/filepath"
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/docs"
@@ -34,6 +35,20 @@ func (r *Resolver) BuiltinReturnLookup(name string) string {
 	return docs.LookupBuiltinReturnComponent(name)
 }
 
+// BuiltinReturnLookupFor checks source ownership before supplying a native
+// return type. An inherited method with an unknown result still shadows the
+// builtin. Use this callback when parsing a particular file.
+func (r *Resolver) BuiltinReturnLookupFor(file string) func(string) string {
+	return func(name string) string {
+		native := r.BuiltinReturnLookup(name)
+		if native == "" || r.ResolveFunc(file, name, filepath.Dir(file)) != nil {
+			return ""
+		}
+
+		return native
+	}
+}
+
 // nativeLiteral describes a whole literal expression. Expression suffixes are
 // rejected so a literal followed by a call is not mistaken for that call's result.
 func nativeLiteral(expression string) string {
@@ -54,6 +69,18 @@ func nativeLiteral(expression string) string {
 	}
 
 	if tokens[0].Kind == parser.TokLBracket && producerGroupEnd(tokens, 0, parser.TokLBracket, parser.TokRBracket) == len(tokens)-1 {
+		// Square brackets also delimit ordered structs. Inspect the first
+		// entry's separator, not colons/equals inside nested array values or
+		// ternaries. [:] and [=] are the empty ordered-struct forms.
+		body := tokens[1 : len(tokens)-1]
+		if len(body) == 1 && (body[0].Kind == parser.TokColon || body[0].Kind == parser.TokEquals) {
+			return nativetype.Type("struct")
+		}
+
+		if len(body) >= 3 && (body[1].Kind == parser.TokColon || body[1].Kind == parser.TokEquals) {
+			return nativetype.Type("struct")
+		}
+
 		return nativetype.Type("array")
 	}
 

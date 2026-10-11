@@ -1353,3 +1353,61 @@ The five no-preset additions are lazy WireBox renderer chains. These are explici
 coverage loose ends, alongside Masa's lazy caches, rather than demonstrated
 missing application methods. See the final wrap-up section for concrete sources
 and proposed contracts.
+
+## PR #244 review: ordered struct literals
+
+`nativeLiteral` now distinguishes ordered structs (`[key:value]`, `[key=value]`,
+`[:]`, and `[=]`) from arrays. Only the first entry's separator determines the
+family; nested struct literals, named call arguments, and ternary expressions
+inside array elements do not change the outer array's type. Regression tests
+verify both valid struct members and rejection of array-only `getDimension`,
+plus array controls. All five ordered-struct cases failed before the fix.
+
+The corpus comparison also exposed the missing `struct.getMetadata()` contract.
+Lucee's `test/functions/GetMetaData.cfc` exercises it on regular and ordered
+structs and asserts the returned metadata fields. It now returns the struct
+interface, consistent with the existing array metadata contract and the existing
+policy that CFML native contracts do not guarantee every engine/version.
+The contract regression test failed before adding it.
+
+Against `bcac43a`, the same seven corpus projects and scan roots produce:
+
+| Mode | Before | After | Removed | Added |
+|---|---:|---:|---:|---:|
+| Strict | 12,355 | 12,348 | 7 | 0 |
+| Combined liberal | 295 | 289 | 6 | 0 |
+
+All changes are in Lucee: struct key-list/key-array, insert/update, and metadata
+calls. Per-entry comparisons include diagnostic metadata, not only totals.
+Indexed coverage remains 8,151 files; every project's count is unchanged.
+Local comparison artifacts are in `target/resolution/pr244-review/`.
+Validation: full short suite, vet, resolver/native-contract/unresolved race
+suites, lint, and whitespace checks pass. These results are local; the fix has
+not yet been published to the PR.
+
+### Fresh PR review: source ownership and report parity
+
+Three further regressions are now covered by failing-before/passing-after tests:
+
+- An inherited `listToArray()` returning a string must not acquire the builtin
+  array contract. File-aware builtin lookup checks source declarations before
+  supplying native return types. CLI scans, editor parsing, and code-map parsing
+  use the same callback; genuine builtin calls through an ordinary subclass
+  still receive their native type.
+- A source-defined `invoke(thing)` retains ordinary caller inference. Only an
+  unshadowed builtin `invoke` enters the literal dispatch evaluator; direct and
+  `this.invoke` calls retain their source relationship.
+- Editor unresolved exports carry the effective resolver rules, startup files,
+  implicit ancestry, helper scopes, and stubs. An automatically recognized
+  ContentBox project's `event.getValue()` resolves in its report, while a
+  genuinely missing event method remains diagnosed.
+
+The seven-project per-entry comparison against the preceding ordered-struct fix
+is unchanged in both modes: **12,348 strict / 289 combined liberal**, zero added
+or removed findings. All indexed counts and resolved counts match the baseline
+(8,151 indexed files). The baseline is the preceding fix's completed corpus
+report, with identical sources and options. Artifacts and counterfactual logs
+are under `target/resolution/pr244-fresh-review/`.
+
+Full short tests, vet, and race tests for parser, resolver, server, unresolved,
+and code-map packages pass. These fixes remain local until committed/published.

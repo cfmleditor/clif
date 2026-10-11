@@ -696,7 +696,7 @@ func Parse(resolver *resolve.Resolver, file, content string, opt *Options) *pars
 		ExtractCalls:             true,
 		ScanAllScopes:            true,
 		FuncLookup:               funcLookup,
-		BuiltinReturnLookup:      resolver.BuiltinReturnLookup,
+		BuiltinReturnLookup:      resolver.BuiltinReturnLookupFor(file),
 	})
 
 	pr.FuncLookup = funcLookup

@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cfmleditor/clif/internal/docs"
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
 )
@@ -133,7 +132,7 @@ func builtinProducerReasons(t *testing.T, dir string) map[string]string {
 		t.Fatal(err)
 	}
 
-	pr := parser.ParseWithOptions(cfpath.ToURI(file), string(content), &parser.ParseOptions{ExtractCalls: true, FuncLookup: r.FuncLookup(dir), BuiltinReturnLookup: docs.LookupBuiltinReturnComponent})
+	pr := parser.ParseWithOptions(cfpath.ToURI(file), string(content), &parser.ParseOptions{ExtractCalls: true, FuncLookup: r.FuncLookup(dir), BuiltinReturnLookup: r.BuiltinReturnLookupFor(file)})
 	got := map[string]string{}
 
 	calls := pr.AllCalls()

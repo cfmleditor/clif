@@ -14,7 +14,6 @@ import (
 	"github.com/cfmleditor/clif/internal/cache"
 	"github.com/cfmleditor/clif/internal/cflint"
 	"github.com/cfmleditor/clif/internal/config"
-	"github.com/cfmleditor/clif/internal/docs"
 	"github.com/cfmleditor/clif/internal/frameworkapi"
 	"github.com/cfmleditor/clif/internal/index"
 	cflog "github.com/cfmleditor/clif/internal/log"
@@ -863,7 +862,7 @@ func (s *Server) parseContent(fileURI uri.URI, content string) *parser.ParseResu
 		PropertyBeanLookup:       resolver.InjectionPropertyLookup(cfpath.FromURI(string(fileURI))),
 		SetterLookup:             resolver.SetterLookup(cfpath.FromURI(string(fileURI))),
 		ConstructorLookup:        resolver.ConstructorLookup(cfpath.FromURI(string(fileURI))),
-		BuiltinReturnLookup:      docs.LookupBuiltinReturnComponent,
+		BuiltinReturnLookup:      resolver.BuiltinReturnLookupFor(cfpath.FromURI(string(fileURI))),
 		FuncLookup:               funcLookup(resolver, baseDir),
 		ExpressionMappings:       s.ExpressionMappings,
 		ServicePropertyResolvers: s.ServicePropertyResolvers,

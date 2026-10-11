@@ -4,6 +4,7 @@ import "testing"
 
 func TestRuntimeFollowupContracts(t *testing.T) {
 	for _, tc := range []struct{ family, method, result string }{
+		{"struct", "getMetadata", "struct"},
 		{"struct", "some", "boolean"},
 		{"struct", "every", "boolean"},
 		{"string", "repeatString", "string"},

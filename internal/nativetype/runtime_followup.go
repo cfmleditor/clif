@@ -30,6 +30,7 @@ func init() {
 	maps.Copy(contracts["date"], methods(Type("date"), "setday sethour setmillisecond setminute setmonth setsecond setyear"))
 	maps.Copy(contracts["array"], methods(Type("array"), "removeduplicates"))
 	maps.Copy(contracts["array"], methods(Type("struct"), "getmetadata"))
+	maps.Copy(contracts["struct"], methods(Type("struct"), "getmetadata"))
 
 	// PageContext is produced only with Lucee engine evidence. Keep these chains
 	// separate from generic Object/CFML struct and filesystem identities.
