@@ -409,3 +409,35 @@ withdrawn. They verify read-once association lookup (including absent methods),
 first-match precedence, returned-definition ownership, refresh after edits,
 shared caller tokens with allocation bounds and content replacement, and absence
 of unused producer history while catch paths retain merged intermediate values.
+
+## 9. Per-call rescans of whole sources — implemented
+
+Profiles of cfwheels and MuraCMS scans showed the time going to work repeated
+per call over whole files: regular expressions, tokenising, reading and
+parsing the same sources again. Each is now one pass per file or one answer
+per key, cached for the scan (reset with the discovery caches):
+
+| Hotspot | Was | Now |
+|---|---|---|
+| `onlyFileWritesRequest` | every batch file read, lowercased and matched with a regex compiled per request key | `requestWriters`: one scan of each file, an index of key → writing files (`requestWriteCounts`, held to the old regex by `TestRequestWriteCountsMatchTheRegexItReplaced`) |
+| `sharedFieldContract` | the request-write regex and a full `parser.Parse` of the file on every evaluation | counts and startup assignments read once per `wheelsSource` (`sourceDerived`) |
+| `wheelsWrapperHosts` | each wrapper caller tokenised once per template asked about (3.2 GB of allocation on cfwheels) | `wheelsWrapperCalls`: once per caller |
+| `fw1Actions` | a regex over every controller's source per `rc.` call (Mura's `editsite.cfm`: 160 calls, 3s) | cached per section.item |
+| `boundEntity` | the service and its bases read and regex-searched per cborm call | cached per path |
+| caller inference | caller files parsed one by one at the end of the scan (wheelstest runners, 6s each) | `prefetchHandlerParses` parses them 4 at a time first |
+| producer branches | both branch environments copied by `condition` and again by `execute` | `executeOwned` takes the fresh copies (1.1 GB less allocation on cfwheels) |
+| batch reads | file bytes always re-read | `CacheMetadata` keeps them, 2 MB per file, 128 MB in all |
+
+Wall time, alternating runs on this machine (10 cores): cfwheels 11.0s → 8.3s,
+MuraCMS 8.2s → 5.0s (v0.5.2: 3.5s each). Output is identical per entry on the
+seven-project corpus in strict and liberal modes (resolved counts included),
+tassweb and the nine validation apps (`target/resolution/pr244-perf/`).
+
+The remaining gap is caller inference for common method names. With
+`--no-infer-args` cfwheels scans in 4.5s: inferring `arguments.accessory` in
+the lucli deploy commands walks every caller of `run`, `start` and `stop`, and
+the files doing so (5.5s each) are now the scan's critical path. Parsing more of
+them in parallel did not help; the serial part is checking each call site,
+which can recurse into further inference. Closing it means indexing call sites
+by method name once per scan, with receivers resolved once, instead of
+re-deriving them per inference.

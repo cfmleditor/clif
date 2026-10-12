@@ -360,7 +360,15 @@ func (e *producerEvaluation) execute(nodes []producerNode, environment producerE
 // Ordinary evaluations need their final environment and returns, not a copy
 // of every state visited on the way there.
 func (e *producerEvaluation) executeObserved(nodes []producerNode, environment producerEnvironment, observe bool) producerResult {
-	result := producerResult{environment: maps.Clone(environment)}
+	return e.executeOwned(nodes, maps.Clone(environment), observe)
+}
+
+// executeOwned is executeObserved for an environment the caller has just made
+// and hands over, which it writes to in place rather than copying first: a
+// branch's environments are copies already, and copying them again was most
+// of the map cloning in a cfwheels scan.
+func (e *producerEvaluation) executeOwned(nodes []producerNode, environment producerEnvironment, observe bool) producerResult {
+	result := producerResult{environment: environment}
 	if observe {
 		result.observed = maps.Clone(environment)
 	}
@@ -1527,16 +1535,22 @@ func (e *producerEvaluation) branches(node *producerNode, env producerEnvironmen
 	invalidateProducerInstances(env)
 	result := producerResult{environment: env}
 
-	yes, no, choice := e.condition(node.expression, env)
-	if node.kind != "if" {
-		yes = maps.Clone(env)
-		no = maps.Clone(env)
-		choice = 0
+	// yes and no are fresh copies whichever way they are made (condition,
+	// maps.Clone, mergeProducerEnvironments), so the branches own them.
+	var (
+		yes, no producerEnvironment
+		choice  int
+	)
+
+	if node.kind == "if" {
+		yes, no, choice = e.condition(node.expression, env)
+	} else {
+		yes, no = maps.Clone(env), maps.Clone(env)
 	}
 
 	a, b := producerResult{environment: env}, producerResult{environment: env}
 	if choice >= 0 {
-		a = e.executeObserved(node.body, yes, node.kind == "try")
+		a = e.executeOwned(node.body, yes, node.kind == "try")
 	}
 
 	if node.kind == "try" {
@@ -1544,7 +1558,7 @@ func (e *producerEvaluation) branches(node *producerNode, env producerEnvironmen
 	}
 
 	if choice <= 0 {
-		b = e.execute(node.alternative, no)
+		b = e.executeOwned(node.alternative, no, false)
 	}
 
 	result.returns = append(result.returns, a.returns...)
