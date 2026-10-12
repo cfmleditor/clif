@@ -421,8 +421,6 @@ func (r *Resolver) withSubclasses(path string) string {
 	return strings.Join(append(all[1:], all[0]), "|")
 }
 
-var localAssignRe = regexp.MustCompile(`(?im)^\s*(?:<cfset\s+)?(?:var\s+)?(?:local\.|variables\.)?(\w+)\s*=\s*([^=].*?)\s*/?>?\s*;?\s*$`)
-
 // localAssignment is the right-hand side of the last assignment to name on a
 // line from start to before header, when its parentheses balance. A statement
 // that runs on over the next lines (a call with its arguments one to a line,
@@ -440,12 +438,12 @@ func localAssignmentAt(content, name string, start, header int) (string, int, bo
 	lines := strings.Split(content, "\n")
 
 	for i := min(header, len(lines)) - 1; i >= start && i >= 0; i-- {
-		m := localAssignRe.FindStringSubmatch(lines[i])
-		if m == nil || !strings.EqualFold(m[1], name) {
+		assignedName, value, matched := matchSourceAssignment(lines[i])
+		if !matched || !strings.EqualFold(assignedName, name) {
 			continue
 		}
 
-		rhs := strings.TrimSpace(strings.TrimSuffix(strings.TrimSuffix(strings.TrimSpace(m[2]), ";"), "/"))
+		rhs := trimAssignmentRHS(value)
 
 		for j := i + 1; strings.Count(rhs, "(") > strings.Count(rhs, ")") && j < min(header, len(lines)) && j <= i+maxAssignmentLines; j++ {
 			rhs += " " + strings.TrimSpace(strings.TrimSuffix(strings.TrimSuffix(strings.TrimSpace(lines[j]), ";"), "/"))

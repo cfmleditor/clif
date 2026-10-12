@@ -328,7 +328,7 @@ func (r *Resolver) inferArgument(fd *parser.FunctionDef, pos int, file string, c
 			expr, passed, ours, known := r.callerArgument(call, hpr, path, fd, file, dir, pos, argName, ctx)
 
 			if !ours {
-				if known || !invoke && callerOmitsArgument(call, hpr, pos, argName) {
+				if known || !invoke && r.callerOmitsArgument(call, hpr, pos, argName) {
 					continue
 				}
 
@@ -340,7 +340,7 @@ func (r *Resolver) inferArgument(fd *parser.FunctionDef, pos int, file string, c
 			}
 
 			if tokens == nil {
-				tokens = allTokens(hpr.Content)
+				tokens = r.callerFileTokens(hpr)
 			}
 
 			if !invoke {
@@ -837,12 +837,12 @@ func (b *callerFileBudget) take(file string) bool {
 // An unknown receiver cannot supply a type for an argument a complete call
 // demonstrably omits. Require exact byte identity and balanced call syntax;
 // opaque argumentCollection still counts as supplying the argument.
-func callerOmitsArgument(call *parser.CallSite, pr *parser.ParseResult, pos int, name string) bool {
+func (r *Resolver) callerOmitsArgument(call *parser.CallSite, pr *parser.ParseResult, pos int, name string) bool {
 	if !call.HasSpan {
 		return false
 	}
 
-	tokens := allTokens(pr.Content)
+	tokens := r.callerFileTokens(pr)
 	for i := 0; i+1 < len(tokens); i++ {
 		if tokens[i].Offset != int(call.StartByte) || tokens[i].Kind != parser.TokIdent || !strings.EqualFold(tokens[i].Value, call.FuncName) || tokens[i+1].Kind != parser.TokLParen {
 			continue
@@ -858,4 +858,14 @@ func callerOmitsArgument(call *parser.CallSite, pr *parser.ParseResult, pos int,
 	}
 
 	return false
+}
+
+// callerFileTokens shares only lexical work, never inferred argument types.
+// Caller views use the owning resolver's bounded, content-checked cache.
+func (r *Resolver) callerFileTokens(pr *parser.ParseResult) []parser.Token {
+	if r.indexer != nil {
+		return r.indexer.callerFileTokens(pr)
+	}
+
+	return r.callerTokens.get(&r.mu, pr, func() []parser.Token { return allTokens(pr.Content) })
 }

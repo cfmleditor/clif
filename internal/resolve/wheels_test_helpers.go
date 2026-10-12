@@ -24,7 +24,7 @@ func (r *Resolver) wheelsTestGlobalFunc(chain []string, name string) *parser.Fun
 		}
 
 		source := r.wheelsSource(path)
-		if !wheelsTestBinds(source) {
+		if !wheelsTestBinds(&source) {
 			continue
 		}
 
@@ -86,7 +86,7 @@ const wheelsTestBinder = `
 // Both shipped layouts copy the same public UDFs. The inline layout must be
 // the pseudo-constructor itself, followed only by named method declarations;
 // a matching string, closure or unused method is not startup evidence.
-func wheelsTestBinds(source wheelsSource) bool {
+func wheelsTestBinds(source *wheelsSource) bool {
 	if source.methods["init"].body == wheelsTokens(`$bindApplicationHelpers();return this;`) && source.methods["$bindapplicationhelpers"].body == wheelsTokens(wheelsTestBinder) {
 		return true
 	}

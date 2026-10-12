@@ -87,13 +87,15 @@ type Resolver struct {
 	beanPathsCache        map[string]string   // merged application/configured bean roots
 	fw1Scopes             map[string]fw1Scope // nearest application's source-defined injection scope
 	diOnce                sync.Once
-	diPolicies            []diPolicy                          // source-backed DI/1 injection contracts
-	discoveringDI         bool                                // private policy discovery never re-enters injection lookup
-	startupCache          map[string][]startupAssign          // app root → its startup templates' shared-scope assignments
-	wheelsSources         map[string]wheelsSource             // source-checked method bodies; refreshed when bytes change
-	ctlPathCache          map[string]controllerPaths          // dir → its files' writes of Wheels' controllerPath
-	includerCache         map[string]string                   // template, name, depth and include generation → includerHeld's answer
-	returnCache           returnCache                         // ReturnComponentOf answers, for one index generation
+	diPolicies            []diPolicy                 // source-backed DI/1 injection contracts
+	discoveringDI         bool                       // private policy discovery never re-enters injection lookup
+	startupCache          map[string][]startupAssign // app root → its startup templates' shared-scope assignments
+	wheelsSources         map[string]wheelsSource    // source-checked method bodies; refreshed when bytes change
+	ctlPathCache          map[string]controllerPaths // dir → its files' writes of Wheels' controllerPath
+	includerCache         map[string]string          // template, name, depth and include generation → includerHeld's answer
+	returnCache           returnCache                // ReturnComponentOf answers, for one index generation
+	sourceFacts           spanCache[lexicalSourceFacts]
+	callerTokens          spanCache[parser.Token]             // caller file URI → tokens for its current content
 	loopCache             spanCache[loopSpan]                 // file URI → every loop its current text holds (loopsOf)
 	typeGuardCache        spanCache[receiverTypeGuard]        // exact builtin checks in current source
 	closureCache          spanCache[closureSpan]              // file URI → every function literal its current text holds (closuresOf)
@@ -3175,6 +3177,9 @@ func (r *Resolver) receiverComponentD(variable string, line uint32, caller, func
 	}
 
 	// Try function-scoped refs first
+	method := receiverMethod(funcName, ctx.call)
+	ref = funcRefAfterDefault(ref, pr, line, variable, lookupVar, scope, method, ctx.call, tr)
+
 	if ref != nil {
 		comp = ref.Component
 
@@ -3224,7 +3229,7 @@ func (r *Resolver) receiverComponentD(variable string, line uint32, caller, func
 	}
 
 	if comp == "" {
-		if best := fileLevelRef(pr, line, lookupVar, scope); best != nil {
+		if best := fileRefAfterDefault(pr, line, variable, lookupVar, scope, method, tr); best != nil {
 			comp = best.Component
 
 			tr.addf("resolved %q to %q via file-level ComponentRef (nearest preceding assignment at line %d)", variable, comp, best.Line+1)
@@ -3299,6 +3304,13 @@ func funcScopedRef(pr *parser.ParseResult, line uint32, name string, in parser.R
 		call = calls[0]
 	}
 
+	return funcScopedRefFor(pr, line, name, in, "", call)
+}
+
+// funcScopedRefFor is funcScopedRef for a call of method on the variable: a
+// native ref without that method is passed over (nativeDefaultOverwritten),
+// so an earlier or later assignment the variable does have is found instead.
+func funcScopedRefFor(pr *parser.ParseResult, line uint32, name string, in parser.RefScope, method string, call *parser.CallSite) *parser.ComponentRef {
 	scopes := append([]parser.FuncScope(nil), pr.Scopes...)
 
 	scopes = append(scopes, parser.FuncScope{Start: 0, End: strings.Count(pr.Content, "\n")})
@@ -3338,6 +3350,10 @@ func funcScopedRef(pr *parser.ParseResult, line uint32, name string, in parser.R
 				continue
 			}
 
+			if nativeDefaultOverwritten(ref.Component, method) {
+				continue
+			}
+
 			// An unknown later store cannot inherit a prior runtime interface.
 			// Recovery is statement-line based; same-line and branch dominance
 			// need a separate byte-aware flow proof.
@@ -3368,6 +3384,76 @@ func funcScopedRef(pr *parser.ParseResult, line uint32, name string, in parser.R
 	return nil
 }
 
+// receiverMethod is the method called on the receiver itself: funcName, or
+// for a chained call (`x.a().b()`, funcName b) the chain's first hop. A
+// property hop (`x.p.b()`) calls nothing on x, so it names no method.
+func receiverMethod(funcName string, call *parser.CallSite) string {
+	if call != nil && len(call.Chain) > 0 {
+		if _, property := parser.PropertyName(call.Chain[0]); property {
+			return ""
+		}
+
+		return parser.CallHopName(call.Chain[0])
+	}
+
+	return funcName
+}
+
+// funcRefAfterDefault is ref, or when ref is a struct default the method
+// contradicts (nativeDefaultOverwritten), the function-scoped ref the variable
+// has that does not.
+func funcRefAfterDefault(ref *parser.ComponentRef, pr *parser.ParseResult, line uint32, variable, name string, scope parser.RefScope, method string, call *parser.CallSite, tr *callTrace) *parser.ComponentRef {
+	if ref == nil || !nativeDefaultOverwritten(ref.Component, method) {
+		return ref
+	}
+
+	tr.setAside(variable, ref, method)
+
+	return funcScopedRefFor(pr, line, name, scope, method, call)
+}
+
+// fileRefAfterDefault is fileLevelRef, passing over a struct default the
+// method contradicts as funcRefAfterDefault does.
+func fileRefAfterDefault(pr *parser.ParseResult, line uint32, variable, name string, scope parser.RefScope, method string, tr *callTrace) *parser.ComponentRef {
+	best := fileLevelRef(pr, line, name, scope)
+	if best == nil || !nativeDefaultOverwritten(best.Component, method) {
+		return best
+	}
+
+	tr.setAside(variable, best, method)
+
+	return fileLevelRefFor(pr, line, name, scope, method)
+}
+
+// setAside records a struct default passed over for a method it lacks.
+func (t *callTrace) setAside(variable string, ref *parser.ComponentRef, method string) {
+	t.addf("set aside %q's %q from line %d: it has no method %q, so the variable holds something assigned since", variable, ref.Component, ref.Line+1, method)
+}
+
+// nativeDefaultOverwritten reports whether a variable typed as a struct
+// (`variables._parent = StructNew()`, `{}`) is called with a method that
+// value does not have. A component's pseudo-constructor commonly sets such a
+// default and init() then replaces it with an argument that is untyped or
+// declared `struct`, and either way the variable reads as a struct, so every
+// method called on what init() stored was checked against one. A method the native type
+// lacks is the evidence the variable was reassigned, so the default is set
+// aside and the lookup carries on (a componentResolver, the extends chain).
+// With no method named, nothing contradicts it.
+//
+// Only a struct: it is what a placeholder default is (`StructNew()`, `{}`, a
+// `type="struct"` argument CFML lets a component through), and a call on any
+// other native value that its contract lacks is a finding to report, not a
+// sign the variable moved on.
+func nativeDefaultOverwritten(component, method string) bool {
+	if method == "" || component != nativetype.Type("struct") {
+		return false
+	}
+
+	// The same check the method-exists step makes, so a default is set aside
+	// exactly when keeping it would report the call.
+	return !docs.LookupBuiltinMethod(strings.TrimPrefix(component, "$builtin."), method)
+}
+
 // fileLevelRef is the file-level ref for name that is in force at line.
 //
 // A scratch variable can be reassigned multiple times in the same file (e.g.
@@ -3378,11 +3464,17 @@ func funcScopedRef(pr *parser.ParseResult, line uint32, name string, in parser.R
 // that's actually in scope there); only fall back to file order for a genuine
 // forward reference, where no preceding ref exists.
 func fileLevelRef(pr *parser.ParseResult, line uint32, name string, scope parser.RefScope) *parser.ComponentRef {
+	return fileLevelRefFor(pr, line, name, scope, "")
+}
+
+// fileLevelRefFor is fileLevelRef for a call of method on the variable, passing
+// over a native ref without that method as funcScopedRefFor does.
+func fileLevelRefFor(pr *parser.ParseResult, line uint32, name string, scope parser.RefScope, method string) *parser.ComponentRef {
 	var best *parser.ComponentRef
 
 	for i := range pr.ComponentRefs {
 		ref := &pr.ComponentRefs[i]
-		if !strings.EqualFold(ref.Variable, name) || ref.Line > line || !scope.Admits(ref) || assignedByCallAt(ref, line) {
+		if !strings.EqualFold(ref.Variable, name) || ref.Line > line || !scope.Admits(ref) || assignedByCallAt(ref, line) || nativeDefaultOverwritten(ref.Component, method) {
 			continue
 		}
 
@@ -3396,7 +3488,7 @@ func fileLevelRef(pr *parser.ParseResult, line uint32, name string, scope parser
 	}
 
 	for i := range pr.ComponentRefs {
-		if ref := &pr.ComponentRefs[i]; strings.EqualFold(ref.Variable, name) && scope.Admits(ref) && !assignedByCallAt(ref, line) {
+		if ref := &pr.ComponentRefs[i]; strings.EqualFold(ref.Variable, name) && scope.Admits(ref) && !assignedByCallAt(ref, line) && !nativeDefaultOverwritten(ref.Component, method) {
 			return ref
 		}
 	}

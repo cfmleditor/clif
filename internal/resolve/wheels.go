@@ -80,13 +80,23 @@ var modelNameArgRe = regexp.MustCompile(`(?i)\bmodelName\s*=\s*["'](\w+)["']`)
 // associationFunc is the method name an association declared in the model
 // at path gives it, as a definition returning the associated model, or nil.
 func (r *Resolver) associationFunc(path, name string) *parser.FunctionDef {
-	data, err := r.fs().ReadFile(path)
-	if err != nil {
+	source := r.wheelsSource(path)
+
+	def, ok := source.associations[strings.ToLower(name)]
+	if !ok {
 		return nil
 	}
 
-	lower := strings.ToLower(name)
-	src := string(data)
+	// Return a copy: callers may bind the declaration to a receiver/name.
+	def.Name = name
+	def.URI = cfpath.ToURI(path)
+
+	return &def
+}
+
+// Association declarations depend only on source bytes, not caller mappings.
+func wheelsAssociations(src string) map[string]parser.FunctionDef {
+	var definitions map[string]parser.FunctionDef
 
 	for _, m := range associationRe.FindAllStringSubmatchIndex(src, -1) {
 		kind, assoc, args := src[m[2]:m[3]], src[m[4]:m[5]], src[m[6]:m[7]]
@@ -98,12 +108,11 @@ func (r *Resolver) associationFunc(path, name string) *parser.FunctionDef {
 		}
 
 		for _, method := range associationMethods(strings.ToLower(kind), assoc, singular) {
-			if method.name != lower {
+			if _, exists := definitions[method.name]; exists {
 				continue
 			}
 
-			def := &parser.FunctionDef{
-				Name: name, URI: cfpath.ToURI(path),
+			def := parser.FunctionDef{
 				Line: uint32(strings.Count(src[:m[0]], "\n")), //nolint:gosec // a line count of a file read here
 			}
 
@@ -111,11 +120,15 @@ func (r *Resolver) associationFunc(path, name string) *parser.FunctionDef {
 				def.ReturnComponent = model
 			}
 
-			return def
+			if definitions == nil {
+				definitions = make(map[string]parser.FunctionDef)
+			}
+
+			definitions[method.name] = def
 		}
 	}
 
-	return nil
+	return definitions
 }
 
 type associationMethod struct {

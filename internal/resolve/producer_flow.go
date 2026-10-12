@@ -353,7 +353,17 @@ func (e *producerEvaluation) concrete(component, baseDir string) producerValue {
 // Interpret only lexical assignments and supported control flow; CFML is never
 // executed. Unknown branches join values, and scope escapes discard evidence.
 func (e *producerEvaluation) execute(nodes []producerNode, environment producerEnvironment) producerResult {
-	result := producerResult{environment: maps.Clone(environment), observed: maps.Clone(environment)}
+	return e.executeObserved(nodes, environment, false)
+}
+
+// Only a try body's catch path consumes the merged intermediate environments.
+// Ordinary evaluations need their final environment and returns, not a copy
+// of every state visited on the way there.
+func (e *producerEvaluation) executeObserved(nodes []producerNode, environment producerEnvironment, observe bool) producerResult {
+	result := producerResult{environment: maps.Clone(environment)}
+	if observe {
+		result.observed = maps.Clone(environment)
+	}
 
 	for i := range nodes {
 		node := &nodes[i]
@@ -418,7 +428,10 @@ func (e *producerEvaluation) execute(nodes []producerNode, environment producerE
 		default:
 		}
 
-		result.observed = mergeProducerEnvironments(result.observed, result.environment)
+		if observe {
+			result.observed = mergeProducerEnvironments(result.observed, result.environment)
+		}
+
 		if result.stopped {
 			return result
 		}
@@ -1524,7 +1537,7 @@ func (e *producerEvaluation) branches(node *producerNode, env producerEnvironmen
 
 	a, b := producerResult{environment: env}, producerResult{environment: env}
 	if choice >= 0 {
-		a = e.execute(node.body, yes)
+		a = e.executeObserved(node.body, yes, node.kind == "try")
 	}
 
 	if node.kind == "try" {

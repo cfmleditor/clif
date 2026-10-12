@@ -88,7 +88,7 @@ func (r *Resolver) assignedFromCall(variable string, line uint32, caller string,
 		rhs, idx, ok = lastMemberAssignmentAt(strings.Join(lines[from:min(int(line), len(lines))], "\n"), container, name)
 		at = from + idx
 	} else {
-		rhs, at, ok = localAssignmentAt(pr.Content, name, start, int(line))
+		rhs, at, ok = r.localAssignmentAt(pr, name, start, int(line))
 		if ok && scoped && localDeclRe.MatchString(lineOfContent(pr.Content, at)) {
 			// `var x = …` is a local, not the variables.x asked about.
 			ok = false
@@ -171,6 +171,11 @@ func (r *Resolver) assignedFromCall(variable string, line uint32, caller string,
 	}
 
 	answer := r.typeCallExpr(rhs, at32, evalCaller, pr, baseDir, ctx)
+
+	if placeholderOverwritten(variable, rhs, answer, ctx.call, tr) {
+		return ""
+	}
+
 	if answer != "" {
 		tr.addf("resolved %q to %q: the last assignment to it is %s", variable, answer, rhs)
 	}
@@ -523,4 +528,32 @@ func selfAssigned(receiver, variable, container, name string) bool {
 	}
 
 	return container != "" && strings.EqualFold(strings.TrimPrefix(strings.ToLower(receiver), "arguments."), container+"."+strings.ToLower(name))
+}
+
+// placeholderOverwritten reports whether answer, what rhs types the variable
+// as, is a bare placeholder struct that the call contradicts: `var document =
+// StructNew()` that a custom tag then fills, called with a method a struct
+// lacks, was replaced by something the parse could not see
+// (nativeDefaultOverwritten).
+func placeholderOverwritten(variable, rhs, answer string, call *parser.CallSite, tr *callTrace) bool {
+	if call == nil || !placeholderStruct(rhs) {
+		return false
+	}
+
+	method := receiverMethod(call.FuncName, call)
+	if !nativeDefaultOverwritten(answer, method) {
+		return false
+	}
+
+	tr.addf("set aside %q's %q: it has no method %q, so the variable holds something assigned since", variable, answer, method)
+
+	return true
+}
+
+// placeholderStruct reports whether rhs is an empty struct made only to be
+// filled or replaced: `StructNew()` with no arguments, or `{}`.
+func placeholderStruct(rhs string) bool {
+	compact := strings.ToLower(strings.Join(strings.Fields(rhs), ""))
+
+	return compact == "structnew()" || compact == "{}"
 }

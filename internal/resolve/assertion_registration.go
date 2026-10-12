@@ -48,7 +48,7 @@ func (r *Resolver) registeredAssertion(comp string, call *parser.CallSite, pr *p
 	// The receiver is the BaseSpec-created assertion object, not a coincidentally
 	// named field. Child writes and escapes are checked separately below.
 	constructor, _ := parser.ApplicationSections(source.content)
-	if !strings.Contains(wheelsTokens(constructor), wheelsTokens(`variables.$assert=this.$assert=new testbox.system.Assertion();`)) || !assertionProviderStable(source) {
+	if !strings.Contains(wheelsTokens(constructor), wheelsTokens(`variables.$assert=this.$assert=new testbox.system.Assertion();`)) || !assertionProviderStable(&source) {
 		return nil
 	}
 
@@ -295,7 +295,7 @@ func assertionRegistrationCount(content string) int {
 
 // Source changes introducing another direct assertion writer invalidate the
 // framework registration contract. The registrar is the one supported writer.
-func assertionProviderStable(source wheelsSource) bool {
+func assertionProviderStable(source *wheelsSource) bool {
 	constructor, _ := parser.ApplicationSections(source.content)
 
 	remaining := strings.Replace(wheelsTokens(constructor), wheelsTokens(`variables.$assert=this.$assert=new testbox.system.Assertion();`), "", 1)

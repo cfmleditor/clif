@@ -176,9 +176,10 @@ type wheelsMethod struct {
 }
 
 type wheelsSource struct {
-	content   string
-	methods   map[string]wheelsMethod
-	producers *producerPlans
+	associations map[string]parser.FunctionDef
+	content      string
+	methods      map[string]wheelsMethod
+	producers    *producerPlans
 
 	// size and modTime are the file's stamp when content was read. An
 	// unchanged stamp serves the cache without reading the file again: this
@@ -223,7 +224,7 @@ func (r *Resolver) wheelsSource(path string) wheelsSource {
 	if ok && cached.size == info.Size() && cached.modTime.Equal(info.ModTime()) {
 		if r.IndexTracksFiles {
 			cached.gen = gen
-			r.storeWheelsSource(path, cached)
+			r.storeWheelsSource(path, &cached)
 		}
 
 		return cached
@@ -238,22 +239,22 @@ func (r *Resolver) wheelsSource(path string) wheelsSource {
 
 	result := cached
 	if !ok || cached.content != content {
-		result = wheelsSource{content: content, methods: wheelsMethods(content), producers: newProducerPlans(content)}
+		result = wheelsSource{associations: wheelsAssociations(content), content: content, methods: wheelsMethods(content), producers: newProducerPlans(content)}
 	}
 
 	result.size, result.modTime, result.gen = info.Size(), info.ModTime(), gen
-	r.storeWheelsSource(path, result)
+	r.storeWheelsSource(path, &result)
 
 	return result
 }
 
-func (r *Resolver) storeWheelsSource(path string, src wheelsSource) {
+func (r *Resolver) storeWheelsSource(path string, src *wheelsSource) {
 	r.mu.Lock()
 	if r.wheelsSources == nil {
 		r.wheelsSources = make(map[string]wheelsSource)
 	}
 
-	r.wheelsSources[path] = src
+	r.wheelsSources[path] = *src
 	r.mu.Unlock()
 }
 

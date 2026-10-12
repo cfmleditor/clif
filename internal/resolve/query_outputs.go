@@ -1,15 +1,13 @@
 package resolve
 
 import (
-	"regexp"
 	"slices"
+	"sort"
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/nativetype"
 	"github.com/cfmleditor/clif/internal/parser"
 )
-
-var queryOutputWord = regexp.MustCompile(`(?i)\b(?:query|cfquery|cfdbinfo)\b`)
 
 type queryOutput struct {
 	kind   string
@@ -22,36 +20,34 @@ type queryOutput struct {
 // normal path. Closed branches, catches, closures and unknown uses withhold it.
 // Markup, shared fields and same-line output/lookups need separate contracts.
 func (r *Resolver) literalQueryOutput(pr *parser.ParseResult, name string, assigned, header int, caller, baseDir string, call *parser.CallSite) (string, bool) {
-	lines := strings.Split(pr.Content, "\n")
-	if assigned < 0 || header <= assigned+1 || header >= len(lines) {
+	starts := r.sourceLineStarts(pr)
+	if assigned < 0 || header <= assigned+1 || header >= len(starts) {
 		return "", false
 	}
 
-	source := strings.Join(lines[assigned+1:header], "\n")
-	if !queryOutputWord.MatchString(source) {
+	from, to := starts[assigned+1], starts[header]-1
+	if !r.hasQueryOutputWord(pr, from, to) {
 		return "", false
 	}
 
-	tokens := producerTokens(source)
+	tokens := producerTokens(pr.Content[from:to])
 	if tokens == nil {
 		return "", true
 	}
 
 	prefix := len(tokens)
 
-	offset := 0
-	for i := range header {
-		offset += len(lines[i]) + 1
-	}
+	offset := starts[header]
+	headerLine := sourceLine(pr.Content, starts, header)
 
-	if call != nil && int(call.StartByte) >= offset && int(call.StartByte) <= offset+len(lines[header]) {
+	if call != nil && int(call.StartByte) >= offset && int(call.StartByte) <= offset+len(headerLine) {
 		headerTokens := producerTokens(pr.Content[offset:call.StartByte])
-		if headerTokens == nil && call.StartByte > uint32(offset) {
+		if headerTokens == nil && int(call.StartByte) > offset {
 			return "", true
 		}
 
 		tokens = append(tokens, headerTokens...)
-	} else if strings.ContainsAny(lines[header], "{}") {
+	} else if strings.ContainsAny(headerLine, "{}") {
 		return "", true
 	}
 
@@ -399,4 +395,14 @@ func queryUnbracedControl(tokens []parser.Token, at int) bool {
 	default:
 		return false
 	}
+}
+
+// Line-delimited windows have the same word boundaries as the complete source.
+// Cache occurrences once and search their offsets instead of rescanning a
+// potentially huge literal initializer for every later receiver lookup.
+func (r *Resolver) hasQueryOutputWord(pr *parser.ParseResult, from, to int) bool {
+	words := r.lexicalSource(pr).queryWords
+	i := sort.Search(len(words), func(i int) bool { return words[i][0] >= from })
+
+	return i < len(words) && words[i][1] <= to
 }

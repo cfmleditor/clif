@@ -1,4 +1,4 @@
-# Relationship implementation status — 2026-10-11
+# Relationship implementation status — 2026-10-12
 
 The user authorized implementation of the documented work. The earlier
 research-only restriction is superseded. This record distinguishes implemented
@@ -6,6 +6,20 @@ contracts from proposed architecture and unresolved proof conditions; it does
 not describe the whole research programme as complete.
 
 ## Current checkpoint
+
+The latest validated seven-project checkpoint is **12,348 strict findings**
+and **289 remaining liberal findings**, with **2,024 runtime assumptions**,
+**1,884 speculative receiver connections**, and **5,094 provisional method
+connections**. Coverage is 8,151 indexed files. Provisional links and runtime
+assumptions are not proven strict resolutions, and receiver connections are
+receiver groups rather than a count of resolved calls.
+
+The [PR review fixes](RESOLUTION-GAPS.md#pr-244-review-ordered-struct-literals)
+and [performance measurements](PERFORMANCE-GAPS.md) record the changes since
+the milestones below. Performance-only changes must preserve these entries
+and their evidence, not merely the headline totals.
+
+## Historical implementation milestones
 
 [Provisional method connections](RESOLUTION-PROVISIONAL-METHOD-CONNECTIONS.md) add
 `--speculative-methods`: direct global declaration shortcuts with original

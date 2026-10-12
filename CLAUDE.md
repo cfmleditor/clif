@@ -1245,6 +1245,18 @@ its producer's homogeneous element contract; it does not establish types after
 arbitrary runtime mutations or escapes. See `collection_callbacks.go` and
 `TestLoadedEntityCollectionsTypeLoopsAndEachCallbacks`.
 
+**A struct default is set aside for a method a struct lacks** (`nativeDefaultOverwritten`):
+`StructNew()` and `{}` type a variable as `native.struct`, and tassweb sets
+`VARIABLES._parent = StructNew()` in every component's pseudo-constructor before
+`init()` replaces it with an argument declared `struct` (CFML lets a component
+through). Taken as the nearest assignment, 7,000 `_parent.getService()` calls were
+checked against a struct. A struct-typed ref, or a bare placeholder a variable was
+last assigned, is passed over when the method called is not one a struct has
+(`docs.LookupBuiltinMethod`, the method-exists check's own test); the lookup then
+takes the next ref, a `componentResolver` or the extends chain. Only structs: any
+other native value missing a method is a finding to report.
+`TestANativeDefaultDoesNotOutrankWhatReplacesIt`.
+
 ## Capabilities the VS Code extension has and this server does not
 
 The `cfmleditor` extension stands its own language providers down whenever this

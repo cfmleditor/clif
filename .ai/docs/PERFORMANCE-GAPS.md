@@ -1,9 +1,9 @@
 # Performance gaps: costs identified and not acted on
 
 Costs found while profiling the per-keystroke and batch-analysis paths. Sections
-2, 3, 6 and 7 are done and record their measurements. Section 4 is settled as not
+2, 3, 6, 7 and 8 are done and record their measurements. Section 4 is settled as not
 worth doing without a real-workspace profile; the remaining follow-ups are
-called out in sections 3, 5 and 7.
+called out in sections 3, 5, 7 and 8.
 
 This file exists so they are not rediscovered from scratch, and so the reasons
 are on record rather than remembered. Every number below is measured, and the
@@ -378,3 +378,34 @@ above are the user-visible evidence, not an extrapolation of this microbenchmark
 
 Validation: `go build ./...`, `go vet ./...`, `go test -short ./...`,
 `go test -short -race ./...`, `make lint`, and `git diff --check` passed.
+
+## 8. Association reads, caller tokens and unused producer history — implemented
+
+The post-metadata-cache Wheels profile still spent 33.81 sampled CPU seconds
+in filesystem ReadFile calls; association lookup accounted for 27.10 cumulative
+seconds. A missing association method caused the same model source to be read
+and searched again on every lookup. Association declarations now live in the
+existing source cache. They depend only on source bytes, retain first-declaration
+precedence, and return a fresh definition value with the requested spelling.
+The cache's existing file stamp/index-generation checks and invalidation apply.
+
+Caller argument inference also tokenized complete caller files repeatedly,
+including while checking whether an unknown receiver omitted an argument.
+Both paths now share a content-checked token cache through the owning resolver.
+It uses the existing bounded span-cache policy (reset at 4,096 files), replaces
+old content for a file, and stores no inferred receiver or argument types.
+Keeping whole-file tokens preserves lexical context and exact source offsets.
+Returned tokens are read-only; current consumers only inspect or slice them.
+
+Producer evaluation built and merged an intermediate-state history after every
+statement, although only a try body's catch path consumes that history. Normal
+evaluation now retains just the final environment and returns. Try bodies still
+collect the same intermediate states, including the initial environment; this
+is a work-elimination change, not a weaker control-flow rule. Copies needed to
+isolate branches and callers remain in place.
+
+All three structural regressions failed with their corresponding optimization
+withdrawn. They verify read-once association lookup (including absent methods),
+first-match precedence, returned-definition ownership, refresh after edits,
+shared caller tokens with allocation bounds and content replacement, and absence
+of unused producer history while catch paths retain merged intermediate values.

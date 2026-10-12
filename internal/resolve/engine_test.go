@@ -25,6 +25,15 @@ func reasonsIn(t *testing.T, dir, page string) map[string]string {
 func reasonsWith(t *testing.T, r *Resolver, dir, page string) map[string]string {
 	t.Helper()
 
+	return reasonsWithOptions(t, r, dir, page, nil)
+}
+
+// reasonsWithOptions is reasonsWith with a hook that adds to the page's parse
+// options, for a test that needs one the unresolved scan passes and the
+// default here does not (BuiltinReturnLookup, say).
+func reasonsWithOptions(t *testing.T, r *Resolver, dir, page string, opts func(file string, o *parser.ParseOptions)) map[string]string {
+	t.Helper()
+
 	r.FS, r.WorkspaceFolders = vfs.OS{}, []string{dir}
 	if r.Index == nil {
 		r.Index = index.New()
@@ -59,9 +68,14 @@ func reasonsWith(t *testing.T, r *Resolver, dir, page string) map[string]string 
 
 	// FuncLookup as the unresolved scan passes it, so a variable assigned
 	// from a call is typed by what the call returns.
-	pr := parser.ParseWithOptions(cfpath.ToURI(file), string(data), &parser.ParseOptions{
+	o := &parser.ParseOptions{
 		ExtractCalls: true, FuncLookup: r.FuncLookup(filepath.Dir(file)), BeanLookup: r.Index.LookupBean,
-	})
+	}
+	if opts != nil {
+		opts(file, o)
+	}
+
+	pr := parser.ParseWithOptions(cfpath.ToURI(file), string(data), o)
 	got := map[string]string{}
 
 	calls := pr.AllCalls()
