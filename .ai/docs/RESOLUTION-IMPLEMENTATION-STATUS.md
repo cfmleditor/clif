@@ -7,10 +7,13 @@ not describe the whole research programme as complete.
 
 ## Current checkpoint
 
-The latest validated seven-project checkpoint is **12,348 strict findings**
-and **289 remaining liberal findings**, with **2,024 runtime assumptions**,
-**1,884 speculative receiver connections**, and **5,094 provisional method
-connections**. Coverage is 8,151 indexed files. Provisional links and runtime
+The latest validated seven-project checkpoint is **12,210 strict findings**
+and **285 remaining liberal findings**, after the
+[application validation fixes](RESOLUTION-GAPS.md#application-validation-tassweb-and-nine-apps).
+The assumption and connection ledgers were last measured at the preceding
+checkpoint (12,348 / 289): **2,024 runtime assumptions**, **1,884 speculative
+receiver connections**, and **5,094 provisional method connections**.
+Coverage is 8,151 indexed files. Provisional links and runtime
 assumptions are not proven strict resolutions, and receiver connections are
 receiver groups rather than a count of resolved calls.
 

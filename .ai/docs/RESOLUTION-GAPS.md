@@ -1411,3 +1411,43 @@ are under `target/resolution/pr244-fresh-review/`.
 
 Full short tests, vet, and race tests for parser, resolver, server, unresolved,
 and code-map packages pass. These fixes remain local until committed/published.
+
+### Application validation: tassweb and nine apps
+
+The corpus above is mostly frameworks and engines, which describe their own
+classes. Applications were checked separately, each comparing v0.5.2 with this
+branch and listing, per finding, whether v0.5.2 extracted and resolved the same
+call (`unresolved --verbose`). Before these fixes the branch reported 7,105 of
+those regressions on tassweb and 244 across kiosk, parentlounge, studentcafe,
+MuraCMS, ContentBox, Slatwall, cfdocs, coldbox-samples and lucee-docs. Each
+cause has a test that fails without its fix:
+
+| Cause | Fix | Calls |
+|---|---|---:|
+| `VARIABLES._parent = StructNew()` in every tassweb component, replaced in `init()` by a `type="struct"` argument, outranked the `_parent` componentResolver | `nativeDefaultOverwritten`: a struct-typed ref, or a bare `StructNew()`/`{}` last assigned, is passed over for a method a struct lacks | 7,105 |
+| `Name@module` found once per application in a multi-app workspace (coldbox-samples) was ambiguous | `inModuleModels` prefers the copy in the caller's application (`sameApplication`) | 98 |
+| Hibernate Session/ClassMetadata contracts lacked `beginTransaction`, `createCriteria`, `getIdentifierType`, `getPropertyType`, `hasIdentifierProperty`, `getTableName`, Lucee's `getActualSession` | contracts extended, results dynamic except booleans and strings | ~50 |
+| A loop over `pageService.getAll()` from an uninstalled module's model left its variable untyped though calls on the receiver were accepted | `collectionExpressionElement` returns `$any` for a dynamic receiver | 40 |
+| The new Mura preset typed `$`, and `$.event()` declares no return type | zero-argument `event()` is `mura.servletEvent|mura.event`, as `content()` and `siteConfig()` were | 35 |
+
+Remaining: tassweb 0, the nine apps 22 (Mura 14 chains through event methods
+with no declared return type, the long-standing "no component return type"
+rule; coldbox-samples 7 unexamined; cfdocs 1, a string typed in one `<cfif>`
+branch and read after an `elseif` reassignment that `nativeReassignedAt` does
+not recognise in tag syntax). Every other finding these apps add over v0.5.2 is
+a call v0.5.2 never extracted.
+
+Against the PR-244 fresh-review reports (same seven projects, roots and flags):
+
+| Mode | Before | After | Removed | Added |
+|---|---:|---:|---:|---:|
+| Strict | 12,348 | 12,210 | 168 | 30 |
+| Combined liberal | 289 | 285 | 4 | 0 |
+
+All 30 additions are calls already reported with a different reason: 28 Masa
+chains now reported one hop later (`$.event()` is typed, so the chain breaks at
+`getTranslator()`/`getHandler()` instead), and 2 Lucee struct calls (`sort`,
+`setMetadata`, absent from the docs data) now read "no component ref" instead
+of "not found on native.struct". Indexed coverage is unchanged (8,151 files).
+Artifacts: `target/resolution/pr244-app-fixes/`.
+
