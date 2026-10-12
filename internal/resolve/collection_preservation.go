@@ -57,6 +57,15 @@ func (r *Resolver) collectionExpressionElement(receiver string, calls []chainCal
 	target := self
 	if receiver != "" && !strings.EqualFold(receiver, "this") && !strings.EqualFold(receiver, "variables") {
 		target, _ = r.receiverComponentD(receiver, conv.Uint32(header), caller, last.name, pr, baseDir, nil, lookupCtx{leaf: leaf})
+
+		// A receiver the call itself is accepted on as dynamic hands back a
+		// dynamic collection: ContentBox's 1.0.4 patch loops over
+		// `pageService.getAll()` from `pageService@cb`, a namespace the current
+		// modules no longer declare, and its loop variable was reported as
+		// untyped where every call on pageService was accepted.
+		if target == "$any" || r.uninstalledModule(target) {
+			return "$any"
+		}
 	}
 
 	return r.methodElement(target, last.name, last.args, baseDir)

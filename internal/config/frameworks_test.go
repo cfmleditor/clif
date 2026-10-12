@@ -255,6 +255,8 @@ func TestEveryPresetResolverMatchesItsOwnNames(t *testing.T) {
 		{"mura", `event.getValue( 'MuraScope' )`, "mura.MuraScope"},
 		{"mura", `event.getValue("other")`, ""},
 		{"mura", "getMuraScope()", "mura.MuraScope"},
+		{"mura", "$.event()", "mura.servletEvent|mura.event"},
+		{"mura", `$.event("siteid")`, ""},
 	} {
 		var rs []parser.Resolver
 		for _, r := range FrameworkResolvers([]string{tc.framework}) {

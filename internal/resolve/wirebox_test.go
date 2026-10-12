@@ -148,3 +148,27 @@ func TestACommandBoxIDIsOneOfItsServicesOrUtils(t *testing.T) {
 		"mine.go":                            "",
 	})
 }
+
+// TestAModuleCopyInTheCallersApplicationAnswers: a workspace of several
+// applications holds a copy of a module in each (coldbox-samples has a
+// cbstorages per sample app), so `Name@module` finds several files. The copy
+// in the caller's application is the one WireBox maps for it; without that the
+// id was ambiguous and reported as a component that does not exist.
+func TestAModuleCopyInTheCallersApplicationAnswers(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{
+		"news/modules/cbstorages/ModuleConfig.cfc":         `component { this.cfmapping = "cbstorages"; }`,
+		"news/modules/cbstorages/models/ClientStorage.cfc": `component { function deleteVar(name) {} }`,
+		"blog/modules/cbstorages/ModuleConfig.cfc":         `component { this.cfmapping = "cbstorages"; }`,
+		"blog/modules/cbstorages/models/ClientStorage.cfc": `component { function blogOnly() {} }`,
+		"news/handlers/General.cfc": `component {
+	property name="clientStorage" inject="ClientStorage@cbstorages";
+	function clear() { clientStorage.deleteVar( "x" ); clientStorage.blogOnly(); }
+}`,
+	})
+
+	expectReasons(t, reasonsWith(t, &Resolver{}, dir, "news/handlers/General.cfc"), map[string]string{
+		"clientStorage.deleteVar": "",
+		"clientStorage.blogOnly":  "method 'blogOnly' not found in ClientStorage@cbstorages",
+	})
+}

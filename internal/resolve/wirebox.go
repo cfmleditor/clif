@@ -148,7 +148,7 @@ func (wb *wireboxWorkspace) addMaps(src, dir string) {
 // target, and `Name@namespace` the Name in that module's models. It reports
 // whether component was an id it answers for; a plain dot-path is not, and
 // is left to the lookups after it.
-func (r *Resolver) wireboxID(component, _ string) (string, bool) {
+func (r *Resolver) wireboxID(component, baseDir string) (string, bool) {
 	wb := r.wirebox()
 
 	// Ids are looked up only for a component with no dot: a mapped target is
@@ -167,7 +167,7 @@ func (r *Resolver) wireboxID(component, _ string) (string, bool) {
 
 	if wb != nil {
 		if _, installed := wb.namespaces[strings.ToLower(ns)]; installed {
-			return r.inModuleModels(name, wb.modelRoots[strings.ToLower(ns)]), true
+			return r.inModuleModels(name, wb.modelRoots[strings.ToLower(ns)], baseDir), true
 		}
 	}
 
@@ -199,8 +199,12 @@ func (r *Resolver) idTargetPath(t idTarget, wb *wireboxWorkspace) string {
 
 // inModuleModels is the component called name among the models of any of
 // the module directories: ColdBox maps a module's models directory, every
-// component in it under its file name.
-func (r *Resolver) inModuleModels(name string, dirs []string) string {
+// component in it under its file name. A workspace holding several
+// applications holds a copy of a module in each (coldbox-samples has a
+// cbstorages per sample app), and the copy that answers is the one in the
+// caller's application (sameApplication); two or more there, or none and
+// several elsewhere, is ambiguous.
+func (r *Resolver) inModuleModels(name string, dirs []string, baseDir string) string {
 	if len(dirs) == 0 || name == "" || strings.ContainsAny(name, "./\\") {
 		return ""
 	}
@@ -222,11 +226,34 @@ func (r *Resolver) inModuleModels(name string, dirs []string) string {
 	slices.Sort(hits)
 
 	hits = slices.Compact(hits)
+	if len(hits) > 1 && baseDir != "" {
+		hits = slices.DeleteFunc(hits, func(hit string) bool { return !sameApplication(hit, baseDir) })
+	}
+
 	if len(hits) != 1 {
 		return ""
 	}
 
 	return hits[0]
+}
+
+// sameApplication reports whether the module file hit belongs to the
+// application baseDir is in: the directory holding hit's nearest `modules`
+// folder is an ancestor of baseDir (or baseDir itself).
+func sameApplication(hit, baseDir string) bool {
+	dir := filepath.Dir(hit)
+	for {
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return false
+		}
+
+		if strings.EqualFold(filepath.Base(dir), "modules") {
+			return underAny([]string{parent}, baseDir)
+		}
+
+		dir = parent
+	}
 }
 
 // moduleModelRoot follows the two ColdBox configuration stages: public

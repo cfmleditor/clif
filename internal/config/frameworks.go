@@ -343,6 +343,9 @@ var frameworkPresets = map[string]frameworkPreset{
 			// Zero arguments select the object form. Property arguments select
 			// a value or setter result, so they must not acquire these types.
 			{Match: `(?i)(?:^|\.)\s*siteConfig\s*\(\s*\)$`, Resolve: "mura.settings.settingsBean", Prefix: "siteConfig"},
+			// event() with no arguments is getEvent(): the request's servletEvent,
+			// or a plain event outside a request (resolve.muraEventComponent).
+			{Match: `(?i)(?:^|\.)\s*event\s*\(\s*\)$`, Resolve: "mura.servletEvent|mura.event", Prefix: "event"},
 			{Match: `(?i)(?:^|\.)\s*globalConfig\s*\(\s*\)$`, Resolve: "mura.configBean", Prefix: "globalConfig"},
 			// Standard site renderers implement the core renderer's API;
 			// deployments replacing that contract can override this preset rule.

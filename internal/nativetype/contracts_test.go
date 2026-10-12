@@ -115,3 +115,24 @@ func TestNativeGuessFallsBackToPrimitiveFamilies(t *testing.T) {
 		})
 	}
 }
+
+// TestHibernateContractsCoverWhatORMCodeCalls: cborm and the applications
+// built on it call Session.beginTransaction()/createCriteria(), Lucee's
+// getActualSession(), and ClassMetadata.getIdentifierType()/getPropertyType()/
+// hasIdentifierProperty()/getTableName(). Missing from the contracts, each was
+// reported as a method the object lacks, where v0.5.2 accepted them.
+func TestHibernateContractsCoverWhatORMCodeCalls(t *testing.T) {
+	for _, tc := range []struct{ typ, method, want string }{
+		{"hibernatesession", "beginTransaction", "$any"},
+		{"hibernatesession", "createCriteria", "$any"},
+		{"hibernatesession", "getActualSession", "$any"},
+		{"classmetadata", "getIdentifierType", "$any"},
+		{"classmetadata", "getPropertyType", "$any"},
+		{"classmetadata", "hasIdentifierProperty", Type("boolean")},
+		{"classmetadata", "getTableName", Type("string")},
+	} {
+		if got, ok := Method(Type(tc.typ), tc.method); !ok || got != tc.want {
+			t.Errorf("%s.%s = %q, %v; want %q", tc.typ, tc.method, got, ok, tc.want)
+		}
+	}
+}

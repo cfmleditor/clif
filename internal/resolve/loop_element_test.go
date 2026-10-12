@@ -118,3 +118,28 @@ func TestEntityLoadCollectionEvidenceRejectsUnknownsAndShadows(t *testing.T) {
 	expectReasons(t, reasonsWith(t, &Resolver{}, dir, "Shadow.cfc"), map[string]string{"shadow.ready": "variable 'shadow' has no component ref"})
 	expectReasons(t, reasonsWith(t, &Resolver{}, dir, "Use.cfm"), map[string]string{"tagRow.ready": ""})
 }
+
+// TestALoopOverADynamicReceiversResultIsDynamic: a call on a model of a module
+// the workspace lacks is accepted as dynamic, and so must be a call on an item
+// of the collection it returns. ContentBox's 1.0.4 patch loops over
+// `pageService.getAll()` from `pageService@cb`, a namespace the current modules
+// no longer declare, and `thisPage.getContentID()` was reported as untyped.
+func TestALoopOverADynamicReceiversResultIsDynamic(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{
+		"Update.cfc": `component {
+	property name="pageService" inject="pageService@cb";
+	function run() {
+		var allPages = pageService.getAll( sortOrder = "parent" );
+		for ( var thisPage in allPages ) {
+			thisPage.getContentID();
+		}
+	}
+}`,
+	})
+
+	expectReasons(t, reasonsWith(t, &Resolver{}, dir, "Update.cfc"), map[string]string{
+		"pageService.getAll":    "",
+		"thisPage.getContentID": "",
+	})
+}
