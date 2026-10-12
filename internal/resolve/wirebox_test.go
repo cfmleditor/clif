@@ -1,6 +1,7 @@
 package resolve
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/cfmleditor/clif/internal/frameworkapi"
@@ -61,6 +62,63 @@ func TestAWireBoxIDIsWhatItsModuleRegisters(t *testing.T) {
 	})
 }
 
+func TestModuleModelDiscoveryEligibility(t *testing.T) {
+	for _, tc := range []struct {
+		name, settings, target string
+		enabled                bool
+	}{
+		{"default", "", "models", true},
+		{"disabled", `this.autoMapModels=false;`, "models", false},
+		{"computed flag", `this.autoMapModels=runtime();`, "models", false},
+		{"conditional flag", `if (runtime()) this.autoMapModels=true;`, "models", false},
+		{"custom directory", `function configure(){conventions={modelsLocation:"domain"};}`, "domain", true},
+		{"computed directory", `function configure(){conventions={modelsLocation:settings.path};}`, "models", false},
+		{"empty namespace", `this.modelNamespace="";`, "models", false},
+		{"child injector", `this.moduleInjector=true;`, "models", false},
+		{"unused assignment", `function unused(){this.autoMapModels=false;this.modelNamespace="other";}`, "models", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			writeFiles(t, dir, map[string]string{
+				"modules/users/ModuleConfig.cfc":   `component {` + tc.settings + `}`,
+				"modules/users/models/Service.cfc": `component {function old(){}}`,
+				"modules/users/domain/Service.cfc": `component {function custom(){}}`,
+				"other/Service.cfc":                `component {function unrelated(){}}`,
+			})
+
+			r := &Resolver{}
+			// Populate the same index a batch scan supplies before ID resolution.
+			reasonsWith(t, r, dir, "modules/users/models/Service.cfc")
+			got := r.ComponentPath("Service@users", dir)
+
+			want := ""
+			if tc.enabled {
+				want = filepath.Join(dir, "modules", "users", tc.target, "Service.cfc")
+			}
+
+			if got != want {
+				t.Fatalf("%q, want %q", got, want)
+			}
+		})
+	}
+}
+
+func TestModuleDiscoveryDoesNotPickDuplicateBasenames(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{
+		"modules/users/ModuleConfig.cfc":     `component {}`,
+		"modules/users/models/a/Service.cfc": `component {}`,
+		"modules/users/models/b/Service.cfc": `component {}`,
+	})
+
+	r := &Resolver{}
+	reasonsWith(t, r, dir, "modules/users/models/a/Service.cfc")
+
+	if got := r.ComponentPath("Service@users", dir); got != "" {
+		t.Fatal("unproven registration order", got)
+	}
+}
+
 // TestACommandBoxIDIsOneOfItsServicesOrUtils: CommandBox's WireBox maps its
 // services and util packages by file name, so a CommandBox module's
 // `inject="FileSystem"` is commandbox.system.util.FileSystem, as
@@ -88,5 +146,29 @@ func TestACommandBoxIDIsOneOfItsServicesOrUtils(t *testing.T) {
 		"fileSystemUtil.notAMethod":          "method 'notAMethod' not found in FileSystem",
 		"serverService.resolveServerDetails": "",
 		"mine.go":                            "",
+	})
+}
+
+// TestAModuleCopyInTheCallersApplicationAnswers: a workspace of several
+// applications holds a copy of a module in each (coldbox-samples has a
+// cbstorages per sample app), so `Name@module` finds several files. The copy
+// in the caller's application is the one WireBox maps for it; without that the
+// id was ambiguous and reported as a component that does not exist.
+func TestAModuleCopyInTheCallersApplicationAnswers(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{
+		"news/modules/cbstorages/ModuleConfig.cfc":         `component { this.cfmapping = "cbstorages"; }`,
+		"news/modules/cbstorages/models/ClientStorage.cfc": `component { function deleteVar(name) {} }`,
+		"blog/modules/cbstorages/ModuleConfig.cfc":         `component { this.cfmapping = "cbstorages"; }`,
+		"blog/modules/cbstorages/models/ClientStorage.cfc": `component { function blogOnly() {} }`,
+		"news/handlers/General.cfc": `component {
+	property name="clientStorage" inject="ClientStorage@cbstorages";
+	function clear() { clientStorage.deleteVar( "x" ); clientStorage.blogOnly(); }
+}`,
+	})
+
+	expectReasons(t, reasonsWith(t, &Resolver{}, dir, "news/handlers/General.cfc"), map[string]string{
+		"clientStorage.deleteVar": "",
+		"clientStorage.blogOnly":  "method 'blogOnly' not found in ClientStorage@cbstorages",
 	})
 }

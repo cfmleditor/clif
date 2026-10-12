@@ -1,8 +1,10 @@
 package parser
 
 import (
+	"slices"
 	"sort"
 	"strings"
+	"unicode/utf8"
 )
 
 type collectionWrite struct {
@@ -12,10 +14,11 @@ type collectionWrite struct {
 }
 
 type collectionNode struct {
-	sources                     map[string]ReturnSource
-	structure, invalid, written bool
-	dependencies                []string
-	aliases                     []string
+	sources                        map[string]ReturnSource
+	structure, invalid, written    bool
+	structSeed, arraySeed, escaped bool
+	dependencies                   []string
+	aliases                        []string
 }
 
 // collectionTarget reads static paths with at most one final subscript. The
@@ -78,13 +81,19 @@ func collectionReadAt(sc *Scanner) (root string, element bool) {
 	return root, element
 }
 
-func collectionReturnExpressions(calls []pendingCall) map[string][]string {
+// collectionReturnExpressions groups the return expressions by function, or
+// is nil when none could be answered: the pass types a function that returns
+// an element (`return x[k]`), and one returning a whole struct only in a file
+// with no tag region, since a tag region marks every collection escaped
+// (markCollectionEscapes). A tag component returning variables, the common
+// case, skips the pass.
+func collectionReturnExpressions(calls []pendingCall, tagFile bool) map[string][]string {
 	candidates := false
 
 	for i := range calls {
 		c := &calls[i]
-		if c.returnExpr && strings.Contains(c.varName, "[") {
-			if _, element := collectionRead(c.varName); element {
+		if c.returnExpr {
+			if root, element := collectionRead(c.varName); root != "" && (element || !tagFile) {
 				candidates = true
 
 				break
@@ -129,31 +138,69 @@ func (pr *ParseResult) collectionKeys(writes []collectionWrite) (map[string]bool
 		}
 	}
 
+	// The key is built lowercased in one allocation: lowercasing root first,
+	// then joining it, was a second string for every mixed-case name.
 	return locals, scopeKeys, func(root, function string) string {
-		root = strings.ToLower(root)
-		if strings.HasPrefix(root, "variables.") || strings.HasPrefix(root, "this.") {
-			return root
-		}
-
-		if name, ok := strings.CutPrefix(root, "local."); ok {
-			return function + "\t" + name
-		}
-
-		if name, ok := strings.CutPrefix(root, "arguments."); ok {
-			return function + "\t" + name
+		switch {
+		case hasPrefixFold(root, "variables.") || hasPrefixFold(root, "this."):
+			return concatLower("", root)
+		case hasPrefixFold(root, "local."):
+			return concatLower(function+"\t", root[len("local."):])
+		case hasPrefixFold(root, "arguments."):
+			return concatLower(function+"\t", root[len("arguments."):])
 		}
 
 		base, _, _ := strings.Cut(root, ".")
-		if locals[function+"\t"+base] {
-			return function + "\t" + root
+		if locals[concatLower(function+"\t", base)] {
+			return concatLower(function+"\t", root)
 		}
 
-		return "variables." + root
+		return concatLower("variables.", root)
 	}
 }
 
+// concatLower is prefix + strings.ToLower(s) in one allocation, and prefix
+// itself when s is empty; s alone, uncopied, when prefix is empty and s has
+// nothing to lower.
+func concatLower(prefix, s string) string {
+	upper := false
+
+	for i := range len(s) {
+		c := s[i]
+		if c >= utf8.RuneSelf {
+			return prefix + strings.ToLower(s)
+		}
+
+		upper = upper || c >= 'A' && c <= 'Z'
+	}
+
+	if !upper {
+		if prefix == "" {
+			return s
+		}
+
+		return prefix + s
+	}
+
+	var b strings.Builder
+
+	b.Grow(len(prefix) + len(s))
+	b.WriteString(prefix)
+
+	for i := range len(s) {
+		c := s[i]
+		if c >= 'A' && c <= 'Z' {
+			c += 'a' - 'A'
+		}
+
+		b.WriteByte(c)
+	}
+
+	return b.String()
+}
+
 func (pr *ParseResult) applyCollectionReturns(calls []pendingCall) {
-	returns := collectionReturnExpressions(calls)
+	returns := collectionReturnExpressions(calls, pr.hasTagRegion())
 	if returns == nil {
 		return
 	}
@@ -162,9 +209,16 @@ func (pr *ParseResult) applyCollectionReturns(calls []pendingCall) {
 	locals, keys, key := pr.collectionKeys(writes)
 	roots := map[string]bool{}
 
-	for _, w := range writes {
-		if w.element || emptyCollection(w.expression) {
-			roots[key(w.target, w.function)] = true
+	// Each write's key, built once: three loops below read it, and building
+	// it lowercases a string and looks the name up among the locals.
+	targets := make([]string, len(writes))
+	for i := range writes {
+		targets[i] = key(writes[i].target, writes[i].function)
+	}
+
+	for i := range writes {
+		if w := &writes[i]; w.element || emptyCollection(w.expression) {
+			roots[targets[i]] = true
 		}
 	}
 
@@ -186,20 +240,12 @@ func (pr *ParseResult) applyCollectionReturns(calls []pendingCall) {
 	}
 
 	for i := range writes {
-		pr.recordCollectionWrite(writes[i], roots, locals, key, node)
+		pr.recordCollectionWrite(writes[i], targets[i], roots, locals, key, node)
 	}
 
-	for _, w := range writes {
-		if w.target == "" && w.unknown {
-			for _, n := range nodes {
-				n.invalid = true
-			}
+	invalidateClosureCollections(writes, pr.Scopes, nodes)
 
-			break
-		}
-	}
-
-	invalidateCollectionParents(writes, key, nodes)
+	invalidateCollectionParents(writes, targets, nodes)
 
 	// A collection argument may contain caller-supplied values even when its
 	// declaration has an empty-struct default.
@@ -213,21 +259,59 @@ func (pr *ParseResult) applyCollectionReturns(calls []pendingCall) {
 	}
 
 	settleCollections(nodes)
+	pr.markCollectionEscapes(key, nodes)
 
 	for i := range pr.Funcs {
 		f := &pr.Funcs[i]
+		f.CollectionValues = wholeStructValues(f, returns[keys[int(f.Line)]], keys[int(f.Line)], key, nodes)
 		pr.applyCollectionFunction(f, returns[keys[int(f.Line)]], keys[int(f.Line)], key, nodes)
+	}
+}
+
+// Closure writes still use their enclosing named function's identity. Withhold
+// that function's locals and every shared field, but do not let an unrelated
+// closure invalidate another named function's locals. Alias settlement carries
+// invalidation from shared fields back to any local collection exposed there.
+func invalidateClosureCollections(writes []collectionWrite, scopes []FuncScope, nodes map[string]*collectionNode) {
+	functions := map[string]bool{}
+
+	for _, w := range writes {
+		if w.target == "" && w.unknown {
+			functions[w.function] = true
+		}
+	}
+
+	if len(functions) == 0 {
+		return
+	}
+
+	// Nested named functions can capture enclosing locals. Their write scopes
+	// are not yet lexical identities, so retain the old veto for overlaps,
+	// including ambiguous functions that share a source line.
+	overlapping, end := false, -1
+
+	for _, scope := range scopes {
+		overlapping = overlapping || scope.Start <= end
+		end = max(end, scope.End)
+	}
+
+	for k, n := range nodes {
+		function, _, local := strings.Cut(k, "\t")
+		if overlapping || !local || functions[function] {
+			n.invalid = true
+		}
 	}
 }
 
 // Walking each node's static ancestors avoids comparing every write to every
 // node. Dynamic writes into a scope invalidate any field in that scope.
-func invalidateCollectionParents(writes []collectionWrite, key func(string, string) string, nodes map[string]*collectionNode) {
+func invalidateCollectionParents(writes []collectionWrite, targets []string, nodes map[string]*collectionNode) {
 	parents := map[string]bool{}
 
-	for _, w := range writes {
+	for i := range writes {
+		w := &writes[i]
 		if !w.element {
-			parents[key(w.target, w.function)] = true
+			parents[targets[i]] = true
 
 			continue
 		}
@@ -261,8 +345,7 @@ func invalidateCollectionParents(writes []collectionWrite, key func(string, stri
 	}
 }
 
-func (pr *ParseResult) recordCollectionWrite(w collectionWrite, roots map[string]bool, locals map[string]bool, key func(string, string) string, node func(string) *collectionNode) {
-	target := key(w.target, w.function)
+func (pr *ParseResult) recordCollectionWrite(w collectionWrite, target string, roots map[string]bool, locals map[string]bool, key func(string, string) string, node func(string) *collectionNode) {
 	for prefix := target; ; {
 		index := strings.LastIndexByte(prefix, '.')
 		if index < 0 {
@@ -309,6 +392,8 @@ func (pr *ParseResult) recordCollectionWrite(w collectionWrite, roots map[string
 	if !w.element {
 		if emptyCollection(w.expression) {
 			n.structure = true
+			n.arraySeed = n.arraySeed || strings.HasPrefix(strings.TrimSpace(w.expression), "[")
+			n.structSeed = n.structSeed || strings.HasPrefix(strings.TrimSpace(w.expression), "{") || !n.arraySeed && !pr.Declares("structNew")
 		} else {
 			n.invalid = true
 		}
@@ -464,6 +549,8 @@ func settleCollections(nodes map[string]*collectionNode) {
 				dst := nodes[target]
 
 				count, structure, invalid := len(dst.sources), dst.structure, dst.invalid
+
+				structSeed, arraySeed := dst.structSeed, dst.arraySeed
 				if n.invalid {
 					dst.invalid = true
 				}
@@ -475,10 +562,12 @@ func settleCollections(nodes map[string]*collectionNode) {
 				for _, alias := range dst.aliases {
 					if alias == key && n.structure {
 						dst.structure = true
+						dst.structSeed = dst.structSeed || n.structSeed
+						dst.arraySeed = dst.arraySeed || n.arraySeed
 					}
 				}
 
-				if len(dst.sources) != count || dst.structure != structure || dst.invalid != invalid {
+				if len(dst.sources) != count || dst.structure != structure || dst.invalid != invalid || dst.structSeed != structSeed || dst.arraySeed != arraySeed {
 					queue = append(queue, target)
 				}
 			}
@@ -500,6 +589,44 @@ func settleCollections(nodes map[string]*collectionNode) {
 type writesMemo struct {
 	writes []collectionWrite
 	done   bool
+	// tokens are each script region's, by its offset (scriptTokens), from
+	// tokenPool until release.
+	tokens map[int]*[]Token
+}
+
+// release returns the memo's token lists to tokenPool. Nothing the passes
+// keep refers to a token list: what they keep is text from the source.
+func (m *writesMemo) release() {
+	for _, toks := range m.tokens {
+		tokenPool.Put(toks)
+	}
+
+	m.tokens = nil
+}
+
+// scriptTokens is a script region's tokens, interpolated strings included,
+// tokenised once for every pass that shares writesMemo.
+func (pr *ParseResult) scriptTokens(r *Region) *[]Token {
+	m := pr.writesMemo
+	if m == nil {
+		toks := tokenize(r.Text)
+
+		return &toks
+	}
+
+	if toks, ok := m.tokens[r.Offset]; ok {
+		return toks
+	}
+
+	if m.tokens == nil {
+		m.tokens = map[int]*[]Token{}
+	}
+
+	toks, _ := tokenPool.Get().(*[]Token)
+	*toks = tokenizeInto(*toks, r.Text)
+	m.tokens[r.Offset] = toks
+
+	return toks
 }
 
 func (pr *ParseResult) collectionWrites() []collectionWrite {
@@ -540,9 +667,11 @@ func (pr *ParseResult) collectWrites(cache *expressionWriteCache) []collectionWr
 		return ""
 	}
 
-	for _, r := range pr.Regions {
+	for i := range pr.Regions {
+		r := &pr.Regions[i]
 		if r.Kind == RegionScript {
-			writes = collectCollectionExpression(r.Text, r.Offset, functionAt, writes)
+			toks := pr.scriptTokens(r)
+			writes = placeWrites(scanExpressionWritesFrom(newReplayScanner(r.Text, toks), r.Text, *toks), r.Offset, functionAt, writes)
 
 			continue
 		}
@@ -555,10 +684,6 @@ func (pr *ParseResult) collectWrites(cache *expressionWriteCache) []collectionWr
 	}
 
 	return writes
-}
-
-func collectCollectionExpression(expression string, offset int, functionAt func(int) string, writes []collectionWrite) []collectionWrite {
-	return placeWrites(scanExpressionWrites(expression), offset, functionAt, writes)
 }
 
 // expressionWrite is a collection write as scanExpressionWrites reads it,
@@ -592,10 +717,19 @@ func placeWrites(scanned []expressionWrite, offset int, functionAt func(int) str
 
 // scanExpressionWrites reads the collection writes in an expression.
 func scanExpressionWrites(expression string) []expressionWrite {
-	var writes []expressionWrite
-
 	sc := NewScanner(expression)
 	sc.interpStrings = true
+
+	return scanExpressionWritesFrom(sc, expression, nil)
+}
+
+// scanExpressionWritesFrom is scanExpressionWrites reading sc, a scanner over
+// expression, and toks, its tokens when sc replays them.
+func scanExpressionWritesFrom(sc *Scanner, expression string, toks []Token) []expressionWrite {
+	var writes []expressionWrite
+
+	var ends *expressionEnds
+
 	previous := TokEOF
 
 	for {
@@ -667,10 +801,92 @@ func scanExpressionWrites(expression string) []expressionWrite {
 			continue
 		}
 
-		writes = append(writes, expressionWrite{write: collectionWrite{target: root, expression: scriptReturnExpression(&cursor), element: element, local: local || hasPrefixFold(root, "local.")}, at: t.Offset, placed: true})
+		if ends == nil {
+			if toks == nil {
+				toks = tokenize(expression)
+			}
+
+			ends = newExpressionEndsFrom(expression, toks)
+		}
+
+		writes = append(writes, expressionWrite{write: collectionWrite{target: root, expression: ends.from(cursor.PeekSkipComments().Offset), element: element, local: local || hasPrefixFold(root, "local.")}, at: t.Offset, placed: true})
 	}
 
 	return writes
+}
+
+// expressionEnds answers scriptReturnExpression for every token of one
+// expression from a single pass. scriptReturnExpression scans from its start
+// to the first ";" or "}" at the start's depth, and CFScript does not need
+// the ";": in a function written without them every assignment scanned on to
+// the function's closing brace, quadratic in its length (most of a reparse
+// of tassweb's largest components in the editor).
+type expressionEnds struct {
+	src     string
+	offsets []int // each token's offset
+	ends    []int // where the expression starting at that token ends
+}
+
+func newExpressionEnds(src string) *expressionEnds {
+	return newExpressionEndsFrom(src, tokenize(src))
+}
+
+// newExpressionEndsFrom is newExpressionEnds from src's tokens.
+func newExpressionEndsFrom(src string, toks []Token) *expressionEnds {
+	var (
+		offsets, depths []int
+		terminal        []bool
+	)
+
+	depth := 0
+
+	for _, t := range toks {
+		if t.Kind == TokEOF {
+			break
+		}
+
+		offsets = append(offsets, t.Offset)
+		depths = append(depths, depth)
+		terminal = append(terminal, t.Kind == TokSemicolon || t.Kind == TokRBrace)
+
+		switch t.Kind {
+		case TokLParen, TokLBracket, TokLBrace:
+			depth++
+		case TokRParen, TokRBracket, TokRBrace:
+			depth--
+		default:
+		}
+	}
+
+	// Backwards: the nearest terminator at or after each token, at its depth.
+	ends := make([]int, len(offsets))
+	next := map[int]int{}
+
+	for i := len(offsets) - 1; i >= 0; i-- {
+		if terminal[i] {
+			next[depths[i]] = offsets[i]
+		}
+
+		end, ok := next[depths[i]]
+		if !ok {
+			end = len(src)
+		}
+
+		ends[i] = end
+	}
+
+	return &expressionEnds{src: src, offsets: offsets, ends: ends}
+}
+
+// from is scriptReturnExpression for a scanner whose next token starts at
+// offset.
+func (e *expressionEnds) from(offset int) string {
+	i, found := slices.BinarySearch(e.offsets, offset)
+	if !found {
+		return strings.TrimSpace(e.src[min(offset, len(e.src)):])
+	}
+
+	return strings.TrimSpace(e.src[offset:e.ends[i]])
 }
 
 func collectCollectionTags(text string, offset int, functionAt func(int) string, writes []collectionWrite, cache *expressionWriteCache) []collectionWrite {
@@ -750,6 +966,11 @@ func (pr *ParseResult) collectionValueSource(expression, function string, locals
 
 	for i := range tp.pendingCalls {
 		c := &tp.pendingCalls[i]
+		if c.alias {
+			// A plain name is read by the caller from the refs it names.
+			continue
+		}
+
 		if c.baseVar != "" {
 			ref := firstRefIn(pr.funcRefsMap[function], c.baseVar, c.baseScope)
 			if ref == nil && c.baseScope == RefAny && locals[function+"\t"+strings.ToLower(c.baseVar)] {
@@ -938,4 +1159,15 @@ func (c *expressionWriteCache) scan(expression string) []expressionWrite {
 	c.next[e.key] = e
 
 	return e.writes
+}
+
+// hasTagRegion reports whether the file has a tag region.
+func (pr *ParseResult) hasTagRegion() bool {
+	for i := range pr.Regions {
+		if pr.Regions[i].Kind == RegionTag {
+			return true
+		}
+	}
+
+	return false
 }

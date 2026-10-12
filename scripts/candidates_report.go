@@ -61,7 +61,7 @@ var categoryTitle = map[string]string{
 }
 
 func main() {
-	out := flag.String("out", "resolution-candidates", "directory to write the reports to")
+	out := flag.String("out", ".ai/docs/resolution-candidates", "directory to write the reports to")
 	baseline := flag.String("baseline", "", "directory of earlier <name>.json reports to compare with")
 	flag.Parse()
 

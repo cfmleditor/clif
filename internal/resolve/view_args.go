@@ -201,12 +201,12 @@ func (r *Resolver) viewArgSites(module string) map[string][]viewArgSite {
 	for _, sub := range viewRenderDirs {
 		for _, ext := range []string{".cfc", ".cfm"} {
 			for _, file := range r.moduleFiles(module, sub, ext) {
-				data, err := r.fs().ReadFile(file)
+				text, err := r.readText(file)
 				if err != nil {
 					continue
 				}
 
-				for view, s := range renderSites(string(data), file, name) {
+				for view, s := range renderSites(text, file, name) {
 					sites[view] = append(sites[view], s...)
 				}
 			}
@@ -235,9 +235,11 @@ const renderWindow = 8000
 func renderSites(content, file, module string) map[string][]viewArgSite {
 	out := map[string][]viewArgSite{}
 
+	lines := newLineIndex(content)
+
 	for _, m := range renderStartRe.FindAllStringIndex(content, -1) {
 		window := content[m[0]:min(len(content), m[0]+renderWindow)]
-		base := strings.Count(content[:m[0]], "\n")
+		base := lines.lineOf(m[0])
 
 		tokens := significantTokens(window)
 		if len(tokens) < 2 || !slices.Contains(viewRenderNames, strings.ToLower(tokens[0].Value)) || tokens[1].Kind != parser.TokLParen {

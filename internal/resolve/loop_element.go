@@ -4,10 +4,10 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 
-	"github.com/cfmleditor/clif/internal/conv"
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
 )
@@ -33,7 +33,6 @@ import (
 var (
 	loopTagRe      = regexp.MustCompile(`(?is)<(/?)cfloop\b([^>]*)>`)
 	loopAttrRe     = regexp.MustCompile(`(?i)\b(array|index|item)\s*=\s*["']([^"']*)["']`)
-	loopCallRe     = regexp.MustCompile(`^(?:([\w.]+)\.)?(\w+)\s*\((.*)\)$`)
 	loopPathRe     = regexp.MustCompile(`^(?:(local|variables|this|arguments)\.)?(\w+)$`)
 	maxElementHops = 4
 )
@@ -117,8 +116,10 @@ func enclosingLoop(loops []loopSpan, name string, line, start, end int) (collect
 // the lookup runs for every untyped receiver, and finding them anew each time
 // tokenised the whole file per call.
 func (r *Resolver) loopsOf(pr *parser.ParseResult) []loopSpan {
-	return r.loopCache.get(&r.mu, pr, func() []loopSpan {
-		return append(scriptLoops(pr.Content), tagLoops(pr.Content)...)
+	o := r.owner()
+
+	return o.loopCache.get(&o.mu, pr, func() []loopSpan {
+		return append(scriptLoops(o.fileTokens(pr)), tagLoops(pr.Content)...)
 	})
 }
 
@@ -140,11 +141,21 @@ type fileSpans[T any] struct {
 // spanCache is a per-file cache of fileSpans, guarded by the resolver's mu.
 type spanCache[T any] struct {
 	files map[string]fileSpans[T]
+	held  int // spans held across files, for getWithin
 }
 
 // get answers find for pr from the cache while pr's text is what it was last
 // found in. mu guards c.
 func (c *spanCache[T]) get(mu *sync.RWMutex, pr *parser.ParseResult, find func() []T) []T {
+	return c.getWithin(mu, pr, find, 0)
+}
+
+// getWithin is get holding at most maxHeld spans across all files, when
+// maxHeld is positive, as well as at most 4,096 files: the token cache holds
+// whole files' tokens. A file whose spans alone exceed maxHeld is answered
+// but not kept: kept, it would empty the cache for itself and be emptied out
+// by the next file, re-reading every file each time.
+func (c *spanCache[T]) getWithin(mu *sync.RWMutex, pr *parser.ParseResult, find func() []T, maxHeld int) []T {
 	key := string(pr.URI)
 
 	mu.RLock()
@@ -159,11 +170,17 @@ func (c *spanCache[T]) get(mu *sync.RWMutex, pr *parser.ParseResult, find func()
 
 	spans := find()
 
-	mu.Lock()
-	if c.files == nil || len(c.files) >= 4096 {
-		c.files = make(map[string]fileSpans[T])
+	if maxHeld > 0 && len(spans) > maxHeld {
+		return spans
 	}
 
+	mu.Lock()
+	if c.files == nil || len(c.files) >= 4096 || maxHeld > 0 && c.held+len(spans) > maxHeld {
+		c.files = make(map[string]fileSpans[T])
+		c.held = 0
+	}
+
+	c.held += len(spans) - len(c.files[key].spans)
 	c.files[key] = fileSpans[T]{content: pr.Content, spans: spans}
 	mu.Unlock()
 
@@ -171,9 +188,7 @@ func (c *spanCache[T]) get(mu *sync.RWMutex, pr *parser.ParseResult, find func()
 }
 
 // scriptLoops are the `for ( [var] name in collection ) { … }` loops in content.
-func scriptLoops(content string) []loopSpan {
-	tokens := allTokens(content)
-
+func scriptLoops(tokens []parser.Token) []loopSpan {
 	var out []loopSpan
 
 	for i := 0; i+4 < len(tokens); i++ {
@@ -225,8 +240,10 @@ func tagLoops(content string) []loopSpan {
 		stack []open
 	)
 
+	lines := newLineIndex(content)
+
 	for _, m := range loopTagRe.FindAllStringSubmatchIndex(content, -1) {
-		line := strings.Count(content[:m[0]], "\n")
+		line := lines.lineOf(m[0])
 
 		if m[3] > m[2] { // </cfloop>
 			if len(stack) == 0 {
@@ -270,7 +287,9 @@ func tagLoops(content string) []loopSpan {
 func allTokens(content string) []parser.Token {
 	sc := parser.NewScanner(content)
 
-	var tokens []parser.Token
+	// About one token per six bytes of CFML: sized up front, a file's tokens
+	// are not copied through every doubling on the way.
+	tokens := make([]parser.Token, 0, len(content)/6)
 
 	for {
 		tok := sc.NextSkipComments()
@@ -294,17 +313,8 @@ func (r *Resolver) elementOf(expression string, header, start int, caller string
 
 	self := pr.URI.Path()
 
-	if m := loopCallRe.FindStringSubmatch(expression); m != nil {
-		receiver, method, arguments := m[1], m[2], m[3]
-
-		target := self
-
-		if receiver != "" && !strings.EqualFold(receiver, "this") && !strings.EqualFold(receiver, "variables") {
-			comp, _ := r.receiverComponentD(receiver, conv.Uint32(header), caller, method, pr, baseDir, nil, lookupCtx{leaf: leaf})
-			target = comp
-		}
-
-		return r.methodElement(target, method, arguments, baseDir)
+	if receiver, calls, ok := callChain(expression); ok {
+		return r.collectionExpressionElement(receiver, calls, header, start, caller, pr, baseDir, depth, leaf)
 	}
 
 	// A view's prc.X is what the handler action rendering the view assigns,
@@ -381,6 +391,10 @@ func (r *Resolver) methodElement(comp, method, arguments, baseDir string) string
 		return r.withSubclasses(r.ComponentPath(fd.ElementComponent, filepath.Dir(fd.URI.Path())))
 	}
 
+	if fd.CollectionValues != nil {
+		return "$builtin.native.string"
+	}
+
 	// cborm: a service bound to an entity returns an array of it from getAll(),
 	// and structs when asked for some of its properties; and from a finder of
 	// its own built on a criteria list() (returnsCriteriaList).
@@ -428,8 +442,6 @@ func (r *Resolver) withSubclasses(path string) string {
 	return strings.Join(append(all[1:], all[0]), "|")
 }
 
-var localAssignRe = regexp.MustCompile(`(?im)^\s*(?:<cfset\s+)?(?:var\s+)?(?:local\.|variables\.)?(\w+)\s*=\s*([^=].*?)\s*/?>?\s*;?\s*$`)
-
 // localAssignment is the right-hand side of the last assignment to name on a
 // line from start to before header, when its parentheses balance. A statement
 // that runs on over the next lines (a call with its arguments one to a line,
@@ -444,18 +456,39 @@ func localAssignment(content, name string, start, header int) (string, bool) {
 // localAssignmentAt is localAssignment with the source line retained for
 // consumers that must prove the assignment reaches a particular use.
 func localAssignmentAt(content, name string, start, header int) (string, int, bool) {
-	lines := strings.Split(content, "\n")
+	start = max(start, 0)
 
-	for i := min(header, len(lines)) - 1; i >= start && i >= 0; i-- {
-		m := localAssignRe.FindStringSubmatch(lines[i])
-		if m == nil || !strings.EqualFold(m[1], name) {
+	// The lines before header, walked backwards in place: copying them out,
+	// often from the top of the file, was a tenth of what a tassweb scan
+	// allocated.
+	region, end := content, strings.Count(content, "\n")+1
+	if at, ok := lineOffset(content, header); ok {
+		region, end = content[:max(at-1, 0)], header
+	}
+
+	stop := len(region)
+
+	for i := end - 1; i >= start; i-- {
+		from := strings.LastIndexByte(region[:stop], '\n') + 1
+		line := region[from:stop]
+		next := stop + 1 // where line i+1 starts
+		stop = max(from-1, 0)
+
+		assignedName, value, matched := matchSourceAssignment(line)
+		if !matched || !strings.EqualFold(assignedName, name) {
 			continue
 		}
 
-		rhs := strings.TrimSpace(strings.TrimSuffix(strings.TrimSuffix(strings.TrimSpace(m[2]), ";"), "/"))
+		rhs := trimAssignmentRHS(value)
 
-		for j := i + 1; strings.Count(rhs, "(") > strings.Count(rhs, ")") && j < min(header, len(lines)) && j <= i+maxAssignmentLines; j++ {
-			rhs += " " + strings.TrimSpace(strings.TrimSuffix(strings.TrimSuffix(strings.TrimSpace(lines[j]), ";"), "/"))
+		for j := i + 1; strings.Count(rhs, "(") > strings.Count(rhs, ")") && j < end && j <= i+maxAssignmentLines; j++ {
+			following := region[min(next, len(region)):]
+			if k := strings.IndexByte(following, '\n'); k >= 0 {
+				following = following[:k]
+			}
+
+			next += len(following) + 1
+			rhs += " " + strings.TrimSpace(strings.TrimSuffix(strings.TrimSuffix(strings.TrimSpace(following), ";"), "/"))
 			rhs = strings.TrimSpace(rhs)
 		}
 
@@ -470,6 +503,63 @@ func localAssignmentAt(content, name string, start, header int) (string, int, bo
 }
 
 const maxAssignmentLines = 24
+
+// sourceText is strings.Join(strings.Split(content, "\n")[from:to], "\n"),
+// clipped to the lines content has: the text of those lines, as a substring
+// of content rather than a copy. "" when the window holds no line.
+func sourceText(content string, from, to int) string {
+	from = max(from, 0)
+
+	begin, ok := lineOffset(content, from)
+	if !ok || to <= from {
+		return ""
+	}
+
+	end, ok := lineOffset(content, to)
+	if !ok {
+		return content[begin:]
+	}
+
+	return content[begin : end-1]
+}
+
+// lineIndex is the offsets of a text's line breaks, so the 0-based line of
+// any offset is a binary search rather than a count from the top: counting
+// from the top for each match in a file is quadratic in its length.
+type lineIndex []int
+
+func newLineIndex(s string) lineIndex {
+	var idx lineIndex
+
+	for at := 0; ; {
+		i := strings.IndexByte(s[at:], '\n')
+		if i < 0 {
+			return idx
+		}
+
+		idx = append(idx, at+i)
+		at += i + 1
+	}
+}
+
+// lineOf is strings.Count(s[:offset], "\n").
+func (l lineIndex) lineOf(offset int) int {
+	return sort.SearchInts(l, offset)
+}
+
+// contentBeforeLine is strings.Join(strings.Split(content, "\n")[:n], "\n").
+func contentBeforeLine(content string, n int) string {
+	at, ok := lineOffset(content, n)
+	if !ok {
+		return content
+	}
+
+	if at == 0 {
+		return ""
+	}
+
+	return content[:at-1]
+}
 
 func isScopeWord(s string) bool {
 	switch strings.ToLower(s) {

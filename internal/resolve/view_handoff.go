@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"sort"
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/conv"
@@ -150,17 +151,29 @@ func (r *Resolver) moduleActions(dir string) map[string]renderers {
 
 		content := string(data)
 
+		// The actions and line breaks of the handler, found once: each render
+		// used to search everything above it for its action and count lines
+		// from the top, quadratic in the handler's length.
+		actions := actionStartRe.FindAllStringSubmatchIndex(content, -1)
+		lines := newLineIndex(content)
+		actionBefore := func(at int) []int {
+			i := sort.Search(len(actions), func(i int) bool { return actions[i][1] > at })
+			if i == 0 {
+				return nil
+			}
+
+			return actions[i-1]
+		}
+
 		for _, m := range computedRenderRe.FindAllStringSubmatchIndex(content, -1) {
 			if mod := renderModRe.FindStringSubmatch(content[m[6]:m[7]]); mod != nil && !strings.EqualFold(mod[1], name) {
 				continue
 			}
 
-			starts := actionStartRe.FindAllStringSubmatchIndex(content[:m[0]], -1)
-			if len(starts) == 0 {
+			last := actionBefore(m[0])
+			if last == nil {
 				continue
 			}
-
-			last := starts[len(starts)-1]
 
 			for _, leaf := range r.leafSubclasses(handler) {
 				lit := r.leafLiteral(leaf, handler, content[m[2]:m[3]])
@@ -174,8 +187,8 @@ func (r *Resolver) moduleActions(dir string) map[string]renderers {
 					handler: handler,
 					leaf:    leaf,
 					name:    content[last[2]:last[3]],
-					start:   strings.Count(content[:last[0]], "\n"),
-					setView: strings.Count(content[:m[0]], "\n"),
+					start:   lines.lineOf(last[0]),
+					setView: lines.lineOf(m[0]),
 					body:    content[last[0]:m[0]],
 				})
 				out[view] = entry
@@ -183,18 +196,17 @@ func (r *Resolver) moduleActions(dir string) map[string]renderers {
 		}
 
 		calls(content, func(view string, m []int) {
-			starts := actionStartRe.FindAllStringSubmatchIndex(content[:m[0]], -1)
-			if len(starts) == 0 {
+			last := actionBefore(m[0])
+			if last == nil {
 				return
 			}
 
-			last := starts[len(starts)-1]
 			entry := out[view]
 			entry.actions = append(entry.actions, handoffAction{
 				handler: handler,
 				name:    content[last[2]:last[3]],
-				start:   strings.Count(content[:last[0]], "\n"),
-				setView: strings.Count(content[:m[0]], "\n"),
+				start:   lines.lineOf(last[0]),
+				setView: lines.lineOf(m[0]),
 				body:    content[last[0]:m[0]],
 			})
 			out[view] = entry
@@ -204,7 +216,7 @@ func (r *Resolver) moduleActions(dir string) map[string]renderers {
 	views := filepath.Join(dir, "views")
 
 	for _, file := range r.moduleFiles(dir, "views", ".cfm") {
-		data, err := r.fs().ReadFile(file)
+		text, err := r.readText(file)
 		if err != nil {
 			continue
 		}
@@ -216,7 +228,7 @@ func (r *Resolver) moduleActions(dir string) map[string]renderers {
 
 		parent := strings.ToLower(strings.TrimSuffix(filepath.ToSlash(rel), filepath.Ext(rel)))
 
-		calls(string(data), func(view string, _ []int) {
+		calls(text, func(view string, _ []int) {
 			entry := out[view]
 			entry.parents = append(entry.parents, parentView{name: parent, file: file})
 			out[view] = entry
@@ -260,12 +272,12 @@ func (r *Resolver) handlerParse(path string) *parser.ParseResult {
 		return pr
 	}
 
-	data, err := r.fs().ReadFile(path)
+	text, err := r.readText(path)
 	if err != nil {
 		return nil
 	}
 
-	content := string(data)
+	content := text
 
 	pr = parser.ParseWithOptions(cfpath.ToURI(path), content, &parser.ParseOptions{
 		Resolvers: r.Resolvers, FuncLookup: r.FuncLookup(filepath.Dir(path)),
@@ -384,11 +396,15 @@ func (r *Resolver) viewPrcElement(name string, pr *parser.ParseResult, depth int
 // it reaches assigns prc.name itself, so that the action's value is not the
 // one the partial reads.
 func (r *Resolver) throughAssigns(views []string, name string) bool {
-	re := regexp.MustCompile(`(?i)\bprc\.` + regexp.QuoteMeta(name) + `\s*=[^=]`)
+	if len(views) == 0 {
+		return false
+	}
+
+	re := compiledPattern(`(?i)\bprc\.` + regexp.QuoteMeta(name) + `\s*=[^=]`)
 
 	for _, v := range views {
-		data, err := r.fs().ReadFile(v)
-		if err != nil || re.Match(data) {
+		text, err := r.readText(v)
+		if err != nil || mentions(text, "prc."+name) && re.MatchString(text) {
 			return true
 		}
 	}
@@ -409,7 +425,7 @@ func prcMember(variable string) (string, bool) {
 // memberAssignRe matches `container.name = …` on a line of its own, in script
 // or in a <cfset>, with or without arguments. before the container.
 func memberAssignRe(container, name string) *regexp.Regexp {
-	return regexp.MustCompile(`(?im)^\s*(?:<cfset\s+)?(?:arguments\.)?` + regexp.QuoteMeta(container) + `\.` + regexp.QuoteMeta(name) +
+	return compiledPattern(`(?im)^\s*(?:<cfset\s+)?(?:arguments\.)?` + regexp.QuoteMeta(container) + `\.` + regexp.QuoteMeta(name) +
 		`\s*=\s*([^=].*?)\s*/?>?\s*;?\s*$`)
 }
 
@@ -429,6 +445,10 @@ func lastMemberAssignment(body, container, name string) (string, bool) {
 // lastMemberAssignmentAt is lastMemberAssignment with the line of body the
 // assignment is on.
 func lastMemberAssignmentAt(body, container, name string) (string, int, bool) {
+	if !mentions(body, container+"."+name) {
+		return "", 0, false
+	}
+
 	all := memberAssignRe(container, name).FindAllStringSubmatchIndex(body, -1)
 	if len(all) == 0 {
 		return "", 0, false

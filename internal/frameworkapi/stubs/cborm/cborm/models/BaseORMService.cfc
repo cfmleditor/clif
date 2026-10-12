@@ -73,7 +73,7 @@ component {
 	 *
 	 * @return cborm.models.util.IORMUtil
 	 */
-	function getOrm() {}
+	cborm.models.util.support.IORMUtil function getOrm() {}
 	/**
 	 * Lazy loading event handler for performance
 	 *

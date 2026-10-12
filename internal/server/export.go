@@ -155,7 +155,9 @@ func (s *Server) exportScope(kind string) (roots, targets []string, err error) {
 // unresolvedReports runs the unresolved scan the CLI runs, with this
 // session's settings, and splits it across targets.
 func (s *Server) unresolvedReports(files, targets []string) ([]report, int) {
+	resolver := s.getResolver()
 	opt := unresolved.Options{
+		CallerInferenceLimits:    s.CallerInferenceLimits,
 		Mappings:                 s.Mappings,
 		ExpressionMappings:       s.ExpressionMappings,
 		ServicePropertyResolvers: s.ServicePropertyResolvers,
@@ -165,9 +167,11 @@ func (s *Server) unresolvedReports(files, targets []string) ([]report, int) {
 		InterpolateAll:           !s.Features.OutputContextInterpolation,
 	}
 
-	for _, r := range s.ComponentResolvers {
-		opt.Resolvers = append(opt.Resolvers, r.Parser())
-	}
+	opt.Resolvers = resolver.Resolvers
+	opt.StartupFiles = resolver.StartupFiles
+	opt.ImplicitExtends = resolver.ImplicitExtends
+	opt.HelperScope = resolver.HelperScope
+	opt.Stubs = resolver.Stubs
 
 	rep := unresolved.Scan(s.FS, files, nil, &opt)
 	byTarget, rest := unresolved.SplitByTarget(rep.Calls, targets)

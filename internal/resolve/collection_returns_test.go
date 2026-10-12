@@ -121,7 +121,7 @@ func TestClosedCollectionContractsRejectConflictsAndCycles(t *testing.T) {
 		{"different producer returns", `variables.items[a]=variables.producer.read(); variables.items[b]=variables.producer.other();`, "", ""},
 		{"primitive producer return", `variables.items[a]=variables.producer.queryResult();`, "", ""},
 		{"declared component priority", `variables.items[a]=new model.beans.Other();`, "model.beans.Site", site},
-		{"declared primitive priority", `variables.items[a]=new model.beans.Site();`, "query", ""},
+		{"declared primitive priority", `variables.items[a]=new model.beans.Site();`, "query", "$builtin.native.query"},
 		{"recursive collection return", `variables.items[a]=one();`, "", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

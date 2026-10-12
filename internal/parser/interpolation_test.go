@@ -243,7 +243,7 @@ func sorted(s []string) []string {
 // *that* with the same quote character. Closing the outer string at the inner
 // quote left `"#DayOfWeek("`, so the interpolation had no closing `#` and the
 // call in it was invisible — 3,165 call sites over 461 files on the corpus,
-// measured in PARSER-GAPS.md §3.3.
+// measured in .ai/docs/PARSER-GAPS.md §3.3.
 func TestStringsNestInsideInterpolation(t *testing.T) {
 	cases := []struct {
 		body string

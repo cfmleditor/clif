@@ -21,10 +21,10 @@ import (
 
 // The formatter's correctness claim — that it only ever changes whitespace — is not
 // something the unit tests can establish on their own: every defect fixed in
-// FORMATTER-ISSUES.md was found by running the formatter over thousands of files
+// .ai/docs/FORMATTER-ISSUES.md was found by running the formatter over thousands of files
 // nobody here wrote, and each one looked like an ordinary CFML construct until it
 // destroyed code. That audit was done with a scratch harness that was never checked
-// in, so the numbers in FORMATTER-ISSUES.md could not be reproduced or moved without
+// in, so the numbers in .ai/docs/FORMATTER-ISSUES.md could not be reproduced or moved without
 // rebuilding it from the prose first. This is that harness.
 //
 // It needs a corpus, which is far too large to vendor, so it is opt-in and silently
@@ -524,7 +524,7 @@ func runCorpus(t *testing.T, files []corpusResult) []corpusResult {
 	return files
 }
 
-// reportCorpus prints the same shape of table FORMATTER-ISSUES.md carries, so a run can
+// reportCorpus prints the same shape of table .ai/docs/FORMATTER-ISSUES.md carries, so a run can
 // be compared against the recorded baseline directly.
 func reportCorpus(t *testing.T, roots []string, results []corpusResult) {
 	t.Helper()
@@ -581,7 +581,7 @@ func reportCorpus(t *testing.T, roots []string, results []corpusResult) {
 	}
 
 	// Guard rejections and instability are known, counted, and tracked in
-	// FORMATTER-ISSUES.md — failing on them would make the harness useless as a
+	// .ai/docs/FORMATTER-ISSUES.md — failing on them would make the harness useless as a
 	// measurement. A panic is different: it is a crash, and in the LSP it takes the
 	// daemon down with it.
 	for _, p := range panics {

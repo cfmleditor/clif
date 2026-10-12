@@ -65,24 +65,24 @@ func (r *Resolver) fw1SetterManaged(file string) bool {
 func (r *Resolver) readFW1Scope(appDir string) fw1Scope {
 	file := filepath.Join(appDir, "Application.cfc")
 
-	data, err := r.fs().ReadFile(file)
+	text, err := r.readText(file)
 	if err != nil {
 		return fw1Scope{}
 	}
 
-	pr := parser.ParseWithOptions(cfpath.ToURI(file), string(data), &parser.ParseOptions{ExtractCalls: true, ScanAllScopes: true})
+	pr := parser.ParseWithOptions(cfpath.ToURI(file), text, &parser.ParseOptions{ExtractCalls: true, ScanAllScopes: true})
 
 	base := r.ComponentPath(pr.Extends, appDir)
 	if pr.Extends == "" || base == "" {
 		return fw1Scope{}
 	}
 
-	data, err = r.fs().ReadFile(base)
+	text, err = r.readText(base)
 	if err != nil {
 		return fw1Scope{}
 	}
 
-	framework := parser.ParseWithOptions(cfpath.ToURI(base), string(data), &parser.ParseOptions{ExtractCalls: true, ScanAllScopes: true})
+	framework := parser.ParseWithOptions(cfpath.ToURI(base), text, &parser.ParseOptions{ExtractCalls: true, ScanAllScopes: true})
 
 	methods := map[string]bool{}
 	for i := range framework.Funcs {

@@ -1,8 +1,14 @@
 package resolve
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/cfmleditor/clif/internal/index"
+	cfpath "github.com/cfmleditor/clif/internal/path"
+	"github.com/cfmleditor/clif/internal/vfs"
 
 	"github.com/cfmleditor/clif/internal/parser"
 )
@@ -239,5 +245,94 @@ func TestAMembersPresenceIsNotAnArgumentGuard(t *testing.T) {
 
 	if !strings.Contains(got["set.missing"], "not found") {
 		t.Errorf("set.missing: %q, want a missing method on Config", got["set.missing"])
+	}
+}
+
+func TestLiteralFallbackModeRetainsTheReceiver(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{
+		"Base.cfc":        `component {function loadBy(returnFormat="self") {savecontent variable="sql" {writeOutput("select 1");}if(arguments.returnFormat eq "query"){return new QueryResult();}else if(arguments.returnFormat eq "iterator"){return new Iterator();}else{return this;}}}`,
+		"QueryResult.cfc": `component {}`, "Iterator.cfc": `component {}`,
+		"Entity.cfc": `component extends="Base" {function ready(){}}`,
+		"Page.cfc": `component {function run(){
+ new Entity().loadBy(returnFormat="this").ready();
+ new Entity().loadBy(returnFormat="custom").ready();
+ new Entity().loadBy(returnFormat="QUERY").ready();
+ new Entity().loadBy(returnFormat=unknown).ready();
+ new Entity().loadBy(argumentCollection=unknown).ready();
+ }}`,
+	})
+	r := &Resolver{FS: vfs.OS{}, Index: index.New(), WorkspaceFolders: []string{dir}}
+	file := filepath.Join(dir, "Page.cfc")
+
+	data, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	pr := parser.ParseWithOptions(cfpath.ToURI(file), string(data), &parser.ParseOptions{ExtractCalls: true, FuncLookup: r.FuncLookup(dir)})
+	checked := 0
+
+	for _, call := range pr.AllCalls() {
+		if call.FuncName == "ready" && len(call.Chain) > 0 {
+			checked++
+			line := strings.Split(pr.Content, "\n")[call.Line]
+			want := strings.Contains(line, `"this"`) || strings.Contains(line, `"custom"`)
+
+			why := r.CanResolveCall(&call, pr, dir)
+			if (why == "") != want {
+				t.Errorf("%s got %q, want resolved %v", line, why, want)
+			}
+		}
+	}
+
+	if checked != 5 {
+		t.Fatalf("checked %d: %+v", checked, pr.AllCalls())
+	}
+}
+
+func TestSelfModeRespectsDeclaredReturnAndSignature(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{"Base.cfc": `component {query function loadBy(mode="self"){work();if(arguments.mode eq "query"){return q;}else{return this;}}}`})
+	r := &Resolver{FS: vfs.OS{}, Index: index.New(), WorkspaceFolders: []string{dir}}
+
+	fd := r.ResolveFunc("Base", "loadBy", dir)
+	if fd == nil {
+		t.Fatal("missing method")
+	}
+
+	budget := 1024
+
+	eval := producerEvaluation{resolver: r, fd: fd, baseDir: dir, budget: &budget}
+	if got := eval.call(fd, "Base", nil, true).component(); got != "" {
+		t.Fatal("primitive return admitted self mode", got)
+	}
+
+	copyDef := *fd
+	copyDef.ReturnType = ""
+
+	copyDef.Arguments = append([]parser.Argument(nil), fd.Arguments...)
+
+	copyDef.Arguments[0].Name = "different"
+	if got := eval.call(&copyDef, "Base", nil, true).component(); got != "" {
+		t.Fatal("stale signature admitted default self mode", got)
+	}
+}
+
+func TestModeShortcutRejectsEffectfulDefaults(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{"Base.cfc": `component {function loadBy(mode="self",other=mutate(arguments)){savecontent variable="sql"{work();}if(arguments.mode eq "query"){return new QueryResult();}else{return this;}}}`, "QueryResult.cfc": `component {}`})
+	r := &Resolver{FS: vfs.OS{}, Index: index.New(), WorkspaceFolders: []string{dir}}
+
+	fd := r.ResolveFunc("Base", "loadBy", dir)
+	if fd == nil {
+		t.Fatal("missing method")
+	}
+
+	budget := 1024
+
+	eval := producerEvaluation{resolver: r, fd: fd, baseDir: dir, budget: &budget}
+	if got := eval.call(fd, "Base", nil, true).component(); got != "" {
+		t.Fatal("effectful default admitted self mode", got)
 	}
 }

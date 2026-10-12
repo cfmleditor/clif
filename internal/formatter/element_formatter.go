@@ -306,7 +306,7 @@ func (f *Formatter) formatTextRun(nodes []*sitter.Node) {
 // CFML, so nothing stopped the next line being folded up onto a comment, and the
 // code after it became part of the comment. Only whitespace changed, so the
 // whitespaceOnly guard passed and the file was written: this is the one defect
-// in FORMATTER-ISSUES.md that silently destroyed a file rather than refusing it.
+// in .ai/docs/FORMATTER-ISSUES.md that silently destroyed a file rather than refusing it.
 //
 // The carve-out is the one 3.3 took for `<pre>`, and for the same reason: the
 // guard's premise is that whitespace is free, and in text whose line breaks

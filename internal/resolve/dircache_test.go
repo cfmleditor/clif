@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/cfmleditor/clif/internal/index"
 	cfpath "github.com/cfmleditor/clif/internal/path"
@@ -145,12 +146,18 @@ func TestDirCacheDoesNotChangeAnyAnswer(t *testing.T) {
 	}
 }
 
-// A directory that could not be read is not cached: the failure is usually
-// "not there yet", and a resolver kept past the file appearing would otherwise
-// go on denying it. The server drops the resolver on a save or a watched-file
-// change, so this only covers the window inside one resolver's life — but that
-// window is where a newly written component gets its first lookup.
+// A directory that could not be read is not cached past cfpath.MissTTL: the
+// failure is usually "not there yet", and a resolver kept past the file
+// appearing would otherwise go on denying it. The server drops the resolver on
+// a save or a watched-file change, so this only covers the window inside one
+// resolver's life — but that window is where a newly written component gets
+// its first lookup.
 func TestDirCacheDoesNotRememberAMissingDirectory(t *testing.T) {
+	old := cfpath.MissTTL
+	cfpath.MissTTL = 20 * time.Millisecond
+
+	t.Cleanup(func() { cfpath.MissTTL = old })
+
 	root := t.TempDir()
 
 	r := dirCacheResolver(root)
@@ -173,6 +180,8 @@ func TestDirCacheDoesNotRememberAMissingDirectory(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "Other.cfc"), []byte("component {}"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+
+	time.Sleep(2 * cfpath.MissTTL)
 
 	if got := r.ComponentPath("late.Other", root); got == "" {
 		t.Error("a directory that did not exist at first lookup stayed unresolvable after it appeared")

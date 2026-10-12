@@ -35,7 +35,7 @@ make gapcheck [CORPUS=<dir>[:<dir>...]]
                     # diff what internal/parser extracts against what the tree-sitter
                     # grammar sees in the same file. Without CORPUS it holds the repo's
                     # fixtures to a recorded list of differences; with one it reports.
-                    # 6s over 5,629 files. See PARSER-GAPS.md
+                    # 6s over 5,629 files. See .ai/docs/PARSER-GAPS.md
 make corpus CORPUS=<dir>[:<dir>...] [REPORT=<file>] [BASELINE=<file>] [OPTS=k=v,...]
                     # format a real-world CFML corpus and report what the formatter did to
                     # each file (clean / grammar-refused / guard-rejected / not idempotent /
@@ -44,10 +44,10 @@ make corpus CORPUS=<dir>[:<dir>...] [REPORT=<file>] [BASELINE=<file>] [OPTS=k=v,
                     # the totals cannot show that, since one file breaking and another being
                     # fixed leaves every column identical. OPTS sets formatter.Options fields
                     # by name, for sweeping a new setting through its modes without editing
-                    # the test. See FORMATTER-ISSUES.md
+                    # the test. See .ai/docs/FORMATTER-ISSUES.md
 make resolution-report CORPUS="name=dir[,dir] ..." [BASELINE=<dir>] [RUNS=<dir>] [LISTS=<dir>]
                     # unresolved --json --candidates per named scan; rewrites the lists in
-                    # resolution-candidates/ (LISTS= skips that) and, with BASELINE, prints
+                    # .ai/docs/resolution-candidates/ (LISTS= skips that) and, with BASELINE, prints
                     # findings removed/added per scan. Skipped without CORPUS; not in CI
 make build-wasm     # wasip1/wasm build (needs WASI_SDK, default /opt/wasi-sdk)
 make release <ver>  # validate, build, test, lint, changelog, commit, tag, push
@@ -244,7 +244,7 @@ the *formatter*, not the parser.
   only worth doing where it crosses an allocator size class or the struct is
   held by value in a slice — `ParseResult` would shrink 40 bytes and still
   occupy a 640-byte block. `TestParserStructsKeepTheirSize` pins the three;
-  LINT-PLAN.md stage 3 has the measurements.
+  .ai/docs/LINT-PLAN.md stage 3 has the measurements.
 - **A local `var buf [N]byte` stays on the stack; a struct holding a slice of its own array does
   not.** `chainBuilder` accumulates into an array addressed by length for that reason — the
   shorter `c.rest = c.arr[:0]` defeats escape analysis and moved all eleven of its call sites'
@@ -615,7 +615,7 @@ belongs in them rather than at either call site:
 - `formatter.ParseError(tree, src)` (`internal/formatter/parse_error.go`) refuses a file the
   grammar could not parse, so a CST gap can't be written back as deleted source. The
   `whitespaceOnly` guard is a second line of defence, not a substitute — it does not catch every
-  shape of loss (see `FORMATTER-ISSUES.md`).
+  shape of loss (see `.ai/docs/FORMATTER-ISSUES.md`).
 
 `UseTabs` is the one setting with no config key: the LSP derives it from the editor's
 `insertSpaces`, and the CLI keeps the `formatter.DefaultOptions()` value (tabs). A workspace
@@ -970,7 +970,7 @@ Declared in `Server.capabilities()` (`internal/server/server.go`):
 - **`features`** (`config.Features`/`ResolvedFeatures`) switches off individual capabilities.
   Three default to **on** and are opt-outs; **`folding` defaults off** and is opt-in
   (`config.foldingDefault`), as it has been since it was expensive; it now covers 93.9% of what
-  the tree-sitter version folded, and switching the default is `FOLDING-PLAN.md` §5. **`typeDefinition` defaults off** too (`config.typeDefinitionDefault`), as
+  the tree-sitter version folded, and switching the default is `.ai/docs/FOLDING-PLAN.md` §5. **`typeDefinition` defaults off** too (`config.typeDefinitionDefault`), as
   the newest capability. The fields are `*bool` for the reason the `completions` block documents — a
   defaults-true flag as a plain bool cannot tell "turned off" from "not mentioned", so naming one
   key would switch off its siblings. `mergeFeatures` unions key by key for the same reason
@@ -1208,6 +1208,55 @@ placed or typed leaves it untyped. It is the **last** step of `canResolveCall`:
 inside `receiverComponent` it ran before the dynamic rules and turned accepted
 calls into findings. `TestAnUntypedArgumentHoldsWhatEveryCallerPasses`.
 
+Chained-call continuation records capture each hop's byte origin before consuming
+its arguments; emission still follows nested argument calls. The hop's line is
+its own token line. This lets the ordinary caller omission proof distinguish
+same-named calls and prevents interpolated tag-expression top-up from duplicating
+one lexical call. Synthetic/ambiguous origins retain their existing safeguards.
+`TestChainedCallsKeepEachHopByteIdentity` and
+`TestChainedInterpolationCallsAreNotDuplicated` cover source offsets, tag/script
+forms and repeated names.
+
+Caller inference scans all indexed candidates without file or call-site count
+cutoffs by default, including constructor callers. Optional `.clif.json`
+`callerInferenceLimits` bounds candidate files, owner files, sites and constructor
+files independently; positive values enable limits and nonpositive values leave
+them unlimited. The policy block replaces an inherited block as a whole. Unplaced receivers and unknown supplied
+values still withhold inference. An ordinary call with an unknown receiver is
+ignored only when exact byte identity and balanced syntax prove that it omits
+the target argument. Opaque `argumentCollection` and unknown `invoke` owners
+still withhold inference. Runtime component paths containing interpolation
+markers cannot become caller-derived literal types; recursive inference retains
+its depth bound.
+It runs only in batch scans and can cost more for common names in large corpora.
+`TestArgumentCallerBudgetUsesOwnership` and
+`TestArgumentInferenceBeyondFormerLimits` cover unrelated owners, former limits,
+constructors and an unknown value after the former site cutoff.
+
+Literal array-returning `entityLoad` forms use indexed persistent-entity metadata
+for loop element types: a literal entity name, optionally a filter struct and an
+explicit `false` unique flag. Shadowed calls, dynamic names, scalar-ID overloads,
+unknown/true unique flags and unsupported options stay unknown. Native array
+`.each(function(element){...})` can use the same independently established
+collection element contract (including existing ORM relationships and cborm
+`getAll`). Only the first positional callback parameter is typed, only for an
+exact closure call span and stable parameter. This assumes the collection keeps
+its producer's homogeneous element contract; it does not establish types after
+arbitrary runtime mutations or escapes. See `collection_callbacks.go` and
+`TestLoadedEntityCollectionsTypeLoopsAndEachCallbacks`.
+
+**A struct default is set aside for a method a struct lacks** (`nativeDefaultOverwritten`):
+`StructNew()` and `{}` type a variable as `native.struct`, and tassweb sets
+`VARIABLES._parent = StructNew()` in every component's pseudo-constructor before
+`init()` replaces it with an argument declared `struct` (CFML lets a component
+through). Taken as the nearest assignment, 7,000 `_parent.getService()` calls were
+checked against a struct. A struct-typed ref, or a bare placeholder a variable was
+last assigned, is passed over when the method called is not one a struct has
+(`docs.LookupBuiltinMethod`, the method-exists check's own test); the lookup then
+takes the next ref, a `componentResolver` or the extends chain. Only structs: any
+other native value missing a method is a finding to report.
+`TestANativeDefaultDoesNotOutrankWhatReplacesIt`.
+
 ## Capabilities the VS Code extension has and this server does not
 
 The `cfmleditor` extension stands its own language providers down whenever this
@@ -1279,7 +1328,7 @@ the user-facing view and all `formatting` defaults.
 | `linting.enabled` | Enable CFLint diagnostics |
 | `linting.minSeverity` | Least severe CFLint level reported, on CFLint's own scale (`FATAL`…`COSMETIC`); unset reports everything. See below |
 | `references.enabled` | Answer `textDocument/references` (off by default; see the LSP surface above) |
-| `features` | Per-capability switches: `documentHighlight`, `watchedFiles`, `rangeFormatting` default **on** (opt-outs, for when one misbehaves); `folding` defaults **off** (opt-in; see `FOLDING-PLAN.md` §5 on switching it); `typeDefinition` defaults **off** (opt-in while new). See below |
+| `features` | Per-capability switches: `documentHighlight`, `watchedFiles`, `rangeFormatting` default **on** (opt-outs, for when one misbehaves); `folding` defaults **off** (opt-in; see `.ai/docs/FOLDING-PLAN.md` §5 on switching it); `typeDefinition` defaults **off** (opt-in while new). See below |
 | `completions` | `tagSnippets`, `functionSnippets`, `globalFunctionResolution` |
 | `debug` | Verbose zap development logging to stderr. Without it `Debug` records are dropped before anything is formatted, and never reach the client as `window/logMessage` (`TestDebugRecordsNeedTheDebugFlag`) |
 
@@ -1647,7 +1696,7 @@ generated setters return their component and getters what the property holds;
 otherwise — it used to declare CommandBox's `getCWD()` a `Shell`); and an unqualified call to
 an inherited method types what it is assigned to through `FuncLookup`. cborm's stubs are
 pinned to 4.12.1, the version ContentBox's stubs use: 5.x dropped `getBeanPopulator`.
-`RESOLUTION-GAPS.md` lists what `unresolved` still reports over the corpus, the cause of
+`.ai/docs/RESOLUTION-GAPS.md` lists what `unresolved` still reports over the corpus, the cause of
 each large group and where its fix goes, with the corpus setup to measure a change against.
 
 **`Application.cfc` mappings are evaluated, not just matched** (`parser.evaluatedMappings`).
@@ -1861,7 +1910,7 @@ Some handles need both shapes; others only one, depending on how the code uses t
 - The formatter's whitespace-only claim is checked against external corpora, not fixtures:
   `make corpus CORPUS=<dir>` (`internal/formatter/corpus_test.go`). It skips without a corpus.
   Reach for it after any formatter change — a rule that reads as obviously safe has repeatedly
-  turned out to delete code on some construct no fixture contains. `FORMATTER-ISSUES.md` records
+  turned out to delete code on some construct no fixture contains. `.ai/docs/FORMATTER-ISSUES.md` records
   the current numbers and the six projects they were measured against.
 - `.golangci.yml` (v2 config) enables `wsl_v5`, `nlreturn`, `revive`, `gocritic`, `gosec`,
   `errorlint`, `exhaustive`, `prealloc`, and others. **`wsl_v5` + `nlreturn` demand a blank line
@@ -1941,7 +1990,7 @@ Some handles need both shapes; others only one, depending on how the code uses t
   build it on an explicit `[]T{}` instead. An `if` init statement stays on one line
   (`multiline-if-init`): when the call wraps, assign above the `if` and test
   `err` alone.
-  `LINT-PLAN.md` holds the stages still to come, the measurements behind them,
+  `.ai/docs/LINT-PLAN.md` holds the stages still to come, the measurements behind them,
   and the rules left off with the reason for each; update it when a stage
   lands or the pinned golangci-lint moves.
 - `internal/docs/` content is generated — regenerate rather than hand-editing, but see the
@@ -2014,7 +2063,7 @@ is 0.002ms against 0.63ms. So a saving inside either handler is rounding error,
 and the only thing that makes them cheaper is sending fewer bytes.
 `BenchmarkWorkspaceSymbolWithMarshal` and `BenchmarkCompletionWithMarshal`
 measure them end to end; the handler-only benchmarks beside them are for
-changes to the handler, not for what the request costs. `PERFORMANCE-GAPS.md`
+changes to the handler, not for what the request costs. `.ai/docs/PERFORMANCE-GAPS.md`
 records the three costs measured this way and not acted on, with what each
 option would save and what it would cost the user. Capping `workspace/symbol`
 is the obvious fix and is deferred on priority rather than overlooked; section
@@ -2099,7 +2148,7 @@ concatenation, a nested call in an argument list, any scope-prefixed left-hand
 side — and 207 more for a script tag's attribute *value*, where the identifier
 was consumed as a plain token and only its argument list was scanned, so
 `array=structKeyArray(rows)` recorded what was inside the parens and never the
-call. PARSER-GAPS.md has the measurement and what is still missing.
+call. .ai/docs/PARSER-GAPS.md has the measurement and what is still missing.
 
 **Only `<cfset>` tops up, and that distinction is the subtle one.** Its string
 paths run first and carry the refs and pending calls that decide what a variable
@@ -2188,7 +2237,7 @@ that genuinely wraps a line is how ContentBox writes a form field —
 `#html.inputField(\n name = "authorEmail",\n …\n)#`. Both shapes cross lines,
 hold quotes and hold a `(`; telling them apart needs to know the first `#` was
 never interpolation, which is a fact about the enclosing expression rather than
-the string. PARSER-GAPS.md §4.2 has the measurement.
+the string. .ai/docs/PARSER-GAPS.md §4.2 has the measurement.
 
 **A hand-maintained parallel list wants a reflective test.** Wherever the same
 names must appear in two or more places, enumerate them in a test rather than in

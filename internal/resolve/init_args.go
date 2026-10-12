@@ -40,7 +40,7 @@ func (r *Resolver) inferInitArgument(fd *parser.FunctionDef, pos int, file strin
 		}
 	}
 
-	if len(files) == 0 || len(files) > maxArgCallerFiles {
+	if len(files) == 0 || exceedsCallerLimit(len(files), r.CallerInferenceLimits.MaxConstructorFiles) {
 		return ""
 	}
 
@@ -77,7 +77,7 @@ type initArgSites struct {
 // hpr. It reports false when the construction cannot be typed.
 func (a *initArgSites) take(expr []parser.Token, line uint32, caller string, hpr *parser.ParseResult, dir string) bool {
 	a.sites++
-	if a.sites > maxArgCallSites {
+	if exceedsCallerLimit(a.sites, a.r.CallerInferenceLimits.MaxCallSites) {
 		return false
 	}
 
@@ -135,7 +135,7 @@ func (a *initArgSites) scan(path string) bool {
 
 		read[int(call.Line)] = true
 
-		expr, passed := callArgument(tokens, call.FuncName, int(call.Line), a.pos, a.argName)
+		expr, passed := callSiteArgument(tokens, call, a.pos, a.argName)
 		if passed && !a.take(expr, call.Line, call.Caller, hpr, dir) {
 			return false
 		}
@@ -197,12 +197,22 @@ func (r *Resolver) constructions(tokens []parser.Token, base, file, dir string) 
 
 // quotedNameLines are the lines on which name ends a quoted string.
 func quotedNameLines(content, name string) []int {
-	re := regexp.MustCompile(`(?i)\b` + regexp.QuoteMeta(name) + `["']`)
+	if !mentions(content, name) {
+		return nil
+	}
+
+	re := compiledPattern(`(?i)\b` + regexp.QuoteMeta(name) + `["']`)
 	matches := re.FindAllStringIndex(content, -1)
 
+	// Lines are counted on from the last match, not from the top each time.
 	out := make([]int, 0, len(matches))
+	line, from := 0, 0
+
 	for _, m := range matches {
-		out = append(out, strings.Count(content[:m[0]], "\n"))
+		line += strings.Count(content[from:m[0]], "\n")
+		from = m[0]
+
+		out = append(out, line)
 	}
 
 	return out
@@ -266,7 +276,11 @@ func (r *Resolver) initArgType(pr *parser.ParseResult, param string, ctx lookupC
 // hasWrittenFunc reports whether pr's source declares a function called name,
 // as opposed to one generated for a property.
 func hasWrittenFunc(pr *parser.ParseResult, name string) bool {
-	return regexp.MustCompile(`(?i)\bfunction\s+` + regexp.QuoteMeta(name) + `\s*\(|<cffunction[^>]+name\s*=\s*["']` + regexp.QuoteMeta(name) + `["']`).MatchString(pr.Content)
+	if !mentions(pr.Content, name) {
+		return false
+	}
+
+	return compiledPattern(`(?i)\bfunction\s+` + regexp.QuoteMeta(name) + `\s*\(|<cffunction[^>]+name\s*=\s*["']` + regexp.QuoteMeta(name) + `["']`).MatchString(pr.Content)
 }
 
 // initStoredArg is the init argument p when every write to name in pr is
@@ -278,12 +292,22 @@ func initStoredArg(pr *parser.ParseResult, name string) string {
 		return ""
 	}
 
+	// Every write the expression below matches names the variable.
+	if !mentions(pr.Content, name) {
+		return ""
+	}
+
 	q := regexp.QuoteMeta(name)
-	write := regexp.MustCompile(`(?i)(?:(?:^|[^\w.])(?:variables\.)?` + q + `\s*=[^=])|(?:\bset` + q + `\s*\()`)
+	write := compiledPattern(`(?i)(?:(?:^|[^\w.])(?:variables\.)?` + q + `\s*=[^=])|(?:\bset` + q + `\s*\()`)
 	param := ""
 
-	for i, line := range strings.Split(pr.Content, "\n") {
-		if !write.MatchString(line) {
+	i := -1
+
+	for line := range strings.Lines(pr.Content) {
+		i++
+		line = strings.TrimSuffix(line, "\n")
+
+		if !mentions(line, name) || !write.MatchString(line) {
 			continue
 		}
 

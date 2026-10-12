@@ -88,7 +88,35 @@ func fw1ViewName(path string) (section, item, app string, ok bool) {
 // fw1Actions are the controller actions that render section.item: the
 // section controller's item action, and every action whose body calls
 // setView("section.item").
+//
+// Cached per resolver: a view asks once per rc call, and each answer scans
+// every controller's source (Mura's editsite.cfm, 160 rc.siteBean calls, took
+// 3s of a scan doing so).
 func (r *Resolver) fw1Actions(controllers, section, item string) []fw1Action {
+	key := pathKey(controllers) + "\x00" + strings.ToLower(section+"."+item)
+
+	r.mu.RLock()
+	cached, ok := r.fw1ActionCache[key]
+	r.mu.RUnlock()
+
+	if ok {
+		return cached
+	}
+
+	out := r.fw1ActionsUncached(controllers, section, item)
+
+	r.mu.Lock()
+	if r.fw1ActionCache == nil {
+		r.fw1ActionCache = map[string][]fw1Action{}
+	}
+
+	r.fw1ActionCache[key] = out
+	r.mu.Unlock()
+
+	return out
+}
+
+func (r *Resolver) fw1ActionsUncached(controllers, section, item string) []fw1Action {
 	var out []fw1Action
 
 	own := filepath.Join(controllers, section+".cfc")
@@ -181,11 +209,10 @@ func funcScope(pr *parser.ParseResult, name string) (parser.FuncScope, bool) {
 
 // fw1Assigns reports whether the function at scope assigns rc.name.
 func fw1Assigns(content string, scope parser.FuncScope, name string) bool {
-	re := regexp.MustCompile(`(?i)\b(?:arguments\.)?rc\.` + regexp.QuoteMeta(name) + `\s*=[^=]`)
-	lines := strings.Split(content, "\n")
+	re := compiledPattern(`(?i)\b(?:arguments\.)?rc\.` + regexp.QuoteMeta(name) + `\s*=[^=]`)
 
-	for i := scope.Start; i <= scope.End && i < len(lines); i++ {
-		if i >= 0 && re.MatchString(lines[i]) {
+	for line := range strings.Lines(sourceText(content, scope.Start, scope.End+1)) {
+		if mentions(line, "rc."+name) && re.MatchString(strings.TrimSuffix(line, "\n")) {
 			return true
 		}
 	}

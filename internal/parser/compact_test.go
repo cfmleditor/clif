@@ -50,3 +50,27 @@ func TestCompactCollectionSourcesOwnStorage(t *testing.T) {
 		t.Fatal("source arrays shared with parser")
 	}
 }
+
+func TestCompactWholeCollectionSourcesOwnStorage(t *testing.T) {
+	source := strings.Repeat("padding", 1000) + "models.DAOread"
+	component := source[len(source)-14 : len(source)-4]
+	method := source[len(source)-4:]
+	defs := []FunctionDef{{CollectionValues: &CollectionValues{Sources: []ReturnSource{{Component: component, Methods: []string{method}}}}}}
+	compact := CompactDefs(defs)
+
+	got := &compact[0].CollectionValues.Sources[0]
+	if got.Component != component || got.Methods[0] != method {
+		t.Fatal("lost value contract")
+	}
+
+	if unsafe.StringData(got.Component) == unsafe.StringData(component) || unsafe.StringData(got.Methods[0]) == unsafe.StringData(method) {
+		t.Fatal("retained parse buffer")
+	}
+
+	defs[0].CollectionValues.Sources[0].Component = "changed"
+
+	defs[0].CollectionValues.Sources[0].Methods[0] = "changed"
+	if got.Component != component || got.Methods[0] != method {
+		t.Fatal("value contract storage shared")
+	}
+}

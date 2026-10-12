@@ -94,7 +94,7 @@ func TestAStubReturnsWhatItsDocSays(t *testing.T) {
 }
 
 // TestStubsParseAndTheirBasesResolve: every stub parses into functions or
-// properties, and a base named with the framework's own prefix is a stub
+// properties or a known stub base, and a base named with the framework's own prefix is a stub
 // too, so an inherited method is found through the chain.
 func TestStubsParseAndTheirBasesResolve(t *testing.T) {
 	all := For(Frameworks())
@@ -110,8 +110,11 @@ func TestStubsParseAndTheirBasesResolve(t *testing.T) {
 		}
 
 		pr := parser.Parse("file:///stub.cfc", string(data))
-		if len(pr.Funcs) == 0 && !constantsOnly[p] {
-			t.Errorf("%s: no functions", p)
+		// Deprecated forwarding classes may declare no own API. They must
+		// still inherit a known stub, rather than silently accepting empty
+		// or external-base components.
+		if len(pr.Funcs) == 0 && !constantsOnly[p] && (pr.Extends == "" || all.Path(pr.Extends) == "") {
+			t.Errorf("%s: no functions or known stub base", p)
 		}
 
 		fw, _, _ := strings.Cut(strings.TrimPrefix(p, "stubs/"), "/")

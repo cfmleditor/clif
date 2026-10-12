@@ -188,3 +188,30 @@ func TestAStubReturnsAnotherFrameworksDocumentedClass(t *testing.T) {
 		}
 	}
 }
+
+func TestExplicitInterfaceContractPrecedesFactoryBranchInference(t *testing.T) {
+	root, out := t.TempDir(), t.TempDir()
+	for name, source := range map[string]string{
+		"IValue.cfc":   `interface {string function shared();}`,
+		"Concrete.cfc": `component implements="IValue" {string function shared(){} function engineOnly(){}}`,
+		"Factory.cfc":  "component {\n/**\n * @return IValue\n */\n function create(){return new Concrete();}\n}",
+	} {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(source), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	g := &generator{src: &frameworkapi.Source{Prefix: "test", Extra: []string{"test.IValue"}}, root: root, out: out}
+	if err := g.emit(filepath.Join(root, "Factory.cfc")); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(out, "Factory.cfc"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !strings.Contains(string(data), "test.IValue function create") {
+		t.Fatalf("factory branch displaced explicit interface: %s", data)
+	}
+}

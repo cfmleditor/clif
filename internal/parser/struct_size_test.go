@@ -9,7 +9,7 @@ import (
 // call site, and each keeps its small fields together so none is padded to a
 // word on its own. Adding a bool in the middle of one moves it up a size
 // class, or makes every call slice larger, without anything else noticing.
-// LINT-PLAN.md stage 3 has the measurements.
+// .ai/docs/LINT-PLAN.md stage 3 has the measurements.
 func TestParserStructsKeepTheirSize(t *testing.T) {
 	if unsafe.Sizeof(uintptr(0)) != 8 {
 		t.Skip("sizes are stated for 64-bit words")
@@ -19,12 +19,12 @@ func TestParserStructsKeepTheirSize(t *testing.T) {
 		name      string
 		got, want uintptr
 	}{
-		{"CallSite", unsafe.Sizeof(CallSite{}), 112},
+		{"CallSite", unsafe.Sizeof(CallSite{}), 120},
 		{"Scanner", unsafe.Sizeof(Scanner{}), 128},
 		// The managed-setter lookup and the flowBlocks pointer add a word
 		// each, and fill the existing 384-byte allocation class: the next
-		// word moves it to 416.
-		{"scriptParser", unsafe.Sizeof(scriptParser{}), 384},
+		// word moves it to 416. The source-origin offset now adds that word.
+		{"scriptParser", unsafe.Sizeof(scriptParser{}), 392},
 	}
 
 	for _, c := range cases {

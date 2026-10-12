@@ -11,7 +11,7 @@ import (
 // reflowed as prose. JavaScript's `//` means nothing to CFML, so the next line
 // was folded up onto a comment and the code after it became part of the comment.
 // Only whitespace changed, so the guard passed and the file was written: the one
-// defect in FORMATTER-ISSUES.md that destroyed a file rather than refusing it.
+// defect in .ai/docs/FORMATTER-ISSUES.md that destroyed a file rather than refusing it.
 
 // TestTemplateTextWithLineCommentsKeepsItsLines is the defect.
 func TestTemplateTextWithLineCommentsKeepsItsLines(t *testing.T) {

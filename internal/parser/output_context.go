@@ -32,16 +32,37 @@ import (
 // #...# text in a component body at compile time.
 //
 // Attributes are handled by the tag walk, not here: this answers only whether
-// the text between tags is output.
-var outputContextTags = map[string]bool{
-	"cfoutput":          true,
-	"cfquery":           true,
-	"cfmail":            true,
-	"cfmailpart":        true,
-	"cfdocument":        true,
-	"cfdocumentitem":    true,
-	"cfdocumentsection": true,
+// the text between tags is output. The evaluated tags are outputTagKind's
+// outputTag.
+
+// outputTagKind sorts a lowercased tag name into the ones the walk acts on.
+func outputTagKind(name []byte) outputKind {
+	switch string(name) {
+	case "cfoutput", "cfquery", "cfmail", "cfmailpart", "cfdocument", "cfdocumentitem", "cfdocumentsection":
+		return outputTag
+	case "cfscript":
+		return outputScript
+	case "cfimport":
+		return outputImport
+	case "cffunction":
+		return outputFunction
+	case "cfcomponent":
+		return outputComponent
+	default:
+		return outputOther
+	}
 }
+
+type outputKind uint8
+
+const (
+	outputOther outputKind = iota
+	outputTag
+	outputScript
+	outputImport
+	outputFunction
+	outputComponent
+)
 
 // outputContext returns the byte ranges of content whose text ColdFusion
 // evaluates, sorted and disjoint, and the tag prefixes content declares with
@@ -87,20 +108,8 @@ func outputContext(content string) (spans [][2]int, prefixes []string) {
 			continue
 		}
 
-		closing := i+1 < len(content) && content[i+1] == '/'
-
-		nameStart := i + 1
-		if closing {
-			nameStart++
-		}
-
-		nameEnd := nameStart
-		for nameEnd < len(content) && isTagNameByte(content[nameEnd]) {
-			nameEnd++
-		}
-
-		name := strings.ToLower(content[nameStart:nameEnd])
-		if !strings.HasPrefix(name, "cf") {
+		kind, closing, isCF := cfTagAt(content, i)
+		if !isCF {
 			pos = i + 1
 
 			continue
@@ -115,10 +124,10 @@ func outputContext(content string) (spans [][2]int, prefixes []string) {
 
 		tagEnd := i + end + 1
 		tag := content[i:tagEnd]
-		selfClosing := strings.HasSuffix(strings.TrimRight(tag[:len(tag)-1], " \t\r\n"), "/")
 
 		switch {
-		case name == "cfscript" && !closing:
+		case kind == outputOther:
+		case kind == outputScript && !closing:
 			// A script body holds no tag text, and a "<cfoutput" in a string
 			// there is not a tag.
 			if c := indexCFTag(content[tagEnd:], "/cfscript>"); c >= 0 {
@@ -130,37 +139,37 @@ func outputContext(content string) (spans [][2]int, prefixes []string) {
 			pos = len(content)
 
 			continue
-		case name == "cfimport" && !closing:
+		case kind == outputImport && !closing:
 			if pf := strings.TrimSpace(getAttr(tag, "prefix")); pf != "" {
 				prefixes = append(prefixes, strings.ToLower(pf))
 			}
-		case outputContextTags[name] && closing:
+		case kind == outputTag && closing:
 			if depth > 0 {
 				depth--
 
 				boundaryChanged(i)
 			}
-		case outputContextTags[name] && !selfClosing:
+		case kind == outputTag && !strings.HasSuffix(strings.TrimRight(tag[:len(tag)-1], " \t\r\n"), "/"):
 			depth++
 
 			boundaryChanged(tagEnd)
-		case name == "cffunction" && closing:
+		case kind == outputFunction && closing:
 			if fnOut {
 				fnOut = false
 
 				boundaryChanged(i)
 			}
-		case name == "cffunction" && isTruthy(getAttr(tag, "output")):
+		case kind == outputFunction && isTruthy(getAttr(tag, "output")):
 			fnOut = true
 
 			boundaryChanged(tagEnd)
-		case name == "cfcomponent" && closing:
+		case kind == outputComponent && closing:
 			if compOut {
 				compOut = false
 
 				boundaryChanged(i)
 			}
-		case name == "cfcomponent" && isTruthy(getAttr(tag, "output")):
+		case kind == outputComponent && isTruthy(getAttr(tag, "output")):
 			compOut = true
 
 			boundaryChanged(tagEnd)
@@ -248,5 +257,109 @@ func isMarkupTemplate(fileURI, content string) bool {
 		return false
 	}
 
+	// Every form markupClosingTag finds starts "</" or "<!": a file with
+	// neither, which is any script-only template, is not scanned.
+	if !strings.Contains(content, "</") && !strings.Contains(content, "<!") {
+		return false
+	}
+
 	return !containsCFTag(content) && markupClosingTag.MatchString(content)
+}
+
+// cfTagAt reads the name of the tag opening at content[i] ('<'): which kind
+// of tag the output-context walk sorts it as, whether it is a close tag, and
+// whether it is a CF tag at all. Every tag in the file reaches here, so the
+// name is sorted from bytes folded on the stack rather than a lowercased copy.
+func cfTagAt(content string, i int) (kind outputKind, closing, isCF bool) {
+	closing = i+1 < len(content) && content[i+1] == '/'
+
+	nameStart := i + 1
+	if closing {
+		nameStart++
+	}
+
+	nameEnd := nameStart
+	for nameEnd < len(content) && isTagNameByte(content[nameEnd]) {
+		nameEnd++
+	}
+
+	if nameEnd-nameStart < 2 || toLowerByte(content[nameStart]) != 'c' || toLowerByte(content[nameStart+1]) != 'f' {
+		return outputOther, closing, false
+	}
+
+	var buf foldScratch
+
+	return outputTagKind(buf.lowerFold(content[nameStart:nameEnd])), closing, true
+}
+
+// outputState is where the tag walk stands in the contexts outputContext
+// describes, kept by the walk itself as it passes each tag (track) rather
+// than read from ranges a walk of its own computed first: the two walks found
+// the same tags, and the second was 10-15% of a tag component's parse. One
+// state serves every region of a file in order, so an output context opened
+// before a <cfscript> block is still open after it. It fails open as
+// outputContext does: an unclosed context runs to the end of the file, and a
+// close with nothing open is ignored.
+type outputState struct {
+	depth          int32
+	fnOut, compOut bool
+}
+
+// active reports whether text at the walk's position is evaluated.
+func (o *outputState) active() bool {
+	return o.depth > 0 || o.fnOut || o.compOut
+}
+
+// track moves o past the tag opening at src[idx] ('<').
+func (o *outputState) track(src string, idx int) {
+	kind, closing, isCF := cfTagAt(src, idx)
+	if !isCF {
+		return
+	}
+
+	switch kind {
+	case outputTag, outputFunction, outputComponent:
+	default:
+		return
+	}
+
+	end := tagEndIndex(src[idx:])
+	if end < 0 {
+		return
+	}
+
+	tag := src[idx : idx+end+1]
+
+	switch {
+	case kind == outputTag && closing:
+		if o.depth > 0 {
+			o.depth--
+		}
+	case kind == outputTag:
+		if !strings.HasSuffix(strings.TrimRight(tag[:len(tag)-1], " \t\r\n"), "/") {
+			o.depth++
+		}
+	case kind == outputFunction && closing:
+		o.fnOut = false
+	case kind == outputFunction:
+		o.fnOut = o.fnOut || isTruthy(getAttr(tag, "output"))
+	case kind == outputComponent && closing:
+		o.compOut = false
+	case kind == outputComponent:
+		o.compOut = o.compOut || isTruthy(getAttr(tag, "output"))
+	}
+}
+
+// cfimportPrefixes is the tag prefixes content declares with <cfimport>,
+// lowercased: outputContext's walk, run only on a file that mentions one.
+// A prefix applies to the whole file, so the tag walk cannot collect it as it
+// goes.
+func cfimportPrefixes(content string) []string {
+	if IndexFold(content, "<cfimport") < 0 {
+		return nil
+	}
+
+	_, prefixes := outputContext(content)
+
+	return prefixes
 }

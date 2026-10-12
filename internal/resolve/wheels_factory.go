@@ -26,6 +26,10 @@ func wheelsCallName(expression string) string {
 // Factory argument evidence is read only after a real method is found. No API
 // is inferred from the names model/controller on an unrelated application.
 func (r *Resolver) wheelsFactoryReturn(def *parser.FunctionDef, expression, baseDir string) string {
+	return r.wheelsFactoryReturnFor(def, expression, baseDir, "")
+}
+
+func (r *Resolver) wheelsFactoryReturnFor(def *parser.FunctionDef, expression, baseDir, component string) string {
 	if def == nil || !def.URI.IsFile() {
 		return ""
 	}
@@ -55,17 +59,21 @@ func (r *Resolver) wheelsFactoryReturn(def *parser.FunctionDef, expression, base
 		return ""
 	}
 
-	source := r.wheelsSource(def.URI.Path()).methods[strings.ToLower(def.Name)]
+	source := r.sourceInfo(def.URI.Path()).methods[strings.ToLower(def.Name)]
 
 	original := r.wheelsPlanFunc(global, def.Name)
 	if original != nil && original.URI == def.URI {
 		kind := strings.ToLower(def.Name)
+		if kind == "model" {
+			return r.wheelsModelReturn(global, def, args, baseDir, component)
+		}
+
 		if kind == "controller" {
 			return r.wheelsControllerReturn(global, def, args, baseDir)
 		}
 
 		if kind == "$createobjectfromroot" {
-			if source.body != wheelsTokens(wheelsRootFactory) {
+			if !wheelsRootFactoryMatches(source.body) {
 				return ""
 			}
 
@@ -201,7 +209,7 @@ func (r *Resolver) wheelsConstructedFactory(args [][]parser.Token, baseDir strin
 		return ""
 	}
 
-	methods := r.wheelsSource(def.URI.Path()).methods
+	methods := r.sourceInfo(def.URI.Path()).methods
 	if wheelsReturnsMapper(strings.ToLower(def.Name), methods) {
 		return file
 	}
@@ -228,12 +236,12 @@ func wheelsNamedArgs(args [][]parser.Token) string {
 // and Duplicate(config) in the wrapper. Mutation, aliases, extra users and
 // local declarations withhold the result rather than guessing a lifecycle.
 func (r *Resolver) wheelsFactoryConfig(file string) map[string]string {
-	data, err := r.fs().ReadFile(file)
+	text, err := r.readText(file)
 	if err != nil {
 		return nil
 	}
 
-	scanner := parser.NewScanner(string(data))
+	scanner := parser.NewScanner(text)
 	uses := 0
 
 	var config map[string]string
@@ -296,7 +304,7 @@ func (r *Resolver) wheelsFixedMapperReturn(def *parser.FunctionDef) string {
 		return ""
 	}
 
-	body := r.wheelsSource(def.URI.Path()).methods["mapper"].body
+	body := r.sourceInfo(def.URI.Path()).methods["mapper"].body
 	if body != wheelsTokens(`return application[$appKey()].mapper.$draw(argumentCollection=arguments);`) {
 		return ""
 	}
@@ -304,8 +312,8 @@ func (r *Resolver) wheelsFixedMapperReturn(def *parser.FunctionDef) string {
 	path := r.ComponentPath("wheels.Mapper", filepath.Dir(global))
 	startup := filepath.Join(filepath.Dir(global), "events", "onapplicationstart.cfc")
 
-	data, err := r.fs().ReadFile(startup)
-	if err != nil || !strings.Contains(wheelsTokens(string(data)), wheelsTokens(`application.$wheels.mapper=application.wo.$createObjectFromRoot(path="wheels",fileName="Mapper",method="$init");`)) {
+	text, err := r.readText(startup)
+	if err != nil || !strings.Contains(wheelsTokens(text), wheelsTokens(`application.$wheels.mapper=application.wo.$createObjectFromRoot(path="wheels",fileName="Mapper",method="$init");`)) {
 		return ""
 	}
 
@@ -418,3 +426,21 @@ const wheelsRootFactory = `
 			local.rv = Invoke(local.instance, local.method, local.argumentCollection);
 		}
 		return local.rv;`
+
+// The earlier root factory has no special model-object fast path. Both layouts
+// invoke the requested initializer and return its result on the ordinary path.
+func wheelsRootFactoryMatches(body string) bool {
+	return body == wheelsTokens(wheelsRootFactory) || body == wheelsTokens(wheelsLegacyRootFactory)
+}
+
+const wheelsLegacyRootFactory = `
+local.method = arguments.method;
+local.component = ListChangeDelims(arguments.path, ".", "/") & "." & ListChangeDelims(arguments.fileName, ".", "/");
+local.argumentCollection = arguments;
+if (local.method EQ 'init') {
+ local.rv = application.wheelsdi.getInstance(name = "#local.component#", initArguments = local.argumentCollection);
+} else {
+ local.instance = application.wheelsdi.getInstance(name = "#local.component#");
+ local.rv = Invoke(local.instance, local.method, local.argumentCollection);
+}
+return local.rv;`

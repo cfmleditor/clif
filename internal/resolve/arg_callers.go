@@ -6,8 +6,10 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/cfmleditor/clif/internal/conv"
+	cflog "github.com/cfmleditor/clif/internal/log"
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
 )
@@ -33,11 +35,6 @@ import (
 // It runs only where the resolver was given the files to search
 // (Resolver.InferArgsFiles, set by a batch scan once its index is complete);
 // the editor's per-keystroke paths never pay for the caller index.
-
-const (
-	maxArgCallerFiles = 60
-	maxArgCallSites   = 40
-)
 
 // callerIndex is, for each name followed by an open parenthesis anywhere in
 // the files, the files it appears in.
@@ -210,12 +207,12 @@ func (r *Resolver) buildCallerIndex() *callerIndex {
 	idx := &callerIndex{byName: map[string][]string{}}
 
 	for _, path := range r.InferArgsFiles {
-		data, err := r.fs().ReadFile(path)
+		text, err := r.readText(path)
 		if err != nil {
 			continue
 		}
 
-		for name := range callerNames(string(data)) {
+		for name := range callerNames(text) {
 			idx.byName[name] = append(idx.byName[name], path)
 		}
 	}
@@ -295,19 +292,33 @@ func (r *Resolver) inferArgument(fd *parser.FunctionDef, pos int, file string, c
 	}
 
 	files := r.callerFiles(fd.Name)
-	if len(files) == 0 || len(files) > maxArgCallerFiles {
+	files = append(files, r.callerFiles(quotedCallerKey(fd.Name))...)
+	slices.Sort(files)
+
+	files = slices.Compact(files)
+	if len(files) == 0 || exceedsCallerLimit(len(files), r.CallerInferenceLimits.MaxCandidateFiles) {
 		return ""
 	}
 
 	argName := fd.Arguments[pos].Name
+	budget := callerFileBudget{limit: r.CallerInferenceLimits.MaxCallerFiles}
 
 	var (
 		comps []string
 		sites int
 	)
 
-	for _, path := range files {
-		hpr := r.handlerParse(path)
+	// Files are read in the order their parses finish: the answer does not
+	// depend on the order (every caller must agree, and the alternatives are
+	// sorted), so the loop never waits on one slow parse while others are
+	// ready, and stopping early stops the parsing. With limits configured it
+	// does (a forwarded argument counts as a site until it is found to be
+	// one), so then they are read in file order.
+	next, stop := r.parseCallers(files)
+	defer stop()
+
+	for got, more := next(); more; got, more = next() {
+		path, hpr := got.path, got.pr
 		if hpr == nil {
 			return ""
 		}
@@ -318,32 +329,41 @@ func (r *Resolver) inferArgument(fd *parser.FunctionDef, pos int, file string, c
 
 		for ci := range calls {
 			call := &calls[ci]
-			if !strings.EqualFold(call.FuncName, fd.Name) {
+
+			invoke := r.builtinInvoke(call, hpr, filepath.Dir(path))
+			if !invoke && !strings.EqualFold(call.FuncName, fd.Name) {
 				continue
 			}
 
 			dir := filepath.Dir(path)
+			expr, passed, ours, known := r.callerArgument(call, hpr, path, fd, file, dir, pos, argName, ctx)
 
-			if ours, known := r.callIsTo(call, hpr, path, fd, file, dir, ctx); !ours {
-				if known {
+			if !ours {
+				if known || !invoke && r.callerOmitsArgument(call, hpr, pos, argName) {
 					continue
 				}
 
 				return ""
 			}
 
-			if tokens == nil {
-				tokens = allTokens(hpr.Content)
+			if !budget.take(path) {
+				return ""
 			}
 
-			expr, passed := callArgument(tokens, call.FuncName, int(call.Line), pos, argName)
+			if tokens == nil {
+				tokens = r.fileTokens(hpr)
+			}
+
+			if !invoke {
+				expr, passed = callSiteArgument(tokens, call, pos, argName)
+			}
+
 			if !passed {
 				continue
 			}
 
 			sites++
-
-			if sites > maxArgCallSites {
+			if exceedsCallerLimit(sites, r.CallerInferenceLimits.MaxCallSites) {
 				return ""
 			}
 
@@ -358,11 +378,7 @@ func (r *Resolver) inferArgument(fd *parser.FunctionDef, pos int, file string, c
 				return ""
 			}
 
-			for alt := range strings.SplitSeq(r.pathsOf(comp, dir), "|") {
-				if !containsFold(comps, alt) {
-					comps = append(comps, alt)
-				}
-			}
+			comps = r.appendArgumentComponents(comps, comp, dir)
 		}
 	}
 
@@ -373,6 +389,67 @@ func (r *Resolver) inferArgument(fd *parser.FunctionDef, pos int, file string, c
 	slices.Sort(comps)
 
 	return strings.Join(comps, "|")
+}
+
+// appendArgumentComponents keeps the union of the proven caller alternatives.
+func (r *Resolver) appendArgumentComponents(comps []string, comp, dir string) []string {
+	for alt := range strings.SplitSeq(r.pathsOf(comp, dir), "|") {
+		if !containsFold(comps, alt) {
+			comps = append(comps, alt)
+		}
+	}
+
+	return comps
+}
+
+func (r *Resolver) callerArgument(call *parser.CallSite, pr *parser.ParseResult, path string, fd *parser.FunctionDef, file, dir string, pos int, name string, ctx lookupCtx) (expr []parser.Token, passed, ours, known bool) {
+	if r.builtinInvoke(call, pr, dir) {
+		return r.invokeArgument(call, pr, fd, pos, name, dir, ctx)
+	}
+
+	ours, known = r.callIsTo(call, pr, path, fd, file, dir, ctx)
+
+	return nil, false, ours, known
+}
+
+// Byte identity prevents two calls on the same line from sharing the first
+// call's arguments. A spanless ambiguous occurrence cannot supply evidence.
+func callSiteArgument(tokens []parser.Token, call *parser.CallSite, pos int, name string) ([]parser.Token, bool) {
+	selected := -1
+
+	for i := 0; i+1 < len(tokens); i++ {
+		if tokens[i].Kind != parser.TokIdent || !strings.EqualFold(tokens[i].Value, call.FuncName) || tokens[i+1].Kind != parser.TokLParen {
+			continue
+		}
+
+		if i > 0 && strings.EqualFold(tokens[i-1].Value, "function") {
+			continue
+		}
+
+		if call.HasSpan {
+			if tokens[i].Offset == int(call.StartByte) {
+				return callArgumentAt(tokens, i, pos, name)
+			}
+
+			continue
+		}
+
+		if tokens[i].Line != int(call.Line) {
+			continue
+		}
+
+		if selected >= 0 {
+			return nil, false
+		}
+
+		selected = i
+	}
+
+	if selected >= 0 {
+		return callArgumentAt(tokens, selected, pos, name)
+	}
+
+	return nil, false
 }
 
 // callIsTo reports whether call, made in the file at path, is a call of fd:
@@ -482,27 +559,6 @@ func (r *Resolver) componentCallIs(comp, funcName string, fd *parser.FunctionDef
 	return false
 }
 
-// callArgument is the tokens of the argument a call of name on line passes at
-// position pos, or by name argName, read from the file's tokens so a call split
-// over lines reads whole. passed is false when the call does not pass it.
-func callArgument(tokens []parser.Token, name string, line, pos int, argName string) (expr []parser.Token, passed bool) {
-	for i := 0; i+1 < len(tokens); i++ {
-		if tokens[i].Line != line || tokens[i].Kind != parser.TokIdent || !strings.EqualFold(tokens[i].Value, name) || tokens[i+1].Kind != parser.TokLParen {
-			continue
-		}
-
-		// `function f() { x.f( a ); }` on one line: the declaration is not
-		// the call.
-		if i > 0 && tokens[i-1].Kind == parser.TokIdent && strings.EqualFold(tokens[i-1].Value, "function") {
-			continue
-		}
-
-		return callArgumentAt(tokens, i, pos, argName)
-	}
-
-	return nil, false
-}
-
 // callArgumentAt is callArgument for the call whose name is tokens[i].
 func callArgumentAt(tokens []parser.Token, i, pos int, argName string) (expr []parser.Token, passed bool) {
 	end := producerGroupEnd(tokens, i+1, parser.TokLParen, parser.TokRParen)
@@ -512,6 +568,7 @@ func callArgumentAt(tokens []parser.Token, i, pos int, argName string) (expr []p
 
 	positional := 0
 	forwards := false
+	unknownCollection := false
 
 	for _, piece := range producerSplit(tokens[i+2 : end]) {
 		if len(piece) > 2 && piece[0].Kind == parser.TokIdent && (piece[1].Kind == parser.TokEquals || piece[1].Kind == parser.TokColon) {
@@ -519,8 +576,12 @@ func callArgumentAt(tokens []parser.Token, i, pos int, argName string) (expr []p
 				return piece[2:], true
 			}
 
-			if strings.EqualFold(piece[0].Value, "argumentCollection") && len(piece) == 3 && strings.EqualFold(piece[2].Value, "arguments") {
-				forwards = true
+			if strings.EqualFold(piece[0].Value, "argumentCollection") {
+				if len(piece) == 3 && strings.EqualFold(piece[2].Value, "arguments") {
+					forwards = true
+				} else {
+					unknownCollection = true
+				}
 			}
 
 			continue
@@ -537,6 +598,10 @@ func callArgumentAt(tokens []parser.Token, i, pos int, argName string) (expr []p
 	// arguments: Mura's contentRenderer sets `arguments.renderer = this` and
 	// forwards to its utility's dspObject( renderer ). What the caller's
 	// arguments.name holds is the argument.
+	if unknownCollection {
+		return nil, true
+	}
+
 	if forwards {
 		line := tokens[i].Line
 
@@ -564,6 +629,17 @@ func forwardedArg(expr []parser.Token) bool {
 // argumentExprComponent types the expression a caller passes: `new X( … )`, a
 // variable or dotted name, or one call. "" for anything else.
 func (r *Resolver) argumentExprComponent(expr []parser.Token, line uint32, caller string, pr *parser.ParseResult, dir string, ctx lookupCtx) string {
+	comp := r.argumentExprComponentSource(expr, line, caller, pr, dir, ctx)
+	// A parser fallback can retain an interpolated constructor path. It is
+	// runtime evidence, not a literal component supplied by a caller.
+	if strings.Contains(comp, "#") {
+		return ""
+	}
+
+	return comp
+}
+
+func (r *Resolver) argumentExprComponentSource(expr []parser.Token, line uint32, caller string, pr *parser.ParseResult, dir string, ctx lookupCtx) string {
 	expr = producerUnwrap(expr)
 	if len(expr) == 0 {
 		return ""
@@ -623,7 +699,7 @@ func (r *Resolver) argumentExprComponent(expr []parser.Token, line uint32, calle
 
 	text := strings.ReplaceAll(strings.ReplaceAll(producerText(expr), " . ", "."), " (", "(")
 
-	return r.typeCallExpr(text, line, caller, pr, dir, next)
+	return r.typeCallExpr(text, line, caller, pr, dir, next, false)
 }
 
 // argumentAliasComponent follows a plain local passed by a caller to the last
@@ -667,7 +743,7 @@ func (r *Resolver) argumentAliasComponent(name string, line uint32, caller strin
 // on whatever precedes it in the file. Offsets are relative to that start,
 // which is shared by every path compared against this one.
 func producerBlockPath(content string, start, line int) ([]int, bool) {
-	tokens := producerTokens(lineSpan(content, start, line))
+	tokens := producerTokens(sourceText(content, start, line))
 	if tokens == nil {
 		return nil, false
 	}
@@ -691,31 +767,6 @@ func producerBlockPath(content string, start, line int) ([]int, bool) {
 	}
 
 	return path, true
-}
-
-// lineSpan returns content's 0-based lines [from, to).
-func lineSpan(content string, from, to int) string {
-	begin := 0
-	for range from {
-		i := strings.IndexByte(content[begin:], '\n')
-		if i < 0 {
-			return ""
-		}
-
-		begin += i + 1
-	}
-
-	end := begin
-	for range to - from {
-		i := strings.IndexByte(content[end:], '\n')
-		if i < 0 {
-			return content[begin:]
-		}
-
-		end += i + 1
-	}
-
-	return content[begin:end]
 }
 
 // Brace paths cannot distinguish a conditional single statement from an
@@ -750,3 +801,182 @@ func producerUnbracedControl(tokens []parser.Token, i int) bool {
 
 	return next >= len(tokens) || tokens[next].Kind != parser.TokLBrace
 }
+
+// A nonpositive configured limit preserves the default unlimited search.
+func exceedsCallerLimit(count, limit int) bool { return limit > 0 && count > limit }
+
+// Calls are visited file by file; count each resolved owner file once.
+type callerFileBudget struct {
+	last         string
+	files, limit int
+}
+
+func (b *callerFileBudget) take(file string) bool {
+	if b.last != file {
+		b.last = file
+		b.files++
+	}
+
+	return !exceedsCallerLimit(b.files, b.limit)
+}
+
+// An unknown receiver cannot supply a type for an argument a complete call
+// demonstrably omits. Require exact byte identity and balanced call syntax;
+// opaque argumentCollection still counts as supplying the argument.
+func (r *Resolver) callerOmitsArgument(call *parser.CallSite, pr *parser.ParseResult, pos int, name string) bool {
+	if !call.HasSpan {
+		return false
+	}
+
+	tokens := r.fileTokens(pr)
+	for i := 0; i+1 < len(tokens); i++ {
+		if tokens[i].Offset != int(call.StartByte) || tokens[i].Kind != parser.TokIdent || !strings.EqualFold(tokens[i].Value, call.FuncName) || tokens[i+1].Kind != parser.TokLParen {
+			continue
+		}
+
+		if producerGroupEnd(tokens, i+1, parser.TokLParen, parser.TokRParen) < 0 {
+			return false
+		}
+
+		_, passed := callArgumentAt(tokens, i, pos, name)
+
+		return !passed
+	}
+
+	return false
+}
+
+// fileTokens is pr's tokens, read once and shared by everything that walks a
+// whole file's tokens: caller inference and the closure, loop and guard
+// spans, which each tokenized the file again (half of a tassweb scan's
+// allocation). It shares only lexical work, never inferred types. Caller views
+// use the owning resolver's cache, which holds at most maxHeldTokens.
+func (r *Resolver) fileTokens(pr *parser.ParseResult) []parser.Token {
+	o := r.owner()
+
+	return o.callerTokens.getWithin(&o.mu, pr, func() []parser.Token {
+		// allTokens sizes its slice from the file's length; a file of mostly
+		// comments or markup has far fewer tokens, and the cache counts the
+		// tokens, so the spare capacity is not kept.
+		tokens := allTokens(pr.Content)
+		if cap(tokens) > len(tokens)+len(tokens)/4 {
+			tokens = slices.Clone(tokens)
+		}
+
+		return tokens
+	}, maxHeldTokens)
+}
+
+// maxHeldTokens bounds fileTokens' cache: about 10 MB of tokens, enough for
+// the files a scan's workers are reading at once.
+const maxHeldTokens = 1 << 18
+
+// parsedFile is one candidate file's parse, as parseCallers hands it over.
+type parsedFile struct {
+	path string
+	pr   *parser.ParseResult
+}
+
+// parseCallers hands over each file's parse through next, false when there
+// are no more; stop ends the parsing of files not yet started.
+//
+// Inferring an argument parses every file calling its function, and serially
+// that was a chain one goroutine walked while the rest of the scan's workers
+// sat idle (wheelstest's two runners took 6s each). A whole-list prefetch
+// then parsed every candidate before the first was read, though the loop
+// usually stops early: run() is in 675 files of cfwheels' CLI, and its loop
+// stops at the fifth. So the files are parsed on prefetchWorkers goroutines
+// and handed over as each finishes, one worker per file so none is parsed
+// twice for the loop. They are parsed in order, inline, where that costs
+// nothing or the order matters: one file, every file already parsed, or
+// caller-inference limits configured.
+func (r *Resolver) parseCallers(files []string) (next func() (parsedFile, bool), stop func()) {
+	limits := r.CallerInferenceLimits
+	if len(files) < 2 || limits.MaxCallSites > 0 || limits.MaxCallerFiles > 0 || r.allParsed(files) {
+		i := 0
+
+		return func() (parsedFile, bool) {
+			if i >= len(files) {
+				return parsedFile{}, false
+			}
+
+			path := files[i]
+			i++
+
+			return parsedFile{path: path, pr: r.recoveredHandlerParse(path)}, true
+		}, func() {}
+	}
+
+	out := make(chan parsedFile, len(files)) // a worker never blocks on a loop that stopped
+	work := make(chan string)
+	done := make(chan struct{})
+
+	var wg sync.WaitGroup
+
+	for range min(len(files), prefetchWorkers) {
+		wg.Go(func() {
+			for path := range work {
+				out <- parsedFile{path: path, pr: r.recoveredHandlerParse(path)}
+			}
+		})
+	}
+
+	go func() {
+		defer close(work)
+
+		for _, path := range files {
+			select {
+			case work <- path:
+			case <-done:
+				return
+			}
+		}
+	}()
+
+	go func() {
+		wg.Wait()
+		close(out)
+	}()
+
+	var once sync.Once
+
+	return func() (parsedFile, bool) {
+		got, ok := <-out
+
+		return got, ok
+	}, func() { once.Do(func() { close(done) }) }
+}
+
+// allParsed reports whether handlerParse already holds every file.
+func (r *Resolver) allParsed(files []string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	for _, path := range files {
+		if _, ok := r.handlerCache[pathKey(path)]; !ok {
+			return false
+		}
+	}
+
+	return true
+}
+
+// recoveredHandlerParse is handlerParse, with a panic in it recorded and read
+// as no parse, which the inference loop takes as "cannot infer". The parse may
+// run on a worker goroutine, where nothing the scan recovers on its own would
+// catch it and one bad caller file would end the process.
+func (r *Resolver) recoveredHandlerParse(path string) (pr *parser.ParseResult) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			cflog.Recovered(nil, "caller parse panic", rec, cflog.String("file", path))
+
+			pr = nil
+		}
+	}()
+
+	return r.handlerParse(path)
+}
+
+// prefetchWorkers bounds parseCallers per inference: nested inferences parse
+// too, and the scan is already running a worker per core.
+const prefetchWorkers = 4

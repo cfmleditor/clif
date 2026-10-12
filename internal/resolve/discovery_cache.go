@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/cfmleditor/clif/internal/parser"
+	cfpath "github.com/cfmleditor/clif/internal/path"
 	"github.com/cfmleditor/clif/internal/vfs"
 )
 
@@ -15,6 +16,7 @@ import (
 type DiscoveryDependencies struct {
 	mu    sync.RWMutex
 	files map[string]bool
+	dirs  map[string]bool
 }
 
 func (d *DiscoveryDependencies) add(file string) {
@@ -40,7 +42,18 @@ func (d *DiscoveryDependencies) contains(file string) bool {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 
-	return d.files[pathKey(file)]
+	if d.files[pathKey(file)] {
+		return true
+	}
+
+	for dir := range d.dirs {
+		rel, err := filepath.Rel(dir, pathKey(file))
+		if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return true
+		}
+	}
+
+	return false
 }
 
 type discoveryFS struct {
@@ -52,6 +65,20 @@ func (f discoveryFS) ReadFile(path string) ([]byte, error) {
 	f.dependencies.add(path)
 
 	return f.FS.ReadFile(path)
+}
+
+func (f discoveryFS) ReadDir(path string) ([]fs.DirEntry, error) {
+	if d := f.dependencies; d != nil {
+		d.mu.Lock()
+		if d.dirs == nil {
+			d.dirs = map[string]bool{}
+		}
+
+		d.dirs[pathKey(path)] = true
+		d.mu.Unlock()
+	}
+
+	return f.FS.ReadDir(path)
 }
 
 func (f discoveryFS) Stat(path string) (fs.FileInfo, error) {
@@ -94,22 +121,7 @@ func (r *Resolver) InvalidatePaths() {
 	r.mu.Lock()
 	views := r.contextViews
 	r.contextViews = nil
-	r.resolveCache = nil
-	r.includeCache = nil
-	r.interfaceCache = nil
-	r.dirCache = nil
-	r.appRootCache = nil
-	r.slugCache = nil
-	r.incGraph = nil
-	r.implicitCache = nil
-	r.helpers = nil
-	r.wb = nil
-	r.startupCache = nil
-	r.wheelsSources = nil
-	r.ctlPathCache = nil
-	r.includerCache = nil
-	r.returnCache = returnCache{}
-	r.fw1Scopes = nil
+	r.pathCaches = pathCaches{}
 	r.mu.Unlock()
 
 	for _, view := range views {
@@ -131,7 +143,7 @@ func (r *Resolver) recordConfigurationSources() {
 	for _, root := range r.WorkspaceFolders {
 		if app := r.FindApplicationRoot(root); app != "" {
 			for _, name := range []string{"Application.cfc", "Application.cfm"} {
-				parser.MappingSources(filepath.Join(app, name), r.Mappings, read)
+				cfpath.ApplicationMappingSources(filepath.Join(app, name), r.Mappings, read)
 			}
 		}
 	}

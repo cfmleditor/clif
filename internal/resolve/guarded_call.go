@@ -33,6 +33,11 @@ func guardedByExistsCheck(pr *parser.ParseResult, variable, funcName string, lin
 		return false
 	}
 
+	// Every form of the guard names the method.
+	if !mentions(text, funcName) {
+		return false
+	}
+
 	for _, m := range existsGuard(variable, funcName).FindAllStringIndex(text, -1) {
 		if guards(text, m[0], m[1]) {
 			return true
@@ -64,7 +69,7 @@ func guardText(pr *parser.ParseResult, variable, funcName string, line int) (str
 		return "", false
 	}
 
-	if i := indexFoldStr(lineOfContent(pr.Content, line), variable+"."+funcName); i >= 0 {
+	if i := parser.IndexFold(lineOfContent(pr.Content, line), variable+"."+funcName); i >= 0 {
 		at += i
 	}
 
@@ -86,7 +91,7 @@ func guards(text string, from, to int) bool {
 func existsGuard(variable, funcName string) *regexp.Regexp {
 	v, f := regexp.QuoteMeta(variable), regexp.QuoteMeta(funcName)
 
-	return regexp.MustCompile(`(?i)structKeyExists\(\s*` + v + `\s*,\s*["']` + f + `["']\s*\)` +
+	return compiledPattern(`(?i)structKeyExists\(\s*` + v + `\s*,\s*["']` + f + `["']\s*\)` +
 		`|\b` + v + `\.keyExists\(\s*["']` + f + `["']\s*\)` +
 		`|isDefined\(\s*["']` + v + `\.` + f + `["']\s*\)`)
 }
@@ -173,10 +178,6 @@ func lineOffset(content string, n int) (int, bool) {
 	return off, true
 }
 
-func indexFoldStr(s, sub string) int {
-	return strings.Index(strings.ToLower(s), strings.ToLower(sub))
-}
-
 // guardedInstanceOf is the components a type check guarding the call names
 // for variable: inside `<cfif checkForInstanceOf( arguments.event,
 // "mura.MuraScope" )>` Mura's pluginManager calls arguments.event.event(),
@@ -189,7 +190,11 @@ func guardedInstanceOf(pr *parser.ParseResult, variable, funcName string, line i
 		return nil
 	}
 
-	re := regexp.MustCompile(`(?i)\b(?:isInstanceOf|checkForInstanceOf)\(\s*` + regexp.QuoteMeta(variable) + `\s*,\s*["']([\w.]+)["']\s*\)`)
+	if !mentions(text, "InstanceOf(") {
+		return nil
+	}
+
+	re := compiledPattern(`(?i)\b(?:isInstanceOf|checkForInstanceOf)\(\s*` + regexp.QuoteMeta(variable) + `\s*,\s*["']([\w.]+)["']\s*\)`)
 
 	var comps []string
 

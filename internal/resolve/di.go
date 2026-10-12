@@ -63,12 +63,12 @@ func (r *Resolver) ConstructorLookup(file string) func(string) string {
 }
 
 func (r *Resolver) factoryDependencyLookup(file string, singletonOnly bool) func(string) string {
-	r.diOnce.Do(r.buildDIPolicies)
+	all := r.diPolicySet()
 
 	var policies []*diPolicy
 
-	for i := range r.diPolicies {
-		p := &r.diPolicies[i]
+	for i := range all {
+		p := &all[i]
 		if p.serves(file) {
 			policies = append(policies, p)
 		}
@@ -114,13 +114,15 @@ func (r *Resolver) InjectionPropertyLookup(file string) func(string, map[string]
 	}
 
 	lookup := r.InjectionBeanLookup(file)
-	if !slices.ContainsFunc(r.diPolicies, func(p diPolicy) bool { return p.serves(file) }) {
+
+	all := r.diPolicySet()
+	if !slices.ContainsFunc(all, func(p diPolicy) bool { return p.serves(file) }) {
 		return nil
 	}
 
 	return func(name string, attrs map[string]string) string {
-		for i := range r.diPolicies {
-			p := &r.diPolicies[i]
+		for i := range all {
+			p := &all[i]
 			if !p.serves(file) {
 				continue
 			}
@@ -256,7 +258,7 @@ func (p *diPolicy) dependency(name, comp string, r *Resolver, seen map[string]bo
 		seen[name] = true
 		defer delete(seen, name)
 
-		result := ""
+		var targets []string
 
 		for _, entry := range entries {
 			candidate := entry.component
@@ -266,14 +268,28 @@ func (p *diPolicy) dependency(name, comp string, r *Resolver, seen map[string]bo
 				return ""
 			}
 
-			if candidate == "" || result != "" && !cfpath.SamePath(result, candidate) {
+			if candidate == "" {
 				return ""
 			}
 
-			result = candidate
+			targets = append(targets, candidate)
 		}
 
-		return result
+		// Retrieval may expose the API of a registered base shared by every
+		// runtime alternative. Injection retains its exact-target policy.
+		if singletonOnly && len(targets) > 1 {
+			for _, candidate := range targets[1:] {
+				if !cfpath.SamePath(targets[0], candidate) {
+					return ""
+				}
+			}
+		}
+
+		return r.commonBase(targets)
+	}
+
+	if comp == "" {
+		comp = p.beanIn(name, singletonOnly)
 	}
 
 	if comp == "" || !p.discovers(comp) {
@@ -324,9 +340,24 @@ func (p *diPolicy) discovers(file string) bool {
 }
 
 type diSource struct {
-	file  string
-	pr    *parser.ParseResult
-	calls []beanCall
+	file        string
+	pr          *parser.ParseResult
+	calls       []beanCall
+	application *parser.ParseResult
+}
+
+// diPolicySet is the workspace's DI/1 policies, built once by the owning
+// resolver: each view building its own was a scan of every Application.cfc
+// per application (FW/1's examples: ten, 5x v0.5.2's time). The owner's are
+// also the right reading for a view. The sources are each application's own
+// Application.cfc and the templates it includes, and the owner resolves each
+// include under the mappings of the application that runs it, where a view
+// would resolve every application's includes under its caller's.
+func (r *Resolver) diPolicySet() []diPolicy {
+	o := r.owner()
+	o.diOnce.Do(o.buildDIPolicies)
+
+	return o.diPolicies
 }
 
 func (r *Resolver) buildDIPolicies() {
@@ -390,18 +421,17 @@ func (r *Resolver) diSources(d *Resolver) []diSource {
 
 		r.Discovery.add(file)
 
-		data, err := r.fs().ReadFile(file)
+		text, err := r.readText(file)
 		if err != nil {
 			continue
 		}
 
-		content := string(data)
-		pr := parser.ParseWithOptions(cfpath.ToURI(file), content, &parser.ParseOptions{Resolvers: r.Resolvers, FuncLookup: d.FuncLookup(filepath.Dir(file))})
-
-		sources = append(sources, diSource{file, pr, beanCalls(content)})
-		for _, raw := range parser.ExtractIncludes(content) {
-			if target := r.IncludePath(raw, file); target != "" {
-				queue = append(queue, target)
+		for _, source := range r.diExecutionSources(d, file, text) {
+			sources = append(sources, source)
+			for _, raw := range parser.ExtractIncludes(source.pr.Content) {
+				if target := r.IncludePath(raw, source.file); target != "" {
+					queue = append(queue, target)
+				}
 			}
 		}
 	}
@@ -409,7 +439,40 @@ func (r *Resolver) diSources(d *Resolver) []diSource {
 	return append(sources, r.nestedFW1Apps(d, seen)...)
 }
 
-var fw1AppExtendsRe = regexp.MustCompile(`(?i)\bextends\s*=\s*["']framework\.one["']`)
+// Each source retains its declaring directory. The aggregate is used only to
+// select the application's automatic factory mode, never to resolve a path.
+func (r *Resolver) diExecutionSources(d *Resolver, file, content string) []diSource {
+	parts := r.startupSources(file, content)
+
+	var execution strings.Builder
+	for _, part := range parts {
+		execution.WriteString(part.content)
+		execution.WriteByte('\n')
+	}
+
+	application := parser.Parse(cfpath.ToURI(file), execution.String(), nil)
+	original := parser.Parse(cfpath.ToURI(file), content, nil)
+
+	application.Extends = original.Extends
+	if strings.EqualFold(filepath.Base(file), "Application.cfc") && r.applicationInheritsFramework(file, "framework.one") {
+		application.Extends = "framework.one"
+	}
+
+	sources := make([]diSource, 0, len(parts))
+
+	for j, part := range parts {
+		pr := parser.ParseWithOptions(cfpath.ToURI(part.file), part.content, &parser.ParseOptions{Resolvers: r.Resolvers, FuncLookup: d.FuncLookup(filepath.Dir(part.file))})
+
+		source := diSource{file: part.file, pr: pr, calls: beanCalls(part.content)}
+		if j == 0 && strings.EqualFold(filepath.Base(file), "Application.cfc") {
+			source.application = application
+		}
+
+		sources = append(sources, source)
+	}
+
+	return sources
+}
 
 // maxNestedApps bounds the FW/1 applications found below the workspace roots.
 const maxNestedApps = 64
@@ -469,28 +532,42 @@ func (r *Resolver) nestedFW1Apps(d *Resolver, seen map[string]bool) []diSource {
 			continue
 		}
 
-		data, err := r.fs().ReadFile(file)
-		if err != nil || !fw1AppExtendsRe.Match(data) {
+		text, err := r.readText(file)
+		if err != nil || !r.applicationInheritsFramework(file, "framework.one") {
 			continue
 		}
 
 		seen[pathKey(file)] = true
 		r.Discovery.add(file)
 
-		content := string(data)
-		pr := parser.ParseWithOptions(cfpath.ToURI(file), content, &parser.ParseOptions{Resolvers: r.Resolvers, FuncLookup: d.FuncLookup(filepath.Dir(file))})
-		out = append(out, diSource{file, pr, beanCalls(content)})
+		content := text
+		out = append(out, r.diExecutionSources(d, file, content)...)
 	}
 
 	return out
 }
 
 func (r *Resolver) automaticDIPolicy(source diSource) (diPolicy, bool) {
+	if source.application != nil {
+		source.file = cfpath.FromURI(string(source.application.URI))
+		source.pr = source.application
+	} else {
+		return diPolicy{}, false
+	}
+
 	if !strings.EqualFold(filepath.Base(source.file), "Application.cfc") || !strings.EqualFold(source.pr.Extends, "framework.one") {
 		return diPolicy{}, false
 	}
 
-	cfg, ok := diFrameworkConfig(source.pr.Content)
+	constructor, methods := parser.ApplicationSections(source.pr.Content)
+
+	cfg, ok := diFrameworkConfig(constructor)
+	for _, body := range methods {
+		changed, stable := diFrameworkConfig(body)
+		if !stable || len(changed) > 0 {
+			return diPolicy{}, false
+		}
+	}
 
 	engine := diString(cfg["diengine"])
 	if !ok || len(cfg["diengine"]) > 0 && engine != "di1" {
@@ -511,9 +588,17 @@ func (r *Resolver) automaticDIPolicy(source diSource) (diPolicy, bool) {
 		}
 	}
 
+	controllers := "controllers"
+	if value, exists := cfg["controllersfolder"]; exists {
+		controllers = diString(value)
+		if controllers == "" || strings.ContainsAny(controllers, ",#") {
+			return diPolicy{}, false
+		}
+	}
+
 	folders := cfg["dilocations"]
 	if folders == nil {
-		folders = []parser.Token{{Kind: parser.TokString, Value: `"model,controllers"`}}
+		folders = []parser.Token{{Kind: parser.TokString, Value: `"model,` + controllers + `"`}}
 	}
 
 	roots := r.diFolders(folders, source.file)
@@ -523,7 +608,7 @@ func (r *Resolver) automaticDIPolicy(source diSource) (diPolicy, bool) {
 
 	p := diConfig(cfg["diconfig"])
 	p.roots = roots
-	p.injected = []string{filepath.Join(filepath.Dir(source.file), "controllers")}
+	p.injected = r.diFolders([]parser.Token{{Kind: parser.TokString, Value: `"` + controllers + `"`}}, source.file)
 
 	return p, true
 }
@@ -610,12 +695,12 @@ func (r *Resolver) isDI1(component, dir string) bool {
 
 		r.Discovery.add(file)
 
-		data, err := r.fs().ReadFile(file)
+		text, err := r.readText(file)
 		if err != nil {
 			return false
 		}
 
-		pr := parser.Parse(cfpath.ToURI(file), string(data))
+		pr := parser.Parse(cfpath.ToURI(file), text)
 
 		methods := map[string]bool{}
 		for i := range pr.Funcs {
@@ -808,58 +893,168 @@ func diFrameworkConfig(content string) (map[string][]parser.Token, bool) {
 
 	for _, region := range parser.ClassifyRegions(content) {
 		if region.Kind != parser.RegionScript {
+			if strings.Contains(strings.ToLower(region.Text), "framework") && strings.Contains(region.Text, "=") {
+				return cfg, false
+			}
+
 			continue
 		}
 
-		sc := parser.NewScanner(region.Text)
-		previous := []parser.Token{}
+		var ok bool
 
-		for {
-			tok := sc.NextSkipComments()
-			if tok.Kind == parser.TokEOF {
-				break
-			}
-
-			if tok.Kind == parser.TokEquals {
-				lhs := beanReceiver(append(slices.Clip(previous), parser.Token{Kind: parser.TokDot}))
-
-				lhs = strings.TrimPrefix(strings.ToLower(lhs), "variables.")
-				if lhs != "framework" && !strings.HasPrefix(lhs, "framework.") {
-					previous = nil
-
-					continue
-				}
-
-				value := diReadValue(sc)
-				if lhs == "framework" {
-					parsed, ok := diStruct(value)
-					if !ok {
-						return cfg, false
-					}
-
-					cfg = parsed
-				} else {
-					key := strings.TrimPrefix(lhs, "framework.")
-					if _, found := cfg[key]; found {
-						return cfg, false
-					}
-
-					cfg[key] = value
-				}
-
-				previous = nil
-
-				continue
-			}
-
-			previous = append(previous, tok)
-			if len(previous) > 16 {
-				previous = previous[1:]
-			}
+		cfg, ok = diFrameworkConfigScript(region.Text, cfg)
+		if !ok {
+			return cfg, false
 		}
 	}
 
 	return cfg, true
+}
+
+func diFrameworkConfigScript(content string, cfg map[string][]parser.Token) (map[string][]parser.Token, bool) {
+	sc := parser.NewScanner(content)
+	previous := []parser.Token{}
+	depth := 0
+	frameworkReference := false
+
+	for {
+		tok := sc.NextSkipComments()
+		if tok.Kind == parser.TokEOF {
+			break
+		}
+
+		if diFrameworkReferenceToken(tok, previous) {
+			frameworkReference = true
+		}
+
+		if tok.Kind == parser.TokLBrace {
+			depth++
+			if depth == 1 {
+				previous = nil
+				frameworkReference = false
+			}
+		}
+
+		if tok.Kind == parser.TokRBrace {
+			depth--
+		}
+
+		if tok.Kind == parser.TokEquals {
+			var ok, handled bool
+
+			cfg, ok, handled = diApplyFrameworkAssignment(sc, previous, depth, cfg, frameworkReference)
+			if !ok {
+				return cfg, false
+			}
+
+			previous = nil
+
+			if handled {
+				frameworkReference = false
+			}
+
+			continue
+		}
+
+		if tok.Kind == parser.TokSemicolon && frameworkReference {
+			return cfg, false
+		}
+
+		previous = append(previous, tok)
+		if len(previous) > 16 {
+			previous = previous[1:]
+		}
+	}
+
+	if frameworkReference || diHasFrameworkReference(previous) {
+		return cfg, false
+	}
+
+	return cfg, true
+}
+
+func diFrameworkReferenceToken(tok parser.Token, previous []parser.Token) bool {
+	if tok.Kind == parser.TokIdent && strings.EqualFold(tok.Value, "framework") {
+		return true
+	}
+
+	return tok.Kind == parser.TokString && strings.EqualFold(diString([]parser.Token{tok}), "framework") && len(previous) >= 2 && previous[len(previous)-1].Kind == parser.TokLBracket && strings.EqualFold(previous[len(previous)-2].Value, "variables")
+}
+
+func diApplyFrameworkAssignment(sc *parser.Scanner, previous []parser.Token, depth int, cfg map[string][]parser.Token, frameworkReference bool) (result map[string][]parser.Token, valid, handled bool) {
+	rawLHS, start := diConfigAssignmentTarget(previous)
+
+	lhs := strings.TrimPrefix(strings.ToLower(rawLHS), "variables.")
+	if lhs != "framework" && !strings.HasPrefix(lhs, "framework.") {
+		return cfg, !frameworkReference && !diHasFrameworkReference(previous), false
+	}
+
+	if depth > 1 || start < 0 || start > 0 && previous[start-1].Kind != parser.TokLBrace && previous[start-1].Kind != parser.TokSemicolon {
+		return cfg, false, false
+	}
+
+	value := diReadValue(sc)
+	if diHasFrameworkReference(value) {
+		return cfg, false, false
+	}
+
+	if lhs == "framework" {
+		parsed, ok := diStruct(value)
+
+		return parsed, ok, true
+	}
+
+	key := strings.TrimPrefix(lhs, "framework.")
+	if strings.Contains(key, ".") {
+		return cfg, false, false
+	}
+	// Proved outer statements execute in order; struct keys are case insensitive.
+	cfg[key] = value
+
+	return cfg, true, true
+}
+
+func diConfigAssignmentTarget(tokens []parser.Token) (string, int) {
+	start := len(tokens) - 1
+	if start >= 2 && tokens[start].Kind == parser.TokRBracket && tokens[start-2].Kind == parser.TokLBracket {
+		base, from := diConfigAssignmentTarget(tokens[:start-2])
+
+		key := diString(tokens[start-1 : start])
+		if base != "" && key != "" && !strings.Contains(key, ".") {
+			return base + "." + key, from
+		}
+
+		return "", from
+	}
+
+	if start < 0 || tokens[start].Kind != parser.TokIdent {
+		return "", start
+	}
+
+	for start >= 2 && tokens[start-1].Kind == parser.TokDot && tokens[start-2].Kind == parser.TokIdent {
+		start -= 2
+	}
+
+	if start > 0 && tokens[start-1].Kind == parser.TokDot {
+		base, from := diConfigAssignmentTarget(tokens[:start-1])
+		if base != "" {
+			return base + "." + producerPath(tokens[start:]), from
+		}
+	}
+
+	return producerPath(tokens[start:]), start
+}
+
+// A reference outside a supported direct write can alias or pass the config
+// struct to a writer. Computed/indexed targets must not silently become defaults.
+func diHasFrameworkReference(tokens []parser.Token) bool {
+	for _, token := range tokens {
+		if token.Kind == parser.TokIdent && strings.EqualFold(token.Value, "framework") {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (p *diPolicy) configure(key string, value []parser.Token) {

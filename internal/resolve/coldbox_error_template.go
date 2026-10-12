@@ -42,14 +42,14 @@ func (r *Resolver) coldboxErrorHosts(file string) []includeHost {
 			continue
 		}
 
-		data, err := r.fs().ReadFile(config)
-		if err != nil {
+		text, err := r.readText(config)
+		if err != nil || !mentions(text, "customErrorTemplate") {
 			continue
 		}
 
 		named := false
 
-		for _, m := range customErrorTemplateRe.FindAllStringSubmatch(string(data), -1) {
+		for _, m := range customErrorTemplateRe.FindAllStringSubmatch(text, -1) {
 			if cfpath.SamePath(r.IncludePath(m[1], config), file) {
 				named = true
 			}

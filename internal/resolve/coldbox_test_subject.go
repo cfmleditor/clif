@@ -2,7 +2,6 @@ package resolve
 
 import (
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/parser"
@@ -34,7 +33,11 @@ func (r *Resolver) coldboxTestSubject(variable string, pr *parser.ParseResult) s
 		return ""
 	}
 
-	m := regexp.MustCompile(`(?is)^[^{]*?\b(?:component|cfcomponent)\b[^{>]*?\b` + name + `\s*=\s*["']([\w.]+)["']`).FindStringSubmatchIndex(pr.Content)
+	if !mentions(pr.Content, name) || !mentions(pr.Content, "component") {
+		return ""
+	}
+
+	m := compiledPattern(`(?is)^[^{]*?\b(?:component|cfcomponent)\b[^{>]*?\b` + name + `\s*=\s*["']([\w.]+)["']`).FindStringSubmatchIndex(pr.Content)
 	if m == nil {
 		return ""
 	}

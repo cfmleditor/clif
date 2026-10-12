@@ -34,6 +34,7 @@ const maxAssignedDepth = 3
 type lookupCtx struct {
 	depth int
 	leaf  string
+	call  *parser.CallSite
 }
 
 func (r *Resolver) assignedFromCall(variable string, line uint32, caller string, pr *parser.ParseResult, baseDir string, tr *callTrace, ctx lookupCtx) string {
@@ -79,15 +80,12 @@ func (r *Resolver) assignedFromCall(variable string, line uint32, caller string,
 	evalLine, evalCaller := line, caller
 
 	if container != "" {
-		lines := strings.Split(pr.Content, "\n")
-		from := min(start, len(lines))
-
 		var idx int
 
-		rhs, idx, ok = lastMemberAssignmentAt(strings.Join(lines[from:min(int(line), len(lines))], "\n"), container, name)
-		at = from + idx
+		rhs, idx, ok = lastMemberAssignmentAt(sourceText(pr.Content, start, int(line)), container, name)
+		at = start + idx
 	} else {
-		rhs, at, ok = localAssignmentAt(pr.Content, name, start, int(line))
+		rhs, at, ok = r.localAssignmentAt(pr, name, start, int(line))
 		if ok && scoped && localDeclRe.MatchString(lineOfContent(pr.Content, at)) {
 			// `var x = …` is a local, not the variables.x asked about.
 			ok = false
@@ -110,12 +108,38 @@ func (r *Resolver) assignedFromCall(variable string, line uint32, caller string,
 		return ""
 	}
 
+	if native := nativeLiteral(rhs); native != "" {
+		if container == "" && !scoped && evalCaller == caller {
+			if output, written := r.literalQueryOutput(pr, name, at, int(line), caller, baseDir, ctx.call); written {
+				native = output
+				if native == "" {
+					return ""
+				}
+			}
+		}
+
+		// A loop header assigns its receiver anew. An earlier literal
+		// initializer does not describe an unknown collection element.
+		end := -1
+		if scope, found := enclosingScope(pr, line); found {
+			end = scope.End
+		}
+
+		if _, _, loop := enclosingLoop(r.loopsOf(pr), strings.ToLower(name), int(line), start, end); loop {
+			return ""
+		}
+
+		tr.addf("resolved %q to %q from its local assignment and output lifetime", variable, native)
+
+		return native
+	}
+
 	// `var mmRBF = application.rbFactory`: an alias of a name, which is
 	// typed as that name is at the line (Masa's form builder reads the
 	// resource bundle factory a startup template assigns).
 	if aliasRe.MatchString(rhs) && !strings.EqualFold(rhs, variable) && !strings.EqualFold(rhs, name) {
 		comp, _ := r.receiverComponentD(rhs, evalLine, evalCaller, "", pr, baseDir, nil, lookupCtx{depth: depth + 1, leaf: ctx.leaf})
-		if comp != "" && !strings.HasPrefix(comp, "$") {
+		if comp != "" && !strings.HasPrefix(comp, "$") && !strings.HasPrefix(comp, "$builtin.") {
 			tr.addf("resolved %q to %q: it is assigned %s", variable, comp, rhs)
 
 			return comp
@@ -143,7 +167,12 @@ func (r *Resolver) assignedFromCall(variable string, line uint32, caller string,
 		return ""
 	}
 
-	answer := r.typeCallExpr(rhs, at32, evalCaller, pr, baseDir, ctx)
+	answer := r.typeCallExpr(rhs, at32, evalCaller, pr, baseDir, ctx, true)
+
+	if placeholderOverwritten(variable, rhs, answer, ctx.call, tr) {
+		return ""
+	}
+
 	if answer != "" {
 		tr.addf("resolved %q to %q: the last assignment to it is %s", variable, answer, rhs)
 	}
@@ -154,8 +183,12 @@ func (r *Resolver) assignedFromCall(variable string, line uint32, caller string,
 // typeCallExpr is the component(s) the single call rhs (`receiver.method( … )`)
 // returns, written in pr at line, with the receiver typed as any receiver is
 // and the method's return taken per alternative: every one must return a
-// component, or there is none.
-func (r *Resolver) typeCallExpr(rhs string, line uint32, caller string, pr *parser.ParseResult, baseDir string, ctx lookupCtx) string {
+// component, or there is none. With dynamic, a method returning a dynamic
+// value ("$any") makes the answer "$any", as the parse types the same
+// assignment when it can see the receiver: `paragraph =
+// document.createParagraph()` on tassweb's resolver-typed document, whose
+// createParagraph returns a string or one of three paragraph kinds.
+func (r *Resolver) typeCallExpr(rhs string, line uint32, caller string, pr *parser.ParseResult, baseDir string, ctx lookupCtx, dynamic bool) string {
 	receiver, calls, ok := callChain(rhs)
 	if !ok {
 		return ""
@@ -164,7 +197,7 @@ func (r *Resolver) typeCallExpr(rhs string, line uint32, caller string, pr *pars
 	var comp string
 
 	if receiver == "" {
-		comp = r.typeBareCallExpr(calls[0].name, calls[0].args, line, pr, baseDir)
+		comp = r.typeBareCallExpr(calls[0].name, calls[0].args, line, caller, pr, baseDir)
 		calls = calls[1:]
 	} else {
 		comp, _ = r.receiverComponentD(receiver, line, caller, calls[0].name, pr, baseDir, nil, lookupCtx{depth: ctx.depth + 1, leaf: ctx.leaf})
@@ -179,14 +212,18 @@ func (r *Resolver) typeCallExpr(rhs string, line uint32, caller string, pr *pars
 
 	// Each call in a chain is made on what the one before it returns.
 	for _, c := range calls {
-		if comp == "" || strings.HasPrefix(comp, "$") {
+		if comp == "" || strings.HasPrefix(comp, "$") && !strings.HasPrefix(comp, "$builtin.") {
 			return ""
 		}
 
-		comp = hopReturns(lookup, comp, c)
+		comp = hopReturns(lookup, comp, c, dynamic)
 	}
 
-	if strings.HasPrefix(comp, "$") {
+	if dynamic && comp == "$any" {
+		return comp
+	}
+
+	if strings.HasPrefix(comp, "$") && !strings.HasPrefix(comp, "$builtin.") {
 		return ""
 	}
 
@@ -194,9 +231,12 @@ func (r *Resolver) typeCallExpr(rhs string, line uint32, caller string, pr *pars
 }
 
 // hopReturns is what method c returns on each alternative of comp, or "" when
-// any alternative returns no component.
-func hopReturns(lookup func(string, string) string, comp string, c chainCall) string {
+// any alternative returns no component. With dynamic, "$any" when one returns
+// a dynamic value and none returns nothing.
+func hopReturns(lookup func(string, string) string, comp string, c chainCall, dynamic bool) string {
 	var returns []string
+
+	anyDynamic := false
 
 	for alt := range strings.SplitSeq(comp, "|") {
 		ret := lookup(alt, c.name)
@@ -206,13 +246,23 @@ func hopReturns(lookup func(string, string) string, comp string, c chainCall) st
 			ret = lookup(alt, parser.CallHop(c.name+"("+c.args+")"))
 		}
 
-		if ret == "" || strings.HasPrefix(ret, "$") {
+		if dynamic && ret == "$any" {
+			anyDynamic = true
+
+			continue
+		}
+
+		if ret == "" || strings.HasPrefix(ret, "$") && !strings.HasPrefix(ret, "$builtin.") {
 			return ""
 		}
 
 		if !containsFold(returns, ret) {
 			returns = append(returns, ret)
 		}
+	}
+
+	if anyDynamic {
+		return "$any"
 	}
 
 	return strings.Join(returns, "|")
@@ -223,16 +273,20 @@ func hopReturns(lookup func(string, string) string, comp string, c chainCall) st
 // `pluginObj = $pluginObj( config )`, whose wrapper hands config to Wheels'
 // $createObjectFromRoot. A struct literal held in an argument's local is
 // written into the call in its place (inlineStructArg).
-func (r *Resolver) typeBareCallExpr(method, args string, line uint32, pr *parser.ParseResult, baseDir string) string {
-	def := r.bareFunc(method, pr, baseDir)
-	if def == nil {
+func (r *Resolver) typeBareCallExpr(method, args string, line uint32, caller string, pr *parser.ParseResult, baseDir string) string {
+	if r.builtinCallShadowed(method, line, caller, pr) {
 		return ""
+	}
+
+	def := r.bareFunc(method, pr, baseDir, caller)
+	if def == nil {
+		return r.BuiltinReturnLookup(method)
 	}
 
 	// A declared return answers when the parse could not see the function:
 	// a module's helper stub (cbvalidation's validate()) is found only here.
 	if ret := r.ReturnComponentOf(def); ret != "" {
-		if strings.HasPrefix(ret, "$") {
+		if strings.HasPrefix(ret, "$") && !strings.HasPrefix(ret, "$builtin.") {
 			return ""
 		}
 
@@ -251,7 +305,7 @@ func (r *Resolver) typeBareCallExpr(method, args string, line uint32, pr *parser
 	}
 
 	ret := r.expressionReturn(def, method+"("+args+")", baseDir, pr.URI.Path())
-	if strings.HasPrefix(ret, "$") {
+	if strings.HasPrefix(ret, "$") && !strings.HasPrefix(ret, "$builtin.") {
 		return ""
 	}
 
@@ -361,12 +415,11 @@ func closingParen(s string) int {
 // start and line, with every `name.key = …` after it applied (a field set to
 // anything but a string literal is dropped). "" when there is none.
 func inlineStructArg(content, name string, start, line int) string {
-	lines := strings.Split(content, "\n")
-	if start >= len(lines) {
+	if _, ok := lineOffset(content, start); !ok {
 		return ""
 	}
 
-	tokens := significantTokens(strings.Join(lines[start:min(line, len(lines))], "\n"))
+	tokens := significantTokens(sourceText(content, start, line))
 
 	open := -1
 
@@ -465,23 +518,120 @@ func containsFold(list []string, s string) bool {
 // a local or an argument, which hides the variable, nor when the assignment
 // found is a `var` or local. one, which never left its function.
 func variablesAssignment(pr *parser.ParseResult, name, caller string, start, line int, scoped bool) (string, int, bool) {
-	lines := strings.Split(pr.Content, "\n")
-	end := min(line, len(lines))
+	from := min(start, line)
+	window := sourceText(pr.Content, from, line)
 
 	// A local or an argument of the same name hides an unscoped one; a
 	// variables.-scoped receiver is the component's whatever the function
 	// declares.
-	declared := regexp.MustCompile(`(?i)(?:\bvar\s+|\blocal\.|<cfargument\s[^>]*name\s*=\s*["'])` + regexp.QuoteMeta(name) + `\b`)
-	if !scoped && (argumentOf(pr, caller, name) != nil || declared.MatchString(strings.Join(lines[min(start, end):end], "\n"))) {
+	if !scoped && (argumentOf(pr, caller, name) != nil || textDeclaresLocal(window, name)) {
 		return "", 0, false
 	}
 
 	rhs, at, ok := localAssignmentAt(pr.Content, name, 0, start)
-	if !ok || declared.MatchString(lines[at]) {
+	if !ok || textDeclaresLocal(lineOfContent(pr.Content, at), name) {
 		return "", 0, false
 	}
 
 	return rhs, at, true
+}
+
+// textDeclaresLocal reports whether text declares name as a local or an argument:
+// `var name`, `local.name` or a <cfargument …name="name">, case-insensitively,
+// as the expression
+//
+//	(?i)(?:\bvar\s+|\blocal\.|<cfargument\s[^>]*name\s*=\s*["'])<name>\b
+//
+// matched it. It looks only where name is, and what precedes it there: the
+// expression, compiled per name and run over the function above every call,
+// was 4% of a tassweb scan's CPU. TestTextDeclaresLocalMatchesTheExpression holds
+// the two together.
+func textDeclaresLocal(text, name string) bool {
+	if name == "" {
+		return false
+	}
+
+	for at := 0; ; {
+		i := parser.IndexFoldFrom(text, name, at)
+		if i < 0 {
+			return false
+		}
+
+		at = i + 1
+
+		// \b after the name: its last character and the next differ in being
+		// word characters, or it ends the text on a word character.
+		end := i + len(name)
+		last := isRegexWordByte(text[end-1])
+
+		if end < len(text) && last == isRegexWordByte(text[end]) || end == len(text) && !last {
+			continue
+		}
+
+		if precededByLocal(text, i) || precededByVar(text, i) || precededByArgumentName(text, i) {
+			return true
+		}
+	}
+}
+
+func precededByLocal(text string, i int) bool {
+	const p = "local."
+
+	return i >= len(p) && strings.EqualFold(text[i-len(p):i], p) && wordStart(text, i-len(p))
+}
+
+func precededByVar(text string, i int) bool {
+	j := i
+	for j > 0 && isRegexSpace(text[j-1]) {
+		j--
+	}
+
+	return j < i && j >= 3 && strings.EqualFold(text[j-3:j], "var") && wordStart(text, j-3)
+}
+
+// precededByArgumentName is <cfargument\s[^>]*name\s*=\s*["'] ending at i.
+func precededByArgumentName(text string, i int) bool {
+	if i == 0 || text[i-1] != '"' && text[i-1] != '\'' {
+		return false
+	}
+
+	j := i - 1
+	for j > 0 && isRegexSpace(text[j-1]) {
+		j--
+	}
+
+	if j == 0 || text[j-1] != '=' {
+		return false
+	}
+
+	j--
+	for j > 0 && isRegexSpace(text[j-1]) {
+		j--
+	}
+
+	if j < 4 || !strings.EqualFold(text[j-4:j], "name") {
+		return false
+	}
+
+	// [^>]* back to a "<cfargument" followed by a space character.
+	j -= 4
+	for k := j - 1; k >= 0 && text[k] != '>'; k-- {
+		if k+len("<cfargument") < j && strings.EqualFold(text[k:k+len("<cfargument")], "<cfargument") && isRegexSpace(text[k+len("<cfargument")]) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// wordStart is \b before text[i] when text[i] is a word character.
+func wordStart(text string, i int) bool {
+	return i == 0 || !isRegexWordByte(text[i-1])
+}
+
+// isRegexSpace is \s as RE2 reads it.
+func isRegexSpace(c byte) bool {
+	return c == ' ' || c == '\t' || c == '\n' || c == '\f' || c == '\r'
 }
 
 // selfAssigned reports whether receiver, the receiver of the call assigned to
@@ -492,4 +642,32 @@ func selfAssigned(receiver, variable, container, name string) bool {
 	}
 
 	return container != "" && strings.EqualFold(strings.TrimPrefix(strings.ToLower(receiver), "arguments."), container+"."+strings.ToLower(name))
+}
+
+// placeholderOverwritten reports whether answer, what rhs types the variable
+// as, is a bare placeholder struct that the call contradicts: `var document =
+// StructNew()` that a custom tag then fills, called with a method a struct
+// lacks, was replaced by something the parse could not see
+// (nativeDefaultOverwritten).
+func placeholderOverwritten(variable, rhs, answer string, call *parser.CallSite, tr *callTrace) bool {
+	if call == nil || !placeholderStruct(rhs) {
+		return false
+	}
+
+	method := receiverMethod(call.FuncName, call)
+	if !nativeDefaultOverwritten(answer, method) {
+		return false
+	}
+
+	tr.addf("set aside %q's %q: it has no method %q, so the variable holds something assigned since", variable, answer, method)
+
+	return true
+}
+
+// placeholderStruct reports whether rhs is an empty struct made only to be
+// filled or replaced: `StructNew()` with no arguments, or `{}`.
+func placeholderStruct(rhs string) bool {
+	compact := strings.ToLower(strings.Join(strings.Fields(rhs), ""))
+
+	return compact == "structnew()" || compact == "{}"
 }

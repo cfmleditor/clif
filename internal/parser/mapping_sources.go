@@ -10,8 +10,20 @@ import (
 // MappingSources reads statically knowable application mappings in execution
 // order, including literal includes and parent constructors. It never runs CFML.
 func MappingSources(file string, initial map[string]string, read func(string) ([]byte, error)) map[string]string {
-	s := &mappingSourceState{mappings: map[string]string{}, defaults: initial, env: map[string]string{}, seen: map[string]bool{}, read: read, base: file}
+	return MappingSourcesWithParent(file, initial, read, nil)
+}
+
+// MappingSourcesWithParent accepts a bootstrap path lookup that must not depend
+// on the mappings being computed. A nil lookup retains declaring-relative parents.
+func MappingSourcesWithParent(file string, initial map[string]string, read func(string) ([]byte, error), parent func(string, string) string) map[string]string {
+	s := &mappingSourceState{mappings: map[string]string{}, defaults: initial, env: map[string]string{}, seen: map[string]bool{}, read: read, base: file, parent: parent}
 	s.file(file, 0)
+
+	if source := s.requestMethod; source != nil {
+		if body, proven := requestMappingBody(source.content); proven {
+			s.content(body, source.file, 0)
+		}
+	}
 
 	return s.mappings
 }
@@ -21,7 +33,11 @@ type mappingSourceState struct {
 	seen                    map[string]bool
 	read                    func(string) ([]byte, error)
 	base                    string
+	parent                  func(string, string) string
+	requestMethod           *mappingRequestSource
 }
+
+type mappingRequestSource struct{ file, content string }
 
 func mappingParentName(content string) string {
 	sc := NewScanner(content)
@@ -74,12 +90,38 @@ func (s *mappingSourceState) file(file string, depth int) {
 	content := string(data)
 	if strings.EqualFold(filepath.Ext(file), ".cfc") {
 		if parent := mappingParentName(content); parent != "" {
-			path := filepath.Join(filepath.Dir(file), strings.ReplaceAll(parent, ".", string(filepath.Separator))+".cfc")
-			s.file(path, depth+1)
+			path := relativeMappingParent(parent, file)
+
+			if s.parent != nil {
+				path = s.parent(parent, filepath.Dir(file))
+			}
+
+			if path != "" {
+				s.file(path, depth+1)
+			}
 		}
 	}
 
 	s.content(content, file, depth)
+
+	if strings.EqualFold(filepath.Ext(file), ".cfc") {
+		if method, ok := ApplicationMethod(content, "onrequest"); ok {
+			s.requestMethod = &mappingRequestSource{file, method}
+		}
+	}
+}
+
+func relativeMappingParent(parent, file string) string {
+	relative := strings.ReplaceAll(parent, "\\", "/")
+	if strings.HasPrefix(relative, "./") || strings.HasPrefix(relative, "../") {
+		if !strings.HasSuffix(strings.ToLower(relative), ".cfc") {
+			relative += ".cfc"
+		}
+
+		return filepath.Join(filepath.Dir(file), filepath.FromSlash(relative))
+	}
+
+	return filepath.Join(filepath.Dir(file), strings.ReplaceAll(parent, ".", string(filepath.Separator))+".cfc")
 }
 
 func (s *mappingSourceState) content(content, file string, depth int) {
@@ -98,6 +140,31 @@ func (s *mappingSourceState) content(content, file string, depth int) {
 		}
 
 		if t.Kind != TokIdent || before == TokDot {
+			continue
+		}
+
+		// Declaring a method does not execute its mapping assignments or includes.
+		// Constructor extraction deliberately excludes even lifecycle methods.
+		if identEq(t.Value, "function") {
+			skipMappingFunction(sc)
+
+			continue
+		}
+
+		if identEq(t.Value, "cffunction") {
+			for {
+				end := sc.NextSkipComments()
+				if end.Kind == TokEOF {
+					break
+				}
+
+				if end.Kind == TokSlash && identEq(sc.PeekSkipComments().Value, "cffunction") {
+					sc.NextSkipComments()
+
+					break
+				}
+			}
+
 			continue
 		}
 
@@ -135,6 +202,34 @@ func (s *mappingSourceState) content(content, file string, depth int) {
 		*sc = cursor
 
 		s.assignment(target, key, expression, filepath.Dir(file))
+	}
+}
+
+func skipMappingFunction(sc *Scanner) {
+	paren, depth := 0, 0
+
+	for {
+		t := sc.NextSkipComments()
+		switch t.Kind {
+		case TokEOF:
+			return
+		case TokLParen:
+			paren++
+		case TokRParen:
+			paren--
+		case TokLBrace:
+			if paren == 0 {
+				depth++
+			}
+		case TokRBrace:
+			if paren == 0 {
+				depth--
+				if depth == 0 {
+					return
+				}
+			}
+		default:
+		}
 	}
 }
 
@@ -281,7 +376,7 @@ func (s *mappingSourceState) mapping(key, expr, dir string) {
 	if !ok {
 		delete(s.mappings, key)
 
-		if key == "" {
+		if _, fallback := s.defaults[key]; fallback || key == "" {
 			s.mappings[key] = ""
 		}
 

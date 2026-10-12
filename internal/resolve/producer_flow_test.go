@@ -58,6 +58,93 @@ func TestProducerDefaultAndSuppliedObject(t *testing.T) {
 	}
 }
 
+func TestProducerChainedSharedConstructorAssignment(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{
+		"Product.cfc": `component {function work(){}}`,
+		"Factory.cfc": `component {
+ function make(){if(isNull(this.product)){variables.product=this.product=new Product();}return this.product;}
+ function makePrivate(){if(isNull(variables.secondary)){this.secondary=variables.secondary=new Product();}return variables.secondary;}
+}`,
+		"Page.cfc": `component {function run(){var factory=new Factory();
+ factory.make().work();
+ factory.make().missing();
+ factory.makePrivate().work();
+}}`,
+	})
+	expectReasons(t, reasonsWith(t, &Resolver{}, dir, "Page.cfc"), map[string]string{
+		"factory.make.work": "", "factory.make.missing": "method 'missing' not found in Product",
+		"factory.makePrivate.work": "",
+	})
+}
+
+func TestScalarSelfSetterRetainsReceiver(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{
+		"Expectation.cfc": `component {
+ function withContext(required string message){this.context=arguments.message;return this;}
+ function withCallback(required callback){this.extra=arguments.callback;return this;}
+ function overwrite(required string message){this.toBe=arguments.message;return this;}
+ function toBe(){}
+}`,
+		"Custom.cfc": `component extends="Expectation" {function custom(){}}`,
+		"Page.cfc": `component {function run(){var expectation=new Custom();
+ expectation.withContext("context").toBe();
+ expectation.withContext("context").custom();
+ expectation.withContext("context").missing();
+ expectation.withCallback(unknown).extra();
+ expectation.overwrite("scalar").toBe();
+}}`,
+	})
+	expectReasons(t, reasonsWith(t, &Resolver{}, dir, "Page.cfc"), map[string]string{
+		"expectation.withContext.toBe": "", "expectation.withContext.custom": "",
+		"expectation.withContext.missing": "method 'missing' not found in Custom",
+		"expectation.withCallback.extra":  "method 'withCallback' in Custom has no component return type (chain to 'extra')",
+		"expectation.overwrite.toBe":      "method 'overwrite' in Custom has no component return type (chain to 'toBe')",
+	})
+}
+
+func TestChainedSharedConstructorBoundaries(t *testing.T) {
+	for _, tc := range []struct{ name, assignment, extra string }{
+		{"conflicting writer", `variables.product=this.product=new Product();`, `function replace(value){this.product=arguments.value;}`},
+		{"triple assignment", `variables.other=variables.product=this.product=new Product();`, ""},
+		{"computed slot", `variables[key]=this.product=new Product();`, ""},
+		{"constructor replaced by call", `variables.product=this.product=build();`, `function build(){return new Product();}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			writeFiles(t, dir, map[string]string{
+				"Product.cfc": `component {function work(){}}`,
+				"Factory.cfc": `component {function make(){if(isNull(this.product)){` + tc.assignment + `}return this.product;}` + tc.extra + `}`,
+				"Page.cfc":    `component {function run(){var factory=new Factory();factory.make().work();}}`,
+			})
+			expectReasons(t, reasonsWith(t, &Resolver{}, dir, "Page.cfc"), map[string]string{
+				"factory.make.work": "method 'make' in Factory has no component return type (chain to 'work')",
+			})
+		})
+	}
+}
+
+func TestProducerUninitializedLocalShadowsMethod(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{
+		"Product.cfc": `component {function work(){}}`,
+		"Factory.cfc": `component {
+ function produce(){return new Product();}
+ function make(){var produce;return produce();}
+ function supplied(produce){return produce();}
+}`,
+		"Page.cfc": `component {function run(){var factory=new Factory();
+ factory.make().work();
+ factory.supplied(unknown).work();
+}}`,
+	})
+	expectReasons(t, reasonsWith(t, &Resolver{}, dir, "Page.cfc"), map[string]string{
+		"factory.make.work":     "method 'make' in Factory has no component return type (chain to 'work')",
+		"factory.supplied.work": "method 'supplied' in Factory has no component return type (chain to 'work')",
+	})
+}
+
 func TestProducerArgumentBagAndBranchFlow(t *testing.T) {
 	dir := t.TempDir()
 	writeFiles(t, dir, map[string]string{

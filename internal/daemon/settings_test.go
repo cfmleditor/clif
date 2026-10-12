@@ -9,6 +9,7 @@ import (
 // zero value of the field it lands in, so a field SettingsFrom forgets to fill
 // shows up as zero below.
 const fullConfig = `{
+	"callerInferenceLimits": {"maxCallSites": 40},
 	"workspaceName": "w",
 	"workspacePaths": ["."],
 	"workspaceIndexGlobs": ["**/*.cfc"],

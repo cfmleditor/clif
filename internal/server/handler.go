@@ -46,6 +46,8 @@ func (s *Server) Handler() jsonrpc2.Handler {
 	return func(ctx context.Context, req *jsonrpc2.Request) (result any, err error) {
 		start := time.Now()
 
+		noteActivity()
+
 		defer func() {
 			if r := recover(); r != nil {
 				cflog.Recovered(s.log, "handler panic", r, cflog.String("method", req.Method()))

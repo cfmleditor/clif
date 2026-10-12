@@ -23,6 +23,7 @@ import (
 // which is the mistake worth catching.
 func TestSettingsApplyCoversEveryField(t *testing.T) {
 	set := Settings{
+		CallerInferenceLimits:    config.CallerInferenceLimits{MaxCallSites: 40},
 		ConfigPath:               "/w/.cfmleditor.json",
 		WorkspaceFolders:         []string{"/w"},
 		IndexGlobs:               []string{"**/*.cfc"},

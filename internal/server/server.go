@@ -14,7 +14,6 @@ import (
 	"github.com/cfmleditor/clif/internal/cache"
 	"github.com/cfmleditor/clif/internal/cflint"
 	"github.com/cfmleditor/clif/internal/config"
-	"github.com/cfmleditor/clif/internal/docs"
 	"github.com/cfmleditor/clif/internal/frameworkapi"
 	"github.com/cfmleditor/clif/internal/index"
 	cflog "github.com/cfmleditor/clif/internal/log"
@@ -30,9 +29,10 @@ import (
 
 // Server implements the CFML Language Server Protocol handler.
 type Server struct {
-	conn        jsonrpc2.Conn
-	log         cflog.Logger
-	initialized bool
+	CallerInferenceLimits config.CallerInferenceLimits
+	conn                  jsonrpc2.Conn
+	log                   cflog.Logger
+	initialized           bool
 	// watchedFilesDynamic records whether the client accepted, at initialize,
 	// that it can be asked to watch files. Written by handleInitialize and read
 	// by handleInitialized, which the protocol orders strictly after it on the
@@ -452,6 +452,7 @@ func (s *Server) getResolver() *resolve.Resolver {
 		}
 
 		s.logPresetSuggestion()
+		frameworks := s.effectiveFrameworks()
 
 		s.resolver = &resolve.Resolver{
 			Discovery:          s.discoveryDependencies,
@@ -465,9 +466,9 @@ func (s *Server) getResolver() *resolve.Resolver {
 			// Saves, watched-file events and edits all reach the index.
 			IndexTracksFiles: true,
 			Resolvers:        s.buildResolvers(),
-			ImplicitExtends:  config.ImplicitExtends(s.Frameworks),
-			HelperScope:      config.HelperScope(s.Frameworks),
-			Stubs:            frameworkapi.For(s.Frameworks),
+			ImplicitExtends:  config.ImplicitExtends(frameworks),
+			HelperScope:      config.HelperScope(frameworks),
+			Stubs:            frameworkapi.For(frameworks),
 		}
 	}
 
@@ -783,16 +784,21 @@ func (s *Server) cfResolverSet() *parser.ResolverSet {
 // slice first was how a concurrent cfResolverSet came to see the slice present,
 // skip the build, and return a still-nil set.
 func (s *Server) buildResolvers() []parser.Resolver {
-	if len(s.ComponentResolvers) == 0 {
-		return nil
-	}
-
 	if s.cachedResolvers != nil {
 		return s.cachedResolvers
 	}
 
-	r := make([]parser.Resolver, len(s.ComponentResolvers))
-	for i, cr := range s.ComponentResolvers {
+	rules := slices.Clone(s.ComponentResolvers)
+	if s.ConfigPath == "" && len(s.Frameworks) == 0 {
+		rules = append(rules, config.FrameworkResolvers(s.effectiveFrameworks())...)
+	}
+
+	if len(rules) == 0 {
+		return nil
+	}
+
+	r := make([]parser.Resolver, len(rules))
+	for i, cr := range rules {
 		r[i] = cr.Parser()
 	}
 
@@ -812,6 +818,20 @@ func (s *Server) buildResolvers() []parser.Resolver {
 	s.cachedResolvers = r
 
 	return r
+}
+
+func (s *Server) effectiveFrameworks() []string {
+	if s.ConfigPath != "" || len(s.Frameworks) > 0 {
+		return s.Frameworks
+	}
+
+	if s.discoveryDependencies == nil {
+		s.discoveryDependencies = &resolve.DiscoveryDependencies{}
+	}
+
+	discoveryFS := resolve.TrackDiscoveryFS(s.FS, s.discoveryDependencies)
+
+	return config.AssumedFrameworks(s.searchRoots(), discoveryFS.ReadFile, discoveryFS.ReadDir)
 }
 
 func (s *Server) cfPropertyResolvers() []parser.PropertyResolver {
@@ -842,7 +862,7 @@ func (s *Server) parseContent(fileURI uri.URI, content string) *parser.ParseResu
 		PropertyBeanLookup:       resolver.InjectionPropertyLookup(cfpath.FromURI(string(fileURI))),
 		SetterLookup:             resolver.SetterLookup(cfpath.FromURI(string(fileURI))),
 		ConstructorLookup:        resolver.ConstructorLookup(cfpath.FromURI(string(fileURI))),
-		BuiltinReturnLookup:      docs.LookupBuiltinReturnComponent,
+		BuiltinReturnLookup:      resolver.BuiltinReturnLookupFor(cfpath.FromURI(string(fileURI))),
 		FuncLookup:               funcLookup(resolver, baseDir),
 		ExpressionMappings:       s.ExpressionMappings,
 		ServicePropertyResolvers: s.ServicePropertyResolvers,

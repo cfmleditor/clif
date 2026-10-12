@@ -59,13 +59,13 @@ func (r *Resolver) lazyGetterReturn(fd *parser.FunctionDef) string {
 		return ""
 	}
 
-	data, err := r.fs().ReadFile(path)
+	text, err := r.readText(path)
 	if err != nil {
 		return ""
 	}
 
-	content := string(data)
-	guarded = strings.Contains(strings.ToLower(content), "isobject(")
+	content := text
+	guarded = mentions(content, "isobject(")
 
 	if guarded {
 		if field := lazyField(functionBodyNamed(content, fd.Name)); field != "" {

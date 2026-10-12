@@ -294,7 +294,62 @@ var frameworkPresets = map[string]frameworkPreset{
 	// getValue( "muraScope" ) return it.
 	"mura": {
 		resolvers: append([]Resolver{
-			variableResolver("mura.MuraScope", "$", "m", "mura", "rc.$", "rc.m"),
+			variableResolver("mura.MuraScope", "$", "m", "mura", "rc.$", "rc.m", "application.mura"),
+			// Standard startup installs these application objects. Custom
+			// manager/factory replacements can override the preset rules.
+			variableResolver("mura.configBean", "application.configBean"),
+			variableResolver("mura.resourceBundle.resourceBundleFactory", "application.rbFactory"),
+			variableResolver("mura.settings.settingsManager", "application.settingsManager"),
+			variableResolver("mura.bean.beanFactory", "application.serviceFactory"),
+			variableResolver("mura.utility", "application.utility"),
+			variableResolver("mura.plugin.pluginManager", "application.pluginManager"),
+			variableResolver("mura.content.contentManager", "application.contentManager"),
+			variableResolver("mura.plugin.pluginManager", "application.eventManager"),
+			variableResolver("mura.content.contentRenderer", "application.contentRenderer"),
+			variableResolver("mura.content.contentUtility", "application.contentUtility"),
+			variableResolver("mura.category.categoryManager", "application.categoryManager"),
+			variableResolver("mura.cluster.clusterManager", "application.clusterManager"),
+			variableResolver("mura.content.contentServer", "application.contentServer"),
+			variableResolver("mura.content.changeset.changesetManager", "application.changesetManager"),
+			variableResolver("mura.Portcullis", "application.scriptProtectionFilter"),
+			variableResolver("mura.permission", "application.permUtility"),
+			variableResolver("mura.email.emailManager", "application.emailManager"),
+			variableResolver("mura.login.loginManager", "application.loginManager"),
+			variableResolver("mura.mailinglist.mailinglistManager", "application.mailinglistManager"),
+			variableResolver("mura.user.userManager", "application.userManager"),
+			variableResolver("mura.content.dataCollection.dataCollectionManager", "application.dataCollectionManager"),
+			variableResolver("mura.content.feed.feedManager", "application.feedManager"),
+			variableResolver("mura.user.sessionTracking.sessionTrackingManager", "application.sessionTrackingManager"),
+			variableResolver("mura.content.favorite.favoriteManager", "application.favoriteManager"),
+			variableResolver("mura.content.rater.raterManager", "application.raterManager"),
+			variableResolver("mura.dashboard.dashboardManager", "application.dashboardManager"),
+			variableResolver("mura.autoUpdater.autoUpdater", "application.autoUpdater"),
+			// Standard admin controllers populate these request context beans.
+			variableResolver("mura.content.contentBean", "rc.contentBean"),
+			variableResolver("mura.settings.settingsBean", "rc.siteBean"),
+			variableResolver("mura.content.feed.feedBean", "rc.feedBean"),
+			variableResolver("mura.user.userBean", "rc.userBean"),
+			variableResolver("mura.category.categoryBean", "rc.categoryBean"),
+			variableResolver("mura.email.emailBean", "rc.emailBean"),
+			variableResolver("mura.mailinglist.mailinglistBean", "rc.listBean"),
+			variableResolver("mura.content.changeset.changesetBean", "rc.changeset"),
+			variableResolver("mura.plugin.pluginConfig", "rc.pluginConfig"),
+			variableResolver("mura.trash.trashItemBean", "rc.trashItem"),
+			variableResolver("mura.trash.trashIterator", "rc.trashIterator"),
+			{Match: `(?i)(?:^|\.)\s*content\s*\(\s*\)$`, Resolve: "mura.content.contentBean", Prefix: "content"},
+			{Match: `(?i)(?:^|\.)\s*getContentBean\s*\(\s*\)$`, Resolve: "mura.content.contentBean", Prefix: "getContentBean"},
+			{Match: `(?i)(?:^|\.)\s*currentUser\s*\(\s*\)$`, Resolve: "mura.user.sessionUserFacade", Prefix: "currentUser"},
+			{Match: `(?i)(?:^|\.)\s*getCurrentUser\s*\(\s*\)$`, Resolve: "mura.user.sessionUserFacade", Prefix: "getCurrentUser"},
+			// Zero arguments select the object form. Property arguments select
+			// a value or setter result, so they must not acquire these types.
+			{Match: `(?i)(?:^|\.)\s*siteConfig\s*\(\s*\)$`, Resolve: "mura.settings.settingsBean", Prefix: "siteConfig"},
+			// event() with no arguments is getEvent(): the request's servletEvent,
+			// or a plain event outside a request (resolve.muraEventComponent).
+			{Match: `(?i)(?:^|\.)\s*event\s*\(\s*\)$`, Resolve: "mura.servletEvent|mura.event", Prefix: "event"},
+			{Match: `(?i)(?:^|\.)\s*globalConfig\s*\(\s*\)$`, Resolve: "mura.configBean", Prefix: "globalConfig"},
+			// Standard site renderers implement the core renderer's API;
+			// deployments replacing that contract can override this preset rule.
+			{Match: `(?i)(?:^|\.)\s*getContentRenderer\s*\(\s*\)$`, Resolve: "mura.content.contentRenderer", Prefix: "getContentRenderer"},
 			{
 				Match:            `(?i)(?:^|\.)getValue\(\s*["']muraScope["']\s*\)$`,
 				Resolve:          "mura.MuraScope",
@@ -445,6 +500,8 @@ func ImplicitExtends(frameworks []string) func(path string) string {
 	}
 
 	bases := slices.Concat(lists...)
+	muraViews := slices.ContainsFunc(frameworks, func(name string) bool { return strings.EqualFold(name, "mura") })
+
 	if len(bases) == 0 {
 		return nil
 	}
@@ -460,6 +517,12 @@ func ImplicitExtends(frameworks []string) func(path string) string {
 					return b.component
 				}
 			}
+		}
+
+		if muraViews && ext == ".cfm" && slices.ContainsFunc(dirs, func(dir string) bool {
+			return strings.EqualFold(dir, "views") || strings.EqualFold(dir, "layouts")
+		}) {
+			return parser.MuraAdminBase
 		}
 
 		return ""

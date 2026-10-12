@@ -2,6 +2,8 @@ package docs
 
 import "slices"
 
+import "github.com/cfmleditor/clif/internal/nativetype"
+
 import "strings"
 
 // BuiltinObject defines the methods available on an object returned by a built-in function.
@@ -108,6 +110,10 @@ var builtinReturnObjects = map[string]*BuiltinObject{
 // LookupBuiltinReturnComponent returns a synthetic component name for a built-in
 // function's return value, or empty string if not mapped.
 func LookupBuiltinReturnComponent(funcName string) string {
+	if component := nativetype.Producer(funcName); component != "" {
+		return component
+	}
+
 	if _, ok := builtinReturnObjects[strings.ToLower(funcName)]; ok {
 		return "$builtin." + strings.ToLower(funcName)
 	}
@@ -118,6 +124,10 @@ func LookupBuiltinReturnComponent(funcName string) string {
 // LookupBuiltinMethod returns true if the given function returns an object
 // that has the specified method.
 func LookupBuiltinMethod(funcName, method string) bool {
+	if _, ok := nativetype.Method("$builtin."+funcName, method); ok {
+		return true
+	}
+
 	obj := builtinReturnObjects[strings.ToLower(funcName)]
 	if obj == nil {
 		return false
@@ -126,4 +136,18 @@ func LookupBuiltinMethod(funcName, method string) bool {
 	m := strings.ToLower(method)
 
 	return slices.Contains(obj.Methods, m)
+}
+
+// LookupBuiltinMethodReturn follows a known native method's result. Older
+// producer tables have no result contract and retain their erased result.
+func LookupBuiltinMethodReturn(component, method string) (string, bool) {
+	if ret, ok := nativetype.Method(component, method); ok {
+		return ret, true
+	}
+
+	if name, ok := strings.CutPrefix(component, "$builtin."); ok && LookupBuiltinMethod(name, method) {
+		return "$any", true
+	}
+
+	return "", false
 }

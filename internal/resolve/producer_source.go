@@ -2,6 +2,8 @@ package resolve
 
 import (
 	"maps"
+	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 
@@ -102,7 +104,61 @@ func (p *producerPlans) all() map[string]*producerMethod {
 	return methods
 }
 
+// producerTokens is source's tokens, or nil past 4,096 of them. The producer
+// tokenizes the same expression text every time it evaluates a method body,
+// so answers are kept (producerTokenCache), as capacity-clipped slices that
+// an append cannot write past: callers only read them.
 func producerTokens(source string) []parser.Token {
+	if tokens, ok := producerTokenCache.get(source); ok {
+		return tokens
+	}
+
+	tokens := scanProducerTokens(source)
+	producerTokenCache.put(source, tokens)
+
+	return tokens
+}
+
+// producerTokenCache holds producerTokens' answers, up to maxProducerTokens
+// tokens in all; past it, it starts again. Tokens depend only on the text, so
+// it is shared by every resolver.
+var producerTokenCache = &tokenCache{}
+
+const maxProducerTokens = 1 << 17
+
+type tokenCache struct {
+	mu      sync.RWMutex
+	entries map[string][]parser.Token
+	held    int
+}
+
+func (c *tokenCache) get(source string) ([]parser.Token, bool) {
+	c.mu.RLock()
+	tokens, ok := c.entries[source]
+	c.mu.RUnlock()
+
+	return tokens, ok
+}
+
+func (c *tokenCache) put(source string, tokens []parser.Token) {
+	if len(tokens) > maxProducerTokens/16 {
+		return
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.entries == nil || c.held+len(tokens) > maxProducerTokens {
+		c.entries = map[string][]parser.Token{}
+		c.held = 0
+	}
+
+	// The key is copied, so an entry does not keep the file it was cut from.
+	c.entries[strings.Clone(source)] = slices.Clip(tokens)
+	c.held += len(tokens)
+}
+
+func scanProducerTokens(source string) []parser.Token {
 	scanner := parser.NewScanner(source)
 
 	tokens := []parser.Token{}
@@ -224,7 +280,7 @@ func scriptProducerMethods(source string, methods map[string]*producerMethod) {
 		} else {
 			expression := producerText(tokens[start+1 : finish])
 			method.body = []producerNode{{kind: "unsafe", expression: expression}}
-			method.sensitive = producerSensitive([]producerNode{{kind: "if", expression: expression}})
+			method.sensitive = producerSensitive(method.body)
 			methods[name] = method
 		}
 
@@ -430,13 +486,100 @@ func (p *producerScript) statement() producerNode {
 		}
 
 		return producerNode{kind: "try", body: body, alternative: producerHandlers(catches)}
-	case "function", "switch", "do", "finally", "break", "continue":
+	case "switch":
+		return p.switchStatement()
+	case "function", "do", "finally", "break", "continue":
 		p.failed = true
 
 		return producerNode{}
 	}
 
 	return p.expressionStatement()
+}
+
+// Dispatch is limited to literal string labels. Keep
+// top-level breaks on the arm rather than the method: falling through an arm
+// continues the switch, while a return still exits the method. Nested breaks
+// remain unsupported by statement(), so they cannot be mistaken for returns.
+func (p *producerScript) switchStatement() producerNode {
+	node := producerNode{kind: "switch", expression: producerText(p.takeParens())}
+	if p.position >= len(p.tokens) || p.tokens[p.position].Kind != parser.TokLBrace {
+		p.failed = true
+
+		return node
+	}
+
+	p.position++
+	seen := map[string]bool{}
+
+	for !p.failed && p.position < len(p.tokens) && p.tokens[p.position].Kind != parser.TokRBrace {
+		label := p.tokens[p.position]
+		p.position++
+
+		arm := producerNode{kind: strings.ToLower(label.Value)}
+		switch arm.kind {
+		case "case":
+			if p.position >= len(p.tokens) || p.tokens[p.position].Kind != parser.TokString || strings.Contains(p.tokens[p.position].Value, "#") {
+				p.failed = true
+
+				return node
+			}
+
+			arm.expression = p.tokens[p.position].Value
+			if len(arm.expression) < 2 || arm.expression[len(arm.expression)-1:] != arm.expression[:1] {
+				p.failed = true
+
+				return node
+			}
+
+			p.position++
+		case "default":
+		default:
+			p.failed = true
+
+			return node
+		}
+
+		key := arm.kind
+		if arm.kind == "case" {
+			quote := arm.expression[:1]
+			key += strings.ToLower(strings.ReplaceAll(arm.expression[1:len(arm.expression)-1], quote+quote, quote))
+		}
+
+		if seen[key] || p.position >= len(p.tokens) || p.tokens[p.position].Kind != parser.TokColon {
+			p.failed = true
+
+			return node
+		}
+
+		seen[key] = true
+
+		p.position++
+		for !p.failed && p.position < len(p.tokens) && p.tokens[p.position].Kind != parser.TokRBrace && !strings.EqualFold(p.tokens[p.position].Value, "case") && !strings.EqualFold(p.tokens[p.position].Value, "default") {
+			if strings.EqualFold(p.tokens[p.position].Value, "break") {
+				p.position++
+				if p.position < len(p.tokens) && p.tokens[p.position].Kind == parser.TokSemicolon {
+					p.position++
+				}
+
+				arm.target = "break"
+
+				break
+			}
+
+			arm.body = append(arm.body, p.statement())
+		}
+
+		node.body = append(node.body, arm)
+	}
+
+	if p.position >= len(p.tokens) {
+		p.failed = true
+	} else {
+		p.position++
+	}
+
+	return node
 }
 
 // producerStatementBreak reports whether a line break between prev and next
@@ -526,6 +669,51 @@ func producerAugmentsReturn(nodes []producerNode) bool {
 	return writes(nodes)
 }
 
+// A scalar setter adds state, rather than a callable member, to this object.
+// Restrict the proof to one assignment from a declared scalar parameter and
+// an immediate self return, so argument mutation and callback installation
+// cannot be mistaken for the same contract.
+func (r *Resolver) producerScalarSelfSetter(method *producerMethod, fd *parser.FunctionDef, receiver string) bool {
+	if method == nil || fd == nil || len(method.body) != 2 {
+		return false
+	}
+
+	assignment, returned := &method.body[0], &method.body[1]
+	if assignment.kind != "set" || !strings.HasPrefix(assignment.target, "this.") || strings.Count(assignment.target, ".") != 1 || returned.kind != "return" || producerPath(producerUnwrap(producerTokens(returned.expression))) != "this" {
+		return false
+	}
+
+	if receiver == "" {
+		receiver = fd.URI.Path()
+	}
+
+	if r.ResolveFunc(receiver, strings.TrimPrefix(assignment.target, "this."), filepath.Dir(fd.URI.Path())) != nil {
+		return false
+	}
+
+	path := producerPath(producerTokens(assignment.expression))
+
+	name, ok := strings.CutPrefix(path, "arguments.")
+	if !ok {
+		return false
+	}
+
+	for _, argument := range fd.Arguments {
+		if !strings.EqualFold(argument.Name, name) {
+			continue
+		}
+
+		switch strings.ToLower(argument.Type) {
+		case "string", "numeric", "boolean":
+			return true
+		default:
+			return false
+		}
+	}
+
+	return false
+}
+
 // producerHandlers is a try's catch clauses as one alternative: each starts
 // from the state the failure left, and which one runs is not in the source,
 // so they are the branches of an if whose condition is unknown.
@@ -598,6 +786,12 @@ func producerAssignment(tokens []parser.Token) producerNode {
 
 			target := producerPath(tokens[:i])
 			if target != "" {
+				if !local {
+					if node, ok := producerChainedAssignment(tokens, i, target); ok {
+						return node
+					}
+				}
+
 				if local {
 					target = "local." + target
 				}
@@ -605,7 +799,7 @@ func producerAssignment(tokens []parser.Token) producerNode {
 				return producerNode{kind: "set", target: target, expression: producerText(tokens[i+1:])}
 			}
 
-			return producerNode{kind: "unsafe"}
+			return producerIndexedAssignment(tokens, i)
 		}
 	}
 
@@ -617,7 +811,51 @@ func producerAssignment(tokens []parser.Token) producerNode {
 		}
 	}
 
+	if local {
+		if name := producerPath(tokens); name != "" && !strings.Contains(name, ".") {
+			return producerNode{kind: "set", target: "local." + name}
+		}
+	}
+
 	return producerNode{kind: "effect", expression: producerText(tokens)}
+}
+
+func producerIndexedAssignment(tokens []parser.Token, at int) producerNode {
+	if _, _, ok := instanceIndexTarget(tokens[:at]); ok {
+		return producerNode{kind: "private-index-set", target: producerText(tokens[:at]), expression: producerText(tokens[at+1:])}
+	}
+
+	return producerNode{kind: "unsafe"}
+}
+
+func producerChainedAssignment(tokens []parser.Token, assignment int, target string) (producerNode, bool) {
+	if !producerSharedSlot(target) {
+		return producerNode{}, false
+	}
+
+	for j := assignment + 1; j < len(tokens) && tokens[j].Kind != parser.TokLParen; j++ {
+		if tokens[j].Kind != parser.TokEquals {
+			continue
+		}
+
+		right := producerPath(tokens[assignment+1 : j])
+		if producerSharedSlot(right) && j+1 < len(tokens) && strings.EqualFold(tokens[j+1].Value, "new") {
+			return producerNode{kind: "block", body: []producerNode{
+				{kind: "set", target: right, expression: producerText(tokens[j+1:])},
+				{kind: "set", target: target, expression: right},
+			}}, true
+		}
+
+		break
+	}
+
+	return producerNode{}, false
+}
+
+func producerSharedSlot(path string) bool {
+	scope, name, ok := strings.Cut(path, ".")
+
+	return ok && name != "" && !strings.Contains(name, ".") && (scope == "this" || scope == "variables")
 }
 
 func producerPath(tokens []parser.Token) string {
@@ -637,9 +875,17 @@ func producerPath(tokens []parser.Token) string {
 func producerSensitive(nodes []producerNode) bool {
 	for i := range nodes {
 		n := &nodes[i]
+		if n.kind == "switch" {
+			return true
+		}
+
 		if n.kind == "if" || n.kind == "unsafe" {
 			tokens := producerTokens(n.expression)
 			for j := range tokens {
+				if n.kind == "unsafe" && strings.EqualFold(tokens[j].Value, "switch") && j+1 < len(tokens) && tokens[j+1].Kind == parser.TokLParen {
+					return true
+				}
+
 				if producerGuardSensitive(tokens, j) {
 					return true
 				}
@@ -1093,7 +1339,7 @@ func producerWanted(nodes []producerNode) map[string]bool {
 	seed = func(nodes []producerNode) {
 		for i := range nodes {
 			node := &nodes[i]
-			if node.kind == "query" || node.kind == "return" || node.kind == "if" {
+			if node.kind == "query" || node.kind == "return" || node.kind == "if" || node.kind == "switch" {
 				producerReadPaths(node.expression, wanted)
 			}
 
@@ -1241,7 +1487,38 @@ func producerCallBinding(nodes []producerNode) bool {
 // Scalar-call specialization replaces component guesses, not the established
 // builtin or dynamic contracts. Object guards still need per-call proof.
 func producerNeedsSpecialization(method *producerMethod, fd *parser.FunctionDef) bool {
-	if method == nil || !method.sensitive {
+	if method == nil {
+		return false
+	}
+
+	if fd.DocReturn == "" && fd.ReturnComponent != "$any" && !strings.HasPrefix(fd.ReturnComponent, "$builtin.") {
+		for i := range method.body {
+			node := &method.body[i]
+			if node.kind != "return" {
+				continue
+			}
+
+			tokens := producerUnwrap(producerTokens(node.expression))
+			if len(tokens) == 0 || !strings.EqualFold(tokens[0].Value, "new") {
+				continue
+			}
+
+			for j, token := range tokens {
+				if token.Kind != parser.TokLParen {
+					continue
+				}
+
+				end := producerGroupEnd(tokens, j, parser.TokLParen, parser.TokRParen)
+				if end >= 0 && end+3 < len(tokens) && tokens[end+1].Kind == parser.TokDot && tokens[end+2].Kind == parser.TokIdent && tokens[end+3].Kind == parser.TokLParen {
+					return true
+				}
+
+				break
+			}
+		}
+	}
+
+	if !method.sensitive {
 		return false
 	}
 

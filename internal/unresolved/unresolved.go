@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cfmleditor/clif/internal/config"
 	"github.com/cfmleditor/clif/internal/conv"
 	"github.com/cfmleditor/clif/internal/docs"
 	"github.com/cfmleditor/clif/internal/frameworkapi"
@@ -29,6 +30,7 @@ import (
 
 // Call is one call the resolver could not follow.
 type Call struct {
+	This     bool   `json:"this,omitempty"` // explicit this.method() must not become an assumed mixin
 	File     string `json:"file"`
 	Line     uint32 `json:"line"`
 	Caller   string `json:"caller,omitempty"`
@@ -46,15 +48,32 @@ type Call struct {
 	Category       string      `json:"category,omitempty"`
 	Candidates     []Candidate `json:"candidates,omitempty"`
 	CandidateCount int         `json:"candidateCount,omitempty"`
-	// Definitions is how many indexed files define a method of this name: 0
-	// is a method missing from the workspace, more is one the resolver could
-	// not connect the call to.
+	// Definitions counts indexed declarations of the reported function name,
+	// including stubs. Zero does not establish absence at runtime; a match
+	// does not establish receiver ownership. Chains may fail on another name.
 	Definitions *int `json:"definitions,omitempty"`
+	// MethodEvidence distinguishes name availability from the missing link.
+	MethodEvidence *MethodEvidence `json:"methodEvidence,omitempty"`
+	methodTargets  []Candidate
 }
 
 // Options is what a scan resolves with: the .clif.json settings that
 // shape parsing and resolution.
 type Options struct {
+	SpeculativeMethods  bool // opt-in direct global declaration shortcuts
+	methodTargets       bool
+	SpeculativeRanked   bool // opt-in unique best receiver-role candidate
+	AssumeOpenWorld     bool // classify unproven runtime connections separately
+	receiverRoles       bool
+	unlimitedCandidates bool
+	SpeculativeNative   bool // opt-in native family guesses, then primitive-family fallback
+
+	NativeEngine string // auto source-layout detection, or explicit generic/lucee
+
+	Speculative          bool // opt-in sole-candidate receiver guesses; not source-proven
+	speculativeReceivers map[resolve.SpeculativeReceiver]string
+
+	CallerInferenceLimits    config.CallerInferenceLimits
 	Resolvers                []parser.Resolver
 	Mappings                 map[string]string
 	StartupFiles             []string
@@ -75,6 +94,10 @@ type Options struct {
 
 // Report is a scan's result.
 type Report struct {
+	SpeculativeMethodConnections []SpeculativeMethodConnection
+	AssumedCalls                 []AssumedCall
+	SpeculativeConnections       []SpeculativeConnection
+
 	Calls     []Call
 	Resolved  int
 	Indexed   int
@@ -86,6 +109,39 @@ type Report struct {
 // Scan indexes files, then reports the unresolved calls in targets, or in
 // every one of files when targets is empty.
 func Scan(fsys vfs.FS, files, targets []string, opt *Options) Report {
+	// A batch scan assumes its input tree is stable until it completes. Reuse
+	// metadata across indexing, resolution and any speculative passes.
+	fsys = vfs.CacheMetadata(fsys)
+
+	if opt.SpeculativeMethods {
+		closed := *opt
+		closed.SpeculativeMethods = false
+		closed.AssumeOpenWorld = false
+		closed.Candidates = true
+		closed.methodTargets = true
+		rep := Scan(fsys, files, targets, &closed)
+		classifyMethodShortcuts(&rep, opt.Verbose)
+
+		if opt.AssumeOpenWorld {
+			classifyOpenWorld(&rep, opt.Verbose)
+		}
+
+		return rep
+	}
+
+	if opt.AssumeOpenWorld {
+		closed := *opt
+		closed.AssumeOpenWorld = false
+		rep := Scan(fsys, files, targets, &closed)
+		classifyOpenWorld(&rep, opt.Verbose)
+
+		return rep
+	}
+
+	if opt.Speculative || opt.SpeculativeNative || opt.SpeculativeRanked {
+		return scanSpeculative(fsys, files, targets, opt)
+	}
+
 	started := time.Now()
 	resolver := NewResolver(fsys, files, opt)
 	rep := Report{Indexed: len(files), IndexTime: time.Since(started)}
@@ -154,23 +210,48 @@ func Scan(fsys vfs.FS, files, targets []string, opt *Options) Report {
 
 // NewResolver is the resolver a scan checks calls with, its index built from
 // files. The explain command builds its resolver here too, so a trace and the
-// report it explains cannot disagree: explain used to build its own, without
+// strict report it explains cannot disagree: explain used to build its own, without
 // beanPaths or the setter and constructor policies, and rejected calls the
-// report accepted.
+// report accepted. Speculative batch scans add their own fallback snapshot;
+// explain retains strict behavior.
 func NewResolver(fsys vfs.FS, files []string, opt *Options) *resolve.Resolver {
 	resolver := &resolve.Resolver{
-		FS:                 fsys,
-		Index:              index.New(),
-		Resolvers:          opt.Resolvers,
-		Mappings:           opt.Mappings,
-		StartupFiles:       opt.StartupFiles,
-		BeanPaths:          opt.BeanPaths,
-		ExpressionMappings: opt.ExpressionMappings,
-		WorkspaceFolders:   opt.WorkspaceFolders,
-		ImplicitExtends:    opt.ImplicitExtends,
-		HelperScope:        opt.HelperScope,
-		Stubs:              opt.Stubs,
+		NativeEngine:          opt.NativeEngine,
+		SpeculativeReceivers:  opt.speculativeReceivers,
+		FS:                    fsys,
+		Index:                 index.New(),
+		CallerInferenceLimits: opt.CallerInferenceLimits,
+		Resolvers:             opt.Resolvers,
+		Mappings:              opt.Mappings,
+		StartupFiles:          opt.StartupFiles,
+		BeanPaths:             opt.BeanPaths,
+		ExpressionMappings:    opt.ExpressionMappings,
+		WorkspaceFolders:      opt.WorkspaceFolders,
+		ImplicitExtends:       opt.ImplicitExtends,
+		HelperScope:           opt.HelperScope,
+		Stubs:                 opt.Stubs,
 	}
+
+	if resolver.NativeEngine == "" && len(opt.WorkspaceFolders) > 0 {
+		lucee := true
+
+		for _, root := range opt.WorkspaceFolders {
+			if cfpath.AssumedProjectMappings(root, fsys.ReadFile)["admin"] == "" {
+				lucee = false
+
+				break
+			}
+		}
+
+		if lucee {
+			resolver.NativeEngine = "lucee"
+		}
+	}
+
+	// A resolver made here serves one batch run, a scan or an explain, over
+	// files that do not change while it runs (Scan reads them through
+	// vfs.CacheMetadata on that assumption).
+	resolver.SnapshotScan = true
 
 	if opt.InferArgs {
 		resolver.InferArgsFiles = files
@@ -209,12 +290,11 @@ func NewResolver(fsys vfs.FS, files []string, opt *Options) *resolve.Resolver {
 }
 
 func indexOne(fsys vfs.FS, resolver *resolve.Resolver, f string, opt *Options) {
-	data, err := fsys.ReadFile(f)
-	if err != nil || cfpath.IsBinary(data) {
+	content, err := vfs.ReadString(fsys, f)
+	if err != nil || cfpath.IsBinary(content) {
 		return
 	}
 
-	content := string(data)
 	resolver.IndexCallerFile(f, content)
 
 	fileURI := uri.URI("file://" + f)
@@ -247,13 +327,13 @@ func loadBeans(resolver *resolve.Resolver, opt *Options) {
 }
 
 func scanFile(fsys vfs.FS, resolver *resolve.Resolver, file string, opt *Options) (out []Call, resolved int) {
-	data, err := fsys.ReadFile(file)
-	if err != nil || cfpath.IsBinary(data) {
+	content, err := vfs.ReadString(fsys, file)
+	if err != nil || cfpath.IsBinary(content) {
 		return nil, 0
 	}
 
 	baseDir := filepath.Dir(file)
-	pr := Parse(resolver, file, string(data), opt)
+	pr := Parse(resolver, file, content, opt)
 	calls := pr.AllCalls()
 
 	// Calls into a base that does not resolve are one finding per file and
@@ -276,7 +356,7 @@ func scanFile(fsys vfs.FS, resolver *resolve.Resolver, file string, opt *Options
 			continue
 		}
 
-		if IsBuiltin(call.FuncName) {
+		if call.Variable == "" && len(call.Chain) == 0 && IsBuiltin(call.FuncName) {
 			continue
 		}
 
@@ -297,6 +377,7 @@ func scanFile(fsys vfs.FS, resolver *resolve.Resolver, file string, opt *Options
 		}
 
 		entry := Call{
+			This:     call.This,
 			File:     file,
 			Line:     call.Line,
 			Caller:   call.Caller,
@@ -318,7 +399,7 @@ func scanFile(fsys vfs.FS, resolver *resolve.Resolver, file string, opt *Options
 		for _, g := range bases.order {
 			entry := receiverBaseCall(file, g)
 			if strings.EqualFold(g.base, own) {
-				entry = missingBaseCall(file, string(data), pr.Extends, g.base, g.calls)
+				entry = missingBaseCall(file, content, pr.Extends, g.base, g.calls)
 			}
 
 			if opt.Candidates {
@@ -623,7 +704,7 @@ func Parse(resolver *resolve.Resolver, file, content string, opt *Options) *pars
 		ExtractCalls:             true,
 		ScanAllScopes:            true,
 		FuncLookup:               funcLookup,
-		BuiltinReturnLookup:      docs.LookupBuiltinReturnComponent,
+		BuiltinReturnLookup:      resolver.BuiltinReturnLookupFor(file),
 	})
 
 	pr.FuncLookup = funcLookup

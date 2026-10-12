@@ -6,7 +6,10 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"time"
+
+	"go.lsp.dev/uri"
 
 	"github.com/cfmleditor/clif/internal/parser"
 )
@@ -45,8 +48,9 @@ func (r *Resolver) wheelsMapperFunc(path, name string) (*parser.FunctionDef, boo
 		file := filepath.Join(folder, entry.Name())
 		// The loader's metadata scan is nonrecursive and reads this component's
 		// public functions. Do not import includes, inherited or private methods.
-		fileMethods := r.wheelsSource(file).methods
-		for key, method := range fileMethods {
+		fileMethods := r.sourceInfo(file).methods
+		for key := range fileMethods {
+			method := fileMethods[key]
 			if !method.public {
 				continue
 			}
@@ -86,6 +90,7 @@ func (r *Resolver) wheelsMapperFunc(path, name string) (*parser.FunctionDef, boo
 			bound := *found
 			bound.ReturnComponent = path
 			bound.ReturnSources = nil
+			bound.CollectionValues = nil
 
 			return &bound, true
 		}
@@ -114,16 +119,14 @@ func (r *Resolver) wheelsIntegrationPlan(global string) bool {
 		return false
 	}
 
-	planBody := r.wheelsSource(plan.URI.Path()).methods["$componentintegrationplan"].body
-	builderBody := r.wheelsSource(builder.URI.Path()).methods["$buildcomponentintegrationplan"].body
+	planBody := r.sourceInfo(plan.URI.Path()).methods["$componentintegrationplan"].body
+	builderBody := r.sourceInfo(builder.URI.Path()).methods["$buildcomponentintegrationplan"].body
 	// Both the producer and consumer must agree on publicMethods. Comments and
 	// quoted descriptions cannot supply this evidence: token boundaries are kept.
 	for _, evidence := range []string{
 		`local.folderPath = ExpandPath("/#Replace(arguments.path, ".", "/", "all")#");`,
 		`local.fileList = DirectoryList(local.folderPath, false, "name", "*.cfc");`,
 		`local.instance = CreateObject("component", "#arguments.path#.#local.componentName#");`,
-		`if (local.fns[local.f].access == "public") { local.ref = local.instance[local.fns[local.f].name];`,
-		`ArrayAppend(local.publicMethods, {name = local.fns[local.f].name, ref = local.ref});`,
 		`publicMethods = local.publicMethods`,
 		`return local.rv;`,
 	} {
@@ -132,7 +135,12 @@ func (r *Resolver) wheelsIntegrationPlan(global string) bool {
 		}
 	}
 
-	return strings.Contains(planBody, wheelsTokens(`$buildComponentIntegrationPlan(arguments.path)`))
+	// The member name and reference must stay paired inside the public filter.
+	// Requiring a contiguous body excludes intervening rewrites and escapes.
+	split := `if (local.fns[local.f].access == "public") { local.ref = local.instance[local.fns[local.f].name]; ArrayAppend(local.publicMethods, {name = local.fns[local.f].name, ref = local.ref}); }`
+	inline := `if (local.fns[local.f].access == "public") { ArrayAppend(local.publicMethods, {name = local.fns[local.f].name, ref = local.instance[local.fns[local.f].name]}); }`
+
+	return (strings.Contains(builderBody, wheelsTokens(split)) || strings.Contains(builderBody, wheelsTokens(inline))) && strings.Contains(planBody, wheelsTokens(`$buildComponentIntegrationPlan(arguments.path)`))
 }
 
 // Global's known integration helpers are declared directly or in literal
@@ -141,7 +149,7 @@ func (r *Resolver) wheelsIntegrationPlan(global string) bool {
 func (r *Resolver) wheelsPlanFunc(global, name string) *parser.FunctionDef {
 	var found *parser.FunctionDef
 
-	_, own := r.wheelsSource(global).methods[strings.ToLower(name)]
+	_, own := r.sourceInfo(global).methods[strings.ToLower(name)]
 	if own {
 		for _, def := range r.EnsureIndexed(global) {
 			if strings.EqualFold(def.Name, name) {
@@ -154,7 +162,7 @@ func (r *Resolver) wheelsPlanFunc(global, name string) *parser.FunctionDef {
 		found = r.includedFunc(global, name)
 	}
 
-	if found == nil || !r.wheelsSource(found.URI.Path()).methods[strings.ToLower(name)].public {
+	if found == nil || !r.sourceInfo(found.URI.Path()).methods[strings.ToLower(name)].public {
 		return nil
 	}
 
@@ -162,16 +170,25 @@ func (r *Resolver) wheelsPlanFunc(global, name string) *parser.FunctionDef {
 }
 
 type wheelsMethod struct {
-	body             string
-	public           bool
-	noArgsReturn     string
-	selfDefaultParam string
+	body              string
+	public            bool
+	literalDefaults   bool
+	noArgsReturn      string
+	selfDefaultParam  string
+	selfExcludedModes []string
 }
 
-type wheelsSource struct {
-	content   string
-	methods   map[string]wheelsMethod
-	producers *producerPlans
+// sourceInfo is what is read once from a file on disk and kept: its method
+// bodies, producer plans and the facts derived from them. It began as Wheels'
+// method-body check and every producer evaluation now reads it, Wheels or not.
+// It is not merged with sourceFacts: that one reads the text a parse holds,
+// which in the editor is the open buffer, where this one reads the disk.
+type sourceInfo struct {
+	associations map[string]parser.FunctionDef
+	content      string
+	methods      map[string]wheelsMethod
+	producers    *producerPlans
+	derived      *sourceDerived // facts read from content on first use
 
 	// size and modTime are the file's stamp when content was read. An
 	// unchanged stamp serves the cache without reading the file again: this
@@ -188,9 +205,9 @@ type wheelsSource struct {
 // when the file's size or modification time moves, so a changed loader/access
 // modifier is not accepted by an old policy; EnsureIndexed supplies the
 // current definition from the shared index.
-func (r *Resolver) wheelsSource(path string) wheelsSource {
+func (r *Resolver) sourceInfo(path string) sourceInfo {
 	if r.indexer != nil {
-		return r.indexer.wheelsSource(path)
+		return r.indexer.sourceInfo(path)
 	}
 
 	var gen uint64
@@ -199,7 +216,7 @@ func (r *Resolver) wheelsSource(path string) wheelsSource {
 	}
 
 	r.mu.RLock()
-	cached, ok := r.wheelsSources[path]
+	cached, ok := r.sourceInfos[path]
 	r.mu.RUnlock()
 
 	// Nothing the index has seen has changed since the stamp was checked, and
@@ -210,43 +227,76 @@ func (r *Resolver) wheelsSource(path string) wheelsSource {
 
 	info, err := r.fs().Stat(path)
 	if err != nil {
-		return wheelsSource{}
+		return sourceInfo{}
 	}
 
 	if ok && cached.size == info.Size() && cached.modTime.Equal(info.ModTime()) {
 		if r.IndexTracksFiles {
 			cached.gen = gen
-			r.storeWheelsSource(path, cached)
+			r.storeSourceInfo(path, &cached)
 		}
 
 		return cached
 	}
 
-	data, err := r.fs().ReadFile(path)
+	text, err := r.readText(path)
 	if err != nil {
-		return wheelsSource{}
+		return sourceInfo{}
 	}
 
-	content := string(data)
+	content := text
 
 	result := cached
 	if !ok || cached.content != content {
-		result = wheelsSource{content: content, methods: wheelsMethods(content), producers: newProducerPlans(content)}
+		result = sourceInfo{associations: wheelsAssociations(content), content: content, methods: wheelsMethods(content), producers: newProducerPlans(content), derived: &sourceDerived{}}
 	}
 
 	result.size, result.modTime, result.gen = info.Size(), info.ModTime(), gen
-	r.storeWheelsSource(path, result)
+	r.storeSourceInfo(path, &result)
 
 	return result
 }
 
-func (r *Resolver) storeWheelsSource(path string, src wheelsSource) {
-	r.mu.Lock()
-	if r.wheelsSources == nil {
-		r.wheelsSources = make(map[string]wheelsSource)
+// sourceDerived holds what is read from a source's content once, the first
+// time it is asked for, and shared by every copy of its sourceInfo.
+type sourceDerived struct {
+	requestOnce   sync.Once
+	requestWrites map[string]int
+	startupOnce   sync.Once
+	startup       []parser.StartupVariableAssignment
+}
+
+// requestWriteCounts is how many statements in the source write each request
+// key (requestWriteKeys' forms), counted once per source.
+func (s *sourceInfo) requestWriteCounts() map[string]int {
+	if s.derived == nil {
+		return requestWriteCounts(s.content)
 	}
 
-	r.wheelsSources[path] = src
+	s.derived.requestOnce.Do(func() { s.derived.requestWrites = requestWriteCounts(s.content) })
+
+	return s.derived.requestWrites
+}
+
+// startupAssignments is the source's component-body variable assignments,
+// parsed once per source rather than on every producer evaluation.
+func (s *sourceInfo) startupAssignments(file uri.URI) []parser.StartupVariableAssignment {
+	if s.derived == nil {
+		return parser.Parse(file, s.content).StartupVariableAssignments()
+	}
+
+	s.derived.startupOnce.Do(func() { s.derived.startup = parser.Parse(file, s.content).StartupVariableAssignments() })
+
+	return s.derived.startup
+}
+
+func (r *Resolver) storeSourceInfo(path string, src *sourceInfo) {
+	r.mu.Lock()
+	if r.sourceInfos == nil {
+		r.sourceInfos = make(map[string]sourceInfo)
+	}
+
+	r.sourceInfos[path] = *src
 	r.mu.Unlock()
 }
 
@@ -255,7 +305,11 @@ func wheelsMethods(content string) map[string]wheelsMethod {
 	methods := make(map[string]wheelsMethod)
 	depth, componentDepth := 0, 0
 
-	header := make([]parser.Token, 0, 8)
+	// Whether an access modifier other than public came since the last
+	// statement boundary: all a function's header is read for. The tokens
+	// themselves used to be kept, and in a tag file, which has no braces or
+	// semicolons, that was a copy of every token in it (2.5 GB on tassweb).
+	restricted := false
 
 	for {
 		tok := scanner.NextSkipComments()
@@ -271,41 +325,41 @@ func wheelsMethods(content string) map[string]wheelsMethod {
 			switch tok.Kind {
 			case parser.TokLBrace:
 				depth++
-				header = header[:0]
+				restricted = false
 			case parser.TokRBrace:
 				depth--
-				header = header[:0]
+				restricted = false
 			case parser.TokSemicolon:
-				header = header[:0]
+				restricted = false
 			default:
-				header = append(header, tok)
+				restricted = restricted || restrictedAccess(tok.Value)
 			}
 
 			continue
 		}
 
-		name, method := wheelsReadMethod(scanner, header)
+		name, method := wheelsReadMethod(scanner, restricted)
 		if name != "" {
 			methods[name] = method
 		}
 
-		header = header[:0]
+		restricted = false
 	}
 }
 
-func wheelsReadMethod(scanner *parser.Scanner, header []parser.Token) (string, wheelsMethod) {
+// restrictedAccess reports whether word is an access modifier that keeps a
+// function from being public.
+func restrictedAccess(word string) bool {
+	return strings.EqualFold(word, "private") || strings.EqualFold(word, "package") || strings.EqualFold(word, "remote")
+}
+
+func wheelsReadMethod(scanner *parser.Scanner, restricted bool) (string, wheelsMethod) {
 	name := scanner.NextSkipComments()
 	if name.Kind != parser.TokIdent || scanner.NextSkipComments().Kind != parser.TokLParen {
 		return "", wheelsMethod{}
 	}
 
-	public := true
-
-	for _, h := range header {
-		if strings.EqualFold(h.Value, "private") || strings.EqualFold(h.Value, "package") || strings.EqualFold(h.Value, "remote") {
-			public = false
-		}
-	}
+	public := !restricted
 
 	params := beanArguments(scanner)
 	if params == nil {
@@ -359,19 +413,33 @@ func wheelsReadMethod(scanner *parser.Scanner, header []parser.Token) (string, w
 	}
 
 	text := body.String()
+	parameter, modes := defaultSelfReturnModes(params, text)
 
 	return strings.ToLower(name.Value), wheelsMethod{
-		body: text, public: public, noArgsReturn: absentArgumentReturn(params, tokens),
-		selfDefaultParam: defaultSelfReturnParameter(params, text),
+		body: text, public: public, literalDefaults: wheelsLiteralDefaults(params), noArgsReturn: absentArgumentReturn(params, tokens),
+		selfDefaultParam: parameter, selfExcludedModes: modes,
 	}
 }
 
-// defaultSelfReturnParameter recognizes a final literal-mode dispatch whose
+func wheelsLiteralDefaults(params [][]parser.Token) bool {
+	method := &producerMethod{defaults: map[string]string{}}
+
+	for i, param := range params {
+		eq := slices.IndexFunc(param, func(token parser.Token) bool { return token.Kind == parser.TokEquals })
+		if eq >= 0 {
+			method.defaults[producerPosition(i)] = producerText(param[eq+1:])
+		}
+	}
+
+	return instanceLiteralDefaults(method)
+}
+
+// defaultSelfReturnModes recognizes a final literal-mode dispatch whose
 // default parameter value selects `return this`. Work before the final dispatch
 // may be too dynamic for a producer plan (beanORM.loadBy builds SQL with
 // savecontent). The prefix must still exclude earlier returns and uses of the
 // selected parameter or arguments scope that could change the final dispatch.
-func defaultSelfReturnParameter(params [][]parser.Token, body string) string {
+func defaultSelfReturnModes(params [][]parser.Token, body string) (string, []string) {
 	for _, param := range params {
 		eq := slices.IndexFunc(param, func(t parser.Token) bool { return t.Kind == parser.TokEquals })
 		if eq < 1 || eq+2 != len(param) || param[eq-1].Kind != parser.TokIdent || param[eq+1].Kind != parser.TokString || !strings.EqualFold(strings.Trim(param[eq+1].Value, "\"'"), "self") {
@@ -389,11 +457,18 @@ func defaultSelfReturnParameter(params [][]parser.Token, body string) string {
 
 		match := body[loc[0]:loc[1]]
 		if !strings.Contains(match, name+"\teq\t\"self\"") && !strings.Contains(match, name+"\t=\t=\t\"self\"") {
-			return name
+			selector := regexp.MustCompile(`arguments\t\.\t` + regexp.QuoteMeta(name) + `\t(?:eq|=\t=)\t"([^"#]*)"`)
+
+			var modes []string
+			for _, mode := range selector.FindAllStringSubmatch(match, -1) {
+				modes = append(modes, strings.ToLower(mode[1]))
+			}
+
+			return name, modes
 		}
 	}
 
-	return ""
+	return "", nil
 }
 
 // A suffix match alone says nothing about the code that precedes it. Keep the
@@ -555,7 +630,7 @@ const wheelsGlobalIncludeCopy = `if (StructKeyExists(arguments.componentInstance
 }`
 
 type wheelsMapperLoader struct {
-	source                   wheelsSource
+	source                   sourceInfo
 	copyBody, global, folder string
 }
 
@@ -567,7 +642,7 @@ func (r *Resolver) wheelsMapperSetup(path string) (wheelsMapperLoader, bool) {
 		return wheelsMapperLoader{}, false
 	}
 
-	source := r.wheelsSource(path)
+	source := r.sourceInfo(path)
 	if source.methods["init"].body != wheelsTokens(`local.globalComponent = createObject("wheels.Global"); $integrateFunctions(local.globalComponent); $integrateComponents("wheels.mapper"); return this;`) ||
 		source.methods["$integratecomponents"].body != wheelsTokens(`local.plan = $componentIntegrationPlan(arguments.path); local.iEnd = ArrayLen(local.plan); for (local.i = 1; local.i <= local.iEnd; local.i++) { $integrateFunctions(local.plan[local.i].instance, local.plan[local.i].publicMethods); }`) {
 		return wheelsMapperLoader{}, false

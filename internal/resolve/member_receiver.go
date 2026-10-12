@@ -6,9 +6,13 @@ import "github.com/cfmleditor/clif/internal/parser"
 // `args.x`) holds: what the file records for it, then each of the lookups that
 // read it from somewhere else, the first to answer winning.
 func (r *Resolver) memberReceiver(variable, name string, scope parser.RefScope, line uint32, caller, funcName string, pr *parser.ParseResult, baseDir string, tr *callTrace, ctx lookupCtx) string {
-	comp := r.recordReceiver(variable, name, scope, line, caller, pr)
+	comp := r.recordReceiver(variable, name, scope, line, caller, pr, ctx.call)
 	if comp == "" {
-		comp = r.builderMember(variable, line, caller, funcName, pr, baseDir, tr)
+		comp = r.builtinResultField(variable, line, caller, pr, baseDir, ctx.call)
+	}
+
+	if comp == "" {
+		comp = r.builderMember(variable, line, caller, funcName, pr, baseDir, tr, ctx)
 	}
 
 	if comp == "" {

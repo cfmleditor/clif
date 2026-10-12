@@ -2,6 +2,10 @@
 
 Read `CLAUDE.md` for architecture, parser invariants, and required checks.
 
+Keep research, plans, audits, and performance documentation in `.ai/docs/`.
+Corpus review reports and their supporting files belong in
+`.ai/docs/resolution-candidates/`.
+
 ## Start each environment with a preflight
 
 Run `bash scripts/dev-env.sh check`. It checks the Go version pinned in
@@ -36,7 +40,7 @@ Use `go build ./...`, `go vet ./...`, `go test -short ./...`,
 for the change. `make build` regenerates documentation and needs network;
 plain `go build` uses the committed generated files.
 
-For resolution changes, follow `RESOLUTION-GAPS.md`: confirm new regressions
+For resolution changes, follow `.ai/docs/RESOLUTION-GAPS.md`: confirm new regressions
 fail without the fix, compare corpus findings per entry, and state any
 coverage differences. Check CI on the published PR commit before claiming
 the PR passes.

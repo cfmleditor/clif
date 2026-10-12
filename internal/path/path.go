@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/cfmleditor/clif/internal/parser"
 	"github.com/cfmleditor/clif/internal/vfs"
@@ -42,9 +43,32 @@ func readApplicationFile(appDir string) []byte {
 // LoadAppMappings returns cached Application.cfc mappings for appDir,
 // loading and parsing them on first access.
 func LoadAppMappings(appDir string) map[string]string {
+	return LoadAppMappingsWithInitial(appDir, nil)
+}
+
+// LoadAppMappingsWithInitial resolves parent constructors from frozen server
+// and editor mappings. The cache key includes these bootstrap inputs, so two
+// callers with different explicit mappings cannot share inherited facts.
+func LoadAppMappingsWithInitial(appDir string, initial map[string]string) map[string]string {
+	keys := make([]string, 0, len(initial))
+	for key := range initial {
+		keys = append(keys, key)
+	}
+
+	slices.Sort(keys)
+
+	cacheKey := appDir
+
+	var cacheKeySb58 strings.Builder
+	for _, key := range keys {
+		cacheKeySb58.WriteString("\x00" + key + "\x00" + initial[key])
+	}
+
+	cacheKey += cacheKeySb58.String()
+
 	appMappingsCacheMu.RLock()
 
-	if m, ok := appMappingsCache[appDir]; ok {
+	if m, ok := appMappingsCache[cacheKey]; ok {
 		appMappingsCacheMu.RUnlock()
 
 		return m
@@ -52,24 +76,80 @@ func LoadAppMappings(appDir string) map[string]string {
 
 	appMappingsCacheMu.RUnlock()
 
-	m := loadServerMappings(appDir)
+	m := bootstrapMappings(appDir, initial, DefaultFS.ReadFile)
+
+	app := ApplicationMappingSources(filepath.Join(appDir, "Application.cfc"), initial, DefaultFS.ReadFile)
 	for _, name := range []string{"Application.cfc", "Application.cfm"} {
 		file := filepath.Join(appDir, name)
 		if _, err := DefaultFS.Stat(file); err != nil {
 			continue
 		}
 
-		app := parser.MappingSources(file, m, DefaultFS.ReadFile)
+		if name != "Application.cfc" {
+			app = ApplicationMappingSources(file, initial, DefaultFS.ReadFile)
+		}
+
 		maps.Copy(m, app)
 
 		break
 	}
 
 	appMappingsCacheMu.Lock()
-	appMappingsCache[appDir] = m
+	appMappingsCache[cacheKey] = m
 	appMappingsCacheMu.Unlock()
 
 	return m
+}
+
+// ApplicationMappingSources uses only server/editor configuration to bootstrap
+// ancestry. Reads include missing physical parent candidates for invalidation.
+func ApplicationMappingSources(file string, initial map[string]string, read func(string) ([]byte, error)) map[string]string {
+	bootstrap, parent := ApplicationParentLookup(filepath.Dir(file), initial, read)
+
+	return parser.MappingSourcesWithParent(file, bootstrap, read, parent)
+}
+
+// ApplicationParentLookup freezes the inputs used to resolve application
+// ancestry before constructor mappings are available.
+func ApplicationParentLookup(appDir string, initial map[string]string, read func(string) ([]byte, error)) (map[string]string, func(string, string) string) {
+	bootstrap := bootstrapMappings(appDir, initial, read)
+	for key, value := range initial {
+		for existing := range bootstrap {
+			if strings.EqualFold(existing, key) {
+				delete(bootstrap, existing)
+			}
+		}
+
+		bootstrap[key] = value
+	}
+
+	return bootstrap, func(name, dir string) string {
+		if IsRelativeComponentPath(name) {
+			candidate := strings.ReplaceAll(name, "\\", "/")
+			if !strings.HasSuffix(strings.ToLower(candidate), ".cfc") {
+				candidate += ".cfc"
+			}
+
+			_, _ = read(filepath.Join(dir, filepath.FromSlash(candidate)))
+
+			return ResolvePath(name, dir, nil)
+		}
+
+		_, _ = read(filepath.Join(dir, filepath.FromSlash(strings.ReplaceAll(name, ".", "/"))+".cfc"))
+		for key, root := range bootstrap {
+			prefix := strings.ReplaceAll(strings.Trim(key, "/"), "/", ".")
+			if prefix == "" || len(name) > len(prefix) && strings.EqualFold(name[:len(prefix)], prefix) && name[len(prefix)] == '.' {
+				rest := name
+				if prefix != "" {
+					rest = name[len(prefix)+1:]
+				}
+
+				_, _ = read(filepath.Join(root, filepath.FromSlash(strings.ReplaceAll(rest, ".", "/"))+".cfc"))
+			}
+		}
+
+		return ResolvePath(name, dir, bootstrap)
+	}
 }
 
 // InvalidateAppMappingsCache clears the cached Application.cfc mappings.
@@ -165,6 +245,9 @@ func ResolvePath(dotPath string, baseDir string, mappings map[string]string) str
 // ResolvePathCached is ResolvePath with a DirCache. A nil cache lists every
 // directory afresh, which is what ResolvePath does.
 func ResolvePathCached(dotPath string, baseDir string, mappings map[string]string, cache *DirCache) string {
+	if IsRelativeComponentPath(dotPath) {
+		return resolveRelativeComponentPath(dotPath, baseDir, cache)
+	}
 	// Normalize CF slash-paths (e.g. /tassweb/packages/foo) to dot-paths
 	if strings.Contains(dotPath, "/") {
 		dotPath = strings.TrimPrefix(dotPath, "/")
@@ -204,6 +287,54 @@ func ResolvePathCached(dotPath string, baseDir string, mappings map[string]strin
 	// components beside the caller retain precedence.
 	if root, ok := lookupFold(mappings, ""); ok && root != "" {
 		return resolveSegmentsCached(root, segments, cache)
+	}
+
+	return ""
+}
+
+// IsRelativeComponentPath distinguishes an explicit declaring-relative path
+// from a mapped slash path or dotted component name. Its dots are navigation
+// or filename characters, rather than package separators.
+func IsRelativeComponentPath(component string) bool {
+	component = strings.ReplaceAll(component, "\\", "/")
+
+	return strings.HasPrefix(component, "./") || strings.HasPrefix(component, "../")
+}
+
+func resolveRelativeComponentPath(component, baseDir string, cache *DirCache) string {
+	component = strings.ReplaceAll(component, "\\", "/")
+	if strings.ContainsAny(component, "#\x00") || strings.HasSuffix(component, "/") {
+		return ""
+	}
+
+	segments := strings.Split(component, "/")
+
+	last := len(segments) - 1
+	if !strings.HasSuffix(strings.ToLower(segments[last]), ".cfc") {
+		segments[last] += ".cfc"
+	}
+
+	dir := baseDir
+
+	for _, segment := range segments {
+		switch segment {
+		case ".":
+		case "..":
+			dir = filepath.Dir(dir)
+		default:
+			if segment == "" {
+				return ""
+			}
+
+			dir = resolveSegmentsCached(dir, []string{segment}, cache)
+			if dir == "" {
+				return ""
+			}
+		}
+	}
+
+	if info, err := DefaultFS.Stat(dir); err == nil && !info.IsDir() {
+		return dir
 	}
 
 	return ""
@@ -323,10 +454,38 @@ func lookupFold(m map[string]string, key string) (string, bool) {
 type DirCache struct {
 	mu    sync.RWMutex
 	names map[string][]string
+
+	// recent holds every listing read for MissTTL, misses included: one
+	// parse asks the same directories again and again, and a lookup that
+	// failed in a directory listed it each time — 491 listings, a quarter of
+	// opening a 22,000-line component in the editor. keep's reason for not
+	// remembering a miss is a component written later, which this denies
+	// for at most MissTTL.
+	recent map[string]recentListing
+
+	// keepAll keeps every listing read, misses included: right only where
+	// nothing is written while the cache lives (a batch scan).
+	keepAll bool
 }
+
+type recentListing struct {
+	names []string
+	at    time.Time
+}
+
+// MissTTL is how long a listing a lookup did not find its segment in is
+// trusted. A variable so tests elsewhere can shorten it.
+var MissTTL = time.Second
 
 // NewDirCache returns an empty cache.
 func NewDirCache() *DirCache { return &DirCache{} }
+
+// NewSnapshotDirCache returns an empty cache for a run over files that do not
+// change while it lasts, which keeps every listing it reads, so a directory a
+// lookup failed in is not listed again. keep's reason for leaving those out
+// is a component written while the cache lives, which a batch scan has not.
+// Re-listing them was 0.85 GB of a tassweb scan's allocation.
+func NewSnapshotDirCache() *DirCache { return &DirCache{keepAll: true} }
 
 // namesIn returns the entry names in dir and whether they came from the cache.
 // It does not populate it — see keep.
@@ -341,7 +500,32 @@ func (c *DirCache) namesIn(dir string) (names []string, cached bool, err error) 
 		}
 	}
 
+	if c != nil {
+		c.mu.RLock()
+		r, ok := c.recent[dir]
+		c.mu.RUnlock()
+
+		if ok && time.Since(r.at) < MissTTL {
+			return r.names, false, nil
+		}
+	}
+
 	names, err = readDirNames(dir)
+	if c != nil && c.keepAll && err == nil {
+		c.keep(dir, names)
+
+		return names, true, nil
+	}
+
+	if c != nil && err == nil {
+		c.mu.Lock()
+		if c.recent == nil || len(c.recent) >= 4096 {
+			c.recent = map[string]recentListing{}
+		}
+
+		c.recent[dir] = recentListing{names: names, at: time.Now()}
+		c.mu.Unlock()
+	}
 
 	return names, false, err
 }
@@ -567,7 +751,7 @@ func IsCFCFile(path string) bool {
 }
 
 // IsBinary returns true if data appears to be binary (contains null bytes in the first 512 bytes).
-func IsBinary(data []byte) bool {
+func IsBinary[T string | []byte](data T) bool {
 	n := min(len(data), 512)
 
 	for i := range n {

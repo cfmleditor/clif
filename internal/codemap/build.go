@@ -383,7 +383,7 @@ func scanFile(opts *Options, root, file, fingerprint string) *FileGraph {
 		ExtractLinks:             true,
 		InterpolateAllText:       cfg.InterpolateAllText,
 		FuncLookup:               funcLookup,
-		BuiltinReturnLookup:      docs.LookupBuiltinReturnComponent,
+		BuiltinReturnLookup:      cfg.Resolver.BuiltinReturnLookupFor(file),
 	})
 	pr.FuncLookup = funcLookup
 

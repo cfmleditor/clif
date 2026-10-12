@@ -82,6 +82,8 @@ func (pr *ParseResult) applyMemberBindings(hasBindings bool) {
 
 	descendants := memberDescendants(nodes)
 
+	spans := newMemberSpans(nodes, identities, writes, key)
+
 	for _, w := range writes {
 		if w.target == "" && w.unknown {
 			withholdForClosure(nodes, w.function)
@@ -110,7 +112,7 @@ func (pr *ParseResult) applyMemberBindings(hasBindings bool) {
 			parent = strings.ToLower(w.target)
 		}
 
-		invalidate(descendants[parent])
+		spans.replaced(pr, descendants[parent], w.offset)
 	}
 
 	components := pr.settleMemberDependencies(nodes, dependencies)
@@ -122,20 +124,81 @@ func (pr *ParseResult) applyMemberBindings(hasBindings bool) {
 	})
 
 	for _, identity := range order {
-		w := identities[identity]
-		name, scope, _ := MemberReceiverName(w.target)
-		component := components[identity]
+		at, cleared := spans.cleared[nodes[identity]]
+		pr.fileMemberRef(identity, identities[identity], components[identity], at, cleared)
+	}
+}
 
-		ref := ComponentRef{Variable: strings.Clone(name), Component: component, URI: pr.URI, Line: conv.Uint32(pr.lineAt(w.offset)), This: scope == RefThis}
-		if strings.Contains(identity, "\t") {
-			if pr.funcRefsMap == nil {
-				pr.funcRefsMap = map[string][]ComponentRef{}
-			}
+// memberSpans is where each member is first and last written, and where a
+// replacement of its container after the last write ends it. A container
+// replaced before the first write (`var temp = 0;` then
+// `temp.u = new U()`) does not touch the member. One replaced after the last
+// ends it there: the member keeps its type above that line, which is where
+// itext.cfc's init() copies `temp.itextUtils` into the component before
+// reusing temp for something else. A replacement between two writes, or on
+// the line of one, withholds it, as any conflict does.
+type memberSpans struct {
+	first, last, cleared map[*collectionNode]int
+}
 
-			pr.funcRefsMap[w.function] = append(pr.funcRefsMap[w.function], ref)
-		} else {
-			pr.ComponentRefs = append(pr.ComponentRefs, ref)
+func newMemberSpans(nodes map[string]*collectionNode, identities map[string]collectionWrite, writes []collectionWrite, key func(string, string) string) *memberSpans {
+	s := &memberSpans{
+		first:   make(map[*collectionNode]int, len(nodes)),
+		last:    make(map[*collectionNode]int, len(nodes)),
+		cleared: map[*collectionNode]int{},
+	}
+
+	for identity, n := range nodes {
+		s.first[n] = identities[identity].offset
+	}
+
+	for _, w := range writes {
+		if n := nodes[key(w.target, w.function)]; n != nil && !w.element {
+			s.last[n] = max(s.last[n], w.offset)
 		}
+	}
+
+	return s
+}
+
+// replaced applies a replacement of the container of members at offset.
+func (s *memberSpans) replaced(pr *ParseResult, members []*collectionNode, offset int) {
+	for _, n := range members {
+		switch {
+		case offset < s.first[n]:
+		case pr.lineAt(s.last[n]) < pr.lineAt(offset):
+			// On a later line, so a lookup's latest-at-or-before rule tells
+			// the member's ref from the replacement's.
+			if at, ok := s.cleared[n]; !ok || offset < at {
+				s.cleared[n] = offset
+			}
+		default:
+			n.invalid = true
+		}
+	}
+}
+
+// fileMemberRef files the ref for the member identity first written by w,
+// and, when its container is replaced at clearedAt, an untyped ref there.
+func (pr *ParseResult) fileMemberRef(identity string, w collectionWrite, component string, clearedAt int, cleared bool) {
+	name, scope, _ := MemberReceiverName(w.target)
+	ref := ComponentRef{Variable: strings.Clone(name), Component: component, URI: pr.URI, Line: conv.Uint32(pr.lineAt(w.offset)), This: scope == RefThis}
+	refs := []ComponentRef{ref}
+
+	if cleared && component != "" {
+		// The container's replacement: from here the member holds nothing.
+		ref.Component, ref.Line = "", conv.Uint32(pr.lineAt(clearedAt))
+		refs = append(refs, ref)
+	}
+
+	if strings.Contains(identity, "\t") {
+		if pr.funcRefsMap == nil {
+			pr.funcRefsMap = map[string][]ComponentRef{}
+		}
+
+		pr.funcRefsMap[w.function] = append(pr.funcRefsMap[w.function], refs...)
+	} else {
+		pr.ComponentRefs = append(pr.ComponentRefs, refs...)
 	}
 }
 

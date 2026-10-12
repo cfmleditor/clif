@@ -20,12 +20,12 @@ func (r *Resolver) publicPropertyComponent(component, name, baseDir string) stri
 		r.EnsureIndexed(path)
 		refs := r.Index.RefsForFile(cfpath.ToURI(path))
 
-		data, err := r.fs().ReadFile(path)
+		text, err := r.readText(path)
 		if err != nil {
 			return ""
 		}
 
-		writes := publicPropertyWrites(string(data), name)
+		writes := publicPropertyWrites(text, name)
 		if len(writes) > 0 {
 			value := ""
 

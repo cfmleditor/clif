@@ -6,15 +6,16 @@ import (
 	"fmt"
 	"maps"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/cfmleditor/clif/internal/config"
 	"github.com/cfmleditor/clif/internal/docs"
 	"github.com/cfmleditor/clif/internal/frameworkapi"
 	"github.com/cfmleditor/clif/internal/index"
+	"github.com/cfmleditor/clif/internal/nativetype"
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
 	"github.com/cfmleditor/clif/internal/vfs"
@@ -23,9 +24,16 @@ import (
 
 // Resolver resolves component dot-paths to files and functions.
 type Resolver struct {
+	NativeEngine string // "lucee" enables its private runtime API; empty uses portable contracts
+
+	// SpeculativeReceivers is an immutable, opt-in fallback map from a scan.
+	// These guesses do not prove the receiver origin. Nil keeps strict behavior.
+	SpeculativeReceivers map[SpeculativeReceiver]string
+
 	Discovery         *DiscoveryDependencies
 	configurationOnce sync.Once
 	// Context views keep runtime mappings while traversing physical library files.
+	callerApplication  string // execution application retained across physical library traversal
 	callerMappings     map[string]string
 	contextViews       map[string]*Resolver
 	indexer            *Resolver
@@ -44,6 +52,10 @@ type Resolver struct {
 	// largest flat cost of a reparse. A batch scan, which reads the disk
 	// as it goes, leaves it false.
 	IndexTracksFiles bool
+	// SnapshotScan says the resolver serves one batch scan over files that do
+	// not change while it runs (unresolved.NewResolver sets it), so answers
+	// read from them may be kept for the scan. See funcCache.
+	SnapshotScan bool
 	// ImplicitExtends names the component a file extends when it names none,
 	// from its path: a framework preset's rule that a ColdBox handler is an
 	// EventHandler without saying so. Nil for none. See config.ImplicitExtends.
@@ -60,37 +72,53 @@ type Resolver struct {
 	// InferArgsFiles are the files to search for the callers of a function, to
 	// type an argument from what they pass (argumentFromCallers). Nil switches
 	// it off: a batch scan sets it once its index is complete.
-	InferArgsFiles    []string
-	stubFS            vfs.FS
-	mu                sync.RWMutex
-	appRootCache      map[string]string   // dir → Application.cfc root
-	slugCache         map[string]string   // dir → its box.json slug, "" for none
-	resolveCache      map[string]string   // component+"\t"+baseDir → file path
-	includeCache      map[string]string   // include path+"\t"+including directory → template
-	interfaceCache    map[string]bool     // component file → whether it declares an interface
-	dirCache          *cfpath.DirCache    // directory listings behind those resolutions
-	incGraph          *includeGraph       // the index's cfincludes, rebuilt when they change
-	exprKeys          []string            // ExpressionMappings' keys in the order they apply
-	implicitCache     map[string]string   // path → ImplicitExtends(path)
-	helpers           *helperSet          // application helper templates, per set of config files
-	wb                *wireboxWorkspace   // what ModuleConfig.cfc and config/WireBox.cfc say about ids, per set of files
-	beanPathsCache    map[string]string   // merged application/configured bean roots
-	fw1Scopes         map[string]fw1Scope // nearest application's source-defined injection scope
-	diOnce            sync.Once
-	diPolicies        []diPolicy                          // source-backed DI/1 injection contracts
-	discoveringDI     bool                                // private policy discovery never re-enters injection lookup
+	InferArgsFiles        []string
+	CallerInferenceLimits config.CallerInferenceLimits
+	stubFS                vfs.FS
+	mu                    sync.RWMutex
+	exprKeys              []string          // ExpressionMappings' keys in the order they apply
+	beanPathsCache        map[string]string // merged application/configured bean roots
+	diOnce                sync.Once
+	diPolicies            []diPolicy // source-backed DI/1 injection contracts
+	discoveringDI         bool       // private policy discovery never re-enters injection lookup
+	sourceFacts           spanCache[lexicalSourceFacts]
+	callerTokens          spanCache[parser.Token]      // caller file URI → tokens for its current content
+	loopCache             spanCache[loopSpan]          // file URI → every loop its current text holds (loopsOf)
+	typeGuardCache        spanCache[receiverTypeGuard] // exact builtin checks in current source
+	closureCache          spanCache[closureSpan]       // file URI → every function literal its current text holds (closuresOf)
+	pathCaches                                         // what InvalidatePaths clears
+}
+
+// pathCaches are the answers a Resolver keeps that depend on files, paths and
+// the index: InvalidatePaths starts them all again at once by resetting this
+// struct, so a cache added here cannot be left out of the reset.
+type pathCaches struct {
+	appRootCache      map[string]string                   // dir → Application.cfc root
+	slugCache         map[string]string                   // dir → its box.json slug, "" for none
+	resolveCache      map[string]string                   // component+"\t"+baseDir → file path
+	includeCache      map[string]string                   // include path+"\t"+including directory → template
+	interfaceCache    map[string]bool                     // component file → whether it declares an interface
+	dirCache          *cfpath.DirCache                    // directory listings behind those resolutions
+	incGraph          *includeGraph                       // the index's cfincludes, rebuilt when they change
+	implicitCache     map[string]string                   // path → ImplicitExtends(path)
+	helpers           *helperSet                          // application helper templates, per set of config files
+	wb                *wireboxWorkspace                   // what ModuleConfig.cfc and config/WireBox.cfc say about ids, per set of files
+	fw1Scopes         map[string]fw1Scope                 // nearest application's source-defined injection scope
 	startupCache      map[string][]startupAssign          // app root → its startup templates' shared-scope assignments
-	wheelsSources     map[string]wheelsSource             // source-checked method bodies; refreshed when bytes change
+	sourceInfos       map[string]sourceInfo               // source-checked method bodies; refreshed when bytes change
 	ctlPathCache      map[string]controllerPaths          // dir → its files' writes of Wheels' controllerPath
 	includerCache     map[string]string                   // template, name, depth and include generation → includerHeld's answer
 	returnCache       returnCache                         // ReturnComponentOf answers, for one index generation
-	loopCache         spanCache[loopSpan]                 // file URI → every loop its current text holds (loopsOf)
-	closureCache      spanCache[closureSpan]              // file URI → every function literal its current text holds (closuresOf)
+	funcCache         funcCache                           // lookupFunc answers, for one index generation
+	computedIncludes  map[string]computedIncludeFile      // file → its computed includes (computedIncludesOf)
 	callerIdx         *callerIndex                        // name → files calling it, built once for argumentFromCallers
 	argCache          map[string]string                   // an argument → what its callers pass (argumentFromCallers)
-	requestWriteCache map[string]bool                     // request.<key> and a file → no other file writes it (onlyFileWritesRequest)
+	requestWriterIdx  map[string][]string                 // request key → files writing it (requestWriters)
 	handlerCache      map[string]*parser.ParseResult      // handler path → its parse (handlerParse)
+	fw1ActionCache    map[string][]fw1Action              // controllers dir + section.item → its actions (fw1Actions)
+	boundEntityCache  map[string]string                   // service path → the entity it binds (boundEntity)
 	wrapperHosts      map[string][]string                 // template path → Wheels wrapper hosts (wheelsTemplateHosts)
+	wrapperCalls      map[string][]wrapperCall            // caller path + wrapper → its wrapper calls (wheelsWrapperCalls)
 	extraIncludeHosts map[string][]includeHost            // template path → includes the graph cannot see (frameworkIncludeHosts)
 	muraEventFiles    map[string]bool                     // file → Mura calls it with an event (handsMuraEvent)
 	lazyGetters       map[string]string                   // file and function → what its lazy getter returns (lazyGetterReturn)
@@ -269,6 +297,10 @@ func (r *Resolver) expressionKeys() []string {
 // wherever it decides a path answer may have gone stale, which is what the
 // cache needs and what resolveCache beside it already relies on.
 func (r *Resolver) dirs() *cfpath.DirCache {
+	// A listing is the filesystem's, not a view's, so views share their
+	// owner's rather than each listing the same directories again.
+	r = r.owner()
+
 	r.mu.RLock()
 	c := r.dirCache
 	r.mu.RUnlock()
@@ -282,6 +314,9 @@ func (r *Resolver) dirs() *cfpath.DirCache {
 
 	if r.dirCache == nil {
 		r.dirCache = cfpath.NewDirCache()
+		if r.SnapshotScan {
+			r.dirCache = cfpath.NewSnapshotDirCache()
+		}
 	}
 
 	return r.dirCache
@@ -290,6 +325,12 @@ func (r *Resolver) dirs() *cfpath.DirCache {
 // fs is the resolver's filesystem, with the framework stubs mounted: a
 // preset's, and the ones a fully namespaced path reaches without one
 // (frameworkapi.Namespaced).
+// readText is the text of the file at path, shared with the batch content
+// cache rather than copied out of it (vfs.ReadString).
+func (r *Resolver) readText(path string) (string, error) {
+	return vfs.ReadString(r.fs(), path)
+}
+
 func (r *Resolver) fs() vfs.FS {
 	r.mu.RLock()
 	f := r.stubFS
@@ -310,6 +351,11 @@ func (r *Resolver) fs() vfs.FS {
 }
 
 func (r *Resolver) componentPathUncached(component, baseDir string) string {
+	// Explicit relative component paths retain declaring-directory identity.
+	// A missing parent must not borrow another application's same-named file.
+	if cfpath.IsRelativeComponentPath(component) {
+		return cfpath.ResolvePathCached(component, baseDir, nil, r.dirs())
+	}
 	// A component already named by its file: what a function returning
 	// `this` returns.
 	if filepath.IsAbs(component) && strings.HasSuffix(strings.ToLower(component), ".cfc") {
@@ -734,12 +780,12 @@ func (r *Resolver) EnsureIndexed(cfcPath string) []*parser.FunctionDef {
 	cfcURI := cfpath.ToURI(cfcPath)
 
 	if !r.Index.HasFile(cfcURI) {
-		data, err := r.fs().ReadFile(cfcPath)
+		text, err := r.readText(cfcPath)
 		if err != nil {
 			return nil
 		}
 
-		r.Index.IndexFileWithOptions(cfcURI, string(data), &parser.ParseOptions{Resolvers: r.Resolvers, SetterLookup: r.SetterLookup(cfcPath), ConstructorLookup: r.ConstructorLookup(cfcPath), BeanLookup: r.InjectionBeanLookup(cfcPath), PropertyBeanLookup: r.InjectionPropertyLookup(cfcPath)})
+		r.Index.IndexFileWithOptions(cfcURI, text, &parser.ParseOptions{Resolvers: r.Resolvers, SetterLookup: r.SetterLookup(cfcPath), ConstructorLookup: r.ConstructorLookup(cfcPath), BeanLookup: r.InjectionBeanLookup(cfcPath), PropertyBeanLookup: r.InjectionPropertyLookup(cfcPath)})
 	}
 
 	return r.Index.FunctionsForFile(cfcURI)
@@ -756,7 +802,74 @@ func (r *Resolver) LookupFuncWithExtends(cfcPath, funcName string) *parser.Funct
 // delegate to each other must not recurse forever.
 const maxDelegateDepth = 3
 
+// funcCache holds lookupFunc's answers. Producer evaluation and caller
+// inference ask the same component for the same method again and again (97%
+// of the 405,000 lookups a cfwheels scan made), and a lookup in a Wheels
+// controller or model walks the mixin plan each time. An answer reads the
+// index and the sources it names, so it is kept only where a source cannot
+// change unseen:
+//
+//   - in a batch scan (SnapshotScan), whose files do not change while it runs:
+//     the scan's index writes only add files it had not indexed yet, which a
+//     lookup needing them indexes itself, so answers hold for the whole scan;
+//   - in the editor (IndexTracksFiles), where every edit and watched-file
+//     event is an index write: an answer holds for one index generation, and
+//     one computed while the generation moved is not kept, since a write it
+//     raced may have changed what it read.
+//
+// InvalidatePaths clears it. Callers share the definitions it returns, as
+// they share the index's, and must copy one before binding it to a name.
+type funcCache struct {
+	gen     uint64
+	entries map[funcKey]*parser.FunctionDef
+}
+
+// funcKey spells the method as the caller did: the lookup ignores case, so two
+// spellings are two entries with one answer, and no key is lowercased.
+type funcKey struct {
+	path, name string
+	depth      int
+}
+
+// maxFuncCache bounds the editor's funcCache: past it, it starts again. A
+// batch scan's is bounded by the methods it asks about.
+const maxFuncCache = 1 << 16
+
 func (r *Resolver) lookupFunc(cfcPath, funcName string, depth int) *parser.FunctionDef {
+	if r.Index == nil || !r.IndexTracksFiles && !r.SnapshotScan {
+		return r.lookupFuncUncached(cfcPath, funcName, depth)
+	}
+
+	gen := r.Index.Generation()
+	key := funcKey{path: cfcPath, name: funcName, depth: depth}
+
+	r.mu.RLock()
+	def, ok := r.funcCache.entries[key]
+	ok = ok && (r.SnapshotScan || r.funcCache.gen == gen)
+	r.mu.RUnlock()
+
+	if ok {
+		return def
+	}
+
+	def = r.lookupFuncUncached(cfcPath, funcName, depth)
+
+	if !r.SnapshotScan && r.Index.Generation() != gen {
+		return def
+	}
+
+	r.mu.Lock()
+	if r.funcCache.entries == nil || !r.SnapshotScan && (r.funcCache.gen != gen || len(r.funcCache.entries) >= maxFuncCache) {
+		r.funcCache = funcCache{gen: gen, entries: map[funcKey]*parser.FunctionDef{}}
+	}
+
+	r.funcCache.entries[key] = def
+	r.mu.Unlock()
+
+	return def
+}
+
+func (r *Resolver) lookupFuncUncached(cfcPath, funcName string, depth int) *parser.FunctionDef {
 	seen := make(map[string]bool)
 
 	var chain []string
@@ -797,7 +910,7 @@ func (r *Resolver) lookupFunc(cfcPath, funcName string, depth int) *parser.Funct
 		}
 	}
 
-	if d := r.wheelsControllerFunc(chain, funcName); d != nil {
+	if d := r.wheelsObjectMixinFunc(chain, funcName); d != nil {
 		return d
 	}
 
@@ -912,12 +1025,12 @@ func (r *Resolver) delegatesOf(cfcPath string) []parser.Delegate {
 		return ds
 	}
 
-	data, err := r.fs().ReadFile(cfcPath)
+	text, err := r.readText(cfcPath)
 	if err != nil {
 		return nil
 	}
 
-	pr := parser.Parse(cfcURI, string(data))
+	pr := parser.Parse(cfcURI, text)
 	r.Index.SetDelegates(cfcURI, pr.Delegates)
 
 	return pr.Delegates
@@ -980,7 +1093,9 @@ func (r *Resolver) extendsFor(declared, path string) string {
 	}
 
 	ext = r.ImplicitExtends(path)
-	if fallback, ok := strings.CutPrefix(ext, parser.ApplicationBase); ok {
+	if ext == parser.MuraAdminBase {
+		ext = r.muraAdminBase(path)
+	} else if fallback, ok := strings.CutPrefix(ext, parser.ApplicationBase); ok {
 		ext = r.applicationBase(path, fallback)
 	}
 
@@ -1055,12 +1170,12 @@ func (r *Resolver) declaredExtendsOf(cfcPath string, cfcURI uri.URI) (string, bo
 		return ext, true
 	}
 
-	data, err := r.fs().ReadFile(cfcPath)
+	text, err := r.readText(cfcPath)
 	if err != nil {
 		return "", false
 	}
 
-	ext := parser.Parse(cfcURI, string(data)).Extends
+	ext := parser.Parse(cfcURI, text).Extends
 	r.Index.SetExtends(cfcURI, ext)
 
 	return ext, true
@@ -1195,7 +1310,7 @@ func (r *Resolver) effectiveMappings(baseDir string) map[string]string {
 		appDir = baseDir
 	}
 
-	appMappings := cfpath.LoadAppMappings(appDir)
+	appMappings := cfpath.LoadAppMappingsWithInitial(appDir, r.Mappings)
 	if len(appMappings) == 0 {
 		return r.Mappings
 	}
@@ -1357,7 +1472,7 @@ func (r *Resolver) canResolveCall(call *parser.CallSite, pr *parser.ParseResult,
 	if comp == "" {
 		var member bool
 
-		comp, member = r.receiverComponent(variable, call.Line, call.Caller, funcName, pr, baseDir, tr)
+		comp, member = r.receiverComponentD(variable, call.Line, call.Caller, funcName, pr, baseDir, tr, lookupCtx{call: call})
 		if member {
 			tr.hit(TargetMember, "", nil)
 
@@ -1438,7 +1553,7 @@ func (r *Resolver) canResolveCall(call *parser.CallSite, pr *parser.ParseResult,
 	// call (e.g. "kpg.generateKeyPair().getPublic().getParams()" — comp here is
 	// kpg's own component; call.Chain lists "generateKeyPair", "getPublic", each
 	// needing its own declared return type applied before checking funcName below).
-	if comp != "" && comp != "$any" && !strings.HasPrefix(comp, "$builtin.") {
+	if comp != "" && comp != "$any" {
 		var (
 			reason string
 			done   bool
@@ -1483,6 +1598,18 @@ func (r *Resolver) walkHops(comp, softComp string, call *parser.CallSite, pr *pa
 			tr.addf("chain hop %q is on a dynamic ($any) value — the rest of the chain is dynamic", hop)
 
 			break
+		}
+
+		if strings.HasPrefix(comp, "$builtin.") {
+			ret, ok := docs.LookupBuiltinMethodReturn(comp, hop)
+			if !ok {
+				return comp, softComp, "method '" + hop + "' not found on builtin " + comp[9:] + " (chain to '" + funcName + "')", true
+			}
+
+			tr.addf("native chain hop %q on %q returns %q", hop, comp, ret)
+			comp = ret
+
+			continue
 		}
 
 		if property, ok := parser.PropertyName(hop); ok {
@@ -1578,7 +1705,7 @@ func (r *Resolver) untypedHop(fd *parser.FunctionDef, comp, hop string, call *pa
 		return ret, "", false
 	}
 
-	if r.engineValueReturn(fd) {
+	if r.engineValueReturn(fd, comp) {
 		tr.addf("chain hop %q returns what a built-in function hands back — the rest of the chain is dynamic", hop)
 		tr.hit(TargetDynamic, "", nil)
 
@@ -1696,7 +1823,7 @@ func propertyReadText(line, property string) string {
 	end := -1
 
 	for from := 0; ; {
-		i := indexFoldFrom(line, "."+property, from)
+		i := parser.IndexFoldFrom(line, "."+property, from)
 		if i < 0 {
 			break
 		}
@@ -1775,16 +1902,6 @@ func propertyReadText(line, property string) string {
 
 func isIdentChar(c byte) bool {
 	return c == '_' || c == '$' || c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
-}
-
-func indexFoldFrom(s, sub string, from int) int {
-	for i := from; i+len(sub) <= len(s); i++ {
-		if strings.EqualFold(s[i:i+len(sub)], sub) {
-			return i
-		}
-	}
-
-	return -1
 }
 
 // hopReturn is chainHopReturn, and failing that what the receiver binds the
@@ -1870,9 +1987,9 @@ func (r *Resolver) resolveBareCall(call *parser.CallSite, pr *parser.ParseResult
 		return ""
 	}
 
-	if def := r.wheelsMixinHostFunc(pr, funcName); def != nil {
+	if def := r.wheelsMixinHostFunc(pr, funcName, call.Caller); def != nil {
 		tr.hit(TargetExtends, "", def)
-		tr.addf("found %q on Wheels' Controller, which this component's methods are copied into", funcName)
+		tr.addf("found %q on the Wheels host that integrates this component's public methods", funcName)
 
 		return ""
 	}
@@ -1951,8 +2068,12 @@ func (r *Resolver) resolveBareChain(call *parser.CallSite, pr *parser.ParseResul
 
 	tr.addf("chained on a call to %q — looking it up as an unqualified call", first)
 
-	def := r.bareFunc(first, pr, baseDir)
+	def := r.bareFunc(first, pr, baseDir, call.Caller)
 	if def == nil {
+		if r.builtinCallShadowed(first, call.Line, call.Caller, pr) {
+			return "variable '" + first + "' has no component ref"
+		}
+
 		if r.fileExtends(pr) != "" {
 			if base, implied := r.fileMissingBase(pr, baseDir); base != "" {
 				if implied {
@@ -1970,6 +2091,14 @@ func (r *Resolver) resolveBareChain(call *parser.CallSite, pr *parser.ParseResul
 		// getPageContext().getRequest() and now().format() are calls on what
 		// the engine hands back, which the method lists here only partly
 		// know. The file's own function of that name was looked for first.
+		if ret := r.BuiltinReturnLookup(first); ret != "" {
+			rest := *call
+			rest.Chain = call.Chain[1:]
+			rest.Component = ret
+
+			return r.canResolveCall(&rest, pr, baseDir, tr)
+		}
+
 		if docs.IsBuiltinFunction(first) {
 			tr.addf("%q is a built-in function — the chain on what it returns is dynamic", first)
 			tr.hit(TargetDynamic, "", nil)
@@ -2027,7 +2156,7 @@ func (r *Resolver) resolveBareChain(call *parser.CallSite, pr *parser.ParseResul
 	}
 
 	if ret == "" {
-		if r.engineValueReturn(def) {
+		if r.engineValueReturn(def, pr.URI.Path()) {
 			tr.addf("%q returns what a built-in function hands back — the rest of the chain is dynamic", first)
 			tr.hit(TargetDynamic, "", nil)
 
@@ -2047,7 +2176,7 @@ func (r *Resolver) resolveBareChain(call *parser.CallSite, pr *parser.ParseResul
 // bareFunc finds what an unqualified call to name reaches: this file's own
 // function, one its extends chain declares, or one a file it includes or is
 // included by declares.
-func (r *Resolver) bareFunc(name string, pr *parser.ParseResult, baseDir string) *parser.FunctionDef {
+func (r *Resolver) bareFunc(name string, pr *parser.ParseResult, baseDir string, caller ...string) *parser.FunctionDef {
 	for i := range pr.Funcs {
 		if strings.EqualFold(pr.Funcs[i].Name, name) {
 			return &pr.Funcs[i]
@@ -2068,7 +2197,7 @@ func (r *Resolver) bareFunc(name string, pr *parser.ParseResult, baseDir string)
 		return def
 	}
 
-	if def := r.wheelsMixinHostFunc(pr, name); def != nil {
+	if def := r.wheelsMixinHostFunc(pr, name, caller...); def != nil {
 		return def
 	}
 
@@ -2496,6 +2625,10 @@ func (r *Resolver) returnComponentOf(fd *parser.FunctionDef, depth int, budget *
 		return ""
 	}
 
+	if native := r.declaredCollectionReturn(fd); native != "" {
+		return native
+	}
+
 	if fd.ReturnComponent == "" || fd.ReturnComponent == "$any" {
 		if ret := r.wheelsFixedMapperReturn(fd); ret != "" {
 			return ret
@@ -2503,6 +2636,13 @@ func (r *Resolver) returnComponentOf(fd *parser.FunctionDef, depth int, budget *
 	}
 
 	if fd.URI.IsFile() && (fd.ReturnType == "" || strings.EqualFold(fd.ReturnType, "any") || strings.EqualFold(fd.ReturnType, "component") || strings.EqualFold(fd.ReturnType, "object")) {
+		// A final mode dispatch has no context-free component return. The
+		// caller must select its branch before a partial parser inference can
+		// supply one of the alternatives as if it were unconditional.
+		if r.sourceInfo(fd.URI.Path()).methods[strings.ToLower(fd.Name)].selfDefaultParam != "" {
+			return ""
+		}
+
 		if ret := r.sharedGetterReturn(fd); ret != "" {
 			return ret
 		}
@@ -2516,7 +2656,7 @@ func (r *Resolver) returnComponentOf(fd *parser.FunctionDef, depth int, budget *
 		// A value the function adds members to before returning it is not
 		// its component, documented or inferred: ColdBox's execute() returns a
 		// RequestContext with getRenderedContent() and two more attached.
-		if method != nil && producerAugmentsReturn(method.body) {
+		if method != nil && producerAugmentsReturn(method.body) && !r.producerScalarSelfSetter(method, fd, "") {
 			return ""
 		}
 
@@ -2531,6 +2671,10 @@ func (r *Resolver) returnComponentOf(fd *parser.FunctionDef, depth int, budget *
 			// call does not say that, and a documented @return still applies.
 			// ColdBox's getContext() has no semicolons; read as a plan, its
 			// lock block hid the returns, and it lost its documented type.
+			if ret == "" {
+				ret = r.unevaluatedReturn(fd, depth, budget)
+			}
+
 			if ret != "" || producerNeedsSpecialization(method, fd) && (fd.DocReturn == "" || producerSensitive(method.body)) {
 				return ret
 			}
@@ -2542,11 +2686,7 @@ func (r *Resolver) returnComponentOf(fd *parser.FunctionDef, depth int, budget *
 		case "", "any", "component", "object":
 		default:
 			if strings.Contains(fd.ReturnType, ".") {
-				if p := r.besideDeclaring(fd, fd.ReturnType); p != "" {
-					return p
-				}
-
-				return fd.ReturnType
+				return r.declaredReturnType(fd)
 			}
 
 			return r.bareReturnComponent(fd)
@@ -2574,6 +2714,10 @@ func (r *Resolver) returnComponentOf(fd *parser.FunctionDef, depth int, budget *
 			return p
 		}
 
+		if native := nativetype.Java(fd.ReturnType); native != "" {
+			return native
+		}
+
 		return fd.ReturnType
 	}
 
@@ -2585,6 +2729,10 @@ func (r *Resolver) returnComponentOf(fd *parser.FunctionDef, depth int, budget *
 	// comment is not a contract, so it does not outrank one.
 	if fd.ReturnComponent != "" {
 		return fd.ReturnComponent
+	}
+
+	if ret := r.returnViaComponent(fd, depth, budget); ret != "" {
+		return ret
 	}
 
 	return r.docReturnComponent(fd)
@@ -2608,6 +2756,10 @@ func (r *Resolver) docReturnComponent(fd *parser.FunctionDef) string {
 		return ""
 	}
 
+	if native := nativetype.Java(fd.DocReturn); native != "" {
+		return native
+	}
+
 	p := r.besideDeclaring(fd, fd.DocReturn)
 
 	if p == "" {
@@ -2622,7 +2774,46 @@ func (r *Resolver) docReturnComponent(fd *parser.FunctionDef) string {
 	return p
 }
 
-var interfaceRe = regexp.MustCompile(`(?im)^\s*interface\b|<cfinterface\b`)
+// declaresInterface reports whether content declares an interface: a line
+// starting with the word interface (after any whitespace), or a <cfinterface
+// tag, case-insensitively, as the expression
+//
+//	(?im)^\s*interface\b|<cfinterface\b
+//
+// matched it. It looks only where the word is: that expression, run over every
+// component a missing method was checked on, was the largest regular
+// expression left in a tassweb scan. TestDeclaresInterfaceMatchesTheExpression
+// holds the two together.
+func declaresInterface(content string) bool {
+	for at := 0; ; {
+		i := parser.IndexFoldFrom(content, "interface", at)
+		if i < 0 {
+			return false
+		}
+
+		at = i + 1
+
+		end := i + len("interface")
+		if end < len(content) && isRegexWordByte(content[end]) {
+			continue
+		}
+
+		if i >= 3 && strings.EqualFold(content[i-3:i], "<cf") {
+			return true
+		}
+
+		// ^\s* in multi-line mode: only whitespace before it on its line, or
+		// a run of whitespace back to the start of the file.
+		j := i
+		for j > 0 && isRegexSpace(content[j-1]) && content[j-1] != '\n' {
+			j--
+		}
+
+		if j == 0 || content[j-1] == '\n' {
+			return true
+		}
+	}
+}
 
 // isInterface reports whether the file at path declares an interface.
 func (r *Resolver) isInterface(path string) bool {
@@ -2641,8 +2832,8 @@ func (r *Resolver) isInterface(path string) bool {
 	// Read and matched once per path: it is asked for every call checked on
 	// a component that lacks the method, and the whole-file regex was 6% of
 	// an unresolved scan. InvalidatePaths drops it with the path caches.
-	data, err := r.fs().ReadFile(path)
-	answer = err == nil && interfaceRe.Match(data)
+	text, err := r.readText(path)
+	answer = err == nil && declaresInterface(text)
 
 	r.mu.Lock()
 	if r.interfaceCache == nil {
@@ -2669,6 +2860,10 @@ func (r *Resolver) FuncLookup(baseDir string) func(component, funcName string) s
 		expression, callHop := parser.CallExpression(funcName)
 		if callHop {
 			funcName = wheelsCallName(expression)
+		}
+
+		if ret, ok := docs.LookupBuiltinMethodReturn(component, funcName); ok {
+			return ret
 		}
 
 		fd := r.ResolveFunc(component, funcName, baseDir)
@@ -2792,6 +2987,12 @@ func (r *Resolver) checkMethodOn(comp, softComp string, call *parser.CallSite, p
 		return ""
 	}
 
+	if variable != "" && len(call.Chain) == 0 && pr.AssignsMember(variable, funcName, call.Line) {
+		tr.hit(TargetDynamic, comp, nil)
+
+		return ""
+	}
+
 	// Builtin return type — check method exists in-memory
 	if strings.HasPrefix(comp, "$builtin.") {
 		builtinName := comp[9:]
@@ -2807,6 +3008,13 @@ func (r *Resolver) checkMethodOn(comp, softComp string, call *parser.CallSite, p
 	tr.addf("checking whether %q defines method %q", comp, funcName)
 
 	if def := r.ResolveFunc(comp, funcName, baseDir); def != nil {
+		tr.hit(TargetComponent, comp, def)
+
+		return ""
+	}
+
+	if def := r.registeredAssertion(comp, call, pr, baseDir); def != nil {
+		tr.addf("%q is a literal assertion installed by the selected beforeTests setup", funcName)
 		tr.hit(TargetComponent, comp, def)
 
 		return ""
@@ -2958,6 +3166,16 @@ func (r *Resolver) missingMethod(comp, softComp string, call *parser.CallSite, p
 // a reason is written into a known-issues file that is committed and read on
 // other machines, where an absolute path would not mean anything.
 func displayComponent(comp string) string {
+	if strings.Contains(comp, "|") {
+		// Each alternative of a union, which may mix a file and a dot-path.
+		alts := strings.Split(comp, "|")
+		for i, alt := range alts {
+			alts[i] = displayComponent(alt)
+		}
+
+		return strings.Join(alts, "|")
+	}
+
 	comp = strings.TrimPrefix(comp, parser.EntityPrefix)
 
 	if filepath.IsAbs(comp) {
@@ -2993,8 +3211,8 @@ func (r *Resolver) ComponentOf(variable string, line uint32, pr *parser.ParseRes
 	return comp
 }
 
-func (r *Resolver) recordReceiver(variable, name string, scope parser.RefScope, line uint32, caller string, pr *parser.ParseResult) string {
-	if ref := funcScopedRef(pr, line, name, scope); ref != nil {
+func (r *Resolver) recordReceiver(variable, name string, scope parser.RefScope, line uint32, caller string, pr *parser.ParseResult, calls ...*parser.CallSite) string {
+	if ref := funcScopedRef(pr, line, name, scope, calls...); ref != nil {
 		return ref.Component
 	}
 
@@ -3045,7 +3263,7 @@ func (r *Resolver) receiverComponent(variable string, line uint32, caller, funcN
 // every subclass of an abstract file holds, and the call a variable was last
 // assigned from.
 func (r *Resolver) inferredReceiver(variable string, line uint32, caller, funcName string, pr *parser.ParseResult, baseDir string, tr *callTrace, ctx lookupCtx) string {
-	if comp := r.builderMember(variable, line, caller, funcName, pr, baseDir, tr); comp != "" {
+	if comp := r.builderMember(variable, line, caller, funcName, pr, baseDir, tr, ctx); comp != "" {
 		return comp
 	}
 
@@ -3064,9 +3282,26 @@ func (r *Resolver) inferredReceiver(variable string, line uint32, caller, funcNa
 // assignments read to type a variable, which bounds `x = y.f()` through
 // `y = z.g()`, and the subclass a handoff reads on behalf of.
 func (r *Resolver) receiverComponentD(variable string, line uint32, caller, funcName string, pr *parser.ParseResult, baseDir string, tr *callTrace, ctx lookupCtx) (comp string, member bool) {
+	defer func() {
+		if comp == "" && !member && pr != nil {
+			key := SpeculativeReceiver{File: pr.URI.Path(), Caller: caller, Variable: strings.ToLower(variable)}
+			if guess := r.SpeculativeReceivers[key]; guess != "" {
+				comp = guess
+				tr.addf("speculative receiver %q -> %q (origin unproven)", variable, guess)
+			}
+		}
+	}()
+
+	if guarded := r.guardedReceiver(variable, pr, baseDir, ctx); guarded != "" {
+		tr.addf("resolved %q to %q through an exact positive isInstanceOf guard", variable, guarded)
+
+		return guarded, false
+	}
+
 	if name, scope, record := parser.MemberReceiverName(variable); record {
 		return r.memberReceiver(variable, name, scope, line, caller, funcName, pr, baseDir, tr, ctx), false
 	}
+
 	// Strip scope prefix for matching (VARIABLES.x -> x). Bracket-aware: a "."
 	// inside a "[...]" subscript (e.g. "linkMap[arguments.startSource]") is not a
 	// scope prefix and must not be stripped there.
@@ -3076,8 +3311,18 @@ func (r *Resolver) receiverComponentD(variable string, line uint32, caller, func
 	// Each lookup below is tried while comp is still empty. A matching ref
 	// with no component is logged and passed over, as it always was.
 
+	// A callback parameter owns its spelling even when no invocation type is
+	// known. It must not borrow a same-named outer local or component field.
+	ref := funcScopedRef(pr, line, lookupVar, scope, ctx.call)
+	if r.callbackParameterShadows(variable, ref, pr, ctx.call) {
+		return r.ownedCallbackComponent(variable, line, caller, funcName, pr, baseDir, tr, ctx), false
+	}
+
 	// Try function-scoped refs first
-	if ref := funcScopedRef(pr, line, lookupVar, scope); ref != nil {
+	method := receiverMethod(funcName, ctx.call)
+	ref = funcRefAfterDefault(ref, pr, line, variable, lookupVar, scope, method, ctx.call, tr)
+
+	if ref != nil {
 		comp = ref.Component
 
 		tr.addf("resolved %q to %q via function-scoped ComponentRef", variable, comp)
@@ -3126,7 +3371,7 @@ func (r *Resolver) receiverComponentD(variable string, line uint32, caller, func
 	}
 
 	if comp == "" {
-		if best := fileLevelRef(pr, line, lookupVar, scope); best != nil {
+		if best := fileRefAfterDefault(pr, line, variable, lookupVar, scope, method, tr); best != nil {
 			comp = best.Component
 
 			tr.addf("resolved %q to %q via file-level ComponentRef (nearest preceding assignment at line %d)", variable, comp, best.Line+1)
@@ -3135,6 +3380,13 @@ func (r *Resolver) receiverComponentD(variable string, line uint32, caller, func
 
 	// Fall back to Application.cfc component refs
 	if comp == "" {
+		// A verified factory result takes precedence over the parser's
+		// class-level return guess from Application.cfc. Conflicting startup
+		// writes withhold that result rather than restoring the old guess.
+		if component, proven := r.wheelsStartupComponent(variable, baseDir, tr); proven {
+			return component, false
+		}
+
 		for _, hit := range r.applicationRefs(baseDir, lookupVar) {
 			comp = hit.ref.Component
 
@@ -3188,13 +3440,39 @@ func (r *Resolver) receiverComponentD(variable string, line uint32, caller, func
 
 // funcScopedRef is the first ref for name inside the function enclosing line,
 // among those scope admits.
-func funcScopedRef(pr *parser.ParseResult, line uint32, name string, in parser.RefScope) *parser.ComponentRef {
-	for _, scope := range pr.Scopes {
+func funcScopedRef(pr *parser.ParseResult, line uint32, name string, in parser.RefScope, calls ...*parser.CallSite) *parser.ComponentRef {
+	var call *parser.CallSite
+	if len(calls) > 0 {
+		call = calls[0]
+	}
+
+	return funcScopedRefFor(pr, line, name, in, "", call)
+}
+
+// funcScopedRefFor is funcScopedRef for a call of method on the variable: a
+// native ref without that method is passed over (nativeDefaultOverwritten),
+// so an earlier or later assignment the variable does have is found instead.
+func funcScopedRefFor(pr *parser.ParseResult, line uint32, name string, in parser.RefScope, method string, call *parser.CallSite) *parser.ComponentRef {
+	// Each function's scope, then the file's top level. The scopes are read in
+	// place: copying them to append the top level was 2.7 GB of a tassweb scan.
+	for scopeIndex := 0; scopeIndex <= len(pr.Scopes); scopeIndex++ {
+		var scope parser.FuncScope
+		if scopeIndex < len(pr.Scopes) {
+			scope = pr.Scopes[scopeIndex]
+		} else {
+			scope = parser.FuncScope{Start: 0, End: strings.Count(pr.Content, "\n")}
+		}
+
 		if int(line) < scope.Start || int(line) > scope.End {
 			continue
 		}
 
-		refs, _ := pr.FuncRefs(scope.Start, scope.End)
+		var refs []parser.ComponentRef
+		if scopeIndex == len(pr.Scopes) {
+			refs = pr.TopLevelClosureRefs()
+		} else {
+			refs, _ = pr.FuncRefs(scope.Start, scope.End)
+		}
 
 		// A closure holding line may declare the name itself, which shadows
 		// the function's: the innermost closure's latest declaration at or
@@ -3206,16 +3484,39 @@ func funcScopedRef(pr *parser.ParseResult, line uint32, name string, in parser.R
 
 		for i := range refs {
 			ref := &refs[i]
-			if !strings.EqualFold(ref.Variable, name) || !ref.VisibleAt(line) || !in.Admits(ref) || assignedByCallAt(ref, line) {
+			if scopeIndex == len(pr.Scopes) && !ref.HasClosureSpan {
 				continue
 			}
 
+			if !strings.EqualFold(ref.Variable, name) || !ref.VisibleAtCall(line, call) || !in.Admits(ref) || assignedByCallAt(ref, line) {
+				continue
+			}
+
+			// Runtime collection assignments describe the value after assignment,
+			// never an incoming argument or local before that assignment.
+			if ref.Line > line && strings.HasPrefix(ref.Component, parser.NativeTypePrefix) {
+				continue
+			}
+
+			if nativeDefaultOverwritten(ref.Component, method) {
+				continue
+			}
+
+			// An unknown later store cannot inherit a prior runtime interface.
+			// Recovery is statement-line based; same-line and branch dominance
+			// need a separate byte-aware flow proof.
+			if strings.HasPrefix(ref.Component, parser.NativeTypePrefix) {
+				if nativeReassignedAt(pr.Content, name, int(ref.Line)+1, int(line)) {
+					continue
+				}
+			}
+
 			switch {
-			case ref.VisibleTo == 0:
+			case ref.VisibleTo == 0 && !ref.HasClosureSpan:
 				if wide == nil || ref.Line <= line && (wide.Line > line || ref.Line > wide.Line) {
 					wide = ref
 				}
-			case ref.Line <= line && (closure == nil || ref.VisibleFrom > closure.VisibleFrom ||
+			case ref.Line <= line && (closure == nil || ref.ClosureFrom > closure.ClosureFrom || ref.VisibleFrom > closure.VisibleFrom ||
 				ref.VisibleFrom == closure.VisibleFrom && ref.Line > closure.Line):
 				closure = ref
 			}
@@ -3231,6 +3532,76 @@ func funcScopedRef(pr *parser.ParseResult, line uint32, name string, in parser.R
 	return nil
 }
 
+// receiverMethod is the method called on the receiver itself: funcName, or
+// for a chained call (`x.a().b()`, funcName b) the chain's first hop. A
+// property hop (`x.p.b()`) calls nothing on x, so it names no method.
+func receiverMethod(funcName string, call *parser.CallSite) string {
+	if call != nil && len(call.Chain) > 0 {
+		if _, property := parser.PropertyName(call.Chain[0]); property {
+			return ""
+		}
+
+		return parser.CallHopName(call.Chain[0])
+	}
+
+	return funcName
+}
+
+// funcRefAfterDefault is ref, or when ref is a struct default the method
+// contradicts (nativeDefaultOverwritten), the function-scoped ref the variable
+// has that does not.
+func funcRefAfterDefault(ref *parser.ComponentRef, pr *parser.ParseResult, line uint32, variable, name string, scope parser.RefScope, method string, call *parser.CallSite, tr *callTrace) *parser.ComponentRef {
+	if ref == nil || !nativeDefaultOverwritten(ref.Component, method) {
+		return ref
+	}
+
+	tr.setAside(variable, ref, method)
+
+	return funcScopedRefFor(pr, line, name, scope, method, call)
+}
+
+// fileRefAfterDefault is fileLevelRef, passing over a struct default the
+// method contradicts as funcRefAfterDefault does.
+func fileRefAfterDefault(pr *parser.ParseResult, line uint32, variable, name string, scope parser.RefScope, method string, tr *callTrace) *parser.ComponentRef {
+	best := fileLevelRef(pr, line, name, scope)
+	if best == nil || !nativeDefaultOverwritten(best.Component, method) {
+		return best
+	}
+
+	tr.setAside(variable, best, method)
+
+	return fileLevelRefFor(pr, line, name, scope, method)
+}
+
+// setAside records a struct default passed over for a method it lacks.
+func (t *callTrace) setAside(variable string, ref *parser.ComponentRef, method string) {
+	t.addf("set aside %q's %q from line %d: it has no method %q, so the variable holds something assigned since", variable, ref.Component, ref.Line+1, method)
+}
+
+// nativeDefaultOverwritten reports whether a variable typed as a struct
+// (`variables._parent = StructNew()`, `{}`) is called with a method that
+// value does not have. A component's pseudo-constructor commonly sets such a
+// default and init() then replaces it with an argument that is untyped or
+// declared `struct`, and either way the variable reads as a struct, so every
+// method called on what init() stored was checked against one. A method the native type
+// lacks is the evidence the variable was reassigned, so the default is set
+// aside and the lookup carries on (a componentResolver, the extends chain).
+// With no method named, nothing contradicts it.
+//
+// Only a struct: it is what a placeholder default is (`StructNew()`, `{}`, a
+// `type="struct"` argument CFML lets a component through), and a call on any
+// other native value that its contract lacks is a finding to report, not a
+// sign the variable moved on.
+func nativeDefaultOverwritten(component, method string) bool {
+	if method == "" || component != nativetype.Type("struct") {
+		return false
+	}
+
+	// The same check the method-exists step makes, so a default is set aside
+	// exactly when keeping it would report the call.
+	return !docs.LookupBuiltinMethod(strings.TrimPrefix(component, "$builtin."), method)
+}
+
 // fileLevelRef is the file-level ref for name that is in force at line.
 //
 // A scratch variable can be reassigned multiple times in the same file (e.g.
@@ -3241,11 +3612,17 @@ func funcScopedRef(pr *parser.ParseResult, line uint32, name string, in parser.R
 // that's actually in scope there); only fall back to file order for a genuine
 // forward reference, where no preceding ref exists.
 func fileLevelRef(pr *parser.ParseResult, line uint32, name string, scope parser.RefScope) *parser.ComponentRef {
+	return fileLevelRefFor(pr, line, name, scope, "")
+}
+
+// fileLevelRefFor is fileLevelRef for a call of method on the variable, passing
+// over a native ref without that method as funcScopedRefFor does.
+func fileLevelRefFor(pr *parser.ParseResult, line uint32, name string, scope parser.RefScope, method string) *parser.ComponentRef {
 	var best *parser.ComponentRef
 
 	for i := range pr.ComponentRefs {
 		ref := &pr.ComponentRefs[i]
-		if !strings.EqualFold(ref.Variable, name) || ref.Line > line || !scope.Admits(ref) || assignedByCallAt(ref, line) {
+		if !strings.EqualFold(ref.Variable, name) || ref.Line > line || !scope.Admits(ref) || assignedByCallAt(ref, line) || nativeDefaultOverwritten(ref.Component, method) {
 			continue
 		}
 
@@ -3259,7 +3636,7 @@ func fileLevelRef(pr *parser.ParseResult, line uint32, name string, scope parser
 	}
 
 	for i := range pr.ComponentRefs {
-		if ref := &pr.ComponentRefs[i]; strings.EqualFold(ref.Variable, name) && scope.Admits(ref) && !assignedByCallAt(ref, line) {
+		if ref := &pr.ComponentRefs[i]; strings.EqualFold(ref.Variable, name) && scope.Admits(ref) && !assignedByCallAt(ref, line) && !nativeDefaultOverwritten(ref.Component, method) {
 			return ref
 		}
 	}
@@ -3450,4 +3827,56 @@ func (r *Resolver) sharedGetterReturn(fd *parser.FunctionDef) string {
 	}
 
 	return comp
+}
+
+func (r *Resolver) declaredReturnType(fd *parser.FunctionDef) string {
+	if path := r.besideDeclaring(fd, fd.ReturnType); path != "" {
+		return path
+	}
+
+	if native := nativetype.Java(fd.ReturnType); native != "" {
+		return native
+	}
+
+	return fd.ReturnType
+}
+
+// returnViaComponent finishes what the index's parse could not: fd returns
+// a variable last assigned `x = recv.m()`, recv holding fd.ReturnVia's
+// component, and fd returns what m returns there — "$any" included, as the
+// parse would give it with FuncLookup. tassweb's itext.createParagraph
+// returns `VARIABLES._itextUtils.createParagraph( … )`, whose branches return
+// a string or one of several paragraphs. Depth and budget are carried, so
+// two functions returning each other's calls end rather than recurse.
+func (r *Resolver) returnViaComponent(fd *parser.FunctionDef, depth int, budget *int) string {
+	via := fd.ReturnVia
+	if via == nil || !fd.URI.IsFile() || depth >= 8 || *budget <= 0 {
+		return ""
+	}
+
+	*budget--
+
+	target := r.ResolveFunc(via.Component, via.Method, filepath.Dir(fd.URI.Path()))
+	if target == nil {
+		return ""
+	}
+
+	return r.returnComponentOf(target, depth+1, budget)
+}
+
+// unevaluatedReturn is what fd returns when evaluating its body gave no
+// answer: what the call it returns returns (returnViaComponent), or "$any"
+// when the parse found a branch returning no component (a string or an
+// argument passed through), which no choice of the caller's arguments makes
+// a component on every path.
+func (r *Resolver) unevaluatedReturn(fd *parser.FunctionDef, depth int, budget *int) string {
+	if ret := r.returnViaComponent(fd, depth, budget); ret != "" {
+		return ret
+	}
+
+	if fd.ReturnsUntyped && fd.ReturnComponent == "$any" {
+		return "$any"
+	}
+
+	return ""
 }

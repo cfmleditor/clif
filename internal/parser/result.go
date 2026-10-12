@@ -54,15 +54,15 @@ type ParseResult struct {
 	// constructor-injected dependency via a "<!--- @serviceproperty varName kind|name --->"
 	// comment at each use site, instead of (or in addition to) a componentResolver.
 	ServicePropertyResolvers map[string]string
-	extractLinks             bool     // whether to extract links during global scan
-	extractCalls             bool     // whether to extract all call sites during parsing
-	findCalls                []string // function names to scan for
-	scanAllScopes            bool     // scan all lines including function bodies
-	shallow                  bool     // minimal parse mode
-	interpolateAll           bool     // ParseOptions.InterpolateAllText
-	outputScanned            bool     // outputSpans and importPrefixes are computed
-	outputSpans              [][2]int // byte ranges whose text ColdFusion evaluates
-	importPrefixes           []string // <cfimport prefix="..."> values, lowercased
+	extractLinks             bool        // whether to extract links during global scan
+	extractCalls             bool        // whether to extract all call sites during parsing
+	findCalls                []string    // function names to scan for
+	scanAllScopes            bool        // scan all lines including function bodies
+	shallow                  bool        // minimal parse mode
+	interpolateAll           bool        // ParseOptions.InterpolateAllText
+	outputScanned            bool        // importPrefixes is computed
+	output                   outputState // where the tag walk stands in the output contexts
+	importPrefixes           []string    // <cfimport prefix="..."> values, lowercased
 
 	// contentLineIdx is the line index ClassifyRegions built over Content on its
 	// way to the regions, kept so extractSignatures does not build a second one
@@ -76,6 +76,7 @@ type ParseResult struct {
 	thisVars      []string
 	scopedDone    bool // the three above, from one scan
 	allVars       []VarDef
+	declareScans  map[string]bool // mayDeclare's answers, by lowercased name
 	allVarsDone   bool
 
 	// anyScopedVars caches, per Scope, every name ever assigned in that scope
@@ -182,19 +183,19 @@ func (pr *ParseResult) IsSoftComponent(comp string) bool {
 	return pr != nil && pr.resolverSet.isSoft(comp) || isInjectedFrameworkComponent(comp)
 }
 
-// outputGate returns the output-context ranges and cfimport prefixes of the
-// file, computed once, and whether text scanning is gated on them at all.
-func (pr *ParseResult) outputGate() (spans [][2]int, prefixes []string, gated bool) {
+// outputGate returns the output state the file's tag regions share, its
+// cfimport prefixes, computed once, and whether text scanning is gated at all.
+func (pr *ParseResult) outputGate() (state *outputState, prefixes []string, gated bool) {
 	if pr.interpolateAll || !pr.extractCalls {
 		return nil, nil, false
 	}
 
 	if !pr.outputScanned {
-		pr.outputSpans, pr.importPrefixes = outputContext(pr.Content)
+		pr.importPrefixes = cfimportPrefixes(pr.Content)
 		pr.outputScanned = true
 	}
 
-	return pr.outputSpans, pr.importPrefixes, true
+	return &pr.output, pr.importPrefixes, true
 }
 
 // ParseWithOptions performs a full file parse with extended options. opts is
@@ -285,6 +286,9 @@ func (pr *ParseResult) extractSignatures() {
 	// after the split.
 	var open openLocals
 
+	// The tag regions share one output state, in file order, from the top.
+	pr.output = outputState{}
+
 	for _, r := range pr.Regions {
 		// A RegionSkip is a literal <script> block, left out of the script
 		// regions so its JavaScript is never fed to the CFScript scanner. Its
@@ -362,6 +366,7 @@ func (pr *ParseResult) extractSignatures() {
 		pr.applyMemberBindings(hasBindings)
 		pr.applyFactoryReturnCalls(allPendingCalls)
 		pr.applyCollectionReturns(allPendingCalls)
+		pr.writesMemo.release()
 		pr.writesMemo = nil
 		pr.resolvePendingCalls(allPendingCalls)
 		pr.flow = nil
@@ -485,6 +490,7 @@ func (o *openLocals) namesFor(key string) []string {
 // returning its pending calls for resolvePendingCalls.
 func (pr *ParseResult) mergeScriptRegion(r *Region, tagScopes []FuncScope, open *openLocals) []pendingCall {
 	sp := newScriptParser(r.Text, string(pr.URI), r.StartLine, pr.Resolvers).asCFScript()
+	sp.baseOffset = r.Offset
 	sp.resolverSet = pr.resolverSet
 	sp.extractLinks = pr.extractLinks
 	sp.extractCalls = pr.extractCalls
@@ -584,7 +590,7 @@ func (pr *ParseResult) mergeTagRegion(r *Region, tagScopes []FuncScope, open *op
 	tp.argumentTypes = pr.argumentTypeLookup()
 	tp.baseLine = r.StartLine
 	tp.knownScopes = tagScopes
-	tp.outputSpans, tp.importPrefixes, tp.gated = pr.outputGate()
+	tp.output, tp.importPrefixes, tp.gated = pr.outputGate()
 	tp.srcOffset = r.Offset
 
 	if pr.flow != nil {
@@ -915,8 +921,7 @@ func (pr *ParseResult) walkChainRest(comp string, rest []string) string {
 		switch {
 		case comp == "" || comp == "$any":
 			return comp
-		case strings.HasPrefix(comp, "$builtin."):
-			return "$any"
+
 		case strings.EqualFold(name, "init"), IsMockDecoration(name):
 			// A MockBox decoration returns the mock it is called on.
 			continue
@@ -1113,7 +1118,7 @@ func (pr *ParseResult) resolvePendingCalls(calls []pendingCall) {
 		var still []int
 
 		for _, j := range untyped {
-			if c := &calls[j]; !pr.addPendingRef(c, pr.pendingCallComponent(c, funcReturns, nil)) {
+			if c := &calls[j]; !pr.addPendingRef(c, pr.pendingComponent(c, funcReturns, nil)) {
 				still = append(still, j)
 			}
 		}
@@ -1149,7 +1154,7 @@ func (pr *ParseResult) typePendingCalls(calls []pendingCall, funcReturns map[str
 			continue
 		}
 
-		if !pr.addPendingRef(c, pr.pendingCallComponent(c, funcReturns, globals)) {
+		if !pr.addPendingRef(c, pr.pendingComponent(c, funcReturns, globals)) {
 			untyped = append(untyped, j)
 		}
 	}
@@ -1218,7 +1223,21 @@ func (pr *ParseResult) funcReturnsFor(calls []pendingCall) map[string]string {
 
 // pendingCallComponent is the component the call c assigns its variable, or
 // "" when nothing says. It may clear c.rest, when the chain ends in a mock.
+// pendingComponent is what c's assignment holds: a copy's source, or what
+// its call returns.
+func (pr *ParseResult) pendingComponent(c *pendingCall, funcReturns map[string]string, globals []ComponentRef) string {
+	if c.alias {
+		return pr.aliasComponent(c, globals)
+	}
+
+	return pr.pendingCallComponent(c, funcReturns, globals)
+}
+
 func (pr *ParseResult) pendingCallComponent(c *pendingCall, funcReturns map[string]string, globals []ComponentRef) string {
+	if c.baseVar == "" && (c.baseLocal || pr.pendingArgumentShadows(c)) {
+		return ""
+	}
+
 	var comp string
 	if c.callsOwnFunction() || pr.receiverIsThisFile(c) {
 		comp = funcReturns[strings.ToLower(c.funcName)]
@@ -1239,6 +1258,23 @@ func (pr *ParseResult) pendingCallComponent(c *pendingCall, funcReturns map[stri
 
 	if comp == "" && c.baseVar == "" && c.expression != "" && pr.FuncLookup != nil && pr.URI.IsFile() {
 		comp = pr.FuncLookup(pr.URI.Path(), CallHop(c.expression))
+	}
+
+	// Native globals are typed only after declared functions have had priority.
+	if comp == "" && c.baseVar == "" && pr.BuiltinReturnLookup != nil {
+		declared := false
+
+		for i := range pr.Funcs {
+			if strings.EqualFold(pr.Funcs[i].Name, c.funcName) {
+				declared = true
+
+				break
+			}
+		}
+
+		if !declared {
+			comp = pr.BuiltinReturnLookup(c.funcName)
+		}
 	}
 
 	// A mock made through the MockBox a spec holds,
@@ -1263,6 +1299,24 @@ func (pr *ParseResult) pendingCallComponent(c *pendingCall, funcReturns map[stri
 	}
 
 	return comp
+}
+
+// A callable argument is source-owned, even when its name matches a builtin.
+// Enclosing named-function arguments also remain visible inside callbacks.
+func (pr *ParseResult) pendingArgumentShadows(c *pendingCall) bool {
+	for _, scope := range pr.Scopes {
+		if int(c.line) < scope.Start || int(c.line) > scope.End {
+			continue
+		}
+
+		for _, arg := range pr.argsOfFuncAt(scope.Start) {
+			if strings.EqualFold(arg.Name, c.funcName) {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 // callsOwnFunction reports whether c calls a function of the file's own
@@ -1291,9 +1345,11 @@ func (pr *ParseResult) addPendingRef(c *pendingCall, comp string) bool {
 	ref := ComponentRef{
 		Variable: c.varName, Component: comp, ChainRest: c.rest,
 		URI: pr.URI, Line: c.line, This: c.refThis, Rebinds: c.rebinds, BaseGuess: c.baseGuess,
+		ChainMethod: guessedMethod(c),
 		VisibleFrom: c.visibleFrom, VisibleTo: c.visibleTo,
+		ClosureFrom: c.closureFrom, ClosureTo: c.closureTo, HasClosureSpan: c.hasClosureSpan,
 	}
-	if c.funcKey == "" || c.global {
+	if c.funcKey == "" && !c.hasClosureSpan || c.global {
 		pr.ComponentRefs = append(pr.ComponentRefs, ref)
 	} else {
 		pr.funcRefsMap = appendKeyed(pr.funcRefsMap, c.funcKey, []ComponentRef{ref})
@@ -1456,7 +1512,7 @@ func (pr *ParseResult) settleReturnVars(pending []returnPending, calls []pending
 			// returns. An unscoped name the function never declared is a
 			// variables-scope one, as settleReturnComponent reads it: a
 			// pending call assigning it settles at component level.
-			refs, admit = pr.funcRefsMap[rp.funcKey], func(ref *ComponentRef) bool { return ref.VisibleTo == 0 }
+			refs, admit = pr.funcRefsMap[rp.funcKey], func(ref *ComponentRef) bool { return ref.VisibleTo == 0 && !ref.HasClosureSpan }
 			if refReaching(refs, name, rp.line, admit) == nil {
 				refs, admit = pr.ComponentRefs, func(*ComponentRef) bool { return true }
 			}
@@ -1465,13 +1521,23 @@ func (pr *ParseResult) settleReturnVars(pending []returnPending, calls []pending
 		reaching := pr.flow.reaching(refs, name, rp.line, admit)
 
 		// A receiver's own type, guessed for a call the parse could not look
-		// up, is not what the function returns; the resolver reads the body.
+		// up, is not what the function returns; the resolver reads the body,
+		// or, when one such call alone reaches the return, finishes it.
 		if slices.ContainsFunc(reaching, func(ref *ComponentRef) bool { return ref.BaseGuess }) {
+			if g := reaching[0]; len(reaching) == 1 && !called && g.ChainMethod != "" && len(g.ChainRest) == 0 {
+				pr.Funcs[rp.funcIdx].ReturnVia = &ReturnCall{Component: g.Component, Method: g.ChainMethod}
+			}
+
 			continue
 		}
 
 		if len(reaching) > 0 && !assignedBetween(calls, name, reaching[0].Line, rp.line) {
 			comp := agreedComponent(reaching, pr.settledComponent)
+			if comp != "" && pr.flow.untypedReaches(reaching, name, pr.Funcs[rp.funcIdx].Line, rp.line) {
+				comp = "$any" // a branch assigned it something untyped
+				pr.Funcs[rp.funcIdx].ReturnsUntyped = true
+			}
+
 			if scope == RefAny {
 				comp = returnedComponent(comp, called)
 			}
@@ -1543,7 +1609,7 @@ func (pr *ParseResult) hasRefFor(c *pendingCall) bool {
 		refs := pr.funcRefsMap[c.funcKey]
 		for i := range refs {
 			if ref := &refs[i]; ref.Line == c.line && strings.EqualFold(ref.Variable, c.varName) &&
-				ref.VisibleFrom == c.visibleFrom && ref.VisibleTo == c.visibleTo {
+				ref.VisibleFrom == c.visibleFrom && ref.VisibleTo == c.visibleTo && ref.HasClosureSpan == c.hasClosureSpan && ref.ClosureFrom == c.closureFrom && ref.ClosureTo == c.closureTo {
 				return true
 			}
 		}
@@ -1775,6 +1841,7 @@ func (pr *ParseResult) generatePropertyAccessors() {
 			getterDef := FunctionDef{
 				Name: "get" + capName, URI: u, Line: prop.line,
 				ReturnType: prop.typeName,
+				Generated:  true,
 			}
 			if pr.Persistent {
 				getterDef.ElementComponent = prop.collectionEntity()
@@ -1789,6 +1856,7 @@ func (pr *ParseResult) generatePropertyAccessors() {
 
 			pr.Funcs = append(pr.Funcs, FunctionDef{
 				Name: "set" + capName, URI: u, Line: prop.line,
+				Generated:       true,
 				Arguments:       []Argument{{Name: prop.name, Type: prop.typeName}},
 				ReturnComponent: self,
 			})
@@ -1798,7 +1866,7 @@ func (pr *ParseResult) generatePropertyAccessors() {
 			if !existing[strings.ToLower(m)] {
 				existing[strings.ToLower(m)] = true
 
-				pr.Funcs = append(pr.Funcs, FunctionDef{Name: m, URI: u, Line: prop.line})
+				pr.Funcs = append(pr.Funcs, FunctionDef{Name: m, URI: u, Line: prop.line, Generated: true})
 			}
 		}
 
@@ -2796,7 +2864,7 @@ func (pr *ParseResult) FuncComponentRefs(funcStart, funcEnd int) []ComponentRef 
 	scoped := 0
 
 	for i := range refs {
-		if refs[i].VisibleTo != 0 {
+		if refs[i].VisibleTo != 0 || refs[i].HasClosureSpan {
 			scoped++
 		}
 	}
@@ -2808,7 +2876,7 @@ func (pr *ParseResult) FuncComponentRefs(funcStart, funcEnd int) []ComponentRef 
 	wide := make([]ComponentRef, 0, len(refs)-scoped)
 
 	for i := range refs {
-		if refs[i].VisibleTo == 0 {
+		if refs[i].VisibleTo == 0 && !refs[i].HasClosureSpan {
 			wide = append(wide, refs[i])
 		}
 	}
@@ -2843,6 +2911,15 @@ func (pr *ParseResult) FuncComponentRefsAt(funcStart, funcEnd int, line uint32) 
 // FuncRefs returns cached component refs and document links for a function body.
 func (pr *ParseResult) FuncRefs(funcStart, funcEnd int) ([]ComponentRef, []DocumentLink) {
 	return pr.cachedFuncRefs(funcStart, funcEnd)
+}
+
+// TopLevelClosureRefs returns the full parse's anonymous-function bindings.
+// They are keyed separately from named functions and never become file globals.
+func (pr *ParseResult) TopLevelClosureRefs() []ComponentRef {
+	pr.funcRefsMu.Lock()
+	defer pr.funcRefsMu.Unlock()
+
+	return slices.Clone(pr.funcRefsMap[""])
 }
 
 // FuncLinks returns document links for a function body from the parse-time cache.
@@ -2944,6 +3021,7 @@ func (pr *ParseResult) funcRefsUncached(funcStart, funcEnd int) ([]ComponentRef,
 
 	if regionKind == RegionScript {
 		sp := newScriptParser(body, string(pr.URI), funcStart, pr.Resolvers)
+		sp.baseOffset = start
 		sp.resolverSet = pr.resolverSet
 		sp.extractLinks = true
 		sp.argumentTypes = pr.argumentTypeLookup()
@@ -2961,6 +3039,7 @@ func (pr *ParseResult) funcRefsUncached(funcStart, funcEnd int) ([]ComponentRef,
 		}
 	} else {
 		tp := newTagParser(body, string(pr.URI))
+		tp.srcOffset = start
 		tp.resolvers = pr.Resolvers
 		tp.resolverSet = pr.resolverSet
 		tp.extractLinks = true
@@ -3303,6 +3382,7 @@ func (pr *ParseResult) funcCallsUncached(funcStart, funcEnd int) []CallSite {
 
 	if regionKind == RegionScript {
 		sp := newScriptParser(body, string(pr.URI), funcStart, pr.Resolvers)
+		sp.baseOffset = start
 		sp.resolverSet = pr.resolverSet
 		sp.extractCalls = true
 		sp.parse()
@@ -3313,6 +3393,7 @@ func (pr *ParseResult) funcCallsUncached(funcStart, funcEnd int) []CallSite {
 		}
 	} else {
 		tp := newTagParser(body, string(pr.URI))
+		tp.srcOffset = start
 		tp.resolvers = pr.Resolvers
 		tp.resolverSet = pr.resolverSet
 		tp.extractCalls = true
@@ -3650,6 +3731,75 @@ func isMemberMethod(name string) bool {
 	return false
 }
 
+// mayDeclare is mayDeclareVariable for this file, used only while AllVars has
+// not been built, and for at most maxDeclareScans names: each answer is a
+// search of the whole file, and the resolver asks Declares of many names in
+// one file, so past a few names building AllVars once is cheaper.
+func (pr *ParseResult) mayDeclare(name string) bool {
+	pr.mu.Lock()
+	defer pr.mu.Unlock()
+
+	if pr.allVarsDone || len(pr.declareScans) >= maxDeclareScans {
+		return true
+	}
+
+	key := strings.ToLower(name)
+	if may, ok := pr.declareScans[key]; ok {
+		return may
+	}
+
+	may := mayDeclareVariable(pr.Content, name)
+	if pr.declareScans == nil {
+		pr.declareScans = map[string]bool{}
+	}
+
+	pr.declareScans[key] = may
+
+	return may
+}
+
+// maxDeclareScans bounds mayDeclare's whole-file searches per file.
+const maxDeclareScans = 4
+
+// mayDeclareVariable reports whether content could declare a variable called
+// name: whether the name appears anywhere, as a whole word, other than called.
+// Every declaration (an assignment, var, a for-in or catch binding, a tag's
+// name="…") has something other than "(" after the name, so a name only ever
+// called is declared by nothing, and AllVars, a second whole-file parse, is
+// not run to find that out: Declares( "structNew" ) asked it of every file
+// with a collection seeded by structNew(), 750 MB over a tassweb scan.
+func mayDeclareVariable(content, name string) bool {
+	if name == "" {
+		return true
+	}
+
+	for at := 0; ; {
+		i := indexFoldFrom(content, name, at)
+		if i < 0 {
+			return false
+		}
+
+		at = i + len(name)
+
+		if i > 0 && isIdentPart(content[i-1]) || at < len(content) && isIdentPart(content[at]) {
+			continue
+		}
+
+		j := at
+		for j < len(content) && (content[j] == ' ' || content[j] == '\t') {
+			j++
+		}
+
+		if j >= len(content) || content[j] != '(' {
+			return true
+		}
+	}
+}
+
+// IsShallow reports whether pr is a shallow parse (ParseOptions.Shallow):
+// signatures and extends, but no properties, refs or arguments.
+func (pr *ParseResult) IsShallow() bool { return pr.shallow }
+
 // Declares reports whether the file declares name anywhere, case-insensitively:
 // a variable in any scope, a property, a function or a function's argument.
 // A name it does not declare is one it expects from elsewhere — its base
@@ -3672,6 +3822,10 @@ func (pr *ParseResult) Declares(name string) bool {
 		if strings.EqualFold(pr.Properties[i].name, name) {
 			return true
 		}
+	}
+
+	if !pr.mayDeclare(name) {
+		return false
 	}
 
 	for _, v := range pr.AllVars() {
@@ -3853,4 +4007,48 @@ func memoFuncLookup(lookup func(component, funcName string) string) func(compone
 
 		return answer
 	}
+}
+
+// aliasComponent is what `varName = baseVar` copies: what baseVar holds at
+// the assignment, read from the function's refs and then the component's, as
+// a receiver is. It waits for the member pass, so a member is answered too:
+// tassweb's itext.cfc builds its helpers into `temp` in init() and keeps them
+// with `VARIABLES._itextUtils = temp.itextUtils`, and every method calling
+// one returned an untyped value.
+func (pr *ParseResult) aliasComponent(c *pendingCall, globals []ComponentRef) string {
+	if globals == nil {
+		globals = pr.ComponentRefs
+	}
+
+	scope, name := c.baseScope, c.baseVar
+	if lower := strings.ToLower(name); strings.HasPrefix(lower, "variables.") || strings.HasPrefix(lower, "this.") || strings.HasPrefix(lower, "local.") {
+		_, name, _ = strings.Cut(name, ".")
+	}
+
+	var ref *ComponentRef
+
+	if scope == RefAny && c.funcKey != "" {
+		ref = refReaching(pr.funcRefsMap[c.funcKey], name, c.line, func(r *ComponentRef) bool { return r.VisibleTo == 0 && !r.HasClosureSpan })
+	}
+
+	if ref == nil && !c.baseLocal {
+		ref = refReaching(globals, name, c.line, scope.Admits)
+	}
+
+	if ref == nil {
+		return ""
+	}
+
+	return pr.settledComponent(ref)
+}
+
+// guessedMethod is the method a ref typed by its receiver's own type was not
+// looked up for, which the resolver may look up (FunctionDef.ReturnVia).
+// ChainBase stays empty, so applyChainedReturnLookup leaves the ref alone.
+func guessedMethod(c *pendingCall) string {
+	if !c.baseGuess {
+		return ""
+	}
+
+	return c.funcName
 }

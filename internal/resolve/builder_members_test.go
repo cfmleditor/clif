@@ -1,6 +1,15 @@
 package resolve
 
-import "testing"
+import (
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/cfmleditor/clif/internal/index"
+	"github.com/cfmleditor/clif/internal/parser"
+	cfpath "github.com/cfmleditor/clif/internal/path"
+	"github.com/cfmleditor/clif/internal/vfs"
+)
 
 // TestACriteriaBuildersClosureAndRestrictionsAreTyped: cborm's when() hands its
 // closure the current builder, and a builder's restrictions is a Restrictions.
@@ -58,5 +67,33 @@ function typedButNotABuilder(){
 		if got[k] != want {
 			t.Errorf("%s: %q, want %q", k, got[k], want)
 		}
+	}
+}
+
+func TestSameLineCallbackContextsStaySeparate(t *testing.T) {
+	dir := t.TempDir()
+	src := `component extends="cborm.models.VirtualEntityService" {function run(){newCriteria().when(true,function(c){c.isEq("a",1);other(function(c){c.isEq("b",2);});});other(function(c){c.isEq("d",3);});}}`
+	writeFiles(t, dir, map[string]string{"Svc.cfc": src})
+	r := &Resolver{FS: vfs.OS{}, Index: index.New(), WorkspaceFolders: []string{dir}}
+	pr := parser.ParseWithOptions(cfpath.ToURI(filepath.Join(dir, "Svc.cfc")), src, &parser.ParseOptions{ExtractCalls: true})
+	count := 0
+
+	for _, call := range pr.AllCalls() {
+		if call.FuncName != "isEq" {
+			continue
+		}
+
+		reason := r.CanResolveCall(&call, pr, dir)
+
+		want := strings.HasPrefix(src[call.StartByte:], `isEq("a"`)
+		if (reason == "") != want {
+			t.Fatalf("%+v: %q, want resolved %v", call, reason, want)
+		}
+
+		count++
+	}
+
+	if count != 3 {
+		t.Fatalf("checked %d", count)
 	}
 }

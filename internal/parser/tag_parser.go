@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/conv"
@@ -29,12 +30,13 @@ type tagParser struct {
 	resolverSet   *ResolverSet
 	extractLinks  bool // whether to extract document links
 	extractCalls  bool // whether to extract all call sites
-	// gated limits #...# scanning of text to outputSpans, the ranges of the
-	// file ColdFusion evaluates; srcOffset is this region's offset in it. The
-	// attributes of CF tags and of importPrefixes custom tags are scanned
-	// wherever they stand. See outputContext.
+	// gated limits #...# scanning of text to where ColdFusion evaluates it,
+	// which output tracks as the walk passes each tag; srcOffset is this
+	// region's offset in the file. The attributes of CF tags and of
+	// importPrefixes custom tags are scanned wherever they stand. See
+	// outputContext and outputState.
 	gated               bool
-	outputSpans         [][2]int
+	output              *outputState
 	importPrefixes      []string
 	srcOffset           int
 	builtinReturnLookup func(string) string
@@ -315,7 +317,7 @@ func (p *tagParser) parse() {
 		if idx < 0 {
 			// Trailing text, which is also where the attribute list of the last
 			// declined tag in the file ends up.
-			if p.textEvaluated(pos) {
+			if p.textEvaluated() {
 				p.scanInterpolatedText(p.src[pos:], pos)
 			}
 
@@ -336,7 +338,7 @@ func (p *tagParser) parse() {
 		// wholly outside; and the attributes of a declined CF or custom tag
 		// are scanned below and stepped over, so a gap holds only text and
 		// HTML attributes, which are evaluated only inside an output context.
-		if p.textEvaluated(pos) {
+		if p.textEvaluated() {
 			p.scanInterpolatedText(p.src[pos:idx], pos)
 		}
 
@@ -361,11 +363,13 @@ func (p *tagParser) parse() {
 		switch {
 		case idx+1 < len(p.src) && p.src[idx+1] == '/':
 			p.trackBlock(idx)
+			p.trackOutput(idx)
 			p.closeTag(idx)
 
 			pos = idx + 1
 		case idx+3 < len(p.src) && toLowerByte(p.src[idx+1]) == 'c' && toLowerByte(p.src[idx+2]) == 'f':
 			p.trackBlock(idx)
+			p.trackOutput(idx)
 
 			pos = p.handleCFTag(idx)
 		case p.gated && customPrefixTag(p.src[idx:], p.importPrefixes):
@@ -398,6 +402,7 @@ func (p *tagParser) parseNestedScript(idx int) int {
 
 	baseLine := p.lineAt(bodyStart)
 	sp := newScriptParser(p.src[bodyStart:bodyEnd], p.fileURI, baseLine, p.resolvers).asCFScript()
+	sp.baseOffset = p.srcOffset + bodyStart
 	sp.resolverSet = p.resolverSet
 	sp.extractCalls = p.extractCalls
 	sp.parse()
@@ -642,7 +647,7 @@ func (p *tagParser) dispatchCFTag(ch byte, tag string, idx, tagEnd, line int) {
 		}
 	case 's':
 		if hasCFTagPrefix(tag, "<cfset") {
-			p.parseCFSet(tag, line)
+			p.parseCFSet(tag, line, idx)
 		}
 	case 'o':
 		if hasCFTagPrefix(tag, "<cfobject") {
@@ -656,7 +661,8 @@ func (p *tagParser) dispatchCFTag(ch byte, tag string, idx, tagEnd, line int) {
 			// A condition is an expression, and `<cfif svc.isValid(x)>`
 			// recorded nothing while the same test in script syntax
 			// recorded the call.
-			p.scanExpressionCalls(tagBody(tag), line)
+			body := tagBody(tag)
+			p.scanExpressionCalls(body, line, idx+strings.Index(tag, body))
 		}
 	case 'e':
 		// 'e' is admitted for this one tag, the way 'l' is for <cfloop>.
@@ -664,11 +670,12 @@ func (p *tagParser) dispatchCFTag(ch byte, tag string, idx, tagEnd, line int) {
 		// <cfexit> and <cferror>; the alternative is that the second
 		// half of every if/else chain in tag syntax has no calls in it.
 		if hasCFTagPrefix(tag, "<cfelseif") {
-			p.scanExpressionCalls(tagBody(tag), line)
+			body := tagBody(tag)
+			p.scanExpressionCalls(body, line, idx+strings.Index(tag, body))
 		}
 	case 'r':
 		if hasCFTagPrefix(tag, "<cfreturn") {
-			p.parseCFReturn(tag, line)
+			p.parseCFReturn(tag, line, idx)
 		}
 	}
 }
@@ -684,17 +691,24 @@ func (p *tagParser) dispatchCFTag(ch byte, tag string, idx, tagEnd, line int) {
 // between them, and the <cfif> conditions there lost their calls — which the
 // old reading only recovered by scanning the whole run as one expression.
 func (p *tagParser) nextTag(pos int) int {
-	if p.gated && !p.textEvaluated(pos) {
+	if p.gated && !p.textEvaluated() {
 		return strings.IndexByte(p.src[pos:], '<')
 	}
 
 	return nextTagStart(p.src[pos:])
 }
 
-// textEvaluated reports whether the text at pos is where ColdFusion evaluates
+// trackOutput moves the output state past the tag at idx, when gated.
+func (p *tagParser) trackOutput(idx int) {
+	if p.gated {
+		p.output.track(p.src, idx)
+	}
+}
+
+// textEvaluated reports whether the text at the walk's position is where ColdFusion evaluates
 // #...#. Ungated, all of it is, as the parser has always read it.
-func (p *tagParser) textEvaluated(pos int) bool {
-	return !p.gated || inSpan(p.outputSpans, p.srcOffset+pos)
+func (p *tagParser) textEvaluated() bool {
+	return !p.gated || p.output.active()
 }
 
 // stepOverEvaluatedTag handles a tag the walk has no handler for but whose
@@ -1007,10 +1021,10 @@ func (p *tagParser) parseScopedAttrVar(tag, attr string, line int) {
 }
 
 // parseCFSet handles <cfset var x = ...>, <cfset local.x = ...>, etc.
-func (p *tagParser) parseCFSet(tag string, line int) {
+func (p *tagParser) parseCFSet(tag string, line, offset int) {
 	// Strip <cfset and trailing >
 	inner := tag
-	if i := strings.IndexByte(inner, ' '); i >= 0 {
+	if i := strings.IndexAny(inner, " \t\r\n"); i >= 0 {
 		inner = inner[i+1:]
 	}
 
@@ -1026,14 +1040,45 @@ func (p *tagParser) parseCFSet(tag string, line int) {
 	// the script parser afterwards for the rest, which is what <cfif> and
 	// <cfreturn> already do; the string paths stay because they carry the refs
 	// and pending calls that decide what a variable now holds.
-	defer p.scanSetExpressionCalls(inner, line)
+	before := len(p.calls)
+	if p.inFunc != "" {
+		before = len(p.funcCalls[p.inFunc])
+	}
+
+	start := strings.Index(tag, inner)
+	line += strings.Count(tag[:start], "\n")
+	origin := offset + start
 
 	p.setAssign(inner, line)
+
+	bucket := p.calls
+	if p.inFunc != "" {
+		bucket = p.funcCalls[p.inFunc]
+	}
+
+	for i := before; i < len(bucket); i++ {
+		if !bucket[i].HasSpan {
+			expressionCallOrigin(&bucket[i], inner, p.srcOffset+origin, line, true)
+		}
+	}
+
+	p.mergeExpressionCalls(inner, line, true, origin, before)
 }
 
 // setAssign handles the assignment a <cfset> holds, whose calls
 // parseCFSet's caller scans.
 func (p *tagParser) setAssign(inner string, line int) {
+	if _, rhs, ok := strings.Cut(inner, "="); ok && p.flow != nil && p.inFunc != "" && untypedValueText(rhs) {
+		// Every assignment below records its VarDef first, except a local's
+		// reassignment, which notes itself (flowBlocks.untypedReaches).
+		n := len(p.vars)
+		defer func() {
+			if len(p.vars) > n {
+				p.flow.noteAssign(p.vars[n].Name, p.vars[n].Line)
+			}
+		}()
+	}
+
 	switch {
 	case hasPrefixFold(inner, "var "):
 		rest := strings.TrimSpace(inner[4:])
@@ -1104,6 +1149,8 @@ func (p *tagParser) setAssign(inner string, line int) {
 				isLocal := p.inFunc != "" && p.isVarDeclaredLocal(name)
 				if !isLocal {
 					p.vars = append(p.vars, VarDef{Name: name, Scope: ScopeVariables, Line: conv.Uint32(line)})
+				} else if p.flow != nil && untypedValueText(rhs) {
+					p.flow.noteAssign(name, conv.Uint32(line))
 				}
 
 				p.forceGlobal = !isLocal
@@ -1220,14 +1267,18 @@ func isDottedIdentText(s string) bool {
 }
 
 // parseCFReturn handles <cfreturn expr /> to infer function return component.
-func (p *tagParser) parseCFReturn(tag string, line int) {
+func (p *tagParser) parseCFReturn(tag string, line int, offsets ...int) {
 	inner := tagBody(tag)
 
 	// A returned expression holds calls whether or not this is the return that
 	// sets the component, and whether or not we are inside a function at all —
 	// so the scan happens before every early exit below. `<cfreturn
 	// svc.value()>` used to record nothing.
-	p.scanExpressionCalls(inner, line)
+	if len(offsets) > 0 {
+		p.scanExpressionCalls(inner, line, offsets[0]+strings.Index(tag, inner))
+	} else {
+		p.scanExpressionCalls(inner, line)
+	}
 
 	if p.inFunc == "" {
 		return
@@ -1243,8 +1294,8 @@ func (p *tagParser) parseCFReturn(tag string, line int) {
 	}
 
 	f := &p.funcs[len(p.funcs)-1]
-	if f.ReturnComponent != "" || f.returnVar != "" {
-		return // already set from an earlier return
+	if f.returnVar != "" {
+		return // a variable returned earlier is settled later, from its refs
 	}
 
 	f.returnLine = conv.Uint32(line)
@@ -1260,11 +1311,11 @@ func (p *tagParser) parseCFReturn(tag string, line int) {
 	switch {
 	case hasPrefixFold(inner, "new "):
 		if comp := extractComponentPath(inner[4:]); comp != "" {
-			f.ReturnComponent = comp
+			f.ReturnComponent = unionReturn(f.ReturnComponent, comp)
 		}
 	case hasPrefixFold(inner, "createobject("):
 		if comp := extractCreateObjectArg(inner[13:]); comp != "" {
-			f.ReturnComponent = comp
+			f.ReturnComponent = unionReturn(f.ReturnComponent, comp)
 		}
 	case strings.EqualFold(strings.TrimSuffix(strings.TrimSpace(inner), "/"), "this"):
 		f.returnVar = returnsThis
@@ -1475,6 +1526,18 @@ func (p *tagParser) checkSetRHSStr(rhs, varName string, line int) {
 		}
 	default:
 		if p.resolveRHS(rhs, varName, line) {
+			return
+		}
+
+		if plainName(rhs) && !strings.EqualFold(rhs, varName) {
+			p.pendingCalls = append(p.pendingCalls, pendingCall{
+				varName: varName, baseVar: rhs, alias: true,
+				line: conv.Uint32(line), funcKey: p.inFunc,
+				refThis: p.refThis, global: p.forceGlobal,
+				baseScope: ReceiverRefScope(rhs),
+				baseLocal: readThroughLocal(rhs) || p.inFunc != "" && (p.isVarDeclaredLocal(rootName(rhs)) || p.isArgument(rootName(rhs))),
+			})
+
 			return
 		}
 
@@ -1722,7 +1785,7 @@ func (p *tagParser) funcCallRHS(rhs string, paren int, varName string, line int)
 	}
 
 	if p.builtinReturnLookup != nil {
-		if comp := p.builtinReturnLookup(funcName); comp != "" {
+		if comp := p.builtinReturnLookup(funcName); comp != "" && !strings.HasPrefix(comp, NativeTypePrefix) {
 			p.addRef(&ComponentRef{
 				Variable: varName, Component: comp,
 				URI: uriFromString(p.fileURI), Line: conv.Uint32(line),
@@ -2106,6 +2169,9 @@ func toLowerByte(b byte) byte {
 	return b
 }
 
+// HasPrefixFold is hasPrefixFold, shared with internal/resolve.
+func HasPrefixFold(s, prefix string) bool { return hasPrefixFold(s, prefix) }
+
 // hasPrefixFold checks if s starts with prefix (case-insensitive, ASCII only).
 func hasPrefixFold(s, prefix string) bool {
 	if len(s) < len(prefix) {
@@ -2347,7 +2413,7 @@ func (p *tagParser) scanInterpolatedText(text string, offset int) {
 			continue
 		}
 
-		p.scanExpressionCalls(spanText, p.lineAt(offset+span.start))
+		p.scanExpressionCalls(spanText, p.lineAt(offset+span.start), offset+span.start)
 	}
 }
 
@@ -2363,23 +2429,16 @@ func (p *tagParser) scanInterpolatedText(text string, offset int) {
 // Calls and dynamic member assignments are merged. The refs and vars a
 // sub-parse also produces belong to whatever the tag handler already recorded
 // for them, and taking them here would record each one twice.
-func (p *tagParser) scanExpressionCalls(expr string, line int) {
-	p.mergeExpressionCalls(expr, line, false)
+func (p *tagParser) scanExpressionCalls(expr string, line int, offsets ...int) {
+	p.mergeExpressionCalls(expr, line, false, offsets...)
 }
 
-// scanSetExpressionCalls is scanExpressionCalls for a <cfset>, whose own
-// string-matched shapes have already been recorded by the time it runs.
-//
 // Only <cfset> needs this. A #...# span and a <cfif> condition have nothing
 // recorded before them, and deduping there is actively wrong: two
 // interpolations of the same function on one line —
 // `#getColdBoxSetting("a")# #getColdBoxSetting("b")#` — are two calls, and
 // running the shared merge with the tally on cost the second one. The corpus
 // caught that; a unit test on one span could not have.
-func (p *tagParser) scanSetExpressionCalls(expr string, line int) {
-	p.mergeExpressionCalls(expr, line, true)
-}
-
 // mergeExpressionCalls parses one CFML expression and records the calls in it.
 //
 // The tag parser matches tags and pulls attributes out with string searches; it
@@ -2399,7 +2458,31 @@ func (p *tagParser) scanSetExpressionCalls(expr string, line int) {
 // own string path resolved against this file's refs while still gaining the
 // calls that path never matched. Counting rather than testing presence is what
 // keeps `<cfset x = f() + f()>` at two.
-func (p *tagParser) mergeExpressionCalls(expr string, line int, topUp bool) {
+// exprCallKey identifies a call when mergeExpressionCalls subtracts the calls
+// a <cfset> already recorded from its sub-parse.
+type exprCallKey struct {
+	name        string
+	line, start uint32
+	span        bool
+}
+
+// takeCounted reports whether have holds k (by span, else by name and line)
+// and, when it does, takes one.
+func takeCounted(have map[exprCallKey]int, k exprCallKey) bool {
+	if have[k] == 0 && k.span {
+		k.start, k.span = 0, false
+	}
+
+	if have[k] == 0 {
+		return false
+	}
+
+	have[k]--
+
+	return true
+}
+
+func (p *tagParser) mergeExpressionCalls(expr string, line int, topUp bool, offsets ...int) {
 	if !p.extractCalls {
 		return
 	}
@@ -2417,35 +2500,86 @@ func (p *tagParser) mergeExpressionCalls(expr string, line int, topUp bool) {
 
 	var sub *scriptParser
 
-	if memberSets {
+	knownOrigin := len(offsets) > 0 && offsets[0] >= 0
+
+	origin := -1
+	if knownOrigin {
+		origin = p.srcOffset + offsets[0]
+	}
+
+	wrapped := memberSets
+
+	if wrapped {
 		// One sub-parse answers both questions. The member assignments need
 		// the body path, so the expression is wrapped in a function; the
 		// calls are the same either way, and parsing the <cfset> twice was a
 		// tenth of a reparse of a large tag component.
 		sub = p.memberSetParser(expr, line)
+		if knownOrigin {
+			// Spans are initially relative to the synthetic wrapper. Only
+			// calls wholly inside its real expression are translated below.
+			sub.baseOffset = 0
+		}
+
 		sub.extractCalls = true
 		sub.parse()
-		p.keepMemberSets(sub)
+
+		if memberSets {
+			p.keepMemberSets(sub, origin)
+		}
 	} else {
 		sub = newScriptParser(expr, p.fileURI, line, p.resolvers).asCFScript()
+		if len(offsets) > 0 && offsets[0] >= 0 {
+			sub.baseOffset = p.srcOffset + offsets[0]
+		}
+
 		sub.resolverSet = p.resolverSet
 		sub.extractCalls = true
 		sub.parse()
 	}
 
-	have := map[string]int{}
+	key := func(call *CallSite) exprCallKey {
+		k := exprCallKey{name: strings.ToLower(call.FuncName)}
+		if len(offsets) > 1 {
+			k.line = call.Line
+			if call.HasSpan {
+				k.start, k.span = call.StartByte, true
+			}
+		}
+
+		return k
+	}
+	have := map[exprCallKey]int{}
 
 	if topUp {
 		cs := p.callsOnLine(conv.Uint32(line))
+		if len(offsets) > 1 {
+			bucket := p.calls
+			if p.inFunc != "" {
+				bucket = p.funcCalls[p.inFunc]
+			}
+
+			cs = slices.Clone(bucket[offsets[1]:])
+			for i := range offsets[1] {
+				call := &bucket[i]
+				if call.HasSpan && int(call.StartByte) >= p.srcOffset+offsets[0] && int(call.EndByte) <= p.srcOffset+offsets[0]+len(expr) {
+					cs = append(cs, *call)
+				}
+			}
+		}
 
 		for i := range cs {
 			c := &cs[i]
 
-			have[strings.ToLower(c.FuncName)]++
+			have[key(c)]++
 		}
 	}
 
 	emit := func(c CallSite) {
+		if knownOrigin {
+			expressionWrappedCallOrigin(&c, expr, p.srcOffset+offsets[0], line, wrapped, len(offsets) > 1)
+		}
+
 		// The wrapper is not a function of the file: a call it encloses has
 		// no caller of its own, as it has unwrapped, and fillCallers gives it
 		// the one whose lines hold it.
@@ -2453,10 +2587,9 @@ func (p *tagParser) mergeExpressionCalls(expr string, line int, topUp bool) {
 			c.Caller = ""
 		}
 
-		k := strings.ToLower(c.FuncName)
-		if have[k] > 0 {
-			have[k]--
-
+		// Only a top-up has calls to subtract; without one, nothing is looked
+		// up and no name is lowercased for it (a mixed-case name allocates).
+		if len(have) > 0 && takeCounted(have, key(&c)) {
 			return
 		}
 
@@ -2511,11 +2644,21 @@ func (p *tagParser) memberSetParser(expr string, line int) *scriptParser {
 const memberSetWrapper = "__cfset"
 
 // keepMemberSets takes the member assignments a memberSetParser found.
-func (p *tagParser) keepMemberSets(sub *scriptParser) {
+func (p *tagParser) keepMemberSets(sub *scriptParser, origins ...int) {
 	for i := range sub.pendingCalls {
 		c := sub.pendingCalls[i]
 		if !c.memberSet {
 			continue
+		}
+
+		if c.hasClosureSpan && len(origins) > 0 && origins[0] >= 0 {
+			prefix := len("function " + memberSetWrapper + "(){")
+			if int(c.closureFrom) >= prefix && int(c.closureTo) <= len(sub.sc.src)-1 {
+				c.closureFrom = conv.Uint32(origins[0] + int(c.closureFrom) - prefix)
+				c.closureTo = conv.Uint32(origins[0] + int(c.closureTo) - prefix)
+			} else {
+				c.hasClosureSpan = false
+			}
 		}
 
 		c.funcKey = p.inFunc
@@ -2694,4 +2837,52 @@ func extractLinksByScope(src string, lineNum int, scopes []FuncScope, funcLinks 
 	}
 
 	return funcLinks
+}
+
+// plainName reports whether s is a variable and nothing else: a name, or
+// names joined by dots. A keyword (`true`, `null`) is not one.
+func plainName(s string) bool {
+	if s == "" || isKeyword(s) {
+		return false
+	}
+
+	for part := range strings.SplitSeq(s, ".") {
+		if part == "" || !isIdentStart(part[0]) {
+			return false
+		}
+
+		for i := 1; i < len(part); i++ {
+			if !isIdentPart(part[i]) {
+				return false
+			}
+		}
+	}
+
+	return true
+}
+
+// rootName is the first name of a dotted one.
+func rootName(s string) string {
+	root, _, _ := strings.Cut(s, ".")
+
+	return root
+}
+
+// untypedValueText reports whether rhs is a value no component can be: a
+// string, a number or a boolean, or an argument passed through, whose type is
+// the caller's. A call is not one: what it returns may be typed later.
+func untypedValueText(rhs string) bool {
+	rhs = strings.TrimSpace(rhs)
+	if rhs == "" {
+		return false
+	}
+
+	if c := rhs[0]; c == '"' || c == '\'' || c >= '0' && c <= '9' || c == '-' {
+		return true
+	}
+
+	word := extractIdent(rhs)
+
+	return strings.EqualFold(word, "true") || strings.EqualFold(word, "false") ||
+		strings.EqualFold(word, "arguments") && len(rhs) > len(word) && rhs[len(word)] == '.'
 }

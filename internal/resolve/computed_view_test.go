@@ -80,7 +80,7 @@ function init(){ variables.svc = new svc.EntrySvc(); return this; }
 	expectReasons(t, reasonsWith(t, &Resolver{}, dir, "admin/views/content/pager.cfm"), map[string]string{
 		"q.pageOnly":  "",
 		"q.entryOnly": "",
-		"q.nope":      "method 'nope' not found in Page",
+		"q.nope":      "method 'nope' not found in Entry|Page",
 	})
 	expectReasons(t, reasonsWith(t, &Resolver{}, dir, "admin/views/other/pager.cfm"), map[string]string{
 		"z.pageOnly": "variable 'z' has no component ref",

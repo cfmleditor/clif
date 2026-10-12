@@ -178,7 +178,7 @@ func (r *Resolver) subclassRef(path, base, name string, scope parser.RefScope) s
 // value a subclass gives a variable its base reads, as ContentBox's handlers
 // give entityPlural and handler. "" when none writes one.
 func (r *Resolver) leafLiteral(leaf, base, name string) string {
-	re := regexp.MustCompile(`(?i)\bvariables\.` + regexp.QuoteMeta(name) + `\s*=\s*["']([^"'#]*)["']`)
+	re := compiledPattern(`(?i)\bvariables\.` + regexp.QuoteMeta(name) + `\s*=\s*["']([^"'#]*)["']`)
 
 	path := leaf
 
@@ -187,9 +187,9 @@ func (r *Resolver) leafLiteral(leaf, base, name string) string {
 			return ""
 		}
 
-		if data, err := r.fs().ReadFile(path); err == nil {
-			if m := re.FindSubmatch(data); m != nil && len(m[1]) > 0 {
-				return string(m[1])
+		if text, err := r.readText(path); err == nil && mentions(text, "variables."+name) {
+			if m := re.FindStringSubmatch(text); m != nil && m[1] != "" {
+				return m[1]
 			}
 		}
 

@@ -26,15 +26,28 @@ type ReturnSource struct {
 	Methods   []string
 }
 
+// CollectionValues describes the values of a whole returned struct. It is
+// separate from ReturnSources, which describes the returned object itself.
+type CollectionValues struct {
+	Sources []ReturnSource
+}
+
+// ReturnCall is a call whose return a function returns: Method on Component.
+type ReturnCall struct {
+	Component, Method string
+}
+
 // FunctionDef represents a user-defined function found in a CFC file.
 type FunctionDef struct {
-	Name            string
-	URI             uri.URI
-	Line            uint32
-	Arguments       []Argument
-	ReturnType      string         // declared return type (e.g. "query", "models.User")
-	ReturnSources   []ReturnSource // uniform collection element sources, resolved on demand
-	ReturnComponent string         // inferred component from return statements (e.g. "services.Foo")
+	Name             string
+	URI              uri.URI
+	Line             uint32
+	Arguments        []Argument
+	ReturnType       string            // declared return type (e.g. "query", "models.User")
+	Generated        bool              // synthetic property/relationship accessor, not a source function
+	ReturnSources    []ReturnSource    // uniform collection element sources, resolved on demand
+	CollectionValues *CollectionValues // closed source contract for struct values
+	ReturnComponent  string            // inferred component from return statements (e.g. "services.Foo")
 	// ElementComponent is the entity each element of the collection a
 	// generated getter returns holds: a persistent entity's one-to-many or
 	// many-to-many property names it in its cfc attribute. The getter itself
@@ -44,7 +57,18 @@ type FunctionDef struct {
 	// ColdBox documents most return types and declares few. It is a claim,
 	// not a declaration: the resolver takes it only where it names a file.
 	DocReturn string
-	returnVar string // unexported: variable name from "return varName" for deferred resolution
+	// ReturnVia is how the function's returned variable was last assigned
+	// when the parse could not finish typing it: `x = recv.m()` with recv
+	// holding ReturnVia.Component and m not looked up, which a parse without
+	// FuncLookup (the index's) cannot do. The resolver finishes it.
+	ReturnVia *ReturnCall
+	// ReturnsUntyped is set when a branch reaching a return assigned the
+	// returned variable a value no component can be (a string, a number, an
+	// argument passed through), which is why ReturnComponent is "$any". The
+	// "$any" a parse without FuncLookup gives a chain it could not walk is
+	// not that, and only this one is a fact about every call.
+	ReturnsUntyped bool
+	returnVar      string // unexported: variable name from "return varName" for deferred resolution
 	// returnLine is the line of the return returnVar came from. The
 	// variable's type is what its latest assignment at or before that line
 	// gave it, not its first.
@@ -200,7 +224,8 @@ type ComponentRef struct {
 	// fluent component, which a parse with FuncLookup replaces by m's
 	// return. Mura's `variables.$ = variables.event.getValue("muraScope")`
 	// is not an event; a reader wanting what the source states skips it.
-	BaseGuess bool
+	BaseGuess      bool
+	HasClosureSpan bool
 	// New factory chains require a concrete result, not dynamic acceptance
 	// when a suffix method has an unknown return.
 	strictChain bool
@@ -228,12 +253,22 @@ type ComponentRef struct {
 	// whole function (or file) sees. FuncComponentRefs leaves ranged refs out
 	// and FuncComponentRefsAt includes the ones in force at a line.
 	VisibleFrom, VisibleTo uint32
+	ClosureFrom, ClosureTo uint32 // source bytes, end exclusive
 }
 
 // VisibleAt reports whether the ref is in force at line: always, unless a
 // closure declared it and line is outside that closure.
 func (r *ComponentRef) VisibleAt(line uint32) bool {
-	return r.VisibleTo == 0 || line >= r.VisibleFrom && line <= r.VisibleTo
+	return !r.HasClosureSpan && r.VisibleTo == 0 || line >= r.VisibleFrom && line <= r.VisibleTo
+}
+
+// VisibleAtCall additionally distinguishes same-line and nested closure stores.
+func (r *ComponentRef) VisibleAtCall(line uint32, call *CallSite) bool {
+	if !r.VisibleAt(line) {
+		return false
+	}
+
+	return !r.HasClosureSpan || call == nil || !call.HasSpan || call.StartByte >= r.ClosureFrom && call.StartByte < r.ClosureTo
 }
 
 // DocumentLink represents a file path reference in source (cfinclude, href, etc.).
@@ -250,10 +285,14 @@ type CallSite struct {
 	Component string // resolved component (from variable ref), empty if unresolved
 	Variable  string // the variable/qualifier before the dot (empty if bare call)
 	Line      uint32
-	Resolved  bool   // true if qualified (obj.func), false if bare call
+	Resolved  bool // true if qualified (obj.func), false if bare call
+	HasSpan   bool
 	This      bool   // written `this.f()`, which is recorded as the bare f(); see onScope
 	Caller    string // enclosing function name (empty if global)
 	Text      string // the trimmed line text
+	// StartByte identifies the called method token, EndByte the byte after
+	// its argument list. HasSpan distinguishes an unknown origin from byte 0.
+	StartByte, EndByte uint32
 
 	// Chain lists the method-name hops between the resolved base (Variable or
 	// Component) and this call, for calls chained off a prior call's return value
@@ -552,7 +591,7 @@ func splitPrefix(prefix string) []string {
 // that don't need the match position, only a yes/no signal.
 func prefixContainsFold(expr, prefix string) bool {
 	for alt := range strings.SplitSeq(prefix, "|") {
-		if alt != "" && containsFold(expr, alt) {
+		if alt != "" && indexFold(expr, alt) >= 0 {
 			return true
 		}
 	}
@@ -783,6 +822,13 @@ func (rs *ResolverSet) resolve(expr string) resolverAnswer {
 func indexFold(s, substr string) int {
 	return indexFoldFrom(s, substr, 0)
 }
+
+// IndexFold is strings.Index, case-insensitive, without lowercasing s: the one
+// such search, shared with internal/resolve, so a fix to it reaches both.
+func IndexFold(s, substr string) int { return indexFoldFrom(s, substr, 0) }
+
+// IndexFoldFrom is IndexFold starting at byte offset from.
+func IndexFoldFrom(s, substr string, from int) int { return indexFoldFrom(s, substr, from) }
 
 // indexFoldFrom is indexFold resumed at an offset, and is the allocation-free
 // alternative to lowercasing a string before searching it.
@@ -1042,35 +1088,6 @@ func simpleMatch(expr string, r *Resolver) string {
 	result = strings.ReplaceAll(result, "/", ".")
 
 	return result
-}
-
-func containsFold(s, substr string) bool {
-	n := len(substr)
-	if n == 0 {
-		return true
-	}
-
-	if n > len(s) {
-		return false
-	}
-
-	for i := 0; i <= len(s)-n; i++ {
-		match := true
-
-		for j := range n {
-			if s[i+j]|0x20 != substr[j]|0x20 {
-				match = false
-
-				break
-			}
-		}
-
-		if match {
-			return true
-		}
-	}
-
-	return false
 }
 
 // isComponentType returns true if a type string looks like a genuine dotted

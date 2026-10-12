@@ -34,6 +34,7 @@ type scriptParser struct {
 	extends             string
 	fileURI             string
 	baseLine            int
+	baseOffset          int // -1 for synthetic expressions without a source origin
 	resolvers           []Resolver
 	resolverSet         *ResolverSet
 	imports             map[string]string // last segment (lowercased) → full dot-path, from `import`
@@ -80,7 +81,8 @@ type pendingCall struct {
 	global     bool
 	returnExpr bool   // a return expression, grouped by function for factory-chain inference
 	memberSet  bool   // not a call: `varName.funcName = …`; see checkMemberSet
-	baseLocal  bool   // baseVar is the function's own, an argument or a local; see baseVarComponent
+	alias      bool   // not a call: `varName = baseVar`; see aliasComponent
+	baseLocal  bool   // receiver or bare callable is locally owned; see baseVarComponent
 	rebinds    bool   // the call is made on varName itself; see ComponentRef.Rebinds
 	baseGuess  bool   // typed as baseVar itself, the method unlooked-up; see ComponentRef.BaseGuess
 	block      uint32 // the block the assignment was made in; see flowBlocks
@@ -92,14 +94,17 @@ type pendingCall struct {
 	// The closure the assignment was made in, carried to the ref; see
 	// ComponentRef.VisibleFrom.
 	visibleFrom, visibleTo uint32
+	closureFrom, closureTo uint32
+	hasClosureSpan         bool
 }
 
 func newScriptParser(src, fileURI string, baseLine int, resolvers []Resolver) *scriptParser {
 	return &scriptParser{
-		sc:        NewScanner(src),
-		fileURI:   fileURI,
-		baseLine:  baseLine,
-		resolvers: resolvers,
+		sc:         NewScanner(src),
+		fileURI:    fileURI,
+		baseLine:   baseLine,
+		baseOffset: -1,
+		resolvers:  resolvers,
 	}
 }
 
@@ -143,6 +148,18 @@ func dynamicCall(expr string) string {
 	case "createobject":
 		if args = strings.TrimLeft(args, " \t"); args != "" && (args[0] == '"' || args[0] == '\'') &&
 			hasPrefixFold(args[1:], "java") && len(args) > 5 && args[5] == args[0] {
+			sc := NewScanner(args)
+
+			first := sc.NextSkipComments()
+			if first.Kind == TokString && sc.NextSkipComments().Kind == TokComma {
+				class := sc.NextSkipComments()
+				if class.Kind == TokString && (sc.PeekSkipComments().Kind == TokComma || sc.PeekSkipComments().Kind == TokRParen || sc.PeekSkipComments().Kind == TokEOF) {
+					if native := NativeJavaComponent(unquote(class.Value)); native != "" {
+						return native
+					}
+				}
+			}
+
 			return "$any"
 		}
 	}
@@ -176,7 +193,21 @@ func docReturn(comment string) string {
 
 	word := strings.Trim(rest[:end], ".")
 	if !strings.Contains(word, ".") {
-		return ""
+		line, _, _ := strings.Cut(rest, "\n")
+		found := ""
+
+		for field := range strings.FieldsSeq(line) {
+			candidate := strings.Trim(field, "`.,;()")
+			if NativeJavaComponent(candidate) != "" {
+				if found != "" && found != candidate {
+					return ""
+				}
+
+				found = candidate
+			}
+		}
+
+		return found
 	}
 
 	return word
@@ -195,6 +226,9 @@ const MockPrefix = "$mock:"
 // Application.cfc extending the framework is that object. config's FW/1 preset
 // writes it and the resolver reads it; the parser only holds the spelling.
 const ApplicationBase = "$application:"
+
+// MuraAdminBase requests the recognized embedded admin renderer owner only.
+const MuraAdminBase = ApplicationBase + "$mura-admin"
 
 // mockDecorations are the methods MockBox's decorateMock adds to an object it
 // mocks (TestBox system/MockBox.cfc). Each returns the mock it is called on,
@@ -293,7 +327,7 @@ func (p *scriptParser) addRef(ref *ComponentRef) {
 		p.flow.note(ref.Variable, ref.Line, p.flow.innermost())
 	}
 
-	if p.inFunc == "" || p.forceGlobal {
+	if p.inFunc == "" && !p.inClosure || p.forceGlobal {
 		p.componentRefs = append(p.componentRefs, *ref)
 	} else {
 		if p.funcRefs == nil {
@@ -301,6 +335,21 @@ func (p *scriptParser) addRef(ref *ComponentRef) {
 		}
 
 		p.funcRefs[p.inFunc] = append(p.funcRefs[p.inFunc], *ref)
+	}
+}
+
+// noteAssign records, for the flow analysis, an assignment to name in a
+// function body of a value no component can be (untypedValueText), read from
+// the token after the `=` (flowBlocks.untypedReaches).
+func (p *scriptParser) noteAssign(name string, line int) {
+	if p.flow == nil || p.inFunc == "" || p.inClosure {
+		return
+	}
+
+	switch rhs := p.sc.PeekSkipComments(); {
+	case rhs.Kind == TokString || rhs.Kind == TokNumber,
+		rhs.Kind == TokIdent && (identEq(rhs.Value, "true") || identEq(rhs.Value, "false") || identEq(rhs.Value, "arguments")):
+		p.flow.noteAssign(name, conv.Uint32(p.baseLine+line))
 	}
 }
 
@@ -314,6 +363,8 @@ func (p *scriptParser) addCall(call *CallSite) {
 	if !p.extractCalls {
 		return
 	}
+
+	p.setCallSpan(call)
 
 	if p.inFunc == "" {
 		p.calls = append(p.calls, *call)
@@ -648,13 +699,15 @@ func (p *scriptParser) recordChainContinuation(baseVar, funcName, baseComp strin
 // recordChainContinuationFrom is recordChainContinuation for a chain that
 // already has hops before funcName: prior is carried at the front of every
 // hop's Chain.
-func (p *scriptParser) recordChainContinuationFrom(baseVar string, prior []string, funcName, baseComp string, line int) (consumed []string) {
+func (p *scriptParser) recordChainContinuationFrom(baseVar string, prior []string, funcName, baseComp string, _ int) (consumed []string) {
 	caller := ""
 	if p.inFunc != "" && len(p.funcs) > 0 {
 		caller = p.funcs[len(p.funcs)-1].Name
 	}
 
 	chainHops := slices.Clone(prior)
+	_, scopeComp, directScope := scopeReceiver(baseVar)
+	keepScopeOrigin := directScope && scopeComp == "$any"
 
 	// hop is funcName as a Chain entry. The first is whatever the caller
 	// passed, which carries its arguments when the caller read them; every
@@ -673,7 +726,7 @@ func (p *scriptParser) recordChainContinuationFrom(baseVar string, prior []strin
 		p.sc.NextSkipComments() // consume method name
 
 		if p.sc.PeekSkipComments().Kind != TokLParen {
-			if baseComp == "" || !first {
+			if baseComp == "" || keepScopeOrigin || !first {
 				chainHops = append(chainHops, hop)
 			}
 
@@ -685,7 +738,7 @@ func (p *scriptParser) recordChainContinuationFrom(baseVar string, prior []strin
 			continue
 		}
 
-		if baseComp == "" || !first {
+		if baseComp == "" || keepScopeOrigin || !first {
 			chainHops = append(chainHops, hop)
 		}
 
@@ -694,23 +747,25 @@ func (p *scriptParser) recordChainContinuationFrom(baseVar string, prior []strin
 		hop = callHopAt(p.sc, funcName)
 		consumed = append(consumed, CallHop(callExpressionAt(p.sc, funcName)))
 
+		var call CallSite
+		if p.extractCalls {
+			call = CallSite{
+				FuncName: funcName, Variable: baseVar, Component: baseComp,
+				Chain: slices.Clone(chainHops), Line: conv.Uint32(p.baseLine + methTok.Line),
+				Caller: caller, Resolved: baseComp != "",
+			}
+			// Each hop has its own lexical origin. Capture it while the
+			// scanner still points at this hop's argument list, then retain
+			// the existing call-recording order after nested arguments.
+			p.setCallSpan(&call)
+		}
+
 		if !p.skipParens() {
 			return consumed
 		}
 
 		if p.extractCalls {
-			hops := make([]string, len(chainHops))
-			copy(hops, chainHops)
-
-			p.addCall(&CallSite{
-				FuncName:  funcName,
-				Variable:  baseVar,
-				Component: baseComp,
-				Chain:     hops,
-				Line:      conv.Uint32(p.baseLine + line),
-				Caller:    caller,
-				Resolved:  baseComp != "",
-			})
+			p.addCall(&call)
 		}
 	}
 
@@ -869,14 +924,7 @@ func (p *scriptParser) checkVarRHS(varName string, line int) {
 				URI: uriFromString(p.fileURI), Line: conv.Uint32(p.baseLine + line),
 			})
 		} else if p.builtinReturnLookup != nil {
-			if comp := p.builtinReturnLookup(lastIdent); comp != "" {
-				p.addRef(&ComponentRef{
-					Variable: varName, Component: comp,
-					URI: uriFromString(p.fileURI), Line: conv.Uint32(p.baseLine + line),
-				})
-			} else {
-				p.addPendingCall(varName, prevIdent, lastIdent, fullChain.String(), line)
-			}
+			p.recordBuiltinAssignment(varName, prevIdent, lastIdent, fullChain.String(), line)
 		} else {
 			p.addPendingCall(varName, prevIdent, lastIdent, fullChain.String(), line)
 		}
@@ -942,7 +990,7 @@ func (p *scriptParser) recordScopedMemberCall(scopeTok, nameTok Token) {
 		return
 	}
 
-	p.recordDynamicChain(call.Variable, scopeTok.Line, caller)
+	p.recordChainContinuation(call.Variable, hop, call.Component, scopeTok.Line)
 }
 
 // recordDynamicChain records the hops chained onto a call whose receiver is
@@ -1213,16 +1261,22 @@ func (p *scriptParser) parse() {
 					funcName := lastIdent
 					line := tok.Line
 
+					call := CallSite{
+						FuncName: funcName,
+						Variable: varName,
+						Line:     conv.Uint32(p.baseLine + line),
+					}
+					// This dispatch also handles script islands seeded with a tag
+					// function scope. Capture identity while the opening parenthesis
+					// is still ahead of the scanner, before nested argument calls.
+					p.setCallSpan(&call)
+
 					comp, hop, ok := p.skipParensResolving(chain)
 					if !ok {
 						return
 					}
 
-					p.addCall(&CallSite{
-						FuncName: funcName,
-						Variable: varName,
-						Line:     conv.Uint32(p.baseLine + line),
-					})
+					p.addCall(&call)
 
 					// Continue walking further .method() hops chained off this
 					// call's return value (e.g. "table.getTable().setSkipFirstHeader(...)")
@@ -1831,12 +1885,13 @@ func (p *scriptParser) scanInterpolation(tok Token) {
 		return
 	}
 
-	outerScanner, outerBase := p.sc, p.baseLine
+	outerScanner, outerBase, outerOffset := p.sc, p.baseLine, p.baseOffset
 
 	p.argNesting++
 
 	defer func() {
 		p.sc, p.baseLine = outerScanner, outerBase
+		p.baseOffset = outerOffset
 		p.argNesting--
 	}()
 
@@ -1847,6 +1902,10 @@ func (p *scriptParser) scanInterpolation(tok Token) {
 		// multi-line one ordinary — so the span's own line is the token's start
 		// plus the newlines before it, not the token's start.
 		p.baseLine = tokBase + countNewlines(tok.Value[:span.start])
+		if outerOffset >= 0 {
+			p.baseOffset = outerOffset + tok.Offset + span.start
+		}
+
 		p.sc = NewScanner(tok.Value[span.start:span.end])
 		p.sc.interpStrings = true
 
@@ -2287,7 +2346,7 @@ func (p *scriptParser) parseBody(funcLine int, args []Argument) int {
 // cannot bound is left as it was read before, as one that always runs. A
 // lookahead on a saved scanner state; the tokens are read again.
 func (p *scriptParser) openBracelessBody(t Token) {
-	if len(t.Value) < 2 || len(t.Value) > 5 {
+	if len(t.Value) < 2 || len(t.Value) > 6 {
 		return
 	}
 
@@ -2296,7 +2355,7 @@ func (p *scriptParser) openBracelessBody(t Token) {
 	withCondition := false
 
 	switch string(buf.lowerFold(t.Value)) {
-	case "if", "for", "while":
+	case "if", "elseif", "for", "while":
 		withCondition = true
 	case "else":
 	default:
@@ -2442,10 +2501,15 @@ func (p *scriptParser) settleReturnComponent(f *FunctionDef) {
 
 		// A ref still to be typed, or an assignment among those reaching the
 		// return that only resolvePendingCalls can type, is settled there.
-		// The ones that may reach it must agree: two branches assigning two
-		// components give the function no return type.
+		// Two branches assigning two components return either, and a
+		// branch assigning something untyped makes the return dynamic.
 		if !slices.ContainsFunc(reaching, chainPending) && !assignedBetween(p.pendingCalls, name, reaching[0].Line, p.returnLine) {
-			f.ReturnComponent = returnedComponent(agreedComponent(reaching, func(ref *ComponentRef) string { return ref.Component }), called)
+			comp := agreedComponent(reaching, func(ref *ComponentRef) string { return ref.Component })
+			if comp != "" && p.flow.untypedReaches(reaching, name, f.Line, p.returnLine) {
+				comp, f.ReturnsUntyped = "$any", true
+			}
+
+			f.ReturnComponent = returnedComponent(comp, called)
 		}
 
 		break
@@ -2607,7 +2671,8 @@ func (p *scriptParser) checkReturnComponent() {
 		// what a componentResolver says getInstance( "X" ) is.
 		if call != "" && p.atStatementEnd() {
 			if comp := p.resolveCall(call); comp != "" && len(p.funcs) > 0 {
-				p.funcs[len(p.funcs)-1].ReturnComponent = comp
+				f := &p.funcs[len(p.funcs)-1]
+				f.ReturnComponent = unionReturn(f.ReturnComponent, comp)
 			}
 		}
 
@@ -2622,7 +2687,8 @@ func (p *scriptParser) checkReturnComponent() {
 	}
 
 	if comp != "" && len(p.funcs) > 0 {
-		p.funcs[len(p.funcs)-1].ReturnComponent = comp
+		f := &p.funcs[len(p.funcs)-1]
+		f.ReturnComponent = unionReturn(f.ReturnComponent, comp)
 	}
 }
 
@@ -3027,6 +3093,7 @@ func (p *scriptParser) parseBodyVarDecl(varTok Token) {
 	}
 
 	p.sc.NextSkipComments() // consume =
+	p.noteAssign(nameTok.Value, varTok.Line)
 
 	p.localVarSet[strings.ToLower(nameTok.Value)] = true
 	p.vars = append(p.vars, VarDef{
@@ -3096,6 +3163,7 @@ func (p *scriptParser) parseBodyScopedVar(scopeTok Token, scope Scope) {
 	}
 
 	p.sc.NextSkipComments() // consume =
+	p.noteAssign(nameTok.Value, scopeTok.Line)
 
 	p.vars = append(p.vars, VarDef{
 		Name: nameTok.Value, Scope: scope,
@@ -3300,17 +3368,25 @@ func (p *scriptParser) declareClosureParams(params []string, line int) {
 // scopeToClosure gives the function refs and pending calls recorded since
 // refsBefore and pendingBefore the closure's lines, from and to, as their
 // visibility. One a nested closure already scoped keeps its narrower range.
-func (p *scriptParser) scopeToClosure(refsBefore, pendingBefore, from, to int) {
+func (p *scriptParser) scopeToClosure(refsBefore, pendingBefore, from, to, byteFrom, byteTo int) {
 	refs := p.funcRefs[p.inFunc]
 	for i := refsBefore; i < len(refs); i++ {
-		if refs[i].VisibleTo == 0 {
+		if refs[i].VisibleTo == 0 && !refs[i].HasClosureSpan {
 			refs[i].VisibleFrom, refs[i].VisibleTo = conv.Uint32(from), conv.Uint32(to)
+			if p.baseOffset >= 0 {
+				refs[i].ClosureFrom, refs[i].ClosureTo = conv.Uint32(p.baseOffset+byteFrom), conv.Uint32(p.baseOffset+byteTo)
+				refs[i].HasClosureSpan = true
+			}
 		}
 	}
 
 	for i := pendingBefore; i < len(p.pendingCalls); i++ {
-		if c := &p.pendingCalls[i]; c.visibleTo == 0 && !c.global {
+		if c := &p.pendingCalls[i]; c.visibleTo == 0 && !c.hasClosureSpan && !c.global {
 			c.visibleFrom, c.visibleTo = conv.Uint32(from), conv.Uint32(to)
+			if p.baseOffset >= 0 {
+				c.closureFrom, c.closureTo = conv.Uint32(p.baseOffset+byteFrom), conv.Uint32(p.baseOffset+byteTo)
+				c.hasClosureSpan = true
+			}
 		}
 	}
 }
@@ -3328,11 +3404,11 @@ func (p *scriptParser) scopeToClosure(refsBefore, pendingBefore, from, to int) {
 // calls always were: that is the scope the parse has, and a local of one
 // closure is visible to the function's other closures only by name.
 //
-// Outside a function the old call-only scan is kept, because there is no
-// function scope to put a closure's locals in, and at component level a
-// `var` would land among the component's variables.
+// Top-level closure locals use the empty-name function-ref bucket. Their
+// closure byte spans keep them out of the file's globals and sibling callbacks.
 func (p *scriptParser) scanClosureBody(line int, params []string) int {
-	statements := p.inFunc != "" && p.argNesting < maxArgNesting
+	byteFrom := p.sc.pos - 1
+	statements := p.argNesting < maxArgNesting
 	prevInClosure, prevLocals := p.inClosure, p.localVarSet
 	p.inClosure = statements || p.inClosure
 
@@ -3369,7 +3445,7 @@ func (p *scriptParser) scanClosureBody(line int, params []string) int {
 
 	defer func() {
 		if statements {
-			p.scopeToClosure(refsBefore, pendingBefore, p.baseLine+line, p.baseLine+last)
+			p.scopeToClosure(refsBefore, pendingBefore, p.baseLine+line, p.baseLine+last, byteFrom, p.sc.pos)
 		}
 	}()
 
@@ -3432,6 +3508,7 @@ func (p *scriptParser) checkAssignRef(tok Token) {
 	}
 
 	p.sc.NextSkipComments() // consume =
+	p.noteAssign(tok.Value, tok.Line)
 
 	// Record the variable
 	p.vars = append(p.vars, VarDef{
@@ -3610,7 +3687,7 @@ func (p *scriptParser) addPendingCall(varName, prevIdent, lastIdent, chain strin
 		refThis:    p.refThis,
 		global:     p.forceGlobal,
 		baseScope:  ReceiverRefScope(recv),
-		baseLocal:  readThroughLocal(recv) || recv == prevIdent && p.inFunc != "" && p.isVarDeclaredLocal(prevIdent),
+		baseLocal:  readThroughLocal(recv) || recv == prevIdent && p.inFunc != "" && p.isVarDeclaredLocal(prevIdent) || recv == "" && p.isVarDeclaredLocal(lastIdent),
 		rebinds:    rebinds(varName, recv),
 	})
 	p.pendingCalls[len(p.pendingCalls)-1].rest = p.continueChainCalls(receiverOf(chain), lastIdent, line)
@@ -3864,16 +3941,18 @@ chainWalk:
 		caller = p.funcs[len(p.funcs)-1].Name
 	}
 
-	comp, hop, ok := p.skipParensResolving(strings.Join(identChain, "."))
-	if !ok {
-		return
-	}
-
 	call := CallSite{
 		FuncName: funcName,
 		Variable: varName,
 		Line:     conv.Uint32(p.baseLine + tok.Line),
 		Caller:   caller,
+	}
+
+	p.setCallSpan(&call)
+
+	comp, hop, ok := p.skipParensResolving(strings.Join(identChain, "."))
+	if !ok {
+		return
 	}
 
 	// A call made directly on a scope, reached here from an argument list —
@@ -3977,7 +4056,7 @@ func (p *scriptParser) scanChainedCalls(component string, line int) []string {
 			Resolved:  true,
 		})
 
-		hops = append(hops, methTok.Value)
+		hops = append(hops, callHopAt(p.sc, methTok.Value))
 		chain = append(chain, callHopAt(p.sc, methTok.Value))
 
 		p.skipParens()
@@ -5261,7 +5340,7 @@ func operatorWordIsNameStr(s, name string) bool {
 func isKeyword(s string) bool {
 	var buf foldScratch
 	switch string(buf.lowerFold(s)) {
-	case "var", "local", "if", "else", "for", "while", "do", "switch", "case",
+	case "var", "local", "if", "else", "elseif", "for", "while", "do", "switch", "case",
 		"try", "catch", "finally", "return", "break", "continue", "function",
 		"component", "interface", "new", "throw", "import", "true", "false",
 		"and", "or", "not", "eq", "neq", "lt", "gt", "lte", "gte", "mod",
@@ -5354,4 +5433,15 @@ func propertyAttributeValue(tokens []Token, start int) string {
 	}
 
 	return value.String()
+}
+
+func (p *scriptParser) recordBuiltinAssignment(variable, receiver, method, expression string, line int) {
+	comp := p.builtinReturnLookup(method)
+	if comp == "" || receiver != "" || strings.HasPrefix(comp, NativeTypePrefix) {
+		p.addPendingCall(variable, receiver, method, expression, line)
+
+		return
+	}
+
+	p.addRef(&ComponentRef{Variable: variable, Component: comp, URI: uriFromString(p.fileURI), Line: conv.Uint32(p.baseLine + line)})
 }

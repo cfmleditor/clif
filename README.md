@@ -210,6 +210,127 @@ Use `>>` (or `Out-File -Append`) to add to an earlier report. Windows PowerShell
 
 Use the binary from `target/release/` after `make build`, or a release download; give its full path if it is not on `PATH`. Add `--json` for machine-readable output, `--verbose` for the reason behind each entry, and `--write` to write `.clif-unresolved.txt` beside the config (see [Generated reports](#generated-reports)). `clif explain <file> <line>` traces one call.
 
+For experimental receiver guesses, use `clif unresolved --speculative --verbose
+<dir>`. This connects an unknown receiver when every finding in its file/function
+group offers the same sole candidate component. It can accept incorrect calls;
+diagnostic reductions are not verified fixes. Verbose stderr lists proposed
+connections with their source and chosen component. It runs a strict candidate
+scan followed by a guessed scan, adding indexing and scan cost. Speculation is
+off by default; `--no-speculative` explicitly switches it off (the last flag wins).
+
+With `--json --candidates`, `methodEvidence` separates indexed name availability
+from receiver ownership. `nameStatus` is `no-source-declaration`,
+`unique-source-declaration` or `ambiguous-source-declarations`; generated source
+accessors count, while framework stubs are counted only in `indexedDeclarations`.
+`relationship` identifies an unproven receiver, return, binding or inheritance,
+a missing source/context, or a selected component/native contract mismatch.
+`ownership` remains `unproven`: a unique name is a candidate, and no source
+declaration is not proof of a nonexistent runtime method. These counts cover the
+scan's index, not every dependency or project on disk. Broken-base summaries
+do not represent individual method searches and omit this evidence.
+
+For chain failures, the evidence and method candidates describe the failed hop;
+the existing `function` and `definitions` fields still describe the reported
+final function. Speculative connection records additionally retain `methods`
+and `ownership: "unproven"` alongside their policy and proposed component.
+Global name uniqueness and a sole compatible receiver candidate are different:
+several components may declare one name, while only one answers all the
+receiver's observed methods. Neither establishes the receiver's origin.
+
+`--speculative-methods` adds more liberal per-call shortcuts to workspace source
+declarations, including calls whose selected receiver lacks the method and final
+methods behind broken upstream chains. It chooses the nearest declaration,
+breaking ties by source path, and keeps alternative targets, the uncapped target
+count, the original diagnostic and `ownership: "unproven"`. Each chosen target
+has low confidence. These shortcuts can connect unrelated or inaccessible methods;
+they are recorded separately in `speculativeMethodConnections` and do not
+increase the resolved count. They run before open-world classification, replacing
+some runtime assumptions with concrete provisional targets. Broken-base summaries
+and calls with no indexed source declaration remain available for review.
+
+```sh
+clif unresolved --json --speculative-ranked --speculative-native --speculative-methods --assume-open-world project > provisional-connections.json
+```
+
+This mode is off by default; `--no-speculative-methods` disables it (last flag
+wins). Its JSON output is an audit object even without `--assume-open-world`.
+Use `--json` or `--verbose` to review the shortcuts; `--write` and
+`--known-issues` are incompatible with this mode. Strict scan and editor behavior
+remain unchanged.
+
+`--speculative-ranked` broadens component guessing to the unique best candidate
+matching the receiver's methods. It distinguishes the original object's first
+method from methods on returned objects, intersects all candidates before ranking,
+and retains ties and property-first chains as unknown. Names can still match the
+wrong origin; a passed number may be guessed to be a component. Use
+`--no-speculative-ranked` to switch it off. Candidate display limits do not limit
+this mode's matching pool. It can be combined with `--speculative-native`.
+
+For a more liberal deployment assumption, use:
+
+```sh
+clif unresolved --json --speculative-ranked --speculative-native --assume-open-world project > resolution-audit.json
+```
+
+`--assume-open-world` classifies unknown receivers and returns as runtime-provided,
+absent component paths as external dependencies, and unqualified functions as
+runtime mixins. These assumptions can conceal misspellings and real defects. They
+do not create definitions or increase the resolved count. Known receiver method
+errors, explicit `this.method()` errors, broken chains and missing inheritance
+remain findings. The JSON output in this mode is an object with `calls`,
+`assumedCalls`, `speculativeConnections`, `resolved`, `indexed` and `scanned`;
+each assumed call retains its original diagnostic, location and policy. Ordinary
+JSON mode still emits the existing findings array. `--write` and `--known-issues`
+are incompatible with this audit mode. It is off by default; use
+`--no-assume-open-world` to restore ordinary reporting. These new switches apply
+to the batch CLI, not editor diagnostics.
+See [assumptions, examples and measured experiments](.ai/docs/RESOLUTION-SPECULATIVE-CONNECTIONS.md).
+
+Native family guesses have a separate switch: `--speculative-native` (off by
+default), with `--no-speculative-native` to disable them. Existing native
+interface families are tried first; if no unique answer exists, a unique
+String/Array/Struct/StringBuilder family can provide a fallback. Each stage
+requires all observed methods to match. This priority is a usage assumption,
+not object-origin proof; verbose output labels primitive fallbacks separately
+and marks every guess unproven. Both speculative flags can be used
+together. Proven Java/builtin producers carry bounded native method and return
+contracts without enabling guesses. `--native-engine auto|generic|lucee` controls
+the Lucee runtime API profile: auto recognizes the marked Lucee source layout;
+generic disables that engine-specific producer. These tables assume the
+documented Java 17/Hibernate 5.6 interfaces and compatible runtime bridges.
+See [native contracts and limitations](.ai/docs/RESOLUTION-NATIVE-TYPE-RESEARCH.md).
+
+For closure of earlier research, see the [implementation completion audit](.ai/docs/RESOLUTION-COMPLETION-AUDIT.md).
+
+Batch scans infer untyped arguments from their indexed callers. This search has
+no file or call-site limits by default. To bound it, add an optional policy to
+`.clif.json`:
+
+```json
+{
+  "callerInferenceLimits": {
+    "maxCandidateFiles": 512,
+    "maxCallerFiles": 60,
+    "maxCallSites": 40,
+    "maxConstructorFiles": 60
+  }
+}
+```
+
+`maxCandidateFiles` counts lexical candidate files for ordinary methods;
+`maxCallerFiles` counts files with calls belonging to the target method;
+`maxCallSites` counts supplied argument sites for methods and constructors;
+`maxConstructorFiles` counts constructor candidate files. Each positive value
+enables that limit. Omitted, zero or negative values are unlimited. The policy
+block replaces an inherited block as a whole; `{}` resets all limits.
+Exceeding a limit withholds the inferred type, which can leave valid calls
+reported as unresolved. Unknown receivers or values also withhold inference.
+`--no-infer-args` disables caller inference entirely. These settings govern batch
+caller inference used by the CLI and its explain/MCP scan paths; editor live
+resolution does not build the caller index. Large unlimited searches may cost
+more work.
+
+
 ## Replacing CFLint
 
 `clif cflint` runs CFLint itself: a native build, so no Java is involved, with
@@ -705,6 +826,8 @@ The same settings can also be supplied by your editor as LSP `initializationOpti
 
 ### Mappings
 
+Recognized standard project layouts can supply missing root and library mappings. Explicit mappings retain priority; the evidence and limitations are documented in [Project assumptions](.ai/docs/PROJECT-ASSUMPTIONS.md).
+
 Mappings let you resolve component dot-paths that use a virtual root. For example, with `"models": "./src/models"`, the dot-path `models.User` resolves to `./src/models/User.cfc`.
 
 A workspace folder also stands for a mapping of its own name, so a root that is just a folder's name needs no entry. With `"workspacePaths": ["../tassweb"]`, the dot-path `tassweb.packages.core.Kernel` resolves to `../tassweb/packages/core/Kernel.cfc`, and the include `/tassweb/includes/header.cfm` to the matching file. This is tried last, after every mapping, every `Application.cfc` mapping and every relative lookup, so it never changes a path those already resolve. Mappings are still what you need for any root that is not a workspace folder's name: a virtual root such as `models` above, a directory outside `workspacePaths`, or a name that should point somewhere other than the folder it matches. An explicit mapping for a folder's own name is harmless; it wins, and says the same thing.
@@ -751,7 +874,7 @@ A child config's `frameworks` adds to its parent's, and an unknown name is
 warned about. When the `box.json` beside the config depends on a framework
 with a preset the config does not name (`coldbox`, `testbox`,
 `commandbox-migrations`, `wheels-core`, …), `unresolved` ends by suggesting it,
-and the server logs the same suggestion; nothing is turned on for you. Over the six-project corpus, each project naming the frameworks
+and the server logs the same suggestion. Dependency suggestions alone do not enable presets. With no editor config, a recognized source layout can now supply framework defaults; an explicit config controls its framework selection. See [Project assumptions](.ai/docs/PROJECT-ASSUMPTIONS.md) for detection rules, mapping defaults and overrides. Over the historical six-project corpus, each project naming the frameworks
 it uses, the `unresolved` report goes from 22,933 entries to 14,027. The
 bundled API raised that figure when it came, from 14,083 to 14,665, because
 calls it had accepted unchecked were now checked: ContentBox, which uses
@@ -826,7 +949,7 @@ Direct conventional directories and older explicit subsystem layouts are modeled
 views, models and nested applications do not acquire injection. Custom directory
 layouts, struct-form settings for legacy fallback wiring and separate subsystem
 factories remain unsupported. A runtime base override uses only a known literal default. See
-[RESOLUTION-GAPS.md](RESOLUTION-GAPS.md) for the measured Masa case and boundaries.
+[.ai/docs/RESOLUTION-GAPS.md](.ai/docs/RESOLUTION-GAPS.md) for the measured Masa case and boundaries.
 
 Known DI/1 factories apply a separate injection policy. Literal `new` factory
 construction in startup files (including subclasses of DI/1), or a modern
@@ -1379,8 +1502,10 @@ and explicit editor mappings override application values, case-insensitively.
 Relative CFConfig paths are based on that config file; environment placeholders
 and archive-primary entries are not guessed. Watched CFML/JSON edits refresh
 mapping and resolver caches. Nested applications keep their own mapping context;
-caller mapping context for library definitions behind a different Application
-remains a limitation, so explicit workspace mappings can still be needed.
+recognized framework layouts can supply their declared library namespaces across
+those boundaries (see .ai/docs/PROJECT-ASSUMPTIONS.md). Other caller mapping contexts for
+library definitions behind a different Application remain a limitation, so
+explicit workspace mappings can still be needed.
 
 
 **A framework's own namespace needs no preset.** `coldbox.system.*`,
