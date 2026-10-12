@@ -576,6 +576,44 @@ func settleCollections(nodes map[string]*collectionNode) {
 type writesMemo struct {
 	writes []collectionWrite
 	done   bool
+	// tokens are each script region's, by its offset (scriptTokens), from
+	// tokenPool until release.
+	tokens map[int]*[]Token
+}
+
+// release returns the memo's token lists to tokenPool. Nothing the passes
+// keep refers to a token list: what they keep is text from the source.
+func (m *writesMemo) release() {
+	for _, toks := range m.tokens {
+		tokenPool.Put(toks)
+	}
+
+	m.tokens = nil
+}
+
+// scriptTokens is a script region's tokens, interpolated strings included,
+// tokenised once for every pass that shares writesMemo.
+func (pr *ParseResult) scriptTokens(r *Region) *[]Token {
+	m := pr.writesMemo
+	if m == nil {
+		toks := tokenize(r.Text)
+
+		return &toks
+	}
+
+	if toks, ok := m.tokens[r.Offset]; ok {
+		return toks
+	}
+
+	if m.tokens == nil {
+		m.tokens = map[int]*[]Token{}
+	}
+
+	toks, _ := tokenPool.Get().(*[]Token)
+	*toks = tokenizeInto(*toks, r.Text)
+	m.tokens[r.Offset] = toks
+
+	return toks
 }
 
 func (pr *ParseResult) collectionWrites() []collectionWrite {
@@ -616,9 +654,11 @@ func (pr *ParseResult) collectWrites(cache *expressionWriteCache) []collectionWr
 		return ""
 	}
 
-	for _, r := range pr.Regions {
+	for i := range pr.Regions {
+		r := &pr.Regions[i]
 		if r.Kind == RegionScript {
-			writes = collectCollectionExpression(r.Text, r.Offset, functionAt, writes)
+			toks := pr.scriptTokens(r)
+			writes = placeWrites(scanExpressionWritesFrom(newReplayScanner(r.Text, toks), r.Text, *toks), r.Offset, functionAt, writes)
 
 			continue
 		}
@@ -631,10 +671,6 @@ func (pr *ParseResult) collectWrites(cache *expressionWriteCache) []collectionWr
 	}
 
 	return writes
-}
-
-func collectCollectionExpression(expression string, offset int, functionAt func(int) string, writes []collectionWrite) []collectionWrite {
-	return placeWrites(scanExpressionWrites(expression), offset, functionAt, writes)
 }
 
 // expressionWrite is a collection write as scanExpressionWrites reads it,
@@ -668,12 +704,19 @@ func placeWrites(scanned []expressionWrite, offset int, functionAt func(int) str
 
 // scanExpressionWrites reads the collection writes in an expression.
 func scanExpressionWrites(expression string) []expressionWrite {
+	sc := NewScanner(expression)
+	sc.interpStrings = true
+
+	return scanExpressionWritesFrom(sc, expression, nil)
+}
+
+// scanExpressionWritesFrom is scanExpressionWrites reading sc, a scanner over
+// expression, and toks, its tokens when sc replays them.
+func scanExpressionWritesFrom(sc *Scanner, expression string, toks []Token) []expressionWrite {
 	var writes []expressionWrite
 
 	var ends *expressionEnds
 
-	sc := NewScanner(expression)
-	sc.interpStrings = true
 	previous := TokEOF
 
 	for {
@@ -746,7 +789,11 @@ func scanExpressionWrites(expression string) []expressionWrite {
 		}
 
 		if ends == nil {
-			ends = newExpressionEnds(expression)
+			if toks == nil {
+				toks = tokenize(expression)
+			}
+
+			ends = newExpressionEndsFrom(expression, toks)
 		}
 
 		writes = append(writes, expressionWrite{write: collectionWrite{target: root, expression: ends.from(cursor.PeekSkipComments().Offset), element: element, local: local || hasPrefixFold(root, "local.")}, at: t.Offset, placed: true})
@@ -768,9 +815,11 @@ type expressionEnds struct {
 }
 
 func newExpressionEnds(src string) *expressionEnds {
-	sc := NewScanner(src)
-	sc.interpStrings = true
+	return newExpressionEndsFrom(src, tokenize(src))
+}
 
+// newExpressionEndsFrom is newExpressionEnds from src's tokens.
+func newExpressionEndsFrom(src string, toks []Token) *expressionEnds {
 	var (
 		offsets, depths []int
 		terminal        []bool
@@ -778,8 +827,7 @@ func newExpressionEnds(src string) *expressionEnds {
 
 	depth := 0
 
-	for {
-		t := sc.NextSkipComments()
+	for _, t := range toks {
 		if t.Kind == TokEOF {
 			break
 		}

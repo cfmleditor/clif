@@ -3,7 +3,11 @@
 // component references.
 package parser
 
-import "strings"
+import (
+	"slices"
+	"strings"
+	"sync"
+)
 
 // TokenKind classifies a lexical token.
 type TokenKind int
@@ -59,7 +63,6 @@ type Token struct {
 type Scanner struct {
 	src              string
 	pos              int
-	line             int
 	LastBlockComment string // most recent /** ... */ or /* ... */ comment value
 
 	// One token of lookahead, filled by PeekSkipComments and consumed by
@@ -77,10 +80,14 @@ type Scanner struct {
 	// the scan actually made one keeps both orderings answering as before: a
 	// scan that crossed a block comment re-sets the field over the clear, and
 	// one that crossed none leaves whatever the clear left.
-	peekTok        Token
-	peekPos        int
-	peekLine       int
-	peekComment    string
+	peekTok     Token
+	peekPos     int
+	peekComment string
+	// line and peekLine are int32 side by side, which is what leaves room in
+	// 128 bytes for replay; a file of two billion lines is not parsed.
+	line     int32
+	peekLine int32
+
 	peeked         bool
 	peekSetComment bool
 
@@ -89,6 +96,86 @@ type Scanner struct {
 	// turned on only where the text is known to be CFScript — see scanString.
 	interpStrings bool
 	commentSeq    uint32
+
+	// replay, when set, is src already tokenised (tokenize): NextSkipComments
+	// and PeekSkipComments read it instead of scanning, at the index peekPos
+	// holds (a replaying scanner never peeks), and pos is the offset of the
+	// token there. The passes after a parse walk a region's tokens several
+	// times over, and restore to a token's offset for every identifier;
+	// replaying makes each of those an index rather than a scan. A pointer,
+	// so a copied cursor shares the tokens and keeps its own index.
+	replay *[]Token
+}
+
+// tokenize is every token of src that a CFScript scanner's NextSkipComments
+// returns (interpolated strings included), ending in TokEOF.
+func tokenize(src string) []Token {
+	return tokenizeInto(nil, src)
+}
+
+// tokenizeInto is tokenize appending to toks[:0], whose array it reuses.
+func tokenizeInto(toks []Token, src string) []Token {
+	sc := NewScanner(src)
+	sc.interpStrings = true
+	toks = toks[:0]
+
+	for {
+		t := sc.NextSkipComments()
+		toks = append(toks, t)
+
+		if t.Kind == TokEOF {
+			return toks
+		}
+	}
+}
+
+// tokenPool holds the token lists the passes after a parse share
+// (ParseResult.scriptTokens), reused across parses: a region's tokens are
+// 40 bytes each, and allocating them per parse cost more in collection than
+// replaying them saved.
+var tokenPool = sync.Pool{New: func() any { return new([]Token) }}
+
+// newReplayScanner reads toks, tokenize's answer for src, as a scanner would
+// read src. Only NextSkipComments, PeekSkipComments, Save and Restore move
+// it; LastBlockComment is not kept.
+func newReplayScanner(src string, toks *[]Token) *Scanner {
+	return &Scanner{src: src, replay: toks, pos: (*toks)[0].Offset, line: int32((*toks)[0].Line)} //nolint:gosec // line counts are far below 2^31
+}
+
+// replayAt moves to the token at index i.
+func (s *Scanner) replayAt(i int) {
+	t := &(*s.replay)[i]
+	s.peekPos, s.pos, s.line = i, t.Offset, int32(t.Line) //nolint:gosec // line counts are far below 2^31
+}
+
+// replayNext takes the token at the replay index.
+func (s *Scanner) replayNext() Token {
+	toks := *s.replay
+	t := toks[s.peekPos]
+
+	if s.peekPos < len(toks)-1 {
+		s.replayAt(s.peekPos + 1)
+	}
+
+	return t
+}
+
+// replaySeek moves to the first token at or after offset pos.
+func (s *Scanner) replaySeek(pos int) {
+	toks := *s.replay
+
+	// The passes restore to the token they just read, or the one in front.
+	switch i := s.peekPos; {
+	case toks[i].Offset == pos:
+		return
+	case i > 0 && toks[i-1].Offset == pos:
+		s.replayAt(i - 1)
+
+		return
+	}
+
+	i, _ := slices.BinarySearchFunc(toks, pos, func(t Token, pos int) int { return t.Offset - pos })
+	s.replayAt(min(i, len(toks)-1))
 }
 
 // NewScanner creates a scanner for the given source.
@@ -116,7 +203,7 @@ const bomUTF8 = "\xef\xbb\xbf"
 func (s *Scanner) Pos() int { return s.pos }
 
 // Line returns the current line number.
-func (s *Scanner) Line() int { return s.line }
+func (s *Scanner) Line() int { return int(s.line) }
 
 // ScannerState holds saved scanner position for backtracking.
 type ScannerState struct {
@@ -127,11 +214,21 @@ type ScannerState struct {
 // Save returns the current scanner state for later restoration. A pending
 // lookahead needs no saving: PeekSkipComments leaves pos and line where they
 // were, so the state recorded here is the one in front of the peeked token.
-func (s *Scanner) Save() ScannerState { return ScannerState{pos: s.pos, line: s.line} }
+func (s *Scanner) Save() ScannerState { return ScannerState{pos: s.pos, line: int(s.line)} }
 
 // Restore resets the scanner to a previously saved state, dropping any cached
 // lookahead — it describes a position this may be moving away from.
-func (s *Scanner) Restore(st ScannerState) { s.pos = st.pos; s.line = st.line; s.peeked = false }
+func (s *Scanner) Restore(st ScannerState) {
+	if s.replay != nil {
+		s.replaySeek(st.pos)
+
+		return
+	}
+
+	s.pos = st.pos
+	s.line = int32(st.line) //nolint:gosec // line counts are far below 2^31
+	s.peeked = false
+}
 
 // Peek returns the next raw token, comments and newlines included, without
 // advancing.
@@ -159,11 +256,11 @@ func (s *Scanner) next() Token {
 	s.skipWhitespaceNoNewline()
 
 	if s.pos >= len(s.src) {
-		return Token{Kind: TokEOF, Offset: s.pos, Line: s.line}
+		return Token{Kind: TokEOF, Offset: s.pos, Line: int(s.line)}
 	}
 
 	start := s.pos
-	startLine := s.line
+	startLine := int(s.line)
 	ch := s.src[s.pos]
 
 	switch {
@@ -253,6 +350,10 @@ var singleByteStrings = func() [256]string {
 // handing back a Token plus a string and a bool copied 64 bytes through an
 // extra frame for every token in every function body the parser skips.
 func (s *Scanner) NextSkipComments() Token {
+	if s.replay != nil {
+		return s.replayNext()
+	}
+
 	if s.peeked {
 		s.peeked = false
 		s.pos, s.line = s.peekPos, s.peekLine
@@ -283,6 +384,10 @@ func (s *Scanner) NextSkipComments() Token {
 // PeekSkipComments peeks at the next non-comment, non-newline token, caching it
 // so the matching NextSkipComments does not scan the same bytes again.
 func (s *Scanner) PeekSkipComments() Token {
+	if s.replay != nil {
+		return (*s.replay)[s.peekPos]
+	}
+
 	if s.peeked {
 		return s.peekTok
 	}

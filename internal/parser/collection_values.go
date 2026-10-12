@@ -57,7 +57,8 @@ func (pr *ParseResult) markCollectionEscapes(key func(string, string) string, no
 
 	names := collectionNames(nodes)
 
-	for _, region := range pr.Regions {
+	for i := range pr.Regions {
+		region := &pr.Regions[i]
 		if region.Kind == RegionTag {
 			// Tag escapes need their own invocation/output ownership analysis.
 			for _, n := range nodes {
@@ -68,7 +69,7 @@ func (pr *ParseResult) markCollectionEscapes(key func(string, string) string, no
 		}
 
 		if region.Kind == RegionScript {
-			pr.collectionCallEscapes(region.Text, region.Offset, key, nodes, names)
+			pr.collectionCallEscapes(newReplayScanner(region.Text, pr.scriptTokens(region)), region.Offset, key, nodes, names)
 		}
 	}
 
@@ -138,8 +139,21 @@ func mayName(names map[string]struct{}, ident string) bool {
 	return ok
 }
 
-func (pr *ParseResult) collectionCallEscapes(text string, offset int, key func(string, string) string, nodes map[string]*collectionNode, names map[string]struct{}) {
-	sc := NewScanner(text)
+// collectionCallEscapes marks what the calls in a script region may change:
+// the base a method is called on, and every target named in an argument
+// list. It reads the region once. An argument list used to be cut out and
+// tokenised again for every call enclosing it, so a target nested in three
+// calls was read four times; now each call's list is a range on a stack, and
+// a target inside any open range escapes, read with the function of the
+// innermost call as before.
+func (pr *ParseResult) collectionCallEscapes(sc *Scanner, offset int, key func(string, string) string, nodes map[string]*collectionNode, names map[string]struct{}) {
+	type call struct {
+		end      int // offset of the closing parenthesis
+		function string
+	}
+
+	var open []call
+
 	previous := TokEOF
 
 	for {
@@ -151,9 +165,17 @@ func (pr *ParseResult) collectionCallEscapes(text string, offset int, key func(s
 			return
 		}
 
+		for len(open) > 0 && t.Offset >= open[len(open)-1].end {
+			open = open[:len(open)-1]
+		}
+
 		if t.Kind == TokString {
 			for _, embedded := range InterpolatedExpressions(t.Value) {
 				pr.markCollectionArgumentEscape(embedded, pr.collectionFunctionAt(offset+t.Offset), key, nodes, names)
+
+				for _, c := range open {
+					pr.markCollectionArgumentEscape(embedded, c.function, key, nodes, names)
+				}
 			}
 		}
 
@@ -165,6 +187,12 @@ func (pr *ParseResult) collectionCallEscapes(text string, offset int, key func(s
 		cursor.Restore(ScannerState{pos: t.Offset, line: t.Line})
 
 		callee, element := collectionTarget(&cursor)
+		if len(open) > 0 && callee != "" && !element && mayName(names, t.Value) {
+			if n := nodes[key(callee, open[len(open)-1].function)]; n != nil {
+				n.escaped = true
+			}
+		}
+
 		if callee == "" || element || cursor.NextSkipComments().Kind != TokLParen {
 			continue
 		}
@@ -176,8 +204,29 @@ func (pr *ParseResult) collectionCallEscapes(text string, offset int, key func(s
 			}
 		}
 
-		arguments := collectionArguments(&cursor)
-		pr.markCollectionArgumentEscape(arguments, function, key, nodes, names)
+		if end := collectionArgumentsEnd(&cursor); end >= 0 {
+			open = append(open, call{end: end, function: function})
+		}
+	}
+}
+
+// collectionArgumentsEnd is the offset of the parenthesis closing the
+// argument list sc is inside, or -1 when it does not close.
+func collectionArgumentsEnd(sc *Scanner) int {
+	for depth := 1; ; {
+		t := sc.NextSkipComments()
+		switch t.Kind {
+		case TokEOF:
+			return -1
+		case TokLParen:
+			depth++
+		case TokRParen:
+			depth--
+			if depth == 0 {
+				return t.Offset
+			}
+		default:
+		}
 	}
 }
 
@@ -234,29 +283,6 @@ func (pr *ParseResult) collectionFunctionAt(offset int) string {
 	i := sort.Search(len(pr.Scopes), func(i int) bool { return pr.Scopes[i].Start > line }) - 1
 	if i >= 0 && line <= pr.Scopes[i].End {
 		return funcKey(pr.Scopes[i].Start, pr.Scopes[i].End)
-	}
-
-	return ""
-}
-
-func collectionArguments(sc *Scanner) string {
-	start := sc.PeekSkipComments().Offset
-
-	depth := 1
-	for depth > 0 {
-		t := sc.NextSkipComments()
-		switch t.Kind {
-		case TokEOF:
-			return ""
-		case TokLParen:
-			depth++
-		case TokRParen:
-			depth--
-			if depth == 0 {
-				return sc.src[start:t.Offset]
-			}
-		default:
-		}
 	}
 
 	return ""

@@ -363,6 +363,7 @@ func (pr *ParseResult) extractSignatures() {
 		pr.applyMemberBindings(hasBindings)
 		pr.applyFactoryReturnCalls(allPendingCalls)
 		pr.applyCollectionReturns(allPendingCalls)
+		pr.writesMemo.release()
 		pr.writesMemo = nil
 		pr.resolvePendingCalls(allPendingCalls)
 		pr.flow = nil
