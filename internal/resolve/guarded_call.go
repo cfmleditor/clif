@@ -33,6 +33,11 @@ func guardedByExistsCheck(pr *parser.ParseResult, variable, funcName string, lin
 		return false
 	}
 
+	// Every form of the guard names the method.
+	if !mentions(text, funcName) {
+		return false
+	}
+
 	for _, m := range existsGuard(variable, funcName).FindAllStringIndex(text, -1) {
 		if guards(text, m[0], m[1]) {
 			return true
@@ -182,6 +187,10 @@ func lineOffset(content string, n int) (int, bool) {
 func guardedInstanceOf(pr *parser.ParseResult, variable, funcName string, line int) []string {
 	text, ok := guardText(pr, variable, funcName, line)
 	if !ok {
+		return nil
+	}
+
+	if !mentions(text, "InstanceOf(") {
 		return nil
 	}
 

@@ -197,12 +197,22 @@ func (r *Resolver) constructions(tokens []parser.Token, base, file, dir string) 
 
 // quotedNameLines are the lines on which name ends a quoted string.
 func quotedNameLines(content, name string) []int {
-	re := regexp.MustCompile(`(?i)\b` + regexp.QuoteMeta(name) + `["']`)
+	if !mentions(content, name) {
+		return nil
+	}
+
+	re := compiledPattern(`(?i)\b` + regexp.QuoteMeta(name) + `["']`)
 	matches := re.FindAllStringIndex(content, -1)
 
+	// Lines are counted on from the last match, not from the top each time.
 	out := make([]int, 0, len(matches))
+	line, from := 0, 0
+
 	for _, m := range matches {
-		out = append(out, strings.Count(content[:m[0]], "\n"))
+		line += strings.Count(content[from:m[0]], "\n")
+		from = m[0]
+
+		out = append(out, line)
 	}
 
 	return out
@@ -266,7 +276,11 @@ func (r *Resolver) initArgType(pr *parser.ParseResult, param string, ctx lookupC
 // hasWrittenFunc reports whether pr's source declares a function called name,
 // as opposed to one generated for a property.
 func hasWrittenFunc(pr *parser.ParseResult, name string) bool {
-	return regexp.MustCompile(`(?i)\bfunction\s+` + regexp.QuoteMeta(name) + `\s*\(|<cffunction[^>]+name\s*=\s*["']` + regexp.QuoteMeta(name) + `["']`).MatchString(pr.Content)
+	if !mentions(pr.Content, name) {
+		return false
+	}
+
+	return compiledPattern(`(?i)\bfunction\s+` + regexp.QuoteMeta(name) + `\s*\(|<cffunction[^>]+name\s*=\s*["']` + regexp.QuoteMeta(name) + `["']`).MatchString(pr.Content)
 }
 
 // initStoredArg is the init argument p when every write to name in pr is
@@ -275,6 +289,11 @@ func hasWrittenFunc(pr *parser.ParseResult, name string) bool {
 func initStoredArg(pr *parser.ParseResult, name string) string {
 	scope, ok := funcScope(pr, "init")
 	if !ok {
+		return ""
+	}
+
+	// Every write the expression below matches names the variable.
+	if !mentions(pr.Content, name) {
 		return ""
 	}
 
@@ -288,7 +307,7 @@ func initStoredArg(pr *parser.ParseResult, name string) string {
 		i++
 		line = strings.TrimSuffix(line, "\n")
 
-		if !write.MatchString(line) {
+		if !mentions(line, name) || !write.MatchString(line) {
 			continue
 		}
 

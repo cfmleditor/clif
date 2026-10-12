@@ -72,3 +72,16 @@ func TestLocalAssignmentAtMatchesTheSplitLines(t *testing.T) {
 		}
 	}
 }
+
+// lineIndex replaced counting line breaks from the top for each match.
+func TestLineIndexCountsAsStringsCountDoes(t *testing.T) {
+	for _, s := range []string{"", "a", "\n", "a\nb\n\nc", "\n\nx\n"} {
+		idx := newLineIndex(s)
+
+		for off := 0; off <= len(s); off++ {
+			if got, want := idx.lineOf(off), strings.Count(s[:off], "\n"); got != want {
+				t.Errorf("lineOf(%q, %d) = %d, want %d", s, off, got, want)
+			}
+		}
+	}
+}

@@ -65,7 +65,7 @@ func (r *Resolver) lazyGetterReturn(fd *parser.FunctionDef) string {
 	}
 
 	content := text
-	guarded = strings.Contains(strings.ToLower(content), "isobject(")
+	guarded = mentions(content, "isobject(")
 
 	if guarded {
 		if field := lazyField(functionBodyNamed(content, fd.Name)); field != "" {

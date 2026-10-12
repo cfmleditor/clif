@@ -248,5 +248,11 @@ func isMarkupTemplate(fileURI, content string) bool {
 		return false
 	}
 
+	// Every form markupClosingTag finds starts "</" or "<!": a file with
+	// neither, which is any script-only template, is not scanned.
+	if !strings.Contains(content, "</") && !strings.Contains(content, "<!") {
+		return false
+	}
+
 	return !containsCFTag(content) && markupClosingTag.MatchString(content)
 }

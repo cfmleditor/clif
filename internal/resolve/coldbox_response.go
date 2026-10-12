@@ -23,7 +23,7 @@ var prcResponseWriteRe = regexp.MustCompile(`(?i)\bprc\s*(?:\.\s*response|\[\s*[
 // coldboxPrcResponse is ColdBox's Response for prc.response in a handler, or "".
 func (r *Resolver) coldboxPrcResponse(variable string, pr *parser.ParseResult) string {
 	v := strings.ToLower(strings.TrimPrefix(strings.ToLower(variable), "arguments."))
-	if v != "prc.response" || !pr.URI.IsFile() || prcResponseWriteRe.MatchString(pr.Content) {
+	if v != "prc.response" || !pr.URI.IsFile() || mentions(pr.Content, "response") && prcResponseWriteRe.MatchString(pr.Content) {
 		return ""
 	}
 

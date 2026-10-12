@@ -212,7 +212,7 @@ func fw1Assigns(content string, scope parser.FuncScope, name string) bool {
 	re := compiledPattern(`(?i)\b(?:arguments\.)?rc\.` + regexp.QuoteMeta(name) + `\s*=[^=]`)
 
 	for line := range strings.Lines(sourceText(content, scope.Start, scope.End+1)) {
-		if re.MatchString(strings.TrimSuffix(line, "\n")) {
+		if mentions(line, "rc."+name) && re.MatchString(strings.TrimSuffix(line, "\n")) {
 			return true
 		}
 	}

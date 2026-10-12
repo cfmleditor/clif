@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 
@@ -239,8 +240,10 @@ func tagLoops(content string) []loopSpan {
 		stack []open
 	)
 
+	lines := newLineIndex(content)
+
 	for _, m := range loopTagRe.FindAllStringSubmatchIndex(content, -1) {
-		line := strings.Count(content[:m[0]], "\n")
+		line := lines.lineOf(m[0])
 
 		if m[3] > m[2] { // </cfloop>
 			if len(stack) == 0 {
@@ -518,6 +521,30 @@ func sourceText(content string, from, to int) string {
 	}
 
 	return content[begin : end-1]
+}
+
+// lineIndex is the offsets of a text's line breaks, so the 0-based line of
+// any offset is a binary search rather than a count from the top: counting
+// from the top for each match in a file is quadratic in its length.
+type lineIndex []int
+
+func newLineIndex(s string) lineIndex {
+	var idx lineIndex
+
+	for at := 0; ; {
+		i := strings.IndexByte(s[at:], '\n')
+		if i < 0 {
+			return idx
+		}
+
+		idx = append(idx, at+i)
+		at += i + 1
+	}
+}
+
+// lineOf is strings.Count(s[:offset], "\n").
+func (l lineIndex) lineOf(offset int) int {
+	return sort.SearchInts(l, offset)
 }
 
 // contentBeforeLine is strings.Join(strings.Split(content, "\n")[:n], "\n").

@@ -523,3 +523,39 @@ peak is 130 MB of a 325 MB resident set, the rest the collector's headroom,
 so the remaining lever there is allocation, or GOGC/GOMEMLIMIT for batch
 runs, which trades CPU for memory.
 
+## 13. Regular-expression audit — implemented
+
+Every regular expression in non-test code was classified by the text it
+runs over. Of about 100, these ran over a whole file or a function body on
+the scan or editor path without a once-per-file cache, several compiled on
+every call. Each now asks `mentions` (`parser.IndexFold`) for a literal the
+expression needs before running it, so a text that cannot match is not
+scanned; per-call compiles go through `compiledPattern`:
+
+| Where | Literal |
+|---|---|
+| `lastMemberAssignmentAt` (every untyped `prc.`/`rc.` receiver) | `container.name` |
+| `hasWrittenFunc`, `initStoredArg` (per line too), `quotedNameLines`, `setsName` | the name |
+| `throughAssigns`, `fw1Assigns` (per line) | `prc.name`, `rc.name` |
+| `leafLiteral` | `variables.name` |
+| `coldboxTestSubject` | the name and `component` |
+| `coldboxPrcResponse`, `mementoFunc`, custom error templates | `response`, `this.memento`, `customErrorTemplate` |
+| `existsGuard`, `guardedInstanceOf` | the method, `InstanceOf(` |
+| `isMarkupTemplate` (every parse of a tag-free .cfm) | `</` or `<!` |
+| `lazyGetterReturn` | `isobject(` (it lowercased the whole file) |
+
+Four were replaced outright in section 12's commit (computed includes,
+`textDeclaresLocal`, `declaresInterface`, Wheels associations), each held
+to its expression by a test and compared over 40,717 files.
+
+Line numbers counted from the top for each match (`tagLoops`,
+`renderSites`, `moduleActions`, `quotedNameLines`) use `lineIndex`, and
+`moduleActions` finds a handler's actions once rather than above each
+render: all were quadratic in the file's length.
+
+What stays: `componentResolvers` and DI/1 patterns are the user's own; the
+rest run on a line, an attribute or an expression, or once per file or
+workspace behind a cache. Regular expressions are 3% of a tassweb scan's
+CPU. Output is identical per entry on the seven-project corpus, tassweb
+and the nine apps.
+

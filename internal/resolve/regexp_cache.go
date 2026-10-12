@@ -4,6 +4,8 @@ import (
 	"regexp"
 	"sync"
 	"sync/atomic"
+
+	"github.com/cfmleditor/clif/internal/parser"
 )
 
 // patterns holds the regular expressions built from a name at run time
@@ -16,6 +18,15 @@ var (
 )
 
 const maxPatterns = 4096
+
+// mentions reports whether text holds literal, case-insensitively. The
+// expressions run over whole files and function bodies each need a literal
+// (a name, `prc.`, `this.memento`) that a file without it cannot match, so
+// asking this first skips the expression where it would find nothing, which
+// is almost everywhere, at the cost of one vectorised search.
+func mentions(text, literal string) bool {
+	return parser.IndexFold(text, literal) >= 0
+}
 
 // compiledPattern is regexp.MustCompile(pattern), compiled once per pattern.
 func compiledPattern(pattern string) *regexp.Regexp {

@@ -93,8 +93,8 @@ func (r *Resolver) mementoFunc(chain []string, funcName string) *parser.Function
 	}
 
 	for _, p := range chain {
-		data, err := r.fs().ReadFile(p)
-		if err != nil || !mementoRe.Match(data) {
+		text, err := r.readText(p)
+		if err != nil || !mentions(text, "this.memento") || !mementoRe.MatchString(text) {
 			continue
 		}
 

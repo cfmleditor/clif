@@ -43,7 +43,7 @@ func (r *Resolver) coldboxErrorHosts(file string) []includeHost {
 		}
 
 		text, err := r.readText(config)
-		if err != nil {
+		if err != nil || !mentions(text, "customErrorTemplate") {
 			continue
 		}
 

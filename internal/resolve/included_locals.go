@@ -176,6 +176,11 @@ func (r *Resolver) includerHeldUncached(variable, file string, g *includeGraph, 
 // assignment, a var, a loop variable, a cfset, a function's argument, or a
 // tag attribute naming it as the variable it fills.
 func setsName(content, name string) bool {
+	// Every branch below names the variable.
+	if !mentions(content, name) {
+		return false
+	}
+
 	q := regexp.QuoteMeta(name)
 	re := compiledPattern(`(?i)(?:^|[^\w.$])(?:local\.|variables\.)?` + q + `\s*(?:[-+*/&]?=[^=]|\+\+|--)` +
 		`|\bvar\s+` + q + `\b` +
