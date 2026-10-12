@@ -1,8 +1,6 @@
 package resolve
 
 import (
-	"strings"
-
 	"github.com/cfmleditor/clif/internal/parser"
 )
 
@@ -10,14 +8,13 @@ import (
 // names belong to their expression, not the caller's variable. This guard is
 // bounded to separate statement lines; it is not branch dominance analysis.
 func nativeReassignedAt(content, name string, start, header int) bool {
-	lines := strings.Split(content, "\n")
 	for header > start {
 		_, at, assigned := localAssignmentAt(content, name, start, header)
 		if !assigned {
 			return false
 		}
 
-		tokens := producerTokens(strings.Join(lines[:at], "\n"))
+		tokens := producerTokens(contentBeforeLine(content, at))
 		if tokens == nil {
 			return false
 		}

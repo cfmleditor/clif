@@ -94,6 +94,8 @@ type Resolver struct {
 	ctlPathCache          map[string]controllerPaths // dir → its files' writes of Wheels' controllerPath
 	includerCache         map[string]string          // template, name, depth and include generation → includerHeld's answer
 	returnCache           returnCache                // ReturnComponentOf answers, for one index generation
+	funcCache             funcCache                  // lookupFunc answers, for one index generation
+	computedIncludes      map[string][]int           // file → lines of its computed includes (computedIncludeLines)
 	sourceFacts           spanCache[lexicalSourceFacts]
 	callerTokens          spanCache[parser.Token]             // caller file URI → tokens for its current content
 	loopCache             spanCache[loopSpan]                 // file URI → every loop its current text holds (loopsOf)
@@ -777,7 +779,63 @@ func (r *Resolver) LookupFuncWithExtends(cfcPath, funcName string) *parser.Funct
 // delegate to each other must not recurse forever.
 const maxDelegateDepth = 3
 
+// funcCache holds lookupFunc's answers for one index generation. Producer
+// evaluation and caller inference ask the same component for the same method
+// again and again (97% of the 405,000 lookups a cfwheels scan made), and a
+// lookup in a Wheels controller or model walks the mixin plan each time. An
+// answer reads the index and the sources it names, so it is kept only where a
+// source cannot change without the index seeing it: in the editor, where every
+// edit and watched-file event is an index write and starts the cache again
+// (IndexTracksFiles), and in a batch scan over a snapshot of the disk
+// (vfs.Snapshot). InvalidatePaths clears it too.
+type funcCache struct {
+	gen     uint64
+	entries map[funcKey]*parser.FunctionDef
+}
+
+type funcKey struct {
+	path, name string
+	depth      int
+}
+
+// maxFuncCache bounds funcCache: past it, it starts again.
+const maxFuncCache = 1 << 16
+
 func (r *Resolver) lookupFunc(cfcPath, funcName string, depth int) *parser.FunctionDef {
+	if r.Index == nil || !r.IndexTracksFiles && !vfs.Snapshot(r.FS) {
+		return r.lookupFuncUncached(cfcPath, funcName, depth)
+	}
+
+	gen := r.Index.Generation()
+	key := funcKey{path: cfcPath, name: strings.ToLower(funcName), depth: depth}
+
+	r.mu.RLock()
+	def, ok := r.funcCache.entries[key]
+	ok = ok && r.funcCache.gen == gen
+	r.mu.RUnlock()
+
+	if ok {
+		return def
+	}
+
+	def = r.lookupFuncUncached(cfcPath, funcName, depth)
+
+	// The lookup may itself have indexed a file; its answer is then for the
+	// generation it ends in.
+	gen = r.Index.Generation()
+
+	r.mu.Lock()
+	if r.funcCache.gen != gen || r.funcCache.entries == nil || len(r.funcCache.entries) >= maxFuncCache {
+		r.funcCache = funcCache{gen: gen, entries: map[funcKey]*parser.FunctionDef{}}
+	}
+
+	r.funcCache.entries[key] = def
+	r.mu.Unlock()
+
+	return def
+}
+
+func (r *Resolver) lookupFuncUncached(cfcPath, funcName string, depth int) *parser.FunctionDef {
 	seen := make(map[string]bool)
 
 	var chain []string

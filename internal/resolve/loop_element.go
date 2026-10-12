@@ -435,18 +435,20 @@ func localAssignment(content, name string, start, header int) (string, bool) {
 // localAssignmentAt is localAssignment with the source line retained for
 // consumers that must prove the assignment reaches a particular use.
 func localAssignmentAt(content, name string, start, header int) (string, int, bool) {
-	lines := strings.Split(content, "\n")
+	start = max(start, 0)
+	window := sourceLines(content, start, header)
+	end := start + len(window)
 
-	for i := min(header, len(lines)) - 1; i >= start && i >= 0; i-- {
-		assignedName, value, matched := matchSourceAssignment(lines[i])
+	for i := end - 1; i >= start; i-- {
+		assignedName, value, matched := matchSourceAssignment(window[i-start])
 		if !matched || !strings.EqualFold(assignedName, name) {
 			continue
 		}
 
 		rhs := trimAssignmentRHS(value)
 
-		for j := i + 1; strings.Count(rhs, "(") > strings.Count(rhs, ")") && j < min(header, len(lines)) && j <= i+maxAssignmentLines; j++ {
-			rhs += " " + strings.TrimSpace(strings.TrimSuffix(strings.TrimSuffix(strings.TrimSpace(lines[j]), ";"), "/"))
+		for j := i + 1; strings.Count(rhs, "(") > strings.Count(rhs, ")") && j < end && j <= i+maxAssignmentLines; j++ {
+			rhs += " " + strings.TrimSpace(strings.TrimSuffix(strings.TrimSuffix(strings.TrimSpace(window[j-start]), ";"), "/"))
 			rhs = strings.TrimSpace(rhs)
 		}
 
@@ -461,6 +463,45 @@ func localAssignmentAt(content, name string, start, header int) (string, int, bo
 }
 
 const maxAssignmentLines = 24
+
+// sourceLines is strings.Split(content, "\n")[from:to], clipped to the lines
+// content has, without splitting the rest of the file. The assignment
+// lookups read a few lines above a call, and splitting whole files for them
+// was a tenth of what a tassweb scan allocated.
+func sourceLines(content string, from, to int) []string {
+	at, ok := lineOffset(content, from)
+	if !ok || to <= from {
+		return nil
+	}
+
+	lines := make([]string, 0, min(to-from, 64))
+
+	for len(lines) < to-from {
+		i := strings.IndexByte(content[at:], '\n')
+		if i < 0 {
+			return append(lines, content[at:])
+		}
+
+		lines = append(lines, content[at:at+i])
+		at += i + 1
+	}
+
+	return lines
+}
+
+// contentBeforeLine is strings.Join(strings.Split(content, "\n")[:n], "\n").
+func contentBeforeLine(content string, n int) string {
+	at, ok := lineOffset(content, n)
+	if !ok {
+		return content
+	}
+
+	if at == 0 {
+		return ""
+	}
+
+	return content[:at-1]
+}
 
 func isScopeWord(s string) bool {
 	switch strings.ToLower(s) {

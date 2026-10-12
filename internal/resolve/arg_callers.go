@@ -299,8 +299,6 @@ func (r *Resolver) inferArgument(fd *parser.FunctionDef, pos int, file string, c
 		return ""
 	}
 
-	r.prefetchHandlerParses(files)
-
 	argName := fd.Arguments[pos].Name
 	budget := callerFileBudget{limit: r.CallerInferenceLimits.MaxCallerFiles}
 
@@ -309,7 +307,11 @@ func (r *Resolver) inferArgument(fd *parser.FunctionDef, pos int, file string, c
 		sites int
 	)
 
-	for _, path := range files {
+	for i, path := range files {
+		if i%prefetchWindow == 0 {
+			r.prefetchHandlerParses(files[i:min(i+prefetchWindow, len(files))])
+		}
+
 		hpr := r.handlerParse(path)
 		if hpr == nil {
 			return ""
@@ -879,6 +881,12 @@ func (r *Resolver) callerFileTokens(pr *parser.ParseResult) []parser.Token {
 // further, and serially that was a chain one goroutine walked while the rest
 // of the scan's workers sat idle: wheelstest's two runners took 6s each, the
 // last files a cfwheels scan finished.
+//
+// inferArgument hands it one prefetchWindow of files at a time, as its loop
+// reaches them, because the loop stops at the first call it cannot place. A
+// common name is mentioned in hundreds of files: inferring an argument of the
+// lucli deploy commands' run() parsed all 675 files holding `run(` and then
+// stopped at the fifth, on an `ssh.run()` nothing types, for 2s a time.
 func (r *Resolver) prefetchHandlerParses(files []string) {
 	if len(files) < 2 {
 		return
@@ -907,3 +915,6 @@ func (r *Resolver) prefetchHandlerParses(files []string) {
 // prefetchWorkers bounds prefetchHandlerParses per inference: nested
 // inferences prefetch too, and the scan is already running a worker per core.
 const prefetchWorkers = 4
+
+// prefetchWindow is how many files inferArgument parses ahead of its loop.
+const prefetchWindow = 2 * prefetchWorkers

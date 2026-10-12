@@ -501,19 +501,19 @@ func containsFold(list []string, s string) bool {
 // a local or an argument, which hides the variable, nor when the assignment
 // found is a `var` or local. one, which never left its function.
 func variablesAssignment(pr *parser.ParseResult, name, caller string, start, line int, scoped bool) (string, int, bool) {
-	lines := strings.Split(pr.Content, "\n")
-	end := min(line, len(lines))
+	from := min(start, line)
+	window := sourceLines(pr.Content, from, line)
 
 	// A local or an argument of the same name hides an unscoped one; a
 	// variables.-scoped receiver is the component's whatever the function
 	// declares.
 	declared := regexp.MustCompile(`(?i)(?:\bvar\s+|\blocal\.|<cfargument\s[^>]*name\s*=\s*["'])` + regexp.QuoteMeta(name) + `\b`)
-	if !scoped && (argumentOf(pr, caller, name) != nil || declared.MatchString(strings.Join(lines[min(start, end):end], "\n"))) {
+	if !scoped && (argumentOf(pr, caller, name) != nil || declared.MatchString(strings.Join(window, "\n"))) {
 		return "", 0, false
 	}
 
 	rhs, at, ok := localAssignmentAt(pr.Content, name, 0, start)
-	if !ok || declared.MatchString(lines[at]) {
+	if !ok || declared.MatchString(strings.Join(sourceLines(pr.Content, at, at+1), "")) {
 		return "", 0, false
 	}
 

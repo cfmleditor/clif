@@ -150,6 +150,8 @@ func (r *Resolver) InvalidatePaths() {
 	r.extraIncludeHosts = nil
 	r.muraEventFiles = nil
 	r.returnCache = returnCache{}
+	r.funcCache = funcCache{}
+	r.computedIncludes = nil
 	r.fw1Scopes = nil
 	r.mu.Unlock()
 

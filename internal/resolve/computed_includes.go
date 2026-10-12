@@ -1,6 +1,7 @@
 package resolve
 
 import (
+	"bytes"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -44,20 +45,108 @@ func (r *Resolver) computedIncludeHosts(file string) []includeHost {
 			continue
 		}
 
-		data, err := r.fs().ReadFile(path)
-		if err != nil {
+		lines, data := r.computedIncludeLines(path)
+		if len(lines) == 0 {
 			continue
 		}
 
-		content := string(data)
-		if lower := strings.ToLower(content); !strings.Contains(lower, suffix+`"`) && !strings.Contains(lower, suffix+`'`) && !strings.Contains(lower, suffix+`/"`) {
+		if !containsFoldBytes(data, suffix+`"`) && !containsFoldBytes(data, suffix+`'`) && !containsFoldBytes(data, suffix+`/"`) {
 			continue
 		}
 
-		for _, m := range computedIncludeRe.FindAllStringIndex(content, -1) {
-			hosts = append(hosts, includeHost{path: path, line: strings.Count(content[:m[0]], "\n")})
+		for _, line := range lines {
+			hosts = append(hosts, includeHost{path: path, line: line})
 		}
 	}
 
 	return hosts
+}
+
+// computedIncludeLines is the 0-based lines of path's computed includes,
+// read once per scan, and the bytes when it has any. Most candidates have
+// none, and each template used to read and lowercase every one of them,
+// which was a tenth of tassweb's heap at its peak.
+func (r *Resolver) computedIncludeLines(path string) ([]int, []byte) {
+	o := r.owner()
+
+	o.mu.RLock()
+	lines, ok := o.computedIncludes[path]
+	o.mu.RUnlock()
+
+	if ok && len(lines) == 0 {
+		return nil, nil
+	}
+
+	data, err := r.fs().ReadFile(path)
+	if err != nil {
+		return nil, nil
+	}
+
+	if ok {
+		return lines, data
+	}
+
+	lines = []int{}
+	for _, m := range computedIncludeRe.FindAllIndex(data, -1) {
+		lines = append(lines, bytes.Count(data[:m[0]], []byte("\n")))
+	}
+
+	o.mu.Lock()
+	if o.computedIncludes == nil {
+		o.computedIncludes = map[string][]int{}
+	}
+
+	o.computedIncludes[path] = lines
+	o.mu.Unlock()
+
+	return lines, data
+}
+
+// containsFoldBytes reports whether data holds lower, an ASCII lowercase
+// string, in any case, without lowercasing data.
+func containsFoldBytes(data []byte, lower string) bool {
+	if lower == "" {
+		return true
+	}
+
+	first, upper := lower[0], lower[0]
+	if first >= 'a' && first <= 'z' {
+		upper = first - ('a' - 'A')
+	}
+
+	for i := 0; i+len(lower) <= len(data); i++ {
+		if c := data[i]; c != first && c != upper {
+			continue
+		}
+
+		if bytes.EqualFold(data[i:i+len(lower)], []byte(lower)) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// containsFoldString is containsFoldBytes for a string.
+func containsFoldString(s, lower string) bool {
+	if lower == "" {
+		return true
+	}
+
+	first, upper := lower[0], lower[0]
+	if first >= 'a' && first <= 'z' {
+		upper = first - ('a' - 'A')
+	}
+
+	for i := 0; i+len(lower) <= len(s); i++ {
+		if c := s[i]; c != first && c != upper {
+			continue
+		}
+
+		if strings.EqualFold(s[i:i+len(lower)], lower) {
+			return true
+		}
+	}
+
+	return false
 }

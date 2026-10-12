@@ -433,11 +433,41 @@ MuraCMS 8.2s → 5.0s (v0.5.2: 3.5s each). Output is identical per entry on the
 seven-project corpus in strict and liberal modes (resolved counts included),
 tassweb and the nine validation apps (`target/resolution/pr244-perf/`).
 
-The remaining gap is caller inference for common method names. With
-`--no-infer-args` cfwheels scans in 4.5s: inferring `arguments.accessory` in
-the lucli deploy commands walks every caller of `run`, `start` and `stop`, and
-the files doing so (5.5s each) are now the scan's critical path. Parsing more of
-them in parallel did not help; the serial part is checking each call site,
-which can recurse into further inference. Closing it means indexing call sites
-by method name once per scan, with receivers resolved once, instead of
-re-deriving them per inference.
+That left a gap, read at the time as caller inference for common method
+names. Measured rather than inferred, it was not; see section 10.
+
+## 10. Repeated method lookups, and memory — implemented
+
+Section 9 ended on a guess: that the lucli deploy commands' inference of
+`run`/`start`/`stop` arguments was the critical path and needed a call-site
+index. Instrumented, the call-site checks cost 0.2s on cfwheels and 0.7s on
+MuraCMS in all; an index would have saved little. What the counters and a
+per-file timing found instead:
+
+| Hotspot | Was | Now |
+|---|---|---|
+| `lookupFunc` | 405,000 lookups on a cfwheels scan, 97% of them repeats, each walking the extends chain and, in a Wheels controller or model, the mixin plan (TestBox's two runners, 3.9s each, were the critical path) | `funcCache`: one answer per path, method and depth for an index generation, kept only where a source cannot change unseen (`IndexTracksFiles`, or a batch scan over `vfs.Snapshot`) |
+| `computedIncludeHosts` | every file naming a template's directory read and lowercased whole for each template asked about: 111 MB live at tassweb's peak, and most of its scan time | `computedIncludeLines`: each candidate's computed includes found once; a file with none is never read again |
+| `inferArgument` | every file mentioning the name parsed before the first is checked: `run` is in 675 files, and the loop stops at the fifth on an `ssh.run()` nothing types | parsed `prefetchWindow` (8) files at a time as the loop reaches them |
+| `receiverTypeGuards` | every file tokenised whole (half of `allTokens`' 4 GB on tassweb) | a file that never names `isInstanceOf` is not tokenised |
+| `localAssignmentAt`, `variablesAssignment`, `nativeReassignedAt` | `strings.Split` of the whole file per lookup (1.6 GB on tassweb) | `sourceLines`: only the lines read, held to the split by `TestSourceLinesMatchSplittingTheFile` |
+
+| | v0.5.2 | before section 9 | before this | now |
+|---|---|---|---|---|
+| cfwheels | 3.5s | 11.0s | 7.5s, 400 MB | 3.6s, 360 MB |
+| MuraCMS | 3.5s | 8.2s | 4.3s, 310 MB | 3.9s, 285 MB |
+| tassweb | | | 30s, 3.4 GB | 11.6s, 1.4 GB |
+
+Peak resident memory, `/usr/bin/time -l`, alternating runs. tassweb's live heap
+at its peak went from 900 MB to 500 MB; resident is about twice that with the
+collector's headroom. Output is identical per entry on the seven-project
+corpus in both modes (resolved counts and coverage included), tassweb and the
+nine validation apps (`target/resolution/pr244-perf2/`).
+
+What holds tassweb's peak now: the batch content cache (140 MB, 128 MB
+budget; turning it off saves about 150 MB resident and costs 1 to 3s), the
+parses in flight in the scan workers, and `wheelsSource` (55 MB of method maps
+and producer plans per file, which every producer evaluation reads, Wheels or
+not). The largest allocation left is `findClosures` tokenising each file
+whole (1.9 GB over a tassweb scan); it could share one tokenisation per file
+with the other span caches, at the cost of holding the tokens.
