@@ -167,7 +167,7 @@ func (r *Resolver) assignedFromCall(variable string, line uint32, caller string,
 		return ""
 	}
 
-	answer := r.typeCallExpr(rhs, at32, evalCaller, pr, baseDir, ctx)
+	answer := r.typeCallExpr(rhs, at32, evalCaller, pr, baseDir, ctx, true)
 
 	if placeholderOverwritten(variable, rhs, answer, ctx.call, tr) {
 		return ""
@@ -183,8 +183,12 @@ func (r *Resolver) assignedFromCall(variable string, line uint32, caller string,
 // typeCallExpr is the component(s) the single call rhs (`receiver.method( … )`)
 // returns, written in pr at line, with the receiver typed as any receiver is
 // and the method's return taken per alternative: every one must return a
-// component, or there is none.
-func (r *Resolver) typeCallExpr(rhs string, line uint32, caller string, pr *parser.ParseResult, baseDir string, ctx lookupCtx) string {
+// component, or there is none. With dynamic, a method returning a dynamic
+// value ("$any") makes the answer "$any", as the parse types the same
+// assignment when it can see the receiver: `paragraph =
+// document.createParagraph()` on tassweb's resolver-typed document, whose
+// createParagraph returns a string or one of three paragraph kinds.
+func (r *Resolver) typeCallExpr(rhs string, line uint32, caller string, pr *parser.ParseResult, baseDir string, ctx lookupCtx, dynamic bool) string {
 	receiver, calls, ok := callChain(rhs)
 	if !ok {
 		return ""
@@ -212,7 +216,11 @@ func (r *Resolver) typeCallExpr(rhs string, line uint32, caller string, pr *pars
 			return ""
 		}
 
-		comp = hopReturns(lookup, comp, c)
+		comp = hopReturns(lookup, comp, c, dynamic)
+	}
+
+	if dynamic && comp == "$any" {
+		return comp
 	}
 
 	if strings.HasPrefix(comp, "$") && !strings.HasPrefix(comp, "$builtin.") {
@@ -223,9 +231,12 @@ func (r *Resolver) typeCallExpr(rhs string, line uint32, caller string, pr *pars
 }
 
 // hopReturns is what method c returns on each alternative of comp, or "" when
-// any alternative returns no component.
-func hopReturns(lookup func(string, string) string, comp string, c chainCall) string {
+// any alternative returns no component. With dynamic, "$any" when one returns
+// a dynamic value and none returns nothing.
+func hopReturns(lookup func(string, string) string, comp string, c chainCall, dynamic bool) string {
 	var returns []string
+
+	anyDynamic := false
 
 	for alt := range strings.SplitSeq(comp, "|") {
 		ret := lookup(alt, c.name)
@@ -235,6 +246,12 @@ func hopReturns(lookup func(string, string) string, comp string, c chainCall) st
 			ret = lookup(alt, parser.CallHop(c.name+"("+c.args+")"))
 		}
 
+		if dynamic && ret == "$any" {
+			anyDynamic = true
+
+			continue
+		}
+
 		if ret == "" || strings.HasPrefix(ret, "$") && !strings.HasPrefix(ret, "$builtin.") {
 			return ""
 		}
@@ -242,6 +259,10 @@ func hopReturns(lookup func(string, string) string, comp string, c chainCall) st
 		if !containsFold(returns, ret) {
 			returns = append(returns, ret)
 		}
+	}
+
+	if anyDynamic {
+		return "$any"
 	}
 
 	return strings.Join(returns, "|")

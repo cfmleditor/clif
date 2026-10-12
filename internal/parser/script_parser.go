@@ -81,6 +81,7 @@ type pendingCall struct {
 	global     bool
 	returnExpr bool   // a return expression, grouped by function for factory-chain inference
 	memberSet  bool   // not a call: `varName.funcName = …`; see checkMemberSet
+	alias      bool   // not a call: `varName = baseVar`; see aliasComponent
 	baseLocal  bool   // receiver or bare callable is locally owned; see baseVarComponent
 	rebinds    bool   // the call is made on varName itself; see ComponentRef.Rebinds
 	baseGuess  bool   // typed as baseVar itself, the method unlooked-up; see ComponentRef.BaseGuess
@@ -334,6 +335,21 @@ func (p *scriptParser) addRef(ref *ComponentRef) {
 		}
 
 		p.funcRefs[p.inFunc] = append(p.funcRefs[p.inFunc], *ref)
+	}
+}
+
+// noteAssign records, for the flow analysis, an assignment to name in a
+// function body of a value no component can be (untypedValueText), read from
+// the token after the `=` (flowBlocks.untypedReaches).
+func (p *scriptParser) noteAssign(name string, line int) {
+	if p.flow == nil || p.inFunc == "" || p.inClosure {
+		return
+	}
+
+	switch rhs := p.sc.PeekSkipComments(); {
+	case rhs.Kind == TokString || rhs.Kind == TokNumber,
+		rhs.Kind == TokIdent && (identEq(rhs.Value, "true") || identEq(rhs.Value, "false") || identEq(rhs.Value, "arguments")):
+		p.flow.noteAssign(name, conv.Uint32(p.baseLine+line))
 	}
 }
 
@@ -2485,10 +2501,15 @@ func (p *scriptParser) settleReturnComponent(f *FunctionDef) {
 
 		// A ref still to be typed, or an assignment among those reaching the
 		// return that only resolvePendingCalls can type, is settled there.
-		// The ones that may reach it must agree: two branches assigning two
-		// components give the function no return type.
+		// Two branches assigning two components return either, and a
+		// branch assigning something untyped makes the return dynamic.
 		if !slices.ContainsFunc(reaching, chainPending) && !assignedBetween(p.pendingCalls, name, reaching[0].Line, p.returnLine) {
-			f.ReturnComponent = returnedComponent(agreedComponent(reaching, func(ref *ComponentRef) string { return ref.Component }), called)
+			comp := agreedComponent(reaching, func(ref *ComponentRef) string { return ref.Component })
+			if comp != "" && p.flow.untypedReaches(reaching, name, f.Line, p.returnLine) {
+				comp, f.ReturnsUntyped = "$any", true
+			}
+
+			f.ReturnComponent = returnedComponent(comp, called)
 		}
 
 		break
@@ -2650,7 +2671,8 @@ func (p *scriptParser) checkReturnComponent() {
 		// what a componentResolver says getInstance( "X" ) is.
 		if call != "" && p.atStatementEnd() {
 			if comp := p.resolveCall(call); comp != "" && len(p.funcs) > 0 {
-				p.funcs[len(p.funcs)-1].ReturnComponent = comp
+				f := &p.funcs[len(p.funcs)-1]
+				f.ReturnComponent = unionReturn(f.ReturnComponent, comp)
 			}
 		}
 
@@ -2665,7 +2687,8 @@ func (p *scriptParser) checkReturnComponent() {
 	}
 
 	if comp != "" && len(p.funcs) > 0 {
-		p.funcs[len(p.funcs)-1].ReturnComponent = comp
+		f := &p.funcs[len(p.funcs)-1]
+		f.ReturnComponent = unionReturn(f.ReturnComponent, comp)
 	}
 }
 
@@ -3070,6 +3093,7 @@ func (p *scriptParser) parseBodyVarDecl(varTok Token) {
 	}
 
 	p.sc.NextSkipComments() // consume =
+	p.noteAssign(nameTok.Value, varTok.Line)
 
 	p.localVarSet[strings.ToLower(nameTok.Value)] = true
 	p.vars = append(p.vars, VarDef{
@@ -3139,6 +3163,7 @@ func (p *scriptParser) parseBodyScopedVar(scopeTok Token, scope Scope) {
 	}
 
 	p.sc.NextSkipComments() // consume =
+	p.noteAssign(nameTok.Value, scopeTok.Line)
 
 	p.vars = append(p.vars, VarDef{
 		Name: nameTok.Value, Scope: scope,
@@ -3483,6 +3508,7 @@ func (p *scriptParser) checkAssignRef(tok Token) {
 	}
 
 	p.sc.NextSkipComments() // consume =
+	p.noteAssign(tok.Value, tok.Line)
 
 	// Record the variable
 	p.vars = append(p.vars, VarDef{

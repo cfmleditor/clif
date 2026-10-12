@@ -1058,6 +1058,17 @@ func (p *tagParser) parseCFSet(tag string, line, offset int) {
 // setAssign handles the assignment a <cfset> holds, whose calls
 // parseCFSet's caller scans.
 func (p *tagParser) setAssign(inner string, line int) {
+	if _, rhs, ok := strings.Cut(inner, "="); ok && p.flow != nil && p.inFunc != "" && untypedValueText(rhs) {
+		// Every assignment below records its VarDef first, except a local's
+		// reassignment, which notes itself (flowBlocks.untypedReaches).
+		n := len(p.vars)
+		defer func() {
+			if len(p.vars) > n {
+				p.flow.noteAssign(p.vars[n].Name, p.vars[n].Line)
+			}
+		}()
+	}
+
 	switch {
 	case hasPrefixFold(inner, "var "):
 		rest := strings.TrimSpace(inner[4:])
@@ -1128,6 +1139,8 @@ func (p *tagParser) setAssign(inner string, line int) {
 				isLocal := p.inFunc != "" && p.isVarDeclaredLocal(name)
 				if !isLocal {
 					p.vars = append(p.vars, VarDef{Name: name, Scope: ScopeVariables, Line: conv.Uint32(line)})
+				} else if p.flow != nil && untypedValueText(rhs) {
+					p.flow.noteAssign(name, conv.Uint32(line))
 				}
 
 				p.forceGlobal = !isLocal
@@ -1271,8 +1284,8 @@ func (p *tagParser) parseCFReturn(tag string, line int, offsets ...int) {
 	}
 
 	f := &p.funcs[len(p.funcs)-1]
-	if f.ReturnComponent != "" || f.returnVar != "" {
-		return // already set from an earlier return
+	if f.returnVar != "" {
+		return // a variable returned earlier is settled later, from its refs
 	}
 
 	f.returnLine = conv.Uint32(line)
@@ -1288,11 +1301,11 @@ func (p *tagParser) parseCFReturn(tag string, line int, offsets ...int) {
 	switch {
 	case hasPrefixFold(inner, "new "):
 		if comp := extractComponentPath(inner[4:]); comp != "" {
-			f.ReturnComponent = comp
+			f.ReturnComponent = unionReturn(f.ReturnComponent, comp)
 		}
 	case hasPrefixFold(inner, "createobject("):
 		if comp := extractCreateObjectArg(inner[13:]); comp != "" {
-			f.ReturnComponent = comp
+			f.ReturnComponent = unionReturn(f.ReturnComponent, comp)
 		}
 	case strings.EqualFold(strings.TrimSuffix(strings.TrimSpace(inner), "/"), "this"):
 		f.returnVar = returnsThis
@@ -1503,6 +1516,18 @@ func (p *tagParser) checkSetRHSStr(rhs, varName string, line int) {
 		}
 	default:
 		if p.resolveRHS(rhs, varName, line) {
+			return
+		}
+
+		if plainName(rhs) && !strings.EqualFold(rhs, varName) {
+			p.pendingCalls = append(p.pendingCalls, pendingCall{
+				varName: varName, baseVar: rhs, alias: true,
+				line: conv.Uint32(line), funcKey: p.inFunc,
+				refThis: p.refThis, global: p.forceGlobal,
+				baseScope: ReceiverRefScope(rhs),
+				baseLocal: readThroughLocal(rhs) || p.inFunc != "" && (p.isVarDeclaredLocal(rootName(rhs)) || p.isArgument(rootName(rhs))),
+			})
+
 			return
 		}
 
@@ -2802,4 +2827,52 @@ func extractLinksByScope(src string, lineNum int, scopes []FuncScope, funcLinks 
 	}
 
 	return funcLinks
+}
+
+// plainName reports whether s is a variable and nothing else: a name, or
+// names joined by dots. A keyword (`true`, `null`) is not one.
+func plainName(s string) bool {
+	if s == "" || isKeyword(s) {
+		return false
+	}
+
+	for part := range strings.SplitSeq(s, ".") {
+		if part == "" || !isIdentStart(part[0]) {
+			return false
+		}
+
+		for i := 1; i < len(part); i++ {
+			if !isIdentPart(part[i]) {
+				return false
+			}
+		}
+	}
+
+	return true
+}
+
+// rootName is the first name of a dotted one.
+func rootName(s string) string {
+	root, _, _ := strings.Cut(s, ".")
+
+	return root
+}
+
+// untypedValueText reports whether rhs is a value no component can be: a
+// string, a number or a boolean, or an argument passed through, whose type is
+// the caller's. A call is not one: what it returns may be typed later.
+func untypedValueText(rhs string) bool {
+	rhs = strings.TrimSpace(rhs)
+	if rhs == "" {
+		return false
+	}
+
+	if c := rhs[0]; c == '"' || c == '\'' || c >= '0' && c <= '9' || c == '-' {
+		return true
+	}
+
+	word := extractIdent(rhs)
+
+	return strings.EqualFold(word, "true") || strings.EqualFold(word, "false") ||
+		strings.EqualFold(word, "arguments") && len(rhs) > len(word) && rhs[len(word)] == '.'
 }

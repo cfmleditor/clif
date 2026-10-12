@@ -1114,7 +1114,7 @@ func (pr *ParseResult) resolvePendingCalls(calls []pendingCall) {
 		var still []int
 
 		for _, j := range untyped {
-			if c := &calls[j]; !pr.addPendingRef(c, pr.pendingCallComponent(c, funcReturns, nil)) {
+			if c := &calls[j]; !pr.addPendingRef(c, pr.pendingComponent(c, funcReturns, nil)) {
 				still = append(still, j)
 			}
 		}
@@ -1150,7 +1150,7 @@ func (pr *ParseResult) typePendingCalls(calls []pendingCall, funcReturns map[str
 			continue
 		}
 
-		if !pr.addPendingRef(c, pr.pendingCallComponent(c, funcReturns, globals)) {
+		if !pr.addPendingRef(c, pr.pendingComponent(c, funcReturns, globals)) {
 			untyped = append(untyped, j)
 		}
 	}
@@ -1219,6 +1219,16 @@ func (pr *ParseResult) funcReturnsFor(calls []pendingCall) map[string]string {
 
 // pendingCallComponent is the component the call c assigns its variable, or
 // "" when nothing says. It may clear c.rest, when the chain ends in a mock.
+// pendingComponent is what c's assignment holds: a copy's source, or what
+// its call returns.
+func (pr *ParseResult) pendingComponent(c *pendingCall, funcReturns map[string]string, globals []ComponentRef) string {
+	if c.alias {
+		return pr.aliasComponent(c, globals)
+	}
+
+	return pr.pendingCallComponent(c, funcReturns, globals)
+}
+
 func (pr *ParseResult) pendingCallComponent(c *pendingCall, funcReturns map[string]string, globals []ComponentRef) string {
 	if c.baseVar == "" && (c.baseLocal || pr.pendingArgumentShadows(c)) {
 		return ""
@@ -1331,6 +1341,7 @@ func (pr *ParseResult) addPendingRef(c *pendingCall, comp string) bool {
 	ref := ComponentRef{
 		Variable: c.varName, Component: comp, ChainRest: c.rest,
 		URI: pr.URI, Line: c.line, This: c.refThis, Rebinds: c.rebinds, BaseGuess: c.baseGuess,
+		ChainMethod: guessedMethod(c),
 		VisibleFrom: c.visibleFrom, VisibleTo: c.visibleTo,
 		ClosureFrom: c.closureFrom, ClosureTo: c.closureTo, HasClosureSpan: c.hasClosureSpan,
 	}
@@ -1506,13 +1517,23 @@ func (pr *ParseResult) settleReturnVars(pending []returnPending, calls []pending
 		reaching := pr.flow.reaching(refs, name, rp.line, admit)
 
 		// A receiver's own type, guessed for a call the parse could not look
-		// up, is not what the function returns; the resolver reads the body.
+		// up, is not what the function returns; the resolver reads the body,
+		// or, when one such call alone reaches the return, finishes it.
 		if slices.ContainsFunc(reaching, func(ref *ComponentRef) bool { return ref.BaseGuess }) {
+			if g := reaching[0]; len(reaching) == 1 && !called && g.ChainMethod != "" && len(g.ChainRest) == 0 {
+				pr.Funcs[rp.funcIdx].ReturnVia = &ReturnCall{Component: g.Component, Method: g.ChainMethod}
+			}
+
 			continue
 		}
 
 		if len(reaching) > 0 && !assignedBetween(calls, name, reaching[0].Line, rp.line) {
 			comp := agreedComponent(reaching, pr.settledComponent)
+			if comp != "" && pr.flow.untypedReaches(reaching, name, pr.Funcs[rp.funcIdx].Line, rp.line) {
+				comp = "$any" // a branch assigned it something untyped
+				pr.Funcs[rp.funcIdx].ReturnsUntyped = true
+			}
+
 			if scope == RefAny {
 				comp = returnedComponent(comp, called)
 			}
@@ -3982,4 +4003,48 @@ func memoFuncLookup(lookup func(component, funcName string) string) func(compone
 
 		return answer
 	}
+}
+
+// aliasComponent is what `varName = baseVar` copies: what baseVar holds at
+// the assignment, read from the function's refs and then the component's, as
+// a receiver is. It waits for the member pass, so a member is answered too:
+// tassweb's itext.cfc builds its helpers into `temp` in init() and keeps them
+// with `VARIABLES._itextUtils = temp.itextUtils`, and every method calling
+// one returned an untyped value.
+func (pr *ParseResult) aliasComponent(c *pendingCall, globals []ComponentRef) string {
+	if globals == nil {
+		globals = pr.ComponentRefs
+	}
+
+	scope, name := c.baseScope, c.baseVar
+	if lower := strings.ToLower(name); strings.HasPrefix(lower, "variables.") || strings.HasPrefix(lower, "this.") || strings.HasPrefix(lower, "local.") {
+		_, name, _ = strings.Cut(name, ".")
+	}
+
+	var ref *ComponentRef
+
+	if scope == RefAny && c.funcKey != "" {
+		ref = refReaching(pr.funcRefsMap[c.funcKey], name, c.line, func(r *ComponentRef) bool { return r.VisibleTo == 0 && !r.HasClosureSpan })
+	}
+
+	if ref == nil && !c.baseLocal {
+		ref = refReaching(globals, name, c.line, scope.Admits)
+	}
+
+	if ref == nil {
+		return ""
+	}
+
+	return pr.settledComponent(ref)
+}
+
+// guessedMethod is the method a ref typed by its receiver's own type was not
+// looked up for, which the resolver may look up (FunctionDef.ReturnVia).
+// ChainBase stays empty, so applyChainedReturnLookup leaves the ref alone.
+func guessedMethod(c *pendingCall) string {
+	if !c.baseGuess {
+		return ""
+	}
+
+	return c.funcName
 }

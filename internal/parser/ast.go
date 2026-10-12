@@ -32,6 +32,11 @@ type CollectionValues struct {
 	Sources []ReturnSource
 }
 
+// ReturnCall is a call whose return a function returns: Method on Component.
+type ReturnCall struct {
+	Component, Method string
+}
+
 // FunctionDef represents a user-defined function found in a CFC file.
 type FunctionDef struct {
 	Name             string
@@ -52,7 +57,18 @@ type FunctionDef struct {
 	// ColdBox documents most return types and declares few. It is a claim,
 	// not a declaration: the resolver takes it only where it names a file.
 	DocReturn string
-	returnVar string // unexported: variable name from "return varName" for deferred resolution
+	// ReturnVia is how the function's returned variable was last assigned
+	// when the parse could not finish typing it: `x = recv.m()` with recv
+	// holding ReturnVia.Component and m not looked up, which a parse without
+	// FuncLookup (the index's) cannot do. The resolver finishes it.
+	ReturnVia *ReturnCall
+	// ReturnsUntyped is set when a branch reaching a return assigned the
+	// returned variable a value no component can be (a string, a number, an
+	// argument passed through), which is why ReturnComponent is "$any". The
+	// "$any" a parse without FuncLookup gives a chain it could not walk is
+	// not that, and only this one is a fact about every call.
+	ReturnsUntyped bool
+	returnVar      string // unexported: variable name from "return varName" for deferred resolution
 	// returnLine is the line of the return returnVar came from. The
 	// variable's type is what its latest assignment at or before that line
 	// gave it, not its first.

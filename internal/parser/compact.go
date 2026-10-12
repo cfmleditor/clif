@@ -32,6 +32,11 @@ func CompactDefs(defs []FunctionDef) []FunctionDef {
 		d.ReturnComponent = strings.Clone(d.ReturnComponent)
 
 		d.DocReturn = strings.Clone(d.DocReturn)
+
+		if d.ReturnVia != nil {
+			d.ReturnVia = &ReturnCall{Component: strings.Clone(d.ReturnVia.Component), Method: strings.Clone(d.ReturnVia.Method)}
+		}
+
 		if d.CollectionValues != nil {
 			d.CollectionValues = &CollectionValues{Sources: compactReturnSources(d.CollectionValues.Sources)}
 		}

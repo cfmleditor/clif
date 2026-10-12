@@ -47,6 +47,10 @@ type flowRecord struct {
 	// in open, one flat slice rather than a slice per return.
 	returns []returnNote
 	open    []uint32
+	// assigns is every assignment in a function body, whatever it assigned,
+	// so a return can tell a branch that assigned something untyped (a
+	// string, an argument) from one that assigned nothing.
+	assigns []refNote
 }
 
 type returnNote struct {
@@ -146,6 +150,48 @@ func (fb *flowBlocks) note(name string, line, block uint32) {
 	line += fb.shift
 	r.sorted = r.sorted && (len(r.notes) == 0 || r.notes[len(r.notes)-1].line <= line)
 	r.notes = append(r.notes, refNote{name, line, block})
+}
+
+// noteAssign records an assignment to name on line in the innermost block,
+// whether or not it made a ref.
+func (fb *flowBlocks) noteAssign(name string, line uint32) {
+	fb.rec.assigns = append(fb.rec.assigns, refNote{name, line + fb.shift, fb.innermost()})
+}
+
+// untypedReaches reports whether an assignment to name that made no ref may
+// hold its value at the return on line, beside the refs reaching it: one in
+// a branch, after the latest ref that always runs and after start, the line
+// the function begins on. Such a value is not a component the refs name, so
+// the return is dynamic. An untyped assignment that always runs is not
+// counted: `var r = "";` before an if and else that each assign r is
+// overwritten on every path, which the blocks cannot show.
+func (fb *flowBlocks) untypedReaches(reaching []*ComponentRef, name string, start, line uint32) bool {
+	if fb == nil || len(reaching) == 0 {
+		return false
+	}
+
+	open := fb.openAt(line)
+	if len(open) == 0 {
+		return false
+	}
+
+	from := start
+	if fb.always(reaching[0], open) {
+		from = max(from, reaching[0].Line)
+	}
+
+	for _, a := range fb.rec.assigns {
+		if a.line <= from || a.line > line || a.block == 0 || slices.Contains(open, a.block) ||
+			!strings.EqualFold(a.name, name) {
+			continue
+		}
+
+		if !slices.ContainsFunc(reaching, func(ref *ComponentRef) bool { return ref.Line == a.line }) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // noteReturn records the blocks open at a return on line.
@@ -259,15 +305,18 @@ func (fb *flowBlocks) reaching(refs []ComponentRef, name string, line uint32, ad
 }
 
 // agreedComponent is what refs hold between them, comp reading each: "$any"
-// when one is dynamic, the component when they all agree, and nothing when
-// they do not or one of them is untyped.
+// when one is dynamic, the component when they all agree, the alternatives
+// ("a|b") when each is a different component, and nothing when one is untyped
+// or a native value. A function returning a different component per branch
+// (iText's createParagraph returns a jsonParagraph, an xssfParagraph or a
+// Paragraph by output type) is then checked against each, as a call on any
+// "a|b" receiver is, where it used to be unchecked.
 func agreedComponent(refs []*ComponentRef, comp func(*ComponentRef) string) string {
 	if len(refs) == 0 {
 		return ""
 	}
 
 	agreed := comp(refs[0])
-	disagree := false
 
 	for _, ref := range refs[1:] {
 		c := comp(ref)
@@ -275,18 +324,65 @@ func agreedComponent(refs []*ComponentRef, comp func(*ComponentRef) string) stri
 			return "$any"
 		}
 
-		if !strings.EqualFold(agreed, c) {
-			disagree = true
+		if agreed != "" {
+			agreed = unionComponents(agreed, c)
 		}
 	}
 
-	if agreed == "$any" {
-		return "$any"
-	}
+	return agreed
+}
 
-	if disagree {
+// unionComponents is a value that is a or b: one when they agree, "$any" when
+// either is, the sorted alternatives "a|b" when both are components, and ""
+// when either is untyped or a native or built-in value, which a component
+// alternative cannot stand for.
+func unionComponents(a, b string) string {
+	switch {
+	case strings.EqualFold(a, b):
+		return a
+	case a == "$any" || b == "$any" || strings.Contains(a, "#") || strings.Contains(b, "#"):
+		// A path still holding a runtime expression is dynamic once the
+		// expressions are replaced, and an alternative of it would be too.
+		return "$any"
+	case a == "" || b == "" || !unionable(a) || !unionable(b):
 		return ""
 	}
 
-	return agreed
+	var alts []string
+
+	for _, c := range []string{a, b} {
+		for alt := range strings.SplitSeq(c, "|") {
+			if !slices.ContainsFunc(alts, func(s string) bool { return strings.EqualFold(s, alt) }) {
+				alts = append(alts, alt)
+			}
+		}
+	}
+
+	slices.SortFunc(alts, func(x, y string) int { return strings.Compare(strings.ToLower(x), strings.ToLower(y)) })
+
+	return strings.Join(alts, "|")
+}
+
+// unionable reports whether every alternative of c is a component: not a
+// native value or a built-in function's return.
+func unionable(c string) bool {
+	for alt := range strings.SplitSeq(c, "|") {
+		if alt == "" || strings.HasPrefix(alt, NativeTypePrefix) || strings.HasPrefix(alt, "$") {
+			return false
+		}
+	}
+
+	return true
+}
+
+// unionReturn combines a function's return component so far with what a
+// further return statement returns: the first return's, until another returns
+// something else. Script functions kept the last return's component and tag
+// functions the first's; both now keep each, as unionComponents does.
+func unionReturn(sofar, comp string) string {
+	if sofar == "" {
+		return comp
+	}
+
+	return unionComponents(sofar, comp)
 }

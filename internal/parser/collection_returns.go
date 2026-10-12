@@ -905,6 +905,11 @@ func (pr *ParseResult) collectionValueSource(expression, function string, locals
 
 	for i := range tp.pendingCalls {
 		c := &tp.pendingCalls[i]
+		if c.alias {
+			// A plain name is read by the caller from the refs it names.
+			continue
+		}
+
 		if c.baseVar != "" {
 			ref := firstRefIn(pr.funcRefsMap[function], c.baseVar, c.baseScope)
 			if ref == nil && c.baseScope == RefAny && locals[function+"\t"+strings.ToLower(c.baseVar)] {

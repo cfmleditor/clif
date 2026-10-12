@@ -2671,6 +2671,10 @@ func (r *Resolver) returnComponentOf(fd *parser.FunctionDef, depth int, budget *
 			// call does not say that, and a documented @return still applies.
 			// ColdBox's getContext() has no semicolons; read as a plan, its
 			// lock block hid the returns, and it lost its documented type.
+			if ret == "" {
+				ret = r.unevaluatedReturn(fd, depth, budget)
+			}
+
 			if ret != "" || producerNeedsSpecialization(method, fd) && (fd.DocReturn == "" || producerSensitive(method.body)) {
 				return ret
 			}
@@ -2725,6 +2729,10 @@ func (r *Resolver) returnComponentOf(fd *parser.FunctionDef, depth int, budget *
 	// comment is not a contract, so it does not outrank one.
 	if fd.ReturnComponent != "" {
 		return fd.ReturnComponent
+	}
+
+	if ret := r.returnViaComponent(fd, depth, budget); ret != "" {
+		return ret
 	}
 
 	return r.docReturnComponent(fd)
@@ -3158,6 +3166,16 @@ func (r *Resolver) missingMethod(comp, softComp string, call *parser.CallSite, p
 // a reason is written into a known-issues file that is committed and read on
 // other machines, where an absolute path would not mean anything.
 func displayComponent(comp string) string {
+	if strings.Contains(comp, "|") {
+		// Each alternative of a union, which may mix a file and a dot-path.
+		alts := strings.Split(comp, "|")
+		for i, alt := range alts {
+			alts[i] = displayComponent(alt)
+		}
+
+		return strings.Join(alts, "|")
+	}
+
 	comp = strings.TrimPrefix(comp, parser.EntityPrefix)
 
 	if filepath.IsAbs(comp) {
@@ -3821,4 +3839,44 @@ func (r *Resolver) declaredReturnType(fd *parser.FunctionDef) string {
 	}
 
 	return fd.ReturnType
+}
+
+// returnViaComponent finishes what the index's parse could not: fd returns
+// a variable last assigned `x = recv.m()`, recv holding fd.ReturnVia's
+// component, and fd returns what m returns there — "$any" included, as the
+// parse would give it with FuncLookup. tassweb's itext.createParagraph
+// returns `VARIABLES._itextUtils.createParagraph( … )`, whose branches return
+// a string or one of several paragraphs. Depth and budget are carried, so
+// two functions returning each other's calls end rather than recurse.
+func (r *Resolver) returnViaComponent(fd *parser.FunctionDef, depth int, budget *int) string {
+	via := fd.ReturnVia
+	if via == nil || !fd.URI.IsFile() || depth >= 8 || *budget <= 0 {
+		return ""
+	}
+
+	*budget--
+
+	target := r.ResolveFunc(via.Component, via.Method, filepath.Dir(fd.URI.Path()))
+	if target == nil {
+		return ""
+	}
+
+	return r.returnComponentOf(target, depth+1, budget)
+}
+
+// unevaluatedReturn is what fd returns when evaluating its body gave no
+// answer: what the call it returns returns (returnViaComponent), or "$any"
+// when the parse found a branch returning no component (a string or an
+// argument passed through), which no choice of the caller's arguments makes
+// a component on every path.
+func (r *Resolver) unevaluatedReturn(fd *parser.FunctionDef, depth int, budget *int) string {
+	if ret := r.returnViaComponent(fd, depth, budget); ret != "" {
+		return ret
+	}
+
+	if fd.ReturnsUntyped && fd.ReturnComponent == "$any" {
+		return "$any"
+	}
+
+	return ""
 }

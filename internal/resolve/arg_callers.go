@@ -699,7 +699,7 @@ func (r *Resolver) argumentExprComponentSource(expr []parser.Token, line uint32,
 
 	text := strings.ReplaceAll(strings.ReplaceAll(producerText(expr), " . ", "."), " (", "(")
 
-	return r.typeCallExpr(text, line, caller, pr, dir, next)
+	return r.typeCallExpr(text, line, caller, pr, dir, next, false)
 }
 
 // argumentAliasComponent follows a plain local passed by a caller to the last

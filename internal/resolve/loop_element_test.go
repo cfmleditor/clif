@@ -52,7 +52,7 @@ function scriptLoops( svc ){
 
 	expectReasons(t, reasonsWith(t, &Resolver{}, dir, "models/Post.cfc"), map[string]string{
 		"c.getText":       "",
-		"c.nope":          "method 'nope' not found in Comment",
+		"c.nope":          "method 'nope' not found in ReplyComment|Comment",
 		"c.getParentText": "",
 		"p.getText":       "",
 		"a.getText":       "",

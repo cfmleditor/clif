@@ -7,14 +7,14 @@ import (
 // A return reads what every assignment that may reach it says. One in a block
 // the return is outside of (a branch, a case, a loop body, a try or a catch)
 // may or may not have run, so it joins what reached the block rather than
-// replacing it. When those disagree the function has no return type; when
-// one is dynamic, the return is. An assignment in a block holding the return
+// replacing it. When those name different components the function returns
+// either ("a|b"); when one is dynamic, the return is. An assignment in a block holding the return
 // always runs before it, and replaces what came before.
 func TestReturnTypeComparesTheBranchesReachingIt(t *testing.T) {
 	cases := []struct {
 		name, want, content string
 	}{
-		{"if else disagree", "", `component {
+		{"if else disagree", "models.A|models.B", `component {
 function f( c ) {
 	if ( c ) {
 		var x = new models.A();
@@ -24,7 +24,7 @@ function f( c ) {
 	return x;
 }
 }`},
-		{"if without else", "", `component {
+		{"if without else", "models.A|models.B", `component {
 function f( c ) {
 	var x = new models.A();
 	if ( c ) {
@@ -43,7 +43,7 @@ function f( c ) {
 	return x;
 }
 }`},
-		{"try catch", "", `component {
+		{"try catch", "models.A|models.B", `component {
 function f() {
 	try {
 		var x = new models.A();
@@ -81,7 +81,7 @@ function f( c ) {
 	}
 }
 }`},
-		{"switch cases", "", `component {
+		{"switch cases", "models.A|models.B", `component {
 function f( k ) {
 	switch ( k ) {
 		case 1:
@@ -93,7 +93,7 @@ function f( k ) {
 	return x;
 }
 }`},
-		{"loop body", "", `component {
+		{"loop body", "models.A|models.B", `component {
 function f( items ) {
 	var x = new models.A();
 	for ( var i in items ) {
@@ -102,7 +102,7 @@ function f( items ) {
 	return x;
 }
 }`},
-		{"branches typed by calls", "", `component {
+		{"branches typed by calls", "models.A|models.B", `component {
 function makeA() { return new models.A(); }
 function makeB() { return new models.B(); }
 function f( c ) {
@@ -114,7 +114,7 @@ function f( c ) {
 	return x;
 }
 }`},
-		{"tag cfif cfelse disagree", "", `<cfcomponent>
+		{"tag cfif cfelse disagree", "models.A|models.B", `<cfcomponent>
 <cffunction name="f">
 	<cfargument name="c">
 	<cfif arguments.c>
@@ -136,7 +136,7 @@ function f( c ) {
 	<cfreturn x>
 </cffunction>
 </cfcomponent>`},
-		{"tag cftry cfcatch", "", `<cfcomponent>
+		{"tag cftry cfcatch", "models.A|models.B", `<cfcomponent>
 <cffunction name="f">
 	<cftry>
 		<cfset var x = createObject("component", "models.A")>
@@ -147,7 +147,7 @@ function f( c ) {
 	<cfreturn x>
 </cffunction>
 </cfcomponent>`},
-		{"tag cfloop", "", `<cfcomponent>
+		{"tag cfloop", "models.A|models.B", `<cfcomponent>
 <cffunction name="f">
 	<cfset var x = createObject("component", "models.A")>
 	<cfloop from="1" to="3" index="i">
@@ -198,14 +198,14 @@ function f( c ) {
 // last two cases pin so that a change to the rule shows.
 func TestBracelessBodiesAreBlocks(t *testing.T) {
 	cases := []struct{ name, body, want string }{
-		{"if", "var x = new models.A();\n\tif ( c ) x = new models.B();", ""},
-		{"if else", "if ( c ) var x = new models.A();\n\telse x = new models.B();", ""},
-		{"braced if, braceless else", "var x = new models.A();\n\tif ( c ) {\n\t\tx = new models.B();\n\t} else x = new models.C();", ""},
-		{"for", "var x = new models.A();\n\tfor ( var i in c ) x = new models.B();", ""},
-		{"for with semicolons in its head", "var x = new models.A();\n\tfor ( var i = 0; i < 3; i++ ) x = new models.B();", ""},
-		{"while", "var x = new models.A();\n\twhile ( c ) x = new models.B();", ""},
-		{"else if chain, as a braced one: no exhaustiveness", "var x = new models.A();\n\tif ( c ) x = new models.B();\n\telse if ( d ) x = new models.B();\n\telse x = new models.B();", ""},
-		{"nested", "var x = new models.A();\n\tif ( c ) if ( d ) x = new models.B();", ""},
+		{"if", "var x = new models.A();\n\tif ( c ) x = new models.B();", "models.A|models.B"},
+		{"if else", "if ( c ) var x = new models.A();\n\telse x = new models.B();", "models.A|models.B"},
+		{"braced if, braceless else", "var x = new models.A();\n\tif ( c ) {\n\t\tx = new models.B();\n\t} else x = new models.C();", "models.A|models.B|models.C"},
+		{"for", "var x = new models.A();\n\tfor ( var i in c ) x = new models.B();", "models.A|models.B"},
+		{"for with semicolons in its head", "var x = new models.A();\n\tfor ( var i = 0; i < 3; i++ ) x = new models.B();", "models.A|models.B"},
+		{"while", "var x = new models.A();\n\twhile ( c ) x = new models.B();", "models.A|models.B"},
+		{"else if chain, as a braced one: no exhaustiveness", "var x = new models.A();\n\tif ( c ) x = new models.B();\n\telse if ( d ) x = new models.B();\n\telse x = new models.B();", "models.A|models.B"},
+		{"nested", "var x = new models.A();\n\tif ( c ) if ( d ) x = new models.B();", "models.A|models.B"},
 		{"agreeing", "var x = new models.B();\n\tif ( c ) x = new models.B();", "models.B"},
 		{"overwritten after", "var x = new models.A();\n\tif ( c ) x = new models.B(); x = new models.C();", "models.C"},
 		{"overwritten on the next statement", "var x = new models.A();\n\tif ( c ) x = new models.B();\n\tx = new models.C();", "models.C"},
