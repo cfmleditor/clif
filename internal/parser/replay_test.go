@@ -40,3 +40,29 @@ func TestReplayReadsWhatTheScannerReads(t *testing.T) {
 		}
 	}
 }
+
+// TestTheCollectionPassRunsOnlyWhereItCanAnswer: the pass types a function
+// returning an element anywhere, and one returning a whole struct only where
+// no tag region marks every collection escaped, so a tag file whose functions
+// return variables skips it. Skipping it where it could answer would drop a
+// type; running it where it cannot was 30-44% of a tag component's parse.
+func TestTheCollectionPassRunsOnlyWhereItCanAnswer(t *testing.T) {
+	whole := []pendingCall{{varName: "result", returnExpr: true, funcKey: "1:3"}}
+	element := []pendingCall{{varName: "result[ 1 ]", returnExpr: true, funcKey: "1:3"}}
+
+	for _, tc := range []struct {
+		name    string
+		calls   []pendingCall
+		tagFile bool
+		runs    bool
+	}{
+		{"script file, whole value", whole, false, true},
+		{"script file, element", element, false, true},
+		{"tag file, whole value", whole, true, false},
+		{"tag file, element", element, true, true},
+	} {
+		if got := collectionReturnExpressions(tc.calls, tc.tagFile) != nil; got != tc.runs {
+			t.Errorf("%s: runs = %v, want %v", tc.name, got, tc.runs)
+		}
+	}
+}

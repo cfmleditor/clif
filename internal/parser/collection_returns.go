@@ -81,13 +81,19 @@ func collectionReadAt(sc *Scanner) (root string, element bool) {
 	return root, element
 }
 
-func collectionReturnExpressions(calls []pendingCall) map[string][]string {
+// collectionReturnExpressions groups the return expressions by function, or
+// is nil when none could be answered: the pass types a function that returns
+// an element (`return x[k]`), and one returning a whole struct only in a file
+// with no tag region, since a tag region marks every collection escaped
+// (markCollectionEscapes). A tag component returning variables, the common
+// case, skips the pass.
+func collectionReturnExpressions(calls []pendingCall, tagFile bool) map[string][]string {
 	candidates := false
 
 	for i := range calls {
 		c := &calls[i]
 		if c.returnExpr {
-			if root, _ := collectionRead(c.varName); root != "" {
+			if root, element := collectionRead(c.varName); root != "" && (element || !tagFile) {
 				candidates = true
 
 				break
@@ -194,7 +200,7 @@ func concatLower(prefix, s string) string {
 }
 
 func (pr *ParseResult) applyCollectionReturns(calls []pendingCall) {
-	returns := collectionReturnExpressions(calls)
+	returns := collectionReturnExpressions(calls, pr.hasTagRegion())
 	if returns == nil {
 		return
 	}
@@ -1153,4 +1159,15 @@ func (c *expressionWriteCache) scan(expression string) []expressionWrite {
 	c.next[e.key] = e
 
 	return e.writes
+}
+
+// hasTagRegion reports whether the file has a tag region.
+func (pr *ParseResult) hasTagRegion() bool {
+	for i := range pr.Regions {
+		if pr.Regions[i].Kind == RegionTag {
+			return true
+		}
+	}
+
+	return false
 }
