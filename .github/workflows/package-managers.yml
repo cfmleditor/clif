@@ -44,6 +44,7 @@ on:
   pull_request:
     paths:
       - "packaging/**"
+      - "scripts/lib/**"
       - ".github/workflows/package-managers.yml"
 
 permissions:
@@ -94,16 +95,73 @@ jobs:
           ruby -c clif.rb
           cat clif.rb
 
+      # The same release built from the tag's source, which is what
+      # homebrew-core would take (see the script).
+      - name: Write the source formula
+        run: |
+          set -euo pipefail
+          # The release's source archive, when the download above fetched it.
+          source="dist/clif-${TAG#v}-source.tar.gz"
+          [ -f "${source}" ] || source=""
+          bash packaging/homebrew/formula-source.sh "${TAG}" ${source:+"${source}"} > clif-source.rb
+          ruby -c clif-source.rb
+          cat clif-source.rb
+
+      # Build it the way a user's brew would, and run its test block: the
+      # binaries the prebuilt formula installs were built by the release, but
+      # nothing else builds this one. It is published only when this passes.
+      # Homebrew's go older than go.mod's go line cannot build it, so that is
+      # checked first and skipped with a warning; any other failure fails a
+      # pull request run, and only warns when publishing, so the prebuilt
+      # formula is still published.
+      - name: Build and test the source formula
+        id: source
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -uo pipefail
+          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+
+          source="dist/clif-${TAG#v}-source.tar.gz"
+          if [ -f "${source}" ]; then
+            want="$(tar -xzOf "${source}" "clif-${TAG#v}/go.mod" | awk '$1 == "go" { print $2; exit }')"
+          else
+            want="$(awk '$1 == "go" { print $2; exit }' go.mod)"
+          fi
+          have="$(brew info --json=v2 go | jq -r '.formulae[0].versions.stable')"
+          if [ "$(printf '%s\n%s\n' "${want}" "${have}" | sort -V | head -1)" != "${want}" ]; then
+            echo "::warning::Homebrew's go is ${have} and clif needs ${want}, so clif-source is not built or published"
+            echo "built=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          brew tap-new --no-git local/clif-check >/dev/null
+          cp clif-source.rb "$(brew --repository local/clif-check)/Formula/clif-source.rb"
+          if brew install --build-from-source local/clif-check/clif-source && brew test local/clif-check/clif-source; then
+            echo "built=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "built=false" >> "$GITHUB_OUTPUT"
+          if [ "${EVENT}" = "pull_request" ]; then
+            echo "::error::clif-source did not build or pass its test"
+            exit 1
+          fi
+          echo "::warning::clif-source did not build or pass its test, so the tap keeps its previous clif-source"
+
       - uses: actions/upload-artifact@v7
         with:
           name: homebrew-formula
-          path: clif.rb
+          path: |
+            clif.rb
+            clif-source.rb
           retention-days: 7
 
       - name: Push it to the tap
         if: needs.tag.outputs.publish == 'true'
         env:
           TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          SOURCE_BUILT: ${{ steps.source.outputs.built }}
         run: |
           set -euo pipefail
           if [ -z "${TAP_TOKEN}" ]; then
@@ -113,15 +171,22 @@ jobs:
 
           git clone -q "https://x-access-token:${TAP_TOKEN}@github.com/cfmleditor/homebrew-tap.git" tap
           cp clif.rb tap/Formula/clif.rb
+          # A source formula that did not build leaves the tap's last one, which
+          # then lags clif: say which release it is still on.
+          if [ "${SOURCE_BUILT}" = "true" ]; then
+            cp clif-source.rb tap/Formula/clif-source.rb
+          elif [ -f tap/Formula/clif-source.rb ]; then
+            echo "::warning::clif-source in the tap stays at $(grep -o 'v[0-9][^/]*/' tap/Formula/clif-source.rb | head -1 | tr -d /) while clif moves to ${TAG}"
+          fi
           cd tap
-          if git diff --quiet; then
-            echo "The tap already has this formula."
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "The tap already has these formulae."
             exit 0
           fi
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Formula/clif.rb
+          git add Formula
           git commit -q -m "clif ${TAG#v}"
           git push -q
 

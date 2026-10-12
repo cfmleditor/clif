@@ -37,6 +37,9 @@ windows/amd64) asset=cflint-windows-amd64.zip sum=5a55fe060570fde20b370380cfa6de
 	;;
 esac
 
+# Inline rather than sourced from lib/sha256.sh, which the packaging scripts
+# share: this one is run on its own too, and a failed source would leave
+# `make build` without CFLint.
 sha256() {
 	if command -v sha256sum >/dev/null 2>&1; then
 		sha256sum "$1" | cut -d' ' -f1
