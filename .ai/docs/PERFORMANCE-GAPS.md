@@ -559,3 +559,38 @@ workspace behind a cache. Regular expressions are 3% of a tassweb scan's
 CPU. Output is identical per entry on the seven-project corpus, tassweb
 and the nine apps.
 
+## 14. The language server on tassweb — measured, two fixes
+
+`scripts/lsp-latency.py <binary> <workspace> <file>...` drives the server
+over stdio as an editor would: start, wait for indexing, open each file,
+then hover, definition, completion and signature help at 25 calls per file,
+30 keystrokes with a completion after each, and one edit outside a function.
+`CLIF_CPUPROFILE` profiles the run. On the 12-application tassdev workspace
+with tassweb's three largest files (58,000 and 22,000-line components and
+its largest page):
+
+| | before | after |
+|---|---|---|
+| startup to "indexing complete" (3,736 components) | 1.2s, 135 MB peak | same |
+| open a large file, to its symbols (median / max) | 497 / 726 ms | 295 / 451 ms |
+| keystroke then completion (p90 / max) | 20 / 23 ms | 9 / 11 ms |
+| hover, definition, completion, signature help (p90) | 2-7 ms | same |
+| edit outside a function, then the next request | 110-139 ms | same |
+
+- **Startup indexing recorded neither extends nor delegates**
+  (`applyIndexResult`), so the first lookup to walk a component's chain read
+  and fully parsed it from disk, and each such write to the index cleared
+  the lookup cache. A shallow parse reads extends as a full one does
+  (13,636 components), and a file that never says "delegate" has none.
+- **`scriptReturnExpression` scanned from each assignment to the next `;`
+  or `}`**, and CFScript does not need the `;`: in a function written
+  without them each assignment scanned to the closing brace. `expressionEnds`
+  answers every token from one pass (`TestExpressionEndsMatchScriptReturnExpression`).
+
+A cache of method-return lookups across parses would not help the editor:
+every edit that moves a line or re-indexes the file is an index write, so a
+generation-keyed cache is empty by the next reparse. The outside-function
+reparse is now the parse itself (about 1.7µs a line). The server ignores
+`exit` and stops when stdin closes; as a daemon shared by several windows,
+that is likely deliberate.
+

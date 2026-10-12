@@ -3771,6 +3771,10 @@ func mayDeclareVariable(content, name string) bool {
 	}
 }
 
+// IsShallow reports whether pr is a shallow parse (ParseOptions.Shallow):
+// signatures and extends, but no properties, refs or arguments.
+func (pr *ParseResult) IsShallow() bool { return pr.shallow }
+
 // Declares reports whether the file declares name anywhere, case-insensitively:
 // a variable in any scope, a property, a function or a function's argument.
 // A name it does not declare is one it expects from elsewhere — its base

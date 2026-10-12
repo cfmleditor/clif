@@ -184,6 +184,21 @@ func (s *Server) applyIndexResult(fileURI uri.URI, path string, pr *parser.Parse
 	s.index.SetThisVars(fileURI, pr.ThisVars())
 	s.index.SetIncludes(fileURI, parser.ExtractIncludes(pr.Content))
 
+	// Extends and delegates, which IndexFileFromResult forgets: left unset,
+	// the resolver read and fully parsed each component the first time a
+	// lookup walked through it, and each of those writes to the index cleared
+	// its lookup cache. Opening a large file paid for hundreds of them. A
+	// shallow parse reads extends as a full one does, but not properties, so
+	// its delegates are known only for a file that never says "delegate",
+	// which every delegation needs. Both held over 13,636 components.
+	s.index.SetExtends(fileURI, pr.Extends)
+
+	if !pr.IsShallow() {
+		s.index.SetDelegates(fileURI, pr.Delegates)
+	} else if parser.IndexFold(pr.Content, "delegate") < 0 {
+		s.index.SetDelegates(fileURI, nil)
+	}
+
 	if pr.Persistent && s.isOrmPath(path) {
 		s.index.SetEntity(cfpath.CfcNameFromURI(string(fileURI)), fileURI)
 

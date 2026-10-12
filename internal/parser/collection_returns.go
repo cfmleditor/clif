@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"slices"
 	"sort"
 	"strings"
 	"unicode/utf8"
@@ -669,6 +670,8 @@ func placeWrites(scanned []expressionWrite, offset int, functionAt func(int) str
 func scanExpressionWrites(expression string) []expressionWrite {
 	var writes []expressionWrite
 
+	var ends *expressionEnds
+
 	sc := NewScanner(expression)
 	sc.interpStrings = true
 	previous := TokEOF
@@ -742,10 +745,87 @@ func scanExpressionWrites(expression string) []expressionWrite {
 			continue
 		}
 
-		writes = append(writes, expressionWrite{write: collectionWrite{target: root, expression: scriptReturnExpression(&cursor), element: element, local: local || hasPrefixFold(root, "local.")}, at: t.Offset, placed: true})
+		if ends == nil {
+			ends = newExpressionEnds(expression)
+		}
+
+		writes = append(writes, expressionWrite{write: collectionWrite{target: root, expression: ends.from(cursor.PeekSkipComments().Offset), element: element, local: local || hasPrefixFold(root, "local.")}, at: t.Offset, placed: true})
 	}
 
 	return writes
+}
+
+// expressionEnds answers scriptReturnExpression for every token of one
+// expression from a single pass. scriptReturnExpression scans from its start
+// to the first ";" or "}" at the start's depth, and CFScript does not need
+// the ";": in a function written without them every assignment scanned on to
+// the function's closing brace, quadratic in its length (most of a reparse
+// of tassweb's largest components in the editor).
+type expressionEnds struct {
+	src     string
+	offsets []int // each token's offset
+	ends    []int // where the expression starting at that token ends
+}
+
+func newExpressionEnds(src string) *expressionEnds {
+	sc := NewScanner(src)
+	sc.interpStrings = true
+
+	var (
+		offsets, depths []int
+		terminal        []bool
+	)
+
+	depth := 0
+
+	for {
+		t := sc.NextSkipComments()
+		if t.Kind == TokEOF {
+			break
+		}
+
+		offsets = append(offsets, t.Offset)
+		depths = append(depths, depth)
+		terminal = append(terminal, t.Kind == TokSemicolon || t.Kind == TokRBrace)
+
+		switch t.Kind {
+		case TokLParen, TokLBracket, TokLBrace:
+			depth++
+		case TokRParen, TokRBracket, TokRBrace:
+			depth--
+		default:
+		}
+	}
+
+	// Backwards: the nearest terminator at or after each token, at its depth.
+	ends := make([]int, len(offsets))
+	next := map[int]int{}
+
+	for i := len(offsets) - 1; i >= 0; i-- {
+		if terminal[i] {
+			next[depths[i]] = offsets[i]
+		}
+
+		end, ok := next[depths[i]]
+		if !ok {
+			end = len(src)
+		}
+
+		ends[i] = end
+	}
+
+	return &expressionEnds{src: src, offsets: offsets, ends: ends}
+}
+
+// from is scriptReturnExpression for a scanner whose next token starts at
+// offset.
+func (e *expressionEnds) from(offset int) string {
+	i, found := slices.BinarySearch(e.offsets, offset)
+	if !found {
+		return strings.TrimSpace(e.src[min(offset, len(e.src)):])
+	}
+
+	return strings.TrimSpace(e.src[offset:e.ends[i]])
 }
 
 func collectCollectionTags(text string, offset int, functionAt func(int) string, writes []collectionWrite, cache *expressionWriteCache) []collectionWrite {
