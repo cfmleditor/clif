@@ -14,7 +14,7 @@ import (
 // component — and each carried its syntax line in detail and its description
 // in documentation: two thirds of the 322KB response, for the one item the
 // user ends up looking at. The encode is almost all of what the request costs
-// (see PERFORMANCE-GAPS.md), so the only saving available is sending less.
+// (see .ai/docs/PERFORMANCE-GAPS.md), so the only saving available is sending less.
 //
 // A client that can fill those fields in later says so at initialize, in
 // textDocument.completion.completionItem.resolveSupport.properties. For such a

@@ -109,6 +109,10 @@ type Report struct {
 // Scan indexes files, then reports the unresolved calls in targets, or in
 // every one of files when targets is empty.
 func Scan(fsys vfs.FS, files, targets []string, opt *Options) Report {
+	// A batch scan assumes its input tree is stable until it completes. Reuse
+	// metadata across indexing, resolution and any speculative passes.
+	fsys = vfs.CacheMetadata(fsys)
+
 	if opt.SpeculativeMethods {
 		closed := *opt
 		closed.SpeculativeMethods = false

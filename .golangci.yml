@@ -74,7 +74,7 @@ linters:
       # reads the lowercase name as a misspelling of "commando".
       ignore-rules:
         - commandbox
-    # Stage 4 (LINT-PLAN.md). New code stays under these; each function over
+    # Stage 4 (.ai/docs/LINT-PLAN.md). New code stays under these; each function over
     # one today carries a //nolint naming the stage, and nolintlint fails on a
     # marker the function no longer needs, so that list only shrinks.
     exhaustive:
@@ -128,7 +128,7 @@ linters:
           msg: stdout carries the protocol; log, or write to an io.Writer the caller passes
     govet:
       # On top of go vet's default analyzers. Each found nothing when enabled
-      # (LINT-PLAN.md, stage 1). shadow and fieldalignment stay off: see there.
+      # (.ai/docs/LINT-PLAN.md, stage 1). shadow and fieldalignment stay off: see there.
       enable:
         - atomicalign
         - deepequalerrors
@@ -168,7 +168,7 @@ linters:
         - name: unused-parameter
         - name: var-declaration
         - name: var-naming
-        # Bug-catchers beyond the defaults (LINT-PLAN.md, stage 1).
+        # Bug-catchers beyond the defaults (.ai/docs/LINT-PLAN.md, stage 1).
         - name: atomic
         - name: constant-logical-expr
         - name: forbidden-call-in-wg-go
@@ -188,13 +188,13 @@ linters:
         - name: unnecessary-if
         - name: useless-break
         - name: waitgroup-by-value
-        # Stage 5 (LINT-PLAN.md): style that costs nothing today. Map style is
+        # Stage 5 (.ai/docs/LINT-PLAN.md): style that costs nothing today. Map style is
         # left unset: both spellings are in use, and picking one is 54 or 139
         # edits that change nothing at runtime. Slice style is "literal", not
         # "nil": a nil slice marshals to null and an empty one to [], and LSP
         # responses and the code-map output rely on [].
         - name: use-any
-        # Stage 6 (LINT-PLAN.md): added by revive v1.17.0 (golangci-lint
+        # Stage 6 (.ai/docs/LINT-PLAN.md): added by revive v1.17.0 (golangci-lint
         # v2.14.0). Found nothing; a marshal method on the wrong receiver is
         # silently never called.
         - name: marshal-receiver
@@ -206,7 +206,7 @@ linters:
         - name: use-slices-concat
         - name: enforce-slice-style
           arguments: ["literal"]
-        # Stage 2 (LINT-PLAN.md).
+        # Stage 2 (.ai/docs/LINT-PLAN.md).
         - name: bool-literal-in-expr
         - name: confusing-results
         - name: import-shadowing
@@ -261,7 +261,7 @@ linters:
         - emptyStringTest
         # Bug-catchers that are off by default because gocritic tags them
         # experimental or opinionated. Each found nothing when enabled; they
-        # guard new code (LINT-PLAN.md, stage 1).
+        # guard new code (.ai/docs/LINT-PLAN.md, stage 1).
         - badLock
         - badSyncOnceFunc
         - syncMapLoadAndDelete
@@ -282,7 +282,7 @@ linters:
         - regexpPattern
         - deferUnlambda
         - sloppyReassign
-        # Stage 5 (LINT-PLAN.md): style checks that found nothing when enabled.
+        # Stage 5 (.ai/docs/LINT-PLAN.md): style checks that found nothing when enabled.
         - boolExprSimplify
         - builtinShadow
         - builtinShadowDecl
@@ -310,7 +310,7 @@ linters:
         - unnecessaryBlock
         - unnecessaryDefer
         - yodaStyleExpr
-        # Stage 2 (LINT-PLAN.md).
+        # Stage 2 (.ai/docs/LINT-PLAN.md).
         - deferInLoop
         - filepathJoin
         - importShadow

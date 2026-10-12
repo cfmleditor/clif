@@ -409,7 +409,7 @@ func formatOneFile(path string, opts *formatter.Options, write bool) error {
 	// Refuse a file the grammar could not parse, exactly as the LSP handler
 	// does. Formatting an incomplete CST is how a grammar gap turns into
 	// deleted source, and the whitespaceOnly guard does not catch every shape
-	// of that (see FORMATTER-ISSUES.md).
+	// of that (see .ai/docs/FORMATTER-ISSUES.md).
 	if err := formatter.ParseError(tree, content); err != nil {
 		return err
 	}

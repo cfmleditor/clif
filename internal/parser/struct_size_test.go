@@ -9,7 +9,7 @@ import (
 // call site, and each keeps its small fields together so none is padded to a
 // word on its own. Adding a bool in the middle of one moves it up a size
 // class, or makes every call slice larger, without anything else noticing.
-// LINT-PLAN.md stage 3 has the measurements.
+// .ai/docs/LINT-PLAN.md stage 3 has the measurements.
 func TestParserStructsKeepTheirSize(t *testing.T) {
 	if unsafe.Sizeof(uintptr(0)) != 8 {
 		t.Skip("sizes are stated for 64-bit words")

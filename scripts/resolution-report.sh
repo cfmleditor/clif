@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Runs `unresolved --json --candidates` over named scans and writes the
-# candidate lists (resolution-candidates/ by default). Each scan is
+# candidate lists (.ai/docs/resolution-candidates/ by default). Each scan is
 #
 #   name=dir[,dir...]
 #
@@ -16,7 +16,7 @@
 # to run after a change; the lists are for when a fresh picture is wanted.
 set -euo pipefail
 
-: "${OUT=resolution-candidates}"
+: "${OUT=.ai/docs/resolution-candidates}"
 : "${RUNS:=target/resolution/latest}"
 : "${BASELINE:=}"
 : "${JOBS:=4}"

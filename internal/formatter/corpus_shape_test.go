@@ -10,7 +10,7 @@ import (
 // TestMalformedShapeCatchesFoldedBraces feeds malformedShape the exact output
 // the braced-`case` defect produced. That defect was whitespace-only and
 // idempotent, so the guard passed it and the corpus counted the file clean
-// across every run recorded in FORMATTER-ISSUES.md — this check is the only
+// across every run recorded in .ai/docs/FORMATTER-ISSUES.md — this check is the only
 // thing in the harness that can see it, and this is the case it exists for.
 func TestMalformedShapeCatchesFoldedBraces(t *testing.T) {
 	t.Parallel()

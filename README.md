@@ -274,7 +274,7 @@ JSON mode still emits the existing findings array. `--write` and `--known-issues
 are incompatible with this audit mode. It is off by default; use
 `--no-assume-open-world` to restore ordinary reporting. These new switches apply
 to the batch CLI, not editor diagnostics.
-See [assumptions, examples and measured experiments](RESOLUTION-SPECULATIVE-CONNECTIONS.md).
+See [assumptions, examples and measured experiments](.ai/docs/RESOLUTION-SPECULATIVE-CONNECTIONS.md).
 
 Native family guesses have a separate switch: `--speculative-native` (off by
 default), with `--no-speculative-native` to disable them. Existing native
@@ -288,9 +288,9 @@ contracts without enabling guesses. `--native-engine auto|generic|lucee` control
 the Lucee runtime API profile: auto recognizes the marked Lucee source layout;
 generic disables that engine-specific producer. These tables assume the
 documented Java 17/Hibernate 5.6 interfaces and compatible runtime bridges.
-See [native contracts and limitations](RESOLUTION-NATIVE-TYPE-RESEARCH.md).
+See [native contracts and limitations](.ai/docs/RESOLUTION-NATIVE-TYPE-RESEARCH.md).
 
-For closure of earlier research, see the [implementation completion audit](RESOLUTION-COMPLETION-AUDIT.md).
+For closure of earlier research, see the [implementation completion audit](.ai/docs/RESOLUTION-COMPLETION-AUDIT.md).
 
 Batch scans infer untyped arguments from their indexed callers. This search has
 no file or call-site limits by default. To bound it, add an optional policy to
@@ -816,7 +816,7 @@ The same settings can also be supplied by your editor as LSP `initializationOpti
 
 ### Mappings
 
-Recognized standard project layouts can supply missing root and library mappings. Explicit mappings retain priority; the evidence and limitations are documented in [Project assumptions](PROJECT-ASSUMPTIONS.md).
+Recognized standard project layouts can supply missing root and library mappings. Explicit mappings retain priority; the evidence and limitations are documented in [Project assumptions](.ai/docs/PROJECT-ASSUMPTIONS.md).
 
 Mappings let you resolve component dot-paths that use a virtual root. For example, with `"models": "./src/models"`, the dot-path `models.User` resolves to `./src/models/User.cfc`.
 
@@ -864,7 +864,7 @@ A child config's `frameworks` adds to its parent's, and an unknown name is
 warned about. When the `box.json` beside the config depends on a framework
 with a preset the config does not name (`coldbox`, `testbox`,
 `commandbox-migrations`, `wheels-core`, …), `unresolved` ends by suggesting it,
-and the server logs the same suggestion. Dependency suggestions alone do not enable presets. With no editor config, a recognized source layout can now supply framework defaults; an explicit config controls its framework selection. See [Project assumptions](PROJECT-ASSUMPTIONS.md) for detection rules, mapping defaults and overrides. Over the historical six-project corpus, each project naming the frameworks
+and the server logs the same suggestion. Dependency suggestions alone do not enable presets. With no editor config, a recognized source layout can now supply framework defaults; an explicit config controls its framework selection. See [Project assumptions](.ai/docs/PROJECT-ASSUMPTIONS.md) for detection rules, mapping defaults and overrides. Over the historical six-project corpus, each project naming the frameworks
 it uses, the `unresolved` report goes from 22,933 entries to 14,027. The
 bundled API raised that figure when it came, from 14,083 to 14,665, because
 calls it had accepted unchecked were now checked: ContentBox, which uses
@@ -939,7 +939,7 @@ Direct conventional directories and older explicit subsystem layouts are modeled
 views, models and nested applications do not acquire injection. Custom directory
 layouts, struct-form settings for legacy fallback wiring and separate subsystem
 factories remain unsupported. A runtime base override uses only a known literal default. See
-[RESOLUTION-GAPS.md](RESOLUTION-GAPS.md) for the measured Masa case and boundaries.
+[.ai/docs/RESOLUTION-GAPS.md](.ai/docs/RESOLUTION-GAPS.md) for the measured Masa case and boundaries.
 
 Known DI/1 factories apply a separate injection policy. Literal `new` factory
 construction in startup files (including subclasses of DI/1), or a modern
@@ -1493,7 +1493,7 @@ Relative CFConfig paths are based on that config file; environment placeholders
 and archive-primary entries are not guessed. Watched CFML/JSON edits refresh
 mapping and resolver caches. Nested applications keep their own mapping context;
 recognized framework layouts can supply their declared library namespaces across
-those boundaries (see PROJECT-ASSUMPTIONS.md). Other caller mapping contexts for
+those boundaries (see .ai/docs/PROJECT-ASSUMPTIONS.md). Other caller mapping contexts for
 library definitions behind a different Application remain a limitation, so
 explicit workspace mappings can still be needed.
 

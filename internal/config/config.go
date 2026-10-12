@@ -402,7 +402,7 @@ type References struct {
 //
 // `folding` defaults off as well. An editor given folding ranges uses them in
 // place of its own indentation folding, so switching it on changes how every
-// file folds; FOLDING-PLAN.md §5 is the case for making it the default. An
+// file folds; .ai/docs/FOLDING-PLAN.md §5 is the case for making it the default. An
 // editor that never asked for it loses nothing it had. Turn it on with
 // `{"features": {"folding": true}}`.
 type Features struct {

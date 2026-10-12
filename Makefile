@@ -52,7 +52,7 @@ GOVULNCHECK ?= golang.org/x/vuln/cmd/govulncheck@v1.8.0
 # support. The panic was Linux-only -- internal/poll is platform-split and the
 # darwin build does not use the new form -- so a local `make lint` on macOS
 # passed while CI did not. Bump this in step with the go directive, and
-# follow LINT-PLAN.md stage 6 when you do.
+# follow .ai/docs/LINT-PLAN.md stage 6 when you do.
 GOLANGCI ?= github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0
 
 # The version is read out of go.mod directly rather than with `go list -m`.
@@ -197,7 +197,7 @@ gapcheck:
 
 # Formats a corpus of real-world CFML and reports what the formatter did to each
 # file: clean, refused by the grammar, rejected by the whitespaceOnly guard, or not
-# idempotent. Every defect in FORMATTER-ISSUES.md was found this way. The corpus is
+# idempotent. Every defect in .ai/docs/FORMATTER-ISSUES.md was found this way. The corpus is
 # far too large to vendor, so CORPUS points at it and the test skips without one:
 #
 #   make corpus CORPUS=/src/Lucee:/src/ContentBox REPORT=/tmp/corpus.tsv
@@ -222,7 +222,7 @@ corpus:
 		go test -v -count=1 -timeout 30m -run TestFormatterCorpus ./internal/formatter/
 
 # Scans named corpora with `unresolved --json --candidates` and writes the
-# lists in resolution-candidates/ (see its README). Each scan is name=dir[,dir],
+# lists in .ai/docs/resolution-candidates/ (see its README). Each scan is name=dir[,dir],
 # under the .clif.json (or .cfmleditor.json) governing its first directory. BASELINE compares
 # with an earlier run's JSON finding by finding; LISTS= (empty) skips rewriting
 # the lists, the cheap check after a change. The corpus is not vendored, so
@@ -230,7 +230,7 @@ corpus:
 #
 #   make resolution-report CORPUS="masa=/src/MasaCMS lucee=/src/Lucee"
 #   make resolution-report CORPUS="..." RUNS=target/resolution/after BASELINE=target/resolution/before LISTS=
-LISTS ?= resolution-candidates
+LISTS ?= .ai/docs/resolution-candidates
 resolution-report:
 	@test -n "$(CORPUS)" || { echo "usage: make resolution-report CORPUS=\"name=dir[,dir...] ...\" [BASELINE=<dir>] [RUNS=<dir>] [LISTS=<dir>]" >&2; exit 2; }
 	OUT="$(LISTS)" JOBS="$(or $(JOBS),4)" RUNS="$(or $(RUNS),target/resolution/latest)" BASELINE="$(BASELINE)" bash scripts/resolution-report.sh $(CORPUS)

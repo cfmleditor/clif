@@ -539,7 +539,7 @@ against the source:
 
 Additional application corpus: [MasaCMS/MasaCMS](https://github.com/MasaCMS/MasaCMS),
 commit `696383140578f8dea3ece26f80cd7bfb370ddf0f` (7.6.1). Copy
-[`scripts/corpus/masacms.json`](scripts/corpus/masacms.json) to the checkout's
+[`scripts/corpus/masacms.json`](../../scripts/corpus/masacms.json) to the checkout's
 `.clif.json`, then run `clif unresolved --json <checkout>`.
 Restore the checkout's original configuration afterward. The supplied mappings
 mirror applicationSettings.cfm; beanPaths and startupFiles expose the application's

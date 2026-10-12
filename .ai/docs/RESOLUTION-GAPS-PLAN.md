@@ -13,7 +13,7 @@ Other project figures below are the final PR-head corpus captures, reused becaus
 the merge has an identical tree; they were not rescanned for this document.
 
 Masa is pinned to `696383140578f8dea3ece26f80cd7bfb370ddf0f` (7.6.1).
-“Configured” uses [masacms.json](scripts/corpus/masacms.json). “Automatic mappings”
+“Configured” uses [masacms.json](../../scripts/corpus/masacms.json). “Automatic mappings”
 removes **only** its manual mappings: bean paths, startup files and component
 resolver configuration remain supplied. This is not a zero-configuration scan.
 Wheels vendor coverage uses the previously pinned `ef04365` source.
@@ -2115,7 +2115,7 @@ is now found on the renderer, but it has no return type. `dspTopNav()` and
 the renderer's `variables.event`, which DI/1's constructor autowiring types as
 the `event` bean (`mura.event`), while Mura passes a `servletEvent` at render
 time. That is the same question as the held-back `event` preset
-(`resolution-candidates/held-back/mura-event-preset.patch`), so it is left for
+(`.ai/docs/resolution-candidates/held-back/mura-event-preset.patch`), so it is left for
 that decision. `TestAMuraDisplayObjectRunsInTheContentRenderer`.
 
 ### A Wheels global template reads Global's functions
@@ -2767,7 +2767,7 @@ reason given beside each:
   `toVersionSortable` is declared in that template. The `/admin`
   mapping is set at build time by Lucee's Ant script and not reachable
   from the source tree; this is already recorded in
-  `resolution-candidates/README.md` under "Config, not code".
+  `.ai/docs/resolution-candidates/README.md` under "Config, not code".
 - **FW/1's `local.user = rc.user` views (29)** need the controller's
   `rc.user = variables.userService.get( … )` to resolve. The user
   service's `get()` has two branches (`result = variables.users[ id ]`

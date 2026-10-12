@@ -1,9 +1,9 @@
 # Performance gaps: costs identified and not acted on
 
 Costs found while profiling the per-keystroke and batch-analysis paths. Sections
-2, 3 and 6 are done and record their measurements. Section 4 is settled as not
+2, 3, 6 and 7 are done and record their measurements. Section 4 is settled as not
 worth doing without a real-workspace profile; the remaining follow-ups are
-called out in sections 3 and 5.
+called out in sections 3, 5 and 7.
 
 This file exists so they are not rediscovered from scratch, and so the reasons
 are on record rather than remembered. Every number below is measured, and the
@@ -308,3 +308,73 @@ file order. Caller lookup therefore sorts and compacts its small candidate list
 before inference, preserving stable alternative ordering and preventing a file
 re-indexed during setup from being counted twice. The returned slice is a copy,
 so later index updates cannot race a caller walking it.
+
+## 7. Batch scans repeatedly stat the same source files — done
+
+A strict Wheels corpus scan at `f26d68d` spent 79.46 of 99.36 sampled CPU
+seconds in system calls. `wheelsSource` alone accounted for 53.44 cumulative
+seconds, repeatedly validating metadata for unchanged framework sources.
+The profile allocated 28.51 GB over the scan (total allocations, not peak RAM).
+
+`unresolved.Scan` now wraps its filesystem in a concurrency-safe metadata
+cache. Each distinct Stat or ReadDir path reaches the underlying filesystem
+once, including negative lookups. Nested strict/speculative passes share the
+wrapper; a subsequent top-level scan gets a new one. Directory result slices
+are copied so callers cannot corrupt another lookup. ReadFile and Walk retain
+their existing behavior. Editor and standalone resolver instances are unchanged.
+
+**Assumption:** the input tree does not change during a batch scan. This is
+not an atomic snapshot: bytes are still read on demand. Metadata and errors
+remain cached until the operation ends, so edits, creates, deletes or permission
+changes during a scan require a new scan. Cache storage scales with distinct
+queried paths and directory entries, and is released with the scan; no inference
+or file-coverage limits were added.
+
+On macOS arm64 / Go 1.27.2, serial alternating runs used the same command:
+`unresolved --json --candidates` with the Wheels checkout and its vendor/wheels
+root (1,710 indexed and scanned files). No profiling or tests ran alongside
+the timed scans. The order was before, after, main, after, before, main,
+before, after; binaries were built from `f26d68d`, this change, and
+`origin/main` (`769495b`) respectively.
+
+| Binary | Wall seconds | Median |
+|---|---|---|
+| Before | 28.073, 28.596, 28.737 | 28.596 |
+| Metadata cache | 17.248, 16.709, 16.850 | 16.850 |
+| origin/main | 4.066, 3.810 | 3.938 |
+
+This change reduces median scan time by **41.1% (1.70x throughput)** against
+the task baseline. The full branch remains **4.3x slower than main** on this
+command, with materially different resolution work: main reports 11,855
+unresolved calls and the branch reports 2,556. That is a remaining performance
+gap, not evidence that this branch is faster than main.
+
+`TestMetadataCacheCoalescesConcurrentLookups` failed with caching disabled:
+100 concurrent repetitions made 200 stats and 100 directory reads, versus
+2 and 1 with the cache. Additional tests cover per-scan refresh, missing-file
+results, directory-slice ownership, and live file reads. `BenchmarkMetadataLookups`
+is an isolated, repeatable direct-versus-cached filesystem benchmark.
+
+All seven corpus projects were compared per entry in strict and liberal modes,
+including candidate details, assumed calls, speculative receiver connections,
+and speculative method connections. There were **zero additions or removals**
+in any category. Findings remain **12,348 strict / 289 liberal**; indexed-file
+and resolved-call counts are unchanged for every project (8,151 indexed files
+across the corpus).
+
+A separate optimized Wheels profile sampled 60.40 CPU seconds, of which 34.93
+were system calls, and allocated 25.86 GB total (about 9% less). Remaining large
+allocation sources include map cloning (~7.9 GB), `allTokens` (~3.9 GB) and
+`producerTokens` (~2.0 GB). Investigate reuse within producer evaluation next,
+with content/context invalidation and corpus equivalence tests before caching
+any resolution results. These allocation figures are sampled totals, not peak
+memory or a claim that the remaining work is unnecessary.
+
+The empty-directory metadata microbenchmark measured 37.95–38.50 microseconds
+and 1,672 bytes / 8 allocations for a direct Stat+ReadDir pair, versus
+37.92–38.11 nanoseconds and zero allocations after cache warmup. Nonempty
+ReadDir results still allocate a defensive slice copy; whole-corpus timings
+above are the user-visible evidence, not an extrapolation of this microbenchmark.
+
+Validation: `go build ./...`, `go vet ./...`, `go test -short ./...`,
+`go test -short -race ./...`, `make lint`, and `git diff --check` passed.

@@ -413,7 +413,7 @@ func (s *Scanner) scanString(start, startLine int) Token {
 	// inside *that*: `"#DayOfWeek("{ts '2000-1-1'}")#"` is one token, and
 	// closing it at the inner quote left `"#DayOfWeek("` — so the interpolation
 	// had no closing `#` to find and the call in it was invisible — 3,165 sites
-	// over 461 files on the corpus, measured in PARSER-GAPS.md §3.3.
+	// over 461 files on the corpus, measured in .ai/docs/PARSER-GAPS.md §3.3.
 	//
 	// It is **off unless the text is known to be CFScript**, because text that
 	// is not reaches this function: parseFuncBody hands a tag function's raw
