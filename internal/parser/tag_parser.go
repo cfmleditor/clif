@@ -317,7 +317,7 @@ func (p *tagParser) parse() {
 		if idx < 0 {
 			// Trailing text, which is also where the attribute list of the last
 			// declined tag in the file ends up.
-			if p.textEvaluated(pos) {
+			if p.textEvaluated() {
 				p.scanInterpolatedText(p.src[pos:], pos)
 			}
 
@@ -338,7 +338,7 @@ func (p *tagParser) parse() {
 		// wholly outside; and the attributes of a declined CF or custom tag
 		// are scanned below and stepped over, so a gap holds only text and
 		// HTML attributes, which are evaluated only inside an output context.
-		if p.textEvaluated(pos) {
+		if p.textEvaluated() {
 			p.scanInterpolatedText(p.src[pos:idx], pos)
 		}
 
@@ -691,7 +691,7 @@ func (p *tagParser) dispatchCFTag(ch byte, tag string, idx, tagEnd, line int) {
 // between them, and the <cfif> conditions there lost their calls — which the
 // old reading only recovered by scanning the whole run as one expression.
 func (p *tagParser) nextTag(pos int) int {
-	if p.gated && !p.textEvaluated(pos) {
+	if p.gated && !p.textEvaluated() {
 		return strings.IndexByte(p.src[pos:], '<')
 	}
 
@@ -705,9 +705,9 @@ func (p *tagParser) trackOutput(idx int) {
 	}
 }
 
-// textEvaluated reports whether the text at pos is where ColdFusion evaluates
+// textEvaluated reports whether the text at the walk's position is where ColdFusion evaluates
 // #...#. Ungated, all of it is, as the parser has always read it.
-func (p *tagParser) textEvaluated(pos int) bool {
+func (p *tagParser) textEvaluated() bool {
 	return !p.gated || p.output.active()
 }
 
