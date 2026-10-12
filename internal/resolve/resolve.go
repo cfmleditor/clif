@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"maps"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -2767,7 +2766,46 @@ func (r *Resolver) docReturnComponent(fd *parser.FunctionDef) string {
 	return p
 }
 
-var interfaceRe = regexp.MustCompile(`(?im)^\s*interface\b|<cfinterface\b`)
+// declaresInterface reports whether content declares an interface: a line
+// starting with the word interface (after any whitespace), or a <cfinterface
+// tag, case-insensitively, as the expression
+//
+//	(?im)^\s*interface\b|<cfinterface\b
+//
+// matched it. It looks only where the word is: that expression, run over every
+// component a missing method was checked on, was the largest regular
+// expression left in a tassweb scan. TestDeclaresInterfaceMatchesTheExpression
+// holds the two together.
+func declaresInterface(content string) bool {
+	for at := 0; ; {
+		i := parser.IndexFoldFrom(content, "interface", at)
+		if i < 0 {
+			return false
+		}
+
+		at = i + 1
+
+		end := i + len("interface")
+		if end < len(content) && isRegexWordByte(content[end]) {
+			continue
+		}
+
+		if i >= 3 && strings.EqualFold(content[i-3:i], "<cf") {
+			return true
+		}
+
+		// ^\s* in multi-line mode: only whitespace before it on its line, or
+		// a run of whitespace back to the start of the file.
+		j := i
+		for j > 0 && isRegexSpace(content[j-1]) && content[j-1] != '\n' {
+			j--
+		}
+
+		if j == 0 || content[j-1] == '\n' {
+			return true
+		}
+	}
+}
 
 // isInterface reports whether the file at path declares an interface.
 func (r *Resolver) isInterface(path string) bool {
@@ -2786,8 +2824,8 @@ func (r *Resolver) isInterface(path string) bool {
 	// Read and matched once per path: it is asked for every call checked on
 	// a component that lacks the method, and the whole-file regex was 6% of
 	// an unresolved scan. InvalidatePaths drops it with the path caches.
-	data, err := r.fs().ReadFile(path)
-	answer = err == nil && interfaceRe.Match(data)
+	text, err := r.readText(path)
+	answer = err == nil && declaresInterface(text)
 
 	r.mu.Lock()
 	if r.interfaceCache == nil {

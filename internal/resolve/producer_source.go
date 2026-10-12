@@ -124,7 +124,7 @@ func producerTokens(source string) []parser.Token {
 // it is shared by every resolver.
 var producerTokenCache = &tokenCache{}
 
-const maxProducerTokens = 1 << 19
+const maxProducerTokens = 1 << 17
 
 type tokenCache struct {
 	mu      sync.RWMutex

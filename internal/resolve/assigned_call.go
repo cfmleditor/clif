@@ -503,17 +503,114 @@ func variablesAssignment(pr *parser.ParseResult, name, caller string, start, lin
 	// A local or an argument of the same name hides an unscoped one; a
 	// variables.-scoped receiver is the component's whatever the function
 	// declares.
-	declared := compiledPattern(`(?i)(?:\bvar\s+|\blocal\.|<cfargument\s[^>]*name\s*=\s*["'])` + regexp.QuoteMeta(name) + `\b`)
-	if !scoped && (argumentOf(pr, caller, name) != nil || declared.MatchString(window)) {
+	if !scoped && (argumentOf(pr, caller, name) != nil || textDeclaresLocal(window, name)) {
 		return "", 0, false
 	}
 
 	rhs, at, ok := localAssignmentAt(pr.Content, name, 0, start)
-	if !ok || declared.MatchString(lineOfContent(pr.Content, at)) {
+	if !ok || textDeclaresLocal(lineOfContent(pr.Content, at), name) {
 		return "", 0, false
 	}
 
 	return rhs, at, true
+}
+
+// textDeclaresLocal reports whether text declares name as a local or an argument:
+// `var name`, `local.name` or a <cfargument …name="name">, case-insensitively,
+// as the expression
+//
+//	(?i)(?:\bvar\s+|\blocal\.|<cfargument\s[^>]*name\s*=\s*["'])<name>\b
+//
+// matched it. It looks only where name is, and what precedes it there: the
+// expression, compiled per name and run over the function above every call,
+// was 4% of a tassweb scan's CPU. TestTextDeclaresLocalMatchesTheExpression holds
+// the two together.
+func textDeclaresLocal(text, name string) bool {
+	if name == "" {
+		return false
+	}
+
+	for at := 0; ; {
+		i := parser.IndexFoldFrom(text, name, at)
+		if i < 0 {
+			return false
+		}
+
+		at = i + 1
+
+		// \b after the name: its last character and the next differ in being
+		// word characters, or it ends the text on a word character.
+		end := i + len(name)
+		last := isRegexWordByte(text[end-1])
+
+		if end < len(text) && last == isRegexWordByte(text[end]) || end == len(text) && !last {
+			continue
+		}
+
+		if precededByLocal(text, i) || precededByVar(text, i) || precededByArgumentName(text, i) {
+			return true
+		}
+	}
+}
+
+func precededByLocal(text string, i int) bool {
+	const p = "local."
+
+	return i >= len(p) && strings.EqualFold(text[i-len(p):i], p) && wordStart(text, i-len(p))
+}
+
+func precededByVar(text string, i int) bool {
+	j := i
+	for j > 0 && isRegexSpace(text[j-1]) {
+		j--
+	}
+
+	return j < i && j >= 3 && strings.EqualFold(text[j-3:j], "var") && wordStart(text, j-3)
+}
+
+// precededByArgumentName is <cfargument\s[^>]*name\s*=\s*["'] ending at i.
+func precededByArgumentName(text string, i int) bool {
+	if i == 0 || text[i-1] != '"' && text[i-1] != '\'' {
+		return false
+	}
+
+	j := i - 1
+	for j > 0 && isRegexSpace(text[j-1]) {
+		j--
+	}
+
+	if j == 0 || text[j-1] != '=' {
+		return false
+	}
+
+	j--
+	for j > 0 && isRegexSpace(text[j-1]) {
+		j--
+	}
+
+	if j < 4 || !strings.EqualFold(text[j-4:j], "name") {
+		return false
+	}
+
+	// [^>]* back to a "<cfargument" followed by a space character.
+	j -= 4
+	for k := j - 1; k >= 0 && text[k] != '>'; k-- {
+		if k+len("<cfargument") < j && strings.EqualFold(text[k:k+len("<cfargument")], "<cfargument") && isRegexSpace(text[k+len("<cfargument")]) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// wordStart is \b before text[i] when text[i] is a word character.
+func wordStart(text string, i int) bool {
+	return i == 0 || !isRegexWordByte(text[i-1])
+}
+
+// isRegexSpace is \s as RE2 reads it.
+func isRegexSpace(c byte) bool {
+	return c == ' ' || c == '\t' || c == '\n' || c == '\f' || c == '\r'
 }
 
 // selfAssigned reports whether receiver, the receiver of the call assigned to

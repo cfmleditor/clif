@@ -1,7 +1,6 @@
 package resolve
 
 import (
-	"bytes"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -25,7 +24,50 @@ import (
 
 const minDirSegments = 3
 
-var computedIncludeRe = regexp.MustCompile(`(?i)<cfinclude\s+template\s*=\s*["']#[^"']*#["']|\binclude\s+["']#[^"']*#["']`)
+// computedIncludeAt matches the two forms of a computed include,
+// `<cfinclude template="#…#"` and a script `include "#…#"`, where one starts at
+// the beginning of its input: computedIncludeOffsets runs it only where the
+// word include is, rather than running computedIncludeRe over every byte of
+// every candidate file (14% of a tassweb scan's CPU).
+var computedIncludeAt = regexp.MustCompile(`^(?i:<cfinclude\s+template\s*=\s*["']#[^"']*#["']|include\s+["']#[^"']*#["'])`)
+
+// computedIncludeOffsets is the start of each computedIncludeRe match in s, as
+// FindAllStringIndex gives them: no match starts inside an earlier one.
+func computedIncludeOffsets(s string) []int {
+	var offsets []int
+
+	for at, end := 0, 0; ; {
+		i := parser.IndexFoldFrom(s, "include", at)
+		if i < 0 {
+			return offsets
+		}
+
+		at = i + len("include")
+
+		// <cfinclude: the match starts at its "<".
+		start := i - 3
+		if start >= end && i >= 3 && strings.EqualFold(s[start:i], "<cf") {
+			if m := computedIncludeAt.FindStringIndex(s[start:]); m != nil {
+				offsets, end = append(offsets, start), start+m[1]
+
+				continue
+			}
+		}
+
+		// A bare include must start a word (\b): the character before it is
+		// not a word character.
+		if i >= end && (i == 0 || !isRegexWordByte(s[i-1])) {
+			if m := computedIncludeAt.FindStringIndex(s[i:]); m != nil {
+				offsets, end = append(offsets, i), i+m[1]
+			}
+		}
+	}
+}
+
+// isRegexWordByte is \w as RE2 reads it.
+func isRegexWordByte(c byte) bool {
+	return c == '_' || c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
+}
 
 func (r *Resolver) computedIncludeHosts(file string) []includeHost {
 	if len(r.owner().InferArgsFiles) == 0 {
@@ -86,13 +128,13 @@ func (r *Resolver) computedIncludesOf(path string) computedIncludeFile {
 		return inc
 	}
 
-	if data, err := r.fs().ReadFile(path); err == nil {
-		for _, m := range computedIncludeRe.FindAllIndex(data, -1) {
-			inc.lines = append(inc.lines, bytes.Count(data[:m[0]], []byte("\n")))
+	if text, err := r.readText(path); err == nil {
+		for _, at := range computedIncludeOffsets(text) {
+			inc.lines = append(inc.lines, strings.Count(text[:at], "\n"))
 		}
 
 		if len(inc.lines) > 0 {
-			inc.content = string(data)
+			inc.content = text
 		}
 	}
 

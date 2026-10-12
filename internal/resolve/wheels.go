@@ -98,6 +98,12 @@ func (r *Resolver) associationFunc(path, name string) *parser.FunctionDef {
 func wheelsAssociations(src string) map[string]parser.FunctionDef {
 	var definitions map[string]parser.FunctionDef
 
+	// associationRe needs one of these, called: a file with none is most
+	// files, and the expression run over each was 4% of a tassweb scan's CPU.
+	if parser.IndexFold(src, "hasMany(") < 0 && parser.IndexFold(src, "belongsTo(") < 0 && parser.IndexFold(src, "hasOne(") < 0 {
+		return definitions
+	}
+
 	for _, m := range associationRe.FindAllStringSubmatchIndex(src, -1) {
 		kind, assoc, args := src[m[2]:m[3]], src[m[4]:m[5]], src[m[6]:m[7]]
 		singular := singularize(assoc)
