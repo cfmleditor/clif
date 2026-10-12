@@ -108,29 +108,12 @@ func outputContext(content string) (spans [][2]int, prefixes []string) {
 			continue
 		}
 
-		closing := i+1 < len(content) && content[i+1] == '/'
-
-		nameStart := i + 1
-		if closing {
-			nameStart++
-		}
-
-		nameEnd := nameStart
-		for nameEnd < len(content) && isTagNameByte(content[nameEnd]) {
-			nameEnd++
-		}
-
-		// Every tag in the file reaches here, so the name is sorted from
-		// bytes folded on the stack rather than a lowercased copy.
-		if nameEnd-nameStart < 2 || toLowerByte(content[nameStart]) != 'c' || toLowerByte(content[nameStart+1]) != 'f' {
+		kind, closing, isCF := cfTagAt(content, i)
+		if !isCF {
 			pos = i + 1
 
 			continue
 		}
-
-		var buf foldScratch
-
-		kind := outputTagKind(buf.lowerFold(content[nameStart:nameEnd]))
 
 		end := tagEndIndex(content[i:])
 		if end < 0 {
@@ -281,4 +264,30 @@ func isMarkupTemplate(fileURI, content string) bool {
 	}
 
 	return !containsCFTag(content) && markupClosingTag.MatchString(content)
+}
+
+// cfTagAt reads the name of the tag opening at content[i] ('<'): which kind
+// of tag the output-context walk sorts it as, whether it is a close tag, and
+// whether it is a CF tag at all. Every tag in the file reaches here, so the
+// name is sorted from bytes folded on the stack rather than a lowercased copy.
+func cfTagAt(content string, i int) (kind outputKind, closing, isCF bool) {
+	closing = i+1 < len(content) && content[i+1] == '/'
+
+	nameStart := i + 1
+	if closing {
+		nameStart++
+	}
+
+	nameEnd := nameStart
+	for nameEnd < len(content) && isTagNameByte(content[nameEnd]) {
+		nameEnd++
+	}
+
+	if nameEnd-nameStart < 2 || toLowerByte(content[nameStart]) != 'c' || toLowerByte(content[nameStart+1]) != 'f' {
+		return outputOther, closing, false
+	}
+
+	var buf foldScratch
+
+	return outputTagKind(buf.lowerFold(content[nameStart:nameEnd])), closing, true
 }
