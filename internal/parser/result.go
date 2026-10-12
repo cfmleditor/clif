@@ -3705,6 +3705,41 @@ func isMemberMethod(name string) bool {
 	return false
 }
 
+// mayDeclareVariable reports whether content could declare a variable called
+// name: whether the name appears anywhere, as a whole word, other than called.
+// Every declaration (an assignment, var, a for-in or catch binding, a tag's
+// name="…") has something other than "(" after the name, so a name only ever
+// called is declared by nothing, and AllVars, a second whole-file parse, is
+// not run to find that out: Declares( "structNew" ) asked it of every file
+// with a collection seeded by structNew(), 750 MB over a tassweb scan.
+func mayDeclareVariable(content, name string) bool {
+	if name == "" {
+		return true
+	}
+
+	for at := 0; ; {
+		i := indexFoldFrom(content, name, at)
+		if i < 0 {
+			return false
+		}
+
+		at = i + len(name)
+
+		if i > 0 && isIdentPart(content[i-1]) || at < len(content) && isIdentPart(content[at]) {
+			continue
+		}
+
+		j := at
+		for j < len(content) && (content[j] == ' ' || content[j] == '\t') {
+			j++
+		}
+
+		if j >= len(content) || content[j] != '(' {
+			return true
+		}
+	}
+}
+
 // Declares reports whether the file declares name anywhere, case-insensitively:
 // a variable in any scope, a property, a function or a function's argument.
 // A name it does not declare is one it expects from elsewhere — its base
@@ -3727,6 +3762,10 @@ func (pr *ParseResult) Declares(name string) bool {
 		if strings.EqualFold(pr.Properties[i].name, name) {
 			return true
 		}
+	}
+
+	if !mayDeclareVariable(pr.Content, name) {
+		return false
 	}
 
 	for _, v := range pr.AllVars() {
