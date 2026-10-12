@@ -227,6 +227,8 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v7
+
       # One job publishes every asset, rather than five jobs racing to create
       # and update the same release. The pattern matters: without it this also
       # pulls down the generated-docs artifact and attaches generated_docs.go
@@ -265,6 +267,15 @@ jobs:
           if [ "$missing" -ne 0 ]; then
             exit 1
           fi
+
+      # The source the clif-source Homebrew formula builds. GitHub's generated
+      # tag archives have changed their bytes before, which breaks a pinned
+      # checksum; this one is fixed once attached (formula-source.sh).
+      - name: Write the source archive
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          git archive --prefix="clif-${version}/" -o "dist/clif-${version}-source.tar.gz" HEAD
 
       # scripts/install.sh and install.ps1 check an archive against this, so
       # a pinned install gets exactly the bytes the release published.
