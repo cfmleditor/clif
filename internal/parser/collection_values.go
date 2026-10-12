@@ -51,6 +51,12 @@ func wholeStructValues(f *FunctionDef, expressions []string, function string, ke
 // veto applies to whole-struct contracts; existing indexed-return behavior is
 // retained. Whole aliases propagate escapes in both directions.
 func (pr *ParseResult) markCollectionEscapes(key func(string, string) string, nodes map[string]*collectionNode) {
+	if len(nodes) == 0 {
+		return
+	}
+
+	names := collectionNames(nodes)
+
 	for _, region := range pr.Regions {
 		if region.Kind == RegionTag {
 			// Tag escapes need their own invocation/output ownership analysis.
@@ -62,7 +68,7 @@ func (pr *ParseResult) markCollectionEscapes(key func(string, string) string, no
 		}
 
 		if region.Kind == RegionScript {
-			pr.collectionCallEscapes(region.Text, region.Offset, key, nodes)
+			pr.collectionCallEscapes(region.Text, region.Offset, key, nodes, names)
 		}
 	}
 
@@ -78,7 +84,7 @@ func (pr *ParseResult) markCollectionEscapes(key func(string, string) string, no
 			continue // already modeled as a whole alias
 		}
 
-		pr.markCollectionArgumentEscape(write.expression, write.function, key, nodes)
+		pr.markCollectionArgumentEscape(write.expression, write.function, key, nodes, names)
 	}
 
 	queue := []string{}
@@ -102,7 +108,37 @@ func (pr *ParseResult) markCollectionEscapes(key func(string, string) string, no
 	}
 }
 
-func (pr *ParseResult) collectionCallEscapes(text string, offset int, key func(string, string) string, nodes map[string]*collectionNode) {
+// collectionNames is every name a node's key holds, lowercased, and the scope
+// words a key may begin with. A target whose first name is not among them
+// has no node, so the escape scans test this before building its key: on a
+// large component that test replaced a lowercased key and a map lookup for
+// every identifier in the file, which was most of what a parse cost.
+func collectionNames(nodes map[string]*collectionNode) map[string]struct{} {
+	names := map[string]struct{}{"variables": {}, "this": {}, "local": {}, "arguments": {}}
+
+	for identity := range nodes {
+		if _, rest, ok := strings.Cut(identity, "\t"); ok {
+			identity = rest
+		}
+
+		for name := range strings.SplitSeq(identity, ".") {
+			names[name] = struct{}{}
+		}
+	}
+
+	return names
+}
+
+// mayName reports whether ident could begin a target with a node.
+func mayName(names map[string]struct{}, ident string) bool {
+	var buf foldScratch
+
+	_, ok := names[string(buf.lowerFold(ident))]
+
+	return ok
+}
+
+func (pr *ParseResult) collectionCallEscapes(text string, offset int, key func(string, string) string, nodes map[string]*collectionNode, names map[string]struct{}) {
 	sc := NewScanner(text)
 	previous := TokEOF
 
@@ -117,7 +153,7 @@ func (pr *ParseResult) collectionCallEscapes(text string, offset int, key func(s
 
 		if t.Kind == TokString {
 			for _, embedded := range InterpolatedExpressions(t.Value) {
-				pr.markCollectionArgumentEscape(embedded, pr.collectionFunctionAt(offset+t.Offset), key, nodes)
+				pr.markCollectionArgumentEscape(embedded, pr.collectionFunctionAt(offset+t.Offset), key, nodes, names)
 			}
 		}
 
@@ -134,22 +170,22 @@ func (pr *ParseResult) collectionCallEscapes(text string, offset int, key func(s
 		}
 
 		function := pr.collectionFunctionAt(offset + t.Offset)
-		if base, _, ok := strings.CutLast(callee, "."); ok {
+		if base, _, ok := strings.CutLast(callee, "."); ok && mayName(names, t.Value) {
 			if n := nodes[key(base, function)]; n != nil {
 				n.escaped = true
 			}
 		}
 
 		arguments := collectionArguments(&cursor)
-		pr.markCollectionArgumentEscape(arguments, function, key, nodes)
+		pr.markCollectionArgumentEscape(arguments, function, key, nodes, names)
 	}
 }
 
-func (pr *ParseResult) markCollectionArgumentEscape(expression, function string, key func(string, string) string, nodes map[string]*collectionNode) {
-	pr.markCollectionArgumentEscapeDepth(expression, function, key, nodes, 0)
+func (pr *ParseResult) markCollectionArgumentEscape(expression, function string, key func(string, string) string, nodes map[string]*collectionNode, names map[string]struct{}) {
+	pr.markCollectionArgumentEscapeDepth(expression, function, key, nodes, names, 0)
 }
 
-func (pr *ParseResult) markCollectionArgumentEscapeDepth(expression, function string, key func(string, string) string, nodes map[string]*collectionNode, depth int) {
+func (pr *ParseResult) markCollectionArgumentEscapeDepth(expression, function string, key func(string, string) string, nodes map[string]*collectionNode, names map[string]struct{}, depth int) {
 	if depth > 8 {
 		for _, n := range nodes {
 			n.escaped = true
@@ -172,11 +208,11 @@ func (pr *ParseResult) markCollectionArgumentEscapeDepth(expression, function st
 
 		if t.Kind == TokString {
 			for _, embedded := range InterpolatedExpressions(t.Value) {
-				pr.markCollectionArgumentEscapeDepth(embedded, function, key, nodes, depth+1)
+				pr.markCollectionArgumentEscapeDepth(embedded, function, key, nodes, names, depth+1)
 			}
 		}
 
-		if t.Kind != TokIdent || before == TokDot {
+		if t.Kind != TokIdent || before == TokDot || !mayName(names, t.Value) {
 			continue
 		}
 
