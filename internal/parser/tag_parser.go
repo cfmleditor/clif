@@ -30,12 +30,13 @@ type tagParser struct {
 	resolverSet   *ResolverSet
 	extractLinks  bool // whether to extract document links
 	extractCalls  bool // whether to extract all call sites
-	// gated limits #...# scanning of text to outputSpans, the ranges of the
-	// file ColdFusion evaluates; srcOffset is this region's offset in it. The
-	// attributes of CF tags and of importPrefixes custom tags are scanned
-	// wherever they stand. See outputContext.
+	// gated limits #...# scanning of text to where ColdFusion evaluates it,
+	// which output tracks as the walk passes each tag; srcOffset is this
+	// region's offset in the file. The attributes of CF tags and of
+	// importPrefixes custom tags are scanned wherever they stand. See
+	// outputContext and outputState.
 	gated               bool
-	outputSpans         [][2]int
+	output              *outputState
 	importPrefixes      []string
 	srcOffset           int
 	builtinReturnLookup func(string) string
@@ -362,11 +363,13 @@ func (p *tagParser) parse() {
 		switch {
 		case idx+1 < len(p.src) && p.src[idx+1] == '/':
 			p.trackBlock(idx)
+			p.trackOutput(idx)
 			p.closeTag(idx)
 
 			pos = idx + 1
 		case idx+3 < len(p.src) && toLowerByte(p.src[idx+1]) == 'c' && toLowerByte(p.src[idx+2]) == 'f':
 			p.trackBlock(idx)
+			p.trackOutput(idx)
 
 			pos = p.handleCFTag(idx)
 		case p.gated && customPrefixTag(p.src[idx:], p.importPrefixes):
@@ -695,10 +698,17 @@ func (p *tagParser) nextTag(pos int) int {
 	return nextTagStart(p.src[pos:])
 }
 
+// trackOutput moves the output state past the tag at idx, when gated.
+func (p *tagParser) trackOutput(idx int) {
+	if p.gated {
+		p.output.track(p.src, idx)
+	}
+}
+
 // textEvaluated reports whether the text at pos is where ColdFusion evaluates
 // #...#. Ungated, all of it is, as the parser has always read it.
 func (p *tagParser) textEvaluated(pos int) bool {
-	return !p.gated || inSpan(p.outputSpans, p.srcOffset+pos)
+	return !p.gated || p.output.active()
 }
 
 // stepOverEvaluatedTag handles a tag the walk has no handler for but whose

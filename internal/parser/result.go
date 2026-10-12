@@ -54,15 +54,15 @@ type ParseResult struct {
 	// constructor-injected dependency via a "<!--- @serviceproperty varName kind|name --->"
 	// comment at each use site, instead of (or in addition to) a componentResolver.
 	ServicePropertyResolvers map[string]string
-	extractLinks             bool     // whether to extract links during global scan
-	extractCalls             bool     // whether to extract all call sites during parsing
-	findCalls                []string // function names to scan for
-	scanAllScopes            bool     // scan all lines including function bodies
-	shallow                  bool     // minimal parse mode
-	interpolateAll           bool     // ParseOptions.InterpolateAllText
-	outputScanned            bool     // outputSpans and importPrefixes are computed
-	outputSpans              [][2]int // byte ranges whose text ColdFusion evaluates
-	importPrefixes           []string // <cfimport prefix="..."> values, lowercased
+	extractLinks             bool        // whether to extract links during global scan
+	extractCalls             bool        // whether to extract all call sites during parsing
+	findCalls                []string    // function names to scan for
+	scanAllScopes            bool        // scan all lines including function bodies
+	shallow                  bool        // minimal parse mode
+	interpolateAll           bool        // ParseOptions.InterpolateAllText
+	outputScanned            bool        // importPrefixes is computed
+	output                   outputState // where the tag walk stands in the output contexts
+	importPrefixes           []string    // <cfimport prefix="..."> values, lowercased
 
 	// contentLineIdx is the line index ClassifyRegions built over Content on its
 	// way to the regions, kept so extractSignatures does not build a second one
@@ -183,19 +183,19 @@ func (pr *ParseResult) IsSoftComponent(comp string) bool {
 	return pr != nil && pr.resolverSet.isSoft(comp) || isInjectedFrameworkComponent(comp)
 }
 
-// outputGate returns the output-context ranges and cfimport prefixes of the
-// file, computed once, and whether text scanning is gated on them at all.
-func (pr *ParseResult) outputGate() (spans [][2]int, prefixes []string, gated bool) {
+// outputGate returns the output state the file's tag regions share, its
+// cfimport prefixes, computed once, and whether text scanning is gated at all.
+func (pr *ParseResult) outputGate() (state *outputState, prefixes []string, gated bool) {
 	if pr.interpolateAll || !pr.extractCalls {
 		return nil, nil, false
 	}
 
 	if !pr.outputScanned {
-		pr.outputSpans, pr.importPrefixes = outputContext(pr.Content)
+		pr.importPrefixes = cfimportPrefixes(pr.Content)
 		pr.outputScanned = true
 	}
 
-	return pr.outputSpans, pr.importPrefixes, true
+	return &pr.output, pr.importPrefixes, true
 }
 
 // ParseWithOptions performs a full file parse with extended options. opts is
@@ -285,6 +285,9 @@ func (pr *ParseResult) extractSignatures() {
 	// The locals of a tag function a region split, carried to the regions
 	// after the split.
 	var open openLocals
+
+	// The tag regions share one output state, in file order, from the top.
+	pr.output = outputState{}
 
 	for _, r := range pr.Regions {
 		// A RegionSkip is a literal <script> block, left out of the script
@@ -587,7 +590,7 @@ func (pr *ParseResult) mergeTagRegion(r *Region, tagScopes []FuncScope, open *op
 	tp.argumentTypes = pr.argumentTypeLookup()
 	tp.baseLine = r.StartLine
 	tp.knownScopes = tagScopes
-	tp.outputSpans, tp.importPrefixes, tp.gated = pr.outputGate()
+	tp.output, tp.importPrefixes, tp.gated = pr.outputGate()
 	tp.srcOffset = r.Offset
 
 	if pr.flow != nil {

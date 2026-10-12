@@ -291,3 +291,75 @@ func cfTagAt(content string, i int) (kind outputKind, closing, isCF bool) {
 
 	return outputTagKind(buf.lowerFold(content[nameStart:nameEnd])), closing, true
 }
+
+// outputState is where the tag walk stands in the contexts outputContext
+// describes, kept by the walk itself as it passes each tag (track) rather
+// than read from ranges a walk of its own computed first: the two walks found
+// the same tags, and the second was 10-15% of a tag component's parse. One
+// state serves every region of a file in order, so an output context opened
+// before a <cfscript> block is still open after it. It fails open as
+// outputContext does: an unclosed context runs to the end of the file, and a
+// close with nothing open is ignored.
+type outputState struct {
+	depth          int32
+	fnOut, compOut bool
+}
+
+// active reports whether text at the walk's position is evaluated.
+func (o *outputState) active() bool {
+	return o.depth > 0 || o.fnOut || o.compOut
+}
+
+// track moves o past the tag opening at src[idx] ('<').
+func (o *outputState) track(src string, idx int) {
+	kind, closing, isCF := cfTagAt(src, idx)
+	if !isCF {
+		return
+	}
+
+	switch kind {
+	case outputTag, outputFunction, outputComponent:
+	default:
+		return
+	}
+
+	end := tagEndIndex(src[idx:])
+	if end < 0 {
+		return
+	}
+
+	tag := src[idx : idx+end+1]
+
+	switch {
+	case kind == outputTag && closing:
+		if o.depth > 0 {
+			o.depth--
+		}
+	case kind == outputTag:
+		if !strings.HasSuffix(strings.TrimRight(tag[:len(tag)-1], " \t\r\n"), "/") {
+			o.depth++
+		}
+	case kind == outputFunction && closing:
+		o.fnOut = false
+	case kind == outputFunction:
+		o.fnOut = o.fnOut || isTruthy(getAttr(tag, "output"))
+	case kind == outputComponent && closing:
+		o.compOut = false
+	case kind == outputComponent:
+		o.compOut = o.compOut || isTruthy(getAttr(tag, "output"))
+	}
+}
+
+// cfimportPrefixes is the tag prefixes content declares with <cfimport>,
+// lowercased: outputContext's walk, run only on a file that mentions one.
+// A prefix applies to the whole file, so the tag walk cannot collect it as it
+// goes.
+func cfimportPrefixes(content string) []string {
+	if IndexFold(content, "<cfimport") < 0 {
+		return nil
+	}
+
+	_, prefixes := outputContext(content)
+
+	return prefixes
+}
