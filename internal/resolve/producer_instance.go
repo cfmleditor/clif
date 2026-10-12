@@ -34,7 +34,7 @@ func (e *producerEvaluation) constructedInstance(component, dir string, argument
 		return nil
 	}
 
-	source := e.resolver.wheelsSource(file)
+	source := e.resolver.sourceInfo(file)
 
 	pr := parser.Parse(cfpath.ToURI(file), source.content, nil)
 	if pr.Extends != "" {
@@ -52,7 +52,7 @@ func (e *producerEvaluation) constructedInstance(component, dir string, argument
 		names[name] = true
 	}
 
-	constructor, _ := parser.ApplicationSections(source.content)
+	constructor := parser.ApplicationConstructor(source.content)
 	if wheelsTokens(constructor) != wheelsTokens(`component {}`) {
 		return nil
 	}
@@ -551,7 +551,7 @@ func (e *producerEvaluation) instanceSetterEffect(tokens []parser.Token, env pro
 		}
 
 		method := e.resolver.producerFor(fd)
-		if method == nil || !instanceSetterContract(name, e.resolver.wheelsSource(fd.URI.Path()).producers.all(), value.instance.values, nil) {
+		if method == nil || !instanceSetterContract(name, e.resolver.sourceInfo(fd.URI.Path()).producers.all(), value.instance.values, nil) {
 			return false
 		}
 

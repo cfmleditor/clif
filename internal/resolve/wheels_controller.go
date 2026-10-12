@@ -54,7 +54,7 @@ func (r *Resolver) wheelsObjectMixinFunc(chain []string, name string) *parser.Fu
 // wheelsObjectIntegrates recognizes Controller or Model init and
 // the loader that copies their public methods in.
 func (r *Resolver) wheelsObjectIntegrates(path string) bool {
-	source := r.wheelsSource(path)
+	source := r.sourceInfo(path)
 
 	kind := "controller"
 	init := `$integrateComponents("wheels.controller"); $integrateComponents("wheels.view"); return this;`
@@ -98,7 +98,7 @@ func (r *Resolver) wheelsMixinHostFunc(pr *parser.ParseResult, name string, call
 
 	// Model helper context is proved only inside a copied public body.
 	// Parameter defaults and private helper bodies need separate binding evidence.
-	if pkg == "model" && (len(caller) == 0 || caller[0] == "" || !r.wheelsSource(file).methods[strings.ToLower(caller[0])].public) {
+	if pkg == "model" && (len(caller) == 0 || caller[0] == "" || !r.sourceInfo(file).methods[strings.ToLower(caller[0])].public) {
 		return nil
 	}
 
@@ -171,7 +171,7 @@ func (r *Resolver) extendsOfPath(path string) string {
 
 func (r *Resolver) wheelsObjectInheritsLoader(descendants []string) bool {
 	for _, path := range descendants {
-		methods := r.wheelsSource(path).methods
+		methods := r.sourceInfo(path).methods
 		if _, ok := methods["$integratecomponents"]; ok {
 			return false
 		}
@@ -319,7 +319,7 @@ func (r *Resolver) wheelsObjectPackageFunc(path, lookup string) *parser.Function
 				return nil
 			}
 
-			method, ok := r.wheelsSource(file).methods[strings.ToLower(lookup)]
+			method, ok := r.sourceInfo(file).methods[strings.ToLower(lookup)]
 			if !ok || !method.public {
 				continue
 			}

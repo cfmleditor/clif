@@ -112,12 +112,12 @@ func (r *Resolver) startupAssigns(baseDir string) []startupAssign {
 
 		seen[pathKey(file)] = true
 
-		data, err := r.fs().ReadFile(file)
+		text, err := r.readText(file)
 		if err != nil {
 			continue
 		}
 
-		sources := r.startupSources(file, string(data))
+		sources := r.startupSources(file, text)
 
 		for _, source := range sources {
 			anchor := anchors[pathKey(file)] || filepath.Dir(source.file) != filepath.Dir(file)

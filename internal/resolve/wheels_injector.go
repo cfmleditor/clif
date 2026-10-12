@@ -61,7 +61,7 @@ func (r *Resolver) bindWheelsStartup(assigns []startupAssign, content, dir strin
 			continue
 		}
 
-		digest := sha256.Sum256([]byte(wheelsTokens(r.wheelsSource(injector).content)))
+		digest := sha256.Sum256([]byte(wheelsTokens(r.sourceInfo(injector).content)))
 		if hex.EncodeToString(digest[:]) != wheelsInjectorContract {
 			continue
 		}
@@ -128,10 +128,10 @@ func (r *Resolver) wheelsLiteralBinding(binder, alias, dir string) string {
 		return ""
 	}
 
-	source := r.wheelsSource(file)
+	source := r.sourceInfo(file)
 	pr := parser.Parse(cfpath.ToURI(file), source.content, nil)
 
-	constructor, _ := parser.ApplicationSections(source.content)
+	constructor := parser.ApplicationConstructor(source.content)
 	if pr.Extends != "" || len(pr.Funcs) != 1 || wheelsTokens(constructor) != wheelsTokens(`component {}`) {
 		return ""
 	}

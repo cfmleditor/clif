@@ -697,7 +697,7 @@ func IsCFCFile(path string) bool {
 }
 
 // IsBinary returns true if data appears to be binary (contains null bytes in the first 512 bytes).
-func IsBinary(data []byte) bool {
+func IsBinary[T string | []byte](data T) bool {
 	n := min(len(data), 512)
 
 	for i := range n {

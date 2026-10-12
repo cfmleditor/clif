@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/cfmleditor/clif/internal/conv"
+	cflog "github.com/cfmleditor/clif/internal/log"
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
 )
@@ -206,12 +207,12 @@ func (r *Resolver) buildCallerIndex() *callerIndex {
 	idx := &callerIndex{byName: map[string][]string{}}
 
 	for _, path := range r.InferArgsFiles {
-		data, err := r.fs().ReadFile(path)
+		text, err := r.readText(path)
 		if err != nil {
 			continue
 		}
 
-		for name := range callerNames(string(data)) {
+		for name := range callerNames(text) {
 			idx.byName[name] = append(idx.byName[name], path)
 		}
 	}
@@ -307,12 +308,17 @@ func (r *Resolver) inferArgument(fd *parser.FunctionDef, pos int, file string, c
 		sites int
 	)
 
-	for i, path := range files {
-		if i%prefetchWindow == 0 {
-			r.prefetchHandlerParses(files[i:min(i+prefetchWindow, len(files))])
-		}
+	// Files are read in the order their parses finish: the answer does not
+	// depend on the order (every caller must agree, and the alternatives are
+	// sorted), so the loop never waits on one slow parse while others are
+	// ready, and stopping early stops the parsing. With limits configured it
+	// does (a forwarded argument counts as a site until it is found to be
+	// one), so then they are read in file order.
+	next, stop := r.parseCallers(files)
+	defer stop()
 
-		hpr := r.handlerParse(path)
+	for got, more := next(); more; got, more = next() {
+		path, hpr := got.path, got.pr
 		if hpr == nil {
 			return ""
 		}
@@ -345,7 +351,7 @@ func (r *Resolver) inferArgument(fd *parser.FunctionDef, pos int, file string, c
 			}
 
 			if tokens == nil {
-				tokens = r.callerFileTokens(hpr)
+				tokens = r.fileTokens(hpr)
 			}
 
 			if !invoke {
@@ -737,7 +743,7 @@ func (r *Resolver) argumentAliasComponent(name string, line uint32, caller strin
 // on whatever precedes it in the file. Offsets are relative to that start,
 // which is shared by every path compared against this one.
 func producerBlockPath(content string, start, line int) ([]int, bool) {
-	tokens := producerTokens(lineSpan(content, start, line))
+	tokens := producerTokens(sourceText(content, start, line))
 	if tokens == nil {
 		return nil, false
 	}
@@ -761,31 +767,6 @@ func producerBlockPath(content string, start, line int) ([]int, bool) {
 	}
 
 	return path, true
-}
-
-// lineSpan returns content's 0-based lines [from, to).
-func lineSpan(content string, from, to int) string {
-	begin := 0
-	for range from {
-		i := strings.IndexByte(content[begin:], '\n')
-		if i < 0 {
-			return ""
-		}
-
-		begin += i + 1
-	}
-
-	end := begin
-	for range to - from {
-		i := strings.IndexByte(content[end:], '\n')
-		if i < 0 {
-			return content[begin:]
-		}
-
-		end += i + 1
-	}
-
-	return content[begin:end]
 }
 
 // Brace paths cannot distinguish a conditional single statement from an
@@ -847,7 +828,7 @@ func (r *Resolver) callerOmitsArgument(call *parser.CallSite, pr *parser.ParseRe
 		return false
 	}
 
-	tokens := r.callerFileTokens(pr)
+	tokens := r.fileTokens(pr)
 	for i := 0; i+1 < len(tokens); i++ {
 		if tokens[i].Offset != int(call.StartByte) || tokens[i].Kind != parser.TokIdent || !strings.EqualFold(tokens[i].Value, call.FuncName) || tokens[i+1].Kind != parser.TokLParen {
 			continue
@@ -865,56 +846,137 @@ func (r *Resolver) callerOmitsArgument(call *parser.CallSite, pr *parser.ParseRe
 	return false
 }
 
-// callerFileTokens shares only lexical work, never inferred argument types.
-// Caller views use the owning resolver's bounded, content-checked cache.
-func (r *Resolver) callerFileTokens(pr *parser.ParseResult) []parser.Token {
-	if r.indexer != nil {
-		return r.indexer.callerFileTokens(pr)
-	}
+// fileTokens is pr's tokens, read once and shared by everything that walks a
+// whole file's tokens: caller inference and the closure, loop and guard
+// spans, which each tokenized the file again (half of a tassweb scan's
+// allocation). It shares only lexical work, never inferred types. Caller views
+// use the owning resolver's cache, which holds at most maxHeldTokens.
+func (r *Resolver) fileTokens(pr *parser.ParseResult) []parser.Token {
+	o := r.owner()
 
-	return r.callerTokens.get(&r.mu, pr, func() []parser.Token { return allTokens(pr.Content) })
+	return o.callerTokens.getWithin(&o.mu, pr, func() []parser.Token {
+		// allTokens sizes its slice from the file's length; a file of mostly
+		// comments or markup has far fewer tokens, and the cache counts the
+		// tokens, so the spare capacity is not kept.
+		tokens := allTokens(pr.Content)
+		if cap(tokens) > len(tokens)+len(tokens)/4 {
+			tokens = slices.Clone(tokens)
+		}
+
+		return tokens
+	}, maxHeldTokens)
 }
 
-// prefetchHandlerParses parses files into handlerParse's cache in parallel,
-// so the loop that reads them one by one finds each parsed. Inferring an
-// argument parses every file calling its function, each parse may infer
-// further, and serially that was a chain one goroutine walked while the rest
-// of the scan's workers sat idle: wheelstest's two runners took 6s each, the
-// last files a cfwheels scan finished.
+// maxHeldTokens bounds fileTokens' cache: about 10 MB of tokens, enough for
+// the files a scan's workers are reading at once.
+const maxHeldTokens = 1 << 18
+
+// parsedFile is one candidate file's parse, as parseCallers hands it over.
+type parsedFile struct {
+	path string
+	pr   *parser.ParseResult
+}
+
+// parseCallers hands over each file's parse through next, false when there
+// are no more; stop ends the parsing of files not yet started.
 //
-// inferArgument hands it one prefetchWindow of files at a time, as its loop
-// reaches them, because the loop stops at the first call it cannot place. A
-// common name is mentioned in hundreds of files: inferring an argument of the
-// lucli deploy commands' run() parsed all 675 files holding `run(` and then
-// stopped at the fifth, on an `ssh.run()` nothing types, for 2s a time.
-func (r *Resolver) prefetchHandlerParses(files []string) {
-	if len(files) < 2 {
-		return
+// Inferring an argument parses every file calling its function, and serially
+// that was a chain one goroutine walked while the rest of the scan's workers
+// sat idle (wheelstest's two runners took 6s each). A whole-list prefetch
+// then parsed every candidate before the first was read, though the loop
+// usually stops early: run() is in 675 files of cfwheels' CLI, and its loop
+// stops at the fifth. So the files are parsed on prefetchWorkers goroutines
+// and handed over as each finishes, one worker per file so none is parsed
+// twice for the loop. They are parsed in order, inline, where that costs
+// nothing or the order matters: one file, every file already parsed, or
+// caller-inference limits configured.
+func (r *Resolver) parseCallers(files []string) (next func() (parsedFile, bool), stop func()) {
+	limits := r.CallerInferenceLimits
+	if len(files) < 2 || limits.MaxCallSites > 0 || limits.MaxCallerFiles > 0 || r.allParsed(files) {
+		i := 0
+
+		return func() (parsedFile, bool) {
+			if i >= len(files) {
+				return parsedFile{}, false
+			}
+
+			path := files[i]
+			i++
+
+			return parsedFile{path: path, pr: r.recoveredHandlerParse(path)}, true
+		}, func() {}
 	}
 
+	out := make(chan parsedFile, len(files)) // a worker never blocks on a loop that stopped
 	work := make(chan string)
+	done := make(chan struct{})
 
 	var wg sync.WaitGroup
 
 	for range min(len(files), prefetchWorkers) {
 		wg.Go(func() {
 			for path := range work {
-				r.handlerParse(path)
+				out <- parsedFile{path: path, pr: r.recoveredHandlerParse(path)}
 			}
 		})
 	}
 
-	for _, path := range files {
-		work <- path
-	}
+	go func() {
+		defer close(work)
 
-	close(work)
-	wg.Wait()
+		for _, path := range files {
+			select {
+			case work <- path:
+			case <-done:
+				return
+			}
+		}
+	}()
+
+	go func() {
+		wg.Wait()
+		close(out)
+	}()
+
+	var once sync.Once
+
+	return func() (parsedFile, bool) {
+		got, ok := <-out
+
+		return got, ok
+	}, func() { once.Do(func() { close(done) }) }
 }
 
-// prefetchWorkers bounds prefetchHandlerParses per inference: nested
-// inferences prefetch too, and the scan is already running a worker per core.
-const prefetchWorkers = 4
+// allParsed reports whether handlerParse already holds every file.
+func (r *Resolver) allParsed(files []string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 
-// prefetchWindow is how many files inferArgument parses ahead of its loop.
-const prefetchWindow = 2 * prefetchWorkers
+	for _, path := range files {
+		if _, ok := r.handlerCache[pathKey(path)]; !ok {
+			return false
+		}
+	}
+
+	return true
+}
+
+// recoveredHandlerParse is handlerParse, with a panic in it recorded and read
+// as no parse, which the inference loop takes as "cannot infer". The parse may
+// run on a worker goroutine, where nothing the scan recovers on its own would
+// catch it and one bad caller file would end the process.
+func (r *Resolver) recoveredHandlerParse(path string) (pr *parser.ParseResult) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			cflog.Recovered(nil, "caller parse panic", rec, cflog.String("file", path))
+
+			pr = nil
+		}
+	}()
+
+	return r.handlerParse(path)
+}
+
+// prefetchWorkers bounds parseCallers per inference: nested inferences parse
+// too, and the scan is already running a worker per core.
+const prefetchWorkers = 4

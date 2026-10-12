@@ -48,14 +48,14 @@ func (r *Resolver) wheelsControllerReturn(global string, controller *parser.Func
 		return ""
 	}
 
-	source := r.wheelsSource(controller.URI.Path()).methods
+	source := r.sourceInfo(controller.URI.Path()).methods
 	if !strings.Contains(source["controller"].body, wheelsTokens(`execute = "$createControllerClass"`)) ||
 		!strings.Contains(source["controller"].body, wheelsTokens(`local.rv = local.rv.$createControllerObject(arguments.params);`)) {
 		return ""
 	}
 
 	create := r.wheelsPlanFunc(global, "$createControllerClass")
-	if create == nil || r.wheelsSource(create.URI.Path()).methods["$createcontrollerclass"].body != wheelsTokens(wheelsCreateControllerClass) {
+	if create == nil || r.sourceInfo(create.URI.Path()).methods["$createcontrollerclass"].body != wheelsTokens(wheelsCreateControllerClass) {
 		return ""
 	}
 
@@ -197,16 +197,16 @@ func (r *Resolver) readObjectPathWrites(dir, property string) (values []string, 
 			continue
 		}
 
-		data, err := r.fs().ReadFile(filepath.Join(dir, entry.Name()))
-		if err != nil || !strings.Contains(strings.ToLower(string(data)), strings.ToLower(property)) {
+		text, err := r.readText(filepath.Join(dir, entry.Name()))
+		if err != nil || !strings.Contains(strings.ToLower(text), strings.ToLower(property)) {
 			continue
 		}
 
-		tokens := producerTokens(string(data))
+		tokens := producerTokens(text)
 		if tokens == nil {
 			// A large read-only spec must not hide a runner's literal setting.
 			// Only a potential write exceeds this evaluator's token budget.
-			if objectPathMayWrite(string(data), property) {
+			if objectPathMayWrite(text, property) {
 				return nil, true, false
 			}
 

@@ -279,10 +279,15 @@ func initStoredArg(pr *parser.ParseResult, name string) string {
 	}
 
 	q := regexp.QuoteMeta(name)
-	write := regexp.MustCompile(`(?i)(?:(?:^|[^\w.])(?:variables\.)?` + q + `\s*=[^=])|(?:\bset` + q + `\s*\()`)
+	write := compiledPattern(`(?i)(?:(?:^|[^\w.])(?:variables\.)?` + q + `\s*=[^=])|(?:\bset` + q + `\s*\()`)
 	param := ""
 
-	for i, line := range strings.Split(pr.Content, "\n") {
+	i := -1
+
+	for line := range strings.Lines(pr.Content) {
+		i++
+		line = strings.TrimSuffix(line, "\n")
+
 		if !write.MatchString(line) {
 			continue
 		}

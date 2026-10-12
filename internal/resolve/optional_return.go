@@ -44,7 +44,7 @@ func (r *Resolver) absentArgumentComponent(fd *parser.FunctionDef, expression, b
 		return ""
 	}
 
-	field := r.wheelsSource(fd.URI.Path()).methods[strings.ToLower(fd.Name)].noArgsReturn
+	field := r.sourceInfo(fd.URI.Path()).methods[strings.ToLower(fd.Name)].noArgsReturn
 	if field == "" || r.ResolveFunc(component, "structKeyExists", baseDir) != nil {
 		return ""
 	}

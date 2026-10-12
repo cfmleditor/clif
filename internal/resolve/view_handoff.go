@@ -204,7 +204,7 @@ func (r *Resolver) moduleActions(dir string) map[string]renderers {
 	views := filepath.Join(dir, "views")
 
 	for _, file := range r.moduleFiles(dir, "views", ".cfm") {
-		data, err := r.fs().ReadFile(file)
+		text, err := r.readText(file)
 		if err != nil {
 			continue
 		}
@@ -216,7 +216,7 @@ func (r *Resolver) moduleActions(dir string) map[string]renderers {
 
 		parent := strings.ToLower(strings.TrimSuffix(filepath.ToSlash(rel), filepath.Ext(rel)))
 
-		calls(string(data), func(view string, _ []int) {
+		calls(text, func(view string, _ []int) {
 			entry := out[view]
 			entry.parents = append(entry.parents, parentView{name: parent, file: file})
 			out[view] = entry
@@ -260,12 +260,12 @@ func (r *Resolver) handlerParse(path string) *parser.ParseResult {
 		return pr
 	}
 
-	data, err := r.fs().ReadFile(path)
+	text, err := r.readText(path)
 	if err != nil {
 		return nil
 	}
 
-	content := string(data)
+	content := text
 
 	pr = parser.ParseWithOptions(cfpath.ToURI(path), content, &parser.ParseOptions{
 		Resolvers: r.Resolvers, FuncLookup: r.FuncLookup(filepath.Dir(path)),

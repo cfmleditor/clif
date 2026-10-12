@@ -3,6 +3,7 @@ package resolve
 import (
 	"strings"
 
+	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
 )
 
@@ -43,12 +44,12 @@ func (r *Resolver) requestWriters() map[string][]string {
 	writers = map[string][]string{}
 
 	for _, path := range o.InferArgsFiles {
-		data, err := r.fs().ReadFile(path)
+		text, err := r.readText(path)
 		if err != nil {
 			continue
 		}
 
-		for _, key := range requestWriteKeys(string(data)) {
+		for _, key := range requestWriteKeys(text) {
 			writers[key] = append(writers[key], path)
 		}
 	}
@@ -79,111 +80,111 @@ func requestWriteKeys(content string) []string {
 // requestWriteCounts is how many writes of each lowercased request key content
 // holds: `request.k = v` (not `==`), `request[ "k" ] = v`, `structInsert(
 // request, "k"` and a cfparam's `name="request.k"`, case-insensitively, as the
-// requestWriteRe this replaced matched them. One pass per form over the text.
+// requestWriteRe this replaced matched them. One pass per form over the text,
+// which is searched case-insensitively rather than lowercased whole; only the
+// keys found are lowercased.
 func requestWriteCounts(content string) map[string]int {
-	lower := strings.ToLower(content)
 	counts := map[string]int{}
 	add := func(key string) {
 		if key != "" {
-			counts[key]++
+			counts[strings.ToLower(key)]++
 		}
 	}
 
 	for at := 0; ; {
-		i := strings.Index(lower[at:], "request")
+		i := parser.IndexFoldFrom(content, "request", at)
 		if i < 0 {
 			break
 		}
 
-		i += at
 		at = i + len("request")
 
-		add(requestKeyWrittenAt(lower, i, at))
+		add(requestKeyWrittenAt(content, i, at))
 	}
 
 	for at := 0; ; {
-		i := strings.Index(lower[at:], "structinsert")
+		i := parser.IndexFoldFrom(content, "structinsert", at)
 		if i < 0 {
 			break
 		}
 
-		at = i + at + len("structinsert")
+		at = i + len("structinsert")
 
-		j := skipSpace(lower, at)
-		if j >= len(lower) || lower[j] != '(' {
+		j := skipSpace(content, at)
+		if j >= len(content) || content[j] != '(' {
 			continue
 		}
 
-		j = skipSpace(lower, j+1)
-		if !strings.HasPrefix(lower[j:], "request") {
+		j = skipSpace(content, j+1)
+		if !parser.HasPrefixFold(content[j:], "request") {
 			continue
 		}
 
-		j = skipSpace(lower, j+len("request"))
-		if j >= len(lower) || lower[j] != ',' {
+		j = skipSpace(content, j+len("request"))
+		if j >= len(content) || content[j] != ',' {
 			continue
 		}
 
-		if key, _, ok := quotedAt(lower, skipSpace(lower, j+1)); ok {
+		if key, _, ok := quotedAt(content, skipSpace(content, j+1)); ok {
 			add(key)
 		}
 	}
 
 	for at := 0; ; {
-		i := strings.Index(lower[at:], "name")
+		i := parser.IndexFoldFrom(content, "name", at)
 		if i < 0 {
 			break
 		}
 
-		at = i + at + len("name")
+		at = i + len("name")
 
-		j := skipSpace(lower, at)
-		if j >= len(lower) || lower[j] != '=' {
+		j := skipSpace(content, at)
+		if j >= len(content) || content[j] != '=' {
 			continue
 		}
 
-		value, _, ok := quotedAt(lower, skipSpace(lower, j+1))
-		if key, found := strings.CutPrefix(value, "request."); ok && found {
-			add(key)
+		value, _, ok := quotedAt(content, skipSpace(content, j+1))
+		if ok && parser.HasPrefixFold(value, "request.") {
+			add(value[len("request."):])
 		}
 	}
 
 	return counts
 }
 
-// requestKeyWrittenAt is the key a write starting at lower[start:] ("request"
-// ending at end) assigns, or "": `request . k =` or `request [ "k" ] =`, with
-// the `=` not the first of `==`.
-func requestKeyWrittenAt(lower string, start, end int) string {
-	if start > 0 && isWordByte(lower[start-1]) {
+// requestKeyWrittenAt is the key a write starting at content[start:]
+// ("request" ending at end) assigns, or "": `request . k =` or `request [ "k"
+// ] =`, with the `=` not the first of `==`.
+func requestKeyWrittenAt(content string, start, end int) string {
+	if start > 0 && isWordByte(content[start-1]) {
 		return ""
 	}
 
-	j := skipSpace(lower, end)
-	if j >= len(lower) {
+	j := skipSpace(content, end)
+	if j >= len(content) {
 		return ""
 	}
 
 	var key string
 
-	switch lower[j] {
+	switch content[j] {
 	case '.':
-		j = skipSpace(lower, j+1)
+		j = skipSpace(content, j+1)
 		k := j
 
-		for k < len(lower) && isWordByte(lower[k]) {
+		for k < len(content) && isWordByte(content[k]) {
 			k++
 		}
 
-		key, j = lower[j:k], k
+		key, j = content[j:k], k
 	case '[':
 		var ok bool
-		if key, j, ok = quotedAt(lower, skipSpace(lower, j+1)); !ok {
+		if key, j, ok = quotedAt(content, skipSpace(content, j+1)); !ok {
 			return ""
 		}
 
-		j = skipSpace(lower, j)
-		if j >= len(lower) || lower[j] != ']' {
+		j = skipSpace(content, j)
+		if j >= len(content) || content[j] != ']' {
 			return ""
 		}
 
@@ -192,8 +193,8 @@ func requestKeyWrittenAt(lower string, start, end int) string {
 		return ""
 	}
 
-	j = skipSpace(lower, j)
-	if j+1 >= len(lower) || lower[j] != '=' || lower[j+1] == '=' {
+	j = skipSpace(content, j)
+	if j+1 >= len(content) || content[j] != '=' || content[j+1] == '=' {
 		return ""
 	}
 

@@ -209,11 +209,10 @@ func funcScope(pr *parser.ParseResult, name string) (parser.FuncScope, bool) {
 
 // fw1Assigns reports whether the function at scope assigns rc.name.
 func fw1Assigns(content string, scope parser.FuncScope, name string) bool {
-	re := regexp.MustCompile(`(?i)\b(?:arguments\.)?rc\.` + regexp.QuoteMeta(name) + `\s*=[^=]`)
-	lines := strings.Split(content, "\n")
+	re := compiledPattern(`(?i)\b(?:arguments\.)?rc\.` + regexp.QuoteMeta(name) + `\s*=[^=]`)
 
-	for i := scope.Start; i <= scope.End && i < len(lines); i++ {
-		if i >= 0 && re.MatchString(lines[i]) {
+	for line := range strings.Lines(sourceText(content, scope.Start, scope.End+1)) {
+		if re.MatchString(strings.TrimSuffix(line, "\n")) {
 			return true
 		}
 	}

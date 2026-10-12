@@ -471,3 +471,34 @@ and producer plans per file, which every producer evaluation reads, Wheels or
 not). The largest allocation left is `findClosures` tokenising each file
 whole (1.9 GB over a tassweb scan); it could share one tokenisation per file
 with the other span caches, at the cost of holding the tokens.
+
+## 11. Consolidation, copies and per-view work — implemented
+
+| Change | Effect |
+|---|---|
+| DI/1 policies built once by the owning resolver (`diPolicySet`), not once per application view | FW/1 3.2s, 391 MB → 0.9s, 118 MB |
+| `ApplicationConstructor`/`ApplicationMethod`: callers build only what they use, not a whole-file copy per function | 94% of FW/1's peak heap |
+| `vfs.ReadString`: readers share the batch cache's text rather than copying bytes out and converting them | one or two copies of each file per read |
+| `sourceText`, `localAssignmentAt` walking in place: no line slices copied for the lookups above a call | 2.8 GB on tassweb |
+| `wheelsMethods` keeps a flag, not every token since the last brace (a tag file's whole token stream) | 2.5 GB on tassweb |
+| `statementShape` streams the bracket check `nativeReassignedAt` built a token slice for | 1 GB on tassweb |
+| `fileTokens`: one tokenisation per file shared by caller inference and the loop, closure and guard spans, bounded by `maxHeldTokens` | 4.5 GB → 1.6 GB of `allTokens` |
+| `parseCallers`: caller files handed over as their parses finish (in file order when limits are set) | no wait on one slow parse |
+| `funcScopedRefFor` reads scopes in place; `compiledPattern` caches name-built regexps; `request_fields` searches without lowering files | |
+| `pathCaches`: every cache `InvalidatePaths` clears is one struct, reset at once; `TestCallerViewsCarryEverySetting` holds the view's field list | a cache or setting cannot be left out |
+
+| | v0.5.2 | before section 10 | now |
+|---|---|---|---|
+| cfwheels | 3.8s, 224 MB | 7.4s, 405 MB | 2.7s, 327 MB |
+| Masa | 3.1s, 233 MB | 4.2s, 325 MB | 3.2s, 238 MB |
+| ContentBox | 0.9s, 137 MB | 0.8s, 159 MB | 0.6s, 132 MB |
+| ColdBox | 0.7s, 151 MB | 0.7s, 136 MB | 0.6s, 118 MB |
+| Lucee | 10.2s, 203 MB | 1.4s, 204 MB | 1.1s, 186 MB |
+| TestBox | 0.7s, 74 MB | 0.2s, 89 MB | 0.2s, 86 MB |
+| FW/1 | 0.7s, 101 MB | 3.2s, 391 MB | 0.9s, 120 MB |
+| tassweb | 33.7s, 1.6 GB | 28.3s, 3.2 GB | 10.1s, 973 MB |
+
+Peak resident, median of alternating runs. tassweb allocates 14 GB over a scan, from 26 GB. Output is identical per entry on the seven-project corpus in both modes, tassweb and the nine apps (`target/resolution/pr244-perf5/`).
+
+`TestFoldingAnIdentifierDoesNotAllocate` (not run under `-short`) had been failing since bcac43a: `collectionKeys` lowered each name before joining it into a key. `concatLower` builds the key lowercased in one allocation.
+

@@ -48,7 +48,7 @@ func (r *Resolver) wheelsMapperFunc(path, name string) (*parser.FunctionDef, boo
 		file := filepath.Join(folder, entry.Name())
 		// The loader's metadata scan is nonrecursive and reads this component's
 		// public functions. Do not import includes, inherited or private methods.
-		fileMethods := r.wheelsSource(file).methods
+		fileMethods := r.sourceInfo(file).methods
 		for key := range fileMethods {
 			method := fileMethods[key]
 			if !method.public {
@@ -119,8 +119,8 @@ func (r *Resolver) wheelsIntegrationPlan(global string) bool {
 		return false
 	}
 
-	planBody := r.wheelsSource(plan.URI.Path()).methods["$componentintegrationplan"].body
-	builderBody := r.wheelsSource(builder.URI.Path()).methods["$buildcomponentintegrationplan"].body
+	planBody := r.sourceInfo(plan.URI.Path()).methods["$componentintegrationplan"].body
+	builderBody := r.sourceInfo(builder.URI.Path()).methods["$buildcomponentintegrationplan"].body
 	// Both the producer and consumer must agree on publicMethods. Comments and
 	// quoted descriptions cannot supply this evidence: token boundaries are kept.
 	for _, evidence := range []string{
@@ -149,7 +149,7 @@ func (r *Resolver) wheelsIntegrationPlan(global string) bool {
 func (r *Resolver) wheelsPlanFunc(global, name string) *parser.FunctionDef {
 	var found *parser.FunctionDef
 
-	_, own := r.wheelsSource(global).methods[strings.ToLower(name)]
+	_, own := r.sourceInfo(global).methods[strings.ToLower(name)]
 	if own {
 		for _, def := range r.EnsureIndexed(global) {
 			if strings.EqualFold(def.Name, name) {
@@ -162,7 +162,7 @@ func (r *Resolver) wheelsPlanFunc(global, name string) *parser.FunctionDef {
 		found = r.includedFunc(global, name)
 	}
 
-	if found == nil || !r.wheelsSource(found.URI.Path()).methods[strings.ToLower(name)].public {
+	if found == nil || !r.sourceInfo(found.URI.Path()).methods[strings.ToLower(name)].public {
 		return nil
 	}
 
@@ -178,7 +178,12 @@ type wheelsMethod struct {
 	selfExcludedModes []string
 }
 
-type wheelsSource struct {
+// sourceInfo is what is read once from a file on disk and kept: its method
+// bodies, producer plans and the facts derived from them. It began as Wheels'
+// method-body check and every producer evaluation now reads it, Wheels or not.
+// It is not merged with sourceFacts: that one reads the text a parse holds,
+// which in the editor is the open buffer, where this one reads the disk.
+type sourceInfo struct {
 	associations map[string]parser.FunctionDef
 	content      string
 	methods      map[string]wheelsMethod
@@ -200,9 +205,9 @@ type wheelsSource struct {
 // when the file's size or modification time moves, so a changed loader/access
 // modifier is not accepted by an old policy; EnsureIndexed supplies the
 // current definition from the shared index.
-func (r *Resolver) wheelsSource(path string) wheelsSource {
+func (r *Resolver) sourceInfo(path string) sourceInfo {
 	if r.indexer != nil {
-		return r.indexer.wheelsSource(path)
+		return r.indexer.sourceInfo(path)
 	}
 
 	var gen uint64
@@ -211,7 +216,7 @@ func (r *Resolver) wheelsSource(path string) wheelsSource {
 	}
 
 	r.mu.RLock()
-	cached, ok := r.wheelsSources[path]
+	cached, ok := r.sourceInfos[path]
 	r.mu.RUnlock()
 
 	// Nothing the index has seen has changed since the stamp was checked, and
@@ -222,38 +227,38 @@ func (r *Resolver) wheelsSource(path string) wheelsSource {
 
 	info, err := r.fs().Stat(path)
 	if err != nil {
-		return wheelsSource{}
+		return sourceInfo{}
 	}
 
 	if ok && cached.size == info.Size() && cached.modTime.Equal(info.ModTime()) {
 		if r.IndexTracksFiles {
 			cached.gen = gen
-			r.storeWheelsSource(path, &cached)
+			r.storeSourceInfo(path, &cached)
 		}
 
 		return cached
 	}
 
-	data, err := r.fs().ReadFile(path)
+	text, err := r.readText(path)
 	if err != nil {
-		return wheelsSource{}
+		return sourceInfo{}
 	}
 
-	content := string(data)
+	content := text
 
 	result := cached
 	if !ok || cached.content != content {
-		result = wheelsSource{associations: wheelsAssociations(content), content: content, methods: wheelsMethods(content), producers: newProducerPlans(content), derived: &sourceDerived{}}
+		result = sourceInfo{associations: wheelsAssociations(content), content: content, methods: wheelsMethods(content), producers: newProducerPlans(content), derived: &sourceDerived{}}
 	}
 
 	result.size, result.modTime, result.gen = info.Size(), info.ModTime(), gen
-	r.storeWheelsSource(path, &result)
+	r.storeSourceInfo(path, &result)
 
 	return result
 }
 
 // sourceDerived holds what is read from a source's content once, the first
-// time it is asked for, and shared by every copy of its wheelsSource.
+// time it is asked for, and shared by every copy of its sourceInfo.
 type sourceDerived struct {
 	requestOnce   sync.Once
 	requestWrites map[string]int
@@ -263,7 +268,7 @@ type sourceDerived struct {
 
 // requestWriteCounts is how many statements in the source write each request
 // key (requestWriteKeys' forms), counted once per source.
-func (s *wheelsSource) requestWriteCounts() map[string]int {
+func (s *sourceInfo) requestWriteCounts() map[string]int {
 	if s.derived == nil {
 		return requestWriteCounts(s.content)
 	}
@@ -275,7 +280,7 @@ func (s *wheelsSource) requestWriteCounts() map[string]int {
 
 // startupAssignments is the source's component-body variable assignments,
 // parsed once per source rather than on every producer evaluation.
-func (s *wheelsSource) startupAssignments(file uri.URI) []parser.StartupVariableAssignment {
+func (s *sourceInfo) startupAssignments(file uri.URI) []parser.StartupVariableAssignment {
 	if s.derived == nil {
 		return parser.Parse(file, s.content).StartupVariableAssignments()
 	}
@@ -285,13 +290,13 @@ func (s *wheelsSource) startupAssignments(file uri.URI) []parser.StartupVariable
 	return s.derived.startup
 }
 
-func (r *Resolver) storeWheelsSource(path string, src *wheelsSource) {
+func (r *Resolver) storeSourceInfo(path string, src *sourceInfo) {
 	r.mu.Lock()
-	if r.wheelsSources == nil {
-		r.wheelsSources = make(map[string]wheelsSource)
+	if r.sourceInfos == nil {
+		r.sourceInfos = make(map[string]sourceInfo)
 	}
 
-	r.wheelsSources[path] = *src
+	r.sourceInfos[path] = *src
 	r.mu.Unlock()
 }
 
@@ -300,7 +305,11 @@ func wheelsMethods(content string) map[string]wheelsMethod {
 	methods := make(map[string]wheelsMethod)
 	depth, componentDepth := 0, 0
 
-	header := make([]parser.Token, 0, 8)
+	// Whether an access modifier other than public came since the last
+	// statement boundary: all a function's header is read for. The tokens
+	// themselves used to be kept, and in a tag file, which has no braces or
+	// semicolons, that was a copy of every token in it (2.5 GB on tassweb).
+	restricted := false
 
 	for {
 		tok := scanner.NextSkipComments()
@@ -316,41 +325,41 @@ func wheelsMethods(content string) map[string]wheelsMethod {
 			switch tok.Kind {
 			case parser.TokLBrace:
 				depth++
-				header = header[:0]
+				restricted = false
 			case parser.TokRBrace:
 				depth--
-				header = header[:0]
+				restricted = false
 			case parser.TokSemicolon:
-				header = header[:0]
+				restricted = false
 			default:
-				header = append(header, tok)
+				restricted = restricted || restrictedAccess(tok.Value)
 			}
 
 			continue
 		}
 
-		name, method := wheelsReadMethod(scanner, header)
+		name, method := wheelsReadMethod(scanner, restricted)
 		if name != "" {
 			methods[name] = method
 		}
 
-		header = header[:0]
+		restricted = false
 	}
 }
 
-func wheelsReadMethod(scanner *parser.Scanner, header []parser.Token) (string, wheelsMethod) {
+// restrictedAccess reports whether word is an access modifier that keeps a
+// function from being public.
+func restrictedAccess(word string) bool {
+	return strings.EqualFold(word, "private") || strings.EqualFold(word, "package") || strings.EqualFold(word, "remote")
+}
+
+func wheelsReadMethod(scanner *parser.Scanner, restricted bool) (string, wheelsMethod) {
 	name := scanner.NextSkipComments()
 	if name.Kind != parser.TokIdent || scanner.NextSkipComments().Kind != parser.TokLParen {
 		return "", wheelsMethod{}
 	}
 
-	public := true
-
-	for _, h := range header {
-		if strings.EqualFold(h.Value, "private") || strings.EqualFold(h.Value, "package") || strings.EqualFold(h.Value, "remote") {
-			public = false
-		}
-	}
+	public := !restricted
 
 	params := beanArguments(scanner)
 	if params == nil {
@@ -621,7 +630,7 @@ const wheelsGlobalIncludeCopy = `if (StructKeyExists(arguments.componentInstance
 }`
 
 type wheelsMapperLoader struct {
-	source                   wheelsSource
+	source                   sourceInfo
 	copyBody, global, folder string
 }
 
@@ -633,7 +642,7 @@ func (r *Resolver) wheelsMapperSetup(path string) (wheelsMapperLoader, bool) {
 		return wheelsMapperLoader{}, false
 	}
 
-	source := r.wheelsSource(path)
+	source := r.sourceInfo(path)
 	if source.methods["init"].body != wheelsTokens(`local.globalComponent = createObject("wheels.Global"); $integrateFunctions(local.globalComponent); $integrateComponents("wheels.mapper"); return this;`) ||
 		source.methods["$integratecomponents"].body != wheelsTokens(`local.plan = $componentIntegrationPlan(arguments.path); local.iEnd = ArrayLen(local.plan); for (local.i = 1; local.i <= local.iEnd; local.i++) { $integrateFunctions(local.plan[local.i].instance, local.plan[local.i].publicMethods); }`) {
 		return wheelsMapperLoader{}, false

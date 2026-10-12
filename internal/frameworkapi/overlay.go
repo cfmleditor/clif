@@ -27,6 +27,17 @@ func (o overlay) ReadFile(p string) ([]byte, error) {
 	return o.base.ReadFile(p)
 }
 
+// ReadFileString is ReadFile's text, from the base's cache when it keeps one.
+func (o overlay) ReadFileString(p string) (string, error) {
+	if e, ok := embedded(p); ok {
+		data, err := stubs.ReadFile(e)
+
+		return string(data), err
+	}
+
+	return vfs.ReadString(o.base, p)
+}
+
 func (o overlay) Stat(p string) (fs.FileInfo, error) {
 	if e, ok := embedded(p); ok {
 		return fs.Stat(stubs, e)

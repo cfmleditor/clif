@@ -43,14 +43,12 @@ func (r *Resolver) builtinResultField(variable string, line uint32, caller strin
 		return ""
 	}
 
-	lines := strings.Split(pr.Content, "\n")
-
-	prefix := producerTokens(strings.Join(lines[scope.Start:assigned], "\n"))
+	prefix := producerTokens(sourceText(pr.Content, scope.Start, assigned))
 	if prefix == nil || !queryOutputStatement(prefix, len(prefix)) {
 		return ""
 	}
 
-	declaration := strings.ToLower(strings.TrimSpace(lines[assigned]))
+	declaration := strings.ToLower(strings.TrimSpace(lineOfContent(pr.Content, assigned)))
 	if !internalRequestLocalInitializer(declaration, path[0], scope.Name, prefix) {
 		return ""
 	}
@@ -83,10 +81,7 @@ func (r *Resolver) builtinResultField(variable string, line uint32, caller strin
 		return ""
 	}
 
-	offset := 0
-	for i := range assigned {
-		offset += len(lines[i]) + 1
-	}
+	offset, _ := lineOffset(pr.Content, assigned)
 
 	if int(call.StartByte) <= offset || int(call.StartByte) > len(pr.Content) {
 		return ""
@@ -173,20 +168,16 @@ func internalRequestFieldUntouched(tokens []parser.Token, name string) bool {
 // A closure can retain the container and mutate it on a later invocation, even
 // when its declaration is outside the initializer-to-lookup interval.
 func (r *Resolver) internalRequestCaptured(pr *parser.ParseResult, scope parser.FuncScope, call *parser.CallSite, name string) bool {
-	lines := strings.Split(pr.Content, "\n")
-	from, to := 0, 0
-
-	for i, line := range lines {
-		if i < scope.Start {
-			from += len(line) + 1
-		}
-
-		if i <= scope.End {
-			to += len(line) + 1
-		}
+	// The byte offsets of the scope's first line and of the line after it.
+	from, ok := lineOffset(pr.Content, scope.Start)
+	if !ok {
+		from = len(pr.Content) + 1
 	}
 
-	to = min(to, len(pr.Content))
+	to, ok := lineOffset(pr.Content, scope.End+1)
+	if !ok {
+		to = len(pr.Content)
+	}
 
 	spans := r.closuresOf(pr)
 	for _, span := range spans {

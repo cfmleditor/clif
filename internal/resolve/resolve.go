@@ -77,48 +77,55 @@ type Resolver struct {
 	CallerInferenceLimits config.CallerInferenceLimits
 	stubFS                vfs.FS
 	mu                    sync.RWMutex
-	appRootCache          map[string]string   // dir → Application.cfc root
-	slugCache             map[string]string   // dir → its box.json slug, "" for none
-	resolveCache          map[string]string   // component+"\t"+baseDir → file path
-	includeCache          map[string]string   // include path+"\t"+including directory → template
-	interfaceCache        map[string]bool     // component file → whether it declares an interface
-	dirCache              *cfpath.DirCache    // directory listings behind those resolutions
-	incGraph              *includeGraph       // the index's cfincludes, rebuilt when they change
-	exprKeys              []string            // ExpressionMappings' keys in the order they apply
-	implicitCache         map[string]string   // path → ImplicitExtends(path)
-	helpers               *helperSet          // application helper templates, per set of config files
-	wb                    *wireboxWorkspace   // what ModuleConfig.cfc and config/WireBox.cfc say about ids, per set of files
-	beanPathsCache        map[string]string   // merged application/configured bean roots
-	fw1Scopes             map[string]fw1Scope // nearest application's source-defined injection scope
+	exprKeys              []string          // ExpressionMappings' keys in the order they apply
+	beanPathsCache        map[string]string // merged application/configured bean roots
 	diOnce                sync.Once
-	diPolicies            []diPolicy                     // source-backed DI/1 injection contracts
-	discoveringDI         bool                           // private policy discovery never re-enters injection lookup
-	startupCache          map[string][]startupAssign     // app root → its startup templates' shared-scope assignments
-	wheelsSources         map[string]wheelsSource        // source-checked method bodies; refreshed when bytes change
-	ctlPathCache          map[string]controllerPaths     // dir → its files' writes of Wheels' controllerPath
-	includerCache         map[string]string              // template, name, depth and include generation → includerHeld's answer
-	returnCache           returnCache                    // ReturnComponentOf answers, for one index generation
-	funcCache             funcCache                      // lookupFunc answers, for one index generation
-	computedIncludes      map[string]computedIncludeFile // file → its computed includes (computedIncludesOf)
+	diPolicies            []diPolicy // source-backed DI/1 injection contracts
+	discoveringDI         bool       // private policy discovery never re-enters injection lookup
 	sourceFacts           spanCache[lexicalSourceFacts]
-	callerTokens          spanCache[parser.Token]             // caller file URI → tokens for its current content
-	loopCache             spanCache[loopSpan]                 // file URI → every loop its current text holds (loopsOf)
-	typeGuardCache        spanCache[receiverTypeGuard]        // exact builtin checks in current source
-	closureCache          spanCache[closureSpan]              // file URI → every function literal its current text holds (closuresOf)
-	callerIdx             *callerIndex                        // name → files calling it, built once for argumentFromCallers
-	argCache              map[string]string                   // an argument → what its callers pass (argumentFromCallers)
-	requestWriterIdx      map[string][]string                 // request key → files writing it (requestWriters)
-	handlerCache          map[string]*parser.ParseResult      // handler path → its parse (handlerParse)
-	fw1ActionCache        map[string][]fw1Action              // controllers dir + section.item → its actions (fw1Actions)
-	boundEntityCache      map[string]string                   // service path → the entity it binds (boundEntity)
-	wrapperHosts          map[string][]string                 // template path → Wheels wrapper hosts (wheelsTemplateHosts)
-	wrapperCalls          map[string][]wrapperCall            // caller path + wrapper → its wrapper calls (wheelsWrapperCalls)
-	extraIncludeHosts     map[string][]includeHost            // template path → includes the graph cannot see (frameworkIncludeHosts)
-	muraEventFiles        map[string]bool                     // file → Mura calls it with an event (handsMuraEvent)
-	lazyGetters           map[string]string                   // file and function → what its lazy getter returns (lazyGetterReturn)
-	lazyFiles             map[string]bool                     // file → it holds an isObject() guard at all
-	viewArgCache          map[string]map[string][]viewArgSite // module → view → its renders (viewArgSites)
-	handoffs              handoffIndex                        // handler actions by the view each renders (viewActions)
+	callerTokens          spanCache[parser.Token]      // caller file URI → tokens for its current content
+	loopCache             spanCache[loopSpan]          // file URI → every loop its current text holds (loopsOf)
+	typeGuardCache        spanCache[receiverTypeGuard] // exact builtin checks in current source
+	closureCache          spanCache[closureSpan]       // file URI → every function literal its current text holds (closuresOf)
+	pathCaches                                         // what InvalidatePaths clears
+}
+
+// pathCaches are the answers a Resolver keeps that depend on files, paths and
+// the index: InvalidatePaths starts them all again at once by resetting this
+// struct, so a cache added here cannot be left out of the reset.
+type pathCaches struct {
+	appRootCache      map[string]string                   // dir → Application.cfc root
+	slugCache         map[string]string                   // dir → its box.json slug, "" for none
+	resolveCache      map[string]string                   // component+"\t"+baseDir → file path
+	includeCache      map[string]string                   // include path+"\t"+including directory → template
+	interfaceCache    map[string]bool                     // component file → whether it declares an interface
+	dirCache          *cfpath.DirCache                    // directory listings behind those resolutions
+	incGraph          *includeGraph                       // the index's cfincludes, rebuilt when they change
+	implicitCache     map[string]string                   // path → ImplicitExtends(path)
+	helpers           *helperSet                          // application helper templates, per set of config files
+	wb                *wireboxWorkspace                   // what ModuleConfig.cfc and config/WireBox.cfc say about ids, per set of files
+	fw1Scopes         map[string]fw1Scope                 // nearest application's source-defined injection scope
+	startupCache      map[string][]startupAssign          // app root → its startup templates' shared-scope assignments
+	sourceInfos       map[string]sourceInfo               // source-checked method bodies; refreshed when bytes change
+	ctlPathCache      map[string]controllerPaths          // dir → its files' writes of Wheels' controllerPath
+	includerCache     map[string]string                   // template, name, depth and include generation → includerHeld's answer
+	returnCache       returnCache                         // ReturnComponentOf answers, for one index generation
+	funcCache         funcCache                           // lookupFunc answers, for one index generation
+	computedIncludes  map[string]computedIncludeFile      // file → its computed includes (computedIncludesOf)
+	callerIdx         *callerIndex                        // name → files calling it, built once for argumentFromCallers
+	argCache          map[string]string                   // an argument → what its callers pass (argumentFromCallers)
+	requestWriterIdx  map[string][]string                 // request key → files writing it (requestWriters)
+	handlerCache      map[string]*parser.ParseResult      // handler path → its parse (handlerParse)
+	fw1ActionCache    map[string][]fw1Action              // controllers dir + section.item → its actions (fw1Actions)
+	boundEntityCache  map[string]string                   // service path → the entity it binds (boundEntity)
+	wrapperHosts      map[string][]string                 // template path → Wheels wrapper hosts (wheelsTemplateHosts)
+	wrapperCalls      map[string][]wrapperCall            // caller path + wrapper → its wrapper calls (wheelsWrapperCalls)
+	extraIncludeHosts map[string][]includeHost            // template path → includes the graph cannot see (frameworkIncludeHosts)
+	muraEventFiles    map[string]bool                     // file → Mura calls it with an event (handsMuraEvent)
+	lazyGetters       map[string]string                   // file and function → what its lazy getter returns (lazyGetterReturn)
+	lazyFiles         map[string]bool                     // file → it holds an isObject() guard at all
+	viewArgCache      map[string]map[string][]viewArgSite // module → view → its renders (viewArgSites)
+	handoffs          handoffIndex                        // handler actions by the view each renders (viewActions)
 }
 
 // returnCache holds ReturnComponentOf's answers. An answer reads the index and
@@ -312,6 +319,12 @@ func (r *Resolver) dirs() *cfpath.DirCache {
 // fs is the resolver's filesystem, with the framework stubs mounted: a
 // preset's, and the ones a fully namespaced path reaches without one
 // (frameworkapi.Namespaced).
+// readText is the text of the file at path, shared with the batch content
+// cache rather than copied out of it (vfs.ReadString).
+func (r *Resolver) readText(path string) (string, error) {
+	return vfs.ReadString(r.fs(), path)
+}
+
 func (r *Resolver) fs() vfs.FS {
 	r.mu.RLock()
 	f := r.stubFS
@@ -761,12 +774,12 @@ func (r *Resolver) EnsureIndexed(cfcPath string) []*parser.FunctionDef {
 	cfcURI := cfpath.ToURI(cfcPath)
 
 	if !r.Index.HasFile(cfcURI) {
-		data, err := r.fs().ReadFile(cfcPath)
+		text, err := r.readText(cfcPath)
 		if err != nil {
 			return nil
 		}
 
-		r.Index.IndexFileWithOptions(cfcURI, string(data), &parser.ParseOptions{Resolvers: r.Resolvers, SetterLookup: r.SetterLookup(cfcPath), ConstructorLookup: r.ConstructorLookup(cfcPath), BeanLookup: r.InjectionBeanLookup(cfcPath), PropertyBeanLookup: r.InjectionPropertyLookup(cfcPath)})
+		r.Index.IndexFileWithOptions(cfcURI, text, &parser.ParseOptions{Resolvers: r.Resolvers, SetterLookup: r.SetterLookup(cfcPath), ConstructorLookup: r.ConstructorLookup(cfcPath), BeanLookup: r.InjectionBeanLookup(cfcPath), PropertyBeanLookup: r.InjectionPropertyLookup(cfcPath)})
 	}
 
 	return r.Index.FunctionsForFile(cfcURI)
@@ -1006,12 +1019,12 @@ func (r *Resolver) delegatesOf(cfcPath string) []parser.Delegate {
 		return ds
 	}
 
-	data, err := r.fs().ReadFile(cfcPath)
+	text, err := r.readText(cfcPath)
 	if err != nil {
 		return nil
 	}
 
-	pr := parser.Parse(cfcURI, string(data))
+	pr := parser.Parse(cfcURI, text)
 	r.Index.SetDelegates(cfcURI, pr.Delegates)
 
 	return pr.Delegates
@@ -1151,12 +1164,12 @@ func (r *Resolver) declaredExtendsOf(cfcPath string, cfcURI uri.URI) (string, bo
 		return ext, true
 	}
 
-	data, err := r.fs().ReadFile(cfcPath)
+	text, err := r.readText(cfcPath)
 	if err != nil {
 		return "", false
 	}
 
-	ext := parser.Parse(cfcURI, string(data)).Extends
+	ext := parser.Parse(cfcURI, text).Extends
 	r.Index.SetExtends(cfcURI, ext)
 
 	return ext, true
@@ -1804,7 +1817,7 @@ func propertyReadText(line, property string) string {
 	end := -1
 
 	for from := 0; ; {
-		i := indexFoldFrom(line, "."+property, from)
+		i := parser.IndexFoldFrom(line, "."+property, from)
 		if i < 0 {
 			break
 		}
@@ -1883,16 +1896,6 @@ func propertyReadText(line, property string) string {
 
 func isIdentChar(c byte) bool {
 	return c == '_' || c == '$' || c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
-}
-
-func indexFoldFrom(s, sub string, from int) int {
-	for i := from; i+len(sub) <= len(s); i++ {
-		if strings.EqualFold(s[i:i+len(sub)], sub) {
-			return i
-		}
-	}
-
-	return -1
 }
 
 // hopReturn is chainHopReturn, and failing that what the receiver binds the
@@ -2630,7 +2633,7 @@ func (r *Resolver) returnComponentOf(fd *parser.FunctionDef, depth int, budget *
 		// A final mode dispatch has no context-free component return. The
 		// caller must select its branch before a partial parser inference can
 		// supply one of the alternatives as if it were unconditional.
-		if r.wheelsSource(fd.URI.Path()).methods[strings.ToLower(fd.Name)].selfDefaultParam != "" {
+		if r.sourceInfo(fd.URI.Path()).methods[strings.ToLower(fd.Name)].selfDefaultParam != "" {
 			return ""
 		}
 
@@ -3387,10 +3390,16 @@ func funcScopedRef(pr *parser.ParseResult, line uint32, name string, in parser.R
 // native ref without that method is passed over (nativeDefaultOverwritten),
 // so an earlier or later assignment the variable does have is found instead.
 func funcScopedRefFor(pr *parser.ParseResult, line uint32, name string, in parser.RefScope, method string, call *parser.CallSite) *parser.ComponentRef {
-	scopes := append([]parser.FuncScope(nil), pr.Scopes...)
+	// Each function's scope, then the file's top level. The scopes are read in
+	// place: copying them to append the top level was 2.7 GB of a tassweb scan.
+	for scopeIndex := 0; scopeIndex <= len(pr.Scopes); scopeIndex++ {
+		var scope parser.FuncScope
+		if scopeIndex < len(pr.Scopes) {
+			scope = pr.Scopes[scopeIndex]
+		} else {
+			scope = parser.FuncScope{Start: 0, End: strings.Count(pr.Content, "\n")}
+		}
 
-	scopes = append(scopes, parser.FuncScope{Start: 0, End: strings.Count(pr.Content, "\n")})
-	for scopeIndex, scope := range scopes {
 		if int(line) < scope.Start || int(line) > scope.End {
 			continue
 		}

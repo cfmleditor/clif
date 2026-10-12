@@ -177,7 +177,7 @@ func (r *Resolver) includerHeldUncached(variable, file string, g *includeGraph, 
 // tag attribute naming it as the variable it fills.
 func setsName(content, name string) bool {
 	q := regexp.QuoteMeta(name)
-	re := regexp.MustCompile(`(?i)(?:^|[^\w.$])(?:local\.|variables\.)?` + q + `\s*(?:[-+*/&]?=[^=]|\+\+|--)` +
+	re := compiledPattern(`(?i)(?:^|[^\w.$])(?:local\.|variables\.)?` + q + `\s*(?:[-+*/&]?=[^=]|\+\+|--)` +
 		`|\bvar\s+` + q + `\b` +
 		`|\bfor\s*\(\s*(?:var\s+)?` + q + `\s+in\b` +
 		`|\b(?:item|index|name|returnvariable|variable|result)\s*=\s*["']` + q + `["']`)

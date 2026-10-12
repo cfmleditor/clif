@@ -244,12 +244,11 @@ func (r *Resolver) fnBody(fd *parser.FunctionDef) (pr *parser.ParseResult, token
 		return nil, nil, 0, 0, false
 	}
 
-	lines := strings.Split(pr.Content, "\n")
-	if scope.End >= len(lines) {
+	if _, ok := lineOffset(pr.Content, scope.End); !ok {
 		return nil, nil, 0, 0, false
 	}
 
-	tokens = significantTokens(strings.Join(lines[scope.Start:scope.End+1], "\n"))
+	tokens = significantTokens(sourceText(pr.Content, scope.Start, scope.End+1))
 
 	open = indexKind(tokens, 0, parser.TokLBrace)
 	if open < 0 {

@@ -29,7 +29,7 @@ func (r *Resolver) registeredAssertion(comp string, call *parser.CallSite, pr *p
 		return nil
 	}
 
-	source := r.wheelsSource(registrar.URI.Path())
+	source := r.sourceInfo(registrar.URI.Path())
 	api := source.methods["addassertions"]
 
 	contract := wheelsTokens(`if(isStruct(arguments.assertions)){structAppend(this.$assert,arguments.assertions,true);return this;}`)
@@ -47,7 +47,7 @@ func (r *Resolver) registeredAssertion(comp string, call *parser.CallSite, pr *p
 	}
 	// The receiver is the BaseSpec-created assertion object, not a coincidentally
 	// named field. Child writes and escapes are checked separately below.
-	constructor, _ := parser.ApplicationSections(source.content)
+	constructor := parser.ApplicationConstructor(source.content)
 	if !strings.Contains(wheelsTokens(constructor), wheelsTokens(`variables.$assert=this.$assert=new testbox.system.Assertion();`)) || !assertionProviderStable(&source) {
 		return nil
 	}
@@ -57,7 +57,7 @@ func (r *Resolver) registeredAssertion(comp string, call *parser.CallSite, pr *p
 		return nil
 	}
 
-	method := r.wheelsSource(hook.URI.Path()).methods["beforetests"]
+	method := r.sourceInfo(hook.URI.Path()).methods["beforetests"]
 	if !method.public || !method.literalDefaults {
 		return nil
 	}
@@ -241,7 +241,7 @@ func assertionStorageStableDepth(content string, depth int) bool {
 	}
 
 	tokens := allTokens(content)
-	if tokens == nil {
+	if len(tokens) == 0 {
 		return false
 	}
 
@@ -295,8 +295,8 @@ func assertionRegistrationCount(content string) int {
 
 // Source changes introducing another direct assertion writer invalidate the
 // framework registration contract. The registrar is the one supported writer.
-func assertionProviderStable(source *wheelsSource) bool {
-	constructor, _ := parser.ApplicationSections(source.content)
+func assertionProviderStable(source *sourceInfo) bool {
+	constructor := parser.ApplicationConstructor(source.content)
 
 	remaining := strings.Replace(wheelsTokens(constructor), wheelsTokens(`variables.$assert=this.$assert=new testbox.system.Assertion();`), "", 1)
 	if strings.Contains(remaining, "$assert") {

@@ -161,7 +161,7 @@ func (e *producerEvaluation) call(fd *parser.FunctionDef, receiver string, argum
 
 	forwarding := false
 	if method != nil && len(instances) > 0 && instances[0] != nil && instances[0].valid {
-		forwarding = !instanceSetter(method.body) && instanceSetterContract(fd.Name, e.resolver.wheelsSource(fd.URI.Path()).producers.all(), instances[0].values, nil)
+		forwarding = !instanceSetter(method.body) && instanceSetterContract(fd.Name, e.resolver.sourceInfo(fd.URI.Path()).producers.all(), instances[0].values, nil)
 	}
 
 	if method != nil && len(instances) > 0 && instances[0] != nil && instances[0].valid && instanceSetter(method.body) {
@@ -175,7 +175,7 @@ func (e *producerEvaluation) call(fd *parser.FunctionDef, receiver string, argum
 	}
 
 	if !forwarding && specific && receiver != "" {
-		source := e.resolver.wheelsSource(fd.URI.Path()).methods[strings.ToLower(fd.Name)]
+		source := e.resolver.sourceInfo(fd.URI.Path()).methods[strings.ToLower(fd.Name)]
 		if source.selfDefaultParam != "" && !source.literalDefaults {
 			return producerUnknown()
 		}
@@ -320,7 +320,7 @@ func (e *producerEvaluation) selfModeSelected(fd *parser.FunctionDef, name strin
 // plan whose parameters are not fd's describes another version of the
 // function, and binding arguments by position through it would misplace them.
 func (r *Resolver) producerFor(fd *parser.FunctionDef) *producerMethod {
-	method := r.wheelsSource(fd.URI.Path()).producers.get(strings.ToLower(fd.Name))
+	method := r.sourceInfo(fd.URI.Path()).producers.get(strings.ToLower(fd.Name))
 	if method == nil || len(method.parameters) != len(fd.Arguments) {
 		return nil
 	}
@@ -724,7 +724,7 @@ func (e *producerEvaluation) sharedFieldContract(path string, allowPrimitive boo
 		return producerUnknown()
 	}
 
-	source := e.resolver.wheelsSource(e.fd.URI.Path())
+	source := e.resolver.sourceInfo(e.fd.URI.Path())
 	methods := source.producers.all()
 	component := ""
 	found := false
@@ -1698,7 +1698,7 @@ func (r *Resolver) producerIgnoresArguments(fd *parser.FunctionDef) bool {
 		return false
 	}
 
-	if r.wheelsSource(fd.URI.Path()).methods[strings.ToLower(fd.Name)].selfDefaultParam != "" {
+	if r.sourceInfo(fd.URI.Path()).methods[strings.ToLower(fd.Name)].selfDefaultParam != "" {
 		return false
 	}
 

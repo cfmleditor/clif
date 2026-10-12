@@ -105,8 +105,7 @@ func (s *mappingSourceState) file(file string, depth int) {
 	s.content(content, file, depth)
 
 	if strings.EqualFold(filepath.Ext(file), ".cfc") {
-		_, methods := ApplicationSections(content)
-		if method, ok := methods["onrequest"]; ok {
+		if method, ok := ApplicationMethod(content, "onrequest"); ok {
 			s.requestMethod = &mappingRequestSource{file, method}
 		}
 	}

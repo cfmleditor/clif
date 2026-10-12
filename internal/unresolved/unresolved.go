@@ -290,12 +290,11 @@ func NewResolver(fsys vfs.FS, files []string, opt *Options) *resolve.Resolver {
 }
 
 func indexOne(fsys vfs.FS, resolver *resolve.Resolver, f string, opt *Options) {
-	data, err := fsys.ReadFile(f)
-	if err != nil || cfpath.IsBinary(data) {
+	content, err := vfs.ReadString(fsys, f)
+	if err != nil || cfpath.IsBinary(content) {
 		return
 	}
 
-	content := string(data)
 	resolver.IndexCallerFile(f, content)
 
 	fileURI := uri.URI("file://" + f)
@@ -328,13 +327,13 @@ func loadBeans(resolver *resolve.Resolver, opt *Options) {
 }
 
 func scanFile(fsys vfs.FS, resolver *resolve.Resolver, file string, opt *Options) (out []Call, resolved int) {
-	data, err := fsys.ReadFile(file)
-	if err != nil || cfpath.IsBinary(data) {
+	content, err := vfs.ReadString(fsys, file)
+	if err != nil || cfpath.IsBinary(content) {
 		return nil, 0
 	}
 
 	baseDir := filepath.Dir(file)
-	pr := Parse(resolver, file, string(data), opt)
+	pr := Parse(resolver, file, content, opt)
 	calls := pr.AllCalls()
 
 	// Calls into a base that does not resolve are one finding per file and
@@ -400,7 +399,7 @@ func scanFile(fsys vfs.FS, resolver *resolve.Resolver, file string, opt *Options
 		for _, g := range bases.order {
 			entry := receiverBaseCall(file, g)
 			if strings.EqualFold(g.base, own) {
-				entry = missingBaseCall(file, string(data), pr.Extends, g.base, g.calls)
+				entry = missingBaseCall(file, content, pr.Extends, g.base, g.calls)
 			}
 
 			if opt.Candidates {

@@ -73,7 +73,7 @@ func (r *Resolver) applicationStartupSources(file string) []startupSource {
 		}
 
 		content := string(data)
-		constructor, _ := parser.ApplicationSections(content)
+		constructor := parser.ApplicationConstructor(content)
 		declared := r.applicationDeclarations(file, content, read)
 		chain = append(chain, startupSource{file, constructor})
 		methods = append(methods, declared)
@@ -161,7 +161,7 @@ func (r *Resolver) startupSources(file, content string) []startupSource {
 		return r.applicationStartupSources(file)
 	}
 
-	constructor, _ := parser.ApplicationSections(content)
+	constructor := parser.ApplicationConstructor(content)
 
 	return []startupSource{{file, constructor}}
 }
@@ -223,8 +223,7 @@ func (r *Resolver) applicationDeclarations(file, content string, read func(strin
 
 			if target := r.IncludePath(raw, file); target != "" {
 				if data, err := read(target); err == nil {
-					_, conditional := parser.ApplicationSections(string(data))
-					for name := range conditional {
+					for _, name := range parser.ApplicationMethodNames(string(data)) {
 						methods[name] = startupSource{target, ""}
 					}
 				}

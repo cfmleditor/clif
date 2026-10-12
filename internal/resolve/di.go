@@ -63,12 +63,12 @@ func (r *Resolver) ConstructorLookup(file string) func(string) string {
 }
 
 func (r *Resolver) factoryDependencyLookup(file string, singletonOnly bool) func(string) string {
-	r.diOnce.Do(r.buildDIPolicies)
+	all := r.diPolicySet()
 
 	var policies []*diPolicy
 
-	for i := range r.diPolicies {
-		p := &r.diPolicies[i]
+	for i := range all {
+		p := &all[i]
 		if p.serves(file) {
 			policies = append(policies, p)
 		}
@@ -114,13 +114,15 @@ func (r *Resolver) InjectionPropertyLookup(file string) func(string, map[string]
 	}
 
 	lookup := r.InjectionBeanLookup(file)
-	if !slices.ContainsFunc(r.diPolicies, func(p diPolicy) bool { return p.serves(file) }) {
+
+	all := r.diPolicySet()
+	if !slices.ContainsFunc(all, func(p diPolicy) bool { return p.serves(file) }) {
 		return nil
 	}
 
 	return func(name string, attrs map[string]string) string {
-		for i := range r.diPolicies {
-			p := &r.diPolicies[i]
+		for i := range all {
+			p := &all[i]
 			if !p.serves(file) {
 				continue
 			}
@@ -344,6 +346,20 @@ type diSource struct {
 	application *parser.ParseResult
 }
 
+// diPolicySet is the workspace's DI/1 policies, built once by the owning
+// resolver: each view building its own was a scan of every Application.cfc
+// per application (FW/1's examples: ten, 5x v0.5.2's time). The owner's are
+// also the right reading for a view. The sources are each application's own
+// Application.cfc and the templates it includes, and the owner resolves each
+// include under the mappings of the application that runs it, where a view
+// would resolve every application's includes under its caller's.
+func (r *Resolver) diPolicySet() []diPolicy {
+	o := r.owner()
+	o.diOnce.Do(o.buildDIPolicies)
+
+	return o.diPolicies
+}
+
 func (r *Resolver) buildDIPolicies() {
 	d := &Resolver{FS: TrackDiscoveryFS(r.fs(), r.Discovery), Index: index.New(), WorkspaceFolders: r.WorkspaceFolders, Mappings: r.Mappings, Resolvers: r.Resolvers, ExpressionMappings: r.ExpressionMappings, discoveringDI: true}
 	sources := r.diSources(d)
@@ -405,12 +421,12 @@ func (r *Resolver) diSources(d *Resolver) []diSource {
 
 		r.Discovery.add(file)
 
-		data, err := r.fs().ReadFile(file)
+		text, err := r.readText(file)
 		if err != nil {
 			continue
 		}
 
-		for _, source := range r.diExecutionSources(d, file, string(data)) {
+		for _, source := range r.diExecutionSources(d, file, text) {
 			sources = append(sources, source)
 			for _, raw := range parser.ExtractIncludes(source.pr.Content) {
 				if target := r.IncludePath(raw, source.file); target != "" {
@@ -516,7 +532,7 @@ func (r *Resolver) nestedFW1Apps(d *Resolver, seen map[string]bool) []diSource {
 			continue
 		}
 
-		data, err := r.fs().ReadFile(file)
+		text, err := r.readText(file)
 		if err != nil || !r.applicationInheritsFramework(file, "framework.one") {
 			continue
 		}
@@ -524,7 +540,7 @@ func (r *Resolver) nestedFW1Apps(d *Resolver, seen map[string]bool) []diSource {
 		seen[pathKey(file)] = true
 		r.Discovery.add(file)
 
-		content := string(data)
+		content := text
 		out = append(out, r.diExecutionSources(d, file, content)...)
 	}
 
@@ -679,12 +695,12 @@ func (r *Resolver) isDI1(component, dir string) bool {
 
 		r.Discovery.add(file)
 
-		data, err := r.fs().ReadFile(file)
+		text, err := r.readText(file)
 		if err != nil {
 			return false
 		}
 
-		pr := parser.Parse(cfpath.ToURI(file), string(data))
+		pr := parser.Parse(cfpath.ToURI(file), text)
 
 		methods := map[string]bool{}
 		for i := range pr.Funcs {

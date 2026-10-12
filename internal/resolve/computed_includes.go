@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/cfmleditor/clif/internal/parser"
 )
 
 // A template may be included by a computed path: Masa's form builder keeps
@@ -50,7 +52,7 @@ func (r *Resolver) computedIncludeHosts(file string) []includeHost {
 			continue
 		}
 
-		if !hasFoldASCII(inc.content, suffix+`"`) && !hasFoldASCII(inc.content, suffix+`'`) && !hasFoldASCII(inc.content, suffix+`/"`) {
+		if parser.IndexFold(inc.content, suffix+`"`) < 0 && parser.IndexFold(inc.content, suffix+`'`) < 0 && parser.IndexFold(inc.content, suffix+`/"`) < 0 {
 			continue
 		}
 
@@ -103,31 +105,4 @@ func (r *Resolver) computedIncludesOf(path string) computedIncludeFile {
 	o.mu.Unlock()
 
 	return inc
-}
-
-// hasFoldASCII reports whether s holds lower, an ASCII lowercase string, in
-// any case, without lowercasing s: the search for a needle the code spells.
-func hasFoldASCII[T string | []byte](s T, lower string) bool {
-	for i := 0; i+len(lower) <= len(s); i++ {
-		j := 0
-
-		for j < len(lower) {
-			c := s[i+j]
-			if c >= 'A' && c <= 'Z' {
-				c += 'a' - 'A'
-			}
-
-			if c != lower[j] {
-				break
-			}
-
-			j++
-		}
-
-		if j == len(lower) {
-			return true
-		}
-	}
-
-	return false
 }

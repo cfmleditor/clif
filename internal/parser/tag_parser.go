@@ -2134,6 +2134,9 @@ func toLowerByte(b byte) byte {
 	return b
 }
 
+// HasPrefixFold is hasPrefixFold, shared with internal/resolve.
+func HasPrefixFold(s, prefix string) bool { return hasPrefixFold(s, prefix) }
+
 // hasPrefixFold checks if s starts with prefix (case-insensitive, ASCII only).
 func hasPrefixFold(s, prefix string) bool {
 	if len(s) < len(prefix) {
@@ -2420,6 +2423,30 @@ func (p *tagParser) scanExpressionCalls(expr string, line int, offsets ...int) {
 // own string path resolved against this file's refs while still gaining the
 // calls that path never matched. Counting rather than testing presence is what
 // keeps `<cfset x = f() + f()>` at two.
+// exprCallKey identifies a call when mergeExpressionCalls subtracts the calls
+// a <cfset> already recorded from its sub-parse.
+type exprCallKey struct {
+	name        string
+	line, start uint32
+	span        bool
+}
+
+// takeCounted reports whether have holds k (by span, else by name and line)
+// and, when it does, takes one.
+func takeCounted(have map[exprCallKey]int, k exprCallKey) bool {
+	if have[k] == 0 && k.span {
+		k.start, k.span = 0, false
+	}
+
+	if have[k] == 0 {
+		return false
+	}
+
+	have[k]--
+
+	return true
+}
+
 func (p *tagParser) mergeExpressionCalls(expr string, line int, topUp bool, offsets ...int) {
 	if !p.extractCalls {
 		return
@@ -2476,14 +2503,8 @@ func (p *tagParser) mergeExpressionCalls(expr string, line int, topUp bool, offs
 		sub.parse()
 	}
 
-	type callKey struct {
-		name        string
-		line, start uint32
-		span        bool
-	}
-
-	key := func(call *CallSite) callKey {
-		k := callKey{name: strings.ToLower(call.FuncName)}
+	key := func(call *CallSite) exprCallKey {
+		k := exprCallKey{name: strings.ToLower(call.FuncName)}
 		if len(offsets) > 1 {
 			k.line = call.Line
 			if call.HasSpan {
@@ -2493,7 +2514,7 @@ func (p *tagParser) mergeExpressionCalls(expr string, line int, topUp bool, offs
 
 		return k
 	}
-	have := map[callKey]int{}
+	have := map[exprCallKey]int{}
 
 	if topUp {
 		cs := p.callsOnLine(conv.Uint32(line))
@@ -2531,14 +2552,9 @@ func (p *tagParser) mergeExpressionCalls(expr string, line int, topUp bool, offs
 			c.Caller = ""
 		}
 
-		k := key(&c)
-		if have[k] == 0 && k.span {
-			k.start, k.span = 0, false
-		}
-
-		if have[k] > 0 {
-			have[k]--
-
+		// Only a top-up has calls to subtract; without one, nothing is looked
+		// up and no name is lowercased for it (a mixed-case name allocates).
+		if len(have) > 0 && takeCounted(have, key(&c)) {
 			return
 		}
 

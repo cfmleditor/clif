@@ -18,24 +18,24 @@ func (r *Resolver) wheelsTestGlobalFunc(chain []string, name string) *parser.Fun
 		}
 
 		for _, child := range chain[:at] {
-			if _, overridden := r.wheelsSource(child).methods["$bindapplicationhelpers"]; overridden {
+			if _, overridden := r.sourceInfo(child).methods["$bindapplicationhelpers"]; overridden {
 				return nil
 			}
 		}
 
-		source := r.wheelsSource(path)
+		source := r.sourceInfo(path)
 		if !wheelsTestBinds(&source) {
 			continue
 		}
 
 		bindings := r.ComponentPath("wheels.Bindings", filepath.Dir(path))
 
-		data, err := r.fs().ReadFile(bindings)
+		text, err := r.readText(bindings)
 		if err != nil {
 			return nil
 		}
 
-		tokens := wheelsTokens(string(data))
+		tokens := wheelsTokens(text)
 		if strings.Count(tokens, wheelsTokens(`map("global")`)) != 1 || !strings.Contains(tokens, wheelsTokens(`map("global").to("wheels.Global")`)) {
 			return nil
 		}
@@ -86,7 +86,7 @@ const wheelsTestBinder = `
 // Both shipped layouts copy the same public UDFs. The inline layout must be
 // the pseudo-constructor itself, followed only by named method declarations;
 // a matching string, closure or unused method is not startup evidence.
-func wheelsTestBinds(source *wheelsSource) bool {
+func wheelsTestBinds(source *sourceInfo) bool {
 	if source.methods["init"].body == wheelsTokens(`$bindApplicationHelpers();return this;`) && source.methods["$bindapplicationhelpers"].body == wheelsTokens(wheelsTestBinder) {
 		return true
 	}
@@ -136,7 +136,7 @@ func wheelsTestBinds(source *wheelsSource) bool {
 			continue
 		}
 
-		name, _ := wheelsReadMethod(scanner, header)
+		name, _ := wheelsReadMethod(scanner, false)
 		if name == "" {
 			return false
 		}

@@ -154,12 +154,12 @@ func (r *Resolver) withIncludes(p string, depth int) []string {
 		return out
 	}
 
-	data, err := r.fs().ReadFile(p)
+	text, err := r.readText(p)
 	if err != nil {
 		return out
 	}
 
-	for _, inc := range parser.ExtractIncludes(string(data)) {
+	for _, inc := range parser.ExtractIncludes(text) {
 		if strings.HasPrefix(inc, "/") {
 			continue
 		}

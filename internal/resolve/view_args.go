@@ -201,12 +201,12 @@ func (r *Resolver) viewArgSites(module string) map[string][]viewArgSite {
 	for _, sub := range viewRenderDirs {
 		for _, ext := range []string{".cfc", ".cfm"} {
 			for _, file := range r.moduleFiles(module, sub, ext) {
-				data, err := r.fs().ReadFile(file)
+				text, err := r.readText(file)
 				if err != nil {
 					continue
 				}
 
-				for view, s := range renderSites(string(data), file, name) {
+				for view, s := range renderSites(text, file, name) {
 					sites[view] = append(sites[view], s...)
 				}
 			}

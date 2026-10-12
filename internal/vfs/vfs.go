@@ -15,6 +15,25 @@ type FS interface {
 	Walk(root string, fn filepath.WalkFunc) error
 }
 
+// StringReader is an FS that can hand over a file's text as a string without
+// copying it: the batch content cache holds each file's text once, and every
+// reader converting the bytes it returned was a second copy of the file.
+type StringReader interface {
+	ReadFileString(path string) (string, error)
+}
+
+// ReadString is the text of the file at path: from f's ReadFileString when it
+// has one, else its ReadFile, converted.
+func ReadString(f FS, path string) (string, error) {
+	if sr, ok := f.(StringReader); ok {
+		return sr.ReadFileString(path)
+	}
+
+	data, err := f.ReadFile(path)
+
+	return string(data), err
+}
+
 // OS is the native filesystem implementation using the os package.
 type OS struct{}
 

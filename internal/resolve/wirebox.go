@@ -85,7 +85,7 @@ func (r *Resolver) wirebox() *wireboxWorkspace {
 
 		src := string(data)
 		dir := filepath.Dir(m)
-		constructor, _ := parser.ApplicationSections(src)
+		constructor := parser.ApplicationConstructor(src)
 		properties, propertiesKnown := moduleAssignments(constructor, true)
 
 		ns := filepath.Base(dir)
@@ -120,10 +120,10 @@ func (r *Resolver) wirebox() *wireboxWorkspace {
 	}
 
 	for _, b := range binders {
-		if data, err := r.fs().ReadFile(b); err == nil {
+		if text, err := r.readText(b); err == nil {
 			// config/WireBox.cfc is the application's: its paths are read
 			// from the application's root, the directory above config/.
-			wb.addMaps(string(data), filepath.Dir(filepath.Dir(b)))
+			wb.addMaps(text, filepath.Dir(filepath.Dir(b)))
 		}
 	}
 

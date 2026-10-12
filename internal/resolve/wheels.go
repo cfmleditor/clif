@@ -80,7 +80,7 @@ var modelNameArgRe = regexp.MustCompile(`(?i)\bmodelName\s*=\s*["'](\w+)["']`)
 // associationFunc is the method name an association declared in the model
 // at path gives it, as a definition returning the associated model, or nil.
 func (r *Resolver) associationFunc(path, name string) *parser.FunctionDef {
-	source := r.wheelsSource(path)
+	source := r.sourceInfo(path)
 
 	def, ok := source.associations[strings.ToLower(name)]
 	if !ok {

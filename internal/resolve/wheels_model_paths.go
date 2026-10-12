@@ -17,7 +17,7 @@ func (r *Resolver) wheelsModelReturn(global string, def *parser.FunctionDef, arg
 		return ""
 	}
 
-	if r.wheelsSource(def.URI.Path()).methods["model"].body != wheelsTokens(wheelsModelFactory) {
+	if r.sourceInfo(def.URI.Path()).methods["model"].body != wheelsTokens(wheelsModelFactory) {
 		return ""
 	}
 
@@ -30,19 +30,19 @@ func (r *Resolver) wheelsModelReturn(global string, def *parser.FunctionDef, arg
 	}
 	for method, body := range map[string]string{"$createModelClass": wheelsCreateModelClass, "$cachedModelLookup": wheelsCachedModelLookup} {
 		fd := helper(method)
-		if fd == nil || r.wheelsSource(fd.URI.Path()).methods[strings.ToLower(method)].body != wheelsTokens(body) {
+		if fd == nil || r.sourceInfo(fd.URI.Path()).methods[strings.ToLower(method)].body != wheelsTokens(body) {
 			return ""
 		}
 	}
 
 	rootFactory := helper("$createObjectFromRoot")
-	if rootFactory == nil || !wheelsRootFactoryMatches(r.wheelsSource(rootFactory.URI.Path()).methods["$createobjectfromroot"].body) {
+	if rootFactory == nil || !wheelsRootFactoryMatches(r.sourceInfo(rootFactory.URI.Path()).methods["$createobjectfromroot"].body) {
 		return ""
 	}
 
 	create := helper("$createModelClass")
 
-	plan := r.wheelsSource(create.URI.Path()).producers.get("$createmodelclass")
+	plan := r.sourceInfo(create.URI.Path()).producers.get("$createmodelclass")
 	if plan == nil || len(plan.parameters) != 3 || !strings.EqualFold(plan.parameters[0], "name") || !strings.EqualFold(plan.parameters[1], "modelPaths") || !strings.EqualFold(plan.parameters[2], "type") || wheelsTokens(plan.defaults["modelpaths"]) != wheelsTokens(`application.wheels.modelPath`) || wheelsTokens(plan.defaults["type"]) != wheelsTokens(`"model"`) {
 		return ""
 	}

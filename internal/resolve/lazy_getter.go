@@ -59,12 +59,12 @@ func (r *Resolver) lazyGetterReturn(fd *parser.FunctionDef) string {
 		return ""
 	}
 
-	data, err := r.fs().ReadFile(path)
+	text, err := r.readText(path)
 	if err != nil {
 		return ""
 	}
 
-	content := string(data)
+	content := text
 	guarded = strings.Contains(strings.ToLower(content), "isobject(")
 
 	if guarded {

@@ -14,28 +14,12 @@ func nativeReassignedAt(content, name string, start, header int) bool {
 			return false
 		}
 
-		tokens := producerTokens(contentBeforeLine(content, at))
-		if tokens == nil {
+		shape, ok := statementShape(contentBeforeLine(content, at))
+		if !ok {
 			return false
 		}
 
-		parens, brackets := 0, 0
-
-		for _, tok := range tokens {
-			switch tok.Kind {
-			case parser.TokLParen:
-				parens++
-			case parser.TokRParen:
-				parens--
-			case parser.TokLBracket:
-				brackets++
-			case parser.TokRBracket:
-				brackets--
-			default:
-			}
-		}
-
-		if parens == 0 && brackets == 0 && !nativeAssignmentExpressionKey(tokens) {
+		if shape.parens == 0 && shape.brackets == 0 && !shape.expressionKey() {
 			return true
 		}
 
@@ -45,17 +29,63 @@ func nativeReassignedAt(content, name string, start, header int) bool {
 	return false
 }
 
-func nativeAssignmentExpressionKey(tokens []parser.Token) bool {
-	if len(tokens) == 0 {
+// textShape is what nativeReassignedAt reads of the text before an
+// assignment: whether its brackets balance and how it ends.
+type textShape struct {
+	parens, brackets int
+	last, prev       parser.TokenKind
+	tokens           int
+}
+
+// statementShape scans source once, keeping only its shape: it used to build
+// a token slice of everything above the assignment to read three facts from
+// it, half of producerTokens' allocation. Like producerTokens it gives up past
+// 4,096 tokens.
+func statementShape(source string) (textShape, bool) {
+	var shape textShape
+
+	scanner := parser.NewScanner(source)
+
+	for {
+		tok := scanner.NextSkipComments()
+		if tok.Kind == parser.TokEOF {
+			return shape, true
+		}
+
+		shape.tokens++
+		if shape.tokens > 4096 {
+			return textShape{}, false
+		}
+
+		switch tok.Kind {
+		case parser.TokLParen:
+			shape.parens++
+		case parser.TokRParen:
+			shape.parens--
+		case parser.TokLBracket:
+			shape.brackets++
+		case parser.TokRBracket:
+			shape.brackets--
+		default:
+		}
+
+		shape.prev, shape.last = shape.last, tok.Kind
+	}
+}
+
+// expressionKey reports whether the text ends where an assignment would be a
+// named argument or a struct key rather than a statement.
+func (s textShape) expressionKey() bool {
+	if s.tokens == 0 {
 		return false
 	}
 
-	switch tokens[len(tokens)-1].Kind {
+	switch s.last {
 	case parser.TokComma, parser.TokLParen, parser.TokLBracket, parser.TokEquals:
 		return true
 	case parser.TokLBrace:
-		if len(tokens) > 1 {
-			switch tokens[len(tokens)-2].Kind {
+		if s.tokens > 1 {
+			switch s.prev {
 			case parser.TokEquals, parser.TokComma, parser.TokLParen, parser.TokLBracket:
 				return true
 			default:

@@ -45,12 +45,12 @@ func (r *Resolver) assumedMuraBeans(configured map[string]string) []parser.Resol
 		return nil
 	}
 
-	r.diOnce.Do(r.buildDIPolicies)
+	all := r.diPolicySet()
 
 	var policy *diPolicy
 
-	for i := range r.diPolicies {
-		p := &r.diPolicies[i]
+	for i := range all {
+		p := &all[i]
 		if len(p.roots) != 1 || !roots[p.roots[0]] {
 			continue
 		}

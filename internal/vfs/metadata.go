@@ -67,6 +67,39 @@ func (c *metadataCache) ReadFile(path string) ([]byte, error) {
 	return data, nil
 }
 
+// ReadFileString is ReadFile's text, without the copy ReadFile makes: a Go
+// string cannot be changed, so readers can share the cached one.
+func (c *metadataCache) ReadFileString(path string) (string, error) {
+	if held, ok := c.contents.Load(path); ok {
+		text, _ := held.(string)
+
+		return text, nil
+	}
+
+	data, err := c.FS.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+
+	text := string(data)
+	if len(data) > contentFileLimit {
+		return text, nil
+	}
+
+	if c.held.Add(int64(len(data))) > contentBudget {
+		c.held.Add(-int64(len(data)))
+
+		return text, nil
+	}
+
+	if held, loaded := c.contents.LoadOrStore(path, text); loaded {
+		c.held.Add(-int64(len(data)))
+		text, _ = held.(string)
+	}
+
+	return text, nil
+}
+
 func (c *metadataCache) Stat(path string) (fs.FileInfo, error) {
 	value, ok := c.stats.Load(path)
 	if !ok {

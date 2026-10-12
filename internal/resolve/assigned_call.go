@@ -80,13 +80,10 @@ func (r *Resolver) assignedFromCall(variable string, line uint32, caller string,
 	evalLine, evalCaller := line, caller
 
 	if container != "" {
-		lines := strings.Split(pr.Content, "\n")
-		from := min(start, len(lines))
-
 		var idx int
 
-		rhs, idx, ok = lastMemberAssignmentAt(strings.Join(lines[from:min(int(line), len(lines))], "\n"), container, name)
-		at = from + idx
+		rhs, idx, ok = lastMemberAssignmentAt(sourceText(pr.Content, start, int(line)), container, name)
+		at = start + idx
 	} else {
 		rhs, at, ok = r.localAssignmentAt(pr, name, start, int(line))
 		if ok && scoped && localDeclRe.MatchString(lineOfContent(pr.Content, at)) {
@@ -397,12 +394,11 @@ func closingParen(s string) int {
 // start and line, with every `name.key = …` after it applied (a field set to
 // anything but a string literal is dropped). "" when there is none.
 func inlineStructArg(content, name string, start, line int) string {
-	lines := strings.Split(content, "\n")
-	if start >= len(lines) {
+	if _, ok := lineOffset(content, start); !ok {
 		return ""
 	}
 
-	tokens := significantTokens(strings.Join(lines[start:min(line, len(lines))], "\n"))
+	tokens := significantTokens(sourceText(content, start, line))
 
 	open := -1
 
@@ -502,18 +498,18 @@ func containsFold(list []string, s string) bool {
 // found is a `var` or local. one, which never left its function.
 func variablesAssignment(pr *parser.ParseResult, name, caller string, start, line int, scoped bool) (string, int, bool) {
 	from := min(start, line)
-	window := sourceLines(pr.Content, from, line)
+	window := sourceText(pr.Content, from, line)
 
 	// A local or an argument of the same name hides an unscoped one; a
 	// variables.-scoped receiver is the component's whatever the function
 	// declares.
-	declared := regexp.MustCompile(`(?i)(?:\bvar\s+|\blocal\.|<cfargument\s[^>]*name\s*=\s*["'])` + regexp.QuoteMeta(name) + `\b`)
-	if !scoped && (argumentOf(pr, caller, name) != nil || declared.MatchString(strings.Join(window, "\n"))) {
+	declared := compiledPattern(`(?i)(?:\bvar\s+|\blocal\.|<cfargument\s[^>]*name\s*=\s*["'])` + regexp.QuoteMeta(name) + `\b`)
+	if !scoped && (argumentOf(pr, caller, name) != nil || declared.MatchString(window)) {
 		return "", 0, false
 	}
 
 	rhs, at, ok := localAssignmentAt(pr.Content, name, 0, start)
-	if !ok || declared.MatchString(strings.Join(sourceLines(pr.Content, at, at+1), "")) {
+	if !ok || declared.MatchString(lineOfContent(pr.Content, at)) {
 		return "", 0, false
 	}
 

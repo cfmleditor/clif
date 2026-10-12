@@ -107,9 +107,8 @@ func (r *Resolver) structCollectionValue(expression string, header, start int, c
 // This conservative boundary includes aliases, escapes and element writes;
 // earlier read-only uses can be admitted when their lifetime is modeled.
 func collectionLocalUntouched(content, name string, assigned, header int) bool {
-	lines := strings.Split(content, "\n")
-	for line := assigned + 1; line < min(header, len(lines)); line++ {
-		for _, token := range producerTokens(lines[line]) {
+	for line := range strings.Lines(sourceText(content, assigned+1, header)) {
+		for _, token := range producerTokens(line) {
 			if token.Kind == parser.TokString && len(parser.InterpolatedExpressions(token.Value)) > 0 {
 				return false
 			}
@@ -120,11 +119,14 @@ func collectionLocalUntouched(content, name string, assigned, header int) bool {
 		}
 	}
 
-	if header >= len(lines) {
+	at, ok := lineOffset(content, header)
+	if !ok {
 		return false
 	}
 
-	tokens := producerTokens(lines[header])
+	headerLine, _, _ := strings.Cut(content[at:], "\n")
+
+	tokens := producerTokens(headerLine)
 	for i, token := range tokens {
 		if token.Kind == parser.TokString && len(parser.InterpolatedExpressions(token.Value)) > 0 {
 			return false

@@ -59,7 +59,7 @@ func (r *Resolver) wheelsFactoryReturnFor(def *parser.FunctionDef, expression, b
 		return ""
 	}
 
-	source := r.wheelsSource(def.URI.Path()).methods[strings.ToLower(def.Name)]
+	source := r.sourceInfo(def.URI.Path()).methods[strings.ToLower(def.Name)]
 
 	original := r.wheelsPlanFunc(global, def.Name)
 	if original != nil && original.URI == def.URI {
@@ -209,7 +209,7 @@ func (r *Resolver) wheelsConstructedFactory(args [][]parser.Token, baseDir strin
 		return ""
 	}
 
-	methods := r.wheelsSource(def.URI.Path()).methods
+	methods := r.sourceInfo(def.URI.Path()).methods
 	if wheelsReturnsMapper(strings.ToLower(def.Name), methods) {
 		return file
 	}
@@ -236,12 +236,12 @@ func wheelsNamedArgs(args [][]parser.Token) string {
 // and Duplicate(config) in the wrapper. Mutation, aliases, extra users and
 // local declarations withhold the result rather than guessing a lifecycle.
 func (r *Resolver) wheelsFactoryConfig(file string) map[string]string {
-	data, err := r.fs().ReadFile(file)
+	text, err := r.readText(file)
 	if err != nil {
 		return nil
 	}
 
-	scanner := parser.NewScanner(string(data))
+	scanner := parser.NewScanner(text)
 	uses := 0
 
 	var config map[string]string
@@ -304,7 +304,7 @@ func (r *Resolver) wheelsFixedMapperReturn(def *parser.FunctionDef) string {
 		return ""
 	}
 
-	body := r.wheelsSource(def.URI.Path()).methods["mapper"].body
+	body := r.sourceInfo(def.URI.Path()).methods["mapper"].body
 	if body != wheelsTokens(`return application[$appKey()].mapper.$draw(argumentCollection=arguments);`) {
 		return ""
 	}
@@ -312,8 +312,8 @@ func (r *Resolver) wheelsFixedMapperReturn(def *parser.FunctionDef) string {
 	path := r.ComponentPath("wheels.Mapper", filepath.Dir(global))
 	startup := filepath.Join(filepath.Dir(global), "events", "onapplicationstart.cfc")
 
-	data, err := r.fs().ReadFile(startup)
-	if err != nil || !strings.Contains(wheelsTokens(string(data)), wheelsTokens(`application.$wheels.mapper=application.wo.$createObjectFromRoot(path="wheels",fileName="Mapper",method="$init");`)) {
+	text, err := r.readText(startup)
+	if err != nil || !strings.Contains(wheelsTokens(text), wheelsTokens(`application.$wheels.mapper=application.wo.$createObjectFromRoot(path="wheels",fileName="Mapper",method="$init");`)) {
 		return ""
 	}
 

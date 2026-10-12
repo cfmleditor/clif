@@ -106,13 +106,13 @@ func isBuilderComponent(comp string) bool {
 	return true
 }
 
+// closuresOf stays per view, unlike the loop and guard spans: whether a
+// closure is a builder's is resolved under the view's mappings.
 func (r *Resolver) closuresOf(pr *parser.ParseResult) []closureSpan {
-	return r.closureCache.get(&r.mu, pr, func() []closureSpan { return r.findClosures(pr) })
+	return r.closureCache.get(&r.mu, pr, func() []closureSpan { return r.findClosures(pr, r.fileTokens(pr)) })
 }
 
-func (r *Resolver) findClosures(pr *parser.ParseResult) []closureSpan {
-	tokens := allTokens(pr.Content)
-
+func (r *Resolver) findClosures(pr *parser.ParseResult, tokens []parser.Token) []closureSpan {
 	var out []closureSpan
 
 	for i := 0; i+2 < len(tokens); i++ {

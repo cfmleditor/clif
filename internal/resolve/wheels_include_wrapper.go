@@ -151,8 +151,8 @@ func (r *Resolver) wheelsWrapperCalls(caller, wrapper string) []wrapperCall {
 
 	calls = []wrapperCall{}
 
-	if data, err := r.fs().ReadFile(caller); err == nil {
-		tokens := allTokens(string(data))
+	if text, err := r.readText(caller); err == nil {
+		tokens := allTokens(text)
 
 		for i := range tokens {
 			if tokens[i].Kind != parser.TokIdent || !strings.EqualFold(tokens[i].Value, wrapper) || i+1 >= len(tokens) || tokens[i+1].Kind != parser.TokLParen {
@@ -214,7 +214,7 @@ func (r *Resolver) wheelsWrapperHost(tokens []parser.Token, i int, caller, wrapp
 // wheelsIncludeWrapperPinned reports whether global declares wrapper, and the
 // two methods it calls, as pinned.
 func (r *Resolver) wheelsIncludeWrapperPinned(global, wrapper string) bool {
-	methods := r.wheelsSource(global).methods
+	methods := r.sourceInfo(global).methods
 
 	resolveBody := methods["$resolveglobalincludetemplate"].body
 

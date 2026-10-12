@@ -575,7 +575,7 @@ func splitPrefix(prefix string) []string {
 // that don't need the match position, only a yes/no signal.
 func prefixContainsFold(expr, prefix string) bool {
 	for alt := range strings.SplitSeq(prefix, "|") {
-		if alt != "" && containsFold(expr, alt) {
+		if alt != "" && indexFold(expr, alt) >= 0 {
 			return true
 		}
 	}
@@ -806,6 +806,13 @@ func (rs *ResolverSet) resolve(expr string) resolverAnswer {
 func indexFold(s, substr string) int {
 	return indexFoldFrom(s, substr, 0)
 }
+
+// IndexFold is strings.Index, case-insensitive, without lowercasing s: the one
+// such search, shared with internal/resolve, so a fix to it reaches both.
+func IndexFold(s, substr string) int { return indexFoldFrom(s, substr, 0) }
+
+// IndexFoldFrom is IndexFold starting at byte offset from.
+func IndexFoldFrom(s, substr string, from int) int { return indexFoldFrom(s, substr, from) }
 
 // indexFoldFrom is indexFold resumed at an offset, and is the allocation-free
 // alternative to lowercasing a string before searching it.
@@ -1065,35 +1072,6 @@ func simpleMatch(expr string, r *Resolver) string {
 	result = strings.ReplaceAll(result, "/", ".")
 
 	return result
-}
-
-func containsFold(s, substr string) bool {
-	n := len(substr)
-	if n == 0 {
-		return true
-	}
-
-	if n > len(s) {
-		return false
-	}
-
-	for i := 0; i <= len(s)-n; i++ {
-		match := true
-
-		for j := range n {
-			if s[i+j]|0x20 != substr[j]|0x20 {
-				match = false
-
-				break
-			}
-		}
-
-		if match {
-			return true
-		}
-	}
-
-	return false
 }
 
 // isComponentType returns true if a type string looks like a genuine dotted

@@ -67,12 +67,12 @@ func (r *Resolver) BeanResolvers(beanPaths map[string]string) []parser.Resolver 
 
 		seen[pathKey(file)] = true
 
-		data, err := r.fs().ReadFile(file)
+		text, err := r.readText(file)
 		if err != nil {
 			continue
 		}
 
-		for _, source := range r.startupSources(file, string(data)) {
+		for _, source := range r.startupSources(file, text) {
 			file, content := source.file, source.content
 
 			r.collectBeanRegistrations(file, content, factories)

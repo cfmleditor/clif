@@ -66,12 +66,12 @@ func (r *Resolver) fieldElement(call, field string, header int, caller string, p
 		return ""
 	}
 
-	data, err := r.fs().ReadFile(fd.URI.Path())
+	text, err := r.readText(fd.URI.Path())
 	if err != nil {
 		return ""
 	}
 
-	body, params, ok := scriptFunction(allTokens(string(data)), fd.Name, int(fd.Line))
+	body, params, ok := scriptFunction(allTokens(text), fd.Name, int(fd.Line))
 	if !ok {
 		return ""
 	}

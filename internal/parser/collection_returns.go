@@ -3,6 +3,7 @@ package parser
 import (
 	"sort"
 	"strings"
+	"unicode/utf8"
 )
 
 type collectionWrite struct {
@@ -130,27 +131,65 @@ func (pr *ParseResult) collectionKeys(writes []collectionWrite) (map[string]bool
 		}
 	}
 
+	// The key is built lowercased in one allocation: lowercasing root first,
+	// then joining it, was a second string for every mixed-case name.
 	return locals, scopeKeys, func(root, function string) string {
-		root = strings.ToLower(root)
-		if strings.HasPrefix(root, "variables.") || strings.HasPrefix(root, "this.") {
-			return root
-		}
-
-		if name, ok := strings.CutPrefix(root, "local."); ok {
-			return function + "\t" + name
-		}
-
-		if name, ok := strings.CutPrefix(root, "arguments."); ok {
-			return function + "\t" + name
+		switch {
+		case hasPrefixFold(root, "variables.") || hasPrefixFold(root, "this."):
+			return concatLower("", root)
+		case hasPrefixFold(root, "local."):
+			return concatLower(function+"\t", root[len("local."):])
+		case hasPrefixFold(root, "arguments."):
+			return concatLower(function+"\t", root[len("arguments."):])
 		}
 
 		base, _, _ := strings.Cut(root, ".")
-		if locals[function+"\t"+base] {
-			return function + "\t" + root
+		if locals[concatLower(function+"\t", base)] {
+			return concatLower(function+"\t", root)
 		}
 
-		return "variables." + root
+		return concatLower("variables.", root)
 	}
+}
+
+// concatLower is prefix + strings.ToLower(s) in one allocation, and prefix
+// itself when s is empty; s alone, uncopied, when prefix is empty and s has
+// nothing to lower.
+func concatLower(prefix, s string) string {
+	upper := false
+
+	for i := range len(s) {
+		c := s[i]
+		if c >= utf8.RuneSelf {
+			return prefix + strings.ToLower(s)
+		}
+
+		upper = upper || c >= 'A' && c <= 'Z'
+	}
+
+	if !upper {
+		if prefix == "" {
+			return s
+		}
+
+		return prefix + s
+	}
+
+	var b strings.Builder
+
+	b.Grow(len(prefix) + len(s))
+	b.WriteString(prefix)
+
+	for i := range len(s) {
+		c := s[i]
+		if c >= 'A' && c <= 'Z' {
+			c += 'a' - 'A'
+		}
+
+		b.WriteByte(c)
+	}
+
+	return b.String()
 }
 
 func (pr *ParseResult) applyCollectionReturns(calls []pendingCall) {

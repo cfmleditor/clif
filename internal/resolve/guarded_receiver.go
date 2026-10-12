@@ -24,7 +24,17 @@ func (r *Resolver) guardedReceiver(variable string, pr *parser.ParseResult, base
 
 	at := int(ctx.call.StartByte)
 
-	spans := r.typeGuardCache.get(&r.mu, pr, func() []receiverTypeGuard { return receiverTypeGuards(pr.Content) })
+	o := r.owner()
+
+	spans := o.typeGuardCache.get(&o.mu, pr, func() []receiverTypeGuard {
+		// Every guard is an isInstanceOf() check: a file that never names it
+		// has none, and is not tokenized to find that out.
+		if parser.IndexFold(pr.Content, "isinstanceof") < 0 {
+			return nil
+		}
+
+		return receiverTypeGuards(o.fileTokens(pr))
+	})
 	for _, guard := range spans {
 		if !strings.EqualFold(guard.variable, variable) || at < guard.from || at >= guard.to || !guardValueStable(pr.Content, guard.from, at, name) {
 			continue
@@ -101,15 +111,7 @@ type receiverTypeGuard struct {
 	from, to            int
 }
 
-func receiverTypeGuards(content string) []receiverTypeGuard {
-	// Every guard is an isInstanceOf() check: a file that never names it has
-	// none, and is not tokenized to find that out.
-	if !hasFoldASCII(content, "isinstanceof") {
-		return nil
-	}
-
-	tokens := allTokens(content)
-
+func receiverTypeGuards(tokens []parser.Token) []receiverTypeGuard {
 	var result []receiverTypeGuard
 
 	// An assignment to the check's name can replace builtin dispatch. This

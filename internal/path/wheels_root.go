@@ -48,13 +48,13 @@ func AssumedWheelsRoot(dir string, read func(string) ([]byte, error)) string {
 }
 
 func assumedWheelsBootstrap(content string) bool {
-	constructor, methods := parser.ApplicationSections(content)
+	constructor, start, _ := parser.ApplicationConstructorAndMethod(content, "onapplicationstart")
 	if !strings.Contains(rootTokens(constructor), rootTokens(`this.wheels.rootPath=GetDirectoryFromPath(GetCurrentTemplatePath());`)) {
 		return false
 	}
 	// The vendor mapping must actually point to the expected sibling tree.
 	// MappingSources has no ancestry dependency for this literal constructor.
-	return outerRootStatementPair(methods["onapplicationstart"])
+	return outerRootStatementPair(start)
 }
 
 func outerRootStatementPair(content string) bool {

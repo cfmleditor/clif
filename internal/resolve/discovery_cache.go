@@ -121,38 +121,7 @@ func (r *Resolver) InvalidatePaths() {
 	r.mu.Lock()
 	views := r.contextViews
 	r.contextViews = nil
-	r.resolveCache = nil
-	r.includeCache = nil
-	r.interfaceCache = nil
-	r.dirCache = nil
-	r.appRootCache = nil
-	r.slugCache = nil
-	r.incGraph = nil
-	r.implicitCache = nil
-	r.helpers = nil
-	r.wb = nil
-	r.startupCache = nil
-	r.wheelsSources = nil
-	r.ctlPathCache = nil
-	r.includerCache = nil
-	r.callerIdx = nil
-	r.argCache = nil
-	r.requestWriterIdx = nil
-	r.wrapperHosts = nil
-	r.wrapperCalls = nil
-	r.lazyGetters = nil
-	r.lazyFiles = nil
-	r.viewArgCache = nil
-	r.handoffs = handoffIndex{}
-	r.handlerCache = nil
-	r.fw1ActionCache = nil
-	r.boundEntityCache = nil
-	r.extraIncludeHosts = nil
-	r.muraEventFiles = nil
-	r.returnCache = returnCache{}
-	r.funcCache = funcCache{}
-	r.computedIncludes = nil
-	r.fw1Scopes = nil
+	r.pathCaches = pathCaches{}
 	r.mu.Unlock()
 
 	for _, view := range views {
