@@ -203,9 +203,16 @@ func (pr *ParseResult) applyCollectionReturns(calls []pendingCall) {
 	locals, keys, key := pr.collectionKeys(writes)
 	roots := map[string]bool{}
 
-	for _, w := range writes {
-		if w.element || emptyCollection(w.expression) {
-			roots[key(w.target, w.function)] = true
+	// Each write's key, built once: three loops below read it, and building
+	// it lowercases a string and looks the name up among the locals.
+	targets := make([]string, len(writes))
+	for i := range writes {
+		targets[i] = key(writes[i].target, writes[i].function)
+	}
+
+	for i := range writes {
+		if w := &writes[i]; w.element || emptyCollection(w.expression) {
+			roots[targets[i]] = true
 		}
 	}
 
@@ -227,12 +234,12 @@ func (pr *ParseResult) applyCollectionReturns(calls []pendingCall) {
 	}
 
 	for i := range writes {
-		pr.recordCollectionWrite(writes[i], roots, locals, key, node)
+		pr.recordCollectionWrite(writes[i], targets[i], roots, locals, key, node)
 	}
 
 	invalidateClosureCollections(writes, pr.Scopes, nodes)
 
-	invalidateCollectionParents(writes, key, nodes)
+	invalidateCollectionParents(writes, targets, nodes)
 
 	// A collection argument may contain caller-supplied values even when its
 	// declaration has an empty-struct default.
@@ -292,12 +299,13 @@ func invalidateClosureCollections(writes []collectionWrite, scopes []FuncScope, 
 
 // Walking each node's static ancestors avoids comparing every write to every
 // node. Dynamic writes into a scope invalidate any field in that scope.
-func invalidateCollectionParents(writes []collectionWrite, key func(string, string) string, nodes map[string]*collectionNode) {
+func invalidateCollectionParents(writes []collectionWrite, targets []string, nodes map[string]*collectionNode) {
 	parents := map[string]bool{}
 
-	for _, w := range writes {
+	for i := range writes {
+		w := &writes[i]
 		if !w.element {
-			parents[key(w.target, w.function)] = true
+			parents[targets[i]] = true
 
 			continue
 		}
@@ -331,8 +339,7 @@ func invalidateCollectionParents(writes []collectionWrite, key func(string, stri
 	}
 }
 
-func (pr *ParseResult) recordCollectionWrite(w collectionWrite, roots map[string]bool, locals map[string]bool, key func(string, string) string, node func(string) *collectionNode) {
-	target := key(w.target, w.function)
+func (pr *ParseResult) recordCollectionWrite(w collectionWrite, target string, roots map[string]bool, locals map[string]bool, key func(string, string) string, node func(string) *collectionNode) {
 	for prefix := target; ; {
 		index := strings.LastIndexByte(prefix, '.')
 		if index < 0 {
