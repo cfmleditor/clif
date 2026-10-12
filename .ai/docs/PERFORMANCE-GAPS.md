@@ -594,3 +594,22 @@ reparse is now the parse itself (about 1.7µs a line). The server ignores
 `exit` and stops when stdin closes; as a daemon shared by several windows,
 that is likely deliberate.
 
+### 14.1 Long sessions, idle memory and failed directory lookups
+
+A simulated session of 1,500 tassweb files opened, edited and closed holds
+latency flat (p90 2-4 ms throughout) and plateaus in memory after about 900
+files: bounded caches filling, not a leak (34 MB live at the end). `ps` RSS
+overstates what a user sees on macOS, where Activity Monitor reports the
+physical footprint (`vmmap -summary`): about 130-165 MB.
+
+- **Idle release** (`idle_memory.go`): once no message has arrived for 5s,
+  freed memory the runtime still holds is returned, once per idle stretch and
+  only past 64 MB held. Footprint after a 600-file session: 166 -> 130 MB.
+- **Failed directory listings are kept for `cfpath.MissTTL` (1s)**: a lookup
+  that failed in a directory re-listed it every time, 491 listings in one
+  open of a 22,000-line component. A component written into such a directory
+  is found after at most a second (the server also drops these caches on a
+  save or a watched-file event). Opening it: 448 -> 337 ms.
+
+`ComponentPath` already caches failures (an empty answer is stored).
+

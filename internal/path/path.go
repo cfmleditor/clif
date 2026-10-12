@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/cfmleditor/clif/internal/parser"
 	"github.com/cfmleditor/clif/internal/vfs"
@@ -454,10 +455,27 @@ type DirCache struct {
 	mu    sync.RWMutex
 	names map[string][]string
 
+	// recent holds every listing read for MissTTL, misses included: one
+	// parse asks the same directories again and again, and a lookup that
+	// failed in a directory listed it each time — 491 listings, a quarter of
+	// opening a 22,000-line component in the editor. keep's reason for not
+	// remembering a miss is a component written later, which this denies
+	// for at most MissTTL.
+	recent map[string]recentListing
+
 	// keepAll keeps every listing read, misses included: right only where
 	// nothing is written while the cache lives (a batch scan).
 	keepAll bool
 }
+
+type recentListing struct {
+	names []string
+	at    time.Time
+}
+
+// MissTTL is how long a listing a lookup did not find its segment in is
+// trusted. A variable so tests elsewhere can shorten it.
+var MissTTL = time.Second
 
 // NewDirCache returns an empty cache.
 func NewDirCache() *DirCache { return &DirCache{} }
@@ -482,11 +500,31 @@ func (c *DirCache) namesIn(dir string) (names []string, cached bool, err error) 
 		}
 	}
 
+	if c != nil {
+		c.mu.RLock()
+		r, ok := c.recent[dir]
+		c.mu.RUnlock()
+
+		if ok && time.Since(r.at) < MissTTL {
+			return r.names, false, nil
+		}
+	}
+
 	names, err = readDirNames(dir)
 	if c != nil && c.keepAll && err == nil {
 		c.keep(dir, names)
 
 		return names, true, nil
+	}
+
+	if c != nil && err == nil {
+		c.mu.Lock()
+		if c.recent == nil || len(c.recent) >= 4096 {
+			c.recent = map[string]recentListing{}
+		}
+
+		c.recent[dir] = recentListing{names: names, at: time.Now()}
+		c.mu.Unlock()
 	}
 
 	return names, false, err
