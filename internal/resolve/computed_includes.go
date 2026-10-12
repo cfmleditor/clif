@@ -45,16 +45,16 @@ func (r *Resolver) computedIncludeHosts(file string) []includeHost {
 			continue
 		}
 
-		lines, data := r.computedIncludeLines(path)
-		if len(lines) == 0 {
+		inc := r.computedIncludesOf(path)
+		if len(inc.lines) == 0 {
 			continue
 		}
 
-		if !containsFoldBytes(data, suffix+`"`) && !containsFoldBytes(data, suffix+`'`) && !containsFoldBytes(data, suffix+`/"`) {
+		if !hasFoldASCII(inc.content, suffix+`"`) && !hasFoldASCII(inc.content, suffix+`'`) && !hasFoldASCII(inc.content, suffix+`/"`) {
 			continue
 		}
 
-		for _, line := range lines {
+		for _, line := range inc.lines {
 			hosts = append(hosts, includeHost{path: path, line: line})
 		}
 	}
@@ -62,88 +62,69 @@ func (r *Resolver) computedIncludeHosts(file string) []includeHost {
 	return hosts
 }
 
-// computedIncludeLines is the 0-based lines of path's computed includes,
-// read once per scan, and the bytes when it has any. Most candidates have
-// none, and each template used to read and lowercase every one of them,
-// which was a tenth of tassweb's heap at its peak.
-func (r *Resolver) computedIncludeLines(path string) ([]int, []byte) {
+// computedIncludeFile is a file's computed includes: their 0-based lines, and
+// the file's text when it has any, for the directory test each template asks.
+type computedIncludeFile struct {
+	lines   []int
+	content string
+}
+
+// computedIncludesOf is path's computed includes, read once per scan. Most
+// candidates have none and keep nothing; each template used to read and
+// lowercase every one of them, which was a tenth of tassweb's heap at its
+// peak.
+func (r *Resolver) computedIncludesOf(path string) computedIncludeFile {
 	o := r.owner()
 
 	o.mu.RLock()
-	lines, ok := o.computedIncludes[path]
+	inc, ok := o.computedIncludes[path]
 	o.mu.RUnlock()
 
-	if ok && len(lines) == 0 {
-		return nil, nil
-	}
-
-	data, err := r.fs().ReadFile(path)
-	if err != nil {
-		return nil, nil
-	}
-
 	if ok {
-		return lines, data
+		return inc
 	}
 
-	lines = []int{}
-	for _, m := range computedIncludeRe.FindAllIndex(data, -1) {
-		lines = append(lines, bytes.Count(data[:m[0]], []byte("\n")))
+	if data, err := r.fs().ReadFile(path); err == nil {
+		for _, m := range computedIncludeRe.FindAllIndex(data, -1) {
+			inc.lines = append(inc.lines, bytes.Count(data[:m[0]], []byte("\n")))
+		}
+
+		if len(inc.lines) > 0 {
+			inc.content = string(data)
+		}
 	}
 
 	o.mu.Lock()
 	if o.computedIncludes == nil {
-		o.computedIncludes = map[string][]int{}
+		o.computedIncludes = map[string]computedIncludeFile{}
 	}
 
-	o.computedIncludes[path] = lines
+	o.computedIncludes[path] = inc
 	o.mu.Unlock()
 
-	return lines, data
+	return inc
 }
 
-// containsFoldBytes reports whether data holds lower, an ASCII lowercase
-// string, in any case, without lowercasing data.
-func containsFoldBytes(data []byte, lower string) bool {
-	if lower == "" {
-		return true
-	}
-
-	first, upper := lower[0], lower[0]
-	if first >= 'a' && first <= 'z' {
-		upper = first - ('a' - 'A')
-	}
-
-	for i := 0; i+len(lower) <= len(data); i++ {
-		if c := data[i]; c != first && c != upper {
-			continue
-		}
-
-		if bytes.EqualFold(data[i:i+len(lower)], []byte(lower)) {
-			return true
-		}
-	}
-
-	return false
-}
-
-// containsFoldString is containsFoldBytes for a string.
-func containsFoldString(s, lower string) bool {
-	if lower == "" {
-		return true
-	}
-
-	first, upper := lower[0], lower[0]
-	if first >= 'a' && first <= 'z' {
-		upper = first - ('a' - 'A')
-	}
-
+// hasFoldASCII reports whether s holds lower, an ASCII lowercase string, in
+// any case, without lowercasing s: the search for a needle the code spells.
+func hasFoldASCII[T string | []byte](s T, lower string) bool {
 	for i := 0; i+len(lower) <= len(s); i++ {
-		if c := s[i]; c != first && c != upper {
-			continue
+		j := 0
+
+		for j < len(lower) {
+			c := s[i+j]
+			if c >= 'A' && c <= 'Z' {
+				c += 'a' - 'A'
+			}
+
+			if c != lower[j] {
+				break
+			}
+
+			j++
 		}
 
-		if strings.EqualFold(s[i:i+len(lower)], lower) {
+		if j == len(lower) {
 			return true
 		}
 	}

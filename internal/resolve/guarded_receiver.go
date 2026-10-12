@@ -104,7 +104,7 @@ type receiverTypeGuard struct {
 func receiverTypeGuards(content string) []receiverTypeGuard {
 	// Every guard is an isInstanceOf() check: a file that never names it has
 	// none, and is not tokenized to find that out.
-	if !containsFoldString(content, "isinstanceof") {
+	if !hasFoldASCII(content, "isinstanceof") {
 		return nil
 	}
 

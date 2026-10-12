@@ -27,15 +27,6 @@ func CacheMetadata(base FS) FS {
 	return &metadataCache{FS: base}
 }
 
-// Snapshot reports whether f is a CacheMetadata wrapper: an operation that
-// assumes its files do not change while it runs, so an answer read from them
-// may be kept for the operation.
-func Snapshot(f FS) bool {
-	_, ok := f.(*metadataCache)
-
-	return ok
-}
-
 type metadataCache struct {
 	FS
 	stats    sync.Map

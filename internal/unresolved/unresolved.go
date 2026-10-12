@@ -248,6 +248,11 @@ func NewResolver(fsys vfs.FS, files []string, opt *Options) *resolve.Resolver {
 		}
 	}
 
+	// A resolver made here serves one batch run, a scan or an explain, over
+	// files that do not change while it runs (Scan reads them through
+	// vfs.CacheMetadata on that assumption).
+	resolver.SnapshotScan = true
+
 	if opt.InferArgs {
 		resolver.InferArgsFiles = files
 	}

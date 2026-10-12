@@ -446,7 +446,7 @@ per-file timing found instead:
 
 | Hotspot | Was | Now |
 |---|---|---|
-| `lookupFunc` | 405,000 lookups on a cfwheels scan, 97% of them repeats, each walking the extends chain and, in a Wheels controller or model, the mixin plan (TestBox's two runners, 3.9s each, were the critical path) | `funcCache`: one answer per path, method and depth for an index generation, kept only where a source cannot change unseen (`IndexTracksFiles`, or a batch scan over `vfs.Snapshot`) |
+| `lookupFunc` | 405,000 lookups on a cfwheels scan, 97% of them repeats, each walking the extends chain and, in a Wheels controller or model, the mixin plan (TestBox's two runners, 3.9s each, were the critical path) | `funcCache`: one answer per path, method and depth for an index generation, kept only where a source cannot change unseen (`IndexTracksFiles`, or a batch scan, `SnapshotScan`) |
 | `computedIncludeHosts` | every file naming a template's directory read and lowercased whole for each template asked about: 111 MB live at tassweb's peak, and most of its scan time | `computedIncludeLines`: each candidate's computed includes found once; a file with none is never read again |
 | `inferArgument` | every file mentioning the name parsed before the first is checked: `run` is in 675 files, and the loop stops at the fifth on an `ssh.run()` nothing types | parsed `prefetchWindow` (8) files at a time as the loop reaches them |
 | `receiverTypeGuards` | every file tokenised whole (half of `allTokens`' 4 GB on tassweb) | a file that never names `isInstanceOf` is not tokenised |

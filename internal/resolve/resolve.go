@@ -53,6 +53,10 @@ type Resolver struct {
 	// largest flat cost of a reparse. A batch scan, which reads the disk
 	// as it goes, leaves it false.
 	IndexTracksFiles bool
+	// SnapshotScan says the resolver serves one batch scan over files that do
+	// not change while it runs (unresolved.NewResolver sets it), so answers
+	// read from them may be kept for the scan. See funcCache.
+	SnapshotScan bool
 	// ImplicitExtends names the component a file extends when it names none,
 	// from its path: a framework preset's rule that a ColdBox handler is an
 	// EventHandler without saying so. Nil for none. See config.ImplicitExtends.
@@ -87,15 +91,15 @@ type Resolver struct {
 	beanPathsCache        map[string]string   // merged application/configured bean roots
 	fw1Scopes             map[string]fw1Scope // nearest application's source-defined injection scope
 	diOnce                sync.Once
-	diPolicies            []diPolicy                 // source-backed DI/1 injection contracts
-	discoveringDI         bool                       // private policy discovery never re-enters injection lookup
-	startupCache          map[string][]startupAssign // app root → its startup templates' shared-scope assignments
-	wheelsSources         map[string]wheelsSource    // source-checked method bodies; refreshed when bytes change
-	ctlPathCache          map[string]controllerPaths // dir → its files' writes of Wheels' controllerPath
-	includerCache         map[string]string          // template, name, depth and include generation → includerHeld's answer
-	returnCache           returnCache                // ReturnComponentOf answers, for one index generation
-	funcCache             funcCache                  // lookupFunc answers, for one index generation
-	computedIncludes      map[string][]int           // file → lines of its computed includes (computedIncludeLines)
+	diPolicies            []diPolicy                     // source-backed DI/1 injection contracts
+	discoveringDI         bool                           // private policy discovery never re-enters injection lookup
+	startupCache          map[string][]startupAssign     // app root → its startup templates' shared-scope assignments
+	wheelsSources         map[string]wheelsSource        // source-checked method bodies; refreshed when bytes change
+	ctlPathCache          map[string]controllerPaths     // dir → its files' writes of Wheels' controllerPath
+	includerCache         map[string]string              // template, name, depth and include generation → includerHeld's answer
+	returnCache           returnCache                    // ReturnComponentOf answers, for one index generation
+	funcCache             funcCache                      // lookupFunc answers, for one index generation
+	computedIncludes      map[string]computedIncludeFile // file → its computed includes (computedIncludesOf)
 	sourceFacts           spanCache[lexicalSourceFacts]
 	callerTokens          spanCache[parser.Token]             // caller file URI → tokens for its current content
 	loopCache             spanCache[loopSpan]                 // file URI → every loop its current text holds (loopsOf)
@@ -779,39 +783,50 @@ func (r *Resolver) LookupFuncWithExtends(cfcPath, funcName string) *parser.Funct
 // delegate to each other must not recurse forever.
 const maxDelegateDepth = 3
 
-// funcCache holds lookupFunc's answers for one index generation. Producer
-// evaluation and caller inference ask the same component for the same method
-// again and again (97% of the 405,000 lookups a cfwheels scan made), and a
-// lookup in a Wheels controller or model walks the mixin plan each time. An
-// answer reads the index and the sources it names, so it is kept only where a
-// source cannot change without the index seeing it: in the editor, where every
-// edit and watched-file event is an index write and starts the cache again
-// (IndexTracksFiles), and in a batch scan over a snapshot of the disk
-// (vfs.Snapshot). InvalidatePaths clears it too.
+// funcCache holds lookupFunc's answers. Producer evaluation and caller
+// inference ask the same component for the same method again and again (97%
+// of the 405,000 lookups a cfwheels scan made), and a lookup in a Wheels
+// controller or model walks the mixin plan each time. An answer reads the
+// index and the sources it names, so it is kept only where a source cannot
+// change unseen:
+//
+//   - in a batch scan (SnapshotScan), whose files do not change while it runs:
+//     the scan's index writes only add files it had not indexed yet, which a
+//     lookup needing them indexes itself, so answers hold for the whole scan;
+//   - in the editor (IndexTracksFiles), where every edit and watched-file
+//     event is an index write: an answer holds for one index generation, and
+//     one computed while the generation moved is not kept, since a write it
+//     raced may have changed what it read.
+//
+// InvalidatePaths clears it. Callers share the definitions it returns, as
+// they share the index's, and must copy one before binding it to a name.
 type funcCache struct {
 	gen     uint64
 	entries map[funcKey]*parser.FunctionDef
 }
 
+// funcKey spells the method as the caller did: the lookup ignores case, so two
+// spellings are two entries with one answer, and no key is lowercased.
 type funcKey struct {
 	path, name string
 	depth      int
 }
 
-// maxFuncCache bounds funcCache: past it, it starts again.
+// maxFuncCache bounds the editor's funcCache: past it, it starts again. A
+// batch scan's is bounded by the methods it asks about.
 const maxFuncCache = 1 << 16
 
 func (r *Resolver) lookupFunc(cfcPath, funcName string, depth int) *parser.FunctionDef {
-	if r.Index == nil || !r.IndexTracksFiles && !vfs.Snapshot(r.FS) {
+	if r.Index == nil || !r.IndexTracksFiles && !r.SnapshotScan {
 		return r.lookupFuncUncached(cfcPath, funcName, depth)
 	}
 
 	gen := r.Index.Generation()
-	key := funcKey{path: cfcPath, name: strings.ToLower(funcName), depth: depth}
+	key := funcKey{path: cfcPath, name: funcName, depth: depth}
 
 	r.mu.RLock()
 	def, ok := r.funcCache.entries[key]
-	ok = ok && r.funcCache.gen == gen
+	ok = ok && (r.SnapshotScan || r.funcCache.gen == gen)
 	r.mu.RUnlock()
 
 	if ok {
@@ -820,12 +835,12 @@ func (r *Resolver) lookupFunc(cfcPath, funcName string, depth int) *parser.Funct
 
 	def = r.lookupFuncUncached(cfcPath, funcName, depth)
 
-	// The lookup may itself have indexed a file; its answer is then for the
-	// generation it ends in.
-	gen = r.Index.Generation()
+	if !r.SnapshotScan && r.Index.Generation() != gen {
+		return def
+	}
 
 	r.mu.Lock()
-	if r.funcCache.gen != gen || r.funcCache.entries == nil || len(r.funcCache.entries) >= maxFuncCache {
+	if r.funcCache.entries == nil || !r.SnapshotScan && (r.funcCache.gen != gen || len(r.funcCache.entries) >= maxFuncCache) {
 		r.funcCache = funcCache{gen: gen, entries: map[funcKey]*parser.FunctionDef{}}
 	}
 

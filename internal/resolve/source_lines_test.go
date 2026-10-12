@@ -33,9 +33,9 @@ func TestSourceLinesMatchSplittingTheFile(t *testing.T) {
 	}
 }
 
-// The case-insensitive searches that replaced lowercasing a whole file agree
-// with lowercasing it.
-func TestContainsFoldMatchesLoweringTheText(t *testing.T) {
+// hasFoldASCII, which replaced lowercasing a whole file, agrees with
+// lowercasing it for the ASCII needles it is given.
+func TestHasFoldASCIIMatchesLoweringTheText(t *testing.T) {
 	for _, tc := range []struct{ text, lower string }{
 		{"<cfif IsInstanceOf(x, 'A')>", "isinstanceof"},
 		{"isInstanceOF", "isinstanceof"},
@@ -44,16 +44,16 @@ func TestContainsFoldMatchesLoweringTheText(t *testing.T) {
 		{"abc", ""},
 		{"Core/Utilities/FormBuilder/Templates\"", "utilities/formbuilder/templates\""},
 		{"templates'", "utilities/formbuilder/templates'"},
-		{"ÉA", "éa"},
+		{"ÉISINSTANCEOF", "isinstanceof"},
 	} {
 		want := strings.Contains(strings.ToLower(tc.text), tc.lower)
 
-		if got := containsFoldString(tc.text, tc.lower); got != want {
-			t.Errorf("containsFoldString(%q, %q) = %v, want %v", tc.text, tc.lower, got, want)
+		if got := hasFoldASCII(tc.text, tc.lower); got != want {
+			t.Errorf("hasFoldASCII(%q, %q) = %v, want %v", tc.text, tc.lower, got, want)
 		}
 
-		if got := containsFoldBytes([]byte(tc.text), tc.lower); got != want {
-			t.Errorf("containsFoldBytes(%q, %q) = %v, want %v", tc.text, tc.lower, got, want)
+		if got := hasFoldASCII([]byte(tc.text), tc.lower); got != want {
+			t.Errorf("hasFoldASCII([]byte(%q), %q) = %v, want %v", tc.text, tc.lower, got, want)
 		}
 	}
 }
