@@ -43,3 +43,24 @@ func TestDeclaresShortcutNeverHidesADeclaration(t *testing.T) {
 		}
 	}
 }
+
+// Each shortcut answer is a search of the whole file, and the resolver asks
+// Declares of many names in one file: past maxDeclareScans names the file's
+// variables are read once instead, as they were before the shortcut. Without
+// the bound a tassweb scan took 3.6s longer.
+func TestDeclaresSearchesTheFileABoundedNumberOfTimes(t *testing.T) {
+	src := "<cfscript>" + strings.Repeat("x = f(); ", 1000) + "</cfscript>"
+	pr := Parse(uri.File("/t.cfm"), src)
+
+	for i := range 3 * maxDeclareScans {
+		pr.Declares("name" + string(rune('a'+i)))
+	}
+
+	if len(pr.declareScans) > maxDeclareScans {
+		t.Errorf("searched the file for %d names, want at most %d", len(pr.declareScans), maxDeclareScans)
+	}
+
+	if !pr.allVarsDone {
+		t.Error("the variables were never read once the searches ran out")
+	}
+}

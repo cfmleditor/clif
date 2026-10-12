@@ -76,6 +76,7 @@ type ParseResult struct {
 	thisVars      []string
 	scopedDone    bool // the three above, from one scan
 	allVars       []VarDef
+	declareScans  map[string]bool // mayDeclare's answers, by lowercased name
 	allVarsDone   bool
 
 	// anyScopedVars caches, per Scope, every name ever assigned in that scope
@@ -3705,6 +3706,36 @@ func isMemberMethod(name string) bool {
 	return false
 }
 
+// mayDeclare is mayDeclareVariable for this file, used only while AllVars has
+// not been built, and for at most maxDeclareScans names: each answer is a
+// search of the whole file, and the resolver asks Declares of many names in
+// one file, so past a few names building AllVars once is cheaper.
+func (pr *ParseResult) mayDeclare(name string) bool {
+	pr.mu.Lock()
+	defer pr.mu.Unlock()
+
+	if pr.allVarsDone || len(pr.declareScans) >= maxDeclareScans {
+		return true
+	}
+
+	key := strings.ToLower(name)
+	if may, ok := pr.declareScans[key]; ok {
+		return may
+	}
+
+	may := mayDeclareVariable(pr.Content, name)
+	if pr.declareScans == nil {
+		pr.declareScans = map[string]bool{}
+	}
+
+	pr.declareScans[key] = may
+
+	return may
+}
+
+// maxDeclareScans bounds mayDeclare's whole-file searches per file.
+const maxDeclareScans = 4
+
 // mayDeclareVariable reports whether content could declare a variable called
 // name: whether the name appears anywhere, as a whole word, other than called.
 // Every declaration (an assignment, var, a for-in or catch binding, a tag's
@@ -3764,7 +3795,7 @@ func (pr *ParseResult) Declares(name string) bool {
 		}
 	}
 
-	if !mayDeclareVariable(pr.Content, name) {
+	if !pr.mayDeclare(name) {
 		return false
 	}
 

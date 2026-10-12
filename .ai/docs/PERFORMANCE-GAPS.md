@@ -502,3 +502,24 @@ Peak resident, median of alternating runs. tassweb allocates 14 GB over a scan, 
 
 `TestFoldingAnIdentifierDoesNotAllocate` (not run under `-short`) had been failing since bcac43a: `collectionKeys` lowered each name before joining it into a key. `concatLower` builds the key lowercased in one allocation.
 
+## 12. Parsing twice, listings and held memory — measured
+
+Parsing each file once is not possible as it stands. The scan's parse types
+variables from other files' return types (FuncLookup), so it needs the whole
+index first; holding every index-time parse until the scan reaches its file
+is gigabytes; and the shallow parse drops refs and arguments the index keeps.
+
+| Tried | Result |
+|---|---|
+| `Declares` skips the second whole-file parse (AllVars) for a name only ever called (`mayDeclareVariable`), bounded to `maxDeclareScans` names per file | kept: 0.75 GB less on tassweb. Unbounded it cost 3.6s, since the resolver asks many names per file; `TestDeclaresSearchesTheFileABoundedNumberOfTimes` |
+| Every directory listing kept in a batch scan (`NewSnapshotDirCache`), shared across caller views | kept: 0.85 GB less on tassweb |
+| FuncLookup answers cached across parses | reverted: the questions are almost all unique (a call hop carries its arguments' text) |
+| Member-binding keys built once per write | reverted: no measurable gain |
+| Index parses skip member bindings | reverted: changes Slatwall, where a getter returning a member is typed by them in the index |
+
+tassweb now allocates 12.6 GB over a scan (14.1 GB before this section) and
+runs in 9.6 to 11.3s. Held memory is not caches: cfwheels' live heap at its
+peak is 130 MB of a 325 MB resident set, the rest the collector's headroom,
+so the remaining lever there is allocation, or GOGC/GOMEMLIMIT for batch
+runs, which trades CPU for memory.
+
