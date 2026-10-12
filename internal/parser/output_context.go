@@ -32,16 +32,37 @@ import (
 // #...# text in a component body at compile time.
 //
 // Attributes are handled by the tag walk, not here: this answers only whether
-// the text between tags is output.
-var outputContextTags = map[string]bool{
-	"cfoutput":          true,
-	"cfquery":           true,
-	"cfmail":            true,
-	"cfmailpart":        true,
-	"cfdocument":        true,
-	"cfdocumentitem":    true,
-	"cfdocumentsection": true,
+// the text between tags is output. The evaluated tags are outputTagKind's
+// outputTag.
+
+// outputTagKind sorts a lowercased tag name into the ones the walk acts on.
+func outputTagKind(name []byte) outputKind {
+	switch string(name) {
+	case "cfoutput", "cfquery", "cfmail", "cfmailpart", "cfdocument", "cfdocumentitem", "cfdocumentsection":
+		return outputTag
+	case "cfscript":
+		return outputScript
+	case "cfimport":
+		return outputImport
+	case "cffunction":
+		return outputFunction
+	case "cfcomponent":
+		return outputComponent
+	default:
+		return outputOther
+	}
 }
+
+type outputKind uint8
+
+const (
+	outputOther outputKind = iota
+	outputTag
+	outputScript
+	outputImport
+	outputFunction
+	outputComponent
+)
 
 // outputContext returns the byte ranges of content whose text ColdFusion
 // evaluates, sorted and disjoint, and the tag prefixes content declares with
@@ -99,12 +120,17 @@ func outputContext(content string) (spans [][2]int, prefixes []string) {
 			nameEnd++
 		}
 
-		name := strings.ToLower(content[nameStart:nameEnd])
-		if !strings.HasPrefix(name, "cf") {
+		// Every tag in the file reaches here, so the name is sorted from
+		// bytes folded on the stack rather than a lowercased copy.
+		if nameEnd-nameStart < 2 || toLowerByte(content[nameStart]) != 'c' || toLowerByte(content[nameStart+1]) != 'f' {
 			pos = i + 1
 
 			continue
 		}
+
+		var buf foldScratch
+
+		kind := outputTagKind(buf.lowerFold(content[nameStart:nameEnd]))
 
 		end := tagEndIndex(content[i:])
 		if end < 0 {
@@ -115,10 +141,10 @@ func outputContext(content string) (spans [][2]int, prefixes []string) {
 
 		tagEnd := i + end + 1
 		tag := content[i:tagEnd]
-		selfClosing := strings.HasSuffix(strings.TrimRight(tag[:len(tag)-1], " \t\r\n"), "/")
 
 		switch {
-		case name == "cfscript" && !closing:
+		case kind == outputOther:
+		case kind == outputScript && !closing:
 			// A script body holds no tag text, and a "<cfoutput" in a string
 			// there is not a tag.
 			if c := indexCFTag(content[tagEnd:], "/cfscript>"); c >= 0 {
@@ -130,37 +156,37 @@ func outputContext(content string) (spans [][2]int, prefixes []string) {
 			pos = len(content)
 
 			continue
-		case name == "cfimport" && !closing:
+		case kind == outputImport && !closing:
 			if pf := strings.TrimSpace(getAttr(tag, "prefix")); pf != "" {
 				prefixes = append(prefixes, strings.ToLower(pf))
 			}
-		case outputContextTags[name] && closing:
+		case kind == outputTag && closing:
 			if depth > 0 {
 				depth--
 
 				boundaryChanged(i)
 			}
-		case outputContextTags[name] && !selfClosing:
+		case kind == outputTag && !strings.HasSuffix(strings.TrimRight(tag[:len(tag)-1], " \t\r\n"), "/"):
 			depth++
 
 			boundaryChanged(tagEnd)
-		case name == "cffunction" && closing:
+		case kind == outputFunction && closing:
 			if fnOut {
 				fnOut = false
 
 				boundaryChanged(i)
 			}
-		case name == "cffunction" && isTruthy(getAttr(tag, "output")):
+		case kind == outputFunction && isTruthy(getAttr(tag, "output")):
 			fnOut = true
 
 			boundaryChanged(tagEnd)
-		case name == "cfcomponent" && closing:
+		case kind == outputComponent && closing:
 			if compOut {
 				compOut = false
 
 				boundaryChanged(i)
 			}
-		case name == "cfcomponent" && isTruthy(getAttr(tag, "output")):
+		case kind == outputComponent && isTruthy(getAttr(tag, "output")):
 			compOut = true
 
 			boundaryChanged(tagEnd)
