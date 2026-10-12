@@ -780,8 +780,7 @@ func (e *producerEvaluation) sharedFieldContract(path string, allowPrimitive boo
 	// Function plans deliberately exclude component-body initialization. It is
 	// still an explicit write to the field and must participate in the same
 	// contract; otherwise a conflicting startup value would be ignored.
-	startup := parser.Parse(e.fd.URI, source.content)
-	for _, assignment := range startup.StartupVariableAssignments() {
+	for _, assignment := range source.startupAssignments(e.fd.URI) {
 		if normalizeProducerPath(assignment.Variable) != path {
 			continue
 		}
@@ -795,7 +794,7 @@ func (e *producerEvaluation) sharedFieldContract(path string, allowPrimitive boo
 
 	// Every write of a request field in the file's text must be one the
 	// plan read: a statement it could not read may hold another.
-	if request && len(requestWriteRe(strings.TrimPrefix(path, "request.")).FindAllStringIndex(source.content, -1)) != writes {
+	if request && source.requestWriteCounts()[strings.TrimPrefix(path, "request.")] != writes {
 		valid = false
 	}
 

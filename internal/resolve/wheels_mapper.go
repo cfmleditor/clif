@@ -6,7 +6,10 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"time"
+
+	"go.lsp.dev/uri"
 
 	"github.com/cfmleditor/clif/internal/parser"
 )
@@ -180,6 +183,7 @@ type wheelsSource struct {
 	content      string
 	methods      map[string]wheelsMethod
 	producers    *producerPlans
+	derived      *sourceDerived // facts read from content on first use
 
 	// size and modTime are the file's stamp when content was read. An
 	// unchanged stamp serves the cache without reading the file again: this
@@ -239,13 +243,46 @@ func (r *Resolver) wheelsSource(path string) wheelsSource {
 
 	result := cached
 	if !ok || cached.content != content {
-		result = wheelsSource{associations: wheelsAssociations(content), content: content, methods: wheelsMethods(content), producers: newProducerPlans(content)}
+		result = wheelsSource{associations: wheelsAssociations(content), content: content, methods: wheelsMethods(content), producers: newProducerPlans(content), derived: &sourceDerived{}}
 	}
 
 	result.size, result.modTime, result.gen = info.Size(), info.ModTime(), gen
 	r.storeWheelsSource(path, &result)
 
 	return result
+}
+
+// sourceDerived holds what is read from a source's content once, the first
+// time it is asked for, and shared by every copy of its wheelsSource.
+type sourceDerived struct {
+	requestOnce   sync.Once
+	requestWrites map[string]int
+	startupOnce   sync.Once
+	startup       []parser.StartupVariableAssignment
+}
+
+// requestWriteCounts is how many statements in the source write each request
+// key (requestWriteKeys' forms), counted once per source.
+func (s *wheelsSource) requestWriteCounts() map[string]int {
+	if s.derived == nil {
+		return requestWriteCounts(s.content)
+	}
+
+	s.derived.requestOnce.Do(func() { s.derived.requestWrites = requestWriteCounts(s.content) })
+
+	return s.derived.requestWrites
+}
+
+// startupAssignments is the source's component-body variable assignments,
+// parsed once per source rather than on every producer evaluation.
+func (s *wheelsSource) startupAssignments(file uri.URI) []parser.StartupVariableAssignment {
+	if s.derived == nil {
+		return parser.Parse(file, s.content).StartupVariableAssignments()
+	}
+
+	s.derived.startupOnce.Do(func() { s.derived.startup = parser.Parse(file, s.content).StartupVariableAssignments() })
+
+	return s.derived.startup
 }
 
 func (r *Resolver) storeWheelsSource(path string, src *wheelsSource) {

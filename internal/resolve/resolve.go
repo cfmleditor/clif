@@ -101,9 +101,12 @@ type Resolver struct {
 	closureCache          spanCache[closureSpan]              // file URI → every function literal its current text holds (closuresOf)
 	callerIdx             *callerIndex                        // name → files calling it, built once for argumentFromCallers
 	argCache              map[string]string                   // an argument → what its callers pass (argumentFromCallers)
-	requestWriteCache     map[string]bool                     // request.<key> and a file → no other file writes it (onlyFileWritesRequest)
+	requestWriterIdx      map[string][]string                 // request key → files writing it (requestWriters)
 	handlerCache          map[string]*parser.ParseResult      // handler path → its parse (handlerParse)
+	fw1ActionCache        map[string][]fw1Action              // controllers dir + section.item → its actions (fw1Actions)
+	boundEntityCache      map[string]string                   // service path → the entity it binds (boundEntity)
 	wrapperHosts          map[string][]string                 // template path → Wheels wrapper hosts (wheelsTemplateHosts)
+	wrapperCalls          map[string][]wrapperCall            // caller path + wrapper → its wrapper calls (wheelsWrapperCalls)
 	extraIncludeHosts     map[string][]includeHost            // template path → includes the graph cannot see (frameworkIncludeHosts)
 	muraEventFiles        map[string]bool                     // file → Mura calls it with an event (handsMuraEvent)
 	lazyGetters           map[string]string                   // file and function → what its lazy getter returns (lazyGetterReturn)

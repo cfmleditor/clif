@@ -137,13 +137,16 @@ func (r *Resolver) InvalidatePaths() {
 	r.includerCache = nil
 	r.callerIdx = nil
 	r.argCache = nil
-	r.requestWriteCache = nil
+	r.requestWriterIdx = nil
 	r.wrapperHosts = nil
+	r.wrapperCalls = nil
 	r.lazyGetters = nil
 	r.lazyFiles = nil
 	r.viewArgCache = nil
 	r.handoffs = handoffIndex{}
 	r.handlerCache = nil
+	r.fw1ActionCache = nil
+	r.boundEntityCache = nil
 	r.extraIncludeHosts = nil
 	r.muraEventFiles = nil
 	r.returnCache = returnCache{}

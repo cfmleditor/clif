@@ -115,29 +115,68 @@ func (r *Resolver) computeWheelsTemplateHosts(file string) []string {
 // caller itself for a bare call. "" is a call that names file but whose host
 // cannot be proven.
 func (r *Resolver) wheelsWrapperHosts(caller, wrapper, file string) []string {
-	data, err := r.fs().ReadFile(caller)
-	if err != nil {
-		return nil
-	}
-
-	tokens := allTokens(string(data))
-
 	var hosts []string
 
-	for i := range tokens {
-		if tokens[i].Kind != parser.TokIdent || !strings.EqualFold(tokens[i].Value, wrapper) || i+1 >= len(tokens) || tokens[i+1].Kind != parser.TokLParen {
-			continue
+	for _, call := range r.wheelsWrapperCalls(caller, wrapper) {
+		if cfpath.SamePath(r.IncludePath(call.literal, caller), file) {
+			hosts = append(hosts, call.host)
 		}
-
-		literal, ok := wrapperTemplateLiteral(tokens, i+2)
-		if !ok || !strings.HasPrefix(literal, "/") || !cfpath.SamePath(r.IncludePath(literal, caller), file) {
-			continue
-		}
-
-		hosts = append(hosts, r.wheelsWrapperHost(tokens, i, caller, wrapper))
 	}
 
 	return hosts
+}
+
+// wrapperCall is one call to a Wheels include wrapper: the template literal it
+// passes and the component the include runs in ("" when unproven).
+type wrapperCall struct {
+	literal, host string
+}
+
+// wheelsWrapperCalls is every call in caller to wrapper with a root-relative
+// template literal, read and tokenised once per caller. Neither the literal
+// nor the host depends on which template is asked about, and asking per
+// template re-tokenised every wrapper caller for every template: 3.2 GB of a
+// cfwheels scan's 19 GB of allocation.
+func (r *Resolver) wheelsWrapperCalls(caller, wrapper string) []wrapperCall {
+	o := r.owner()
+	key := pathKey(caller) + "\x00" + strings.ToLower(wrapper)
+
+	o.mu.RLock()
+	calls, cached := o.wrapperCalls[key]
+	o.mu.RUnlock()
+
+	if cached {
+		return calls
+	}
+
+	calls = []wrapperCall{}
+
+	if data, err := r.fs().ReadFile(caller); err == nil {
+		tokens := allTokens(string(data))
+
+		for i := range tokens {
+			if tokens[i].Kind != parser.TokIdent || !strings.EqualFold(tokens[i].Value, wrapper) || i+1 >= len(tokens) || tokens[i+1].Kind != parser.TokLParen {
+				continue
+			}
+
+			literal, ok := wrapperTemplateLiteral(tokens, i+2)
+			if !ok || !strings.HasPrefix(literal, "/") {
+				continue
+			}
+
+			calls = append(calls, wrapperCall{literal: literal, host: r.wheelsWrapperHost(tokens, i, caller, wrapper)})
+		}
+	}
+
+	o.mu.Lock()
+	if o.wrapperCalls == nil {
+		o.wrapperCalls = map[string][]wrapperCall{}
+	}
+
+	o.wrapperCalls[key] = calls
+	o.mu.Unlock()
+
+	return calls
 }
 
 // wheelsWrapperHost is the component a wrapper call at tokens[i] runs in.

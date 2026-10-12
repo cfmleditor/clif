@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/cfmleditor/clif/internal/conv"
 	"github.com/cfmleditor/clif/internal/parser"
@@ -297,6 +298,8 @@ func (r *Resolver) inferArgument(fd *parser.FunctionDef, pos int, file string, c
 	if len(files) == 0 || exceedsCallerLimit(len(files), r.CallerInferenceLimits.MaxCandidateFiles) {
 		return ""
 	}
+
+	r.prefetchHandlerParses(files)
 
 	argName := fd.Arguments[pos].Name
 	budget := callerFileBudget{limit: r.CallerInferenceLimits.MaxCallerFiles}
@@ -869,3 +872,38 @@ func (r *Resolver) callerFileTokens(pr *parser.ParseResult) []parser.Token {
 
 	return r.callerTokens.get(&r.mu, pr, func() []parser.Token { return allTokens(pr.Content) })
 }
+
+// prefetchHandlerParses parses files into handlerParse's cache in parallel,
+// so the loop that reads them one by one finds each parsed. Inferring an
+// argument parses every file calling its function, each parse may infer
+// further, and serially that was a chain one goroutine walked while the rest
+// of the scan's workers sat idle: wheelstest's two runners took 6s each, the
+// last files a cfwheels scan finished.
+func (r *Resolver) prefetchHandlerParses(files []string) {
+	if len(files) < 2 {
+		return
+	}
+
+	work := make(chan string)
+
+	var wg sync.WaitGroup
+
+	for range min(len(files), prefetchWorkers) {
+		wg.Go(func() {
+			for path := range work {
+				r.handlerParse(path)
+			}
+		})
+	}
+
+	for _, path := range files {
+		work <- path
+	}
+
+	close(work)
+	wg.Wait()
+}
+
+// prefetchWorkers bounds prefetchHandlerParses per inference: nested
+// inferences prefetch too, and the scan is already running a worker per core.
+const prefetchWorkers = 4

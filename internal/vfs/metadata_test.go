@@ -96,7 +96,68 @@ func TestMetadataCacheLifetimeAndListingOwnership(t *testing.T) {
 	}
 
 	if _, err := cached.ReadFile(path); err != nil {
-		t.Fatal("file bytes should remain live", err)
+		t.Fatal("reading through the cache failed", err)
+	}
+}
+
+type readCountingFS struct {
+	OS
+	reads atomic.Int64
+}
+
+func (c *readCountingFS) ReadFile(path string) ([]byte, error) {
+	c.reads.Add(1)
+
+	return c.OS.ReadFile(path)
+}
+
+// TestMetadataCacheKeepsFileBytesWithinItsBudget: a batch scan re-reads the
+// same sources many times, so the cache keeps their bytes, hands each caller
+// its own copy, and stops keeping once the budget is spent.
+func TestMetadataCacheKeepsFileBytesWithinItsBudget(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "a.cfc")
+
+	if err := os.WriteFile(path, []byte("component {}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	base := &readCountingFS{}
+	cached := CacheMetadata(base)
+
+	for range 10 {
+		data, err := cached.ReadFile(path)
+		if err != nil || string(data) != "component {}" {
+			t.Fatalf("ReadFile = %q, %v", data, err)
+		}
+
+		data[0] = 'X'
+	}
+
+	if base.reads.Load() != 1 {
+		t.Errorf("10 reads of one file reached the disk %d times, want 1", base.reads.Load())
+	}
+
+	full, ok := cached.(*metadataCache)
+	if !ok {
+		t.Fatal("not a metadata cache")
+	}
+
+	full.held.Store(contentBudget)
+
+	other := filepath.Join(dir, "b.cfc")
+	if err := os.WriteFile(other, []byte("component {}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	for range 2 {
+		if _, err := cached.ReadFile(other); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if base.reads.Load() != 3 {
+		t.Errorf("a file read past the budget was kept: %d disk reads, want 3", base.reads.Load())
 	}
 }
 

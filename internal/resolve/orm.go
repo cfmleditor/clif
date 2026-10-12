@@ -48,8 +48,34 @@ func (r *Resolver) entityReturn(path, method string) string {
 }
 
 // boundEntity is the entity the service at path, or a service it extends,
-// binds itself to with super.init( entityName = … ), or "".
+// binds itself to with super.init( entityName = … ), or "". Cached per path:
+// it is asked for every call on a cborm service, and each answer read the
+// service and its bases and ran two regular expressions over them.
 func (r *Resolver) boundEntity(path string) string {
+	key := pathKey(path)
+
+	r.mu.RLock()
+	entity, ok := r.boundEntityCache[key]
+	r.mu.RUnlock()
+
+	if ok {
+		return entity
+	}
+
+	entity = r.boundEntityUncached(path)
+
+	r.mu.Lock()
+	if r.boundEntityCache == nil {
+		r.boundEntityCache = map[string]string{}
+	}
+
+	r.boundEntityCache[key] = entity
+	r.mu.Unlock()
+
+	return entity
+}
+
+func (r *Resolver) boundEntityUncached(path string) string {
 	seen := map[string]bool{}
 
 	for depth := 0; path != "" && !seen[path] && depth < 8; depth++ {
