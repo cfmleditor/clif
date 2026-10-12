@@ -453,10 +453,21 @@ func lookupFold(m map[string]string, key string) (string, bool) {
 type DirCache struct {
 	mu    sync.RWMutex
 	names map[string][]string
+
+	// keepAll keeps every listing read, misses included: right only where
+	// nothing is written while the cache lives (a batch scan).
+	keepAll bool
 }
 
 // NewDirCache returns an empty cache.
 func NewDirCache() *DirCache { return &DirCache{} }
+
+// NewSnapshotDirCache returns an empty cache for a run over files that do not
+// change while it lasts, which keeps every listing it reads, so a directory a
+// lookup failed in is not listed again. keep's reason for leaving those out
+// is a component written while the cache lives, which a batch scan has not.
+// Re-listing them was 0.85 GB of a tassweb scan's allocation.
+func NewSnapshotDirCache() *DirCache { return &DirCache{keepAll: true} }
 
 // namesIn returns the entry names in dir and whether they came from the cache.
 // It does not populate it — see keep.
@@ -472,6 +483,11 @@ func (c *DirCache) namesIn(dir string) (names []string, cached bool, err error) 
 	}
 
 	names, err = readDirNames(dir)
+	if c != nil && c.keepAll && err == nil {
+		c.keep(dir, names)
+
+		return names, true, nil
+	}
 
 	return names, false, err
 }

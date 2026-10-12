@@ -298,6 +298,10 @@ func (r *Resolver) expressionKeys() []string {
 // wherever it decides a path answer may have gone stale, which is what the
 // cache needs and what resolveCache beside it already relies on.
 func (r *Resolver) dirs() *cfpath.DirCache {
+	// A listing is the filesystem's, not a view's, so views share their
+	// owner's rather than each listing the same directories again.
+	r = r.owner()
+
 	r.mu.RLock()
 	c := r.dirCache
 	r.mu.RUnlock()
@@ -311,6 +315,9 @@ func (r *Resolver) dirs() *cfpath.DirCache {
 
 	if r.dirCache == nil {
 		r.dirCache = cfpath.NewDirCache()
+		if r.SnapshotScan {
+			r.dirCache = cfpath.NewSnapshotDirCache()
+		}
 	}
 
 	return r.dirCache
