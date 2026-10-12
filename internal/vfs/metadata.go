@@ -76,24 +76,25 @@ func (c *metadataCache) ReadFileString(path string) (string, error) {
 		return text, nil
 	}
 
-	data, err := c.FS.ReadFile(path)
+	// Through the base's own ReadFileString where it has one (vfs.OS's
+	// hands over the bytes it read without copying them).
+	text, err := ReadString(c.FS, path)
 	if err != nil {
 		return "", err
 	}
 
-	text := string(data)
-	if len(data) > contentFileLimit {
+	if len(text) > contentFileLimit {
 		return text, nil
 	}
 
-	if c.held.Add(int64(len(data))) > contentBudget {
-		c.held.Add(-int64(len(data)))
+	if c.held.Add(int64(len(text))) > contentBudget {
+		c.held.Add(-int64(len(text)))
 
 		return text, nil
 	}
 
 	if held, loaded := c.contents.LoadOrStore(path, text); loaded {
-		c.held.Add(-int64(len(data)))
+		c.held.Add(-int64(len(text)))
 		text, _ = held.(string)
 	}
 

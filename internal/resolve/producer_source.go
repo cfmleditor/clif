@@ -3,6 +3,7 @@ package resolve
 import (
 	"maps"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 
@@ -103,7 +104,61 @@ func (p *producerPlans) all() map[string]*producerMethod {
 	return methods
 }
 
+// producerTokens is source's tokens, or nil past 4,096 of them. The producer
+// tokenizes the same expression text every time it evaluates a method body,
+// so answers are kept (producerTokenCache), as capacity-clipped slices that
+// an append cannot write past: callers only read them.
 func producerTokens(source string) []parser.Token {
+	if tokens, ok := producerTokenCache.get(source); ok {
+		return tokens
+	}
+
+	tokens := scanProducerTokens(source)
+	producerTokenCache.put(source, tokens)
+
+	return tokens
+}
+
+// producerTokenCache holds producerTokens' answers, up to maxProducerTokens
+// tokens in all; past it, it starts again. Tokens depend only on the text, so
+// it is shared by every resolver.
+var producerTokenCache = &tokenCache{}
+
+const maxProducerTokens = 1 << 19
+
+type tokenCache struct {
+	mu      sync.RWMutex
+	entries map[string][]parser.Token
+	held    int
+}
+
+func (c *tokenCache) get(source string) ([]parser.Token, bool) {
+	c.mu.RLock()
+	tokens, ok := c.entries[source]
+	c.mu.RUnlock()
+
+	return tokens, ok
+}
+
+func (c *tokenCache) put(source string, tokens []parser.Token) {
+	if len(tokens) > maxProducerTokens/16 {
+		return
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.entries == nil || c.held+len(tokens) > maxProducerTokens {
+		c.entries = map[string][]parser.Token{}
+		c.held = 0
+	}
+
+	// The key is copied, so an entry does not keep the file it was cut from.
+	c.entries[strings.Clone(source)] = slices.Clip(tokens)
+	c.held += len(tokens)
+}
+
+func scanProducerTokens(source string) []parser.Token {
 	scanner := parser.NewScanner(source)
 
 	tokens := []parser.Token{}

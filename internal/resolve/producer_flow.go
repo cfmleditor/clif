@@ -606,10 +606,13 @@ func (e *producerEvaluation) condition(expression string, env producerEnvironmen
 	return yes, no, choice
 }
 
+// specialCondition copies env for the two branches only once a condition it
+// handles is found: most conditions are none of them, and copying first was a
+// third of the producer's environment copies.
 func (e *producerEvaluation) specialCondition(tokens []parser.Token, env producerEnvironment, negate bool) (yes, no producerEnvironment, choice int, ok bool) {
-	yes, no = maps.Clone(env), maps.Clone(env)
-
 	if path, matched := e.structKeyCondition(tokens); matched {
+		yes, no = maps.Clone(env), maps.Clone(env)
+
 		value, known := env[path]
 		if e.guardedField(path) {
 			value = e.sharedFieldContract(path, false)
@@ -647,6 +650,8 @@ func (e *producerEvaluation) specialCondition(tokens []parser.Token, env produce
 	}
 
 	if path, matched := e.unaryGuardCondition(tokens, "isSimpleValue"); matched {
+		yes, no = maps.Clone(env), maps.Clone(env)
+
 		value := e.read(path, env)
 		if strings.HasPrefix(path, "variables.") || strings.HasPrefix(path, "this.") {
 			value = e.sharedFieldContract(path, true)
@@ -666,6 +671,8 @@ func (e *producerEvaluation) specialCondition(tokens []parser.Token, env produce
 	}
 
 	if path, matched := e.unaryGuardCondition(tokens, "isNull"); matched {
+		yes, no = maps.Clone(env), maps.Clone(env)
+
 		value := e.read(path, env)
 		if strings.HasPrefix(path, "variables.") || strings.HasPrefix(path, "this.") {
 			value = e.sharedFieldContract(path, false)
