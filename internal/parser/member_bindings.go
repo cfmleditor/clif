@@ -41,12 +41,13 @@ func (pr *ParseResult) applyMemberBindings(hasBindings bool) {
 	}
 
 	writes := pr.collectionWrites()
-	locals, _, key := pr.collectionKeys(writes)
+	ks := pr.writeKeys(writes)
+	locals, key, targets := ks.locals, ks.key, ks.targets
 	nodes := map[string]*collectionNode{}
 	identities := map[string]collectionWrite{}
 	dependencies := map[string][]memberDependency{}
 
-	for _, w := range writes {
+	for i, w := range writes {
 		if w.element {
 			continue
 		}
@@ -55,7 +56,7 @@ func (pr *ParseResult) applyMemberBindings(hasBindings bool) {
 			continue
 		}
 
-		identity := key(w.target, w.function)
+		identity := targets[i]
 
 		n := nodes[identity]
 		if n == nil {
@@ -82,9 +83,9 @@ func (pr *ParseResult) applyMemberBindings(hasBindings bool) {
 
 	descendants := memberDescendants(nodes)
 
-	spans := newMemberSpans(nodes, identities, writes, key)
+	spans := newMemberSpans(nodes, identities, writes, targets)
 
-	for _, w := range writes {
+	for i, w := range writes {
 		if w.target == "" && w.unknown {
 			withholdForClosure(nodes, w.function)
 
@@ -107,7 +108,7 @@ func (pr *ParseResult) applyMemberBindings(hasBindings bool) {
 			invalidate(descendants[key(source, w.function)])
 		}
 
-		parent := key(w.target, w.function)
+		parent := targets[i]
 		if w.element && (strings.EqualFold(w.target, "variables") || strings.EqualFold(w.target, "this")) {
 			parent = strings.ToLower(w.target)
 		}
@@ -139,9 +140,10 @@ func (pr *ParseResult) applyMemberBindings(hasBindings bool) {
 // the line of one, withholds it, as any conflict does.
 type memberSpans struct {
 	first, last, cleared map[*collectionNode]int
+	lastLine             map[*collectionNode]int // pr.lineAt(last[n]), worked out once
 }
 
-func newMemberSpans(nodes map[string]*collectionNode, identities map[string]collectionWrite, writes []collectionWrite, key func(string, string) string) *memberSpans {
+func newMemberSpans(nodes map[string]*collectionNode, identities map[string]collectionWrite, writes []collectionWrite, targets []string) *memberSpans {
 	s := &memberSpans{
 		first:   make(map[*collectionNode]int, len(nodes)),
 		last:    make(map[*collectionNode]int, len(nodes)),
@@ -152,21 +154,44 @@ func newMemberSpans(nodes map[string]*collectionNode, identities map[string]coll
 		s.first[n] = identities[identity].offset
 	}
 
-	for _, w := range writes {
-		if n := nodes[key(w.target, w.function)]; n != nil && !w.element {
-			s.last[n] = max(s.last[n], w.offset)
+	for i := range writes {
+		if n := nodes[targets[i]]; n != nil && !writes[i].element {
+			s.last[n] = max(s.last[n], writes[i].offset)
 		}
 	}
 
 	return s
 }
 
+// lineOfLast is the line of n's last write, worked out once per node: it was
+// asked for each member a write's container holds, for every write.
+func (s *memberSpans) lineOfLast(pr *ParseResult, n *collectionNode) int {
+	if line, ok := s.lastLine[n]; ok {
+		return line
+	}
+
+	if s.lastLine == nil {
+		s.lastLine = map[*collectionNode]int{}
+	}
+
+	line := pr.lineAt(s.last[n])
+	s.lastLine[n] = line
+
+	return line
+}
+
 // replaced applies a replacement of the container of members at offset.
 func (s *memberSpans) replaced(pr *ParseResult, members []*collectionNode, offset int) {
+	if len(members) == 0 {
+		return
+	}
+
+	offsetLine := pr.lineAt(offset)
+
 	for _, n := range members {
 		switch {
 		case offset < s.first[n]:
-		case pr.lineAt(s.last[n]) < pr.lineAt(offset):
+		case s.lineOfLast(pr, n) < offsetLine:
 			// On a later line, so a lookup's latest-at-or-before rule tells
 			// the member's ref from the replacement's.
 			if at, ok := s.cleared[n]; !ok || offset < at {

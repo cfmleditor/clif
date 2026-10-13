@@ -94,7 +94,7 @@ func (s *Server) handleExplainCall(ctx context.Context, args []protocol.LSPAny) 
 // needs no document lock (see lockDoc), which is also why the resolver can
 // memoise into it freely.
 func (s *Server) parseForCalls(fileURI uri.URI, content string) *parser.ParseResult {
-	return s.parseContent(fileURI, content)
+	return s.parseContentWith(fileURI, content, true)
 }
 
 // lineMayHoldCall reports whether a line of the document looks as if it holds

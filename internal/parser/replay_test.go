@@ -1,6 +1,9 @@
 package parser
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 // TestReplayReadsWhatTheScannerReads: a replaying scanner hands back the
 // tokens a live one scans, peeks as it does, and restores to a token's offset
@@ -64,5 +67,125 @@ func TestTheCollectionPassRunsOnlyWhereItCanAnswer(t *testing.T) {
 		if got := collectionReturnExpressions(tc.calls, tc.tagFile) != nil; got != tc.runs {
 			t.Errorf("%s: runs = %v, want %v", tc.name, got, tc.runs)
 		}
+	}
+}
+
+// TestAParseWithoutCallsStillFindsEveryTag: the output-context gate decides
+// how the tag walk finds the next tag, not only which text is scanned for
+// calls. A parse without call extraction ran ungated, paired the `#` in a
+// <script> body with one in a later tag's attribute, and stepped over the
+// <cffunction> between them (Lucee's debug template lost doMore that way).
+// The editor parses without calls, so it would have lost the function too.
+func TestAParseWithoutCallsStillFindsEveryTag(t *testing.T) {
+	src := `<cfcomponent>
+<cffunction name="output" returntype="void">
+	<script>
+		<cfif !structKeyExists(Cookie, variables.cookieName)>
+			var luceeStyle = document.createElement("style");
+			luceeStyle.type = 'text/css';
+			luceeStyle.innerHTML = "#-lucee-debug .collapsed { display: none; }";
+			document.getElementById("-lucee-debug").prepend(luceeStyle);
+		</cfif>
+	</script>
+</cffunction>
+<cffunction name="doMore" returntype="void">
+	<cfargument name="custom" type="struct" required="#true#">
+</cffunction>
+</cfcomponent>`
+
+	for _, calls := range []bool{true, false} {
+		pr := ParseWithOptions(testURI, src, &ParseOptions{ExtractCalls: calls})
+
+		found := false
+		for i := range pr.Funcs {
+			found = found || pr.Funcs[i].Name == "doMore"
+		}
+
+		if !found {
+			t.Errorf("ExtractCalls %v: doMore not found", calls)
+		}
+	}
+}
+
+// TestScopedVarsComeFromTheParsesOwnWalk: a tag region's variables- and
+// this-scope names are the ones the parse's own walk recorded. They used to
+// come from a second, ungated walk of the region, which paired the `#` in two
+// HTML attributes (a "(" between them made it a span) and skipped the <cfset>
+// between them, so
+// completion and go-to-definition did not know the name; tassweb's
+// main.credit.apply.cfm lost `delim` that way. The second walk was also 10ms
+// of every edit outside a function on a 58,000-line component.
+func TestScopedVarsComeFromTheParsesOwnWalk(t *testing.T) {
+	src := `<button data-targetref="#validationerrors">1 Validation Error(s)</button>
+<cfset delim = "&">
+<input type="hidden" data-validationtarget="#validationerrors-btn" />`
+
+	pr := ParseWithOptions(testURI, src, &ParseOptions{})
+
+	if vars := pr.VariablesVars(); !slices.Contains(vars, "delim") {
+		t.Errorf("variables scope = %v, want delim among them", vars)
+	}
+}
+
+// TestCollectionWritesComeFromTheParsesOwnWalk: the <cfset>, <cfparam> and
+// output-attribute tags the collection passes read are the ones the parse's
+// own walk met, not a third, ungated walk of the region's tags, which paired
+// the `#` in a jQuery selector with one in a later attribute and lost the
+// <cfloop> index (Mura's form builder), and cost the member pass a walk of
+// every tag on each edit.
+func TestCollectionWritesComeFromTheParsesOwnWalk(t *testing.T) {
+	src := "\t\t$(\"#\"+formDiv).submit();\n<cfloop from=\"1\" to=\"#ArrayLen(local.aFieldOrder)#\" index=\"iix\">"
+
+	pr := ParseWithOptions(testURI, src, &ParseOptions{})
+
+	found := false
+	for _, w := range pr.collectWrites(nil) {
+		found = found || w.target == "iix"
+	}
+
+	if !found {
+		t.Error("the loop's write to iix was not collected")
+	}
+}
+
+// TestSourceExpressionsAreReadOncePerParse: the member and collection passes
+// ask about the same right-hand sides, and each read runs the resolvers over
+// the text, so a read is kept for the passes sharing writesMemo. And a bare
+// call is checked against the file's functions by a name set, which must stay
+// case-insensitive.
+func TestSourceExpressionsAreReadOncePerParse(t *testing.T) {
+	pr := ParseWithOptions(testURI, "component {\n function Build() {}\n}", &ParseOptions{})
+	pr.writesMemo = &writesMemo{}
+
+	first := pr.readSourceExpression("svc.make()", "1:2")
+	again := pr.readSourceExpression("svc.make()", "3:4")
+
+	if len(pr.writesMemo.sources) != 1 {
+		t.Errorf("reads kept = %d, want 1 for one expression read twice", len(pr.writesMemo.sources))
+	}
+
+	if len(first.pending) != len(again.pending) {
+		t.Errorf("the second read differs from the first")
+	}
+
+	if !pr.declaresFunction("build") || pr.declaresFunction("missing") {
+		t.Error("declaresFunction should find Build case-insensitively and nothing else")
+	}
+}
+
+// TestDocumentLinksFollowTheContent: the editor's parse extracts no links, and
+// the document-link request reads them from the text, once per content. An
+// answer kept past an edit would point at paths and columns that are gone.
+func TestDocumentLinksFollowTheContent(t *testing.T) {
+	pr := ParseWithOptions(testURI, `<cfinclude template="a.cfm">`, &ParseOptions{})
+
+	if links := pr.DocumentLinks(); len(links) != 1 || links[0].Path != "a.cfm" {
+		t.Fatalf("links = %v, want a.cfm", links)
+	}
+
+	pr.ApplyFullReplace(`<cfinclude template="b.cfm">`)
+
+	if links := pr.DocumentLinks(); len(links) != 1 || links[0].Path != "b.cfm" {
+		t.Errorf("after an edit, links = %v, want b.cfm", links)
 	}
 }

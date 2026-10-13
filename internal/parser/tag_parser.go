@@ -35,8 +35,14 @@ type tagParser struct {
 	// region's offset in the file. The attributes of CF tags and of
 	// importPrefixes custom tags are scanned wherever they stand. See
 	// outputContext and outputState.
-	gated               bool
-	output              *outputState
+	gated  bool
+	output *outputState
+	// collectionTags are the offsets of the tags the walk met that can hold a
+	// collection write (collectionTagName), for collectWrites.
+	collectionTags []int
+	// closeAt is where the </cffunction> after offset closeFrom is, -1 for
+	// none, as parseCFFunction found it for enterFunctionScope.
+	closeFrom, closeAt  int
 	importPrefixes      []string
 	srcOffset           int
 	builtinReturnLookup func(string) string
@@ -370,6 +376,10 @@ func (p *tagParser) parse() {
 		case idx+3 < len(p.src) && toLowerByte(p.src[idx+1]) == 'c' && toLowerByte(p.src[idx+2]) == 'f':
 			p.trackBlock(idx)
 			p.trackOutput(idx)
+
+			if collectionTagName(extractIdent(p.src[idx+1:])) {
+				p.collectionTags = append(p.collectionTags, idx)
+			}
 
 			pos = p.handleCFTag(idx)
 		case p.gated && customPrefixTag(p.src[idx:], p.importPrefixes):
@@ -739,7 +749,12 @@ func (p *tagParser) stepOverEvaluatedTag(idx int) int {
 func (p *tagParser) enterFunctionScope(tagEnd, line int) {
 	endLine := -1
 
-	if closeIdx := indexCFTag(p.src[tagEnd:], "/cffunction"); closeIdx >= 0 {
+	closeIdx := p.closeAt
+	if p.closeFrom != tagEnd {
+		closeIdx = indexCFTag(p.src[tagEnd:], "/cffunction")
+	}
+
+	if closeIdx >= 0 {
 		endLine = p.lineAt(tagEnd + closeIdx)
 	} else {
 		// Not found within this region's text — the function body is interrupted
@@ -800,11 +815,17 @@ func (p *tagParser) parseCFFunction(tag string, idx, tagEnd, line int) {
 	rest := p.src[tagEnd:]
 
 	end := len(rest)
-	if ci := indexCFTag(rest, "/cffunction"); ci >= 0 && ci < end {
+
+	ci := indexCFTag(rest, "/cffunction")
+	p.closeFrom, p.closeAt = tagEnd, ci // enterFunctionScope asks the same
+
+	if ci >= 0 {
 		end = ci
 	}
 
-	if ci := indexCFTag(rest, "cffunction"); ci >= 0 && ci < end {
+	// Only a <cffunction before the close can end the block sooner, so the
+	// search stops at the close rather than running on into the next function.
+	if ci := indexCFTag(rest[:end], "cffunction"); ci >= 0 {
 		end = ci
 	}
 
@@ -2802,6 +2823,18 @@ func isIdentByte(c byte) bool {
 func extractLinksByScope(src string, lineNum int, scopes []FuncScope, funcLinks map[string][]DocumentLink, links *[]DocumentLink) map[string][]DocumentLink {
 	scopeIdx := 0
 
+	// The function whose lines are being read, its key and links, filed once
+	// it is left rather than looked up and stored again for every line.
+	open, openKey := -1, ""
+
+	var fl []DocumentLink
+
+	flush := func() {
+		if open >= 0 {
+			funcLinks[openKey] = fl
+		}
+	}
+
 	for src != "" {
 		nl := strings.IndexByte(src, '\n')
 
@@ -2824,17 +2857,22 @@ func extractLinksByScope(src string, lineNum int, scopes []FuncScope, funcLinks 
 				funcLinks = make(map[string][]DocumentLink)
 			}
 
-			key := funcKey(scopes[scopeIdx].Start, scopes[scopeIdx].End)
-			fl := funcLinks[key]
-			extractLinksFromLine(line, lineNum, &fl)
+			if open != scopeIdx {
+				flush()
 
-			funcLinks[key] = fl
+				open, openKey = scopeIdx, funcKey(scopes[scopeIdx].Start, scopes[scopeIdx].End)
+				fl = funcLinks[openKey]
+			}
+
+			extractLinksFromLine(line, lineNum, &fl)
 		} else {
 			extractLinksFromLine(line, lineNum, links)
 		}
 
 		lineNum++
 	}
+
+	flush()
 
 	return funcLinks
 }

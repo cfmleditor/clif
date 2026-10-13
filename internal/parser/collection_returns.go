@@ -4,6 +4,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"unicode/utf8"
 )
 
@@ -151,7 +152,7 @@ func (pr *ParseResult) collectionKeys(writes []collectionWrite) (map[string]bool
 		}
 
 		base, _, _ := strings.Cut(root, ".")
-		if locals[concatLower(function+"\t", base)] {
+		if isLocalName(locals, function, base) {
 			return concatLower(function+"\t", root)
 		}
 
@@ -206,15 +207,13 @@ func (pr *ParseResult) applyCollectionReturns(calls []pendingCall) {
 	}
 
 	writes := pr.collectionWrites()
-	locals, keys, key := pr.collectionKeys(writes)
-	roots := map[string]bool{}
 
-	// Each write's key, built once: three loops below read it, and building
-	// it lowercases a string and looks the name up among the locals.
-	targets := make([]string, len(writes))
-	for i := range writes {
-		targets[i] = key(writes[i].target, writes[i].function)
-	}
+	// Each write's key, built once: three loops below read it, and so does
+	// the member pass, and building one lowercases a string and looks the
+	// name up among the locals.
+	ks := pr.writeKeys(writes)
+	locals, keys, key, targets := ks.locals, ks.scopeKeys, ks.key, ks.targets
+	roots := map[string]bool{}
 
 	for i := range writes {
 		if w := &writes[i]; w.element || emptyCollection(w.expression) {
@@ -239,8 +238,12 @@ func (pr *ParseResult) applyCollectionReturns(calls []pendingCall) {
 		return nodes[k]
 	}
 
+	// Whether the file declares a structNew of its own, asked once: it walks
+	// every function and argument, and was asked for every empty-struct write.
+	structNew := sync.OnceValue(func() bool { return pr.Declares("structNew") })
+
 	for i := range writes {
-		pr.recordCollectionWrite(writes[i], targets[i], roots, locals, key, node)
+		pr.recordCollectionWrite(writes[i], targets[i], roots, locals, key, node, structNew)
 	}
 
 	invalidateClosureCollections(writes, pr.Scopes, nodes)
@@ -345,7 +348,7 @@ func invalidateCollectionParents(writes []collectionWrite, targets []string, nod
 	}
 }
 
-func (pr *ParseResult) recordCollectionWrite(w collectionWrite, target string, roots map[string]bool, locals map[string]bool, key func(string, string) string, node func(string) *collectionNode) {
+func (pr *ParseResult) recordCollectionWrite(w collectionWrite, target string, roots map[string]bool, locals map[string]bool, key func(string, string) string, node func(string) *collectionNode, structNew func() bool) {
 	for prefix := target; ; {
 		index := strings.LastIndexByte(prefix, '.')
 		if index < 0 {
@@ -393,7 +396,7 @@ func (pr *ParseResult) recordCollectionWrite(w collectionWrite, target string, r
 		if emptyCollection(w.expression) {
 			n.structure = true
 			n.arraySeed = n.arraySeed || strings.HasPrefix(strings.TrimSpace(w.expression), "[")
-			n.structSeed = n.structSeed || strings.HasPrefix(strings.TrimSpace(w.expression), "{") || !n.arraySeed && !pr.Declares("structNew")
+			n.structSeed = n.structSeed || strings.HasPrefix(strings.TrimSpace(w.expression), "{") || !n.arraySeed && !structNew()
 		} else {
 			n.invalid = true
 		}
@@ -592,6 +595,124 @@ type writesMemo struct {
 	// tokens are each script region's, by its offset (scriptTokens), from
 	// tokenPool until release.
 	tokens map[int]*[]Token
+	// keys is collectionKeys' answer for writes and each write's key, which
+	// the member and collection passes both read (writeKeys).
+	keys *writeKeySet
+	// sources is readSourceExpression's answer by expression and whether it
+	// is read inside a function, and funcNames the file's function names,
+	// lowercased: both passes ask about the same expressions.
+	sources   map[sourceKey]sourceRead
+	funcNames map[string]bool
+}
+
+type sourceKey struct {
+	expression string
+	inFunction bool
+}
+
+// sourceRead is what a tag parser reads from an assignment's right-hand side:
+// the first ref it makes, and its pending calls.
+type sourceRead struct {
+	ref     *ComponentRef
+	pending []pendingCall
+}
+
+// readSourceExpression reads expression as the right-hand side of an
+// assignment in function, as collectionValueSource needs it. What it reads
+// does not depend on which function beyond whether there is one, so it is
+// read once per expression for the passes sharing writesMemo: the member and
+// collection passes ask about the same right-hand sides, and the resolver
+// matching each read pays for was 4.5ms of an edit on a 58,000-line component.
+func (pr *ParseResult) readSourceExpression(expression, function string) sourceRead {
+	key := sourceKey{expression, function != ""}
+
+	m := pr.writesMemo
+	if m != nil {
+		if read, ok := m.sources[key]; ok {
+			return read
+		}
+	}
+
+	tp := &tagParser{fileURI: string(pr.URI), inFunc: function, resolvers: pr.Resolvers, resolverSet: pr.resolverSet, funcs: pr.Funcs}
+	tp.checkSetRHSStr(expression, "$element", 0)
+
+	refs := tp.componentRefs
+	if function != "" {
+		refs = tp.funcRefs[function]
+	}
+
+	var read sourceRead
+	if len(refs) > 0 {
+		read.ref = &refs[0]
+	} else {
+		read.pending = tp.pendingCalls
+	}
+
+	if m != nil {
+		if m.sources == nil {
+			m.sources = map[sourceKey]sourceRead{}
+		}
+
+		m.sources[key] = read
+	}
+
+	return read
+}
+
+// declaresFunction reports whether the file declares a function named name,
+// from a set built once for the passes sharing writesMemo rather than a walk
+// of every function for each call asked about.
+func (pr *ParseResult) declaresFunction(name string) bool {
+	m := pr.writesMemo
+	if m == nil {
+		for i := range pr.Funcs {
+			if strings.EqualFold(pr.Funcs[i].Name, name) {
+				return true
+			}
+		}
+
+		return false
+	}
+
+	if m.funcNames == nil {
+		m.funcNames = make(map[string]bool, len(pr.Funcs))
+		for i := range pr.Funcs {
+			m.funcNames[strings.ToLower(pr.Funcs[i].Name)] = true
+		}
+	}
+
+	var buf foldScratch
+
+	return m.funcNames[string(buf.lowerFold(name))]
+}
+
+// writeKeySet is collectionKeys' answer and each write's key.
+type writeKeySet struct {
+	locals    map[string]bool
+	scopeKeys map[int]string
+	key       func(string, string) string
+	targets   []string // key(w.target, w.function) for each write
+}
+
+// writeKeys is collectionKeys for writes, with each write's key built once
+// for every pass that shares writesMemo.
+func (pr *ParseResult) writeKeys(writes []collectionWrite) *writeKeySet {
+	if m := pr.writesMemo; m != nil && m.keys != nil {
+		return m.keys
+	}
+
+	locals, scopeKeys, key := pr.collectionKeys(writes)
+	ks := &writeKeySet{locals: locals, scopeKeys: scopeKeys, key: key, targets: make([]string, len(writes))}
+
+	for i := range writes {
+		ks.targets[i] = key(writes[i].target, writes[i].function)
+	}
+
+	if m := pr.writesMemo; m != nil {
+		m.keys = ks
+	}
+
+	return ks
 }
 
 // release returns the memo's token lists to tokenPool. Nothing the passes
@@ -677,6 +798,12 @@ func (pr *ParseResult) collectWrites(cache *expressionWriteCache) []collectionWr
 		}
 
 		if r.Kind != RegionTag {
+			continue
+		}
+
+		if sites, ok := pr.keptCollectionTags(r.Offset); ok {
+			writes = collectCollectionTagsAt(r.Text, sites, r.Offset, functionAt, writes, cache)
+
 			continue
 		}
 
@@ -903,41 +1030,78 @@ func collectCollectionTags(text string, offset int, functionAt func(int) string,
 			continue
 		}
 
-		end := tagEndIndex(text[idx:])
-		if end < 0 {
+		var next int
+
+		writes, next = collectCollectionTag(text, idx, offset, functionAt, writes, cache)
+		if next < 0 {
 			break
 		}
 
-		end += idx
-		tag := text[idx : end+1]
-		pos = end + 1
+		pos = next
+	}
 
-		name := extractIdent(tag[1:])
-		if strings.EqualFold(name, "cfset") {
-			body := strings.TrimSpace(strings.TrimSuffix(strings.TrimSuffix(tag[1+len(name):], ">"), "/"))
-			writes = placeWrites(cache.scan(body), offset+idx+strings.Index(tag, body), functionAt, writes)
-		}
+	return writes
+}
 
-		for _, attribute := range collectionOutputAttributes(name) {
-			if root, element := collectionRead(getAttr(tag, attribute)); root != "" {
-				writes = append(writes, collectionWrite{offset: offset + idx, target: root, element: element, function: functionAt(offset + idx), unknown: true})
-			}
-		}
+// collectCollectionTagsAt is collectCollectionTags over the tags at sites,
+// where the parse's own tag walk found them (collectionTagName), rather than a
+// walk of its own. It reads each as collectCollectionTags does, and stops
+// where that would: at a tag with no end.
+func collectCollectionTagsAt(text string, sites []int, offset int, functionAt func(int) string, writes []collectionWrite, cache *expressionWriteCache) []collectionWrite {
+	for _, idx := range sites {
+		var next int
 
-		if strings.EqualFold(name, "cfparam") {
-			name := getAttr(tag, "name")
-			def := strings.Trim(getAttr(tag, "default"), "#")
-
-			if name != "" {
-				root, element := collectionRead(name)
-				if root != "" {
-					writes = append(writes, collectionWrite{offset: offset + idx, target: root, expression: def, element: element, unknown: element, function: functionAt(offset + idx)})
-				}
-			}
+		if writes, next = collectCollectionTag(text, idx, offset, functionAt, writes, cache); next < 0 {
+			break
 		}
 	}
 
 	return writes
+}
+
+// collectionTagName reports whether a tag named name can hold a collection
+// write: <cfset>, <cfparam>, or one with collectionOutputAttributes.
+func collectionTagName(name string) bool {
+	return strings.EqualFold(name, "cfset") || strings.EqualFold(name, "cfparam") || collectionOutputAttributes(name) != nil
+}
+
+// collectCollectionTag reads the writes of the tag opening at text[idx],
+// returning where the tag ends, or -1 when it has no end.
+func collectCollectionTag(text string, idx, offset int, functionAt func(int) string, writes []collectionWrite, cache *expressionWriteCache) ([]collectionWrite, int) {
+	end := tagEndIndex(text[idx:])
+	if end < 0 {
+		return writes, -1
+	}
+
+	end += idx
+	tag := text[idx : end+1]
+	pos := end + 1
+
+	name := extractIdent(tag[1:])
+	if strings.EqualFold(name, "cfset") {
+		body := strings.TrimSpace(strings.TrimSuffix(strings.TrimSuffix(tag[1+len(name):], ">"), "/"))
+		writes = placeWrites(cache.scan(body), offset+idx+strings.Index(tag, body), functionAt, writes)
+	}
+
+	for _, attribute := range collectionOutputAttributes(name) {
+		if root, element := collectionRead(getAttr(tag, attribute)); root != "" {
+			writes = append(writes, collectionWrite{offset: offset + idx, target: root, element: element, function: functionAt(offset + idx), unknown: true})
+		}
+	}
+
+	if strings.EqualFold(name, "cfparam") {
+		name := getAttr(tag, "name")
+		def := strings.Trim(getAttr(tag, "default"), "#")
+
+		if name != "" {
+			root, element := collectionRead(name)
+			if root != "" {
+				writes = append(writes, collectionWrite{offset: offset + idx, target: root, expression: def, element: element, unknown: element, function: functionAt(offset + idx)})
+			}
+		}
+	}
+
+	return writes, pos
 }
 
 // Only whole expressions can supply an element contract.
@@ -952,20 +1116,13 @@ func (pr *ParseResult) collectionValueSource(expression, function string, locals
 		}
 	}
 
-	tp := &tagParser{fileURI: string(pr.URI), inFunc: function, resolvers: pr.Resolvers, resolverSet: pr.resolverSet, funcs: pr.Funcs}
-	tp.checkSetRHSStr(expression, "$element", 0)
-
-	refs := tp.componentRefs
-	if function != "" {
-		refs = tp.funcRefs[function]
+	read := pr.readSourceExpression(expression, function)
+	if read.ref != nil {
+		return ReturnSource{Component: read.ref.Component, Methods: read.ref.ChainRest}
 	}
 
-	if len(refs) > 0 {
-		return ReturnSource{Component: refs[0].Component, Methods: refs[0].ChainRest}
-	}
-
-	for i := range tp.pendingCalls {
-		c := &tp.pendingCalls[i]
+	for i := range read.pending {
+		c := &read.pending[i]
 		if c.alias {
 			// A plain name is read by the caller from the refs it names.
 			continue
@@ -984,13 +1141,8 @@ func (pr *ParseResult) collectionValueSource(expression, function string, locals
 			if ref != nil {
 				return ReturnSource{Component: pr.settledComponent(ref), Methods: append([]string{collectionCallHop(c)}, c.rest...)}
 			}
-		} else {
-			for i := range pr.Funcs {
-				f := &pr.Funcs[i]
-				if strings.EqualFold(f.Name, c.funcName) {
-					return ReturnSource{Component: pr.URI.Path(), Methods: append([]string{collectionCallHop(c)}, c.rest...)}
-				}
-			}
+		} else if pr.declaresFunction(c.funcName) {
+			return ReturnSource{Component: pr.URI.Path(), Methods: append([]string{collectionCallHop(c)}, c.rest...)}
 		}
 	}
 
@@ -1170,4 +1322,30 @@ func (pr *ParseResult) hasTagRegion() bool {
 	}
 
 	return false
+}
+
+// isLocalName reports whether locals holds function + "\t" + base lowercased,
+// building the key on the stack: the lookup is asked for most writes in the
+// file on every reparse, and the key it built only to look up was a string
+// each time.
+func isLocalName(locals map[string]bool, function, base string) bool {
+	var buf [128]byte
+
+	if len(function)+1+len(base) > len(buf) {
+		return locals[concatLower(function+"\t", base)]
+	}
+
+	b := append(buf[:0], function...)
+	b = append(b, '\t')
+
+	for i := range len(base) {
+		c := base[i]
+		if c >= utf8.RuneSelf {
+			return locals[concatLower(function+"\t", base)]
+		}
+
+		b = append(b, toLowerByte(c))
+	}
+
+	return locals[string(b)]
 }
