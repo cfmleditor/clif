@@ -37,6 +37,7 @@ type tagParser struct {
 	// outputContext and outputState.
 	gated      bool
 	closeKnown bool
+	chainDepth uint8 // chained assignments being parsed; see maxChainedAssignments
 	output     *outputState
 	// collectionTags are the offsets of the tags the walk met that can hold a
 	// collection write (collectionTagName), for collectWrites.
@@ -1496,7 +1497,7 @@ func (p *tagParser) checkSetRHS(rest, varName string, line int) {
 func (p *tagParser) checkSetRHSStr(rhs, varName string, line int) {
 	rhs = strings.TrimSpace(rhs)
 
-	if chainedSetTarget(rhs) {
+	if p.chainDepth < maxChainedAssignments && chainedSetTarget(rhs) {
 		p.chainedSet(rhs, varName, line)
 
 		return
@@ -1688,7 +1689,9 @@ func (p *tagParser) chainedSet(inner, varName string, line int) {
 	forceGlobal, refThis := p.forceGlobal, p.refThis
 	nGlobal, nLocal, nPending := len(p.componentRefs), len(p.funcRefs[p.inFunc]), len(p.pendingCalls)
 
+	p.chainDepth++
 	p.setAssign(inner, line)
+	p.chainDepth--
 
 	made := refsMadeFor(p.componentRefs, nGlobal, p.funcRefs[p.inFunc], nLocal, varName)
 	p.forceGlobal, p.refThis = forceGlobal, refThis

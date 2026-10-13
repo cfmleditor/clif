@@ -160,3 +160,26 @@ func TestUnclosedFunctionsParseInLinearTime(t *testing.T) {
 
 	assertScalesLinearly(t, "unclosed <cffunction>", small, large)
 }
+
+// `a = a = … = rhs` refiled, for every name, what every name inside it had
+// made, in a recursion as deep as the chain: 20,000 names took 1.1s.
+func TestLongChainedAssignmentsParseInLinearTime(t *testing.T) {
+	cases := map[string]struct {
+		u     uri.URI
+		input func(n int) string
+	}{
+		"script": {testURI, func(n int) string { return "component { function f() { " + strings.Repeat("a=", n) + "new X(); } }" }},
+		"tag":    {uri.File("/tmp/page.cfm"), func(n int) string { return "<cfset " + strings.Repeat("a=", n) + "new X()>" }},
+	}
+
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			const n = 1000
+
+			small := nsToParse(c.u, c.input(n))
+			large := nsToParse(c.u, c.input(n*scalingInputRatio))
+
+			assertScalesLinearly(t, name+" chained assignment", small, large)
+		})
+	}
+}

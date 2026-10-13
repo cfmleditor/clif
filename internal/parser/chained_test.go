@@ -3,6 +3,7 @@ package parser
 import (
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -108,5 +109,31 @@ func TestChainedAssignmentTypesEveryName(t *testing.T) {
 				t.Errorf("refs = %q\nwant   %q", got, tc.want)
 			}
 		})
+	}
+}
+
+// A chain is followed to maxChainedAssignments nested assignments, which
+// types one name more than that, every one of them, in either syntax.
+func TestChainedAssignmentTypesEveryNameUpToTheLimit(t *testing.T) {
+	var (
+		chain strings.Builder
+		want  []string
+	)
+
+	for i := range maxChainedAssignments + 1 {
+		fmt.Fprintf(&chain, "n%d = ", i)
+		want = append(want, fmt.Sprintf("n%d->models.X [global]", i))
+	}
+
+	slices.Sort(want)
+
+	for name, src := range map[string]string{
+		"script": "component {\n " + chain.String() + "new models.X();\n}",
+		"tag":    "<cfset " + chain.String() + "createObject(\"component\", \"models.X\")>",
+	} {
+		got := refsByName(ParseWithOptions(testURI, src, &ParseOptions{}))
+		if !slices.Equal(got, want) {
+			t.Errorf("%s: refs = %q\nwant   %q", name, got, want)
+		}
 	}
 }

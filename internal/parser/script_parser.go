@@ -50,12 +50,13 @@ type scriptParser struct {
 	// was padded to eight bytes, and the struct fell into a larger size class.
 	accessors    bool
 	persistent   bool
-	extractLinks bool // whether to extract document links
-	extractCalls bool // whether to extract all call sites
-	afterLT      bool // previous token was '<' — see looksLikeTagAttrs
-	forceGlobal  bool // when true, addRef routes to componentRefs
-	inClosure    bool // scanning a closure's body as statements — see scanClosureBody
-	refThis      bool // the assignment being parsed is through `this.` — see ComponentRef.This
+	extractLinks bool  // whether to extract document links
+	extractCalls bool  // whether to extract all call sites
+	afterLT      bool  // previous token was '<' — see looksLikeTagAttrs
+	forceGlobal  bool  // when true, addRef routes to componentRefs
+	inClosure    bool  // scanning a closure's body as statements — see scanClosureBody
+	refThis      bool  // the assignment being parsed is through `this.` — see ComponentRef.This
+	chainDepth   uint8 // chained assignments being parsed; see maxChainedAssignments
 
 	// Two four-byte fields share the eight bytes after the flags.
 	argNesting int32  // recursion depth of skipParenBody's scan, bounded by maxArgNesting
@@ -3586,6 +3587,10 @@ func (p *scriptParser) checkAssignRef(tok Token) {
 // `var a = b = new X()` makes a local a and a variables-scope b. Reports
 // whether the right-hand side was one; the scanner has not moved if not.
 func (p *scriptParser) chainedAssign(outer string) bool {
+	if p.chainDepth >= maxChainedAssignments {
+		return false
+	}
+
 	// Decided from the peek and the bytes after it, which leave the peek
 	// cached for the caller: saving and restoring on every assignment was
 	// 4.5% of a script parse, because a restore drops it.
@@ -3617,6 +3622,8 @@ func (p *scriptParser) chainedAssign(outer string) bool {
 	forceGlobal, refThis := p.forceGlobal, p.refThis
 	nGlobal, nLocal, nPending := len(p.componentRefs), len(p.funcRefs[p.inFunc]), len(p.pendingCalls)
 
+	p.chainDepth++
+
 	switch {
 	case scope == ScopeLocal:
 		p.checkAssignRef(tok)
@@ -3625,6 +3632,8 @@ func (p *scriptParser) chainedAssign(outer string) bool {
 	default:
 		p.parseScopedVar(tok, scope)
 	}
+
+	p.chainDepth--
 
 	made := refsMadeFor(p.componentRefs, nGlobal, p.funcRefs[p.inFunc], nLocal, outer)
 	p.forceGlobal, p.refThis = forceGlobal, refThis
