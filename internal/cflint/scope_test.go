@@ -1,6 +1,7 @@
 package cflint
 
 import (
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -100,5 +101,49 @@ func TestWithin(t *testing.T) {
 		if got := Within(filepath.FromSlash(c.path), filepath.FromSlash(c.dir)); got != c.want {
 			t.Errorf("within(%q, %q) = %v, want %v", c.path, c.dir, got, c.want)
 		}
+	}
+}
+
+// TestWriteTargetsRefusesALinkOutOfTheLintedFolder is a committed symlink at the
+// report's name inside a linted folder. The textual test passed it, and the
+// rewrite followed it to whatever it named.
+func TestWriteTargetsRefusesALinkOutOfTheLintedFolder(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	victim := filepath.Join(base, "victim")
+
+	if err := os.MkdirAll(repo, 0o750); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(victim, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	report := filepath.Join(repo, ".clif-cflint.txt")
+	if err := os.Symlink(victim, report); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := WriteTargets([]string{report}, []string{repo}); err == nil {
+		t.Fatal("a report linked out of the linted folder was kept")
+	}
+
+	// A link that stays inside is still a report the project chose to keep there.
+	inside := filepath.Join(repo, "reports", "cflint.txt")
+	if err := os.MkdirAll(filepath.Dir(inside), 0o750); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.Remove(report); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.Symlink(inside, report); err != nil {
+		t.Fatal(err)
+	}
+
+	if got, err := WriteTargets([]string{report}, []string{repo}); err != nil || !slices.Equal(got, []string{report}) {
+		t.Fatalf("got %v, %v; want the report kept", got, err)
 	}
 }

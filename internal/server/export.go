@@ -4,13 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/cfmleditor/clif/internal/cflint"
 	"github.com/cfmleditor/clif/internal/config"
+	"github.com/cfmleditor/clif/internal/confine"
 	cflog "github.com/cfmleditor/clif/internal/log"
 	"github.com/cfmleditor/clif/internal/unresolved"
 )
@@ -31,7 +32,7 @@ type report struct {
 // Like generateCodeMap, it returns the paths at once and works in the
 // background, reporting through window/showMessage.
 func (s *Server) handleExport(kind string) (any, error) {
-	roots, targets, err := s.exportScope(kind)
+	roots, targets, writeRoots, err := s.exportScope(kind)
 	if err != nil {
 		// Zed ignores a command's result, error or not, so say it as well.
 		s.notifyError(context.Background(), "The "+kind+" report was not written: "+err.Error())
@@ -77,9 +78,13 @@ func (s *Server) handleExport(kind string) (any, error) {
 		var written, unlisted []string
 
 		for _, r := range reports {
-			// Not writeReport: the known-issues file is named in the config,
-			// and a project may keep it behind a symlink on purpose.
-			if err := os.WriteFile(r.path, []byte(r.content), reportPerm); err != nil {
+			// Not writeReport, which refuses any symlink at the name: the
+			// known-issues file is named in the config, and a project may keep
+			// it behind a symlink on purpose. confine follows such a link only
+			// while it stays inside writeRoots, so a cloned repository's link to
+			// ~/.zshrc is refused at the moment of writing as well as by
+			// exportScope.
+			if err := confine.WriteFile(r.path, []byte(r.content), reportPerm, writeRoots); err != nil {
 				s.notifyError(ctx, "Could not write "+r.path+": "+err.Error())
 
 				return
@@ -120,10 +125,17 @@ func (s *Server) handleExport(kind string) (any, error) {
 // else's entries. It used to lint every workspace folder: a tassweb window,
 // whose config lists all twelve sibling repos for resolution, linted all
 // twelve and kept only tassweb's findings.
-func (s *Server) exportScope(kind string) (roots, targets []string, err error) {
+//
+// writeRoots is where a report may be written, after symlinks: the folders open
+// in the editor and the config's own directory. Not the configured
+// workspacePaths, since the config that names the report would then be naming
+// where it may go, and a cloned repository's .clif.json could list "/" there
+// and "../../.zshrc" as its report. Every target is checked against them here,
+// so the export refuses before scanning rather than after.
+func (s *Server) exportScope(kind string) (roots, targets, writeRoots []string, err error) {
 	roots = s.searchRoots()
 	if len(roots) == 0 {
-		return nil, nil, errors.New("no workspace root to scan; open a folder first")
+		return nil, nil, nil, errors.New("no workspace root to scan; open a folder first")
 	}
 
 	configDir := roots[0]
@@ -131,25 +143,47 @@ func (s *Server) exportScope(kind string) (roots, targets []string, err error) {
 		configDir = filepath.Dir(p)
 	}
 
+	open := s.editorRoots()
+	writeRoots = confine.Roots(append(slices.Clone(open), configDir)...)
+
 	targets = config.GenerateTargets(s.KnownIssues, kind, configDir)
 	if kind != config.GenerateCFLint {
-		return roots, targets, nil
+		if err := checkTargets(targets, writeRoots); err != nil {
+			return nil, nil, nil, err
+		}
+
+		return roots, targets, writeRoots, nil
 	}
 
-	open := s.editorRoots()
 	if len(open) == 0 {
 		open = []string{configDir}
 	}
 
 	targets, err = cflint.WriteTargets(targets, open)
 	if err != nil {
-		return nil, nil, fmt.Errorf(`%w. Open that folder, or list a report file under %s in knownIssues with "generate": "cflint"`,
+		return nil, nil, nil, fmt.Errorf(`%w. Open that folder, or list a report file under %s in knownIssues with "generate": "cflint"`,
 			err, strings.Join(open, ", "))
+	}
+
+	if err := checkTargets(targets, writeRoots); err != nil {
+		return nil, nil, nil, err
 	}
 
 	roots = cflint.ScanRoots(open, configDir, s.WorkspaceFolders)
 
-	return roots, targets, nil
+	return roots, targets, writeRoots, nil
+}
+
+// checkTargets refuses the export when any report would land, after symlinks,
+// outside writeRoots.
+func checkTargets(targets, writeRoots []string) error {
+	for _, t := range targets {
+		if _, err := confine.Check(t, writeRoots); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // unresolvedReports runs the unresolved scan the CLI runs, with this

@@ -11,6 +11,7 @@ import (
 
 	"github.com/cfmleditor/clif/internal/cflint"
 	"github.com/cfmleditor/clif/internal/codemap/mcp"
+	"github.com/cfmleditor/clif/internal/confine"
 	"github.com/cfmleditor/clif/internal/daemon"
 	"github.com/cfmleditor/clif/internal/refs"
 	"github.com/cfmleditor/clif/internal/unresolved"
@@ -22,14 +23,28 @@ import (
 // paths first: a path that does not exist would otherwise scan nothing and
 // answer "no findings", which reads as a clean bill of health.
 
-// absPaths makes every path absolute and fails on one that does not exist.
-func absPaths(paths []string) ([]string, error) {
+// absPaths makes every path absolute and fails on one that does not exist, or
+// that lies outside root after symlinks.
+//
+// The paths come from whatever is driving the assistant, which reads them out
+// of files, web pages and tool output as well as from the user. Without the
+// check a tool call could scan, lint or quote any file the user can read: an
+// SSH key's first line in an explain_call answer, a home directory's every
+// .cfm in a lint. root is the workspace --root names (see mcpRoot).
+func absPaths(root string, paths []string) ([]string, error) {
 	out := make([]string, 0, len(paths))
+	roots := confine.Roots(root)
 
 	for _, p := range paths {
 		abs, err := filepath.Abs(p)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", p, err)
+		}
+
+		// Confined first, so the error for a path outside does not say
+		// whether it exists.
+		if err := withinRoot(p, abs, roots); err != nil {
+			return nil, err
 		}
 
 		if _, err := os.Stat(abs); err != nil {
@@ -40,6 +55,20 @@ func absPaths(paths []string) ([]string, error) {
 	}
 
 	return out, nil
+}
+
+// withinRoot refuses abs, the path p names, when it resolves outside roots.
+func withinRoot(p, abs string, roots []string) error {
+	resolved, err := confine.Resolve(abs)
+	if err != nil {
+		return fmt.Errorf("%s: %w", p, err)
+	}
+
+	if !confine.Within(resolved, roots) {
+		return fmt.Errorf("%s is outside the workspace root %s; start the server with --root to serve another directory", p, strings.Join(roots, ", "))
+	}
+
+	return nil
 }
 
 func mustGetwd() string {
@@ -65,8 +94,8 @@ type missingBase struct {
 	Calls     int    `json:"calls"`
 }
 
-func mcpUnresolved(paths []string, globalDefs bool, limit int) (any, error) {
-	abs, err := absPaths(paths)
+func mcpUnresolved(root string, paths []string, globalDefs bool, limit int) (any, error) {
+	abs, err := absPaths(root, paths)
 	if err != nil {
 		return nil, err
 	}
@@ -121,8 +150,8 @@ type reference struct {
 	Reason    string `json:"reason,omitempty"`
 }
 
-func mcpFindRefs(target string, paths []string, limit int) (any, error) {
-	abs, err := absPaths(paths)
+func mcpFindRefs(root, target string, paths []string, limit int) (any, error) {
+	abs, err := absPaths(root, paths)
 	if err != nil {
 		return nil, err
 	}
@@ -163,14 +192,14 @@ func mcpFindRefs(target string, paths []string, limit int) (any, error) {
 // since making it downloads CFLint when it is not cached, and a server most
 // sessions never ask to lint should not pay that at startup. Its minimum
 // severity is the config's above the first path of that call.
-func newMCPLinter() mcp.Linter {
+func newMCPLinter(root string) mcp.Linter {
 	var (
 		mu     sync.Mutex
 		runner *cflint.Runner
 	)
 
 	return func(paths []string, limit int) (any, error) {
-		abs, err := absPaths(paths)
+		abs, err := absPaths(root, paths)
 		if err != nil {
 			return nil, err
 		}

@@ -38,22 +38,22 @@ func ReadString(f FS, path string) (string, error) {
 // OS is the native filesystem implementation using the os package.
 type OS struct{}
 
-// ReadFile reads the named file.
+// ReadFile reads the named file, refusing anything ReadRegular refuses.
 func (OS) ReadFile(path string) ([]byte, error) {
-	return os.ReadFile(path) //nolint:gosec // the file-system layer every read goes through; callers choose the path
+	return ReadRegular(path)
 }
 
 // ReadFileString is the named file's text, without the copy string(data)
-// makes: os.ReadFile returns bytes nothing else holds, and nothing writes to
+// makes: ReadRegular returns bytes nothing else holds, and nothing writes to
 // them after this, so they can back the string. That copy was every file's
 // size again on each read of a batch scan (0.4 GB over tassweb).
 func (OS) ReadFileString(path string) (string, error) {
-	data, err := os.ReadFile(path) //nolint:gosec // the file-system layer every read goes through; callers choose the path
+	data, err := ReadRegular(path)
 	if len(data) == 0 {
 		return "", err
 	}
 
-	return unsafe.String(&data[0], len(data)), err //nolint:gosec // audited: data is os.ReadFile's own slice, never written after this
+	return unsafe.String(&data[0], len(data)), err //nolint:gosec // audited: data is ReadRegular's own slice, never written after this
 }
 
 // Stat returns file info for the named path.

@@ -620,6 +620,68 @@ func (f *Formatter) expr(n *sitter.Node) string {
 		return ""
 	}
 
+	if f.overBudget() {
+		return f.text(n)
+	}
+
+	if n.ChildCount() == 0 || len(f.src) == 0 {
+		return f.exprNode(n)
+	}
+
+	key := exprKey{src: &f.src[0], start: n.StartByte(), end: n.EndByte(), kind: n.KindId(), level: f.level, col: f.lineLen}
+	if e, ok := f.exprs[key]; ok {
+		if f.parseErr == nil {
+			f.parseErr = e.err
+		}
+
+		return e.text
+	}
+
+	before := f.parseErr
+	text := f.exprNode(n)
+
+	var err error
+	if before == nil {
+		err = f.parseErr
+	}
+
+	if f.exprs == nil {
+		f.exprs = map[exprKey]exprResult{}
+	}
+
+	f.exprs[key] = exprResult{text: text, err: err}
+
+	return text
+}
+
+// exprKey identifies one rendering of an expression. A rendering is a function
+// of the node, the indent level and the column the line had reached (which a
+// literal reads to decide whether it fits): expressions return text rather than
+// write it, so nothing else they read changes while one is being built. src
+// tells a re-parsed region's source apart from the document's, and kind a node
+// from a child spanning the same bytes.
+//
+// The cache is what keeps nesting polynomial. An argument list, a struct or an
+// array that goes multi-line renders its entries twice (once to measure the
+// inline form, once a level deeper to lay them out) and a pair renders its
+// value twice, so each level of nesting doubled the work: a 160-byte file of
+// calls nested 52 deep took 38 seconds, and format-on-save started another
+// such job on every save. closureKey was the same fix for closure bodies alone.
+type exprKey struct {
+	src        *byte
+	start, end uint
+	kind       uint16
+	level, col int
+}
+
+// exprResult is a cached rendering and the parse error it recorded, which a
+// later use of it records in turn, as rendering the node again would.
+type exprResult struct {
+	text string
+	err  error
+}
+
+func (f *Formatter) exprNode(n *sitter.Node) string {
 	switch n.Kind() {
 	// ── literals ──────────────────────────────────────────────────────────
 	case "identifier", "property_identifier", "shorthand_property_identifier",

@@ -25,6 +25,9 @@ type Cache struct{}
 // Open always fails on wasip1.
 func Open(string) (*Store, error) { return nil, errUnsupported }
 
+// OpenReadOnly always fails.
+func OpenReadOnly(string) (*Store, error) { return nil, errUnsupported }
+
 // Close is a no-op.
 func (*Store) Close() error { return nil }
 
