@@ -14,10 +14,7 @@ import (
 	"github.com/cfmleditor/clif/internal/codemap/store"
 	"github.com/cfmleditor/clif/internal/config"
 	"github.com/cfmleditor/clif/internal/daemon"
-	"github.com/cfmleditor/clif/internal/frameworkapi"
 	"github.com/cfmleditor/clif/internal/index"
-	"github.com/cfmleditor/clif/internal/parser"
-	cfpath "github.com/cfmleditor/clif/internal/path"
 	"github.com/cfmleditor/clif/internal/resolve"
 	"github.com/cfmleditor/clif/internal/vfs"
 )
@@ -467,30 +464,10 @@ func writeGraph(m *codemap.Map, f *graphFlags) error {
 func routeWorkspace(fsys vfs.FS, root string, f *graphFlags) (scanRoots []string, fallback codemap.FileConfig, shared *index.Index, settings config.CodeMap) {
 	cfg, _ := daemon.FindConfig(root)
 
-	var (
-		resolvers                []parser.Resolver
-		mappings                 map[string]string
-		startupFiles             []string
-		expressionMappings       map[string]string
-		servicePropertyResolvers map[string]string
-		propertyResolvers        []parser.PropertyResolver
-		beanPaths                map[string]string
-		workspaceFolders         []string
-	)
+	var workspaceFolders []string
 
 	if cfg != nil {
 		workspaceFolders = cfg.WorkspaceFolders()
-		mappings = cfg.Mappings()
-		startupFiles = cfg.StartupFiles()
-		expressionMappings = cfg.ExpressionMappings()
-		servicePropertyResolvers = cfg.ServicePropertyResolvers()
-		propertyResolvers = configPropertyResolvers(cfg)
-		beanPaths = cfg.BeanPaths()
-
-		for _, r := range cfg.ComponentResolvers() {
-			resolvers = append(resolvers, r.Parser())
-		}
-
 		settings = cfg.CodeMap()
 
 		if !f.quiet {
@@ -514,48 +491,33 @@ func routeWorkspace(fsys vfs.FS, root string, f *graphFlags) (scanRoots []string
 	// a property of the workspace, not of whose resolvers you read them under.
 	shared = index.New()
 
-	var (
-		implicitExtends func(string) string
-		helperScope     func(string) bool
-		stubs           *frameworkapi.Set
-	)
-	if cfg != nil {
-		implicitExtends = config.ImplicitExtends(cfg.Frameworks())
-		helperScope = config.HelperScope(cfg.Frameworks())
-		stubs = frameworkapi.For(cfg.Frameworks())
+	// The same settings, and the same builder, as `unresolved`: a map that
+	// resolved a different set of calls from the report it is compared with is
+	// not a map of the same code. Without a config this includes the framework
+	// the project is assumed to be.
+	bs, assumed := batchSettings(fsys, cfg, workspaceFolders)
+	if len(assumed) > 0 && !f.quiet {
+		fmt.Fprintf(os.Stderr, "Assuming framework context from project source: %s (override with .clif.json)\n", strings.Join(assumed, ", "))
 	}
 
-	resolver := &resolve.Resolver{
-		FS:                 fsys,
-		Index:              shared,
-		Resolvers:          resolvers,
-		Mappings:           mappings,
-		StartupFiles:       startupFiles,
-		ExpressionMappings: expressionMappings,
-		WorkspaceFolders:   workspaceFolders,
-		ImplicitExtends:    implicitExtends,
-		HelperScope:        helperScope,
-		Stubs:              stubs,
-	}
+	resolver := resolve.NewBatchResolver(fsys, shared, &bs)
 
 	// The bean map is the root config's, with each scanned root's
 	// Application.cfc beanPaths, as the editor builds it. One map serves
 	// every config, as one index does.
-	appDirs := make([]string, 0, len(scanRoots))
-	for _, r := range scanRoots {
-		appDirs = append(appDirs, resolver.FindApplicationRoot(r))
-	}
+	resolver.LoadBeans(bs.BeanPaths)
 
-	if all := cfpath.BeanPathsFor(beanPaths, appDirs); len(all) > 0 {
-		shared.SetBeans(cfpath.BuildBeanMap(all, fsys))
+	var servicePropertyResolvers map[string]string
+	if cfg != nil {
+		servicePropertyResolvers = cfg.ServicePropertyResolvers()
 	}
 
 	fallback = codemap.FileConfig{
 		Resolver:                 resolver,
-		Resolvers:                resolvers,
-		ExpressionMappings:       expressionMappings,
+		Resolvers:                resolver.Resolvers,
+		ExpressionMappings:       bs.ExpressionMappings,
 		ServicePropertyResolvers: servicePropertyResolvers,
-		PropertyResolvers:        propertyResolvers,
+		PropertyResolvers:        bs.PropertyResolvers,
 		BeanLookup:               shared.LookupBean,
 	}
 

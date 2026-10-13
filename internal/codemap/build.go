@@ -238,11 +238,12 @@ func Build(opts *Options) *Map {
 		opts.ConfigFor = func(string) FileConfig { return single }
 	}
 
-	fingerprint := indexPass(opts)
-
+	// Before the index pass: indexing a file is what fills the caller index.
 	if opts.InferArgs {
 		defer inferArgsFrom(opts)()
 	}
+
+	fingerprint := indexPass(opts)
 
 	m := &Map{Root: root, Level: LevelFunction, Fingerprint: fingerprint}
 	c := newCollector(m)
@@ -348,7 +349,10 @@ func indexPass(opts *Options) string {
 			continue
 		}
 
-		opts.Resolver.Index.IndexFile(cfpath.ToURI(f), string(data))
+		// The scan's own indexing, so a return type is inferred with the
+		// resolver's rules and an injected property is typed as `unresolved`
+		// types it; IndexFile alone parsed with none of them.
+		opts.Resolver.IndexForBatch(f, string(data), opts.PropertyResolvers)
 
 		sum := sha256.Sum256(data)
 		// hash.Hash.Write never returns an error, which is why Fprintf to one
@@ -370,8 +374,9 @@ func indexPass(opts *Options) string {
 			continue
 		}
 
+		opts.Resolver.IndexForBatch(f, string(data), opts.PropertyResolvers)
+
 		includes := parser.ExtractIncludes(string(data))
-		opts.Resolver.Index.SetIncludes(cfpath.ToURI(f), includes)
 
 		// A page can be the caller that decides an argument's type.
 		if opts.InferArgs {
@@ -458,21 +463,21 @@ func scanFile(opts *Options, root, file, fingerprint string) *FileGraph {
 	isCFC := cfpath.IsCFCFile(file)
 	cfg := opts.ConfigFor(file)
 
-	funcLookup := cfg.Resolver.FuncLookup(baseDir)
-
-	pr := parser.ParseWithOptions(fileURI, content, &parser.ParseOptions{
-		Resolvers:                cfg.Resolvers,
+	po := cfg.Resolver.BatchParseOptions(file, &resolve.ParseInputs{
 		ExpressionMappings:       cfg.ExpressionMappings,
 		ServicePropertyResolvers: cfg.ServicePropertyResolvers,
 		PropertyResolvers:        cfg.PropertyResolvers,
-		BeanLookup:               cfg.BeanLookup,
-		ExtractCalls:             true,
-		ScanAllScopes:            true,
-		ExtractLinks:             true,
 		InterpolateAllText:       cfg.InterpolateAllText,
-		FuncLookup:               funcLookup,
-		BuiltinReturnLookup:      cfg.Resolver.BuiltinReturnLookupFor(file),
 	})
+	po.ExtractLinks = true
+
+	// A caller-built environment may name resolvers apart from the resolver's own.
+	if cfg.Resolvers != nil {
+		po.Resolvers = cfg.Resolvers
+	}
+
+	funcLookup := po.FuncLookup
+	pr := parser.ParseWithOptions(fileURI, content, po)
 	pr.FuncLookup = funcLookup
 
 	base := filepath.Base(file)

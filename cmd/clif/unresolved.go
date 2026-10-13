@@ -12,7 +12,6 @@ import (
 	"github.com/cfmleditor/clif/internal/config"
 	"github.com/cfmleditor/clif/internal/confine"
 	"github.com/cfmleditor/clif/internal/daemon"
-	"github.com/cfmleditor/clif/internal/frameworkapi"
 	cfpath "github.com/cfmleditor/clif/internal/path"
 	"github.com/cfmleditor/clif/internal/unresolved"
 	"github.com/cfmleditor/clif/internal/vfs"
@@ -286,26 +285,25 @@ func unresolvedOptions(cfg *daemon.Config, args []string, fl *unresolvedFlags) *
 		opt.Verbose = os.Stderr
 	}
 
+	settings, assumed := batchSettings(vfs.OS{}, cfg, opt.WorkspaceFolders)
+	opt.CallerInferenceLimits = settings.CallerInferenceLimits
+	opt.Resolvers = settings.Resolvers
+	opt.Mappings = settings.Mappings
+	opt.StartupFiles = settings.StartupFiles
+	opt.ExpressionMappings = settings.ExpressionMappings
+	opt.BeanPaths = settings.BeanPaths
+	opt.PropertyResolvers = settings.PropertyResolvers
+	opt.ImplicitExtends = settings.ImplicitExtends
+	opt.HelperScope = settings.HelperScope
+	opt.Stubs = settings.Stubs
+
 	if cfg != nil {
-		opt.CallerInferenceLimits = cfg.CallerInferenceLimits()
-		opt.Mappings = cfg.Mappings()
-		opt.StartupFiles = cfg.StartupFiles()
-		opt.ExpressionMappings = cfg.ExpressionMappings()
 		opt.ServicePropertyResolvers = cfg.ServicePropertyResolvers()
-		opt.BeanPaths = cfg.BeanPaths()
-		opt.PropertyResolvers = configPropertyResolvers(cfg)
-		opt.ImplicitExtends = config.ImplicitExtends(cfg.Frameworks())
-		opt.HelperScope = config.HelperScope(cfg.Frameworks())
-		opt.Stubs = frameworkapi.For(cfg.Frameworks())
 		opt.InterpolateAll = !cfg.ResolvedFeatures().OutputContextInterpolation
 
 		if unknown := config.UnknownFrameworks(cfg.Frameworks()); len(unknown) > 0 {
 			fmt.Fprintf(os.Stderr, "frameworks: no preset named %s (known: %s)\n",
 				strings.Join(unknown, ", "), strings.Join(config.KnownFrameworks(), ", "))
-		}
-
-		for _, r := range cfg.ComponentResolvers() {
-			opt.Resolvers = append(opt.Resolvers, r.Parser())
 		}
 
 		fmt.Fprintf(os.Stderr, "Using config: %s\n", cfg.Path)
@@ -318,15 +316,6 @@ func unresolvedOptions(cfg *daemon.Config, args []string, fl *unresolvedFlags) *
 		os.Exit(1)
 	}
 
-	assumed := config.AssumedFrameworks(opt.WorkspaceFolders, vfs.OS{}.ReadFile, vfs.OS{}.ReadDir)
-	for _, rule := range config.FrameworkResolvers(assumed) {
-		opt.Resolvers = append(opt.Resolvers, rule.Parser())
-	}
-
-	opt.ImplicitExtends = config.ImplicitExtends(assumed)
-	opt.HelperScope = config.HelperScope(assumed)
-
-	opt.Stubs = frameworkapi.For(assumed)
 	if len(assumed) > 0 {
 		fmt.Fprintf(os.Stderr, "Assuming framework context from project source: %s (override with .clif.json)\n", strings.Join(assumed, ", "))
 	}
