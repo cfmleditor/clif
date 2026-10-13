@@ -37,7 +37,7 @@ type tagParser struct {
 	// outputContext and outputState.
 	gated      bool
 	closeKnown bool
-	gtKnown    bool  // lastGT holds the offset of p.src's last '>'
+	endsReady  bool  // ends is built over p.src
 	chainDepth uint8 // chained assignments being parsed; see maxChainedAssignments
 	output     *outputState
 	// collectionTags are the offsets of the tags the walk met that can hold a
@@ -46,7 +46,7 @@ type tagParser struct {
 	// closeAt is where the first </cffunction> at or after offset closeFrom
 	// is, -1 for none, once closeKnown; see functionCloseAfter.
 	closeFrom, closeAt  int
-	lastGT              int
+	ends                tagEnds
 	importPrefixes      []string
 	srcOffset           int
 	builtinReturnLookup func(string) string
@@ -164,20 +164,6 @@ func tagEndIndex(s string) int {
 	}
 
 	return tagEndWalk(s)
-}
-
-// tagEndFrom is tagEndIndex(s[from:]) for a walk that asks it at many offsets
-// of s, where lastGT is strings.LastIndexByte(s, '>'), found once by the walk.
-// Past it there is no '>' and so no end to find, and asking tagEndIndex
-// anyway scans to the end of s for nothing: a walk that steps one byte past a
-// tag it cannot end and asks again was quadratic on a file of unterminated
-// tags, "<cf" repeated to 1.5MB taking 5.9s.
-func tagEndFrom(s string, from, lastGT int) int {
-	if from > lastGT {
-		return -1
-	}
-
-	return tagEndIndex(s[from:])
 }
 
 // tagEndWithComments is the '>' closing a tag whose attribute list holds
@@ -618,7 +604,7 @@ func (p *tagParser) handleCFTag(idx int) int {
 		return p.stepOverEvaluatedTag(idx)
 	}
 
-	tagEnd := tagEndFrom(p.src, idx, p.lastTagEnd())
+	tagEnd := p.tagEnds().at(idx)
 	if tagEnd < 0 {
 		return idx + 1
 	}
@@ -729,7 +715,7 @@ func (p *tagParser) nextTag(pos int) int {
 // trackOutput moves the output state past the tag at idx, when gated.
 func (p *tagParser) trackOutput(idx int) {
 	if p.gated {
-		p.output.track(p.src, idx, p.lastTagEnd())
+		p.output.track(p.tagEnds(), idx)
 	}
 }
 
@@ -751,7 +737,7 @@ func (p *tagParser) stepOverEvaluatedTag(idx int) int {
 		return idx + 1
 	}
 
-	end := tagEndFrom(p.src, idx, p.lastTagEnd())
+	end := p.tagEnds().at(idx)
 	if end < 0 {
 		return idx + 1
 	}
@@ -815,13 +801,13 @@ func (p *tagParser) markVarLocal(name string) {
 	p.localVars = append(p.localVars, name)
 }
 
-// lastTagEnd is the offset of p.src's last '>', -1 for none, for tagEndFrom.
-func (p *tagParser) lastTagEnd() int {
-	if !p.gtKnown {
-		p.lastGT, p.gtKnown = strings.LastIndexByte(p.src, '>'), true
+// tagEnds is the tag-end search over p.src, built on first use; see tagEnds.
+func (p *tagParser) tagEnds() *tagEnds {
+	if !p.endsReady {
+		p.ends, p.endsReady = newTagEnds(p.src), true
 	}
 
-	return p.lastGT
+	return &p.ends
 }
 
 // functionCloseAfter is the offset from from of the first </cffunction> at or
@@ -989,6 +975,7 @@ func (p *tagParser) parseCFArguments(block string, blockStart int) []Argument {
 	// Most functions take a few arguments, and a nil slice reaching four costs
 	// three copies to get there.
 	args := make([]Argument, 0, 4)
+	ends := newTagEnds(block)
 
 	pos := 0
 
@@ -1000,7 +987,7 @@ func (p *tagParser) parseCFArguments(block string, blockStart int) []Argument {
 
 		idx += pos
 
-		end := tagEndIndex(block[idx:])
+		end := ends.at(idx)
 		if end < 0 {
 			break
 		}
@@ -2624,22 +2611,7 @@ func (p *tagParser) mergeExpressionCalls(expr string, line int, topUp bool, offs
 	have := map[exprCallKey]int{}
 
 	if topUp {
-		cs := p.callsOnLine(conv.Uint32(line))
-		if len(offsets) > 1 {
-			bucket := p.calls
-			if p.inFunc != "" {
-				bucket = p.funcCalls[p.inFunc]
-			}
-
-			cs = slices.Clone(bucket[offsets[1]:])
-			for i := range offsets[1] {
-				call := &bucket[i]
-				if call.HasSpan && int(call.StartByte) >= p.srcOffset+offsets[0] && int(call.EndByte) <= p.srcOffset+offsets[0]+len(expr) {
-					cs = append(cs, *call)
-				}
-			}
-		}
-
+		cs := p.recordedForExpression(expr, line, offsets)
 		for i := range cs {
 			c := &cs[i]
 
@@ -2681,6 +2653,48 @@ func (p *tagParser) mergeExpressionCalls(expr string, line int, topUp bool, offs
 			emit(*c)
 		}
 	}
+}
+
+// recordedForExpression is the calls already recorded for the expression a
+// <cfset> top-up is about to parse: the string paths' calls on its line, or,
+// with offsets naming where the expression sits and how many calls the
+// bucket held before them, those calls and the earlier ones inside its span.
+func (p *tagParser) recordedForExpression(expr string, line int, offsets []int) []CallSite {
+	if len(offsets) <= 1 {
+		return p.callsOnLine(conv.Uint32(line))
+	}
+
+	bucket := p.calls
+	if p.inFunc != "" {
+		bucket = p.funcCalls[p.inFunc]
+	}
+
+	cs := slices.Clone(bucket[offsets[1]:])
+
+	// The calls recorded before the string paths ran that lie inside this
+	// expression were recorded for this tag, so they are the last ones in
+	// the bucket: the walk reaches tags in order. The search runs back from
+	// there and stops at the first call that starts before the expression,
+	// rather than reading every call the function has made so far for every
+	// <cfset>, which was quadratic in a function's tags: 24,000 took 0.4s.
+	exprStart, exprEnd := p.srcOffset+offsets[0], p.srcOffset+offsets[0]+len(expr)
+
+	for i := offsets[1] - 1; i >= 0; i-- {
+		call := &bucket[i]
+		if !call.HasSpan {
+			continue
+		}
+
+		if int(call.StartByte) < exprStart {
+			break
+		}
+
+		if int(call.EndByte) <= exprEnd {
+			cs = append(cs, *call)
+		}
+	}
+
+	return cs
 }
 
 // mergeExpressionMemberSets records a member assignment held by <cfset>.

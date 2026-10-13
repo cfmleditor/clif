@@ -31,6 +31,8 @@ const maxTagSearch = 64
 func tagStructure(content string, script [][2]int, idx []int32, spans []Span) []Span {
 	var stack []tagFrame
 
+	ends := newTagEnds(content)
+
 	for pos := 0; pos < len(content); {
 		if len(script) > 0 && pos >= script[0][0] {
 			pos = max(pos, script[0][1])
@@ -76,7 +78,7 @@ func tagStructure(content string, script [][2]int, idx []int32, spans []Span) []
 				continue
 			}
 
-			pos = tagEnd(content, lt+2+len(name))
+			pos = tagEnd(&ends, lt+2+len(name))
 			stack = closeTag(stack, name, lineAtOffset(idx, lt), lineAtOffset(idx, lastContent(content, lt)), &spans)
 		default:
 			name := tagName(rest[1:])
@@ -86,7 +88,7 @@ func tagStructure(content string, script [][2]int, idx []int32, spans []Span) []
 				continue
 			}
 
-			gt := tagEnd(content, lt+1+len(name))
+			gt := tagEnd(&ends, lt+1+len(name))
 			pos = gt
 			line := lineAtOffset(idx, lt)
 
@@ -151,8 +153,17 @@ func isTagNamePart(c byte) bool {
 // it stands, so the walk reads what it opens: `<input <cfif a>checked</cfif>>`
 // puts a CF tag inside an HTML one, and swallowing it left the `</cfif>`
 // unpaired.
-func tagEnd(content string, from int) int {
-	gt := tagEndIndex(content[from:])
+//
+// A tag name running to the end of content (`<a`, `<cf`) has no attributes
+// at all, and from is then len(content): the arithmetic below made that a
+// negative length and the slice of it panicked.
+func tagEnd(ends *tagEnds, from int) int {
+	content := ends.s
+	if from >= len(content) {
+		return len(content)
+	}
+
+	gt := ends.at(from)
 	if gt < 0 {
 		gt = len(content) - from - 1
 	}

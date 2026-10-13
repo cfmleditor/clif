@@ -617,6 +617,8 @@ type scriptSkipSpan struct {
 func findScriptSkipSpans(content string) []scriptSkipSpan {
 	var spans []scriptSkipSpan
 
+	ends := newTagEnds(content)
+
 	pos := 0
 
 	for pos < len(content) {
@@ -664,7 +666,7 @@ func findScriptSkipSpans(content string) []scriptSkipSpan {
 			continue
 		}
 
-		gt := tagEndIndex(content[i:])
+		gt := ends.at(i)
 		if gt < 0 {
 			break
 		}
