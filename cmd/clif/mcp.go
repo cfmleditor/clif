@@ -296,7 +296,7 @@ func explainAt(resolver *resolve.Resolver, cfg explainConfig, file string, line 
 		return "", fmt.Errorf("resolving %s: %w", file, err)
 	}
 
-	data, err := os.ReadFile(abs)
+	data, err := vfs.ReadRegular(abs)
 	if err != nil {
 		return "", fmt.Errorf("reading %s: %w", file, err)
 	}

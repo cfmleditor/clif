@@ -55,19 +55,7 @@ func (f *Formatter) formatCFQuery(n *sitter.Node) {
 		if c.Kind() == "cf_query_content" {
 			querySrc := f.src[c.StartByte():c.EndByte()]
 			if f.opts.QueryFormat && f.opts.ParseQuery != nil {
-				tree := f.opts.ParseQuery(querySrc)
-				if tree != nil {
-					if tree.RootNode().HasError() {
-						f.recordParseError("cfquery", tree.RootNode(), querySrc, c.StartPosition().Row)
-					}
-
-					origSrc := f.src
-					f.src = querySrc
-					f.formatQueryChildren(tree.RootNode())
-					f.src = origSrc
-
-					tree.Close()
-				}
+				f.formatQueryContent(c, querySrc)
 			} else {
 				// Emit verbatim, trimmed
 				trimmed := strings.TrimSpace(string(querySrc))
@@ -1152,4 +1140,27 @@ func (f *Formatter) queryNodeHasTag(n *sitter.Node) bool {
 	}
 
 	return false
+}
+
+// formatQueryContent lays out a query body parsed with the query grammar.
+func (f *Formatter) formatQueryContent(c *sitter.Node, querySrc []byte) {
+	tree := f.opts.ParseQuery(querySrc)
+	if tree == nil {
+		return
+	}
+
+	defer tree.Close()
+
+	if tree.RootNode().HasError() {
+		f.recordParseError("cfquery", tree.RootNode(), querySrc, c.StartPosition().Row)
+	}
+
+	if f.treeTooDeep("cfquery", tree.RootNode()) {
+		return
+	}
+
+	origSrc := f.src
+	f.src = querySrc
+	f.formatQueryChildren(tree.RootNode())
+	f.src = origSrc
 }

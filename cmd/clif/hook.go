@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cfmleditor/clif/internal/vfs"
+
 	cflog "github.com/cfmleditor/clif/internal/log"
 )
 
@@ -235,7 +237,7 @@ func hookInstall(args []string) {
 	for name := range hooks {
 		path := filepath.Join(dir, name)
 
-		data, err := os.ReadFile(path)
+		data, err := vfs.ReadRegular(path)
 		if err == nil && !bytes.Contains(data, []byte(hookMarker)) && !fl.force {
 			cflintFailf("%s exists and clif did not write it. Add a line running\n  clif hook run %s\nto it, or replace it with --force.\n", path, name)
 		}
@@ -295,7 +297,7 @@ func hookUninstall(args []string) {
 	for _, name := range []string{"pre-commit", "post-commit"} {
 		path := filepath.Join(dir, name)
 
-		data, err := os.ReadFile(path)
+		data, err := vfs.ReadRegular(path)
 		if err != nil || !bytes.Contains(data, []byte(hookMarker)) {
 			continue
 		}
@@ -341,7 +343,7 @@ func hookCheck(args []string) {
 		hooksDir = filepath.Join(repo, hooksDir)
 	}
 
-	hook, err := os.ReadFile(filepath.Join(hooksDir, "pre-commit"))
+	hook, err := vfs.ReadRegular(filepath.Join(hooksDir, "pre-commit"))
 	if err == nil && runsClif(hook) {
 		fmt.Printf("ok: the pre-commit hook runs clif (%s)\n", filepath.Join(hooksDir, "pre-commit"))
 
@@ -351,7 +353,7 @@ func hookCheck(args []string) {
 	// A hook manager's committed config naming clif's hook counts once the
 	// manager's own pre-commit hook is installed.
 	for _, name := range []string{".pre-commit-config.yaml", "prek.toml"} {
-		cfg, err := os.ReadFile(filepath.Join(repo, name))
+		cfg, err := vfs.ReadRegular(filepath.Join(repo, name))
 		if err == nil && runsClif(cfg) && hook != nil {
 			fmt.Printf("ok: %s runs clif's hook\n", name)
 
@@ -573,7 +575,7 @@ func hookPostCommit(args []string) {
 // fillCommitLog rewrites the last line for repo still holding the hash
 // placeholder, replacing the file whole so a reader never sees half of it.
 func fillCommitLog(path, repoName, hash, subject string) error {
-	data, err := os.ReadFile(path)
+	data, err := vfs.ReadRegular(path)
 	if err != nil {
 		return err
 	}

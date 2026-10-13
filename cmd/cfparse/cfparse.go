@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cfmleditor/clif/internal/vfs"
+
 	"github.com/cfmleditor/clif/internal/parser"
 	"go.lsp.dev/uri"
 )
@@ -86,7 +88,7 @@ func runBenchmark(files []string, out, errOut io.Writer) benchStats {
 	var stats benchStats
 
 	for _, f := range files {
-		content, err := os.ReadFile(f)
+		content, err := vfs.ReadRegular(f)
 		if err != nil {
 			_, _ = fmt.Fprintf(errOut, "  skip %s: %v\n", f, err)
 

@@ -11,6 +11,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/cfmleditor/clif/internal/vfs"
+
 	"github.com/cfmleditor/clif/internal/knownissues"
 )
 
@@ -38,7 +40,7 @@ func CountSuppressions(files []string) (*Suppressions, error) {
 	s := &Suppressions{Rules: map[string]int{}}
 
 	for _, f := range files {
-		data, err := os.ReadFile(f) //nolint:gosec // a source file being counted
+		data, err := vfs.ReadRegular(f)
 		if err != nil {
 			return nil, err
 		}
@@ -93,7 +95,7 @@ func (s *Suppressions) ByCount() []RuleCount {
 
 // ReadSuppressionBaseline reads a baseline WriteSuppressionBaseline wrote.
 func ReadSuppressionBaseline(path string) (*Suppressions, error) {
-	data, err := os.ReadFile(path) //nolint:gosec // the baseline file the caller named
+	data, err := vfs.ReadRegular(path)
 	if err != nil {
 		return nil, err
 	}
