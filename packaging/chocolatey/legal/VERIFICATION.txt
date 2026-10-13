@@ -1,0 +1,29 @@
+VERIFICATION
+Verification is intended to assist the Chocolatey moderators and community
+in verifying that this package's contents are trustworthy.
+
+This package embeds clif.exe from the official clif release on GitHub, built
+by the release workflow of https://github.com/cfmleditor/clif from the tagged
+source. It is the clif.exe inside the release's Windows archive, unchanged.
+
+To verify it:
+
+1. Download the release's Windows archive:
+
+     __URL__
+
+2. Check the archive's SHA-256. It is also listed in the release's
+   checksums.txt asset:
+
+     Get-FileHash clif-windows-amd64.zip -Algorithm SHA256
+
+     __ZIP_CHECKSUM__
+
+3. Extract clif.exe from the archive and compare its SHA-256 with the
+   clif.exe in this package's tools folder:
+
+     Get-FileHash clif.exe -Algorithm SHA256
+
+     __EXE_CHECKSUM__
+
+The release page is https://github.com/cfmleditor/clif/releases/tag/v__VERSION__

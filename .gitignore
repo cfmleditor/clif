@@ -58,3 +58,7 @@ codemap.html
 *-codemap.html
 .cfmleditor/
 .clif/
+
+# Put into the Chocolatey package by the release workflow, never committed.
+packaging/chocolatey/tools/clif.exe
+packaging/chocolatey/legal/LICENSE.txt
