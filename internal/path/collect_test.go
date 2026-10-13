@@ -97,3 +97,17 @@ func TestCollectCFMLSkipsAnUnstattableRoot(t *testing.T) {
 		t.Errorf("CollectCFML = %v, want just a.cfc from the root that exists", got)
 	}
 }
+
+// TestCollectCFCKeepsComponentsOnly: the editor's index holds components alone,
+// by the same skip rule as every other scan.
+func TestCollectCFCKeepsComponentsOnly(t *testing.T) {
+	root := t.TempDir()
+	writeTree(t, root, "a.cfc", "page.cfm", "m/b.CFC", ".git/c.cfc", "node_modules/d.cfc")
+
+	got := names(root, CollectCFC(vfs.OS{}, []string{root}))
+	want := []string{"a.cfc", "m/b.CFC"}
+
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}

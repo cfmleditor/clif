@@ -251,7 +251,7 @@ func cmdParse(args []string) {
 		}
 
 		if info.IsDir() {
-			files = append(files, cfmlFilesUnder(arg)...)
+			files = append(files, cfpath.CollectCFML(vfs.OS{}, []string{arg})...)
 		} else {
 			files = append(files, arg)
 		}

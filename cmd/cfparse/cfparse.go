@@ -5,13 +5,11 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
-	"strings"
 	"time"
 
-	"github.com/cfmleditor/clif/internal/vfs"
-
 	"github.com/cfmleditor/clif/internal/parser"
+	cfpath "github.com/cfmleditor/clif/internal/path"
+	"github.com/cfmleditor/clif/internal/vfs"
 	"go.lsp.dev/uri"
 )
 
@@ -59,15 +57,7 @@ func collectFiles(targets []string) ([]string, error) {
 			continue
 		}
 
-		// An unreadable entry is skipped rather than ending the walk, so the
-		// callback returns no error and Walk has none to report.
-		_ = filepath.Walk(target, func(path string, _ os.FileInfo, err error) error {
-			if err == nil && hasCFMLExt(path) {
-				files = append(files, path)
-			}
-
-			return nil
-		})
+		files = append(files, cfpath.CollectCFML(vfs.OS{}, []string{target})...)
 	}
 
 	return files, nil
@@ -120,14 +110,4 @@ func printSummary(out io.Writer, stats benchStats) {
 
 	_, _ = fmt.Fprintf(out, "\n  total: %d files, %d funcs, %d refs in %v (avg %v/file)\n",
 		stats.Files, stats.Funcs, stats.Refs, stats.Dur, avg)
-}
-
-// hasCFMLExt reports whether path names a file cfparse reads.
-func hasCFMLExt(path string) bool {
-	switch strings.ToLower(filepath.Ext(path)) {
-	case ".cfc", ".cfm", ".cfml", ".cfs":
-		return true
-	}
-
-	return false
 }

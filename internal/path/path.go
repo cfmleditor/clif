@@ -780,6 +780,18 @@ func SkipScanDir(name string) bool {
 // error would silently scan a fraction of the workspace and report it as the
 // whole thing.
 func CollectCFML(fsys vfs.FS, roots []string) []string {
+	return Collect(fsys, roots, IsCFMLFile)
+}
+
+// CollectCFC is [CollectCFML] for components alone, which is what the editor's
+// index holds.
+func CollectCFC(fsys vfs.FS, roots []string) []string {
+	return Collect(fsys, roots, IsCFCFile)
+}
+
+// Collect is the walk behind both: the files under roots that keep accepts,
+// outside the directories [SkipScanDir] names.
+func Collect(fsys vfs.FS, roots []string, keep func(path string) bool) []string {
 	var files []string
 
 	for _, root := range roots {
@@ -792,7 +804,7 @@ func CollectCFML(fsys vfs.FS, roots []string) []string {
 			switch {
 			case readable && info.IsDir() && path != root && SkipScanDir(info.Name()):
 				return filepath.SkipDir
-			case readable && !info.IsDir() && IsCFMLFile(path):
+			case readable && !info.IsDir() && keep(path):
 				files = append(files, path)
 			}
 
