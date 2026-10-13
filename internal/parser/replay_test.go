@@ -66,3 +66,40 @@ func TestTheCollectionPassRunsOnlyWhereItCanAnswer(t *testing.T) {
 		}
 	}
 }
+
+// TestAParseWithoutCallsStillFindsEveryTag: the output-context gate decides
+// how the tag walk finds the next tag, not only which text is scanned for
+// calls. A parse without call extraction ran ungated, paired the `#` in a
+// <script> body with one in a later tag's attribute, and stepped over the
+// <cffunction> between them (Lucee's debug template lost doMore that way).
+// The editor parses without calls, so it would have lost the function too.
+func TestAParseWithoutCallsStillFindsEveryTag(t *testing.T) {
+	src := `<cfcomponent>
+<cffunction name="output" returntype="void">
+	<script>
+		<cfif !structKeyExists(Cookie, variables.cookieName)>
+			var luceeStyle = document.createElement("style");
+			luceeStyle.type = 'text/css';
+			luceeStyle.innerHTML = "#-lucee-debug .collapsed { display: none; }";
+			document.getElementById("-lucee-debug").prepend(luceeStyle);
+		</cfif>
+	</script>
+</cffunction>
+<cffunction name="doMore" returntype="void">
+	<cfargument name="custom" type="struct" required="#true#">
+</cffunction>
+</cfcomponent>`
+
+	for _, calls := range []bool{true, false} {
+		pr := ParseWithOptions(testURI, src, &ParseOptions{ExtractCalls: calls})
+
+		found := false
+		for i := range pr.Funcs {
+			found = found || pr.Funcs[i].Name == "doMore"
+		}
+
+		if !found {
+			t.Errorf("ExtractCalls %v: doMore not found", calls)
+		}
+	}
+}

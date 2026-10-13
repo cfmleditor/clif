@@ -184,9 +184,16 @@ func (pr *ParseResult) IsSoftComponent(comp string) bool {
 }
 
 // outputGate returns the output state the file's tag regions share, its
-// cfimport prefixes, computed once, and whether text scanning is gated at all.
+// cfimport prefixes, computed once, and whether the walk is gated at all.
+//
+// The gate is not only about calls. Outside an output context the walk finds
+// the next tag with a plain search, where inside one it steps over a #...#
+// span; ungated, a `#` in a <script> body pairs with one far below and the
+// walk steps over real tags between them. A parse without call extraction
+// lost Lucee's <cffunction name="doMore"> that way. Tracking the contexts is
+// part of the walk now and costs next to nothing, so every parse gates.
 func (pr *ParseResult) outputGate() (state *outputState, prefixes []string, gated bool) {
-	if pr.interpolateAll || !pr.extractCalls {
+	if pr.interpolateAll {
 		return nil, nil, false
 	}
 
@@ -2721,14 +2728,25 @@ func (pr *ParseResult) filterCallsByName() {
 	}
 }
 
-// extractLinksFromLine extracts file path references from a single line.
+// extractLinksFromLine extracts file path references from a single line, in
+// linkAttrs order and left to right within each.
 func extractLinksFromLine(line string, lineNum int, links *[]DocumentLink) {
 	// Quick reject: all link attrs contain '=' or "include " — check for quote presence
 	if !strings.ContainsAny(line, "\"'") {
 		return
 	}
 
+	// Three of the four names end in '=', so a line without one, or whose
+	// '=' follow none of them, needs only the "include " search. Most tag
+	// lines have an '=' and none of the names; testing the bytes before each
+	// '=' replaced three whole-line case-insensitive searches per line.
+	hasEq := strings.IndexByte(line, '=') >= 0
+
 	for _, attr := range linkAttrs {
+		if attr[len(attr)-1] == '=' && (!hasEq || !precedesEquals(line, attr[:len(attr)-1])) {
+			continue
+		}
+
 		idx := 0
 
 		for {
@@ -2775,6 +2793,25 @@ func extractLinksFromLine(line string, lineNum int, links *[]DocumentLink) {
 			idx = end + 1
 		}
 	}
+}
+
+// precedesEquals reports whether name, case-insensitively, stands directly
+// before some '=' in line.
+func precedesEquals(line, name string) bool {
+	for i := strings.IndexByte(line, '='); i >= 0; {
+		if i >= len(name) && strings.EqualFold(line[i-len(name):i], name) {
+			return true
+		}
+
+		next := strings.IndexByte(line[i+1:], '=')
+		if next < 0 {
+			return false
+		}
+
+		i += next + 1
+	}
+
+	return false
 }
 
 // linkAttrs are the attribute names that contain file paths.

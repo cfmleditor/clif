@@ -4,6 +4,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"unicode/utf8"
 )
 
@@ -206,15 +207,13 @@ func (pr *ParseResult) applyCollectionReturns(calls []pendingCall) {
 	}
 
 	writes := pr.collectionWrites()
-	locals, keys, key := pr.collectionKeys(writes)
-	roots := map[string]bool{}
 
-	// Each write's key, built once: three loops below read it, and building
-	// it lowercases a string and looks the name up among the locals.
-	targets := make([]string, len(writes))
-	for i := range writes {
-		targets[i] = key(writes[i].target, writes[i].function)
-	}
+	// Each write's key, built once: three loops below read it, and so does
+	// the member pass, and building one lowercases a string and looks the
+	// name up among the locals.
+	ks := pr.writeKeys(writes)
+	locals, keys, key, targets := ks.locals, ks.scopeKeys, ks.key, ks.targets
+	roots := map[string]bool{}
 
 	for i := range writes {
 		if w := &writes[i]; w.element || emptyCollection(w.expression) {
@@ -239,8 +238,12 @@ func (pr *ParseResult) applyCollectionReturns(calls []pendingCall) {
 		return nodes[k]
 	}
 
+	// Whether the file declares a structNew of its own, asked once: it walks
+	// every function and argument, and was asked for every empty-struct write.
+	structNew := sync.OnceValue(func() bool { return pr.Declares("structNew") })
+
 	for i := range writes {
-		pr.recordCollectionWrite(writes[i], targets[i], roots, locals, key, node)
+		pr.recordCollectionWrite(writes[i], targets[i], roots, locals, key, node, structNew)
 	}
 
 	invalidateClosureCollections(writes, pr.Scopes, nodes)
@@ -345,7 +348,7 @@ func invalidateCollectionParents(writes []collectionWrite, targets []string, nod
 	}
 }
 
-func (pr *ParseResult) recordCollectionWrite(w collectionWrite, target string, roots map[string]bool, locals map[string]bool, key func(string, string) string, node func(string) *collectionNode) {
+func (pr *ParseResult) recordCollectionWrite(w collectionWrite, target string, roots map[string]bool, locals map[string]bool, key func(string, string) string, node func(string) *collectionNode, structNew func() bool) {
 	for prefix := target; ; {
 		index := strings.LastIndexByte(prefix, '.')
 		if index < 0 {
@@ -393,7 +396,7 @@ func (pr *ParseResult) recordCollectionWrite(w collectionWrite, target string, r
 		if emptyCollection(w.expression) {
 			n.structure = true
 			n.arraySeed = n.arraySeed || strings.HasPrefix(strings.TrimSpace(w.expression), "[")
-			n.structSeed = n.structSeed || strings.HasPrefix(strings.TrimSpace(w.expression), "{") || !n.arraySeed && !pr.Declares("structNew")
+			n.structSeed = n.structSeed || strings.HasPrefix(strings.TrimSpace(w.expression), "{") || !n.arraySeed && !structNew()
 		} else {
 			n.invalid = true
 		}
@@ -592,6 +595,38 @@ type writesMemo struct {
 	// tokens are each script region's, by its offset (scriptTokens), from
 	// tokenPool until release.
 	tokens map[int]*[]Token
+	// keys is collectionKeys' answer for writes and each write's key, which
+	// the member and collection passes both read (writeKeys).
+	keys *writeKeySet
+}
+
+// writeKeySet is collectionKeys' answer and each write's key.
+type writeKeySet struct {
+	locals    map[string]bool
+	scopeKeys map[int]string
+	key       func(string, string) string
+	targets   []string // key(w.target, w.function) for each write
+}
+
+// writeKeys is collectionKeys for writes, with each write's key built once
+// for every pass that shares writesMemo.
+func (pr *ParseResult) writeKeys(writes []collectionWrite) *writeKeySet {
+	if m := pr.writesMemo; m != nil && m.keys != nil {
+		return m.keys
+	}
+
+	locals, scopeKeys, key := pr.collectionKeys(writes)
+	ks := &writeKeySet{locals: locals, scopeKeys: scopeKeys, key: key, targets: make([]string, len(writes))}
+
+	for i := range writes {
+		ks.targets[i] = key(writes[i].target, writes[i].function)
+	}
+
+	if m := pr.writesMemo; m != nil {
+		m.keys = ks
+	}
+
+	return ks
 }
 
 // release returns the memo's token lists to tokenPool. Nothing the passes

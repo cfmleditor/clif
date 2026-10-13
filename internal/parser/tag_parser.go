@@ -2802,6 +2802,18 @@ func isIdentByte(c byte) bool {
 func extractLinksByScope(src string, lineNum int, scopes []FuncScope, funcLinks map[string][]DocumentLink, links *[]DocumentLink) map[string][]DocumentLink {
 	scopeIdx := 0
 
+	// The function whose lines are being read, its key and links, filed once
+	// it is left rather than looked up and stored again for every line.
+	open, openKey := -1, ""
+
+	var fl []DocumentLink
+
+	flush := func() {
+		if open >= 0 {
+			funcLinks[openKey] = fl
+		}
+	}
+
 	for src != "" {
 		nl := strings.IndexByte(src, '\n')
 
@@ -2824,17 +2836,22 @@ func extractLinksByScope(src string, lineNum int, scopes []FuncScope, funcLinks 
 				funcLinks = make(map[string][]DocumentLink)
 			}
 
-			key := funcKey(scopes[scopeIdx].Start, scopes[scopeIdx].End)
-			fl := funcLinks[key]
-			extractLinksFromLine(line, lineNum, &fl)
+			if open != scopeIdx {
+				flush()
 
-			funcLinks[key] = fl
+				open, openKey = scopeIdx, funcKey(scopes[scopeIdx].Start, scopes[scopeIdx].End)
+				fl = funcLinks[openKey]
+			}
+
+			extractLinksFromLine(line, lineNum, &fl)
 		} else {
 			extractLinksFromLine(line, lineNum, links)
 		}
 
 		lineNum++
 	}
+
+	flush()
 
 	return funcLinks
 }
