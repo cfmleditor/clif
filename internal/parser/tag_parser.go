@@ -37,9 +37,6 @@ type tagParser struct {
 	// outputContext and outputState.
 	gated      bool
 	closeKnown bool
-	// tagCalls is how many calls the current bucket held when the tag being
-	// handled was reached, so recordedForExpression reads only that tag's.
-	tagCalls   int
 	endsReady  bool  // ends is built over p.src
 	chainDepth uint8 // chained assignments being parsed; see maxChainedAssignments
 	output     *outputState
@@ -48,7 +45,10 @@ type tagParser struct {
 	collectionTags []int
 	// closeAt is where the first </cffunction> at or after offset closeFrom
 	// is, -1 for none, once closeKnown; see functionCloseAfter.
-	closeFrom, closeAt  int
+	closeFrom, closeAt int
+	// tagCalls is how many calls the current bucket held when the tag being
+	// handled was reached, so recordedForExpression reads only that tag's.
+	tagCalls            int
 	ends                tagEnds
 	importPrefixes      []string
 	srcOffset           int

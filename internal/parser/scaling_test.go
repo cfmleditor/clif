@@ -343,7 +343,9 @@ func TestRepeatedLongSpansBuildTheIndex(t *testing.T) {
 	}
 
 	one := newTagEnds("<cfset q = \"" + strings.Repeat("x", longTagSpan+1) + "\">")
-	_ = one.at(0)
+	for range longSpansBeforeIndex {
+		_ = one.at(0) // the same tag asked again counts once
+	}
 
 	if one.gaps != nil {
 		t.Error("a single long tag built the index; want it kept for documents that keep asking")

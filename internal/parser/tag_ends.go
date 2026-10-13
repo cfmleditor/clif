@@ -32,7 +32,9 @@ type tagEnds struct {
 	gaps   *tagGaps
 	// longSpans counts the tags whose '>' was more than longTagSpan away;
 	// gaps is built only once there have been longSpansBeforeIndex of them.
-	longSpans int
+	// lastLong is the last offset counted, so a tag asked about twice (the
+	// tag walk and the output tracking both ask) counts once.
+	longSpans, lastLong int
 	// visited is the walk's scratch list of positions, kept between walks.
 	visited []int
 }
@@ -60,7 +62,7 @@ type tagGaps struct {
 const quoteNeverCloses = -2
 
 func newTagEnds(s string) tagEnds {
-	return tagEnds{s: s, lastGT: strings.LastIndexByte(s, '>')}
+	return tagEnds{s: s, lastGT: strings.LastIndexByte(s, '>'), lastLong: -1}
 }
 
 // at is tagEndIndex(t.s[from:]): the offset of the '>' ending the tag that
@@ -76,8 +78,10 @@ func (t *tagEnds) at(from int) int {
 		gt = int(t.gaps.nextGT[from]) - from
 	} else {
 		gt = strings.IndexByte(t.s[from:], '>')
-		if gt > longTagSpan {
+		if gt > longTagSpan && from > t.lastLong {
+			t.lastLong = from
 			t.longSpans++
+
 			if t.longSpans >= longSpansBeforeIndex {
 				t.gaps = indexTagGaps(t.s)
 			}
@@ -194,8 +198,9 @@ func (t *tagEnds) nextGT(pos int) int {
 }
 
 // indexTagGaps builds tagGaps over s in one pass from each end. An offset
-// with no '>' after it holds len(s), which no caller reaches, since at checks
-// lastGT first.
+// with no '>' (or no comment) after it holds len(s). at never reads that for
+// a '>', since it checks lastGT first, but walk does through nextGT, which
+// has to answer -1 for it: read as an end, it put a tag's end past the text.
 func indexTagGaps(s string) *tagGaps {
 	n := len(s)
 	g := &tagGaps{
