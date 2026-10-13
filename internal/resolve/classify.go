@@ -63,22 +63,49 @@ func (r *Resolver) ClassifyCall(call *parser.CallSite, pr *parser.ParseResult, b
 		c.Reason = r.CanResolveCall(call, pr, baseDir)
 	}
 
-	switch {
-	case c.Reason == "":
-		c.Verdict = Accepted
-	case IsBuiltinCall(call):
-		c.Verdict = Builtin
-	case opt.GlobalDefs && r.Index.CountFunctions(call.FuncName) > 0:
-		c.Verdict = GlobalDef
-	default:
-		c.Verdict = Unresolved
-
-		if base, ok := MissingBaseOf(c.Reason); ok {
-			c.Verdict, c.Base = MissingBase, base
-		}
-	}
+	c.Verdict, c.Base = r.ClassifyReason(call, c.Reason, opt)
 
 	return c
+}
+
+// ClassifyReason is the verdict on a call whose resolution has already been
+// run and gave reason (empty when it resolved), and the missing base when that
+// is the verdict. It is the half of [Resolver.ClassifyCall] after the
+// resolver, for a caller that holds the reason already, as explain does.
+func (r *Resolver) ClassifyReason(call *parser.CallSite, reason string, opt ClassifyOptions) (Verdict, string) {
+	switch {
+	case reason == "":
+		return Accepted, ""
+	case IsBuiltinCall(call):
+		return Builtin, ""
+	case opt.GlobalDefs && r.Index.CountFunctions(call.FuncName) > 0:
+		return GlobalDef, ""
+	}
+
+	if base, ok := MissingBaseOf(reason); ok {
+		return MissingBase, base
+	}
+
+	return Unresolved, ""
+}
+
+// Describe says, in a line, what a batch report does with a call of this
+// verdict, so a trace can end with the answer to "and then?".
+func (v Verdict) Describe(base string) string {
+	switch v {
+	case Accepted:
+		return "counted as resolved"
+	case Builtin:
+		return "set aside as a built-in function or member method; the report and the map leave it out"
+	case GlobalDef:
+		return "accepted because a function of that name is defined somewhere in the workspace"
+	case MissingBase:
+		return "left unchecked because " + base + " in its extends chain does not resolve; reported once per file, not per call"
+	case Unresolved:
+		return "reported as unresolved"
+	}
+
+	return ""
 }
 
 // IsBuiltinCall reports whether a call is a bare call by a built-in's name:

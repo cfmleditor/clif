@@ -19,11 +19,20 @@ import (
 // call, and why the final method-exists check passed or failed. This turns a manual
 // trace through script_parser.go/tag_parser.go/result.go/resolve.go into one command.
 func cmdExplain(args []string) {
-	var configRoot string
+	var (
+		configRoot string
+		fl         unresolvedFlags
+	)
 
 	var filteredArgs []string
 
 	for i := 0; i < len(args); i++ {
+		if args[i] == "--no-infer-args" {
+			fl.noInferArgs = true
+
+			continue
+		}
+
 		if args[i] == "--root" && i+1 < len(args) {
 			configRoot = args[i+1]
 			i++
@@ -72,7 +81,7 @@ func cmdExplain(args []string) {
 		searchDir = abs
 	}
 
-	env := newExplainEnv(fsys, searchDir, false)
+	env := newExplainEnv(fsys, searchDir, false, &fl)
 
 	data, err := fsys.ReadFile(file)
 	if err != nil {
@@ -95,13 +104,15 @@ type explainEnv struct {
 	resolver *resolve.Resolver
 }
 
-func newExplainEnv(fsys vfs.FS, searchDir string, quiet bool) *explainEnv {
+// newExplainEnv takes the flags the unresolved report was run with, so a trace
+// can be made under the same ones; the MCP tool passes none.
+func newExplainEnv(fsys vfs.FS, searchDir string, quiet bool, fl *unresolvedFlags) *explainEnv {
 	cfg, _ := daemon.FindConfig(searchDir)
 	if cfg != nil && !quiet {
 		fmt.Fprintf(os.Stderr, "Using config: %s\n", cfg.Path)
 	}
 
-	opt := unresolvedOptions(cfg, []string{searchDir}, &unresolvedFlags{})
+	opt := unresolvedOptions(cfg, []string{searchDir}, fl)
 	files := collectCFMLFiles(fsys, opt.WorkspaceFolders)
 
 	if !quiet {

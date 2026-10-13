@@ -212,7 +212,7 @@ func newExplainer(root string) mcp.Explainer {
 	return func(file string, line int, match string) (string, error) {
 		once.Do(func() {
 			if abs, err := filepath.Abs(root); err == nil {
-				env = newExplainEnv(vfs.OS{}, abs, true)
+				env = newExplainEnv(vfs.OS{}, abs, true, &unresolvedFlags{})
 			}
 		})
 

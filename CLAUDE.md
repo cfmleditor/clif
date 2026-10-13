@@ -754,8 +754,13 @@ pieces, each used by every command that resolves in bulk:
   base or unresolved. The map had its own copy that hid a call as a builtin when it had a chain
   (`f().len()`) and by a shorter list of names, which is why it stayed a few dozen to a hundred
   calls from `unresolved` after everything else matched. `resolve.IsBuiltin` is the one list.
-- `explainEnv` (`cmd/clif/explain.go`) is the CLI's and the MCP tool's explain; `batchFileConfig`
-  is the map's per-file environment, fallback and per-config alike.
+- `explainEnv` (`cmd/clif/explain.go`) is the CLI's and the MCP tool's explain, built with the
+  scan's own options (inference on, `--no-infer-args` to match a run that used it). Its trace is
+  `canResolveCall` with a recorder, and `WriteExplanation` ends every call with a `report:` line,
+  `ClassifyReason` applied to the reason just printed, so a built-in or a missing-base call says what
+  the report does with it instead of a bare "unresolved". The editor's `clif.explainCall` prints
+  the same line but traces with the session's live resolver, which does not infer arguments.
+  `batchFileConfig` is the map's per-file environment, fallback and per-config alike.
 After the change the map's unresolved count equals `unresolved`'s exactly on Masa (3,786 with
 inference, 5,417 without), ColdBox (3,974, 3,981) and TestBox (929, 976), and `unresolved`'s own
 output is byte-identical to before. Differences that remain are on purpose: `deps` parses with its

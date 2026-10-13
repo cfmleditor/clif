@@ -89,17 +89,21 @@ the given directories, as JSON.
        clif refs getReport ./src
 `
 
-const explainUsage = `usage: clif explain [--root <dir>] <file> <line> [call-substring]
+const explainUsage = `usage: clif explain [--root <dir>] [--no-infer-args] <file> <line> [call-substring]
 
 Trace how each call site on a line resolved, or why it did not: which rule
 typed the receiver, which resolver fired for each hop of a chain, and whether
-the method was found. The line is 1-based. A call-substring keeps only the
-calls whose text contains it.
+the method was found. A last line says what the unresolved report does with the
+call: counts it, sets it aside as a built-in, or reports it. The line is
+1-based. A call-substring keeps only the calls whose text contains it.
 
   --root <dir>   read .clif.json and index files from this directory,
                  as unresolved's directory argument does (default: the
                  file's own directory, whose nearest config can differ from
                  the one a project-wide scan used)
+  --no-infer-args  do not type an untyped argument from what its callers
+                 pass it, as unresolved --no-infer-args (inference is on
+                 by default, as it is for unresolved)
 
   e.g. clif explain directcontent.cfc 104
        clif explain directcontent.cfc 104 createTemplate

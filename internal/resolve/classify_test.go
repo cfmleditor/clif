@@ -2,6 +2,7 @@ package resolve
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/cfmleditor/clif/internal/index"
@@ -57,5 +58,35 @@ func TestClassifyCallIsTheOneDecision(t *testing.T) {
 		if got := r.ClassifyCall(&tc.call, pr, dir, tc.opt); got.Verdict != tc.want {
 			t.Errorf("%s: verdict %v, want %v (%s)", name, got.Verdict, tc.want, got.Reason)
 		}
+	}
+}
+
+// TestExplanationEndsWithWhatTheReportDoes: a trace that stops at the resolver's
+// reason says "unresolved" for a call the report sets aside as a built-in, and
+// nothing about a call it folds into a missing base. The last line is the
+// classification the report makes, from the reason printed above it.
+func TestExplanationEndsWithWhatTheReportDoes(t *testing.T) {
+	dir := t.TempDir()
+	r := &Resolver{FS: vfs.OS{}, Index: index.New(), WorkspaceFolders: []string{dir}}
+	pr := &parser.ParseResult{}
+
+	for name, tc := range map[string]struct {
+		call parser.CallSite
+		want string
+	}{
+		"builtin":    {parser.CallSite{FuncName: "append"}, "report: set aside as a built-in"},
+		"unresolved": {parser.CallSite{FuncName: "someUserFunctionXyz"}, "report: reported as unresolved"},
+	} {
+		var b strings.Builder
+
+		r.WriteExplanation(&b, "f.cfc", 0, []parser.CallSite{tc.call}, pr, dir)
+
+		if !strings.Contains(b.String(), tc.want) {
+			t.Errorf("%s: want %q in:\n%s", name, tc.want, b.String())
+		}
+	}
+
+	if got := MissingBase.Describe("coldbox.system.Base"); !strings.Contains(got, "coldbox.system.Base") || !strings.Contains(got, "once per file") {
+		t.Errorf("missing-base description: %q", got)
 	}
 }

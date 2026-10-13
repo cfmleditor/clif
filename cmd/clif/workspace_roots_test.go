@@ -145,7 +145,7 @@ func TestCLIResolutionCommandsShareDefaultRoots(t *testing.T) {
 	fsys := vfs.OS{}
 	files := collectCFMLFiles(fsys, []string{root})
 	deps, _ := depsResolver(fsys, []string{root}, files)
-	mcp := newExplainEnv(fsys, root, true).resolver
+	mcp := newExplainEnv(fsys, root, true, &unresolvedFlags{}).resolver
 
 	scanRoots, fallback, shared, _ := routeWorkspace(fsys, root, &graphFlags{paths: []string{root, tools}, quiet: true})
 	if !reflect.DeepEqual(scanRoots, []string{root, tools}) {

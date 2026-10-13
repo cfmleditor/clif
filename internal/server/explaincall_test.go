@@ -112,7 +112,7 @@ func TestExplainCallReportsResolvedAndUnresolved(t *testing.T) {
 		t.Errorf("heading: want prefix %q, got:\n%s", want, resolved)
 	}
 
-	if !strings.HasSuffix(resolved, "\n  => resolved") {
+	if !strings.HasSuffix(resolved, "\n  => resolved\n  report: counted as resolved") {
 		t.Errorf("expected a resolved verdict, got:\n%s", resolved)
 	}
 
@@ -123,8 +123,8 @@ func TestExplainCallReportsResolvedAndUnresolved(t *testing.T) {
 		t.Errorf("heading: want prefix %q, got:\n%s", want, unresolved)
 	}
 
-	if !strings.Contains(unresolved, "\n  => unresolved: ") {
-		t.Errorf("expected an unresolved verdict, got:\n%s", unresolved)
+	if !strings.Contains(unresolved, "\n  => unresolved: ") || !strings.HasSuffix(unresolved, "\n  report: reported as unresolved") {
+		t.Errorf("expected an unresolved verdict that the report keeps, got:\n%s", unresolved)
 	}
 
 	conn.mu.Lock()
