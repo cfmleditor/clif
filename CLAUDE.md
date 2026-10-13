@@ -802,6 +802,19 @@ editor applies the implied mapping (`TestTheEditorMapsAConfigsOwnFolderAsTheComm
 (`TestTheEditorHonoursWorkspacePathsAsADaemonSessionDoes`). The server's `restoreUnmentionedBlocks` decides
 from the JSON (`merged.Formatting == nil`), not from `Resolved`, which is why the formatting default is safe.
 
+**A dependency graph is `deps.BuildDocument`, for both `clif deps` and `clif.exportDeps`.** They differ in
+how a file is parsed and in nothing else: the document's calls (`deps.DocumentCalls`), the refs fallback
+and the memoising walk (`deps.CallLoader`) are shared, and both parse with `resolve.DepsSpec()`, which types
+a call by the configured resolvers and not by what the called function declares it returns. The editor
+used the scan's parse and drew `$any` for `getService("UserService")` where the command line drew the
+component, while a comment in `deps.go` said they matched
+(`TestExportDepsDrawsTheComponentTheResolverNames`). Bean maps load through `Resolver.LoadBeans`, which the
+server's lazy load had written out again; the server's assumed-framework decision is `assumedConfig`,
+`config.Assumed` read through the discovery filesystem. Two of the three private resolvers in `resolve` and
+`server` (the discovery ones) are minimal on purpose, with a private index; the third, the caller-context
+view, is a full copy, and `TestACallerContextViewCarriesEveryField` fails when a field is added to
+`Resolver` and the view forgets it.
+
 **Walking a workspace is `cfpath.CollectCFML`**, with the skip rule in `cfpath.SkipScanDir` (below): the CLI,
 the code map, the editor's scans and `refs` each had a walker, two with their own copy of the rule and one
 with none. Component indexing is one door, `Index.IndexParsed` over `Resolver.ParseFile` with `IndexSpec`

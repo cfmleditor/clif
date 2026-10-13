@@ -26,7 +26,7 @@ func TestBuildBeanMap_Namespaces(t *testing.T) {
 		"dao":      filepath.Join(dir, "dao"),
 		"services": filepath.Join(dir, "services"),
 	}
-	beans := buildBeanMap(beanPaths, vfs.OS{})
+	beans := cfpath.BuildBeanMap(beanPaths, vfs.OS{})
 
 	// Namespace-qualified entries should be absolute paths
 	tests := []struct {
@@ -61,7 +61,7 @@ func TestBuildBeanMap_DuplicateBareNames(t *testing.T) {
 		"":    dir,
 		"dao": filepath.Join(dir, "dao"),
 	}
-	beans := buildBeanMap(beanPaths, vfs.OS{})
+	beans := cfpath.BuildBeanMap(beanPaths, vfs.OS{})
 
 	// Namespace-qualified should always work
 	if !strings.HasSuffix(beans["userdao@dao"], "dao/UserDAO.cfc") {
@@ -70,12 +70,12 @@ func TestBuildBeanMap_DuplicateBareNames(t *testing.T) {
 }
 
 func TestBuildBeanMap_EmptyPaths(t *testing.T) {
-	beans := buildBeanMap(nil, vfs.OS{})
+	beans := cfpath.BuildBeanMap(nil, vfs.OS{})
 	if len(beans) != 0 {
 		t.Errorf("expected empty map, got %d entries", len(beans))
 	}
 
-	beans = buildBeanMap(map[string]string{}, vfs.OS{})
+	beans = cfpath.BuildBeanMap(map[string]string{}, vfs.OS{})
 	if len(beans) != 0 {
 		t.Errorf("expected empty map, got %d entries", len(beans))
 	}
@@ -86,7 +86,7 @@ func TestBuildBeanMap_SingleNamespace(t *testing.T) {
 	beanPaths := map[string]string{
 		"": filepath.Join(dir, "dao"),
 	}
-	beans := buildBeanMap(beanPaths, vfs.OS{})
+	beans := cfpath.BuildBeanMap(beanPaths, vfs.OS{})
 
 	// With empty namespace, no @-qualified entries
 	if _, ok := beans["userdao@"]; ok {
@@ -117,7 +117,7 @@ func TestBuildBeanMap_AmbiguousBareNameIsDropped(t *testing.T) {
 		}
 	}
 
-	beans := buildBeanMap(map[string]string{
+	beans := cfpath.BuildBeanMap(map[string]string{
 		"alpha": filepath.Join(dir, "alpha"),
 		"beta":  filepath.Join(dir, "beta"),
 	}, vfs.OS{})
@@ -147,7 +147,7 @@ func TestBuildBeanMap_SameFileViaTwoNamespacesKeepsBareName(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	beans := buildBeanMap(map[string]string{"": dir, "dao": sub}, vfs.OS{})
+	beans := cfpath.BuildBeanMap(map[string]string{"": dir, "dao": sub}, vfs.OS{})
 
 	if !strings.HasSuffix(beans["userdao"], "dao/UserDAO.cfc") {
 		t.Errorf("beans[userdao] = %q, want the single file it names", beans["userdao"])

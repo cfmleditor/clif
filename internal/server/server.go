@@ -3,7 +3,6 @@ package server
 
 import (
 	"context"
-	"maps"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -515,25 +514,8 @@ func (s *Server) ensureBeansLoaded() {
 		return
 	}
 
-	allBeanPaths := make(map[string]string)
-
-	for _, root := range s.searchRoots() {
-		appDir := resolver.FindApplicationRoot(root)
-		if appDir != "" {
-			for ns, dir := range cfpath.LoadAppBeanPaths(appDir) {
-				if _, exists := allBeanPaths[ns]; !exists {
-					allBeanPaths[ns] = dir
-				}
-			}
-		}
-	}
-
-	maps.Copy(allBeanPaths, s.BeanPaths)
-
-	beans := buildBeanMap(allBeanPaths, s.FS)
-	s.index.SetBeans(beans)
-
-	if len(allBeanPaths) > 0 {
+	// The batch commands load their bean map the same way (Resolver.LoadBeans).
+	if beans := resolver.LoadBeans(s.BeanPaths); len(beans) > 0 {
 		s.log.Info("bean map built (lazy)", cflog.Int("beans", len(beans)))
 	}
 
@@ -766,8 +748,8 @@ func (s *Server) buildResolvers() []parser.Resolver {
 	}
 
 	rules := slices.Clone(s.ComponentResolvers)
-	if s.ConfigPath == "" && len(s.Frameworks) == 0 {
-		rules = append(rules, config.FrameworkResolvers(s.effectiveFrameworks())...)
+	if assumed := s.assumedConfig(); assumed != nil {
+		rules = append(rules, assumed.ComponentResolvers...)
 	}
 
 	if len(rules) == 0 {
@@ -794,9 +776,13 @@ func (s *Server) buildResolvers() []parser.Resolver {
 	return r
 }
 
-func (s *Server) effectiveFrameworks() []string {
+// assumedConfig is the configuration the session runs with when nothing names
+// one: the framework the workspace's source is, read as the batch commands read
+// it (config.Assumed). Nil when a config file or the editor's settings name the
+// frameworks themselves, which then stand.
+func (s *Server) assumedConfig() *config.Resolved {
 	if s.ConfigPath != "" || len(s.Frameworks) > 0 {
-		return s.Frameworks
+		return nil
 	}
 
 	if s.discoveryDependencies == nil {
@@ -805,7 +791,17 @@ func (s *Server) effectiveFrameworks() []string {
 
 	discoveryFS := resolve.TrackDiscoveryFS(s.FS, s.discoveryDependencies)
 
-	return config.AssumedFrameworks(s.searchRoots(), discoveryFS.ReadFile, discoveryFS.ReadDir)
+	return config.Assumed(s.searchRoots(), discoveryFS.ReadFile, discoveryFS.ReadDir)
+}
+
+// effectiveFrameworks are the frameworks the session resolves with: the ones it
+// was configured with, or the ones its source implies.
+func (s *Server) effectiveFrameworks() []string {
+	if assumed := s.assumedConfig(); assumed != nil {
+		return assumed.Frameworks
+	}
+
+	return s.Frameworks
 }
 
 // parseContent parses CFC content with all configured resolvers and link

@@ -97,6 +97,12 @@ func (s *Server) parseForCalls(fileURI uri.URI, content string) *parser.ParseRes
 	return s.parseContentWith(fileURI, content, true)
 }
 
+// parseForDeps is parseForCalls for a dependency graph: the same fresh parse of
+// the text, typed as `clif deps` types it (resolve.DepsSpec).
+func (s *Server) parseForDeps(fileURI uri.URI, content string) *parser.ParseResult {
+	return s.getResolver().ParseFile(cfpath.FromURI(string(fileURI)), content, resolve.DepsSpec())
+}
+
 // lineMayHoldCall reports whether a line of the document looks as if it holds
 // a call, which is what decides whether the explain code action is offered.
 //

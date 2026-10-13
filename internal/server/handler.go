@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
-	"slices"
 	"strings"
 	"time"
 
@@ -530,64 +529,6 @@ func (s *Server) debounceCacheRebuild(docURI uri.URI, content string, editLine i
 		s.rebuildCompletionCache(docURI, content, editLine)
 	})
 	s.mu.Unlock()
-}
-
-// depsCallLoader supplies deps.Build with the calls a function makes inside a
-// file it has resolved to, so a dependency graph can continue past the first
-// hop. The index cannot answer this — it stores definitions and refs, not call
-// sites — so the file is read and parsed on demand.
-//
-// The returned closure memoises per file, since one traversal asks about
-// several functions in the same component and each parse is the expensive part.
-// It is short-lived: a fresh one per command, discarded when the graph is
-// built, so it never becomes a second cache to invalidate.
-//
-// Parsing here does not touch s.parseResults and so needs no document lock: the
-// ParseResult it makes is private to this call.
-func (s *Server) depsCallLoader() func(uri.URI, string) ([]parser.CallSite, []parser.ComponentRef) {
-	parsed := make(map[uri.URI]*parser.ParseResult)
-
-	return func(fileURI uri.URI, funcName string) ([]parser.CallSite, []parser.ComponentRef) {
-		pr, ok := parsed[fileURI]
-		if !ok {
-			data, err := s.FS.ReadFile(cfpath.FromURI(string(fileURI)))
-			if err != nil {
-				parsed[fileURI] = nil
-
-				return nil, nil
-			}
-
-			// Calls in many of its functions are asked for: one parse that
-			// extracts them, rather than one per function.
-			pr = s.parseContentWith(fileURI, string(data), true)
-			parsed[fileURI] = pr
-		}
-
-		if pr == nil {
-			return nil, nil
-		}
-
-		for _, sc := range pr.Scopes {
-			for i := range pr.Funcs {
-				f := &pr.Funcs[i]
-
-				if !strings.EqualFold(f.Name, funcName) || int(f.Line) != sc.Start {
-					continue
-				}
-
-				// This function's own locals first, then the file-level refs.
-				// A `var svc = new Foo()` shadows a `variables.svc` of the same
-				// name, and the consumer takes the first match — the other
-				// order made the graph follow the shadowed component.
-				// resolve.CanResolveCall resolves in this order too.
-				compRefs := slices.Concat(pr.FuncComponentRefs(sc.Start, sc.End), pr.ComponentRefs)
-
-				return pr.FuncCalls(sc.Start, sc.End), compRefs
-			}
-		}
-
-		return nil, nil
-	}
 }
 
 // applyEdit replaces the text in the given range with newText.
@@ -1373,8 +1314,6 @@ func (s *Server) cmdExportDeps(ctx context.Context, args []protocol.LSPAny) (any
 
 	fileURI := uri.URI(docURI)
 
-	var depsCalls []parser.CallSite
-
 	// A fresh parse, not s.parseResults: the cached result loses every call
 	// inside a function on an edit outside one (see parseForCalls), and the
 	// graph silently fell back to bare component refs. The result is
@@ -1388,56 +1327,37 @@ func (s *Server) cmdExportDeps(ctx context.Context, args []protocol.LSPAny) (any
 	releaseReadLoop(ctx)
 
 	if ok {
-		pr = s.parseForCalls(fileURI, content)
+		pr = s.parseForDeps(fileURI, content)
 	} else if data, err := s.FS.ReadFile(cfpath.FromURI(docURI)); err == nil {
-		pr = s.parseForCalls(fileURI, string(data))
+		pr = s.parseForDeps(fileURI, string(data))
 	}
 
-	if pr != nil {
-		if funcName != "" {
-			// Function-level: FuncCalls for the specific function
-			for _, sc := range pr.Scopes {
-				for i := range pr.Funcs {
-					f := &pr.Funcs[i]
-
-					if strings.EqualFold(f.Name, funcName) && int(f.Line) == sc.Start {
-						depsCalls = pr.FuncCalls(sc.Start, sc.End)
-
-						break
-					}
-				}
-
-				if len(depsCalls) > 0 {
-					break
-				}
+	// The graph is the command line's (deps.BuildDocument): this is only how the
+	// editor parses a file for it.
+	result := deps.BuildDocument(&deps.Document{
+		URI:      docURI,
+		FuncName: funcName,
+		PR:       pr,
+		Parse: func(target uri.URI) *parser.ParseResult {
+			data, err := s.FS.ReadFile(cfpath.FromURI(string(target)))
+			if err != nil {
+				return nil
 			}
-		} else {
-			// File-level: FuncCalls for all functions
-			for _, sc := range pr.Scopes {
-				depsCalls = append(depsCalls, pr.FuncCalls(sc.Start, sc.End)...)
+
+			return s.parseForDeps(target, string(data))
+		},
+		IndexRefs: func() []parser.ComponentRef {
+			ptrs := s.index.RefsForFile(fileURI)
+			refs := make([]parser.ComponentRef, 0, len(ptrs))
+
+			for _, p := range ptrs {
+				refs = append(refs, *p)
 			}
-		}
-	}
 
-	var depsRefs []parser.ComponentRef
-
-	if len(depsCalls) == 0 {
-		// Fallback to component refs from index
-		ptrs := s.index.RefsForFile(fileURI)
-		for _, p := range ptrs {
-			depsRefs = append(depsRefs, *p)
-		}
-	}
-
-	result := deps.Build(&deps.Options{
-		DocURI:    docURI,
-		FuncName:  funcName,
-		Calls:     depsCalls,
-		Refs:      depsRefs,
-		Index:     s.index,
-		Resolver:  s.getResolver(),
-		LoadCalls: s.depsCallLoader(),
-		MaxDepth:  10,
+			return refs
+		},
+		Index:    s.index,
+		Resolver: s.getResolver(),
 	})
 
 	filePath := cfpath.FromURI(docURI)

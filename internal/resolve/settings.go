@@ -165,18 +165,24 @@ func detectsLucee(fsys vfs.FS, roots []string) bool {
 	return true
 }
 
-// LoadBeans gives the resolver's index the bean map the server would build for
-// the same workspace, so an injected property is typed the same way in a batch
-// report as in the editor.
-func (r *Resolver) LoadBeans(beanPaths map[string]string) {
+// LoadBeans gives the resolver's index the bean map for its workspace, so an
+// injected property is typed the same way in a batch report as in the editor,
+// and returns it. The namespaces are those each application root's
+// Application.cfc declares (the first root to name one winning) under the
+// configured beanPaths, which win over all of them. The editor's lazy load and
+// every batch run go through it.
+func (r *Resolver) LoadBeans(beanPaths map[string]string) map[string]string {
 	appDirs := make([]string, 0, len(r.WorkspaceFolders))
 	for _, root := range r.WorkspaceFolders {
 		appDirs = append(appDirs, r.FindApplicationRoot(root))
 	}
 
-	if all := cfpath.BeanPathsFor(beanPaths, appDirs); len(all) > 0 {
-		r.Index.SetBeans(cfpath.BuildBeanMap(all, r.FS))
-	}
+	// Set even when empty: a config change that removes every bean path must
+	// clear the map the last one left.
+	beans := cfpath.BuildBeanMap(cfpath.BeanPathsFor(beanPaths, appDirs), r.FS)
+	r.Index.SetBeans(beans)
+
+	return beans
 }
 
 // ParseSpec says what a caller wants from a parse of a file; the resolver
@@ -210,6 +216,14 @@ type ParseSpec struct {
 // refs, typed by the configured rules but not by another file's declared
 // returns (see IndexForBatch).
 func IndexSpec() ParseSpec { return ParseSpec{ByResolversOnly: true} }
+
+// DepsSpec is how a dependency graph reads a file: calls, typed by the configured
+// resolvers and not by what the called function declares it returns. A scan
+// types `getService("UserService")` as `$any`, because getService returns any;
+// a graph wants the component the resolver names. `clif deps` and the editor's
+// `clif.exportDeps` both read with it (the editor used the scan's parse, and
+// drew `$any` where the command line drew the component).
+func DepsSpec() ParseSpec { return ParseSpec{Calls: true, ByResolversOnly: true} }
 
 // BatchSpec is what a run over every scope of every file asks of a parse.
 func BatchSpec() ParseSpec { return ParseSpec{Calls: true, AllScopes: true} }

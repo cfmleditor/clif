@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	cfpath "github.com/cfmleditor/clif/internal/path"
@@ -111,18 +110,10 @@ func cmdDeps(args []string) {
 	}
 }
 
-// depsParseSpec is how deps reads a file: the resolver's own parse, typing a
-// call by the configured resolvers and not by what the called function declares
-// it returns. A scan types `getService("UserService")` as `$any`, because
-// getService returns any; a dependency graph wants the component the resolver
-// names, which is also what clif.exportDeps reads. The resolver and the index
-// behind it are the batch ones; this is the one place deps differs.
-var depsParseSpec = resolve.ParseSpec{Calls: true, ByResolversOnly: true}
-
 // depsForFile builds the dependency graph rooted at one file, the same way
-// clif.exportDeps does for a whole document — so the CLI and the editor
-// command answer with the same graph rather than each having their own idea of
-// what a dependency is.
+// clif.exportDeps does for a whole document (deps.BuildDocument) — so the CLI and
+// the editor command answer with the same graph rather than each having their
+// own idea of what a dependency is.
 func depsForFile(path string, resolver *resolve.Resolver, idx *index.Index) []graph.Edge {
 	content, err := vfs.ReadRegular(path)
 	if err != nil {
@@ -130,67 +121,23 @@ func depsForFile(path string, resolver *resolve.Resolver, idx *index.Index) []gr
 	}
 
 	abs, _ := filepath.Abs(path)
-	fileURI := uri.File(abs)
 
-	pr := resolver.ParseFile(abs, string(content), depsParseSpec)
+	result := deps.BuildDocument(&deps.Document{
+		URI: string(uri.File(abs)),
+		PR:  resolver.ParseFile(abs, string(content), resolve.DepsSpec()),
+		Parse: func(fileURI uri.URI) *parser.ParseResult {
+			file := strings.TrimPrefix(string(fileURI), "file://")
 
-	var calls []parser.CallSite
-	for _, sc := range pr.Scopes {
-		calls = append(calls, pr.FuncCalls(sc.Start, sc.End)...)
-	}
+			data, err := vfs.ReadRegular(file)
+			if err != nil {
+				return nil
+			}
 
-	result := deps.Build(&deps.Options{
-		DocURI:    string(fileURI),
-		Calls:     calls,
-		Refs:      pr.ComponentRefs,
-		Index:     idx,
-		Resolver:  resolver,
-		LoadCalls: depsCallLoader(resolver),
-		MaxDepth:  10,
+			return resolver.ParseFile(file, string(data), resolve.DepsSpec())
+		},
+		Index:    idx,
+		Resolver: resolver,
 	})
 
 	return result.Graph.Edges
-}
-
-// depsCallLoader parses a target file on demand so the traversal can continue
-// past the first hop, memoised for the life of one command.
-func depsCallLoader(resolver *resolve.Resolver) func(uri.URI, string) ([]parser.CallSite, []parser.ComponentRef) {
-	parsed := make(map[uri.URI]*parser.ParseResult)
-
-	return func(fileURI uri.URI, funcName string) ([]parser.CallSite, []parser.ComponentRef) {
-		pr, ok := parsed[fileURI]
-		if !ok {
-			data, err := vfs.ReadRegular(strings.TrimPrefix(string(fileURI), "file://"))
-			if err != nil {
-				parsed[fileURI] = nil
-
-				return nil, nil
-			}
-
-			pr = resolver.ParseFile(strings.TrimPrefix(string(fileURI), "file://"), string(data), depsParseSpec)
-			parsed[fileURI] = pr
-		}
-
-		if pr == nil {
-			return nil, nil
-		}
-
-		for _, sc := range pr.Scopes {
-			for i := range pr.Funcs {
-				f := &pr.Funcs[i]
-
-				if !strings.EqualFold(f.Name, funcName) || int(f.Line) != sc.Start {
-					continue
-				}
-
-				// Function locals first, then file-level: a `var x = new Foo()`
-				// shadows a `variables.x`, and the consumer takes the first match.
-				refs := slices.Concat(pr.FuncComponentRefs(sc.Start, sc.End), pr.ComponentRefs)
-
-				return pr.FuncCalls(sc.Start, sc.End), refs
-			}
-		}
-
-		return nil, nil
-	}
 }

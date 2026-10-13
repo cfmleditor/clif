@@ -4269,7 +4269,7 @@ func TestBeansTestdata_InjectResolution(t *testing.T) {
 		t.Fatal("expected bean paths from Application.cfc")
 	}
 
-	beans := buildBeanMap(beanPaths, srv.FS)
+	beans := cfpath.BuildBeanMap(beanPaths, srv.FS)
 	srv.index.SetBeans(beans)
 
 	// Parse PropertyTest.cfc with bean lookup
@@ -4322,7 +4322,7 @@ func TestBeansTestdata_PositionalTypeResolution(t *testing.T) {
 
 	// Build bean map
 	beanPaths := cfpath.LoadAppBeanPaths(dir)
-	beans := buildBeanMap(beanPaths, srv.FS)
+	beans := cfpath.BuildBeanMap(beanPaths, srv.FS)
 	srv.index.SetBeans(beans)
 
 	// Parse PositionalProps.cfc — has "property UserDAO userDAO;"
@@ -4351,7 +4351,7 @@ func TestBeansTestdata_ServiceInjectResolution(t *testing.T) {
 
 	// Build bean map
 	beanPaths := cfpath.LoadAppBeanPaths(dir)
-	beans := buildBeanMap(beanPaths, srv.FS)
+	beans := cfpath.BuildBeanMap(beanPaths, srv.FS)
 	srv.index.SetBeans(beans)
 
 	// Parse BeanUserService.cfc
@@ -4476,7 +4476,7 @@ func TestFindAllCalls_NoResults(t *testing.T) {
 func TestFindComponentRefs_UserDAO(t *testing.T) {
 	dir := filepath.Join(testdataDir(), "beans")
 	beanPaths := cfpath.LoadAppBeanPaths(dir)
-	beans := buildBeanMap(beanPaths, vfs.OS{})
+	beans := cfpath.BuildBeanMap(beanPaths, vfs.OS{})
 	daoPath := beans["userdao@dao"]
 
 	entries := refs.Find(vfs.OS{}, []string{dir}, &refs.Options{
