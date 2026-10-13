@@ -38,7 +38,7 @@ func (r *Resolver) builtinResultField(variable string, line uint32, caller strin
 		}
 	}
 
-	rhs, assigned, ok := localAssignmentAt(pr.Content, path[0], scope.Start, int(line))
+	rhs, assigned, ok := r.localAssignmentAt(pr, path[0], scope.Start, int(line))
 	if !ok {
 		return ""
 	}

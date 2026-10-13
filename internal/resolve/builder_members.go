@@ -269,7 +269,7 @@ func (r *Resolver) builderChainEndingAt(tokens []parser.Token, dot int, pr *pars
 
 	// A local holding a builder: `var c = newCriteria(); c.when( … )`.
 	if len(chain) == 1 && chain[0].Kind == parser.TokIdent {
-		if rhs, ok := localAssignment(pr.Content, chain[0].Value, 0, line); ok {
+		if rhs, ok := r.localAssignmentIn(pr, chain[0].Value, 0, line); ok {
 			return isNewCriteriaChain(producerTokens(rhs), r.isBuilderMethod)
 		}
 	}

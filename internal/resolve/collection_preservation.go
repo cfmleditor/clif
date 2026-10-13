@@ -77,7 +77,7 @@ func (r *Resolver) structCollectionValue(expression string, header, start int, c
 	}
 
 	if match := loopPathRe.FindStringSubmatch(expression); match != nil && (match[1] == "" || strings.EqualFold(match[1], "local")) {
-		if rhs, assigned, ok := localAssignmentAt(pr.Content, match[2], start, header); ok {
+		if rhs, assigned, ok := r.localAssignmentAt(pr, match[2], start, header); ok {
 			if !collectionLocalUntouched(pr.Content, match[2], assigned, header) {
 				return ""
 			}

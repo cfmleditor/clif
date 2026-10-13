@@ -115,6 +115,14 @@ func (r *Resolver) localAssignmentAt(pr *parser.ParseResult, name string, start,
 	return "", 0, false
 }
 
+// localAssignmentIn is localAssignment over pr's cached assignment table
+// (localAssignmentAt), rather than a walk of the lines above header.
+func (r *Resolver) localAssignmentIn(pr *parser.ParseResult, name string, start, header int) (string, bool) {
+	rhs, _, ok := r.localAssignmentAt(pr, name, start, header)
+
+	return rhs, ok
+}
+
 func trimAssignmentRHS(text string) string {
 	return strings.TrimSpace(strings.TrimSuffix(strings.TrimSuffix(strings.TrimSpace(text), ";"), "/"))
 }

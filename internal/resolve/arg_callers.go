@@ -518,7 +518,7 @@ func (r *Resolver) cannotHold(call *parser.CallSite, pr *parser.ParseResult, fd 
 		start = scope.Start
 	}
 
-	rhs, ok := localAssignment(pr.Content, name, start, int(call.Line))
+	rhs, ok := r.localAssignmentIn(pr, name, start, int(call.Line))
 	if !ok {
 		return false
 	}
@@ -723,7 +723,7 @@ func (r *Resolver) argumentAliasComponent(name string, line uint32, caller strin
 		start = scope.Start
 	}
 
-	rhs, assignedLine, ok := localAssignmentAt(pr.Content, lower, start, int(line))
+	rhs, assignedLine, ok := r.localAssignmentAt(pr, lower, start, int(line))
 	if !ok || strings.EqualFold(strings.TrimSpace(rhs), name) {
 		return ""
 	}

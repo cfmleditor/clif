@@ -47,7 +47,7 @@ func (r *Resolver) muraEvent(variable, comp string, line uint32, caller string, 
 	// with `var event = events.next()`.
 	if comp == "" && !strings.Contains(variable, ".") {
 		if start, ok := declaresLocal(pr, line, caller, "event"); ok {
-			rhs, _ := localAssignment(pr.Content, "event", start, int(line)+1)
+			rhs, _ := r.localAssignmentIn(pr, "event", start, int(line)+1)
 			if !muraEventSourceRe.MatchString(rhs) {
 				return ""
 			}

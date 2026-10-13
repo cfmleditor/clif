@@ -329,7 +329,7 @@ func (r *Resolver) elementOf(expression string, header, start int, caller string
 
 	// A field of the struct a local's call returned: results.comments.
 	if f := structFieldRe.FindStringSubmatch(expression); f != nil && !isScopeWord(f[1]) {
-		if rhs, ok := localAssignment(pr.Content, f[1], start, header); ok {
+		if rhs, ok := r.localAssignmentIn(pr, f[1], start, header); ok {
 			return r.fieldElement(rhs, f[2], header, caller, pr, baseDir, leaf)
 		}
 
@@ -344,7 +344,7 @@ func (r *Resolver) elementOf(expression string, header, start int, caller string
 			return ""
 		}
 
-		if rhs, ok := localAssignment(pr.Content, f[1], start, header); ok {
+		if rhs, ok := r.localAssignmentIn(pr, f[1], start, header); ok {
 			return r.fieldElement(rhs, key, header, caller, pr, baseDir, leaf)
 		}
 
@@ -359,7 +359,7 @@ func (r *Resolver) elementOf(expression string, header, start int, caller string
 	scope, name := strings.ToLower(m[1]), m[2]
 
 	if scope == "" || scope == "local" {
-		if rhs, ok := localAssignment(pr.Content, name, start, header); ok {
+		if rhs, ok := r.localAssignmentIn(pr, name, start, header); ok {
 			return r.elementOf(rhs, header, start, caller, pr, baseDir, depth+1, leaf)
 		}
 
