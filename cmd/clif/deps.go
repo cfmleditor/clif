@@ -165,7 +165,7 @@ func depsResolver(fsys vfs.FS, args, files []string) (*resolve.Resolver, *index.
 			continue
 		}
 
-		content, err := os.ReadFile(f)
+		content, err := vfs.ReadRegular(f)
 		if err != nil {
 			continue
 		}
@@ -197,7 +197,7 @@ func depsResolver(fsys vfs.FS, args, files []string) (*resolve.Resolver, *index.
 // command answer with the same graph rather than each having their own idea of
 // what a dependency is.
 func depsForFile(path string, resolver *resolve.Resolver, idx *index.Index) []graph.Edge {
-	content, err := os.ReadFile(path)
+	content, err := vfs.ReadRegular(path)
 	if err != nil {
 		return nil
 	}
@@ -236,7 +236,7 @@ func depsCallLoader(resolver *resolve.Resolver) func(uri.URI, string) ([]parser.
 	return func(fileURI uri.URI, funcName string) ([]parser.CallSite, []parser.ComponentRef) {
 		pr, ok := parsed[fileURI]
 		if !ok {
-			data, err := os.ReadFile(strings.TrimPrefix(string(fileURI), "file://"))
+			data, err := vfs.ReadRegular(strings.TrimPrefix(string(fileURI), "file://"))
 			if err != nil {
 				parsed[fileURI] = nil
 

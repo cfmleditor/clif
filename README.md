@@ -419,10 +419,29 @@ powershell -ExecutionPolicy Bypass -File scripts\install.ps1   # Windows: into %
 ```
 
 Each script checks the archive against the release's `checksums.txt`, which
-releases publish from 0.5.1 on. `CLIF_DOWNLOAD_URL` points
-either script at an internal mirror of the releases. Chocolatey installs an
+releases publish from 0.5.1 on; for those, and for `latest`, a missing
+`checksums.txt` stops the install rather than installing something
+unverified. When the [GitHub CLI](https://cli.github.com/) is installed and
+signed in, each script also checks the archive's build provenance (below),
+for releases after 0.5.3; without `gh` that check is skipped.
+`CLIF_DOWNLOAD_URL` points either script at an internal mirror of the
+releases, and must be an `https://` URL. Chocolatey installs an
 exact version with `choco install clif --version <v>`; Homebrew's tap holds
 only the latest.
+
+**Verifying a download.** From the release after 0.5.3, every release asset
+and its `checksums.txt` carry a signed
+[build provenance attestation](https://docs.github.com/actions/security-for-github-actions/using-artifact-attestations),
+recording that this repository's release workflow built it from the tagged
+commit. Check any downloaded archive with the GitHub CLI:
+
+```sh
+gh attestation verify clif-linux-amd64.tar.gz --repo cfmleditor/clif \
+  --signer-workflow cfmleditor/clif/.github/workflows/release.yml
+```
+
+A file that was altered, or built anywhere else, has no attestation to match
+and the command fails.
 
 ## Code map
 
@@ -1676,6 +1695,8 @@ When `.clif.json` is found, the server starts in daemon mode. The search walks u
 1. The first editor session becomes the daemon, listening on a Unix socket and serving LSP over stdio.
 2. Subsequent sessions connect to the existing daemon via the socket, sharing a single index.
 3. The daemon shuts down automatically when all editor sessions disconnect.
+
+On macOS and Linux a config file is read only when it is owned by you or by root and no other user can write it. A file that fails the check is skipped with a warning naming the file and the reason, and the search carries on upwards. Without the check, another user on the machine could put a `.clif.json` in `/tmp` or `/Users/Shared` and configure every project opened below it. A file writable by its group passes only when the group is your own private group, as Linux gives each account; if your config is skipped, `chmod go-w .clif.json` fixes it. Windows does not check.
 
 Without a config file the server runs in standalone mode — a single session with its own index. Standalone sessions look for a config the same way, walking upwards from each workspace folder the editor reports, so the same file is picked up in either mode; what they do not do is join a daemon.
 

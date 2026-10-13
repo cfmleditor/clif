@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/cfmleditor/clif/internal/vfs"
+
 	"github.com/cfmleditor/clif/internal/language"
 	cfpath "github.com/cfmleditor/clif/internal/path"
 	sitter "github.com/tree-sitter/go-tree-sitter"
@@ -41,7 +43,7 @@ func cmdScan(args []string) {
 	var totalErrors int
 
 	for _, f := range files {
-		content, err := os.ReadFile(f)
+		content, err := vfs.ReadRegular(f)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "  skip %s: %v\n", f, err)
 

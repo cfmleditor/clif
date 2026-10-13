@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/cfmleditor/clif/internal/codemap"
+	"github.com/cfmleditor/clif/internal/confine"
 	cflog "github.com/cfmleditor/clif/internal/log"
 	cfpath "github.com/cfmleditor/clif/internal/path"
 	"go.lsp.dev/protocol"
@@ -87,7 +88,7 @@ func (s *Server) handleGenerateCodeMap(params []protocol.LSPAny) (any, error) {
 			return
 		}
 
-		if err := s.writeCodeMap(m, &req, out); err != nil {
+		if err := s.writeCodeMap(m, &req, out, roots[0]); err != nil {
 			s.notifyError(ctx, "Could not write "+out+": "+err.Error())
 
 			return
@@ -179,8 +180,12 @@ func applyCodeMapViews(m *codemap.Map, req *codeMapRequest) *codemap.Map {
 	return m
 }
 
-func (s *Server) writeCodeMap(m *codemap.Map, req *codeMapRequest, out string) error {
-	if err := os.MkdirAll(filepath.Dir(out), 0o750); err != nil {
+func (s *Server) writeCodeMap(m *codemap.Map, req *codeMapRequest, out, root string) error {
+	// confine rather than os.MkdirAll, which follows a committed symlinked
+	// directory (.clif -> /elsewhere) and creates the rest wherever it points.
+	// codeMapOutputPath checked the same before the build; this is the check
+	// that holds when the directory changed during it.
+	if err := confine.MkdirAll(filepath.Dir(out), 0o750, confine.Roots(root)); err != nil {
 		return fmt.Errorf("creating %s: %w", filepath.Dir(out), err)
 	}
 
@@ -223,10 +228,8 @@ func (s *Server) writeCodeMap(m *codemap.Map, req *codeMapRequest, out string) e
 func (s *Server) codeMapOutputPath(req *codeMapRequest, root string) (string, error) {
 	out := req.Out
 	if out == "" {
-		return filepath.Join(root, ".clif", "codemap"+codeMapExt(req.Format)), nil
-	}
-
-	if !filepath.IsAbs(out) {
+		out = filepath.Join(root, ".clif", "codemap"+codeMapExt(req.Format))
+	} else if !filepath.IsAbs(out) {
 		out = filepath.Join(root, out)
 	}
 
@@ -237,6 +240,14 @@ func (s *Server) codeMapOutputPath(req *codeMapRequest, root string) (string, er
 
 	if !insideDir(root, abs) {
 		return "", fmt.Errorf("refusing to write outside the workspace: %s", req.Out)
+	}
+
+	// The text test above cannot see a symlinked directory on the way: a
+	// repository that commits .clif as a link to somewhere else had the map
+	// written there, and the directories leading to it created there. The
+	// default path is checked too, since .clif is exactly that directory.
+	if _, err := confine.Check(filepath.Dir(abs), confine.Roots(root)); err != nil {
+		return "", err
 	}
 
 	return abs, nil

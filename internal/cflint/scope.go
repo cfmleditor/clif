@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/cfmleditor/clif/internal/confine"
 )
 
 // ScanRoots is what a project lint covers: the directories asked for. The one
@@ -45,14 +47,26 @@ func ScanRoots(roots []string, configDir string, workspaceFolders []string) []st
 // them is left alone, since none of the issues found belong in it; and one
 // whose directory holds a linted directory and more is an error, because
 // rewriting it from a partial scan would delete every entry outside it.
+//
+// The test above reads the path as written, so a report kept is checked again
+// after symlinks: a linted folder can hold a committed link at the report's
+// name, or a linked directory above it, that leads anywhere. One that leaves
+// the linted directories is an error rather than left alone, since the config
+// asked for it to be written.
 func WriteTargets(targets, roots []string) ([]string, error) {
 	var keep []string
+
+	resolved := confine.Roots(roots...)
 
 	for _, t := range targets {
 		dir := filepath.Dir(t)
 
 		switch {
 		case slices.ContainsFunc(roots, func(r string) bool { return Within(dir, r) }):
+			if _, err := confine.Check(t, resolved); err != nil {
+				return nil, err
+			}
+
 			keep = append(keep, t)
 		case slices.ContainsFunc(roots, func(r string) bool { return Within(r, dir) }):
 			return nil, fmt.Errorf("refusing to replace %s: its directory, %s, holds more than was linted", t, dir)

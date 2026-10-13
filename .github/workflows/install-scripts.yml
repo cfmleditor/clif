@@ -3,8 +3,9 @@ name: Install scripts
 # Runs scripts/install.sh and scripts/install.ps1 against published releases
 # on each platform, when either changes: a pinned version, the version read
 # from clif.version, a release from before the rename (cfmleditor-lsp
-# archives, installed as clif), and a version that does not exist, which must
-# fail rather than install nothing quietly.
+# archives, installed as clif), a version that does not exist, which must
+# fail rather than install nothing quietly, a release whose checksums.txt must
+# be checked, and a mirror URL that is not https, which must be refused.
 on:
   pull_request:
     paths:
@@ -25,7 +26,9 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Pinned version
         run: |
@@ -49,6 +52,24 @@ jobs:
           fi
           test ! -e "$RUNNER_TEMP/c/clif"
 
+      - name: A release from 0.5.1 on is checked against its checksums.txt
+        run: |
+          set -eu
+          sh scripts/install.sh 0.5.3 "$RUNNER_TEMP/d" 2>"$RUNNER_TEMP/d.err"
+          "$RUNNER_TEMP/d/clif" version | grep -x 'clif 0.5.3'
+          if grep -q 'was not verified' "$RUNNER_TEMP/d.err"; then
+            echo "::error::0.5.3 was installed without checking checksums.txt"
+            exit 1
+          fi
+
+      - name: A mirror that is not https is refused
+        run: |
+          if CLIF_DOWNLOAD_URL=http://github.com/cfmleditor/clif/releases sh scripts/install.sh 0.5.3 "$RUNNER_TEMP/e"; then
+            echo "::error::an http:// CLIF_DOWNLOAD_URL was accepted"
+            exit 1
+          fi
+          test ! -e "$RUNNER_TEMP/e/clif"
+
   windows:
     name: install.ps1 (${{ matrix.shell }})
     strategy:
@@ -61,7 +82,9 @@ jobs:
       run:
         shell: ${{ matrix.shell }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Pinned version
         run: |
@@ -84,3 +107,11 @@ jobs:
           try { .\scripts\install.ps1 -Version 9.9.9 -Dir "$env:RUNNER_TEMP\c" } catch { $failed = $true }
           if (-not $failed) { throw 'installing 9.9.9 succeeded' }
           if (Test-Path "$env:RUNNER_TEMP\c\clif.exe") { throw 'something was installed' }
+
+      - name: A mirror that is not https is refused
+        run: |
+          $env:CLIF_DOWNLOAD_URL = 'http://github.com/cfmleditor/clif/releases'
+          $failed = $false
+          try { .\scripts\install.ps1 -Version 0.5.3 -Dir "$env:RUNNER_TEMP\e" } catch { $failed = $true }
+          if (-not $failed) { throw 'an http:// CLIF_DOWNLOAD_URL was accepted' }
+          if (Test-Path "$env:RUNNER_TEMP\e\clif.exe") { throw 'something was installed' }

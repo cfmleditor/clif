@@ -1,12 +1,14 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
+
+	"github.com/cfmleditor/clif/internal/vfs"
 	// The standard library on purpose — see the note in
 	// internal/server/standalone_config.go: json/v2 would silently drop a
 	// mis-cased key from a hand-written .clif.json.
 	"encoding/json"
-	"os"
-	"path/filepath"
 
 	"github.com/cfmleditor/clif/internal/config"
 	"github.com/cfmleditor/clif/internal/parser"
@@ -25,7 +27,7 @@ func loadResolversFromConfig(paths []string) []parser.Resolver {
 		var data []byte
 
 		for _, cfgPath := range append(config.CandidatesIn(dir), config.CandidatesIn(filepath.Dir(dir))...) {
-			if b, err := os.ReadFile(cfgPath); err == nil {
+			if b, err := vfs.ReadRegular(cfgPath); err == nil {
 				data = b
 
 				break

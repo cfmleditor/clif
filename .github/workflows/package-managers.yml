@@ -80,6 +80,13 @@ jobs:
           if [ -z "${TAG}" ]; then
             TAG="$(gh release view --repo "${GITHUB_REPOSITORY}" --json tagName -q .tagName)"
           fi
+          # The tag reaches shell commands, URLs, a formula and a commit
+          # message in every job below, so only a release tag gets past here.
+          # [[ =~ ]] tests the whole string; grep would pass a second line.
+          if ! [[ "${TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::'${TAG}' is not a release tag (expected vX.Y.Z or vX.Y.Z-suffix)"
+            exit 1
+          fi
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           # A pull request never publishes, whatever it changed.
           if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then PUBLISH=false; fi
@@ -107,12 +114,27 @@ jobs:
     env:
       TAG: ${{ needs.tag.outputs.tag }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Download the release's archives
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release download "${TAG}" --repo "${GITHUB_REPOSITORY}" --pattern 'clif-*.tar.gz' --dir dist
+        run: |
+          set -euo pipefail
+          gh release download "${TAG}" --repo "${GITHUB_REPOSITORY}" --pattern 'clif-*.tar.gz' --pattern checksums.txt --dir dist
+          # Each archive must be the one the release's checksums.txt names, as
+          # Scoop's is: the formulae pin what was downloaded here.
+          for f in dist/clif-*.tar.gz; do
+            name="$(basename "${f}")"
+            want="$(awk -v f="${name}" '$2 == f || $2 == "*" f { print $1 }' dist/checksums.txt)"
+            got="$(sha256sum "${f}" | cut -d' ' -f1)"
+            if [ -z "${want}" ] || [ "${want}" != "${got}" ]; then
+              echo "::error::${name} is ${got}, checksums.txt says ${want:-nothing}"
+              exit 1
+            fi
+          done
 
       - name: Write the formula
         run: |
@@ -175,7 +197,7 @@ jobs:
           fi
           echo "::warning::clif-source did not build or pass its test, so the tap keeps its previous clif-source"
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: homebrew-formula
           path: |
@@ -195,7 +217,12 @@ jobs:
             exit 0
           fi
 
-          git clone -q "https://x-access-token:${TAP_TOKEN}@github.com/cfmleditor/homebrew-tap.git" tap
+          # The token goes in a header for these git commands only, rather than
+          # in the clone URL, where git would keep it in tap/.git/config.
+          auth="$(printf 'x-access-token:%s' "${TAP_TOKEN}" | base64 -w0)"
+          echo "::add-mask::${auth}"
+          gitauth=(-c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${auth}")
+          git "${gitauth[@]}" clone -q https://github.com/cfmleditor/homebrew-tap.git tap
           cp clif.rb tap/Formula/clif.rb
           # A source formula that did not build leaves the tap's last one, which
           # then lags clif: say which release it is still on.
@@ -214,7 +241,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add Formula
           git commit -q -m "clif ${TAG#v}"
-          git push -q
+          git "${gitauth[@]}" push -q
 
   chocolatey:
     name: Chocolatey
@@ -224,13 +251,25 @@ jobs:
     env:
       TAG: ${{ needs.tag.outputs.tag }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Download the release's Windows archive
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release download "${TAG}" --repo "${GITHUB_REPOSITORY}" --pattern 'clif-windows-amd64.zip' --dir dist
+        run: |
+          set -euo pipefail
+          gh release download "${TAG}" --repo "${GITHUB_REPOSITORY}" --pattern 'clif-windows-amd64.zip' --pattern checksums.txt --dir dist
+          # The package embeds what was downloaded here, so it must be the
+          # archive the release's checksums.txt names, as Scoop's is.
+          hash="$(sha256sum dist/clif-windows-amd64.zip | cut -d' ' -f1)"
+          want="$(awk '$2 == "clif-windows-amd64.zip" || $2 == "*clif-windows-amd64.zip" { print $1 }' dist/checksums.txt)"
+          if [ -z "${want}" ] || [ "${want}" != "${hash}" ]; then
+            echo "::error::clif-windows-amd64.zip is ${hash}, checksums.txt says ${want:-nothing}"
+            exit 1
+          fi
 
       # The package embeds clif.exe rather than downloading it at install time,
       # so an install needs no access to GitHub. Chocolatey's rules for an
@@ -288,7 +327,7 @@ jobs:
           choco uninstall clif -y --no-progress
           if (Get-Command cfmleditor-lsp -ErrorAction SilentlyContinue) { throw 'uninstall left the cfmleditor-lsp shim behind' }
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: chocolatey-package
           path: dist/*.nupkg
@@ -315,7 +354,9 @@ jobs:
     env:
       TAG: ${{ needs.tag.outputs.tag }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Write the manifest
         env:
@@ -325,8 +366,8 @@ jobs:
           gh release download "${TAG}" --repo "${GITHUB_REPOSITORY}" --pattern 'clif-windows-amd64.zip' --pattern checksums.txt --dir dist
           hash="$(cd dist && sha256sum clif-windows-amd64.zip | cut -d' ' -f1)"
           want="$(awk '$2 == "clif-windows-amd64.zip" { print $1 }' dist/checksums.txt)"
-          if [ "${want}" != "${hash}" ]; then
-            echo "::error::clif-windows-amd64.zip is ${hash}, checksums.txt says ${want}"
+          if [ -z "${want}" ] || [ "${want}" != "${hash}" ]; then
+            echo "::error::clif-windows-amd64.zip is ${hash}, checksums.txt says ${want:-nothing}"
             exit 1
           fi
 
@@ -336,7 +377,7 @@ jobs:
           python3 packaging/scoop/update_manifest.py current.json "${TAG}" "${hash}" > clif.json
           cat clif.json
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: scoop-manifest
           path: clif.json
@@ -353,7 +394,12 @@ jobs:
             exit 0
           fi
 
-          git clone -q "https://x-access-token:${BUCKET_TOKEN}@github.com/cfmleditor/scoop-bucket.git" bucket
+          # The token goes in a header for these git commands only, rather than
+          # in the clone URL, where git would keep it in bucket/.git/config.
+          auth="$(printf 'x-access-token:%s' "${BUCKET_TOKEN}" | base64 -w0)"
+          echo "::add-mask::${auth}"
+          gitauth=(-c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${auth}")
+          git "${gitauth[@]}" clone -q https://github.com/cfmleditor/scoop-bucket.git bucket
           cp clif.json bucket/bucket/clif.json
           cd bucket
           if git diff --quiet; then
@@ -365,7 +411,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add bucket/clif.json
           git commit -q -m "clif ${TAG#v}"
-          git push -q
+          git "${gitauth[@]}" push -q
 
   winget:
     name: winget
@@ -412,20 +458,23 @@ jobs:
             exit 0
           fi
 
+          # komac reads its token from GITHUB_TOKEN when --token is not given.
+          # Set per command, it never appears on a command line, where the
+          # process list or an echoed command would show it.
           args=(update cfmleditor.clif
             --version "${version}"
             --urls "https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/clif-windows-amd64.zip"
             --release-notes-url "https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}")
 
           if [ "${PUBLISH}" != "true" ]; then
-            komac "${args[@]}" --dry-run --token "${GH_TOKEN}"
+            GITHUB_TOKEN="${GH_TOKEN}" komac "${args[@]}" --dry-run
             exit 0
           fi
 
           if [ -z "${WINGET_TOKEN}" ]; then
             echo "::warning::WINGET_TOKEN is not set, so no winget pull request was opened"
-            komac "${args[@]}" --dry-run --token "${GH_TOKEN}"
+            GITHUB_TOKEN="${GH_TOKEN}" komac "${args[@]}" --dry-run
             exit 0
           fi
 
-          komac "${args[@]}" --submit --token "${WINGET_TOKEN}"
+          GITHUB_TOKEN="${WINGET_TOKEN}" komac "${args[@]}" --submit

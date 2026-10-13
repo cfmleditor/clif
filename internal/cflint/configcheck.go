@@ -2,15 +2,17 @@ package cflint
 
 import (
 	"bytes"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+
+	"github.com/cfmleditor/clif/internal/vfs"
 	// The standard library's v1 decoder on purpose: it is as strict as CFLint's
 	// own parser — no comments, no trailing commas, no single quotes, unknown
 	// keys allowed — which is what makes "clif rejects it" and "CFLint ignores
 	// it" the same set of files.
 	"encoding/json"
-	"errors"
-	"fmt"
-	"os"
-	"path/filepath"
 )
 
 // ConfigFile is CFLint's per-folder configuration file.
@@ -67,7 +69,7 @@ func CheckConfigs(files []string) error {
 func checkConfigIn(dir string) (bool, error) {
 	path := filepath.Join(dir, ConfigFile)
 
-	data, err := os.ReadFile(path) //nolint:gosec // a .cflintrc beside a file being linted
+	data, err := vfs.ReadRegular(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return false, nil
 	}

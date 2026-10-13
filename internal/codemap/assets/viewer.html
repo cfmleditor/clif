@@ -374,8 +374,34 @@ function size() {
   return [Math.max(320, r.width), Math.max(320, r.height)];
 }
 
+// Every string the map carries came from source on disk: a file name, a function
+// name, the raw access="..." attribute, a createObject literal. Any of them can
+// hold markup, so none reaches the DOM as HTML unescaped. Markup is built only with
+// the h`...` tag, which escapes each interpolated value unless it is itself the
+// result of h`...`, and the sinks (setHTML, showTip) accept nothing else without
+// escaping it. TestViewerEscapesEveryInterpolation holds the file to this.
+class Html {
+  constructor(s) { this.s = s; }
+  toString() { return this.s; }
+}
+const ESC = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+function esc(v) {
+  return String(v == null ? "" : v).replace(/[&<>"']/g, c => ESC[c]);
+}
+function piece(v) {
+  if (v instanceof Html) return v.s;
+  if (Array.isArray(v)) return v.map(piece).join("");
+  return esc(v);
+}
+function h(strings, ...vals) {
+  let out = strings[0];
+  vals.forEach((v, i) => { out += piece(v) + strings[i + 1]; });
+  return new Html(out);
+}
+function setHTML(el, v) { el.innerHTML = piece(v); }
+
 function showTip(html, ev) {
-  tip.html(html).style("opacity", 1);
+  tip.html(piece(html)).style("opacity", 1);
   const m = document.querySelector("main").getBoundingClientRect();
   const x = Math.min(ev.clientX - m.left + 14, m.width - 350);
   tip.style("left", Math.max(8, x) + "px").style("top", (ev.clientY - m.top + 14) + "px");
@@ -588,7 +614,7 @@ function drawTree(g) {
     })
     .on("mouseenter", (ev, n) => showTip(
       n.group
-        ? `<b>${n.name}</b><br><span style="color:var(--muted)">${n.members.toLocaleString()} nodes \u00b7 click to open</span>`
+        ? h`<b>${n.name}</b><br><span style="color:var(--muted)">${n.members.toLocaleString()} nodes \u00b7 click to open</span>`
         : tipHTML(BY_ID.get(n.id)), ev))
     .on("mouseleave", hideTip);
 
@@ -1141,8 +1167,8 @@ function drawMatrix(g) {
     .attr("fill-opacity", d => d.dynamic ? 0.35 : Math.min(1, 0.5 + Math.log1p(d.count) / 4))
     .style("cursor", "pointer")
     .on("mouseenter", (ev, d) => showTip(
-      `<b>${shortName(BY_ID.get(d.from))}</b> → <b>${shortName(BY_ID.get(d.to))}</b><br>` +
-      `<span style="color:var(--muted)">${d.kind}${d.dynamic ? " (guessed)" : ""} · ${d.count} site${d.count === 1 ? "" : "s"}</span>`, ev))
+      h`<b>${shortName(BY_ID.get(d.from))}</b> → <b>${shortName(BY_ID.get(d.to))}</b><br><span style="color:var(--muted)">${
+        d.kind}${d.dynamic ? " (guessed)" : ""} · ${d.count} site${d.count === 1 ? "" : "s"}</span>`, ev))
     .on("mouseleave", hideTip)
     .on("click", (ev, d) => select(d.from));
 
@@ -1219,17 +1245,25 @@ function nodeFill(n) {
   return "var(--accent)";
 }
 
+// The tags a node carries, shared by the tooltip and the detail panel.
+function nodeTags(n) {
+  const tags = [];
+  if (n.entry) tags.push(h`<span class="tag entry">entry</span>`);
+  if (n.utility) tags.push(h`<span class="tag">utility</span>`);
+  if (n.boundary) tags.push(h`<span class="tag">outside scope</span>`);
+  if (!n.reachable) tags.push(h`<span class="tag dead">detached</span>`);
+  if (n.access) tags.push(h`<span class="tag">${n.access}</span>`);
+  return tags;
+}
+
+function nodeLocation(n) {
+  return (n.file || n.id) + (n.line ? ":" + (n.line + 1) : "");
+}
+
 function tipHTML(n) {
   if (!n) return "";
-  const tags = [];
-  if (n.entry) tags.push('<span class="tag entry">entry</span>');
-  if (n.utility) tags.push('<span class="tag">utility</span>');
-  if (n.boundary) tags.push('<span class="tag">outside scope</span>');
-  if (!n.reachable) tags.push('<span class="tag dead">detached</span>');
-  if (n.access) tags.push(`<span class="tag">${n.access}</span>`);
-  return `<b>${shortName(n)}</b><br>${tags.join("")}` +
-    `<span style="color:var(--muted)">${n.file || n.id}${n.line ? ":" + (n.line + 1) : ""}` +
-    ` · island ${n.island} · ${inDeg.get(n.id) || 0} in / ${outDeg.get(n.id) || 0} out</span>`;
+  return h`<b>${shortName(n)}</b><br>${nodeTags(n)}<span style="color:var(--muted)">${nodeLocation(n)
+    } · island ${n.island} · ${inDeg.get(n.id) || 0} in / ${outDeg.get(n.id) || 0} out</span>`;
 }
 
 /* ---------- right panel ---------- */
@@ -1244,10 +1278,9 @@ function renderStats() {
     ["dynamic", s.dynamic], ["unresolved", s.unresolved],
     ["islands", s.islands], ["detached", s.detached],
   ];
-  document.getElementById("stats").innerHTML = rows
+  setHTML(document.getElementById("stats"), rows
     .filter(([, v]) => v !== undefined)
-    .map(([k, v]) => `<div class="stat"><span>${k}</span><b>${typeof v === "number" ? v.toLocaleString() : v}</b></div>`)
-    .join("");
+    .map(([k, v]) => h`<div class="stat"><span>${k}</span><b>${typeof v === "number" ? v.toLocaleString() : v}</b></div>`));
 }
 
 // The hub list follows the utility toggle, for the same reason the chart does:
@@ -1259,11 +1292,11 @@ function renderHubs() {
     .sort((a, b) => b[1] - a[1])
     .slice(0, 14);
 
-  document.getElementById("hubs").innerHTML = top.map(([id, c]) => {
+  setHTML(document.getElementById("hubs"), top.map(([id, c]) => {
     const n = BY_ID.get(id);
-    const tag = n && n.utility ? ' <span class="tag">util</span>' : "";
-    return `<li data-id="${id}"><span class="n">${shortName(n)}${tag}</span><span class="c">${c}</span></li>`;
-  }).join("");
+    const tag = n && n.utility ? h` <span class="tag">util</span>` : "";
+    return h`<li data-id="${id}"><span class="n">${shortName(n)}${tag}</span><span class="c">${c}</span></li>`;
+  }));
 }
 
 function renderIslandList() {
@@ -1273,44 +1306,40 @@ function renderIslandList() {
     .sort((a, b) => b.n - a.n);
 
   const sel = document.getElementById("island");
-  sel.innerHTML = '<option value="">All islands</option>' + list.map(i =>
-    `<option value="${i.id}">island ${i.id} — ${i.n} node${i.n === 1 ? "" : "s"}${i.live ? "" : " (detached)"}</option>`).join("");
+  setHTML(sel, [h`<option value="">All islands</option>`].concat(list.map(i =>
+    h`<option value="${i.id}">island ${i.id} — ${i.n} node${i.n === 1 ? "" : "s"}${i.live ? "" : " (detached)"}</option>`)));
   sel.value = state.island;
 
   const detached = list.filter(i => !i.live).slice(0, 18);
-  document.getElementById("islands").innerHTML = detached.length
+  setHTML(document.getElementById("islands"), detached.length
     ? detached.map(i => {
         const root = i.members.find(m => m.root) || i.members[0];
-        return `<li data-island="${i.id}"><span class="n">${shortName(root)}</span><span class="c">${i.n}</span></li>`;
-      }).join("")
-    : '<li><span class="n" style="color:var(--muted)">every island is reachable</span></li>';
+        return h`<li data-island="${i.id}"><span class="n">${shortName(root)}</span><span class="c">${i.n}</span></li>`;
+      })
+    : h`<li><span class="n" style="color:var(--muted)">every island is reachable</span></li>`);
 }
 
 function renderDetail() {
   const n = BY_ID.get(state.selected);
   const el = document.getElementById("detail");
-  if (!n) { el.innerHTML = '<p class="sub">Click a node.</p>'; return; }
+  if (!n) { setHTML(el, h`<p class="sub">Click a node.</p>`); return; }
 
   const outs = EDGES.filter(e => e.from === n.id);
   const ins = EDGES.filter(e => e.to === n.id);
-  const list = (arr, dir) => arr.slice(0, 12).map(e => {
-    const other = BY_ID.get(dir === "out" ? e.to : e.from);
-    return `<li data-id="${other ? other.id : ""}"><span class="n">${shortName(other)}</span>` +
-      `<span class="c" style="color:${KIND_COLOR(e.kind)}">${e.kind[0]}${e.dynamic ? "?" : ""}</span></li>`;
-  }).join("") || '<li><span class="n" style="color:var(--muted)">none</span></li>';
+  const list = (arr, dir) => {
+    const items = arr.slice(0, 12).map(e => {
+      const other = BY_ID.get(dir === "out" ? e.to : e.from);
+      return h`<li data-id="${other ? other.id : ""}"><span class="n">${shortName(other)}</span><span class="c" style="color:${
+        KIND_COLOR(e.kind)}">${e.kind[0]}${e.dynamic ? "?" : ""}</span></li>`;
+    });
+    return items.length ? items : h`<li><span class="n" style="color:var(--muted)">none</span></li>`;
+  };
 
-  el.innerHTML =
-    `<p style="margin:0 0 6px"><b>${n.name}</b></p>` +
-    `<p style="margin:0 0 8px">` +
-      (n.entry ? '<span class="tag entry">entry</span>' : "") +
-      (n.utility ? '<span class="tag">utility</span>' : "") +
-      (n.boundary ? '<span class="tag">outside scope</span>' : "") +
-      (n.reachable ? "" : '<span class="tag dead">detached</span>') +
-      (n.access ? `<span class="tag">${n.access}</span>` : "") +
-      `<span class="tag">island ${n.island}</span></p>` +
-    `<p class="sub"><code>${n.file || n.id}${n.line ? ":" + (n.line + 1) : ""}</code></p>` +
-    `<h2 style="margin-top:14px">Calls out (${outs.length})</h2><ul class="list">${list(outs, "out")}</ul>` +
-    `<h2>Called by (${ins.length})</h2><ul class="list">${list(ins, "in")}</ul>`;
+  setHTML(el, h`<p style="margin:0 0 6px"><b>${n.name}</b></p>
+    <p style="margin:0 0 8px">${nodeTags(n)}<span class="tag">island ${n.island}</span></p>
+    <p class="sub"><code>${nodeLocation(n)}</code></p>
+    <h2 style="margin-top:14px">Calls out (${outs.length})</h2><ul class="list">${list(outs, "out")}</ul>
+    <h2>Called by (${ins.length})</h2><ul class="list">${list(ins, "in")}</ul>`);
 }
 
 /* ---------- controls ---------- */
@@ -1333,9 +1362,9 @@ function sync() {
   draw();
 }
 
-document.getElementById("kinds").innerHTML = KINDS.map(k =>
-  `<label class="row"><input type="checkbox" data-kind="${k}" checked>` +
-  `<span class="swatch" style="background:var(--k-${k})"></span>${k}</label>`).join("");
+setHTML(document.getElementById("kinds"), KINDS.map(k =>
+  h`<label class="row"><input type="checkbox" data-kind="${k}" checked><span class="swatch" style="background:var(--k-${
+    k})"></span>${k}</label>`));
 
 document.querySelectorAll("[data-kind]").forEach(el => el.addEventListener("change", () => {
   el.checked ? state.kinds.add(el.dataset.kind) : state.kinds.delete(el.dataset.kind);
