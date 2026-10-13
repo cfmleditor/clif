@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/conv"
@@ -30,11 +31,13 @@ type tagEnds struct {
 	lastGT int
 	walked map[int]int
 	gaps   *tagGaps
-	// longSpans counts the tags whose '>' was more than longTagSpan away;
-	// gaps is built only once there have been longSpansBeforeIndex of them.
-	// lastLong is the last offset counted, so a tag asked about twice (the
-	// tag walk and the output tracking both ask) counts once.
-	longSpans, lastLong int
+	// longSpans holds the offsets of the tags whose '>' was more than
+	// longTagSpan away; gaps is built once there are longSpansBeforeIndex of
+	// them. A tag asked about twice (the tag walk and the output tracking
+	// both ask) counts once, in whatever order offsets are asked.
+	longSpans []int
+	// commentWalked is walked for commentWalk, whose rules differ.
+	commentWalked map[int]int
 	// visited is the walk's scratch list of positions, kept between walks.
 	visited []int
 }
@@ -62,7 +65,7 @@ type tagGaps struct {
 const quoteNeverCloses = -2
 
 func newTagEnds(s string) tagEnds {
-	return tagEnds{s: s, lastGT: strings.LastIndexByte(s, '>'), lastLong: -1}
+	return tagEnds{s: s, lastGT: strings.LastIndexByte(s, '>')}
 }
 
 // at is tagEndIndex(t.s[from:]): the offset of the '>' ending the tag that
@@ -78,18 +81,23 @@ func (t *tagEnds) at(from int) int {
 		gt = int(t.gaps.nextGT[from]) - from
 	} else {
 		gt = strings.IndexByte(t.s[from:], '>')
-		if gt > longTagSpan && from > t.lastLong {
-			t.lastLong = from
-			t.longSpans++
-
-			if t.longSpans >= longSpansBeforeIndex {
+		if gt > longTagSpan && !slices.Contains(t.longSpans, from) {
+			t.longSpans = append(t.longSpans, from)
+			if len(t.longSpans) >= longSpansBeforeIndex {
 				t.gaps = indexTagGaps(t.s)
 			}
 		}
 	}
 
 	if t.hasComment(from, from+gt) {
-		return tagEndWithComments(t.s[from:])
+		switch end := t.commentWalk(from); end {
+		case quoteNeverCloses:
+			return gt
+		case -1:
+			return -1
+		default:
+			return end - from
+		}
 	}
 
 	if t.quotesEven(from, from+gt) {
@@ -177,6 +185,82 @@ func (t *tagEnds) walk(start int) int {
 	t.visited = visited
 
 	return result
+}
+
+// commentWalk is tagEndWithComments(t.s[start:]) in absolute offsets,
+// returning the '>' it ends at, -1, or quoteNeverCloses for its fallbacks (an
+// unclosed quote or <!--- comment, after which it settles for the first '>'
+// from start). Its state is only its position, as walk's is, so it remembers
+// the answer for every position it stopped at: each '>', quote and '<'.
+// Without that a document of tags holding a "<!--" and a quoted '>' with no
+// real end was quadratic, the same shape walk exists for.
+func (t *tagEnds) commentWalk(start int) int {
+	visited := t.visited[:0]
+	result := -1
+
+	for pos := start; pos < len(t.s); {
+		if r, ok := t.commentWalked[pos]; ok {
+			result = r
+
+			break
+		}
+
+		visited = append(visited, pos)
+
+		next, end := t.commentStep(pos)
+		if end != 0 {
+			result = end
+
+			break
+		}
+
+		k := strings.IndexAny(t.s[next:], `>"'<`)
+		if k < 0 {
+			break
+		}
+
+		pos = next + k
+	}
+
+	if t.commentWalked == nil {
+		t.commentWalked = map[int]int{}
+	}
+
+	for _, p := range visited {
+		t.commentWalked[p] = result
+	}
+
+	t.visited = visited
+
+	return result
+}
+
+// commentStep is one step of tagEndWithComments at pos: the position to go on
+// from, or, when the walk ends there, end set to its answer (the '>' or
+// quoteNeverCloses).
+func (t *tagEnds) commentStep(pos int) (next, end int) {
+	switch t.s[pos] {
+	case '>':
+		return 0, pos
+	case '"', '\'':
+		j := skipQuotedIn(t.s, pos)
+		if j < 0 {
+			return 0, quoteNeverCloses
+		}
+
+		return j + 1, 0
+	case '<':
+		if strings.HasPrefix(t.s[pos:], "<!---") {
+			c := strings.Index(t.s[pos+5:], "--->")
+			if c < 0 {
+				return 0, quoteNeverCloses
+			}
+
+			return pos + 5 + c + 4, 0
+		}
+	}
+
+	return pos + 1, 0
 }
 
 // nextGT is the offset of the first '>' at or after pos, or -1.

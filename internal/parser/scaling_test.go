@@ -217,6 +217,8 @@ func TestTagsWithNoRealEndParseInLinearTime(t *testing.T) {
 		"one '>' at the end":          func(n int) string { return strings.Repeat("<cf", n) + ">" },
 		"quoted '>', one '>' at end":  func(n int) string { return strings.Repeat(`<cfoutput x="a>b"`, n) + ">" },
 		"single quotes, never closed": func(n int) string { return strings.Repeat(`<cfset x='a>b'`, n) },
+		"comment and quoted '>'":      func(n int) string { return strings.Repeat(`<cf <!-- x="a>b"`, n) },
+		"comment, one '>' at the end": func(n int) string { return strings.Repeat("<cf<!--", n) + ">" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			const n = 4000
@@ -302,6 +304,9 @@ func TestTagEndsAgreesWithTagEndIndex(t *testing.T) {
 		// the last '>': the index's "no '>' after here" is not an end.
 		strings.Repeat("<cf"+strings.Repeat(" ", longTagSpan+1), longSpansBeforeIndex+1) + `x="a>b"`,
 		`<input <cfif a>checked</cfif>>`,
+		strings.Repeat(`<cf <!-- x="a>b"`, 30) + `<cfset y=1>`,
+		`<cffunction <!--- a "q" ---> name="f" <!--- unclosed`,
+		`<cf <!-- x='a"b' y="c>d" >` + strings.Repeat(`<cf<!--`, 20) + ">",
 		"",
 		">",
 	}
@@ -340,6 +345,16 @@ func TestRepeatedLongSpansBuildTheIndex(t *testing.T) {
 
 	if ends.gaps == nil {
 		t.Error("tag ends were scanned again for every tag; want the long spans indexed")
+	}
+
+	// Asked in any order, distinct long tags are what count.
+	backwards := newTagEnds(text)
+	for i := len(text) - 4; i >= 0; i -= 3 {
+		_ = backwards.at(i)
+	}
+
+	if backwards.gaps == nil {
+		t.Error("long tags asked about in descending order never built the index")
 	}
 
 	one := newTagEnds("<cfset q = \"" + strings.Repeat("x", longTagSpan+1) + "\">")
