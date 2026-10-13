@@ -15,45 +15,8 @@ permissions:
   contents: read
 
 jobs:
-  docs:
-    name: Generate built-in docs
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-
-      # Generated once and shared with every build, rather than refetched on
-      # each of the five runners: one set of network fetches to fail instead of
-      # five, and every platform is guaranteed to embed identical docs.
-      - name: Fetch and assemble docs sources
-        run: make docs
-
-      - name: Verify both docs sources were staged
-        run: |
-          for src in docs/src/cfdocs docs/src/lucee; do
-            if [ ! -d "$src" ]; then
-              echo "::error::$src was not staged — released binaries would be missing that source's entries"
-              exit 1
-            fi
-          done
-
-      - name: Generate built-in entries
-        run: go run scripts/generate_docs.go
-
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: generated-docs
-          path: internal/docs/generated_docs.go
-          retention-days: 1
-
   build:
     name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
-    needs: docs
     strategy:
       # Without this, the first platform to fail cancels the rest — which is
       # why even the platforms that built fine never uploaded anything.
@@ -86,8 +49,8 @@ jobs:
 
           # darwin builds on macOS. CGO there links libresolv and the
           # CoreFoundation and Security frameworks, which only the real Apple
-          # SDK provides — zig ships macOS libc headers but not those, so
-          # cross-compiling from Linux failed at the link step every release.
+          # SDK provides, so cross-compiling from Linux (with zig, as releases
+          # once did) failed at the link step every release.
           - goos: darwin
             goarch: arm64
             runner: macos-latest
@@ -110,10 +73,27 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: generated-docs
-          path: internal/docs
+      # The built-in docs are embedded from the committed
+      # internal/docs/generated_docs.go, never regenerated here. Regenerating
+      # would fetch cfdocs' master branch and an unhashed Lucee zip, so the
+      # same tag could build different binaries on different days, from
+      # content nobody reviewed. The committed file is what was reviewed and
+      # what `go build` on the tag produces anywhere else. Refresh it in a pull
+      # request (`make generate`, which runs `make docs` first) instead.
+      #
+      # A regeneration with docs.lucee.org unreachable silently drops every
+      # Lucee-only entry (CLAUDE.md, the docs pipeline), and such a commit
+      # would otherwise ship. Two Lucee-only tags stand in for the lot.
+      - name: Check the committed docs carry both sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          for tag in cfdistributedlock cfstatic; do
+            if ! grep -q "Name: \"${tag}\"" internal/docs/generated_docs.go; then
+              echo "::error::internal/docs/generated_docs.go has no ${tag}: it was regenerated without the Lucee docs"
+              exit 1
+            fi
+          done
 
       - name: Install cross compiler
         if: matrix.apt != ''
@@ -228,17 +208,22 @@ jobs:
     # Only a tag produces a release; a manual run stops after building.
     if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
+    # The attestation needs an OIDC token to sign with (id-token) and
+    # permission to record it (attestations). Granted here only, so no build
+    # step can mint a signing identity.
     permissions:
       contents: write
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       # One job publishes every asset, rather than five jobs racing to create
-      # and update the same release. The pattern matters: without it this also
-      # pulls down the generated-docs artifact and attaches generated_docs.go
-      # to the release as a stray asset.
+      # and update the same release. The pattern keeps it to the platform
+      # archives, so no other artifact a build might add becomes a stray
+      # release asset.
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: dist
@@ -291,6 +276,20 @@ jobs:
           cd dist
           sha256sum clif-* cfmleditor-lsp-* > checksums.txt
           cat checksums.txt
+
+      # Signed SLSA build provenance for every asset, checksums.txt included,
+      # recorded against this repository and this workflow run. checksums.txt
+      # alone proves only that the archives match a file published beside
+      # them; the attestation proves both came from this workflow at this
+      # tag. Verified with `gh attestation verify <file> --repo
+      # cfmleditor/clif`, which the install scripts run when gh is present.
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            dist/clif-*
+            dist/cfmleditor-lsp-*
+            dist/checksums.txt
 
       - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
