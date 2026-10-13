@@ -6,7 +6,8 @@ name: Package managers
 # release is published; it can also be run by hand for an existing release,
 # and runs on a pull request that touches packaging/, against the latest
 # release, without publishing, so a change to any of them is tried before it
-# ships.
+# ships. Run by hand, `managers` picks which to run: republishing an older
+# release to one of them must not move the others back to it.
 #
 # Publishing needs repository secrets. Without one, that job still builds and
 # checks what it would publish, and says it did not publish:
@@ -31,6 +32,10 @@ on:
         description: Push the formula and the package
         type: boolean
         default: false
+      managers:
+        description: Which to run, comma-separated (homebrew, chocolatey, scoop, winget); empty for all
+        type: string
+        default: ""
   workflow_dispatch:
     inputs:
       tag:
@@ -41,6 +46,10 @@ on:
         description: Push the formula and the package
         type: boolean
         default: false
+      managers:
+        description: Which to run, comma-separated (homebrew, chocolatey, scoop, winget); empty for all
+        type: string
+        default: ""
   pull_request:
     paths:
       - "packaging/**"
@@ -57,12 +66,15 @@ jobs:
     outputs:
       tag: ${{ steps.tag.outputs.tag }}
       publish: ${{ steps.tag.outputs.publish }}
+      # The managers to run, as ",name,name," so a job can test for ",its-name,".
+      managers: ${{ steps.tag.outputs.managers }}
     steps:
       - id: tag
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.tag }}
           PUBLISH: ${{ inputs.publish }}
+          MANAGERS: ${{ inputs.managers }}
         run: |
           set -euo pipefail
           if [ -z "${TAG}" ]; then
@@ -72,11 +84,25 @@ jobs:
           # A pull request never publishes, whatever it changed.
           if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then PUBLISH=false; fi
           echo "publish=${PUBLISH:-false}" >> "$GITHUB_OUTPUT"
-          echo "Release ${TAG}, publish=${PUBLISH:-false}"
+
+          # Every manager unless some are named. Running one alone is how an
+          # older release is republished to it without the others moving back
+          # to that release: Homebrew and Scoop push whichever tag they are given.
+          all="homebrew,chocolatey,scoop,winget"
+          picked="$(printf '%s' "${MANAGERS:-$all}" | tr 'A-Z' 'a-z' | tr -d ' ')"
+          for m in ${picked//,/ }; do
+            case ",${all}," in
+              *",${m},"*) ;;
+              *) echo "::error::unknown manager '${m}' (expected some of ${all})"; exit 1 ;;
+            esac
+          done
+          echo "managers=,${picked}," >> "$GITHUB_OUTPUT"
+          echo "Release ${TAG}, publish=${PUBLISH:-false}, managers=${picked}"
 
   homebrew:
     name: Homebrew
     needs: tag
+    if: contains(needs.tag.outputs.managers, ',homebrew,')
     runs-on: ubuntu-latest
     env:
       TAG: ${{ needs.tag.outputs.tag }}
@@ -193,6 +219,7 @@ jobs:
   chocolatey:
     name: Chocolatey
     needs: tag
+    if: contains(needs.tag.outputs.managers, ',chocolatey,')
     runs-on: windows-latest
     env:
       TAG: ${{ needs.tag.outputs.tag }}
@@ -227,10 +254,18 @@ jobs:
           $verification = 'packaging/chocolatey/legal/VERIFICATION.txt'
           (Get-Content $verification -Raw).Replace('__VERSION__', $version).Replace('__URL__', $url).Replace('__ZIP_CHECKSUM__', $zipSum).Replace('__EXE_CHECKSUM__', $exeSum) | Set-Content $verification -NoNewline
 
-          # The licence clif is distributed under, and the notices of what its
-          # binary carries (CFLint, and the GraalVM runtime compiled into it).
+          # The licence clif is distributed under, and the notices of what this
+          # release's binary carries, from its own archive: from 0.5.2 the
+          # archive holds THIRD_PARTY_NOTICES.md (CFLint, and the GraalVM
+          # runtime compiled into it); 0.5.1's binary carries neither and its
+          # archive has no notices. The repository's copy would describe main,
+          # not the release being packed.
           $license = 'packaging/chocolatey/legal/LICENSE.txt'
-          (Get-Content LICENSE -Raw) + "`n`n" + (Get-Content THIRD_PARTY_NOTICES.md -Raw) | Set-Content $license -NoNewline
+          $text = Get-Content LICENSE -Raw
+          if (Test-Path dist/windows/THIRD_PARTY_NOTICES.md) {
+            $text += "`n`n" + (Get-Content dist/windows/THIRD_PARTY_NOTICES.md -Raw)
+          }
+          $text | Set-Content $license -NoNewline
 
           if (Select-String -Path $nuspec, $verification -Pattern '__[A-Z_]+__') { throw 'a placeholder was left unfilled' }
           "version=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
@@ -275,6 +310,7 @@ jobs:
   scoop:
     name: Scoop
     needs: tag
+    if: contains(needs.tag.outputs.managers, ',scoop,')
     runs-on: ubuntu-latest
     env:
       TAG: ${{ needs.tag.outputs.tag }}
@@ -334,6 +370,7 @@ jobs:
   winget:
     name: winget
     needs: tag
+    if: contains(needs.tag.outputs.managers, ',winget,')
     runs-on: ubuntu-latest
     env:
       TAG: ${{ needs.tag.outputs.tag }}
