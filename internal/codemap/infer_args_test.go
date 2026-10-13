@@ -56,6 +56,7 @@ function run(){ use( new models.Item() ); }
 		Resolver:          &resolve.Resolver{FS: fsys, Index: index.New(), WorkspaceFolders: []string{dir}},
 		Workers:           2,
 		IncludeUnresolved: true,
+		InferArgs:         true,
 	})
 
 	if m.Stats.Unresolved != 0 {
@@ -72,5 +73,72 @@ function run(){ use( new models.Item() ); }
 
 	if !found {
 		t.Errorf("no edge svc/Svc.cfc::use -> models/Item.cfc::ping; edges: %+v", m.Edges)
+	}
+}
+
+func writeSources(t *testing.T, dir string, src map[string]string) []string {
+	t.Helper()
+
+	var files []string
+
+	for name, body := range src {
+		p := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
+			t.Fatal(err)
+		}
+
+		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		files = append(files, p)
+	}
+
+	return files
+}
+
+// TestInferringArgumentsWidensTheFingerprintToPages: with InferArgs a page can be
+// the caller that types an argument, so editing one must change the key a cache
+// keys on; without it a page's body still leaves the key alone. And the
+// resolver is handed back as it was.
+func TestInferringArgumentsWidensTheFingerprintToPages(t *testing.T) {
+	dir := t.TempDir()
+	files := writeSources(t, dir, map[string]string{
+		"svc/Svc.cfc": `component { function use( required thing ){ arguments.thing.ping(); } }`,
+		"page.cfm":    `<cfset new svc.Svc().use( 1 )>`,
+	})
+
+	fingerprint := func(infer bool) (string, *resolve.Resolver) {
+		fsys := vfs.OS{}
+		r := &resolve.Resolver{FS: fsys, Index: index.New(), WorkspaceFolders: []string{dir}}
+		m := codemap.Build(&codemap.Options{Root: dir, Files: files, FS: fsys, Resolver: r, Workers: 2, InferArgs: infer})
+
+		return m.Fingerprint, r
+	}
+
+	offBefore, _ := fingerprint(false)
+	onBefore, r := fingerprint(true)
+
+	if len(r.InferArgsFiles) != 0 {
+		t.Errorf("Build left InferArgsFiles set: %v", r.InferArgsFiles)
+	}
+
+	if offBefore == onBefore {
+		t.Error("turning InferArgs on did not change the fingerprint")
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "page.cfm"), []byte(`<cfset new svc.Svc().use( 2 )>`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	offAfter, _ := fingerprint(false)
+	onAfter, _ := fingerprint(true)
+
+	if offAfter != offBefore {
+		t.Error("editing a page's body changed the fingerprint without InferArgs")
+	}
+
+	if onAfter == onBefore {
+		t.Error("editing a page's body left the fingerprint alone with InferArgs: a cache would serve stale edges")
 	}
 }

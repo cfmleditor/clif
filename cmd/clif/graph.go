@@ -46,6 +46,9 @@ instantiations, inheritance and includes between them.
   --under-strict   with --under, cut hard at the prefix instead
   --unresolved     include calls that resolved to nothing
   --builtins       include calls to built-in CFML functions
+  --no-infer-args  do not type an untyped argument from what its callers pass it
+                   (as unresolved --no-infer-args; on by default so the map and
+                   unresolved accept the same calls)
   --entry <glob>   also treat files matching this as entry points, for code a
                    runner invokes by a constructed name (repeatable), e.g.
                    --entry '../prs' --entry 'tasks/*'
@@ -86,6 +89,7 @@ type graphFlags struct {
 	detached    bool
 	unresolved  bool
 	builtins    bool
+	noInferArgs bool
 	oneConfig   bool
 	workers     int
 	limit       int
@@ -182,6 +186,8 @@ func parseGraphFlags(args []string) (graphFlags, error) {
 			f.unresolved = true
 		case "--builtins":
 			f.builtins = true
+		case "--no-infer-args":
+			f.noInferArgs = true
 		case "--hide-utility":
 			f.hideUtility = true
 		case "--one-config":
@@ -296,6 +302,7 @@ func buildGraph(f *graphFlags) (*codemap.Map, error) {
 		UtilityGlobs:             f.utilGlobs,
 		IncludeUnresolved:        f.unresolved,
 		IncludeBuiltins:          f.builtins,
+		InferArgs:                !f.noInferArgs,
 	}
 
 	if cache != nil {

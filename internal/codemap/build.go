@@ -104,6 +104,20 @@ type Options struct {
 	// project's own structure.
 	IncludeBuiltins bool
 
+	// InferArgs types an untyped argument from what every caller passes it, as
+	// `unresolved` does by default (resolve.Resolver.InferArgsFiles). Without it
+	// the map leaves as unresolved a call `unresolved` accepts, and Svc::use has
+	// no edge into the component its argument always holds.
+	//
+	// It is opt-in because it changes what the resolver does for as long as Build
+	// runs: the resolvers ConfigFor hands out get InferArgsFiles set to the
+	// scanned files, and have it cleared on return, so a caller sharing a live
+	// resolver with other work (the editor's) must leave it off. It also widens
+	// the cache fingerprint to every template's content, since a caller may be a
+	// page: an edit to one then invalidates the cache, which it otherwise does
+	// not.
+	InferArgs bool
+
 	// EntryGlobs marks files as entry points by path, in addition to the ones the
 	// map works out for itself (.cfm pages, remote methods, Application.cfc hooks).
 	//
@@ -226,6 +240,10 @@ func Build(opts *Options) *Map {
 
 	fingerprint := indexPass(opts)
 
+	if opts.InferArgs {
+		defer inferArgsFrom(opts)()
+	}
+
 	m := &Map{Root: root, Level: LevelFunction, Fingerprint: fingerprint}
 	c := newCollector(m)
 
@@ -320,6 +338,10 @@ func indexPass(opts *Options) string {
 	// hash.Hash.Write never returns an error, so neither can a Fprintf to one.
 	_, _ = fmt.Fprintf(fp, "config\x00%s\n", opts.ConfigExtra)
 
+	if opts.InferArgs {
+		_, _ = fmt.Fprintf(fp, "infer-args\n")
+	}
+
 	for i, f := range cfcs {
 		data, err := opts.FS.ReadFile(f)
 		if err != nil || cfpath.IsBinary(data) {
@@ -351,12 +373,47 @@ func indexPass(opts *Options) string {
 		includes := parser.ExtractIncludes(string(data))
 		opts.Resolver.Index.SetIncludes(cfpath.ToURI(f), includes)
 
+		// A page can be the caller that decides an argument's type.
+		if opts.InferArgs {
+			_, _ = fmt.Fprintf(fp, "%s\x00content\x00%x\n", f, sha256.Sum256(data))
+		}
+
 		if len(includes) > 0 {
 			_, _ = fmt.Fprintf(fp, "%s\x00includes\x00%s\n", f, strings.Join(includes, "\x00"))
 		}
 	}
 
 	return hex.EncodeToString(fp.Sum(nil))
+}
+
+// inferArgsFrom sets InferArgsFiles on every distinct resolver the scan will
+// use and returns what puts them back. It runs after indexPass, as unresolved's
+// does: the caller search needs the index complete.
+func inferArgsFrom(opts *Options) (restore func()) {
+	seen := map[*resolve.Resolver]bool{}
+
+	var set []*resolve.Resolver
+
+	for _, f := range opts.Files {
+		r := opts.ConfigFor(f).Resolver
+		if r != nil && !seen[r] {
+			seen[r] = true
+			set = append(set, r)
+		}
+	}
+
+	prev := make([][]string, len(set))
+
+	for i, r := range set {
+		prev[i] = r.InferArgsFiles
+		r.InferArgsFiles = opts.Files
+	}
+
+	return func() {
+		for i, r := range set {
+			r.InferArgsFiles = prev[i]
+		}
+	}
 }
 
 // FileGraph is one file's contribution, ready to merge. Nodes marked provisional

@@ -728,6 +728,16 @@ moves a method. Editing any `.cfc` therefore invalidates everything; editing `.c
 pages does not, unless the edit changes what the page `<cfinclude>`s. `PruneCache` keeps
 one generation, since older ones can never match.
 
+**`Options.InferArgs` makes the map accept what `unresolved` accepts.** `unresolved` types an
+untyped argument from what every caller passes it (`Resolver.InferArgsFiles`); the map's
+resolver never set that, so `thing.ping()` in `use( thing )` was an unresolved edge to an
+external node where `unresolved` reported nothing. `clif graph` turns it on (`--no-infer-args`
+opts out); `Build` sets it on each resolver `ConfigFor` hands out for the length of the build
+and restores it, so the editor's `generateCodeMap`, which shares a live resolver, leaves it off.
+A caller may be a page, so with it on the fingerprint covers every template's content and
+editing a `.cfm` invalidates the cache, which it otherwise does not.
+`TestTheMapTypesAnArgumentAsUnresolvedDoes`, `TestInferringArgumentsWidensTheFingerprintToPages`.
+
 **`indexPass` records every template's includes before the scan starts.** A bare call
 in a page resolves through the include graph (a page calling a function its includer
 declares, as Lucee's admin pages do), and it recorded only components' includes, so a
