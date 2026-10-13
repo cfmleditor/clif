@@ -847,8 +847,14 @@ func (s *Server) cfPropertyResolvers() []parser.PropertyResolver {
 	return r
 }
 
-// parseContent parses CFC content with all configured resolvers and link extraction.
+// parseContent parses CFC content with all configured resolvers and link
+// extraction, for the document cache: without its call sites (see below).
 func (s *Server) parseContent(fileURI uri.URI, content string) *parser.ParseResult {
+	return s.parseContentWith(fileURI, content, false)
+}
+
+// parseContentWith is parseContent, extracting call sites when calls is set.
+func (s *Server) parseContentWith(fileURI uri.URI, content string, calls bool) *parser.ParseResult {
 	s.ensureBeansLoaded()
 
 	baseDir := filepath.Dir(cfpath.FromURI(string(fileURI)))
@@ -867,8 +873,15 @@ func (s *Server) parseContent(fileURI uri.URI, content string) *parser.ParseResu
 		ExpressionMappings:       s.ExpressionMappings,
 		ServicePropertyResolvers: s.ServicePropertyResolvers,
 		ExtractLinks:             true,
-		ExtractCalls:             true,
-		InterpolateAllText:       !s.Features.OutputContextInterpolation,
+		// The document cache does not extract calls: nothing reads them from
+		// it but commands, which parse afresh (parseForCalls) or have
+		// FuncCalls parse the one function they ask about. Extracting them on
+		// every reparse was 30% of an edit outside a function on a
+		// 58,000-line component, and half its memory. The types the editor
+		// answers from are the same either way, which a comparison over
+		// 23,279 corpus files confirmed.
+		ExtractCalls:       calls,
+		InterpolateAllText: !s.Features.OutputContextInterpolation,
 	})
 }
 

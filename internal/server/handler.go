@@ -556,7 +556,9 @@ func (s *Server) depsCallLoader() func(uri.URI, string) ([]parser.CallSite, []pa
 				return nil, nil
 			}
 
-			pr = s.parseContent(fileURI, string(data))
+			// Calls in many of its functions are asked for: one parse that
+			// extracts them, rather than one per function.
+			pr = s.parseContentWith(fileURI, string(data), true)
 			parsed[fileURI] = pr
 		}
 
