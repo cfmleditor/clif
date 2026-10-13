@@ -14,10 +14,12 @@ package formatter
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"slices"
 	"sort"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	sitter "github.com/tree-sitter/go-tree-sitter"
@@ -232,6 +234,135 @@ type Formatter struct {
 	pendingBlockComments []*sitter.Node
 	// closureBodies caches closureBody by block and level; see there.
 	closureBodies map[closureKey]string
+	// exprs caches expr by node, level and column; see exprKey.
+	exprs map[exprKey]exprResult
+	// deadline and exprCalls are overBudget's; see there.
+	deadline  time.Time
+	exprCalls uint
+}
+
+// maxTreeDepth is the deepest tree the formatter lays out. The deepest file in
+// the six-project corpus is 421 levels, a long concatenation; real nesting is
+// under 110. Past the limit the file is refused rather than formatted, since
+// the output grows with depth times lines: 16,000 nested blocks, 32KB of
+// source, came out as 256MB, and 100,000 took 15GB before it was stopped.
+const maxTreeDepth = 1000
+
+// maxLayoutNesting is the deepest the formatter lets argument lists, arrays and
+// structs nest inside one another. Each of those may be laid out on one line or
+// across several, and deciding renders its entries at both levels, so a value
+// at nesting n is rendered at up to n levels with up to n levels of indent on
+// every line: 300 nested calls, 1KB of source, took 1.6GB, and 300 nested
+// structs 3.5GB. The deepest in the corpus is 11, and 99.9% of files are at 8
+// or less.
+const maxLayoutNesting = 64
+
+// layoutKinds are the nodes maxLayoutNesting counts.
+var layoutKinds = []string{"arguments", "array", "object"}
+
+// maxFormatTime bounds one Format call. Nothing found in the corpus comes near
+// it; it is there so that whatever still makes the formatter slow on some
+// input costs a refused format rather than a core held until the process
+// exits, since the LSP runs a format on a goroutine it does not wait for.
+// A var so a test can shorten it.
+var maxFormatTime = 30 * time.Second
+
+// errFormatTimeout is a format abandoned at maxFormatTime.
+var errFormatTimeout = errors.New("formatting took too long; not formatting this file")
+
+// overBudget reports whether this format has run past its deadline, recording
+// the error the first time, so every renderer can stop and return its text as
+// it is. The clock is read once every 4096 expressions.
+func (f *Formatter) overBudget() bool {
+	if errors.Is(f.parseErr, errFormatTimeout) {
+		return true
+	}
+
+	f.exprCalls++
+	if f.exprCalls&0xfff != 0 || f.deadline.IsZero() || time.Now().Before(f.deadline) {
+		return false
+	}
+
+	f.parseErr = errFormatTimeout
+
+	return true
+}
+
+// treeTooDeep refuses a tree deeper than maxTreeDepth, or with argument lists
+// and literals nested more than maxLayoutNesting deep, recording why, so the
+// format is declined. The walk stops as soon as either is past its limit.
+func (f *Formatter) treeTooDeep(context string, root *sitter.Node) bool {
+	why := treeTooDeep(root)
+	if why == "" {
+		return false
+	}
+
+	if f.parseErr == nil {
+		f.parseErr = fmt.Errorf("%s %s; not formatting it", context, why)
+	}
+
+	return true
+}
+
+// treeTooDeep says which limit root's tree is past, or "" when it is within
+// both.
+func treeTooDeep(root *sitter.Node) string {
+	lang := root.Language()
+
+	layout := map[uint16]bool{}
+
+	for _, k := range layoutKinds {
+		if id := lang.IdForNodeKind(k, true); id != 0 {
+			layout[id] = true
+		}
+	}
+
+	c := root.Walk()
+	defer c.Close()
+
+	// nested[i] is how many layout nodes are open at depth i, the root's own
+	// included, so leaving a node needs no record of what it was.
+	nested := []int{0}
+
+	for {
+		if c.GotoFirstChild() {
+			n := nested[len(nested)-1]
+			if layout[c.Node().KindId()] {
+				n++
+			}
+
+			nested = append(nested, n)
+
+			switch {
+			case len(nested)-1 > maxTreeDepth:
+				return fmt.Sprintf("nests more than %d levels deep", maxTreeDepth)
+			case n > maxLayoutNesting:
+				return fmt.Sprintf("nests argument lists and literals more than %d deep", maxLayoutNesting)
+			}
+
+			continue
+		}
+
+		for !c.GotoNextSibling() {
+			if !c.GotoParent() {
+				return ""
+			}
+
+			nested = nested[:len(nested)-1]
+		}
+
+		// A sibling is entered at the depth of the node it follows.
+		n := nested[len(nested)-2]
+		if layout[c.Node().KindId()] {
+			n++
+		}
+
+		nested[len(nested)-1] = n
+
+		if n > maxLayoutNesting {
+			return fmt.Sprintf("nests argument lists and literals more than %d deep", maxLayoutNesting)
+		}
+	}
 }
 
 // New creates a Formatter with the given options.
@@ -292,6 +423,11 @@ func Format(src []byte, tree *sitter.Tree, opts *Options) (out []byte, err error
 		return nil, parseErrorAt("document", root, src, 0)
 	}
 
+	if f.treeTooDeep("document", root) {
+		return nil, f.parseErr
+	}
+
+	f.deadline = time.Now().Add(maxFormatTime)
 	f.formatNode(root)
 
 	if f.parseErr != nil {
@@ -2796,6 +2932,10 @@ func (f *Formatter) formatScriptRegion(c *sitter.Node) {
 		f.recordParseError("cfscript", tree.RootNode(), scriptSrc, c.StartPosition().Row)
 	}
 
+	if f.treeTooDeep("cfscript", tree.RootNode()) {
+		return
+	}
+
 	origSrc := f.src
 	f.src = scriptSrc
 	f.formatScriptChildren(tree.RootNode())
@@ -2871,6 +3011,10 @@ func (f *Formatter) formatComponentContent(n *sitter.Node) {
 				f.recordParseError("cfscript", tree.RootNode(), scriptSrc, n.StartPosition().Row)
 			}
 			defer tree.Close()
+
+			if f.treeTooDeep("cfscript", tree.RootNode()) {
+				return
+			}
 
 			origSrc := f.src
 			f.src = scriptSrc
