@@ -454,22 +454,21 @@ func (s *Server) getResolver() *resolve.Resolver {
 		s.logPresetSuggestion()
 		frameworks := s.effectiveFrameworks()
 
-		s.resolver = &resolve.Resolver{
-			Discovery:          s.discoveryDependencies,
-			FS:                 s.FS,
-			WorkspaceFolders:   s.searchRoots(),
-			Mappings:           s.Mappings,
-			StartupFiles:       s.StartupFiles,
-			BeanPaths:          s.BeanPaths,
-			ExpressionMappings: s.ExpressionMappings,
-			Index:              s.index,
-			// Saves, watched-file events and edits all reach the index.
-			IndexTracksFiles: true,
-			Resolvers:        s.buildResolvers(),
-			ImplicitExtends:  config.ImplicitExtends(frameworks),
-			HelperScope:      config.HelperScope(frameworks),
-			Stubs:            frameworkapi.For(frameworks),
-		}
+		s.resolver = resolve.NewResolver(s.FS, s.index, &resolve.Settings{
+			CallerInferenceLimits: s.CallerInferenceLimits,
+			Resolvers:             s.buildResolvers(),
+			Mappings:              s.Mappings,
+			StartupFiles:          s.StartupFiles,
+			ExpressionMappings:    s.ExpressionMappings,
+			BeanPaths:             s.BeanPaths,
+			WorkspaceFolders:      s.searchRoots(),
+			ImplicitExtends:       config.ImplicitExtends(frameworks),
+			HelperScope:           config.HelperScope(frameworks),
+			Stubs:                 frameworkapi.For(frameworks),
+		})
+		s.resolver.Discovery = s.discoveryDependencies
+		// Saves, watched-file events and edits all reach the index.
+		s.resolver.IndexTracksFiles = true
 	}
 
 	return s.resolver
@@ -857,42 +856,31 @@ func (s *Server) parseContent(fileURI uri.URI, content string) *parser.ParseResu
 func (s *Server) parseContentWith(fileURI uri.URI, content string, calls bool) *parser.ParseResult {
 	s.ensureBeansLoaded()
 
-	baseDir := filepath.Dir(cfpath.FromURI(string(fileURI)))
 	resolver := s.getResolver()
 
-	return parser.ParseWithOptions(fileURI, content, &parser.ParseOptions{
-		Logger:                   s.log,
-		Resolvers:                s.cfResolvers(),
-		PropertyResolvers:        s.cfPropertyResolvers(),
-		BeanLookup:               resolver.InjectionBeanLookup(cfpath.FromURI(string(fileURI))),
-		PropertyBeanLookup:       resolver.InjectionPropertyLookup(cfpath.FromURI(string(fileURI))),
-		SetterLookup:             resolver.SetterLookup(cfpath.FromURI(string(fileURI))),
-		ConstructorLookup:        resolver.ConstructorLookup(cfpath.FromURI(string(fileURI))),
-		BuiltinReturnLookup:      resolver.BuiltinReturnLookupFor(cfpath.FromURI(string(fileURI))),
-		FuncLookup:               funcLookup(resolver, baseDir),
+	// The lookups are the resolver's, as a batch parse takes them; this adds the
+	// logger and decides which calls to extract.
+	po := resolver.ParseOptions(cfpath.FromURI(string(fileURI)), &resolve.ParseInputs{
 		ExpressionMappings:       s.ExpressionMappings,
 		ServicePropertyResolvers: s.ServicePropertyResolvers,
-		// Links are not extracted either: only the document-link request
-		// reads them, and it takes them from the text (DocumentLinks).
-		//
-		// The document cache does not extract calls: nothing reads them from
-		// it but commands, which parse afresh (parseForCalls) or have
-		// FuncCalls parse the one function they ask about. Extracting them on
-		// every reparse was 30% of an edit outside a function on a
-		// 58,000-line component, and half its memory. The types the editor
-		// answers from are the same either way, which a comparison over
-		// 23,279 corpus files confirmed.
-		ExtractCalls:       calls,
-		InterpolateAllText: !s.Features.OutputContextInterpolation,
+		PropertyResolvers:        s.cfPropertyResolvers(),
+		InterpolateAllText:       !s.Features.OutputContextInterpolation,
 	})
-}
+	po.Logger = s.log
 
-// funcLookup resolves a method's declared return-type component across files
-// (e.g. a Java stub's getInstance() modeling its own return type), so the parser
-// can prefer a verified cross-file answer over a componentResolver's guess on
-// the call-site text. It is resolve.Resolver.FuncLookup, which every scan shares.
-func funcLookup(resolver *resolve.Resolver, baseDir string) func(component, funcName string) string {
-	return resolver.FuncLookup(baseDir)
+	// Links are not extracted either: only the document-link request
+	// reads them, and it takes them from the text (DocumentLinks).
+	//
+	// The document cache does not extract calls: nothing reads them from
+	// it but commands, which parse afresh (parseForCalls) or have
+	// FuncCalls parse the one function they ask about. Extracting them on
+	// every reparse was 30% of an edit outside a function on a
+	// 58,000-line component, and half its memory. The types the editor
+	// answers from are the same either way, which a comparison over
+	// 23,279 corpus files confirmed.
+	po.ExtractCalls = calls
+
+	return parser.ParseWithOptions(fileURI, content, po)
 }
 
 // parseContentForIndex keeps the cheap signature pass for ordinary files,

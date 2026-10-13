@@ -55,8 +55,22 @@ type Settings struct {
 func NewBatchResolver(fsys vfs.FS, idx *index.Index, s *Settings) *Resolver {
 	// Files do not change under a batch run, which is what SnapshotScan says and
 	// what lets the filesystem answer a stat or a read once.
-	fsys = vfs.CacheMetadata(fsys)
+	r := NewResolver(vfs.CacheMetadata(fsys), idx, s)
+	r.SnapshotScan = true
+	r.InferArgsFiles = s.InferArgsFiles
+	r.SpeculativeReceivers = s.SpeculativeReceivers
+	r.Resolvers = r.BeanResolvers(s.BeanPaths)
 
+	return r
+}
+
+// NewResolver is the resolver the settings describe, over idx. A batch run
+// goes through [NewBatchResolver], which adds what only a run over files that
+// do not change can have; the editor's live resolver adds its own (it tracks
+// the files it is told about) and is the other caller. What the settings mean
+// for resolution, including recognising a Lucee checkout, is decided here and
+// so is the same in both.
+func NewResolver(fsys vfs.FS, idx *index.Index, s *Settings) *Resolver {
 	r := &Resolver{
 		NativeEngine:          s.NativeEngine,
 		FS:                    fsys,
@@ -71,18 +85,32 @@ func NewBatchResolver(fsys vfs.FS, idx *index.Index, s *Settings) *Resolver {
 		ImplicitExtends:       s.ImplicitExtends,
 		HelperScope:           s.HelperScope,
 		Stubs:                 s.Stubs,
-		SnapshotScan:          true,
-		InferArgsFiles:        s.InferArgsFiles,
-		SpeculativeReceivers:  s.SpeculativeReceivers,
 	}
 
 	if r.NativeEngine == "" && detectsLucee(fsys, s.WorkspaceFolders) {
 		r.NativeEngine = "lucee"
 	}
 
-	r.Resolvers = r.BeanResolvers(s.BeanPaths)
-
 	return r
+}
+
+// Settings is what the resolver was built from, for a tool that builds another
+// run from it (the editor's export of the unresolved report). It carries the
+// resolution settings only; what a parse takes is [ParseInputs].
+func (r *Resolver) Settings() *Settings {
+	return &Settings{
+		NativeEngine:          r.NativeEngine,
+		CallerInferenceLimits: r.CallerInferenceLimits,
+		Resolvers:             r.Resolvers,
+		Mappings:              r.Mappings,
+		StartupFiles:          r.StartupFiles,
+		ExpressionMappings:    r.ExpressionMappings,
+		BeanPaths:             r.BeanPaths,
+		WorkspaceFolders:      r.WorkspaceFolders,
+		ImplicitExtends:       r.ImplicitExtends,
+		HelperScope:           r.HelperScope,
+		Stubs:                 r.Stubs,
+	}
 }
 
 // detectsLucee reports whether every root is laid out as a Lucee checkout.
@@ -163,12 +191,13 @@ func (s *Settings) ParseInputs() *ParseInputs {
 	}
 }
 
-// BatchParseOptions are the options every batch run parses a file's calls with.
-// The setter, constructor and injected-bean lookups are what type
-// `variables.configBean` in a component that is handed it through init() or a
-// setter; the code map left them out and reported 3,134 calls on Masa CMS that
-// `unresolved` resolved. The caller adds what only it needs (links, say).
-func (r *Resolver) BatchParseOptions(file string, in *ParseInputs) *parser.ParseOptions {
+// ParseOptions is what every parse of a file in a workspace takes from its
+// resolver: the lookups that type a call by what it is made on or what a
+// function returns, and the configured rules. A batch run and the editor's
+// live parse each took these by hand, field for field, and a lookup added to
+// one was missing from the other. The caller adds what it alone wants: which
+// calls to extract, links, a logger.
+func (r *Resolver) ParseOptions(file string, in *ParseInputs) *parser.ParseOptions {
 	return &parser.ParseOptions{
 		Resolvers:                r.Resolvers,
 		ExpressionMappings:       in.ExpressionMappings,
@@ -179,11 +208,19 @@ func (r *Resolver) BatchParseOptions(file string, in *ParseInputs) *parser.Parse
 		SetterLookup:             r.SetterLookup(file),
 		ConstructorLookup:        r.ConstructorLookup(file),
 		InterpolateAllText:       in.InterpolateAllText,
-		ExtractCalls:             true,
-		ScanAllScopes:            true,
 		FuncLookup:               r.FuncLookup(filepath.Dir(file)),
 		BuiltinReturnLookup:      r.BuiltinReturnLookupFor(file),
 	}
+}
+
+// BatchParseOptions are the options every batch run parses a file's calls with:
+// [Resolver.ParseOptions] with the calls of every scope extracted.
+func (r *Resolver) BatchParseOptions(file string, in *ParseInputs) *parser.ParseOptions {
+	po := r.ParseOptions(file, in)
+	po.ExtractCalls = true
+	po.ScanAllScopes = true
+
+	return po
 }
 
 // IndexFiles indexes every file for a batch run, in parallel: each is read and

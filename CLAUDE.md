@@ -762,6 +762,21 @@ pieces, each used by every command that resolves in bulk:
   the report does with it instead of a bare "unresolved". The editor's `clif.explainCall` prints
   the same line but traces with the session's live resolver, which does not infer arguments.
   `batchFileConfig` is the map's per-file environment, fallback and per-config alike.
+**The editor server is on the same pieces where a live resolver can be.** `resolve.NewResolver` builds
+every resolver from a `Settings` (field mapping and Lucee detection), the batch one adding snapshot
+mode and the editor's adding `Discovery` and `IndexTracksFiles`; `Resolver.ParseOptions` is the one
+list of lookups a parse of a file takes, which the editor's `parseContentWith` and every batch parse
+build on (`BatchParseOptions` adds the calls of every scope); the export of the unresolved report
+takes its settings back from the session's resolver (`Resolver.Settings`) and infers arguments as
+the CLI does. What stays different on purpose is liveness: no `CacheMetadata`, no `SnapshotScan`,
+and a per-keystroke parse that extracts no calls. `TestConfigAccessorsAgreeWithResolve` pins the
+CLI's reading of `.clif.json` (`daemon.Config`) to the editor's (`config.Resolve`).
+**Still two forks, each a decision rather than a refactor:** `clif refs` and the MCP `find_references`
+run with the config's resolvers alone, where the editor's find-references also verifies each hit
+against a resolver (`refs.Options.VerifyCall`/`VerifyTarget`/`Reason`), so the same question gets
+different answers; and the CLI maps the folder holding `.clif.json` under its own name
+(`daemon.Config.Mappings`) where `config.Resolve` does not.
+
 After the change the map's unresolved count equals `unresolved`'s exactly on Masa (3,786 with
 inference, 5,417 without), ColdBox (3,974, 3,981) and TestBox (929, 976), and `unresolved`'s own
 output is byte-identical to before. Differences that remain are on purpose: `deps` parses with its
