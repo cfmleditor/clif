@@ -6,12 +6,13 @@ import (
 	"archive/zip"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
-	neturl "net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -25,15 +26,30 @@ import (
 	"github.com/cfmleditor/clif/internal/conv"
 )
 
-const (
-	// Only used when the releases API cannot be reached; the normal path
-	// queries it and takes whatever is current. Worth refreshing occasionally
-	// anyway, so an offline first run does not start several releases behind.
-	// It is also the version a release build embeds: scripts/fetch-cflint.sh
-	// pins the same one (TestFallbackIsTheEmbeddedVersion).
-	fallbackVersion = "1.5.17"
-	latestRelease   = "https://github.com/cfmleditor/CFLint/releases/latest"
-)
+// pinnedVersion is the CFLint clif runs unless CLIF_CFLINT or PATH names
+// another: the one a release build embeds (scripts/fetch-cflint.sh pins the
+// same one, TestPinnedVersionIsTheEmbeddedVersion) and the only one any build
+// downloads. It used to download whatever `releases/latest` pointed at, and
+// ran it unchecked, so whoever could publish a CFLint release could run code
+// on every machine with a source-built clif and linting on.
+const pinnedVersion = "1.5.17"
+
+// executableSums is the sha256 of pinnedVersion's executable for each
+// platform, keyed by binaryNameFor. It is the digest GitHub lists for the raw
+// asset, which is also the file each .tar.gz and .zip holds, so one sum checks
+// a download in either shape and a binary already in the cache:
+//
+//	gh api repos/cfmleditor/CFLint/releases/tags/<version> --jq '.assets[] | "\(.name) \(.digest)"'
+//
+// Moving pinnedVersion means replacing all five. A var so a test can serve
+// executables of its own.
+var executableSums = map[string]string{
+	"cflint-macos-aarch64":     "ccea4da23b1af871fad7197edf66039c2c0ee42c88e75f0782d330489c79dd3b",
+	"cflint-macos-amd64":       "18162a70ef8c84552d646c5f77c160a862f2cf8ac4b0a7a3e2fb06d8ceb32157",
+	"cflint-linux-aarch64":     "48dc2c6ad226939f652d8170737bb3ef23b15dc4f1186c2bf41240d454a0ffaf",
+	"cflint-linux-amd64":       "656b1993d5510676155fb5f06b083636e2cec20d0b9369141ff181b815ee2265",
+	"cflint-windows-amd64.exe": "e4855f15c4eccc384e86333a325943df7bd5c746021688325fb252288b18a97c",
+}
 
 // downloadBase is where release assets are fetched from. A var rather than a
 // const so a test can point it somewhere that is not the internet.
@@ -412,78 +428,6 @@ func cacheDir(version string) (string, error) {
 // the linting it was setting up — hung for the life of the process.
 var downloadClient = &http.Client{Timeout: 5 * time.Minute}
 
-// releaseClient reads a redirect rather than following it, which is what makes
-// latestVersion work. Deliberately not downloadClient: an asset URL redirects
-// to the object store, so downloads have to follow them.
-var releaseClient = &http.Client{
-	Timeout: 30 * time.Second,
-	CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
-		return http.ErrUseLastResponse
-	},
-}
-
-func latestVersion(ctx context.Context) string {
-	return latestVersionFrom(ctx, latestRelease)
-}
-
-// latestVersionFrom reads the tag `latest` points at, from GitHub's own
-// redirect.
-//
-// Deliberately not the releases API. That endpoint is rate limited to 60
-// requests an hour per IP for unauthenticated callers, shared by everyone
-// behind one NAT, and an office that hits it spends the rest of the hour
-// pinned to fallbackVersion with nothing saying why. `/releases/latest`
-// redirects to `/releases/tag/<tag>` with no API involved and no limit.
-func latestVersionFrom(ctx context.Context, url string) string {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
-	if err != nil {
-		return fallbackVersion
-	}
-
-	resp, err := releaseClient.Do(req)
-	if err != nil {
-		return fallbackVersion
-	}
-
-	defer func() { _ = resp.Body.Close() }()
-
-	// The redirect is the answer, so the body is of no interest.
-	_, _ = io.Copy(io.Discard, resp.Body)
-
-	tag := tagFromRedirect(resp.Header.Get("Location"))
-	if tag == "" {
-		return fallbackVersion
-	}
-
-	return tag
-}
-
-// tagFromRedirect pulls the tag out of the URL `/releases/latest` redirects to,
-// and returns an empty string for anything that is not one — an empty Location
-// from a response that was not a redirect at all, or a redirect somewhere
-// unexpected, both of which have to fall back rather than build a download URL
-// out of nonsense.
-func tagFromRedirect(location string) string {
-	const marker = "/releases/tag/"
-
-	_, after, ok := strings.Cut(location, marker)
-	if !ok {
-		return ""
-	}
-
-	tag := after
-	if end := strings.IndexAny(tag, "?#"); end >= 0 {
-		tag = tag[:end]
-	}
-
-	unescaped, err := neturl.PathUnescape(tag)
-	if err != nil {
-		return tag
-	}
-
-	return unescaped
-}
-
 // assetKind is how a release asset has to be unpacked.
 type assetKind int
 
@@ -560,68 +504,36 @@ func ensureBinary(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("unsupported platform: %s/%s", runtime.GOOS, runtime.GOARCH)
 	}
 
-	return binaryWithFallback(ctx, latestVersion(ctx), name)
+	return downloadedBinary(ctx, name)
 }
 
-// binaryWithFallback fetches the binary for a version, and settles for the
-// version compiled in when that release has nothing for this platform.
-//
-// Two things make the newest release a version this platform may not be able
-// to download from, and only the second is rare.
-//
-// A release's assets upload one platform at a time, so for the minutes between
-// the release appearing and the last upload finishing, the newest version
-// genuinely 404s for whichever platforms have not landed yet. macOS is
-// routinely last. Any client that asks in that window sees exactly what a
-// dropped platform looks like.
-//
-// And a release really can ship without one: 1.5.16 went out with no
-// cflint-macos-amd64 at all, because the Intel job targeted a retired runner
-// image, never got a runner, and was auto-cancelled while the other four
-// uploaded and left the release looking complete. Upstream has since fixed the
-// job and backfilled the asset, but nothing stops it happening again.
-//
-// The version in fallbackVersion is one this build is known to have been
-// released against, so it is a better answer than an error in both cases.
-//
-// An earlier version of this comment cited 1.5.17 as having dropped macOS. It
-// did not — that reading came from listing its assets while they were still
-// uploading, which is the first case above rather than the second.
-//
-// Only a missing asset falls back. A refused connection or a timeout would
-// fail the same way against any version, and trying a second one only doubles
-// the wait.
-func binaryWithFallback(ctx context.Context, version, name string) (string, error) {
-	binPath, err := binaryForVersion(ctx, version, name)
-	if err == nil {
-		return binPath, nil
+// downloadedBinary returns pinnedVersion's binary from the cache, downloading
+// it the first time. A cached file is used only when it has the pinned sum: an
+// older clif downloaded into the same directory without checking anything, so
+// what is there may not be what the pin names.
+func downloadedBinary(ctx context.Context, name string) (string, error) {
+	want, ok := executableSums[name]
+	if !ok {
+		return "", fmt.Errorf("no pinned checksum for %s", name)
 	}
 
-	if !errors.Is(err, errAssetMissing) || version == fallbackVersion {
-		return "", err
-	}
-
-	binPath, fallbackErr := binaryForVersion(ctx, fallbackVersion, name)
-	if fallbackErr != nil {
-		// The error from the version actually asked for is the one worth
-		// reporting; the fallback failing too is a detail of the attempt.
-		return "", err
-	}
-
-	return binPath, nil
-}
-
-// binaryForVersion returns the cached binary for one release, downloading it
-// if this is the first time that version has been asked for.
-func binaryForVersion(ctx context.Context, version, name string) (string, error) {
-	dir, err := cacheDir(version)
+	dir, err := cacheDir(pinnedVersion)
 	if err != nil {
 		return "", err
 	}
 
 	binPath := filepath.Join(dir, name)
 	if _, err := os.Stat(binPath); err == nil {
-		return binPath, nil
+		if fileHasSum(binPath, want) {
+			return binPath, nil
+		}
+
+		// Removed rather than renamed over: installAsset accepts a file left at
+		// binPath when its rename fails, which is how it tolerates a Windows
+		// clif running its own copy, and this one is not to be accepted.
+		if err := os.Remove(binPath); err != nil {
+			return "", fmt.Errorf("cflint at %s does not have the pinned checksum and cannot be replaced: %w", binPath, err)
+		}
 	}
 
 	assets := assetsFor(runtime.GOOS, runtime.GOARCH)
@@ -632,14 +544,16 @@ func binaryForVersion(ctx context.Context, version, name string) (string, error)
 	var missing error
 
 	for _, a := range assets {
-		err := fetchAsset(ctx, downloadBase+version+"/"+a.name, binPath, a.kind)
+		err := fetchAsset(ctx, downloadBase+pinnedVersion+"/"+a.name, binPath, a.kind, want)
 		if err == nil {
+			verified.Store(binPath, want)
+
 			return binPath, nil
 		}
 
 		// Only a release that does not carry this asset is worth asking for
-		// another one. A refused connection or a timeout would fail the same
-		// way twice.
+		// another one. A refused connection, a timeout or a wrong checksum
+		// would fail the same way twice.
 		if errors.Is(err, errAssetMissing) {
 			missing = err
 
@@ -649,7 +563,38 @@ func binaryForVersion(ctx context.Context, version, name string) (string, error)
 		return "", err
 	}
 
-	return "", fmt.Errorf("cflint %s: %w", version, missing)
+	return "", fmt.Errorf("cflint %s: %w", pinnedVersion, missing)
+}
+
+// verified remembers which cached binaries this process has already found to
+// have their sum, so a second Runner does not read 90MB again.
+var verified sync.Map
+
+// fileHasSum says whether the file at p has the sha256 want.
+func fileHasSum(p, want string) bool {
+	if got, ok := verified.Load(p); ok && got == want {
+		return true
+	}
+
+	f, err := os.Open(p) //nolint:gosec // a path in clif's own cache
+	if err != nil {
+		return false
+	}
+
+	defer func() { _ = f.Close() }()
+
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return false
+	}
+
+	if hex.EncodeToString(h.Sum(nil)) != want {
+		return false
+	}
+
+	verified.Store(p, want)
+
+	return true
 }
 
 // fetchAsset downloads one asset and leaves the executable at binPath.
@@ -660,7 +605,10 @@ func binaryForVersion(ctx context.Context, version, name string) (string, error)
 // ensureBinary accepts as a cached binary, so linting stayed broken for every
 // later run until someone deleted it by hand. Rename is atomic within a
 // directory, so binPath either does not exist or is a complete download.
-func fetchAsset(ctx context.Context, url, binPath string, kind assetKind) error {
+//
+// The executable is installed only when its sha256 is wantSum, checked before
+// the rename, so a download that fails the check leaves nothing behind.
+func fetchAsset(ctx context.Context, url, binPath string, kind assetKind, wantSum string) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 	if err != nil {
 		return fmt.Errorf("downloading cflint: %w", err)
@@ -681,7 +629,7 @@ func fetchAsset(ctx context.Context, url, binPath string, kind assetKind) error 
 		return fmt.Errorf("downloading cflint: HTTP %d", resp.StatusCode)
 	}
 
-	return installAsset(resp.Body, binPath, kind)
+	return installAsset(resp.Body, binPath, kind, wantSum)
 }
 
 // rename is os.Rename, replaced by a test to lose the race installAsset
@@ -689,8 +637,10 @@ func fetchAsset(ctx context.Context, url, binPath string, kind assetKind) error 
 var rename = os.Rename
 
 // installAsset unpacks an asset's executable to binPath, beside it first and
-// renamed into place, for the reason fetchAsset gives.
-func installAsset(src io.Reader, binPath string, kind assetKind) error {
+// renamed into place, for the reason fetchAsset gives. With a wantSum, an
+// executable with any other sha256 is refused; the embedded asset passes none,
+// since scripts/fetch-cflint.sh checked it before it was compiled in.
+func installAsset(src io.Reader, binPath string, kind assetKind, wantSum string) error {
 	dir := filepath.Dir(binPath)
 
 	tmp, err := os.CreateTemp(dir, filepath.Base(binPath)+".part-*")
@@ -705,8 +655,14 @@ func installAsset(src io.Reader, binPath string, kind assetKind) error {
 		_ = os.Remove(tmpPath) // no-op once the rename below has succeeded
 	}()
 
-	if err := writeBinary(tmp, src, kind, dir); err != nil {
+	h := sha256.New()
+	if err := writeBinary(io.MultiWriter(tmp, h), src, kind, dir); err != nil {
 		return err
+	}
+
+	if got := hex.EncodeToString(h.Sum(nil)); wantSum != "" && got != wantSum {
+		return fmt.Errorf("cflint %s for %s has sha256 %s, not the pinned %s; refusing it",
+			pinnedVersion, filepath.Base(binPath), got, wantSum)
 	}
 
 	if err := tmp.Close(); err != nil {
@@ -843,7 +799,7 @@ func copyFromZip(dst io.Writer, src io.Reader, tmpDir string) error {
 }
 
 // embeddedBinary unpacks the CFLint this build carries into the cache, where
-// fallbackVersion's download would go, once; later runs find it there. With no
+// pinnedVersion's download would go, once; later runs find it there. With no
 // usable cache ($HOME unset, a read-only home) it unpacks into a fresh private
 // temporary directory instead, so a locked-down machine still lints.
 func embeddedBinary() (string, error) {
@@ -852,7 +808,7 @@ func embeddedBinary() (string, error) {
 		return "", fmt.Errorf("unsupported platform: %s/%s", runtime.GOOS, runtime.GOARCH)
 	}
 
-	dir, err := cacheDir(fallbackVersion)
+	dir, err := cacheDir(pinnedVersion)
 	if err == nil {
 		var p string
 		if p, err = unpackEmbedded(dir, name); err == nil {
@@ -890,7 +846,7 @@ func unpackEmbedded(dir, name string) (string, error) {
 		return binPath, nil
 	}
 
-	if err := installAsset(strings.NewReader(embeddedCFLint), binPath, kind); err != nil {
+	if err := installAsset(strings.NewReader(embeddedCFLint), binPath, kind, ""); err != nil {
 		return "", fmt.Errorf("unpacking the embedded cflint: %w", err)
 	}
 

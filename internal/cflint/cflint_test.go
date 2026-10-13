@@ -5,6 +5,8 @@ import (
 	"archive/zip"
 	"bytes"
 	"compress/gzip"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/http"
@@ -330,7 +332,7 @@ func TestFetchAssetUnpacks(t *testing.T) {
 			defer server.Close()
 
 			binPath := filepath.Join(t.TempDir(), "cflint-test")
-			if err := fetchAsset(t.Context(), server.URL, binPath, tc.kind); err != nil {
+			if err := fetchAsset(t.Context(), server.URL, binPath, tc.kind, sumOf(want)); err != nil {
 				t.Fatalf("fetchAsset: %v", err)
 			}
 
@@ -365,7 +367,7 @@ func TestFetchAssetReportsAMissingAssetSeparately(t *testing.T) {
 	}))
 	defer server.Close()
 
-	err := fetchAsset(t.Context(), server.URL, filepath.Join(t.TempDir(), "cflint-test"), tarGz)
+	err := fetchAsset(t.Context(), server.URL, filepath.Join(t.TempDir(), "cflint-test"), tarGz, sumOf(nil))
 	if !errors.Is(err, errAssetMissing) {
 		t.Errorf("fetchAsset on a 404 = %v, want errAssetMissing", err)
 	}
@@ -379,7 +381,7 @@ func TestFetchAssetDoesNotTreatOtherFailuresAsMissing(t *testing.T) {
 	}))
 	defer server.Close()
 
-	err := fetchAsset(t.Context(), server.URL, filepath.Join(t.TempDir(), "cflint-test"), rawBinary)
+	err := fetchAsset(t.Context(), server.URL, filepath.Join(t.TempDir(), "cflint-test"), rawBinary, sumOf(nil))
 	if err == nil || errors.Is(err, errAssetMissing) {
 		t.Errorf("fetchAsset on a 500 = %v, want a plain error", err)
 	}
@@ -396,7 +398,7 @@ func TestFetchAssetRejectsAnArchiveWithNoBinary(t *testing.T) {
 	defer server.Close()
 
 	binPath := filepath.Join(t.TempDir(), "cflint-test")
-	if err := fetchAsset(t.Context(), server.URL, binPath, tarGz); err == nil {
+	if err := fetchAsset(t.Context(), server.URL, binPath, tarGz, sumOf(nil)); err == nil {
 		t.Error("fetchAsset on an empty archive = nil, want an error")
 	}
 
@@ -458,77 +460,57 @@ func zipOf(t *testing.T, name string, content []byte) []byte {
 	return buf.Bytes()
 }
 
-// TestTagFromRedirect states the shapes GitHub's redirect arrives in, and the
-// ones that have to be refused. A tag read out of a response that was not a
-// redirect would become a download URL for a release that does not exist.
-func TestTagFromRedirect(t *testing.T) {
-	cases := map[string]string{
-		"https://github.com/cfmleditor/CFLint/releases/tag/1.5.17":       "1.5.17",
-		"https://github.com/cfmleditor/CFLint/releases/tag/1.5.17?x=1":   "1.5.17",
-		"https://github.com/cfmleditor/CFLint/releases/tag/1.5.17#notes": "1.5.17",
-		"https://github.com/cfmleditor/CFLint/releases/tag/v1.0%2Bbuild": "v1.0+build",
-		"": "",
-		"https://github.com/cfmleditor/CFLint/releases": "",
-		"https://example.com/":                          "",
-	}
+// sumOf is the hex sha256 of b, the form executableSums holds.
+func sumOf(b []byte) string {
+	h := sha256.Sum256(b)
 
-	for location, want := range cases {
-		if got := tagFromRedirect(location); got != want {
-			t.Errorf("tagFromRedirect(%q) = %q, want %q", location, got, want)
-		}
-	}
+	return hex.EncodeToString(h[:])
 }
 
-// TestLatestVersionFrom covers the request itself: the redirect has to be read
-// rather than followed, and anything else has to land on fallbackVersion
-// rather than failing the lint.
-func TestLatestVersionFrom(t *testing.T) {
-	t.Run("reads the tag from the redirect", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			w.Header().Set("Location", "https://github.com/cfmleditor/CFLint/releases/tag/1.5.17")
-			w.WriteHeader(http.StatusFound)
-		}))
-		defer server.Close()
+// A download whose executable is not the pinned one is refused in every shape
+// an asset arrives in, and leaves nothing at the path ensureBinary would run.
+func TestFetchAssetRefusesTheWrongChecksum(t *testing.T) {
+	served := []byte("#!/bin/sh\necho not CFLint\n")
+	pinned := sumOf([]byte("#!/bin/sh\necho CFLint\n"))
 
-		if got := latestVersionFrom(t.Context(), server.URL); got != "1.5.17" {
-			t.Errorf("latestVersionFrom = %q, want 1.5.17", got)
-		}
-	})
+	cases := map[string]struct {
+		body []byte
+		kind assetKind
+	}{
+		"raw":    {body: served, kind: rawBinary},
+		"tar.gz": {body: tarGzOf(t, "cflint", served), kind: tarGz},
+		"zip":    {body: zipOf(t, "cflint.exe", served), kind: zipped},
+	}
 
-	// Rate limiting used to arrive as an HTTP 403 from the API. Whatever the
-	// shape, an answer that is not a redirect to a tag means carrying on with
-	// the version that is compiled in.
-	t.Run("falls back when the answer is not a redirect", func(t *testing.T) {
-		for _, status := range []int{http.StatusOK, http.StatusForbidden, http.StatusInternalServerError} {
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-				w.WriteHeader(status)
+				_, _ = w.Write(tc.body)
 			}))
+			defer server.Close()
 
-			got := latestVersionFrom(t.Context(), server.URL)
-			server.Close()
+			binPath := filepath.Join(t.TempDir(), "cflint-test")
 
-			if got != fallbackVersion {
-				t.Errorf("latestVersionFrom on HTTP %d = %q, want %q", status, got, fallbackVersion)
+			err := fetchAsset(t.Context(), server.URL, binPath, tc.kind, pinned)
+			if err == nil || !strings.Contains(err.Error(), "sha256") {
+				t.Errorf("fetchAsset of the wrong executable = %v, want a checksum error", err)
 			}
-		}
-	})
 
-	t.Run("falls back when nobody answers", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
-		url := server.URL
-		server.Close()
+			if errors.Is(err, errAssetMissing) {
+				t.Error("a checksum failure was reported as a missing asset, which would try the next one")
+			}
 
-		if got := latestVersionFrom(t.Context(), url); got != fallbackVersion {
-			t.Errorf("latestVersionFrom against a closed server = %q, want %q", got, fallbackVersion)
-		}
-	})
+			if _, err := os.Stat(binPath); err == nil {
+				t.Error("a refused download left a file at the cached path")
+			}
+		})
+	}
 }
 
-// TestBinaryWithFallback covers what happens when a release is missing this
-// platform's build. 1.5.17 shipped without either macOS Intel asset, and
-// before the fallback that took Intel Macs from a working linter to none the
-// moment it became the current release.
-func TestBinaryWithFallback(t *testing.T) {
+// Only the pinned version is downloaded, its executable is checked, and a
+// cached file without the pinned sum (one an older clif downloaded unchecked)
+// is replaced rather than run.
+func TestTheDownloadIsThePinnedVersionChecked(t *testing.T) {
 	name := binaryName()
 	if name == "" {
 		t.Skipf("no CFLint build for %s/%s", runtime.GOOS, runtime.GOARCH)
@@ -536,83 +518,75 @@ func TestBinaryWithFallback(t *testing.T) {
 
 	want := []byte("#!/bin/sh\necho CFLint\n")
 
-	t.Run("settles for the compiled-in version", func(t *testing.T) {
-		useTempCache(t)
+	previous := executableSums
+	executableSums = map[string]string{name: sumOf(want)}
 
-		var asked []string
+	t.Cleanup(func() { executableSums = previous })
 
-		// Only the fallback release has anything for this platform.
-		useFakeReleases(t, func(w http.ResponseWriter, r *http.Request) {
-			asked = append(asked, r.URL.Path)
+	useTempCache(t)
 
-			if !strings.Contains(r.URL.Path, "/"+fallbackVersion+"/") {
-				w.WriteHeader(http.StatusNotFound)
+	var asked []string
 
-				return
-			}
+	serve := want
 
-			_, _ = w.Write(assetBody(t, r.URL.Path, want))
-		})
-
-		binPath, err := binaryWithFallback(t.Context(), "9.9.9", name)
-		if err != nil {
-			t.Fatalf("binaryWithFallback: %v", err)
-		}
-
-		got, err := os.ReadFile(binPath)
-		if err != nil {
-			t.Fatalf("reading the binary: %v", err)
-		}
-
-		if !bytes.Equal(got, want) {
-			t.Errorf("binary = %q, want %q", got, want)
-		}
-
-		// The version asked for is tried first and in full, so the fallback is
-		// genuinely a last resort rather than the usual path.
-		if !strings.Contains(asked[0], "/9.9.9/") {
-			t.Errorf("first request was %q, want the version asked for", asked[0])
-		}
+	useFakeReleases(t, func(w http.ResponseWriter, r *http.Request) {
+		asked = append(asked, r.URL.Path)
+		_, _ = w.Write(assetBody(t, r.URL.Path, serve))
 	})
 
-	// A version that has the build must not reach the fallback at all — an
-	// older linter quietly standing in for the current one would be worse than
-	// the bug this fixes.
-	t.Run("does not fall back when the release has the build", func(t *testing.T) {
-		useTempCache(t)
+	binPath, err := downloadedBinary(t.Context(), name)
+	if err != nil {
+		t.Fatalf("downloadedBinary: %v", err)
+	}
 
-		var versions []string
-
-		useFakeReleases(t, func(w http.ResponseWriter, r *http.Request) {
-			versions = append(versions, r.URL.Path)
-			_, _ = w.Write(assetBody(t, r.URL.Path, want))
-		})
-
-		if _, err := binaryWithFallback(t.Context(), "9.9.9", name); err != nil {
-			t.Fatalf("binaryWithFallback: %v", err)
+	for _, path := range asked {
+		if !strings.Contains(path, "/"+pinnedVersion+"/") {
+			t.Errorf("asked for %q, want only the pinned %s", path, pinnedVersion)
 		}
+	}
 
-		for _, path := range versions {
-			if strings.Contains(path, "/"+fallbackVersion+"/") {
-				t.Errorf("asked for %q when the release asked for had the build", path)
-			}
-		}
-	})
+	if got, _ := os.ReadFile(binPath); !bytes.Equal(got, want) {
+		t.Fatalf("binary = %q, want %q", got, want)
+	}
 
-	// Nothing anywhere has to stay an error, reported against the version that
-	// was actually wanted.
-	t.Run("reports the version asked for when neither has it", func(t *testing.T) {
-		useTempCache(t)
+	// A cached file with another sum is not run: it is downloaded again.
+	verified.Delete(binPath)
 
-		useFakeReleases(t, func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(http.StatusNotFound)
-		})
+	if err := os.WriteFile(binPath, []byte("planted"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 
-		_, err := binaryWithFallback(t.Context(), "9.9.9", name)
-		if err == nil || !strings.Contains(err.Error(), "9.9.9") {
-			t.Errorf("binaryWithFallback = %v, want an error naming 9.9.9", err)
-		}
-	})
+	asked = nil
+
+	again, err := downloadedBinary(t.Context(), name)
+	if err != nil || again != binPath {
+		t.Fatalf("downloadedBinary over a planted file = %q, %v; want %q", again, err, binPath)
+	}
+
+	if got, _ := os.ReadFile(binPath); !bytes.Equal(got, want) {
+		t.Errorf("planted cached binary was kept: %q", got)
+	}
+
+	if len(asked) == 0 {
+		t.Error("the planted file was replaced without a download")
+	}
+
+	// A release serving something else is refused outright.
+	verified.Delete(binPath)
+
+	if err := os.Remove(binPath); err != nil {
+		t.Fatal(err)
+	}
+
+	serve = []byte("something else")
+
+	if _, err := downloadedBinary(t.Context(), name); err == nil || !strings.Contains(err.Error(), "sha256") {
+		t.Errorf("downloadedBinary of the wrong executable = %v, want a checksum error", err)
+	}
+
+	if _, err := os.Stat(binPath); err == nil {
+		t.Error("a refused download left a file at the cached path")
+	}
 }
 
 // assetBody packs the executable the way the asset at that path would hold it,
@@ -691,8 +665,8 @@ func TestTheEmbeddedCFLintIsUsedWithoutADownload(t *testing.T) {
 		t.Fatalf("ensureBinary = %q holding %q (%v), want the embedded binary", got, body, err)
 	}
 
-	if !strings.Contains(filepath.ToSlash(got), "/"+fallbackVersion+"/") {
-		t.Errorf("ensureBinary = %q, want it cached under %s", got, fallbackVersion)
+	if !strings.Contains(filepath.ToSlash(got), "/"+pinnedVersion+"/") {
+		t.Errorf("ensureBinary = %q, want it cached under %s", got, pinnedVersion)
 	}
 
 	// Windows runs a file by its extension; everywhere else it needs the bit.
@@ -782,8 +756,10 @@ func embeddedAssetName() string {
 }
 
 // A release build embeds the CFLint scripts/fetch-cflint.sh names, and caches
-// it as fallbackVersion; the two are one version.
-func TestFallbackIsTheEmbeddedVersion(t *testing.T) {
+// it as pinnedVersion; the two are one version. Every platform it fetches for
+// has a pinned executable sum, so a build without the embed downloads nothing
+// it cannot check.
+func TestPinnedVersionIsTheEmbeddedVersion(t *testing.T) {
 	_, here, _, _ := runtime.Caller(0)
 
 	script, err := os.ReadFile(filepath.Join(filepath.Dir(here), "..", "..", "scripts", "fetch-cflint.sh"))
@@ -793,14 +769,37 @@ func TestFallbackIsTheEmbeddedVersion(t *testing.T) {
 
 	pinned := ""
 
+	var platforms [][2]string
+
 	for line := range strings.Lines(string(script)) {
-		if v, ok := strings.CutPrefix(strings.TrimSpace(line), "CFLINT_VERSION="); ok {
+		line = strings.TrimSpace(line)
+		if v, ok := strings.CutPrefix(line, "CFLINT_VERSION="); ok {
 			pinned = v
+		}
+
+		if platform, _, ok := strings.Cut(line, ") asset="); ok {
+			goos, goarch, _ := strings.Cut(platform, "/")
+			platforms = append(platforms, [2]string{goos, goarch})
 		}
 	}
 
-	if pinned != fallbackVersion {
-		t.Errorf("scripts/fetch-cflint.sh pins CFLINT_VERSION=%q, want the fallbackVersion %q", pinned, fallbackVersion)
+	if pinned != pinnedVersion {
+		t.Errorf("scripts/fetch-cflint.sh pins CFLINT_VERSION=%q, want the pinnedVersion %q", pinned, pinnedVersion)
+	}
+
+	if len(platforms) == 0 {
+		t.Fatal("found no platforms in scripts/fetch-cflint.sh")
+	}
+
+	for _, p := range platforms {
+		name := binaryNameFor(p[0], p[1])
+		if sum := executableSums[name]; len(sum) != 64 {
+			t.Errorf("%s/%s (%q) has no pinned executable sha256", p[0], p[1], name)
+		}
+	}
+
+	if len(executableSums) != len(platforms) {
+		t.Errorf("executableSums has %d entries, scripts/fetch-cflint.sh %d platforms", len(executableSums), len(platforms))
 	}
 }
 
@@ -824,7 +823,7 @@ func TestInstallAssetToleratesLosingTheRace(t *testing.T) {
 		return errors.New("access is denied")
 	}
 
-	if err := installAsset(bytes.NewReader([]byte("ours")), binPath, rawBinary); err != nil {
+	if err := installAsset(bytes.NewReader([]byte("ours")), binPath, rawBinary, ""); err != nil {
 		t.Fatalf("installAsset = %v, want the other process's copy accepted", err)
 	}
 
@@ -834,7 +833,7 @@ func TestInstallAssetToleratesLosingTheRace(t *testing.T) {
 
 	rename = func(string, string) error { return errors.New("access is denied") }
 
-	if err := installAsset(bytes.NewReader([]byte("ours")), filepath.Join(dir, "other"), rawBinary); err == nil {
+	if err := installAsset(bytes.NewReader([]byte("ours")), filepath.Join(dir, "other"), rawBinary, ""); err == nil {
 		t.Error("installAsset = nil with nothing at the destination, want the rename's error")
 	}
 }
@@ -893,7 +892,7 @@ func TestTheCFLintEnvironmentVariables(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if want := filepath.Join(dir, fallbackVersion, binaryName()); got != want {
+	if want := filepath.Join(dir, pinnedVersion, binaryName()); got != want {
 		t.Errorf("ensureBinary = %q, want it unpacked into CLIF_CFLINT_DIR as %q", got, want)
 	}
 }
@@ -950,7 +949,7 @@ func TestTheCFLintVariablesAreAbsoluteAndChecked(t *testing.T) {
 	t.Setenv("CLIF_CFLINT_DIR", "relative")
 
 	got, err = ensureBinary(t.Context())
-	if want := filepath.Join(cwd, "relative", fallbackVersion, binaryName()); err != nil || got != want {
+	if want := filepath.Join(cwd, "relative", pinnedVersion, binaryName()); err != nil || got != want {
 		t.Errorf("ensureBinary with a relative CLIF_CFLINT_DIR = %q, %v; want %q", got, err, want)
 	}
 
