@@ -155,6 +155,17 @@ An LSP server for CFML/ColdFusion written in Go, backed by the `tree-sitter-cfml
   base name, so unrelated projects in folders with the same name shared one daemon and one
   index. Every caller already tested for nil.
 
+**A config file another local user could have written is never read.** Discovery walks to
+the filesystem root, so a `.clif.json` planted in `/tmp` or `/Users/Shared` would govern every
+project below it. Every lookup of a config file goes through `config.CandidatesIn` or
+`config.TrustedCandidates` (`internal/config/trust.go`), which on unix skip a file not owned by
+the current uid or root, or writable by others, or by a group that is not the user's private
+group (`Untrusted`, `trust_unix.go`); the walk then goes on upwards. The server logs a skip;
+`cmd/clif` reports one on stderr through `config.ReportUntrustedTo`. Windows and wasm do not
+check. `TestEveryConfigLookupChecksOwnership` parses the module and fails on any use of
+`config.FileName`, `LegacyFileName` or `FileNames`, or the names spelled as literals, outside
+those two functions, so a new walk cannot bypass the rule.
+
 Note the repo root has its own `.clif.json` (`workspaceName: testdata`), so running the
 binary from the repo root enters daemon mode against `testdata/`.
 

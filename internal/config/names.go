@@ -23,15 +23,12 @@ func IsFileName(base string) bool {
 	return slices.Contains(FileNames, base)
 }
 
-// CandidatesIn returns the paths a config file in dir may have, in the order
-// to try them: a directory holding both is configured by .clif.json.
+// CandidatesIn returns the config files in dir that exist and may be read, in
+// the order to try them: a directory holding both is configured by .clif.json.
+// A file another local user could have written is left out (see
+// TrustedCandidates); the reporter set by ReportUntrustedTo is told why.
 func CandidatesIn(dir string) []string {
-	out := make([]string, 0, len(FileNames))
-	for _, n := range FileNames {
-		out = append(out, filepath.Join(dir, n))
-	}
-
-	return out
+	return TrustedCandidates(dir, os.Stat, nil)
 }
 
 // defaultGenerated is where each kind is written when no knownIssues entry is
