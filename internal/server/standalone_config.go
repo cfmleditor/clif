@@ -253,6 +253,9 @@ func (s *Server) readConfigFile(path string) *config.JSON {
 // daemon mode picks up happily was invisible in standalone mode, which
 // silently dropped mappings, resolvers, and linting depending only on which
 // mode the editor happened to start.
+//
+// A config file another local user could have written is skipped and the walk
+// goes on (config.TrustedCandidates).
 func (s *Server) findConfigUpwards(dir string) (string, *config.JSON) {
 	d, err := filepath.Abs(dir)
 	if err != nil {
@@ -260,7 +263,7 @@ func (s *Server) findConfigUpwards(dir string) (string, *config.JSON) {
 	}
 
 	for {
-		for _, p := range config.CandidatesIn(d) {
+		for _, p := range config.TrustedCandidates(d, s.FS.Stat, s.skipUntrustedConfig) {
 			if cfg := s.readConfigFile(p); cfg != nil {
 				return p, cfg
 			}
@@ -273,6 +276,12 @@ func (s *Server) findConfigUpwards(dir string) (string, *config.JSON) {
 
 		d = parent
 	}
+}
+
+// skipUntrustedConfig logs a config file findConfigUpwards would not read.
+func (s *Server) skipUntrustedConfig(path, reason string) {
+	s.log.Warn("ignoring config file another user could have written",
+		cflog.String("path", path), cflog.String("reason", reason))
 }
 
 func (s *Server) applyConfig(r *config.Resolved) {
