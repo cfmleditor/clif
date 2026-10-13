@@ -12,10 +12,11 @@
 # with -tags cflint_embed embeds it (internal/cflint/embedded.go). clif unpacks
 # it into its cache on first use, so a released clif lints with no download.
 #
-# To move to a newer CFLint, change CFLINT_VERSION, fallbackVersion in
-# internal/cflint/cflint.go (a test holds the two equal) and the five
-# checksums. Each is the sha256 of that release's asset, which GitHub lists as
-# its digest:
+# To move to a newer CFLint, change CFLINT_VERSION and the five checksums
+# here, and pinnedVersion and the five executableSums in
+# internal/cflint/cflint.go (a test holds the versions and platforms equal).
+# Each is the sha256 of a release asset, which GitHub lists as its digest: the
+# archives' here, the raw executables' there:
 #   gh api repos/cfmleditor/CFLint/releases/tags/<version> --jq '.assets[] | "\(.name) \(.digest)"'
 set -euo pipefail
 
