@@ -715,6 +715,12 @@ func (pr *ParseResult) collectWrites(cache *expressionWriteCache) []collectionWr
 			continue
 		}
 
+		if sites, ok := pr.keptCollectionTags(r.Offset); ok {
+			writes = collectCollectionTagsAt(r.Text, sites, r.Offset, functionAt, writes, cache)
+
+			continue
+		}
+
 		writes = collectCollectionTags(r.Text, r.Offset, functionAt, writes, cache)
 	}
 
@@ -938,41 +944,78 @@ func collectCollectionTags(text string, offset int, functionAt func(int) string,
 			continue
 		}
 
-		end := tagEndIndex(text[idx:])
-		if end < 0 {
+		var next int
+
+		writes, next = collectCollectionTag(text, idx, offset, functionAt, writes, cache)
+		if next < 0 {
 			break
 		}
 
-		end += idx
-		tag := text[idx : end+1]
-		pos = end + 1
+		pos = next
+	}
 
-		name := extractIdent(tag[1:])
-		if strings.EqualFold(name, "cfset") {
-			body := strings.TrimSpace(strings.TrimSuffix(strings.TrimSuffix(tag[1+len(name):], ">"), "/"))
-			writes = placeWrites(cache.scan(body), offset+idx+strings.Index(tag, body), functionAt, writes)
-		}
+	return writes
+}
 
-		for _, attribute := range collectionOutputAttributes(name) {
-			if root, element := collectionRead(getAttr(tag, attribute)); root != "" {
-				writes = append(writes, collectionWrite{offset: offset + idx, target: root, element: element, function: functionAt(offset + idx), unknown: true})
-			}
-		}
+// collectCollectionTagsAt is collectCollectionTags over the tags at sites,
+// where the parse's own tag walk found them (collectionTagName), rather than a
+// walk of its own. It reads each as collectCollectionTags does, and stops
+// where that would: at a tag with no end.
+func collectCollectionTagsAt(text string, sites []int, offset int, functionAt func(int) string, writes []collectionWrite, cache *expressionWriteCache) []collectionWrite {
+	for _, idx := range sites {
+		var next int
 
-		if strings.EqualFold(name, "cfparam") {
-			name := getAttr(tag, "name")
-			def := strings.Trim(getAttr(tag, "default"), "#")
-
-			if name != "" {
-				root, element := collectionRead(name)
-				if root != "" {
-					writes = append(writes, collectionWrite{offset: offset + idx, target: root, expression: def, element: element, unknown: element, function: functionAt(offset + idx)})
-				}
-			}
+		if writes, next = collectCollectionTag(text, idx, offset, functionAt, writes, cache); next < 0 {
+			break
 		}
 	}
 
 	return writes
+}
+
+// collectionTagName reports whether a tag named name can hold a collection
+// write: <cfset>, <cfparam>, or one with collectionOutputAttributes.
+func collectionTagName(name string) bool {
+	return strings.EqualFold(name, "cfset") || strings.EqualFold(name, "cfparam") || collectionOutputAttributes(name) != nil
+}
+
+// collectCollectionTag reads the writes of the tag opening at text[idx],
+// returning where the tag ends, or -1 when it has no end.
+func collectCollectionTag(text string, idx, offset int, functionAt func(int) string, writes []collectionWrite, cache *expressionWriteCache) ([]collectionWrite, int) {
+	end := tagEndIndex(text[idx:])
+	if end < 0 {
+		return writes, -1
+	}
+
+	end += idx
+	tag := text[idx : end+1]
+	pos := end + 1
+
+	name := extractIdent(tag[1:])
+	if strings.EqualFold(name, "cfset") {
+		body := strings.TrimSpace(strings.TrimSuffix(strings.TrimSuffix(tag[1+len(name):], ">"), "/"))
+		writes = placeWrites(cache.scan(body), offset+idx+strings.Index(tag, body), functionAt, writes)
+	}
+
+	for _, attribute := range collectionOutputAttributes(name) {
+		if root, element := collectionRead(getAttr(tag, attribute)); root != "" {
+			writes = append(writes, collectionWrite{offset: offset + idx, target: root, element: element, function: functionAt(offset + idx), unknown: true})
+		}
+	}
+
+	if strings.EqualFold(name, "cfparam") {
+		name := getAttr(tag, "name")
+		def := strings.Trim(getAttr(tag, "default"), "#")
+
+		if name != "" {
+			root, element := collectionRead(name)
+			if root != "" {
+				writes = append(writes, collectionWrite{offset: offset + idx, target: root, expression: def, element: element, unknown: element, function: functionAt(offset + idx)})
+			}
+		}
+	}
+
+	return writes, pos
 }
 
 // Only whole expressions can supply an element contract.

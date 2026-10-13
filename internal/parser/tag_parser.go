@@ -35,8 +35,11 @@ type tagParser struct {
 	// region's offset in the file. The attributes of CF tags and of
 	// importPrefixes custom tags are scanned wherever they stand. See
 	// outputContext and outputState.
-	gated               bool
-	output              *outputState
+	gated  bool
+	output *outputState
+	// collectionTags are the offsets of the tags the walk met that can hold a
+	// collection write (collectionTagName), for collectWrites.
+	collectionTags      []int
 	importPrefixes      []string
 	srcOffset           int
 	builtinReturnLookup func(string) string
@@ -370,6 +373,10 @@ func (p *tagParser) parse() {
 		case idx+3 < len(p.src) && toLowerByte(p.src[idx+1]) == 'c' && toLowerByte(p.src[idx+2]) == 'f':
 			p.trackBlock(idx)
 			p.trackOutput(idx)
+
+			if collectionTagName(extractIdent(p.src[idx+1:])) {
+				p.collectionTags = append(p.collectionTags, idx)
+			}
 
 			pos = p.handleCFTag(idx)
 		case p.gated && customPrefixTag(p.src[idx:], p.importPrefixes):

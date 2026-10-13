@@ -75,9 +75,19 @@ type ParseResult struct {
 	variablesVars []string
 	thisVars      []string
 	scopedDone    bool // the three above, from one scan
-	allVars       []VarDef
-	declareScans  map[string]bool // mayDeclare's answers, by lowercased name
-	allVarsDone   bool
+	// tagScopeVars is, for each tag region by its offset, the variables- and
+	// this-scope declarations the parse's own walk recorded there, kept so
+	// computeScopedVars need not walk the region again; tagScopeVarsOf is the
+	// Content they were read from, since an edit inside a function moves lines
+	// without reparsing the regions.
+	tagScopeVars   map[int][]VarDef
+	tagScopeVarsOf string
+	// collectionTags is, for each tag region by its offset, where the parse's
+	// walk met the tags collectWrites reads, valid while tagScopeVarsOf is.
+	collectionTags map[int][]int
+	allVars        []VarDef
+	declareScans   map[string]bool // mayDeclare's answers, by lowercased name
+	allVarsDone    bool
 
 	// anyScopedVars caches, per Scope, every name ever assigned in that scope
 	// anywhere in the file (see HasScopedAssignment) — unlike variablesVars/thisVars,
@@ -295,6 +305,7 @@ func (pr *ParseResult) extractSignatures() {
 
 	// The tag regions share one output state, in file order, from the top.
 	pr.output = outputState{}
+	pr.tagScopeVars, pr.tagScopeVarsOf, pr.collectionTags = nil, pr.Content, nil
 
 	for _, r := range pr.Regions {
 		// A RegionSkip is a literal <script> block, left out of the script
@@ -660,6 +671,7 @@ func (pr *ParseResult) mergeTagRegion(r *Region, tagScopes []FuncScope, open *op
 	pr.Funcs = append(pr.Funcs, tp.funcs...)
 	pr.ComponentRefs = append(pr.ComponentRefs, tp.componentRefs...)
 	pr.Properties = append(pr.Properties, tp.properties...)
+	pr.keepRegionFacts(r, tp)
 
 	// Merge links from tag parser
 	if r.StartLine > 0 {
@@ -2537,6 +2549,8 @@ func (pr *ParseResult) computeScopedVars() (variables, this []string) {
 			sp := newGlobalScriptParser(r.Text, r.StartLine, pr.Scopes)
 			sp.parse()
 			regionVars = sp.vars
+		} else if kept, ok := pr.keptTagScopeVars(r.Offset); ok {
+			regionVars = kept
 		} else {
 			tp := newTagParser(r.Text, "")
 			tp.parse()
@@ -4088,4 +4102,76 @@ func guessedMethod(c *pendingCall) string {
 	}
 
 	return c.funcName
+}
+
+// keepRegionFacts keeps what a tag region's walk found that later passes would
+// otherwise walk the region again for: its scope declarations and where it met
+// the tags the collection passes read.
+func (pr *ParseResult) keepRegionFacts(r *Region, tp *tagParser) {
+	pr.keepTagScopeVars(r, tp.vars)
+
+	if pr.collectionTags == nil {
+		pr.collectionTags = map[int][]int{}
+	}
+
+	pr.collectionTags[r.Offset] = tp.collectionTags
+}
+
+// keepTagScopeVars keeps the variables- and this-scope declarations a tag
+// region's walk recorded, on file lines, for computeScopedVars. Re-indexing
+// after every edit asked for them, and a second walk of the region was 10ms
+// of each edit outside a function on a 58,000-line component.
+func (pr *ParseResult) keepTagScopeVars(r *Region, vars []VarDef) {
+	var kept []VarDef
+
+	for _, v := range vars {
+		if v.Scope == ScopeVariables || v.Scope == ScopeThis {
+			v.Line += conv.Uint32(r.StartLine)
+			kept = append(kept, v)
+		}
+	}
+
+	if pr.tagScopeVars == nil {
+		pr.tagScopeVars = map[int][]VarDef{}
+	}
+
+	pr.tagScopeVars[r.Offset] = kept
+}
+
+// keptTagScopeVars is what keepTagScopeVars kept for the tag region at
+// offset, when the regions were read from the current content.
+func (pr *ParseResult) keptTagScopeVars(offset int) ([]VarDef, bool) {
+	if pr.tagScopeVars == nil || !pr.regionFactsCurrent() {
+		return nil, false
+	}
+
+	vars, ok := pr.tagScopeVars[offset]
+
+	return vars, ok
+}
+
+// keptCollectionTags is where the parse's walk met the tags collectWrites
+// reads in the tag region at offset, when read from the current content.
+func (pr *ParseResult) keptCollectionTags(offset int) ([]int, bool) {
+	if pr.collectionTags == nil || !pr.regionFactsCurrent() {
+		return nil, false
+	}
+
+	sites, ok := pr.collectionTags[offset]
+
+	return sites, ok
+}
+
+// regionFactsCurrent reports whether what the region merge kept was read from
+// the current content. When not, it is dropped, so the old document is not
+// kept alive by it.
+func (pr *ParseResult) regionFactsCurrent() bool {
+	// Equal strings sharing their bytes compare without reading them.
+	if pr.tagScopeVarsOf == pr.Content {
+		return true
+	}
+
+	pr.tagScopeVars, pr.tagScopeVarsOf, pr.collectionTags = nil, "", nil
+
+	return false
 }
