@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -81,13 +80,7 @@ func cmdRefs(args []string) {
 	case "mermaid":
 		printMermaidRefs(target, entries)
 	default:
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-
-		if err := enc.Encode(result); err != nil {
-			fmt.Fprintf(os.Stderr, "writing JSON: %v\n", err)
-			os.Exit(1)
-		}
+		writeJSONOrExit(result)
 	}
 }
 

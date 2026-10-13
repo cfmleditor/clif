@@ -160,14 +160,23 @@ func Create(path string, perm fs.FileMode, roots []string) (*os.File, error) {
 		return nil, err
 	}
 
-	root, err := os.OpenRoot(filepath.Dir(resolved))
+	return CreateNamed(resolved, perm)
+}
+
+// CreateNamed opens path for writing, truncated, through an os.Root on its
+// directory: only the file name is confined, so a symlink planted at the name is
+// refused, while a directory above it may be a link (a workspace reached through
+// one still gets its reports). Create adds the check of where the file lands;
+// a caller that has checked the path as text uses this alone.
+func CreateNamed(path string, perm fs.FileMode) (*os.File, error) {
+	root, err := os.OpenRoot(filepath.Dir(path))
 	if err != nil {
 		return nil, err
 	}
 
 	defer func() { _ = root.Close() }()
 
-	return root.OpenFile(filepath.Base(resolved), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
+	return root.OpenFile(filepath.Base(path), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
 }
 
 // MkdirAll creates dir and its parents when, after symlinks, it lands under one

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -237,9 +236,6 @@ func cmdUnresolved(args []string) {
 }
 
 func writeOpenWorldJSON(out io.Writer, rep *unresolved.Report) error {
-	enc := json.NewEncoder(out)
-	enc.SetIndent("", "  ")
-
 	audit := struct {
 		Calls        []unresolved.Call                        `json:"calls"`
 		AssumedCalls []unresolved.AssumedCall                 `json:"assumedCalls"`
@@ -250,7 +246,7 @@ func writeOpenWorldJSON(out io.Writer, rep *unresolved.Report) error {
 		Scanned      int                                      `json:"scanned"`
 	}{Calls: rep.Calls, AssumedCalls: rep.AssumedCalls, Connections: rep.SpeculativeConnections, Methods: rep.SpeculativeMethodConnections, Resolved: rep.Resolved, Indexed: rep.Indexed, Scanned: rep.Scanned}
 
-	return enc.Encode(audit)
+	return writeJSON(out, audit)
 }
 
 // scanUnresolved runs the scan the unresolved command reports: it indexes the
@@ -360,13 +356,7 @@ func writeUnresolved(results []unresolved.Call, cfg *daemon.Config, args []strin
 
 		return false
 	case fl.json:
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-
-		if err := enc.Encode(results); err != nil {
-			fmt.Fprintf(os.Stderr, "writing JSON: %v\n", err)
-			os.Exit(1)
-		}
+		writeJSONOrExit(results)
 	case fl.knownIssues:
 		baseDir, _ := filepath.Abs(searchDir)
 		if cfg != nil {
