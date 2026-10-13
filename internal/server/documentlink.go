@@ -42,12 +42,9 @@ func (s *Server) handleDocumentLink(_ context.Context, rawParams []byte) (any, e
 
 	var docLinks []parser.DocumentLink
 	if pr != nil {
-		// Global scope links from parse time
-		docLinks = append(docLinks, pr.Links...)
-		// Function body links (pre-computed at parse time)
-		for _, sc := range pr.Scopes {
-			docLinks = append(docLinks, pr.FuncLinks(sc.Start, sc.End)...)
-		}
+		// The document cache's parse does not extract links: they are read
+		// from its text here, once per content.
+		docLinks = pr.DocumentLinks()
 	} else {
 		// Fallback: full scan
 		docLinks = parser.ExtractLinks(content)

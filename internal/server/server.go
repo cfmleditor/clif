@@ -872,7 +872,9 @@ func (s *Server) parseContentWith(fileURI uri.URI, content string, calls bool) *
 		FuncLookup:               funcLookup(resolver, baseDir),
 		ExpressionMappings:       s.ExpressionMappings,
 		ServicePropertyResolvers: s.ServicePropertyResolvers,
-		ExtractLinks:             true,
+		// Links are not extracted either: only the document-link request
+		// reads them, and it takes them from the text (DocumentLinks).
+		//
 		// The document cache does not extract calls: nothing reads them from
 		// it but commands, which parse afresh (parseForCalls) or have
 		// FuncCalls parse the one function they ask about. Extracting them on

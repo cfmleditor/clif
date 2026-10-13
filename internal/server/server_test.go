@@ -3972,9 +3972,15 @@ func TestIndexingDoesNotExtractLinks(t *testing.T) {
 		t.Errorf("parseContentForIndex should not extract links, got %d", len(pr.Links))
 	}
 
+	// The document cache's parse does not extract links either; the
+	// document-link request reads them from the text.
 	pr2 := srv.parseContent(docURI, content)
-	if len(pr2.Links) == 0 {
-		t.Error("parseContent should extract links")
+	if len(pr2.Links) != 0 {
+		t.Errorf("parseContent should not extract links, got %d", len(pr2.Links))
+	}
+
+	if len(pr2.DocumentLinks()) == 0 {
+		t.Error("the document's links should be read from its text")
 	}
 }
 

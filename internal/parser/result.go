@@ -85,9 +85,12 @@ type ParseResult struct {
 	// collectionTags is, for each tag region by its offset, where the parse's
 	// walk met the tags collectWrites reads, valid while tagScopeVarsOf is.
 	collectionTags map[int][]int
-	allVars        []VarDef
-	declareScans   map[string]bool // mayDeclare's answers, by lowercased name
-	allVarsDone    bool
+	// textLinks is DocumentLinks' answer, for the content textLinksOf.
+	textLinks    []DocumentLink
+	textLinksOf  string
+	allVars      []VarDef
+	declareScans map[string]bool // mayDeclare's answers, by lowercased name
+	allVarsDone  bool
 
 	// anyScopedVars caches, per Scope, every name ever assigned in that scope
 	// anywhere in the file (see HasScopedAssignment) — unlike variablesVars/thisVars,
@@ -4174,4 +4177,27 @@ func (pr *ParseResult) regionFactsCurrent() bool {
 	pr.tagScopeVars, pr.tagScopeVarsOf, pr.collectionTags = nil, "", nil
 
 	return false
+}
+
+// DocumentLinks returns the file path references in the document, from its
+// text, computed once per content. The editor's parse does not extract links
+// (ExtractLinks), since only the document-link request reads them and the
+// extraction was 6% of every reparse; this answers that request instead.
+// Read from the whole text rather than per region, a link has its column on
+// its own line wherever a region started, and one in a <script> block is
+// found too.
+func (pr *ParseResult) DocumentLinks() []DocumentLink {
+	pr.mu.Lock()
+	defer pr.mu.Unlock()
+
+	if pr.textLinks == nil || pr.textLinksOf != pr.Content {
+		pr.textLinks = ExtractLinks(pr.Content)
+		if pr.textLinks == nil {
+			pr.textLinks = []DocumentLink{}
+		}
+
+		pr.textLinksOf = pr.Content
+	}
+
+	return pr.textLinks
 }

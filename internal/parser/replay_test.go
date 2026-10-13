@@ -172,3 +172,20 @@ func TestSourceExpressionsAreReadOncePerParse(t *testing.T) {
 		t.Error("declaresFunction should find Build case-insensitively and nothing else")
 	}
 }
+
+// TestDocumentLinksFollowTheContent: the editor's parse extracts no links, and
+// the document-link request reads them from the text, once per content. An
+// answer kept past an edit would point at paths and columns that are gone.
+func TestDocumentLinksFollowTheContent(t *testing.T) {
+	pr := ParseWithOptions(testURI, `<cfinclude template="a.cfm">`, &ParseOptions{})
+
+	if links := pr.DocumentLinks(); len(links) != 1 || links[0].Path != "a.cfm" {
+		t.Fatalf("links = %v, want a.cfm", links)
+	}
+
+	pr.ApplyFullReplace(`<cfinclude template="b.cfm">`)
+
+	if links := pr.DocumentLinks(); len(links) != 1 || links[0].Path != "b.cfm" {
+		t.Errorf("after an edit, links = %v, want b.cfm", links)
+	}
+}
