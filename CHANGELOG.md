@@ -2,6 +2,29 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Many more calls resolve, from what the source itself establishes.** Native and member function contracts, collection and ORM return and element types (loops, `.each()` callbacks, `entityLoad`), callback and runtime registration bindings, application and module mapping discovery (evaluated `this.mappings`, module `cfmapping`s, WireBox `Name@module` ids and binder mappings), and framework rules for ColdBox, WireBox, cborm, Wheels, FW/1/DI/1 and Mura. Generated getters and setters stay distinct from source functions.
+- **Return types follow every branch.** A function returning a different component from each branch returns either (`A|B`), checked as any union receiver is; one whose branch returns a string or an argument passed through returns a dynamic value. A copy (`<cfset x = a.b>`) carries what its source holds, and a struct member keeps its type when its container is replaced elsewhere in the function.
+- **`unresolved` report modes for review**, all off by default: `--assume-open-world` separates runtime assumptions (unknown receivers, absent components) from findings; `--speculative-ranked`, `--speculative-native` and `--speculative-methods` add guessed connections, each kept apart from what resolved. `--candidates` lists the declarations a finding could have meant.
+- **`callerInferenceLimits`** in `.clif.json` optionally bounds how far `unresolved` searches callers to type an untyped argument (candidate files, owner files, sites, constructor files); unbounded by default. `--no-infer-args` turns the inference off.
+- **Homebrew `clif-source`**, a formula that builds clif from the release's source.
+
+### Changed
+
+- **Batch scans are several times faster and use less memory.** A scan of a 12,000-file workspace takes about 6s and 1 GB, against 34s and 1.6 GB in 0.5.2; per-call rescans of whole files, repeated reads and parses, and whole-file regular expressions are gone.
+- **The editor reparses faster.** An edit outside a function on a 58,000-line component takes about 55 ms, against 136 ms; the document cache no longer extracts call sites or links (commands and the document-link request read them on demand), and the passes after a parse reuse what the tag walk found. Script components parse about 24% faster and tag components about 43%.
+- **Document links are read from the document's text** when the editor asks for them: a link's column is measured from its own line, and links in `<script>` blocks are found.
+- **The language server returns idle memory** after 5s without a request, and indexes a component's `extends` and delegates at startup.
+- Unresolved reasons name every alternative of a union receiver (`Item|Other`), where they named only the last.
+
+### Fixed
+
+- **A `#` in a `<script>` block or an HTML attribute no longer hides the tags after it.** Parses without call extraction, the variables-scope names completion offers and the assignments the collection rules read could each pair it with a later `#` and step over real tags: a `<cffunction>`, a `<cfset>`, a `<cfloop>` index.
+- **An attribute value holding `"'"` inside `#...#`** no longer makes the rest of the file read as the body of the `<cfquery>` it is in.
+- A `StructNew()` default no longer outranks what replaces it (`VARIABLES._parent` in `init()`), and a module's model found once per application in a multi-application workspace is no longer ambiguous.
+- Missing Hibernate `Session` and `ClassMetadata` methods, a loop over an uninstalled module's collection, and Mura's `$.event()` are no longer reported.
+
 ## [0.5.2]
 
 ### Added
