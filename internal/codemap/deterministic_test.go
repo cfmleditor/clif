@@ -62,3 +62,47 @@ func TestTheSameWorkspaceGivesTheSameMap(t *testing.T) {
 		}
 	}
 }
+
+// A page calling a function its includer declares resolves through the
+// include graph, so the includer's includes must be known before any page is
+// scanned. They were recorded only when something indexed the includer during
+// the parallel scan, so the edge came and went with goroutine order: Lucee's
+// admin pages differed by a dozen edges between runs of one build. Scanning
+// the page first, with one worker, is the order that lost it every time.
+func TestAPageReachesItsIncludersFunctionsInAnyOrder(t *testing.T) {
+	root := t.TempDir()
+
+	write := func(rel, src string) string {
+		p := filepath.Join(root, rel)
+		if err := os.WriteFile(p, []byte(src), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		return p
+	}
+
+	parent := write("bundle.cfm", "<cffunction name=\"byteFormat\"><cfreturn 1></cffunction>\n<cfinclude template=\"bundle.create.cfm\">\n")
+	child := write("bundle.create.cfm", "<cfset size = byteFormat(10)>\n")
+
+	for _, files := range [][]string{{child, parent}, {parent, child}} {
+		for _, workers := range []int{1, 4} {
+			fsys := vfs.OS{}
+			m := codemap.Build(&codemap.Options{
+				Root: root, Files: files, FS: fsys, Workers: workers,
+				Resolver: &resolve.Resolver{FS: fsys, Index: index.New(), WorkspaceFolders: []string{root}},
+			})
+
+			found := false
+
+			for _, e := range m.Edges {
+				if e.From == "bundle.create.cfm" && e.To == "bundle.cfm::byteformat" && e.Kind == codemap.EdgeCalls {
+					found = true
+				}
+			}
+
+			if !found {
+				t.Errorf("files %v, %d workers: no edge from bundle.create.cfm to the byteFormat its includer declares", []string{filepath.Base(files[0]), filepath.Base(files[1])}, workers)
+			}
+		}
+	}
+}

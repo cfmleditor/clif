@@ -725,7 +725,16 @@ pin them together.
 indexed `.cfc`, because resolving a call site reads the index built from every other
 component: keying on content alone serves a stale edge set after an unrelated file
 moves a method. Editing any `.cfc` therefore invalidates everything; editing `.cfm`
-pages does not. `PruneCache` keeps one generation, since older ones can never match.
+pages does not, unless the edit changes what the page `<cfinclude>`s. `PruneCache` keeps
+one generation, since older ones can never match.
+
+**`indexPass` records every template's includes before the scan starts.** A bare call
+in a page resolves through the include graph (a page calling a function its includer
+declares, as Lucee's admin pages do), and it recorded only components' includes, so a
+template's reached the index only when something indexed it mid-scan and the edge came
+and went with goroutine order: Lucee's map differed by a dozen edges between runs of one
+build. The include paths are in the fingerprint for the same reason.
+`TestAPageReachesItsIncludersFunctionsInAnyOrder`.
 
 **`Store.Path` is a Go BFS, not a recursive CTE.** A CTE can express the walk but not
 a visited set shared across branches — SQLite can only stop a trail revisiting its

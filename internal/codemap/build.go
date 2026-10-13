@@ -283,8 +283,18 @@ func Build(opts *Options) *Map {
 	return m
 }
 
-// indexPass fills the resolver's index with every .cfc's signatures, and returns a
-// fingerprint of everything it indexed.
+// indexPass fills the resolver's index with every .cfc's signatures and every
+// template's includes, and returns a fingerprint of everything it indexed.
+//
+// The includes are what a bare call resolves through when a page calls a
+// function a template beside it declares, because both are included by the same
+// page (Lucee's admin includes info.bundle.create.cfm from info.bundle.cfm, which
+// declares byteFormat). This pass recorded only components', so a template's
+// includes reached the index only when something indexed it during the parallel
+// scan, and whether a page saw its includer's functions depended on which
+// goroutine got there first: the same build of Lucee's map differed by up to a
+// dozen edges from run to run. The unresolved scan has always recorded them all
+// up front (unresolved.indexOne).
 //
 // The fingerprint is what a [Cache] keys on alongside each file's own hash: it
 // identifies the resolution environment a cached edge set was computed against.
@@ -292,15 +302,18 @@ func Build(opts *Options) *Map {
 // sorted order, so it is stable across runs and across the parallel scan that
 // follows.
 func indexPass(opts *Options) string {
-	var cfcs []string
+	var cfcs, templates []string
 
 	for _, f := range opts.Files {
 		if cfpath.IsCFCFile(f) {
 			cfcs = append(cfcs, f)
+		} else {
+			templates = append(templates, f)
 		}
 	}
 
 	sort.Strings(cfcs)
+	sort.Strings(templates)
 
 	fp := sha256.New()
 
@@ -322,6 +335,24 @@ func indexPass(opts *Options) string {
 
 		if opts.Progress != nil {
 			opts.Progress(PhaseIndex, i+1, len(cfcs))
+		}
+	}
+
+	// A template's includes decide what its includers' and its own bare calls
+	// reach, so they are part of the environment a cached edge set was
+	// computed in: the paths go into the fingerprint, not the content, so
+	// editing a page's body still leaves every other file's cache valid.
+	for _, f := range templates {
+		data, err := opts.FS.ReadFile(f)
+		if err != nil || cfpath.IsBinary(data) {
+			continue
+		}
+
+		includes := parser.ExtractIncludes(string(data))
+		opts.Resolver.Index.SetIncludes(cfpath.ToURI(f), includes)
+
+		if len(includes) > 0 {
+			_, _ = fmt.Fprintf(fp, "%s\x00includes\x00%s\n", f, strings.Join(includes, "\x00"))
 		}
 	}
 
