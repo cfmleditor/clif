@@ -39,7 +39,10 @@ type tagParser struct {
 	output *outputState
 	// collectionTags are the offsets of the tags the walk met that can hold a
 	// collection write (collectionTagName), for collectWrites.
-	collectionTags      []int
+	collectionTags []int
+	// closeAt is where the </cffunction> after offset closeFrom is, -1 for
+	// none, as parseCFFunction found it for enterFunctionScope.
+	closeFrom, closeAt  int
 	importPrefixes      []string
 	srcOffset           int
 	builtinReturnLookup func(string) string
@@ -746,7 +749,12 @@ func (p *tagParser) stepOverEvaluatedTag(idx int) int {
 func (p *tagParser) enterFunctionScope(tagEnd, line int) {
 	endLine := -1
 
-	if closeIdx := indexCFTag(p.src[tagEnd:], "/cffunction"); closeIdx >= 0 {
+	closeIdx := p.closeAt
+	if p.closeFrom != tagEnd {
+		closeIdx = indexCFTag(p.src[tagEnd:], "/cffunction")
+	}
+
+	if closeIdx >= 0 {
 		endLine = p.lineAt(tagEnd + closeIdx)
 	} else {
 		// Not found within this region's text — the function body is interrupted
@@ -807,11 +815,17 @@ func (p *tagParser) parseCFFunction(tag string, idx, tagEnd, line int) {
 	rest := p.src[tagEnd:]
 
 	end := len(rest)
-	if ci := indexCFTag(rest, "/cffunction"); ci >= 0 && ci < end {
+
+	ci := indexCFTag(rest, "/cffunction")
+	p.closeFrom, p.closeAt = tagEnd, ci // enterFunctionScope asks the same
+
+	if ci >= 0 {
 		end = ci
 	}
 
-	if ci := indexCFTag(rest, "cffunction"); ci >= 0 && ci < end {
+	// Only a <cffunction before the close can end the block sooner, so the
+	// search stops at the close rather than running on into the next function.
+	if ci := indexCFTag(rest[:end], "cffunction"); ci >= 0 {
 		end = ci
 	}
 

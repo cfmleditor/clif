@@ -613,3 +613,106 @@ physical footprint (`vmmap -summary`): about 130-165 MB.
 
 `ComponentPath` already caches failures (an empty answer is stored).
 
+
+## 15. An edit outside a function — implemented, and what is left
+
+An edit outside a function makes the editor reparse the whole document (the
+deferred reparse, `flushReparse` → `ApplyFullReplace`). On tassweb, an edit
+then a hover, each build serving its own daemon socket (see the note below):
+
+| | `student/persist.cfc` (58,000 lines, 2.6 MB) | `finance.cfc` (1.1 MB) |
+|---|---:|---:|
+| before | 136 ms | 114 ms |
+| now | about 55 ms | about 53 ms |
+
+What did it, in order (PR #247):
+
+- **The document cache parses without call sites.** Only commands read them;
+  `explainCall`/`exportDeps` parse afresh with calls, the dependency loader
+  once per file, and `FuncCalls` one function on demand. The types the editor
+  answers from are identical with and without calls over 23,280 corpus files.
+- **Every parse gates the tag walk on output contexts**, which that
+  comparison required: ungated, a `#` in a `<script>` body paired with a later
+  one and the walk stepped over a whole `<cffunction>`.
+- **Later passes read the tag walk's findings** instead of walking the tags
+  again: the variables-/this-scope names re-indexing asks for, and the tags
+  the collection passes read (`keepRegionFacts`).
+- **Each collection source is read once per parse** (`readSourceExpression`),
+  write keys are shared between the member and collection passes, and the
+  `structNew` and function-name questions are asked once.
+- **Document links are read from the text on request** (`DocumentLinks`).
+- Small items: the member pass works out line numbers once, the local-name
+  key is built on the stack, and `parseCFFunction` stops its next-function
+  search at the close tag and shares the close with `enterFunctionScope`.
+
+**Measuring the editor on tassweb needs a private socket.** tassweb has a
+config file, so a client started there proxies into any daemon already
+serving the workspace — the editor's own. Set `TMPDIR` and `XDG_RUNTIME_DIR`
+to a scratch directory for the server under test, or both builds measure the
+same running daemon (a profile showing `daemon.Proxy` is the tell).
+
+### 15.1 Where an edit's time goes now
+
+About 46 ms of server CPU per edit on `student/persist.cfc`, nearly all of it
+the reparse: the tag walk about 15 ms (handling `<cffunction>` 5 ms, its
+`<cfargument>`s 3 ms), the member pass about 10 ms (collecting the writes
+3 ms, building their keys 3 ms, both shared with the collection pass), the
+collection pass about 5 ms, typing assigned calls about 4.5 ms (mostly
+cross-file return lookups), and hover, locking and re-indexing the rest.
+
+### 15.2 Options not taken, for a future pass
+
+**Region reparse does not apply to the files that need it.** The large tassweb
+components are each one tag region: `student/persist.cfc`, `finance.cfc` and
+`timesheet/persist.cfc` contain no `<cfscript>` block to split them, and
+`kiosk.cfc`'s 11 regions include one of 1.5 MB. Reusing unchanged regions
+would skip nothing there.
+
+**A. Reuse unchanged functions' walk results (estimated 12–14 ms of an
+edit).** Re-walk only the changed text and splice each unchanged function's
+walk output (functions, refs, pending calls, flow notes, member sets,
+collection tags, declarations) in at its new offsets and lines, as
+`ApplyEdit`'s in-function path already shifts a function's caches. The
+difficulty is that a function's walk depends on what came before it — the
+component-level refs a call is typed from (`lookupComponentRef`), the output
+state, the open flow blocks, `inFunc` seeding across a split — and an edit
+outside a function changes exactly the component-level text. Reuse needs a
+fingerprint of everything the walk reads on entering a function, and a
+corpus comparison (type facts per file, as below) for each piece of state.
+The member and collection passes and call typing would still run over the
+whole file, so this saves the walk only.
+
+**B. Make the whole-file passes incremental (most of the rest).** The member
+pass, the collection pass and pending-call typing each read every write in
+the file. Making them incremental means knowing which writes an edit can
+affect through aliases, member chains and returns: a redesign of how types
+are inferred rather than an optimisation.
+
+**C. Keep the resolver's cross-file caches across an edit (at most 3–5 ms).**
+Every index write moves `Index.Generation`, and re-indexing one file takes
+five, so the resolver's generation-keyed caches (method lookups,
+`ReturnComponentOf`, `sourceInfo`) refill after every edit although only
+this file changed. Skipping re-indexing entirely saved 3.5 ms on
+`student/persist.cfc` and 5 ms on `finance.cfc`, an upper bound. A safe
+version would skip the index writes (and so the generation move) when the
+file's entries are equal by value, and would have to:
+  - move the generation on `didSave`, which does not re-index: the resolver
+    reads source from disk, and `sourceInfo` trusts its stamp only while the
+    generation is unchanged — today a save is picked up at the next edit's
+    re-index, and without that it would not be at all;
+  - separate the per-function refs `ensureFuncRefsIndexed` adds for a hover
+    (they go into the same `fileRefs`), so an equality check is not defeated
+    by them and does not leave them stale;
+  - re-check every reader of `Generation()`.
+
+**D. Stop `parseCFArguments` at the first non-argument tag (about 3 ms).** It
+scans each function's whole body for `<cfargument>`. Arguments come first in
+practice — but 5 of 153,889 corpus functions put one after another tag (all
+in RustCFML's tests of exactly that), so bounding the scan changes results.
+
+**How to check a change on this path.** Unresolved output on tassweb, the
+nine applications and the corpus catches resolution changes, but not every
+change to what a parse records. Compare type facts per file — functions with
+their return types, file and per-function refs, scopes, variables — between
+the old and new parser over the corpus and tassweb (23,280 files, about 30s).
+That is how the call-extraction and gating differences above were found.

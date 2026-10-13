@@ -152,7 +152,7 @@ func (pr *ParseResult) collectionKeys(writes []collectionWrite) (map[string]bool
 		}
 
 		base, _, _ := strings.Cut(root, ".")
-		if locals[concatLower(function+"\t", base)] {
+		if isLocalName(locals, function, base) {
 			return concatLower(function+"\t", root)
 		}
 
@@ -1322,4 +1322,30 @@ func (pr *ParseResult) hasTagRegion() bool {
 	}
 
 	return false
+}
+
+// isLocalName reports whether locals holds function + "\t" + base lowercased,
+// building the key on the stack: the lookup is asked for most writes in the
+// file on every reparse, and the key it built only to look up was a string
+// each time.
+func isLocalName(locals map[string]bool, function, base string) bool {
+	var buf [128]byte
+
+	if len(function)+1+len(base) > len(buf) {
+		return locals[concatLower(function+"\t", base)]
+	}
+
+	b := append(buf[:0], function...)
+	b = append(b, '\t')
+
+	for i := range len(base) {
+		c := base[i]
+		if c >= utf8.RuneSelf {
+			return locals[concatLower(function+"\t", base)]
+		}
+
+		b = append(b, toLowerByte(c))
+	}
+
+	return locals[string(b)]
 }

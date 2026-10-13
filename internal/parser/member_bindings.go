@@ -140,6 +140,7 @@ func (pr *ParseResult) applyMemberBindings(hasBindings bool) {
 // the line of one, withholds it, as any conflict does.
 type memberSpans struct {
 	first, last, cleared map[*collectionNode]int
+	lastLine             map[*collectionNode]int // pr.lineAt(last[n]), worked out once
 }
 
 func newMemberSpans(nodes map[string]*collectionNode, identities map[string]collectionWrite, writes []collectionWrite, targets []string) *memberSpans {
@@ -162,12 +163,35 @@ func newMemberSpans(nodes map[string]*collectionNode, identities map[string]coll
 	return s
 }
 
+// lineOfLast is the line of n's last write, worked out once per node: it was
+// asked for each member a write's container holds, for every write.
+func (s *memberSpans) lineOfLast(pr *ParseResult, n *collectionNode) int {
+	if line, ok := s.lastLine[n]; ok {
+		return line
+	}
+
+	if s.lastLine == nil {
+		s.lastLine = map[*collectionNode]int{}
+	}
+
+	line := pr.lineAt(s.last[n])
+	s.lastLine[n] = line
+
+	return line
+}
+
 // replaced applies a replacement of the container of members at offset.
 func (s *memberSpans) replaced(pr *ParseResult, members []*collectionNode, offset int) {
+	if len(members) == 0 {
+		return
+	}
+
+	offsetLine := pr.lineAt(offset)
+
 	for _, n := range members {
 		switch {
 		case offset < s.first[n]:
-		case pr.lineAt(s.last[n]) < pr.lineAt(offset):
+		case s.lineOfLast(pr, n) < offsetLine:
 			// On a later line, so a lookup's latest-at-or-before rule tells
 			// the member's ref from the replacement's.
 			if at, ok := s.cleared[n]; !ok || offset < at {
