@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.5.3]
+
 ### Added
 
 - **Many more calls resolve, from what the source itself establishes.** Native and member function contracts, collection and ORM return and element types (loops, `.each()` callbacks, `entityLoad`), callback and runtime registration bindings, application and module mapping discovery (evaluated `this.mappings`, module `cfmapping`s, WireBox `Name@module` ids and binder mappings), and framework rules for ColdBox, WireBox, cborm, Wheels, FW/1/DI/1 and Mura. Generated getters and setters stay distinct from source functions.
