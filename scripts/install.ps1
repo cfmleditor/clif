@@ -90,6 +90,10 @@ if (Get-Command gh -ErrorAction SilentlyContinue) {
         $attest = $false
     } finally {
         $ErrorActionPreference = $eap
+        # A failed probe (gh installed but signed out) leaves its exit code
+        # behind, and a caller that ends with `exit $LASTEXITCODE`, as a CI
+        # step does, would report the install as failed.
+        $global:LASTEXITCODE = 0
     }
 }
 if ($attest -and ($Version -eq 'latest' -or -not (Test-AtLeast $Version $firstAttested))) { $attest = $false }
