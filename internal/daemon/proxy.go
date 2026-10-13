@@ -11,8 +11,14 @@ import (
 )
 
 // Proxy connects to an existing daemon socket and bridges it to stdio.
-// Returns nil on clean shutdown.
+// Returns nil on clean shutdown. A socket another user could have put there
+// is not dialled (checkSocket): the editor's session would be theirs to
+// answer.
 func Proxy(sockPath string) error {
+	if err := checkSocket(sockPath); err != nil {
+		return err
+	}
+
 	// Proxy has no context of its own: it runs for the life of the editor's
 	// connection and ends when either side closes.
 	var d net.Dialer

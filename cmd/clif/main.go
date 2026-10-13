@@ -152,12 +152,14 @@ func runServer() {
 		sock := cfg.SocketPath()
 
 		// Try to connect to an existing daemon
-		if err := daemon.Proxy(sock); err == nil {
+		proxyErr := daemon.Proxy(sock)
+		if proxyErr == nil {
 			return
 		}
 
-		// No daemon running — become the daemon and serve this client over stdio
-		log.Info("starting daemon mode", cflog.String("socket", sock))
+		// No daemon running, or a socket that is not this user's: become the
+		// daemon and serve this client over stdio
+		log.Info("starting daemon mode", cflog.String("socket", sock), cflog.Err(proxyErr))
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -172,7 +174,11 @@ func runServer() {
 		settings := daemon.SettingsFrom(cfg)
 
 		go func() {
-			_ = daemon.Serve(ctx, sock, log, sharedIndex, ct, &settings)
+			// A daemon that cannot serve its socket still serves this editor
+			// over stdio; later editors start sessions of their own.
+			if err := daemon.Serve(ctx, sock, log, sharedIndex, ct, &settings); err != nil {
+				log.Warn("daemon socket not served", cflog.String("socket", sock), cflog.Err(err))
+			}
 		}()
 
 		// Serve this editor session over stdio with the shared index
@@ -257,7 +263,7 @@ func cmdParse(args []string) {
 	var totalFuncs, totalRefs, totalFiles int
 
 	for _, f := range files {
-		content, err := os.ReadFile(f)
+		content, err := vfs.ReadRegular(f)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "  skip %s: %v\n", f, err)
 
@@ -404,7 +410,7 @@ func formatOptionsFor(configRoot string, allowNonWhitespace bool) func(path stri
 // set. A file is only ever rewritten after Format returned successfully, so a
 // refused format leaves the original untouched.
 func formatOneFile(path string, opts *formatter.Options, write bool, links symlinkRule) error {
-	content, err := os.ReadFile(path)
+	content, err := vfs.ReadRegular(path)
 	if err != nil {
 		return err
 	}
@@ -495,7 +501,7 @@ func writeFileInPlace(path string, original, out []byte, links symlinkRule) erro
 
 	// Re-read rather than trusting the content from before Format ran: a write
 	// landing on top of an edit made in the meantime would discard it silently.
-	if current, err := os.ReadFile(target); err == nil && !bytes.Equal(current, original) {
+	if current, err := vfs.ReadRegular(target); err == nil && !bytes.Equal(current, original) {
 		return errors.New("file changed on disk while formatting, not overwriting")
 	}
 

@@ -4,6 +4,7 @@ package daemon
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -19,8 +20,8 @@ import (
 // a single Index. It blocks until ctx is cancelled. If a ConnTracker is
 // provided, each socket connection is tracked.
 func Serve(ctx context.Context, sockPath string, log cflog.Logger, idx *index.Index, ct *ConnTracker, settings *server.Settings) error {
-	if err := os.MkdirAll(filepath.Dir(sockPath), 0o700); err != nil {
-		return err
+	if err := prepareSocketDir(filepath.Dir(sockPath)); err != nil {
+		return fmt.Errorf("not serving on %s: %w", sockPath, err)
 	}
 
 	_ = os.Remove(sockPath)
@@ -63,6 +64,12 @@ func Serve(ctx context.Context, sockPath string, log cflog.Logger, idx *index.In
 	// this path is none.
 	defer func() { _ = ln.Close() }()
 
+	// The directory is already private; the socket is too, so loosening the
+	// directory later does not open it.
+	if err := os.Chmod(sockPath, 0o600); err != nil {
+		return err
+	}
+
 	log.Info("daemon listening", cflog.String("socket", sockPath))
 
 	var wg sync.WaitGroup
@@ -84,6 +91,14 @@ func Serve(ctx context.Context, sockPath string, log cflog.Logger, idx *index.In
 			default:
 				return err
 			}
+		}
+
+		if err := peerAllowed(c); err != nil {
+			log.Warn("refusing a daemon connection", cflog.Err(err))
+
+			_ = c.Close()
+
+			continue
 		}
 
 		wg.Go(func() {

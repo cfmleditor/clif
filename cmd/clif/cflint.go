@@ -336,7 +336,7 @@ func applyCFLintBaseline(path string, run *cflint.Run, logf func(string, ...any)
 		cflintFailf("--baseline %s: %v\n", path, err)
 	}
 
-	data, err := os.ReadFile(abs)
+	data, err := vfs.ReadRegular(abs)
 	if err != nil {
 		cflintFailf("--baseline: %v\n", err)
 	}

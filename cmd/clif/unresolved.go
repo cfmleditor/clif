@@ -498,7 +498,7 @@ func presetHint(cfg *daemon.Config, searchDir string) string {
 		dir, have = filepath.Dir(cfg.Path), cfg.Frameworks()
 	}
 
-	data, err := os.ReadFile(filepath.Join(dir, "box.json"))
+	data, err := vfs.ReadRegular(filepath.Join(dir, "box.json"))
 	if err != nil {
 		return ""
 	}
