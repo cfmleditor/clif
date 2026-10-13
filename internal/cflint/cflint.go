@@ -20,6 +20,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cfmleditor/clif/internal/vfs"
+
 	"go.lsp.dev/protocol"
 
 	"github.com/cfmleditor/clif/internal/conv"
@@ -101,7 +103,7 @@ func NewRunner(ctx context.Context, minSeverity string) (*Runner, error) {
 func (r *Runner) Scan(ctx context.Context, filePath string) ([]protocol.Diagnostic, error) {
 	cmd := exec.CommandContext(ctx, r.binPath, "-stdin", filepath.Base(filePath), "-json", "-stdout", "-q") //nolint:gosec // the CFLint binary this package downloaded, given a file name and fixed flags
 
-	content, err := os.ReadFile(filePath) //nolint:gosec // the workspace file being linted
+	content, err := vfs.ReadRegular(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("reading %s: %w", filePath, err)
 	}

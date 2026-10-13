@@ -255,7 +255,7 @@ func cmdParse(args []string) {
 	var totalFuncs, totalRefs, totalFiles int
 
 	for _, f := range files {
-		content, err := os.ReadFile(f)
+		content, err := vfs.ReadRegular(f)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "  skip %s: %v\n", f, err)
 
@@ -398,7 +398,7 @@ func formatOptionsFor(configRoot string, allowNonWhitespace bool) func(path stri
 // set. A file is only ever rewritten after Format returned successfully, so a
 // refused format leaves the original untouched.
 func formatOneFile(path string, opts *formatter.Options, write bool) error {
-	content, err := os.ReadFile(path)
+	content, err := vfs.ReadRegular(path)
 	if err != nil {
 		return err
 	}
@@ -485,7 +485,7 @@ func writeFileInPlace(path string, original, out []byte) error {
 
 	// Re-read rather than trusting the content from before Format ran: a write
 	// landing on top of an edit made in the meantime would discard it silently.
-	if current, err := os.ReadFile(target); err == nil && !bytes.Equal(current, original) {
+	if current, err := vfs.ReadRegular(target); err == nil && !bytes.Equal(current, original) {
 		return errors.New("file changed on disk while formatting, not overwriting")
 	}
 

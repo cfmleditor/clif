@@ -134,7 +134,7 @@ func (cs *configSet) build(dir string) codemap.FileConfig {
 
 	hash := ""
 
-	if data, err := os.ReadFile(found.Path); err == nil {
+	if data, err := vfs.ReadRegular(found.Path); err == nil {
 		sum := sha256.Sum256(data)
 		hash = hex.EncodeToString(sum[:])
 	}
