@@ -51,7 +51,13 @@ https://*) ;;
 	;;
 esac
 
-if [ "$version" != latest ] && ! printf '%s\n' "$version" | grep -Eq '^v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'; then
+# The character test first: grep matches line by line, so a second line
+# would otherwise pass.
+case "$version" in
+*[!0-9A-Za-z.-]*) bad_version=true ;;
+*) bad_version=false ;;
+esac
+if [ "$version" != latest ] && { [ "$bad_version" = true ] || ! printf '%s\n' "$version" | grep -Eq '^v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'; }; then
 	echo "clif install: '$version' is not a version (expected 0.5.0, v0.5.0 or latest)" >&2
 	exit 1
 fi

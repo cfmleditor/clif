@@ -57,7 +57,7 @@ $releases = if ($env:CLIF_DOWNLOAD_URL) { $env:CLIF_DOWNLOAD_URL } else { 'https
 if (-not $releases.StartsWith('https://', [StringComparison]::OrdinalIgnoreCase)) {
     throw "clif install: CLIF_DOWNLOAD_URL must be an https:// URL, not $releases"
 }
-if ($Version -ne 'latest' -and $Version -notmatch '^v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$') {
+if ($Version -ne 'latest' -and $Version -notmatch '\Av?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?\z') {
     throw "clif install: '$Version' is not a version (expected 0.5.0, v0.5.0 or latest)"
 }
 
