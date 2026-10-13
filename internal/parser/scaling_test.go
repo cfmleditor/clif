@@ -143,3 +143,20 @@ func TestCallChainsHoldTheirOwnHops(t *testing.T) {
 		}
 	}
 }
+
+// Each <cffunction> looks for its </cffunction>, and with none in the file the
+// search ran to the end of it from every function: 24,000 unclosed functions,
+// 1MB, took 5.6s.
+func TestUnclosedFunctionsParseInLinearTime(t *testing.T) {
+	page := uri.File("/tmp/page.cfm")
+	input := func(n int) string {
+		return strings.Repeat("<cffunction name=\"f\"><cfargument name=\"a\">\n", n)
+	}
+
+	const n = 400
+
+	small := nsToParse(page, input(n))
+	large := nsToParse(page, input(n*scalingInputRatio))
+
+	assertScalesLinearly(t, "unclosed <cffunction>", small, large)
+}
