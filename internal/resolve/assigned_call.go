@@ -92,7 +92,7 @@ func (r *Resolver) assignedFromCall(variable string, line uint32, caller string,
 		}
 
 		if !ok && start > 0 && (variable == name || scoped) {
-			rhs, at, ok = variablesAssignment(pr, name, caller, start, int(line), scoped)
+			rhs, at, ok = r.variablesAssignment(pr, name, caller, start, int(line), scoped)
 			if ok {
 				// Typed where it was assigned: `variables.x = arguments.x` in
 				// init() reads init's argument, not the caller's.
@@ -517,7 +517,7 @@ func containsFold(list []string, s string) bool {
 // same assignment. Not when the function declares name as
 // a local or an argument, which hides the variable, nor when the assignment
 // found is a `var` or local. one, which never left its function.
-func variablesAssignment(pr *parser.ParseResult, name, caller string, start, line int, scoped bool) (string, int, bool) {
+func (r *Resolver) variablesAssignment(pr *parser.ParseResult, name, caller string, start, line int, scoped bool) (string, int, bool) {
 	from := min(start, line)
 	window := sourceText(pr.Content, from, line)
 
@@ -528,7 +528,7 @@ func variablesAssignment(pr *parser.ParseResult, name, caller string, start, lin
 		return "", 0, false
 	}
 
-	rhs, at, ok := localAssignmentAt(pr.Content, name, 0, start)
+	rhs, at, ok := r.localAssignmentAt(pr, name, 0, start)
 	if !ok || textDeclaresLocal(lineOfContent(pr.Content, at), name) {
 		return "", 0, false
 	}

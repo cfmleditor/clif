@@ -15,7 +15,7 @@ func (r *Resolver) builtinCallShadowed(name string, line uint32, caller string, 
 	}
 
 	if scope, ok := enclosingScope(pr, line); ok {
-		if _, _, assigned := localAssignmentAt(pr.Content, name, scope.Start, int(line)); assigned {
+		if _, _, assigned := r.localAssignmentAt(pr, name, scope.Start, int(line)); assigned {
 			return true
 		}
 	}
