@@ -76,6 +76,24 @@ type Options struct {
 	Candidates bool // annotate each finding with its category and liberal matches; see candidates.go
 	InferArgs  bool // type an untyped argument from what every caller passes it (resolve.Resolver.InferArgsFiles)
 	Verbose    io.Writer
+
+	// ResolverFor, when set, gives the resolver a file is checked and indexed
+	// under, given the scan's own resolver (whose index it must share). It is how
+	// a workspace of several applications reads each file under the .clif.json
+	// that governs it. Returning nil, or leaving it unset, keeps the scan's
+	// resolver. Speculative scans ignore it.
+	ResolverFor func(base *resolve.Resolver, file string) *resolve.Resolver
+}
+
+// resolverFor is the resolver one file is read under.
+func (o *Options) resolverFor(base *resolve.Resolver, file string) *resolve.Resolver {
+	if o.ResolverFor != nil {
+		if r := o.ResolverFor(base, file); r != nil {
+			return r
+		}
+	}
+
+	return base
 }
 
 // Report is a scan's result.
@@ -155,7 +173,7 @@ func Scan(fsys vfs.FS, files, targets []string, opt *Options) Report {
 			defer wg.Done()
 			defer func() { <-sem }()
 
-			calls, resolved := scanFile(fsys, resolver, file, opt)
+			calls, resolved := scanFile(fsys, opt.resolverFor(resolver, file), file, opt)
 
 			mu.Lock()
 
@@ -212,7 +230,32 @@ func NewResolver(fsys vfs.FS, files []string, opt *Options) *resolve.Resolver {
 	resolver.Index = index.New()
 	resolver.LoadBeans(opt.BeanPaths)
 
-	resolver.IndexFiles(files, nil)
+	if opt.ResolverFor == nil {
+		resolver.IndexFiles(files, nil)
+
+		return resolver
+	}
+
+	// Each file is indexed under the rules of the config that governs it, as the
+	// code map does; the index is shared, so the groups fill one index.
+	var (
+		order  []*resolve.Resolver
+		groups = map[*resolve.Resolver][]string{}
+	)
+
+	for _, f := range files {
+		r := opt.resolverFor(resolver, f)
+		if _, ok := groups[r]; !ok {
+			order = append(order, r)
+		}
+
+		groups[r] = append(groups[r], f)
+	}
+
+	for _, r := range order {
+		r.InferArgsFiles = settings.InferArgsFiles
+		r.IndexFiles(groups[r], nil)
+	}
 
 	return resolver
 }

@@ -715,7 +715,8 @@ A workspace is often several applications side by side, each with its own
 reads all of them. By default each file is now resolved under **its own** nearest
 config, because applying one application's `componentResolvers` to another's source
 does not fail loudly: it resolves nothing, and those files come out of the map with
-no edges. `--one-config` restores the old single-config behaviour.
+no edges. `--one-config` restores the old single-config behaviour. `clif unresolved` reads
+each file the same way, with the same `--one-config` opt-out.
 
 `--entry <glob>` marks files as entry points by path. Some code is invoked by a
 runner that constructs its name, so nothing in the codebase names it and no static

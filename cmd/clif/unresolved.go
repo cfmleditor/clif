@@ -8,11 +8,14 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 
+	"github.com/cfmleditor/clif/internal/codemap"
 	"github.com/cfmleditor/clif/internal/config"
 	"github.com/cfmleditor/clif/internal/confine"
 	"github.com/cfmleditor/clif/internal/daemon"
 	cfpath "github.com/cfmleditor/clif/internal/path"
+	"github.com/cfmleditor/clif/internal/resolve"
 	"github.com/cfmleditor/clif/internal/unresolved"
 	"github.com/cfmleditor/clif/internal/vfs"
 )
@@ -52,6 +55,8 @@ does not exist. Reads the .clif.json above the first directory.
                        --json emits {calls, assumedCalls, ...} with audit evidence
   --no-assume-open-world restore ordinary diagnostic reporting
   --native-engine <name> runtime API profile: auto (default), generic or lucee
+  --one-config         read every file under the first directory's .clif.json,
+                       not the one that governs it
   --no-infer-args      do not type an untyped argument from what its callers
                        pass it
 
@@ -76,6 +81,7 @@ type unresolvedFlags struct {
 	globalDefs         bool
 	candidates         bool
 	noInferArgs        bool
+	oneConfig          bool
 	speculative        bool
 	speculativeNative  bool
 }
@@ -153,6 +159,8 @@ func parseUnresolvedFlags(args []string) (unresolvedFlags, []string) {
 			fl.speculative = false
 		case "--no-infer-args":
 			fl.noInferArgs = true
+		case "--one-config":
+			fl.oneConfig = true
 		default:
 			paths = append(paths, positional(a, unresolvedUsage))
 		}
@@ -259,6 +267,10 @@ func scanUnresolved(args []string, fl *unresolvedFlags) (unresolved.Report, *dae
 
 	cfg, _ := daemon.FindConfig(searchDir)
 	opt := unresolvedOptions(cfg, args, fl)
+
+	if !fl.oneConfig {
+		opt.ResolverFor = perFileResolver(fsys)
+	}
 
 	// Collect files from workspace folders or args
 	scanRoots := args
@@ -490,5 +502,35 @@ func nativeEngineFlag(value string) string {
 		os.Exit(1)
 
 		return ""
+	}
+}
+
+// perFileResolver reads each file under the .clif.json that governs it, as the
+// code map does (configSet), instead of under the one above the first path. A
+// workspace of several applications otherwise checks the others' code with
+// resolvers that never fire. Every resolver shares the scan's index.
+func perFileResolver(fsys vfs.FS) func(base *resolve.Resolver, file string) *resolve.Resolver {
+	var (
+		mu   sync.Mutex
+		set  *configSet
+		seen = map[*resolve.Resolver]bool{}
+	)
+
+	return func(base *resolve.Resolver, file string) *resolve.Resolver {
+		mu.Lock()
+		defer mu.Unlock()
+
+		if set == nil {
+			set = newConfigSet(fsys, base.Index, &codemap.FileConfig{Resolver: base})
+		}
+
+		r := set.For(file).Resolver
+		if !seen[r] {
+			// The engine profile is a command-line choice, not a config's.
+			seen[r] = true
+			r.NativeEngine = base.NativeEngine
+		}
+
+		return r
 	}
 }

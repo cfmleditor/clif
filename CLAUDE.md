@@ -829,12 +829,16 @@ CLI drops 2 of 113 hits for `getInstance` and 3 of 78 for `announce`, calls on a
 (`controller.getInterceptorService().announce()`) that the old code credited to the wrong component. A
 component the resolver cannot locate defines nothing, so its calls are dropped too, as the editor always
 did. `TestRefsVerifiesAHitAgainstItsComponent`.
+**`unresolved` reads each file under its own nearest `.clif.json`, as the map does**
+(`unresolved.Options.ResolverFor`, wired by `perFileResolver` over the map's `configSet`; indexing
+is grouped by governing resolver too, all sharing one index). `--one-config` restores the single
+config above the first path. Speculative scans ignore the hook.
+`TestUnresolvedReadsEachFileUnderItsOwnConfig`.
 After the change the map's unresolved count equals `unresolved`'s exactly on Masa (3,786 with
 inference, 5,417 without), ColdBox (3,974, 3,981) and TestBox (929, 976), and `unresolved`'s own
 output is byte-identical to before. Differences that remain are on purpose: `deps` parses with its
 own light options (a scan types `getService("X")` by what getService returns, which is `$any`
 where the resolver names the component, and a dependency graph wants the component); `unresolved`
-reads the one config nearest its argument where the map reads each file's own; `unresolved`
 reports a missing base once per file and the map counts the calls; and the editor server's
 resolver is a live per-session one, not a batch one.
 `TestGraphAssumesTheFrameworkUnresolvedAssumes` (cmd), `TestTheMapResolvesWhatUnresolvedResolves`
