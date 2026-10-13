@@ -419,10 +419,29 @@ powershell -ExecutionPolicy Bypass -File scripts\install.ps1   # Windows: into %
 ```
 
 Each script checks the archive against the release's `checksums.txt`, which
-releases publish from 0.5.1 on. `CLIF_DOWNLOAD_URL` points
-either script at an internal mirror of the releases. Chocolatey installs an
+releases publish from 0.5.1 on; for those, and for `latest`, a missing
+`checksums.txt` stops the install rather than installing something
+unverified. When the [GitHub CLI](https://cli.github.com/) is installed and
+signed in, each script also checks the archive's build provenance (below),
+for releases after 0.5.3; without `gh` that check is skipped.
+`CLIF_DOWNLOAD_URL` points either script at an internal mirror of the
+releases, and must be an `https://` URL. Chocolatey installs an
 exact version with `choco install clif --version <v>`; Homebrew's tap holds
 only the latest.
+
+**Verifying a download.** From the release after 0.5.3, every release asset
+and its `checksums.txt` carry a signed
+[build provenance attestation](https://docs.github.com/actions/security-for-github-actions/using-artifact-attestations),
+recording that this repository's release workflow built it from the tagged
+commit. Check any downloaded archive with the GitHub CLI:
+
+```sh
+gh attestation verify clif-linux-amd64.tar.gz --repo cfmleditor/clif \
+  --signer-workflow cfmleditor/clif/.github/workflows/release.yml
+```
+
+A file that was altered, or built anywhere else, has no attestation to match
+and the command fails.
 
 ## Code map
 
