@@ -183,3 +183,23 @@ func TestLongChainedAssignmentsParseInLinearTime(t *testing.T) {
 		})
 	}
 }
+
+// A tag with no '>' after it has no end, and every walk that asked for one
+// stepped a byte past the tag and asked again from the next, each time
+// scanning to the end of the file: "<cf" repeated to 1.5MB took 5.9s. The
+// tags here reach each walk that asks: the tag walk's handled and declined
+// tags, and the output-context tracking of <cfoutput> and <cfcomponent>.
+func TestUnterminatedTagsParseInLinearTime(t *testing.T) {
+	page := uri.File("/tmp/page.cfm")
+
+	for _, unit := range []string{"<cf", "<cfset ", "<cfoutput ", "<cfcomponent "} {
+		t.Run(unit, func(t *testing.T) {
+			const n = 10000
+
+			small := nsToParse(page, strings.Repeat(unit, n))
+			large := nsToParse(page, strings.Repeat(unit, n*scalingInputRatio))
+
+			assertScalesLinearly(t, unit, small, large)
+		})
+	}
+}

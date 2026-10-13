@@ -37,6 +37,7 @@ type tagParser struct {
 	// outputContext and outputState.
 	gated      bool
 	closeKnown bool
+	gtKnown    bool  // lastGT holds the offset of p.src's last '>'
 	chainDepth uint8 // chained assignments being parsed; see maxChainedAssignments
 	output     *outputState
 	// collectionTags are the offsets of the tags the walk met that can hold a
@@ -45,6 +46,7 @@ type tagParser struct {
 	// closeAt is where the first </cffunction> at or after offset closeFrom
 	// is, -1 for none, once closeKnown; see functionCloseAfter.
 	closeFrom, closeAt  int
+	lastGT              int
 	importPrefixes      []string
 	srcOffset           int
 	builtinReturnLookup func(string) string
@@ -162,6 +164,20 @@ func tagEndIndex(s string) int {
 	}
 
 	return tagEndWalk(s)
+}
+
+// tagEndFrom is tagEndIndex(s[from:]) for a walk that asks it at many offsets
+// of s, where lastGT is strings.LastIndexByte(s, '>'), found once by the walk.
+// Past it there is no '>' and so no end to find, and asking tagEndIndex
+// anyway scans to the end of s for nothing: a walk that steps one byte past a
+// tag it cannot end and asks again was quadratic on a file of unterminated
+// tags, "<cf" repeated to 1.5MB taking 5.9s.
+func tagEndFrom(s string, from, lastGT int) int {
+	if from > lastGT {
+		return -1
+	}
+
+	return tagEndIndex(s[from:])
 }
 
 // tagEndWithComments is the '>' closing a tag whose attribute list holds
@@ -602,7 +618,7 @@ func (p *tagParser) handleCFTag(idx int) int {
 		return p.stepOverEvaluatedTag(idx)
 	}
 
-	tagEnd := tagEndIndex(p.src[idx:])
+	tagEnd := tagEndFrom(p.src, idx, p.lastTagEnd())
 	if tagEnd < 0 {
 		return idx + 1
 	}
@@ -713,7 +729,7 @@ func (p *tagParser) nextTag(pos int) int {
 // trackOutput moves the output state past the tag at idx, when gated.
 func (p *tagParser) trackOutput(idx int) {
 	if p.gated {
-		p.output.track(p.src, idx)
+		p.output.track(p.src, idx, p.lastTagEnd())
 	}
 }
 
@@ -735,7 +751,7 @@ func (p *tagParser) stepOverEvaluatedTag(idx int) int {
 		return idx + 1
 	}
 
-	end := tagEndIndex(p.src[idx:])
+	end := tagEndFrom(p.src, idx, p.lastTagEnd())
 	if end < 0 {
 		return idx + 1
 	}
@@ -797,6 +813,15 @@ func (p *tagParser) markVarLocal(name string) {
 	}
 
 	p.localVars = append(p.localVars, name)
+}
+
+// lastTagEnd is the offset of p.src's last '>', -1 for none, for tagEndFrom.
+func (p *tagParser) lastTagEnd() int {
+	if !p.gtKnown {
+		p.lastGT, p.gtKnown = strings.LastIndexByte(p.src, '>'), true
+	}
+
+	return p.lastGT
 }
 
 // functionCloseAfter is the offset from from of the first </cffunction> at or

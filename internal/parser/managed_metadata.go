@@ -60,6 +60,8 @@ func (pr *ParseResult) managedScriptMetadata(region Region, metadata *ParseResul
 func (pr *ParseResult) managedTagMetadata(region Region, metadata *ParseResult) {
 	tp := newTagParser(region.Text, string(pr.URI))
 
+	lastGT := strings.LastIndexByte(region.Text, '>')
+
 	scanner := NewScanner(region.Text)
 	for {
 		tok := scanner.NextSkipComments()
@@ -80,7 +82,7 @@ func (pr *ParseResult) managedTagMetadata(region Region, metadata *ParseResult) 
 			continue
 		}
 
-		end := tagEndIndex(region.Text[tok.Offset:])
+		end := tagEndFrom(region.Text, tok.Offset, lastGT)
 		if end < 0 {
 			continue
 		}
