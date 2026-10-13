@@ -53,8 +53,8 @@ func cmdRefs(args []string) {
 		os.Exit(1)
 	}
 
-	resolvers := loadResolversFromConfig(dirs)
 	fsys := vfs.OS{}
+	resolver := workspaceResolver(dirs, collectCFMLFiles(fsys, dirs))
 
 	isComponentTarget := strings.Contains(target, ".")
 
@@ -64,9 +64,9 @@ func cmdRefs(args []string) {
 	)
 
 	if isComponentTarget {
-		entries, scanned = refs.FindComponentRefs(fsys, dirs, target, resolvers)
+		entries, scanned = refs.FindComponentRefs(fsys, dirs, target, resolver)
 	} else {
-		entries, scanned = refs.FindCalls(fsys, dirs, target, resolvers)
+		entries, scanned = refs.FindCalls(fsys, dirs, target, resolver)
 	}
 
 	result := RefResult{

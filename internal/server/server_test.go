@@ -16,6 +16,7 @@ import (
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
 	"github.com/cfmleditor/clif/internal/refs"
+	"github.com/cfmleditor/clif/internal/resolve"
 	"github.com/cfmleditor/clif/internal/vfs"
 	"go.lsp.dev/protocol"
 	"go.lsp.dev/uri"
@@ -4373,24 +4374,19 @@ func TestBeansTestdata_ServiceInjectResolution(t *testing.T) {
 	}
 }
 
+// refsResolver is the workspace's resolver for a refs search over dir, with the
+// bean map the app's Application.cfc names.
+func refsResolver(dir string) *resolve.Resolver {
+	r := resolve.NewBatchResolver(vfs.OS{}, index.New(), &resolve.Settings{WorkspaceFolders: []string{dir}})
+	r.LoadBeans(nil)
+
+	return r
+}
+
 func TestFindAllCalls_GetById(t *testing.T) {
 	dir := filepath.Join(testdataDir(), "beans")
-	beanPaths := cfpath.LoadAppBeanPaths(dir)
-	beans := buildBeanMap(beanPaths, vfs.OS{})
 
-	// Build a bean lookup function
-	beanLookup := func(name string) string {
-		return beans[strings.ToLower(name)]
-	}
-
-	// Build resolvers (none for this test)
-	var resolvers []parser.Resolver
-
-	entries := refs.Find(vfs.OS{}, []string{dir}, &refs.Options{
-		FuncName:   "getById",
-		Resolvers:  resolvers,
-		BeanLookup: beanLookup,
-	})
+	entries := refs.Find(vfs.OS{}, []string{dir}, &refs.Options{FuncName: "getById", Resolver: refsResolver(dir)})
 
 	if len(entries) == 0 {
 		t.Fatal("expected at least one call to getById")
@@ -4417,6 +4413,7 @@ func TestFindAllCalls_GetAll(t *testing.T) {
 
 	entries := refs.Find(vfs.OS{}, []string{dir}, &refs.Options{
 		FuncName: "getAll",
+		Resolver: refsResolver(dir),
 	})
 
 	if len(entries) == 0 {
@@ -4444,6 +4441,7 @@ func TestFindAllCalls_Resolved(t *testing.T) {
 
 	entries := refs.Find(vfs.OS{}, []string{dir}, &refs.Options{
 		FuncName: "getById",
+		Resolver: refsResolver(dir),
 	})
 
 	// Calls via variables.userDAO.getById should be resolved (qualified)
@@ -4467,6 +4465,7 @@ func TestFindAllCalls_NoResults(t *testing.T) {
 
 	entries := refs.Find(vfs.OS{}, []string{dir}, &refs.Options{
 		FuncName: "nonExistentFunction",
+		Resolver: refsResolver(dir),
 	})
 
 	if len(entries) != 0 {
@@ -4482,9 +4481,7 @@ func TestFindComponentRefs_UserDAO(t *testing.T) {
 
 	entries := refs.Find(vfs.OS{}, []string{dir}, &refs.Options{
 		Component: daoPath,
-		BeanLookup: func(name string) string {
-			return beans[strings.ToLower(name)]
-		},
+		Resolver:  refsResolver(dir),
 	})
 
 	if len(entries) == 0 {

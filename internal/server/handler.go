@@ -1323,25 +1323,13 @@ func (s *Server) cmdFindRefs(ctx context.Context, args []protocol.LSPAny) (any, 
 	releaseReadLoop(ctx)
 
 	s.log.Debug("findRefs: searching", cflog.String("funcName", funcName), cflog.Strings("roots", s.searchRoots()))
-	r := s.getResolver()
+
 	sourceFile := uri.URI(sourceURI).Path()
 	findOpts := refs.Options{
-		FuncName:           funcName,
-		Resolvers:          s.cfResolvers(),
-		PropertyResolvers:  s.cfPropertyResolvers(),
-		InterpolateAllText: !s.Features.OutputContextInterpolation,
-		VerifyCall: func(component, fn, fileDir string) bool {
-			return r.HasFunction(component, fn, fileDir)
-		},
-		VerifyTarget: func(component, fileDir, sourceFile string) bool {
-			resolved := r.ComponentPath(component, fileDir)
-
-			return cfpath.SamePath(resolved, sourceFile)
-		},
-		Reason: func(call parser.CallSite, pr *parser.ParseResult, fileDir string) string {
-			return r.CanResolveCall(&call, pr, fileDir)
-		},
+		FuncName:   funcName,
 		SourceFile: sourceFile,
+		Resolver:   s.getResolver(),
+		Explain:    true,
 	}
 	entries := refs.Trace(s.FS, s.searchRoots(), &findOpts)
 	result := refs.FormatResult(entries, funcName, sourceURI, s.searchRoots())

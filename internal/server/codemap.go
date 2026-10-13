@@ -127,28 +127,16 @@ func (s *Server) buildCodeMap(req *codeMapRequest, roots []string) (*codemap.Map
 	// there is nothing to vary per file.
 	s.ensureBeansLoaded()
 
-	cfg := codemap.FileConfig{
-		Resolver:                 s.getResolver(),
-		Resolvers:                s.cfResolvers(),
-		ExpressionMappings:       s.ExpressionMappings,
-		ServicePropertyResolvers: s.ServicePropertyResolvers,
-		PropertyResolvers:        s.cfPropertyResolvers(),
-		BeanLookup:               s.index.LookupBean,
-		Routes:                   s.routeResolver(),
-		InterpolateAllText:       !s.Features.OutputContextInterpolation,
-	}
+	cfg := codemap.FileConfig{Resolver: s.getResolver(), Routes: s.routeResolver()}
 
 	m := codemap.Build(&codemap.Options{
-		Root:                     roots[0],
-		Files:                    files,
-		FS:                       s.FS,
-		Resolver:                 cfg.Resolver,
-		Resolvers:                cfg.Resolvers,
-		ExpressionMappings:       cfg.ExpressionMappings,
-		ServicePropertyResolvers: cfg.ServicePropertyResolvers,
-		EntryGlobs:               s.CodeMap.Entry,
-		UtilityGlobs:             s.CodeMap.Utility,
-		ConfigFor:                func(string) codemap.FileConfig { return cfg },
+		Root:         roots[0],
+		Files:        files,
+		FS:           s.FS,
+		Resolver:     cfg.Resolver,
+		EntryGlobs:   s.CodeMap.Entry,
+		UtilityGlobs: s.CodeMap.Utility,
+		ConfigFor:    func(string) codemap.FileConfig { return cfg },
 	})
 
 	return applyCodeMapViews(m, req), nil

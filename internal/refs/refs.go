@@ -10,8 +10,8 @@ import (
 
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
+	"github.com/cfmleditor/clif/internal/resolve"
 	"github.com/cfmleditor/clif/internal/vfs"
-	"go.lsp.dev/uri"
 )
 
 // Entry represents a single reference found.
@@ -39,21 +39,21 @@ type Entry struct {
 
 // Options configures what to search for.
 type Options struct {
-	FuncName          string                                           // function name to find calls to (empty = skip)
-	Component         string                                           // component dot-path to find refs to (empty = skip)
-	SourceFile        string                                           // absolute path of the source file (same-file calls always match)
-	Resolvers         []parser.Resolver                                // resolvers for ParseWithOptions
-	PropertyResolvers []parser.PropertyResolver                        // property resolvers
-	BeanLookup        func(string) string                              // bean name → dot-path lookup
-	VerifyCall        func(component, funcName, fileDir string) bool   // optional: verify the component has this function
-	VerifyTarget      func(component, fileDir, sourceFile string) bool // optional: verify the call resolves to the source component
-	// Reason, when set, explains why a call with no resolved component
-	// (call.Component == "") couldn't be resolved at all — reused from the
-	// same resolution engine the `unresolved` command uses, so the two agree.
-	Reason func(call parser.CallSite, pr *parser.ParseResult, fileDir string) string
-	// InterpolateAllText is parser.ParseOptions.InterpolateAllText: the
-	// features.outputContextInterpolation switch turned off.
-	InterpolateAllText bool
+	FuncName   string // function name to find calls to (empty = skip)
+	Component  string // component dot-path to find refs to (empty = skip)
+	SourceFile string // absolute path of the source file (same-file calls always match)
+
+	// Resolver is the workspace's. Every file is parsed as the workspace types
+	// it (resolve.Resolver.ParseFile), a call's component is checked to define
+	// the function, and, with a SourceFile, to be the one searched for. The
+	// editor's find-references and `clif refs` each wired their own closures to
+	// do this, and the command line wired none, so the two answered one
+	// question differently.
+	Resolver *resolve.Resolver
+
+	// Explain gives a call that did not resolve the reason it did not, from the
+	// same resolution `unresolved` runs.
+	Explain bool
 }
 
 // Find scans all CFML files under roots and returns matching references.
@@ -78,15 +78,15 @@ func FindCounted(fsys vfs.FS, roots []string, opts *Options) ([]Entry, int) {
 
 // FindCalls is a convenience wrapper for finding function calls. It returns the
 // entries and the number of files searched, as [FindCounted] defines it.
-func FindCalls(fsys vfs.FS, roots []string, funcName string, resolvers []parser.Resolver) ([]Entry, int) {
-	return FindCounted(fsys, roots, &Options{FuncName: funcName, Resolvers: resolvers})
+func FindCalls(fsys vfs.FS, roots []string, funcName string, r *resolve.Resolver) ([]Entry, int) {
+	return FindCounted(fsys, roots, &Options{FuncName: funcName, Resolver: r})
 }
 
 // FindComponentRefs is a convenience wrapper for finding component references.
 // It returns the entries and the number of files searched, as [FindCounted]
 // defines it.
-func FindComponentRefs(fsys vfs.FS, roots []string, component string, resolvers []parser.Resolver) ([]Entry, int) {
-	return FindCounted(fsys, roots, &Options{Component: component, Resolvers: resolvers})
+func FindComponentRefs(fsys vfs.FS, roots []string, component string, r *resolve.Resolver) ([]Entry, int) {
+	return FindCounted(fsys, roots, &Options{Component: component, Resolver: r})
 }
 
 func collectFiles(fsys vfs.FS, roots []string) []string {
@@ -168,29 +168,17 @@ func findInFile(fsys vfs.FS, f string, opts *Options) []Entry {
 
 	content := string(data)
 	absPath := f
-	fileURI := uri.URI("file://" + absPath)
 
-	// Parse once with resolvers and call scanning — scan all scopes
-	parseOpts := parser.ParseOptions{
-		Resolvers:          opts.Resolvers,
-		PropertyResolvers:  opts.PropertyResolvers,
-		ExtractCalls:       true,
-		ScanAllScopes:      true,
-		InterpolateAllText: opts.InterpolateAllText,
-	}
-	// Build per-file bean lookup from nearest Application.cfc
-	if opts.BeanLookup != nil {
-		parseOpts.BeanLookup = opts.BeanLookup
-	} else {
-		fileDir := filepath.Dir(absPath)
-		parseOpts.BeanLookup = fileBeanLookup(fsys, fileDir)
-	}
-
+	// Parsed once, as the workspace types a file, with every scope's calls. A
+	// call is typed by the configured resolvers and not by what the called
+	// function declares it returns: a reference is to the component the
+	// resolver names, not to `any`.
+	spec := resolve.ParseSpec{Calls: true, AllScopes: true, ByResolversOnly: true}
 	if funcTarget != "" {
-		parseOpts.FindCalls = []string{opts.FuncName}
+		spec.FindCalls = []string{opts.FuncName}
 	}
 
-	pr := parser.ParseWithOptions(fileURI, content, &parseOpts)
+	pr := opts.Resolver.ParseFile(f, content, spec)
 
 	var entries []Entry
 
@@ -249,14 +237,14 @@ func findInFile(fsys vfs.FS, f string, opts *Options) []Entry {
 // matchCall reports whether call is a reference to the function being
 // searched for, and whether it resolved.
 func matchCall(call *parser.CallSite, pr *parser.ParseResult, absPath string, opts *Options) (resolved, ok bool) {
-	if opts.VerifyCall != nil && call.Component != "" {
-		if !opts.VerifyCall(call.Component, call.FuncName, filepath.Dir(absPath)) {
+	if call.Component != "" {
+		dir := filepath.Dir(absPath)
+
+		if !opts.Resolver.HasFunction(call.Component, call.FuncName, dir) {
 			return false, false
 		}
-	}
 
-	if opts.VerifyTarget != nil && call.Component != "" {
-		if !opts.VerifyTarget(call.Component, filepath.Dir(absPath), opts.SourceFile) {
+		if opts.SourceFile != "" && !cfpath.SamePath(opts.Resolver.ComponentPath(call.Component, dir), opts.SourceFile) {
 			return false, false
 		}
 	}
@@ -301,8 +289,8 @@ func callEntry(call *parser.CallSite, pr *parser.ParseResult, f string, resolved
 	}
 
 	reason := ""
-	if !resolved && opts.Reason != nil {
-		reason = opts.Reason(*call, pr, filepath.Dir(f))
+	if !resolved && opts.Explain {
+		reason = opts.Resolver.CanResolveCall(call, pr, filepath.Dir(f))
 		if reason != "" {
 			// Restate the call target so the reason reads standalone —
 			// readers scanning one line at a time (without the group
@@ -321,79 +309,6 @@ func callEntry(call *parser.CallSite, pr *parser.ParseResult, f string, resolved
 		File: f, Function: call.Caller, Call: callText,
 		Component: call.Component,
 		Line:      call.Line, Resolved: resolved, Reason: reason,
-	}
-}
-
-// beanLookupCache caches bean maps per Application.cfc directory.
-var (
-	beanLookupCache   = make(map[string]map[string]string)
-	beanLookupCacheMu sync.Mutex
-)
-
-// fileBeanLookup creates a BeanLookup function that resolves from the nearest Application.cfc.
-func fileBeanLookup(fsys vfs.FS, dir string) func(string) string {
-	appDir := findAppRoot(fsys, dir)
-	if appDir == "" {
-		return nil
-	}
-
-	beanLookupCacheMu.Lock()
-	if beans, ok := beanLookupCache[appDir]; ok {
-		beanLookupCacheMu.Unlock()
-
-		return func(name string) string { return beans[strings.ToLower(name)] }
-	}
-	beanLookupCacheMu.Unlock()
-
-	beanPaths := cfpath.LoadAppBeanPaths(appDir)
-	if len(beanPaths) == 0 {
-		return nil
-	}
-
-	beans := make(map[string]string)
-
-	for _, root := range beanPaths {
-		_ = fsys.Walk(root, func(path string, info os.FileInfo, _ error) error {
-			if info.IsDir() {
-				return nil
-			}
-
-			if !strings.HasSuffix(strings.ToLower(path), ".cfc") {
-				return nil
-			}
-
-			name := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
-			beans[strings.ToLower(name)] = path
-
-			return nil
-		})
-	}
-
-	beanLookupCacheMu.Lock()
-	beanLookupCache[appDir] = beans
-	beanLookupCacheMu.Unlock()
-
-	return func(name string) string {
-		return beans[strings.ToLower(name)]
-	}
-}
-
-func findAppRoot(fsys vfs.FS, dir string) string {
-	d := dir
-
-	for {
-		for _, name := range []string{"Application.cfc", "Application.cfm"} {
-			if _, err := fsys.Stat(filepath.Join(d, name)); err == nil {
-				return d
-			}
-		}
-
-		parent := filepath.Dir(d)
-		if parent == d {
-			return ""
-		}
-
-		d = parent
 	}
 }
 

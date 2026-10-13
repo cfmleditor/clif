@@ -47,15 +47,11 @@ func TestGraphAssumesTheFrameworkUnresolvedAssumes(t *testing.T) {
 	_, fallback, _, _ := routeWorkspace(fsys, root, &graphFlags{paths: []string{root}, quiet: true})
 
 	m := codemap.Build(&codemap.Options{
-		Root:               root,
-		Files:              sources,
-		FS:                 fsys,
-		Resolver:           fallback.Resolver,
-		Resolvers:          fallback.Resolvers,
-		ExpressionMappings: fallback.ExpressionMappings,
-		PropertyResolvers:  fallback.PropertyResolvers,
-		BeanLookup:         fallback.BeanLookup,
-		Workers:            2,
+		Root:     root,
+		Files:    sources,
+		FS:       fsys,
+		Resolver: fallback.Resolver,
+		Workers:  2,
 	})
 
 	if m.Stats.Unresolved != len(report.Calls) {

@@ -8,7 +8,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/cfmleditor/clif/internal/daemon"
 	"github.com/cfmleditor/clif/internal/deps"
 	"github.com/cfmleditor/clif/internal/graph"
 	"github.com/cfmleditor/clif/internal/index"
@@ -36,10 +35,6 @@ type DepResult struct {
 	Files int       `json:"files"`
 	Edges []DepEdge `json:"edges"`
 }
-
-// depsSettings are the settings the deps command resolved with, kept for the
-// parses that follow its traversal. One command reads one config.
-var depsSettings resolve.Settings
 
 func cmdDeps(args []string) {
 	format := "json"
@@ -71,7 +66,8 @@ func cmdDeps(args []string) {
 		os.Exit(1)
 	}
 
-	resolver, idx := depsResolver(fsys, args, files)
+	resolver := workspaceResolver(args, files)
+	idx := resolver.Index
 
 	var (
 		edges []DepEdge
@@ -113,45 +109,13 @@ func cmdDeps(args []string) {
 	}
 }
 
-// depsResolver builds the resolver and index the traversal needs. Resolution is
-// what lets a dependency be followed to another file at all; the previous
-// implementation did none, which is why it could only ever report one level.
-func depsResolver(fsys vfs.FS, args, files []string) (*resolve.Resolver, *index.Index) {
-	searchDir := "."
-	if info, err := os.Stat(args[0]); err == nil && info.IsDir() {
-		searchDir = args[0]
-	} else if len(args) > 0 {
-		searchDir = filepath.Dir(args[0])
-	}
-
-	cfg, _ := daemon.FindConfig(searchDir)
-
-	// The same settings and the same resolver as every other bulk command, and
-	// the components indexed the way they are: deps built its own resolver from a
-	// subset of the config and indexed from a bare parse.
-	settings, _ := batchSettings(fsys, cfg, cliWorkspaceFolders(fsys, cfg, args))
-	depsSettings = settings
-
-	idx := index.New()
-	resolver := resolve.NewBatchResolver(fsys, idx, &settings)
-	resolver.LoadBeans(settings.BeanPaths)
-	resolver.IndexFiles(files, settings.PropertyResolvers, nil)
-
-	return resolver, idx
-}
-
-// depsParseOptions are how deps reads a file: its resolvers and expression
-// mappings and nothing that types a call by the function it names. A scan
-// types `getService("UserService")` by what getService returns, which is `$any`
-// where the resolver names the component; a dependency graph wants the
-// component, and it is what clif.exportDeps parses with. The resolver and the
-// index behind it are the batch ones; this is the one place deps differs.
-func depsParseOptions(resolver *resolve.Resolver) *parser.ParseOptions {
-	return &parser.ParseOptions{
-		Resolvers: resolver.Resolvers, ExpressionMappings: resolver.ExpressionMappings,
-		ExtractCalls: true, InterpolateAllText: depsSettings.InterpolateAllText,
-	}
-}
+// depsParseSpec is how deps reads a file: the resolver's own parse, typing a
+// call by the configured resolvers and not by what the called function declares
+// it returns. A scan types `getService("UserService")` as `$any`, because
+// getService returns any; a dependency graph wants the component the resolver
+// names, which is also what clif.exportDeps reads. The resolver and the index
+// behind it are the batch ones; this is the one place deps differs.
+var depsParseSpec = resolve.ParseSpec{Calls: true, ByResolversOnly: true}
 
 // depsForFile builds the dependency graph rooted at one file, the same way
 // clif.exportDeps does for a whole document — so the CLI and the editor
@@ -166,7 +130,7 @@ func depsForFile(path string, resolver *resolve.Resolver, idx *index.Index) []gr
 	abs, _ := filepath.Abs(path)
 	fileURI := uri.File(abs)
 
-	pr := parser.ParseWithOptions(fileURI, string(content), depsParseOptions(resolver))
+	pr := resolver.ParseFile(abs, string(content), depsParseSpec)
 
 	var calls []parser.CallSite
 	for _, sc := range pr.Scopes {
@@ -201,7 +165,7 @@ func depsCallLoader(resolver *resolve.Resolver) func(uri.URI, string) ([]parser.
 				return nil, nil
 			}
 
-			pr = parser.ParseWithOptions(fileURI, string(data), depsParseOptions(resolver))
+			pr = resolver.ParseFile(strings.TrimPrefix(string(fileURI), "file://"), string(data), depsParseSpec)
 			parsed[fileURI] = pr
 		}
 

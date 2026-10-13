@@ -507,6 +507,13 @@ func (idx *Index) IndexFileWithOptions(fileURI uri.URI, content string, opts *pa
 	idx.indexParseResult(fileURI, content, pr)
 }
 
+// IndexParsed indexes a file whose parse the caller has made, with whatever
+// rules the caller parsed it by: the parse a batch run indexes by is the same
+// one it then reads calls from.
+func (idx *Index) IndexParsed(fileURI uri.URI, content string, pr *parser.ParseResult) {
+	idx.indexParseResult(fileURI, content, pr)
+}
+
 func (idx *Index) indexParseResult(fileURI uri.URI, content string, pr *parser.ParseResult) {
 	// Every string below is cloned, for the reason IndexFileFromResult
 	// documents at length: a parsed string is a slice of the file's source,

@@ -85,6 +85,10 @@ func NewResolver(fsys vfs.FS, idx *index.Index, s *Settings) *Resolver {
 		ImplicitExtends:       s.ImplicitExtends,
 		HelperScope:           s.HelperScope,
 		Stubs:                 s.Stubs,
+
+		PropertyResolvers:        s.PropertyResolvers,
+		ServicePropertyResolvers: s.ServicePropertyResolvers,
+		InterpolateAllText:       s.InterpolateAllText,
 	}
 
 	if r.NativeEngine == "" && detectsLucee(fsys, s.WorkspaceFolders) {
@@ -96,7 +100,7 @@ func NewResolver(fsys vfs.FS, idx *index.Index, s *Settings) *Resolver {
 
 // Settings is what the resolver was built from, for a tool that builds another
 // run from it (the editor's export of the unresolved report). It carries the
-// resolution settings only; what a parse takes is [ParseInputs].
+// resolution settings only; what a parse takes is carried by the resolver too (see ParseFile).
 func (r *Resolver) Settings() *Settings {
 	return &Settings{
 		NativeEngine:          r.NativeEngine,
@@ -110,6 +114,10 @@ func (r *Resolver) Settings() *Settings {
 		ImplicitExtends:       r.ImplicitExtends,
 		HelperScope:           r.HelperScope,
 		Stubs:                 r.Stubs,
+
+		PropertyResolvers:        r.PropertyResolvers,
+		ServicePropertyResolvers: r.ServicePropertyResolvers,
+		InterpolateAllText:       r.InterpolateAllText,
 	}
 }
 
@@ -142,85 +150,106 @@ func (r *Resolver) LoadBeans(beanPaths map[string]string) {
 	}
 }
 
-// IndexForBatch indexes one file, and returns a template's include paths the way every batch run must: a template only
-// records its includes (a page that includes a helper can call what the helper
-// declares), and a component is parsed with the resolver's own rules, so what
-// it returns and what its injected properties hold are typed as the scan will
-// type them. The code map indexed with the default parse options and typed a
-// component's returns differently from the scan that checked the same calls.
-func (r *Resolver) IndexForBatch(f, content string, propertyResolvers []parser.PropertyResolver) (includes []string) {
-	r.IndexCallerFile(f, content)
+// ParseSpec says what a caller wants from a parse of a file; the resolver
+// supplies how the workspace types it. This is the one way a file in a
+// workspace is parsed: the editor's live parse, the unresolved scan, the code
+// map, references and the dependency graph each assembled their own parser
+// options from the resolver's lookups, field for field, and a lookup added to
+// one was missing from the others.
+type ParseSpec struct {
+	// Logger receives the parse's timing and errors.
+	Logger parser.Logger
+	// FindCalls limits the call sites recorded to these function names.
+	FindCalls []string
+	// Calls extracts call sites; AllScopes extracts them from function bodies
+	// too, which every report and graph wants and the editor's cache does not.
+	Calls     bool
+	AllScopes bool
+	// Links extracts document links.
+	Links bool
+	// Shallow reads signatures only, with no resolver and no lookup: the cheap
+	// pass an ordinary file's index entry needs.
+	Shallow bool
+	// ByResolversOnly types a call by the configured resolvers alone, and not
+	// by what the called function declares it returns. A scan wants the
+	// declared return (`getService("X")` returns any, so it is `$any`); a
+	// dependency graph wants the component the resolver names.
+	ByResolversOnly bool
+}
 
-	fileURI := cfpath.ToURI(f)
+// IndexSpec is what indexing a component asks of a parse: its own signatures and
+// refs, typed by the configured rules but not by another file's declared
+// returns (see IndexForBatch).
+func IndexSpec() ParseSpec { return ParseSpec{ByResolversOnly: true} }
 
-	if !cfpath.IsCFCFile(f) {
-		includes = parser.ExtractIncludes(content)
-		r.Index.SetIncludes(fileURI, includes)
+// BatchSpec is what a run over every scope of every file asks of a parse.
+func BatchSpec() ParseSpec { return ParseSpec{Calls: true, AllScopes: true} }
 
-		return includes
+// ParseFile parses a file of this workspace as the workspace types it: its
+// resolvers, mappings and rules, and the lookups that type an injected
+// dependency or a function's return. file is a path.
+func (r *Resolver) ParseFile(file, content string, spec ParseSpec) *parser.ParseResult {
+	fileURI := cfpath.ToURI(file)
+
+	if spec.Shallow {
+		return parser.ParseWithOptions(fileURI, content, &parser.ParseOptions{Shallow: true})
 	}
 
-	r.Index.IndexFileWithOptions(fileURI, content, &parser.ParseOptions{
-		Resolvers:          r.Resolvers,
-		SetterLookup:       r.SetterLookup(f),
-		ConstructorLookup:  r.ConstructorLookup(f),
-		BeanLookup:         r.InjectionBeanLookup(f),
-		PropertyBeanLookup: r.InjectionPropertyLookup(f),
-		PropertyResolvers:  propertyResolvers,
-	})
-
-	return nil
-}
-
-// ParseInputs is what a batch parse takes from the configuration beyond the
-// resolver itself.
-type ParseInputs struct {
-	ExpressionMappings       map[string]string
-	ServicePropertyResolvers map[string]string
-	PropertyResolvers        []parser.PropertyResolver
-	InterpolateAllText       bool
-}
-
-// ParseInputs is the part of the settings a parse takes.
-func (s *Settings) ParseInputs() *ParseInputs {
-	return &ParseInputs{
-		ExpressionMappings:       s.ExpressionMappings,
-		ServicePropertyResolvers: s.ServicePropertyResolvers,
-		PropertyResolvers:        s.PropertyResolvers,
-		InterpolateAllText:       s.InterpolateAllText,
-	}
-}
-
-// ParseOptions is what every parse of a file in a workspace takes from its
-// resolver: the lookups that type a call by what it is made on or what a
-// function returns, and the configured rules. A batch run and the editor's
-// live parse each took these by hand, field for field, and a lookup added to
-// one was missing from the other. The caller adds what it alone wants: which
-// calls to extract, links, a logger.
-func (r *Resolver) ParseOptions(file string, in *ParseInputs) *parser.ParseOptions {
-	return &parser.ParseOptions{
+	po := &parser.ParseOptions{
+		Logger:                   spec.Logger,
 		Resolvers:                r.Resolvers,
-		ExpressionMappings:       in.ExpressionMappings,
-		ServicePropertyResolvers: in.ServicePropertyResolvers,
-		PropertyResolvers:        in.PropertyResolvers,
+		ExpressionMappings:       r.ExpressionMappings,
+		ServicePropertyResolvers: r.ServicePropertyResolvers,
+		PropertyResolvers:        r.PropertyResolvers,
 		BeanLookup:               r.InjectionBeanLookup(file),
 		PropertyBeanLookup:       r.InjectionPropertyLookup(file),
 		SetterLookup:             r.SetterLookup(file),
 		ConstructorLookup:        r.ConstructorLookup(file),
-		InterpolateAllText:       in.InterpolateAllText,
-		FuncLookup:               r.FuncLookup(filepath.Dir(file)),
-		BuiltinReturnLookup:      r.BuiltinReturnLookupFor(file),
+		InterpolateAllText:       r.InterpolateAllText,
+		ExtractCalls:             spec.Calls,
+		ScanAllScopes:            spec.AllScopes,
+		ExtractLinks:             spec.Links,
+		FindCalls:                spec.FindCalls,
 	}
+
+	if !spec.ByResolversOnly {
+		po.FuncLookup = r.FuncLookup(filepath.Dir(file))
+		po.BuiltinReturnLookup = r.BuiltinReturnLookupFor(file)
+	}
+
+	pr := parser.ParseWithOptions(fileURI, content, po)
+
+	// The parse memoises the lookup for its own passes and hands the plain one
+	// back, so a function parsed lazily later asks the resolver afresh.
+	if po.FuncLookup != nil {
+		pr.FuncLookup = po.FuncLookup
+	}
+
+	return pr
 }
 
-// BatchParseOptions are the options every batch run parses a file's calls with:
-// [Resolver.ParseOptions] with the calls of every scope extracted.
-func (r *Resolver) BatchParseOptions(file string, in *ParseInputs) *parser.ParseOptions {
-	po := r.ParseOptions(file, in)
-	po.ExtractCalls = true
-	po.ScanAllScopes = true
+// IndexForBatch indexes one file the way every batch run must: a template only
+// records its includes (a page that includes a helper can call what the helper
+// declares), and a component is parsed as [Resolver.ParseFile] parses it, so
+// what it returns and what its injected properties hold are typed as the scan
+// will type them. It returns a template's include paths.
+func (r *Resolver) IndexForBatch(f, content string) (includes []string) {
+	r.IndexCallerFile(f, content)
 
-	return po
+	if !cfpath.IsCFCFile(f) {
+		includes = parser.ExtractIncludes(content)
+		r.Index.SetIncludes(cfpath.ToURI(f), includes)
+
+		return includes
+	}
+
+	// The same parse as every other, typing a call by the configured resolvers
+	// and not by what another file's function declares it returns: indexing runs
+	// in parallel, and a return read from a file not yet indexed would make the
+	// index depend on which worker got there first.
+	r.Index.IndexParsed(cfpath.ToURI(f), content, r.ParseFile(f, content, IndexSpec()))
+
+	return nil
 }
 
 // IndexFiles indexes every file for a batch run, in parallel: each is read and
@@ -231,7 +260,7 @@ func (r *Resolver) BatchParseOptions(file string, in *ParseInputs) *parser.Parse
 // A file that cannot be read, or is binary, is skipped. visit, when given, is
 // called from the workers with each indexed file's content and, for a template,
 // its include paths; it must be safe to call concurrently.
-func (r *Resolver) IndexFiles(files []string, propertyResolvers []parser.PropertyResolver, visit func(f, content string, includes []string)) {
+func (r *Resolver) IndexFiles(files []string, visit func(f, content string, includes []string)) {
 	work := make(chan string)
 
 	var wg sync.WaitGroup
@@ -244,7 +273,7 @@ func (r *Resolver) IndexFiles(files []string, propertyResolvers []parser.Propert
 					continue
 				}
 
-				includes := r.IndexForBatch(f, content, propertyResolvers)
+				includes := r.IndexForBatch(f, content)
 
 				if visit != nil {
 					visit(f, content, includes)

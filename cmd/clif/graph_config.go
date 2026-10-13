@@ -105,8 +105,7 @@ func (cs *configSet) build(dir string) codemap.FileConfig {
 	bs, _ := batchSettings(cs.fsys, found, cliWorkspaceFolders(cs.fsys, found, lookupRoots))
 	resolver := resolve.NewBatchResolver(cs.fsys, cs.shared, &bs)
 
-	cfg = batchFileConfig(cs.shared, resolver, &bs)
-	cfg.Routes = routeResolver(cs.fsys, resolver, found)
+	cfg = codemap.FileConfig{Resolver: resolver, Routes: routeResolver(cs.fsys, resolver, found)}
 
 	hash := ""
 

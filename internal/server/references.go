@@ -116,19 +116,10 @@ func (s *Server) functionReferences(word, content string, docURI uri.URI, line, 
 		sourceFile = cfpath.FromURI(string(decl.URI))
 	}
 
-	r := s.getResolver()
 	entries := refs.Find(s.refsFS(), s.searchRoots(), &refs.Options{
-		FuncName:           word,
-		Resolvers:          s.cfResolvers(),
-		PropertyResolvers:  s.cfPropertyResolvers(),
-		SourceFile:         sourceFile,
-		InterpolateAllText: !s.Features.OutputContextInterpolation,
-		VerifyCall: func(component, fn, fileDir string) bool {
-			return r.HasFunction(component, fn, fileDir)
-		},
-		VerifyTarget: func(component, fileDir, source string) bool {
-			return cfpath.SamePath(r.ComponentPath(component, fileDir), source)
-		},
+		FuncName:   word,
+		SourceFile: sourceFile,
+		Resolver:   s.getResolver(),
 	})
 
 	// A call site always writes the name it calls, so a line the name cannot be
@@ -149,10 +140,8 @@ func (s *Server) functionReferences(word, content string, docURI uri.URI, line, 
 // componentReferences finds the places a component dot-path is referred to.
 func (s *Server) componentReferences(component string) []protocol.Location {
 	entries := refs.Find(s.refsFS(), s.searchRoots(), &refs.Options{
-		Component:          component,
-		Resolvers:          s.cfResolvers(),
-		PropertyResolvers:  s.cfPropertyResolvers(),
-		InterpolateAllText: !s.Features.OutputContextInterpolation,
+		Component: component,
+		Resolver:  s.getResolver(),
 	})
 
 	// The line holds the whole dot-path; its last segment is the part worth

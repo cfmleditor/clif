@@ -284,22 +284,17 @@ func buildGraph(f *graphFlags) (*codemap.Map, error) {
 	}
 
 	opts := codemap.Options{
-		Root:                     root,
-		Files:                    files,
-		FS:                       fsys,
-		Resolver:                 fallback.Resolver,
-		Resolvers:                fallback.Resolvers,
-		ExpressionMappings:       fallback.ExpressionMappings,
-		ServicePropertyResolvers: fallback.ServicePropertyResolvers,
-		PropertyResolvers:        fallback.PropertyResolvers,
-		BeanLookup:               fallback.BeanLookup,
-		Workers:                  f.workers,
-		ConfigExtra:              configs.Fingerprint(),
-		EntryGlobs:               f.entryGlobs,
-		UtilityGlobs:             f.utilGlobs,
-		IncludeUnresolved:        f.unresolved,
-		IncludeBuiltins:          f.builtins,
-		InferArgs:                !f.noInferArgs,
+		Root:              root,
+		Files:             files,
+		FS:                fsys,
+		Resolver:          fallback.Resolver,
+		Workers:           f.workers,
+		ConfigExtra:       configs.Fingerprint(),
+		EntryGlobs:        f.entryGlobs,
+		UtilityGlobs:      f.utilGlobs,
+		IncludeUnresolved: f.unresolved,
+		IncludeBuiltins:   f.builtins,
+		InferArgs:         !f.noInferArgs,
 	}
 
 	if cache != nil {
@@ -507,7 +502,7 @@ func routeWorkspace(fsys vfs.FS, root string, f *graphFlags) (scanRoots []string
 	// every config, as one index does.
 	resolver.LoadBeans(bs.BeanPaths)
 
-	fallback = batchFileConfig(shared, resolver, &bs)
+	fallback = codemap.FileConfig{Resolver: resolver}
 
 	return scanRoots, fallback, shared, settings
 }

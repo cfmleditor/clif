@@ -465,6 +465,10 @@ func (s *Server) getResolver() *resolve.Resolver {
 			ImplicitExtends:       config.ImplicitExtends(frameworks),
 			HelperScope:           config.HelperScope(frameworks),
 			Stubs:                 frameworkapi.For(frameworks),
+
+			PropertyResolvers:        s.cfPropertyResolvers(),
+			ServicePropertyResolvers: s.ServicePropertyResolvers,
+			InterpolateAllText:       !s.Features.OutputContextInterpolation,
 		})
 		s.resolver.Discovery = s.discoveryDependencies
 		// Saves, watched-file events and edits all reach the index.
@@ -856,20 +860,8 @@ func (s *Server) parseContent(fileURI uri.URI, content string) *parser.ParseResu
 func (s *Server) parseContentWith(fileURI uri.URI, content string, calls bool) *parser.ParseResult {
 	s.ensureBeansLoaded()
 
-	resolver := s.getResolver()
-
-	// The lookups are the resolver's, as a batch parse takes them; this adds the
-	// logger and decides which calls to extract.
-	po := resolver.ParseOptions(cfpath.FromURI(string(fileURI)), &resolve.ParseInputs{
-		ExpressionMappings:       s.ExpressionMappings,
-		ServicePropertyResolvers: s.ServicePropertyResolvers,
-		PropertyResolvers:        s.cfPropertyResolvers(),
-		InterpolateAllText:       !s.Features.OutputContextInterpolation,
-	})
-	po.Logger = s.log
-
-	// Links are not extracted either: only the document-link request
-	// reads them, and it takes them from the text (DocumentLinks).
+	// Links are not extracted: only the document-link request reads them, and
+	// it takes them from the text (DocumentLinks).
 	//
 	// The document cache does not extract calls: nothing reads them from
 	// it but commands, which parse afresh (parseForCalls) or have
@@ -878,9 +870,7 @@ func (s *Server) parseContentWith(fileURI uri.URI, content string, calls bool) *
 	// 58,000-line component, and half its memory. The types the editor
 	// answers from are the same either way, which a comparison over
 	// 23,279 corpus files confirmed.
-	po.ExtractCalls = calls
-
-	return parser.ParseWithOptions(fileURI, content, po)
+	return s.getResolver().ParseFile(cfpath.FromURI(string(fileURI)), content, resolve.ParseSpec{Logger: s.log, Calls: calls})
 }
 
 // parseContentForIndex keeps the cheap signature pass for ordinary files,
@@ -891,5 +881,5 @@ func (s *Server) parseContentForIndex(fileURI uri.URI, content string) *parser.P
 		return s.parseContent(fileURI, content)
 	}
 
-	return parser.ParseWithOptions(fileURI, content, &parser.ParseOptions{Shallow: true})
+	return resolver.ParseFile(cfpath.FromURI(string(fileURI)), content, resolve.ParseSpec{Shallow: true})
 }

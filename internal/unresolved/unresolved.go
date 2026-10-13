@@ -24,7 +24,6 @@ import (
 	cfpath "github.com/cfmleditor/clif/internal/path"
 	"github.com/cfmleditor/clif/internal/resolve"
 	"github.com/cfmleditor/clif/internal/vfs"
-	"go.lsp.dev/uri"
 )
 
 // Call is one call the resolver could not follow.
@@ -264,7 +263,7 @@ func NewResolver(fsys vfs.FS, files []string, opt *Options) *resolve.Resolver {
 	resolver.Index = index.New()
 	resolver.LoadBeans(opt.BeanPaths)
 
-	resolver.IndexFiles(files, opt.PropertyResolvers, nil)
+	resolver.IndexFiles(files, nil)
 
 	return resolver
 }
@@ -276,7 +275,7 @@ func scanFile(fsys vfs.FS, resolver *resolve.Resolver, file string, opt *Options
 	}
 
 	baseDir := filepath.Dir(file)
-	pr := Parse(resolver, file, content, opt)
+	pr := Parse(resolver, file, content)
 	calls := pr.AllCalls()
 
 	// Calls into a base that does not resolve are one finding per file and
@@ -602,13 +601,6 @@ func isOutside(rel string) bool {
 
 // Parse is file parsed as a scan checks it: with the resolver's lookups, so
 // what a variable is assigned from is typed the same way in both commands.
-func Parse(resolver *resolve.Resolver, file, content string, opt *Options) *parser.ParseResult {
-	po := resolver.BatchParseOptions(file, opt.Settings().ParseInputs())
-
-	pr := parser.ParseWithOptions(uri.URI("file://"+file), content, po)
-
-	funcLookup := po.FuncLookup
-	pr.FuncLookup = funcLookup
-
-	return pr
+func Parse(resolver *resolve.Resolver, file, content string) *parser.ParseResult {
+	return resolver.ParseFile(file, content, resolve.BatchSpec())
 }

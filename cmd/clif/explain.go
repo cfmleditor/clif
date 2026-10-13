@@ -127,7 +127,7 @@ func newExplainEnv(fsys vfs.FS, searchDir string, quiet bool, fl *unresolvedFlag
 // shared with clif.explainCall, so the server's answer reads exactly as this
 // one does.
 func (e *explainEnv) explain(w io.Writer, file, content string, line int, filter string) bool {
-	pr := unresolved.Parse(e.resolver, file, content, e.opt)
+	pr := unresolved.Parse(e.resolver, file, content)
 
 	matches := resolve.CallsOnLine(pr, line-1, filter)
 	if len(matches) == 0 {

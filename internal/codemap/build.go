@@ -50,24 +50,14 @@ const (
 // signatures are a property of the workspace, not of whose config you read them
 // under. Only the resolver chain and the mappings differ.
 type FileConfig struct {
-	Resolver                 *resolve.Resolver
-	Resolvers                []parser.Resolver
-	ExpressionMappings       map[string]string
-	ServicePropertyResolvers map[string]string
-	PropertyResolvers        []parser.PropertyResolver
-
-	// BeanLookup types an injected property from the workspace's bean map,
-	// as the editor does (parser.ParseOptions.BeanLookup). Nil leaves the
-	// injection's id to name the component.
-	BeanLookup func(string) string
+	// Resolver carries everything a parse and a resolution of this file take:
+	// the resolvers, mappings, property rules and lookups. The map parses with
+	// it exactly as `unresolved` does (resolve.Resolver.ParseFile).
+	Resolver *resolve.Resolver
 
 	// Routes, when set, resolves the framework routes found in this file's
 	// source. Nil leaves route edges out entirely.
 	Routes *route.Resolver
-
-	// InterpolateAllText is parser.ParseOptions.InterpolateAllText: the
-	// features.outputContextInterpolation switch turned off.
-	InterpolateAllText bool
 }
 
 // Options configures a build.
@@ -82,12 +72,6 @@ type Options struct {
 
 	FS       vfs.FS
 	Resolver *resolve.Resolver
-
-	Resolvers                []parser.Resolver
-	ExpressionMappings       map[string]string
-	ServicePropertyResolvers map[string]string
-	PropertyResolvers        []parser.PropertyResolver
-	BeanLookup               func(string) string
 
 	// Workers bounds the scan's parallelism. Zero means GOMAXPROCS.
 	Workers int
@@ -226,14 +210,7 @@ func Build(opts *Options) *Map {
 	}
 
 	if opts.ConfigFor == nil {
-		single := FileConfig{
-			Resolver:                 opts.Resolver,
-			Resolvers:                opts.Resolvers,
-			ExpressionMappings:       opts.ExpressionMappings,
-			ServicePropertyResolvers: opts.ServicePropertyResolvers,
-			PropertyResolvers:        opts.PropertyResolvers,
-			BeanLookup:               opts.BeanLookup,
-		}
+		single := FileConfig{Resolver: opts.Resolver}
 		opts.ConfigFor = func(string) FileConfig { return single }
 	}
 
@@ -334,7 +311,7 @@ func indexPass(opts *Options) string {
 		done int
 	)
 
-	opts.Resolver.IndexFiles(opts.Files, opts.PropertyResolvers, func(f, content string, includes []string) {
+	opts.Resolver.IndexFiles(opts.Files, func(f, content string, includes []string) {
 		var ix indexed
 
 		ix.includes = includes
@@ -471,28 +448,15 @@ func scanFile(opts *Options, root, file, fingerprint string) *FileGraph {
 	}
 
 	content := string(data)
-	fileURI := cfpath.ToURI(file)
 	baseDir := filepath.Dir(file)
 	rel := relPath(root, file)
 	isCFC := cfpath.IsCFCFile(file)
 	cfg := opts.ConfigFor(file)
 
-	po := cfg.Resolver.BatchParseOptions(file, &resolve.ParseInputs{
-		ExpressionMappings:       cfg.ExpressionMappings,
-		ServicePropertyResolvers: cfg.ServicePropertyResolvers,
-		PropertyResolvers:        cfg.PropertyResolvers,
-		InterpolateAllText:       cfg.InterpolateAllText,
-	})
-	po.ExtractLinks = true
-
-	// A caller-built environment may name resolvers apart from the resolver's own.
-	if cfg.Resolvers != nil {
-		po.Resolvers = cfg.Resolvers
-	}
-
-	funcLookup := po.FuncLookup
-	pr := parser.ParseWithOptions(fileURI, content, po)
-	pr.FuncLookup = funcLookup
+	// The parse is the resolver's: the same one `unresolved` makes, plus links.
+	spec := resolve.BatchSpec()
+	spec.Links = true
+	pr := cfg.Resolver.ParseFile(file, content, spec)
 
 	base := filepath.Base(file)
 	isApplication := strings.EqualFold(base, "Application.cfc") || strings.EqualFold(base, "Application.cfm")

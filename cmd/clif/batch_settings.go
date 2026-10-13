@@ -1,7 +1,9 @@
 package main
 
 import (
-	"github.com/cfmleditor/clif/internal/codemap"
+	"os"
+	"path/filepath"
+
 	"github.com/cfmleditor/clif/internal/config"
 	"github.com/cfmleditor/clif/internal/daemon"
 	"github.com/cfmleditor/clif/internal/frameworkapi"
@@ -54,18 +56,31 @@ func batchSettings(fsys vfs.FS, cfg *daemon.Config, folders []string) (resolve.S
 	return s, nil
 }
 
-// batchFileConfig is the code map's per-file environment over a batch resolver:
-// the same resolver and the same parse inputs `unresolved` parses with. The
-// fallback config used to be built apart from the per-config one and left out
-// features.outputContextInterpolation.
-func batchFileConfig(shared *index.Index, resolver *resolve.Resolver, s *resolve.Settings) codemap.FileConfig {
-	return codemap.FileConfig{
-		Resolver:                 resolver,
-		Resolvers:                resolver.Resolvers,
-		ExpressionMappings:       s.ExpressionMappings,
-		ServicePropertyResolvers: s.ServicePropertyResolvers,
-		PropertyResolvers:        s.PropertyResolvers,
-		BeanLookup:               shared.LookupBean,
-		InterpolateAllText:       s.InterpolateAllText,
+// workspaceResolver is the resolver the bulk commands that take paths (deps,
+// refs and the MCP tools over them) resolve with, its index filled from files:
+// the config found above the first path, or the framework the project is
+// assumed to be, through batchSettings, and the components indexed as a scan
+// indexes them. refs read a config of its own, one directory up and no further,
+// and ran with its resolvers alone.
+func workspaceResolver(args, files []string) *resolve.Resolver {
+	fsys := vfs.OS{}
+
+	searchDir := "."
+
+	if len(args) > 0 {
+		if info, err := os.Stat(args[0]); err == nil && info.IsDir() {
+			searchDir = args[0]
+		} else {
+			searchDir = filepath.Dir(args[0])
+		}
 	}
+
+	cfg, _ := daemon.FindConfig(searchDir)
+	settings, _ := batchSettings(fsys, cfg, cliWorkspaceFolders(fsys, cfg, args))
+
+	resolver := resolve.NewBatchResolver(fsys, index.New(), &settings)
+	resolver.LoadBeans(settings.BeanPaths)
+	resolver.IndexFiles(files, nil)
+
+	return resolver
 }

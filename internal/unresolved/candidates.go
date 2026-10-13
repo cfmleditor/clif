@@ -163,7 +163,7 @@ func annotateAll(fsys vfs.FS, resolver *resolve.Resolver, files []string, calls 
 			return
 		}
 
-		pr := Parse(resolver, file, string(data), opt)
+		pr := Parse(resolver, file, string(data))
 		sites := pr.AllCalls()
 		a := &annotator{resolver: resolver, pr: pr, calls: sites, file: file, receiverRoles: opt.receiverRoles, unlimitedCandidates: opt.unlimitedCandidates}
 

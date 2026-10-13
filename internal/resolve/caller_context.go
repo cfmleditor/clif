@@ -28,6 +28,7 @@ func (r *Resolver) forCaller(baseDir string) *Resolver {
 		BeanPaths: r.BeanPaths, StartupFiles: r.StartupFiles,
 		ExpressionMappings: r.ExpressionMappings, Index: r.Index, IndexTracksFiles: r.IndexTracksFiles, SnapshotScan: r.SnapshotScan,
 		Resolvers: r.Resolvers, ImplicitExtends: r.ImplicitExtends,
+		PropertyResolvers: r.PropertyResolvers, ServicePropertyResolvers: r.ServicePropertyResolvers, InterpolateAllText: r.InterpolateAllText,
 		HelperScope: r.HelperScope, Stubs: r.Stubs, InferArgsFiles: r.InferArgsFiles, CallerInferenceLimits: r.CallerInferenceLimits, stubFS: r.fs(),
 		callerApplication: root, callerMappings: r.effectiveMappings(baseDir), indexer: r,
 	}

@@ -45,6 +45,12 @@ type Resolver struct {
 	ExpressionMappings map[string]string
 	Index              *index.Index
 	Resolvers          []parser.Resolver
+	// PropertyResolvers, ServicePropertyResolvers and InterpolateAllText are
+	// what a parse of a file in this workspace takes beyond the resolvers and
+	// mappings above; see ParseFile.
+	PropertyResolvers        []parser.PropertyResolver
+	ServicePropertyResolvers map[string]string
+	InterpolateAllText       bool // features.outputContextInterpolation turned off
 	// IndexTracksFiles says a change to a file on disk reaches Index as a
 	// write, which moves its generation: the LSP re-indexes a saved or
 	// watched file. Source-backed caches then trust the generation rather

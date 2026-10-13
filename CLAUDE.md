@@ -762,20 +762,42 @@ pieces, each used by every command that resolves in bulk:
   the report does with it instead of a bare "unresolved". The editor's `clif.explainCall` prints
   the same line but traces with the session's live resolver, which does not infer arguments.
   `batchFileConfig` is the map's per-file environment, fallback and per-config alike.
-**The editor server is on the same pieces where a live resolver can be.** `resolve.NewResolver` builds
-every resolver from a `Settings` (field mapping and Lucee detection), the batch one adding snapshot
-mode and the editor's adding `Discovery` and `IndexTracksFiles`; `Resolver.ParseOptions` is the one
-list of lookups a parse of a file takes, which the editor's `parseContentWith` and every batch parse
-build on (`BatchParseOptions` adds the calls of every scope); the export of the unresolved report
-takes its settings back from the session's resolver (`Resolver.Settings`) and infers arguments as
-the CLI does. What stays different on purpose is liveness: no `CacheMetadata`, no `SnapshotScan`,
-and a per-keystroke parse that extracts no calls. `TestConfigAccessorsAgreeWithResolve` pins the
-CLI's reading of `.clif.json` (`daemon.Config`) to the editor's (`config.Resolve`).
-**Still two forks, each a decision rather than a refactor:** `clif refs` and the MCP `find_references`
-run with the config's resolvers alone, where the editor's find-references also verifies each hit
-against a resolver (`refs.Options.VerifyCall`/`VerifyTarget`/`Reason`), so the same question gets
-different answers; and the CLI maps the folder holding `.clif.json` under its own name
-(`daemon.Config.Mappings`) where `config.Resolve` does not.
+**There is one way to parse a file of a workspace, and it is the resolver's.** `Resolver.ParseFile(file,
+content, spec)` parses a file as the workspace types it: the resolvers, mappings and property rules the
+resolver was built with (`PropertyResolvers`, `ServicePropertyResolvers`, `InterpolateAllText` are fields
+of it, set from `Settings`) and the five lookups that type an injected dependency or a function's
+return. The caller says only what it wants (`ParseSpec`: `Calls`, `AllScopes`, `Links`, `Shallow`,
+`FindCalls`, a logger). Every parse of a workspace file goes through it: the unresolved scan and
+`explain` (`BatchSpec`), the code map (`BatchSpec` plus links), the editor's live parse (calls only on
+request, signatures only for an ordinary file's index entry), `refs`, `deps`, and the index a batch run
+builds (`IndexSpec`). Two specs type a call by the configured resolvers alone (`ByResolversOnly`) and
+that is deliberate: a scan wants `getService("X")` to be what getService returns, which is `$any`, and a
+dependency graph or a reference search wants the component the resolver names; an index parse must not
+read another file's declared return, which indexing in parallel would make depend on which worker got
+there first (`IndexSpec`; it was the first thing the move changed, caught by `unresolved`'s output no
+longer being byte-identical). What does not go through it is not a workspace file as the workspace types
+it: `resolve`'s own reads of framework internals, `config`'s detection of a tool, `cfstubgen`, and the
+editor's folding and docblock reads of text. The index has `Index.IndexParsed` for a parse the caller made.
+
+**One resolver, built in one place.** `resolve.NewResolver` builds every resolver from a `Settings` (field
+mapping, Lucee detection); `NewBatchResolver` adds snapshot mode and `CacheMetadata`; the editor adds its
+discovery and `IndexTracksFiles`. `Resolver.Settings()` reads a resolver back for a tool that builds
+another run from it (the editor's export of the unresolved report, which also infers arguments as the CLI
+does). The code map's `FileConfig` is the resolver and its routes and nothing else: the six fields it
+copied from the resolver are gone, and so is `refs`' own bean lookup, its parse, and `loadResolversFromConfig`.
+`TestConfigAccessorsAgreeWithResolve` pins the CLI's reading of `.clif.json` (`daemon.Config`) to the
+editor's (`config.Resolve`).
+
+**`refs` is the same question everywhere.** `refs.Options` takes the workspace's `Resolver`: a call's
+component must define the function, and with a `SourceFile` be the one searched for, and `Explain` gives an
+unresolved call its reason from `CanResolveCall`. The editor's find-references, `clif refs` and the MCP
+`find_references` each wired their own closures, or none, and answered differently; on ColdBox the new
+CLI drops 2 of 113 hits for `getInstance` and 3 of 78 for `announce`, calls on a chain's first receiver
+(`controller.getInterceptorService().announce()`) that the old code credited to the wrong component. A
+component the resolver cannot locate defines nothing, so its calls are dropped too, as the editor always
+did. `TestRefsVerifiesAHitAgainstItsComponent`.
+**Still a fork, a decision rather than a refactor:** the CLI maps the folder holding `.clif.json` under
+its own name (`daemon.Config.Mappings`) where `config.Resolve` does not.
 
 After the change the map's unresolved count equals `unresolved`'s exactly on Masa (3,786 with
 inference, 5,417 without), ColdBox (3,974, 3,981) and TestBox (929, 976), and `unresolved`'s own
