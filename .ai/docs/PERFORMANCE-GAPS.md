@@ -623,7 +623,7 @@ then a hover, each build serving its own daemon socket (see the note below):
 | | `student/persist.cfc` (58,000 lines, 2.6 MB) | `finance.cfc` (1.1 MB) |
 |---|---:|---:|
 | before | 136 ms | 114 ms |
-| now | about 55 ms | about 53 ms |
+| now | 55 ms | 54 ms |
 
 What did it, in order (PR #247):
 
