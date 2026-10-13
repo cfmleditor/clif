@@ -1,6 +1,9 @@
 package parser
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 // PropertyHop distinguishes a field read from a method call in compact chains.
 // FuncLookup receives the same marker so assignment and direct-call traversal
@@ -71,3 +74,16 @@ func (p *scriptParser) hopSince(name string, start int) string {
 // arguments or is a bare name. Anything reporting a hop to a user reads it
 // through this, so a reason or a trace names the method and not its call.
 func CallHopName(hop string) string { return callHopName(hop) }
+
+// chainSoFar is the hops a chain walk has collected, as the Chain of the call
+// it is about to record. Every hop of a chain records one, each holding the
+// hops before it, so copying them gave a chain of n hops n copies of up to n
+// strings: 8,000 hops (32KB of source) allocated 520MB. The calls share the
+// walk's array instead. The capacity is cut at the length, so the walk
+// appending its next hop, and anything appending to a recorded Chain, gets a
+// new array rather than writing past the end of this one. The walk only ever
+// appends, which is what makes sharing safe: an element once handed out is
+// never written again. A nil chain stays nil, as slices.Clone left it.
+func chainSoFar(hops []string) []string {
+	return slices.Clip(hops)
+}

@@ -493,8 +493,10 @@ func (p *scriptParser) recordBareCallAndChain(tok Token) (alone string) {
 			first = false
 			funcName = methTok.Value
 
-			hops := make([]string, len(chainHops))
-			copy(hops, chainHops)
+			hops := chainSoFar(chainHops)
+			if hops == nil {
+				hops = []string{} // as the copy this replaced made it
+			}
 
 			p.addCall(&CallSite{
 				FuncName:  funcName,
@@ -751,7 +753,7 @@ func (p *scriptParser) recordChainContinuationFrom(baseVar string, prior []strin
 		if p.extractCalls {
 			call = CallSite{
 				FuncName: funcName, Variable: baseVar, Component: baseComp,
-				Chain: slices.Clone(chainHops), Line: conv.Uint32(p.baseLine + methTok.Line),
+				Chain: chainSoFar(chainHops), Line: conv.Uint32(p.baseLine + methTok.Line),
 				Caller: caller, Resolved: baseComp != "",
 			}
 			// Each hop has its own lexical origin. Capture it while the
@@ -4050,7 +4052,7 @@ func (p *scriptParser) scanChainedCalls(component string, line int) []string {
 		p.addCall(&CallSite{
 			FuncName:  methTok.Value,
 			Component: component,
-			Chain:     slices.Clone(chain),
+			Chain:     chainSoFar(chain),
 			Line:      conv.Uint32(p.baseLine + line),
 			Caller:    caller,
 			Resolved:  true,
