@@ -197,56 +197,23 @@ func fw1Autowires(pr *parser.ParseResult) (controllers, services bool) {
 func fw1Settings(content string) map[string][]string {
 	out := map[string][]string{}
 
-	for _, region := range parser.ClassifyRegions(content) {
-		if region.Kind == parser.RegionSkip {
-			continue
+	walkActiveTokens(content, 7, func(a *activeTokens, tok *parser.Token) bool {
+		if tok.Kind != parser.TokEquals {
+			return false
 		}
 
-		scanner := parser.NewScanner(region.Text)
-		previous := []parser.Token{}
-		active := region.Kind == parser.RegionScript
-
-		for {
-			tok := scanner.NextSkipComments()
-			if tok.Kind == parser.TokEOF {
-				break
-			}
-
-			if region.Kind == parser.RegionTag {
-				if tok.Kind == parser.TokIdent && strings.EqualFold(tok.Value, "cfset") && len(previous) > 0 && previous[len(previous)-1].Kind == parser.TokLT {
-					active = true
-					previous = nil
-
-					continue
-				}
-
-				if tok.Kind == parser.TokGT {
-					active = false
-					previous = nil
-
-					continue
-				}
-			}
-
-			if active && tok.Kind == parser.TokEquals && len(previous) > 0 && strings.EqualFold(previous[len(previous)-1].Value, "framework") && scanner.PeekSkipComments().Kind == parser.TokLBrace {
-				out["unsupported"] = append(out["unsupported"], "struct config")
-			}
-
-			if active && tok.Kind == parser.TokEquals {
-				if key := fw1SettingName(previous); key != "" {
-					out[key] = append(out[key], fw1SettingValue(scanner))
-					previous = nil
-
-					continue
-				}
-			}
-
-			previous = append(previous, tok)
-			if len(previous) > 7 {
-				previous = previous[1:]
-			}
+		if len(a.Previous) > 0 && strings.EqualFold(a.Previous[len(a.Previous)-1].Value, "framework") && a.Scanner.PeekSkipComments().Kind == parser.TokLBrace {
+			out["unsupported"] = append(out["unsupported"], "struct config")
 		}
-	}
+
+		if key := fw1SettingName(a.Previous); key != "" {
+			out[key] = append(out[key], fw1SettingValue(a.Scanner))
+
+			return true
+		}
+
+		return false
+	})
 
 	return out
 }

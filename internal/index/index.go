@@ -789,31 +789,26 @@ func (idx *Index) removeFileEntries(fileURI uri.URI) {
 // they are filed under, so a bucket sweep only has to consider the entries that
 // could actually be in it.
 func groupFuncsByName(defs []*parser.FunctionDef) map[string][]*parser.FunctionDef {
-	if len(defs) == 0 {
-		return nil
-	}
-
-	byName := make(map[string][]*parser.FunctionDef, len(defs))
-	for _, d := range defs {
-		k := strings.ToLower(d.Name)
-		byName[k] = append(byName[k], d)
-	}
-
-	return byName
+	return groupByLower(defs, func(d *parser.FunctionDef) string { return d.Name })
 }
 
 func groupRefsByVariable(refs []*parser.ComponentRef) map[string][]*parser.ComponentRef {
-	if len(refs) == 0 {
+	return groupByLower(refs, func(r *parser.ComponentRef) string { return r.Variable })
+}
+
+// groupByLower buckets items by the lowercased key; nil for no items.
+func groupByLower[T any](items []T, key func(T) string) map[string][]T {
+	if len(items) == 0 {
 		return nil
 	}
 
-	byVar := make(map[string][]*parser.ComponentRef, len(refs))
-	for _, r := range refs {
-		k := strings.ToLower(r.Variable)
-		byVar[k] = append(byVar[k], r)
+	out := make(map[string][]T, len(items))
+	for _, it := range items {
+		k := strings.ToLower(key(it))
+		out[k] = append(out[k], it)
 	}
 
-	return byVar
+	return out
 }
 
 // dropEntries removes group's entries from a bucket, for the caller that knows

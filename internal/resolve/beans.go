@@ -271,72 +271,38 @@ type beanCall struct {
 func beanCalls(content string) []beanCall {
 	calls := []beanCall{}
 
-	for _, region := range parser.ClassifyRegions(content) {
-		if region.Kind == parser.RegionSkip {
-			continue
+	// Only the immediate dotted receiver is needed; the window bounds storage on large files.
+	walkActiveTokens(content, 16, func(a *activeTokens, tok *parser.Token) bool {
+		method := strings.ToLower(tok.Value)
+		if tok.Kind != parser.TokIdent {
+			return false
 		}
 
-		scanner := parser.NewScanner(region.Text)
-		previous := []parser.Token{}
-		active := region.Kind == parser.RegionScript
-
-		for {
-			tok := scanner.NextSkipComments()
-			if tok.Kind == parser.TokEOF {
-				break
+		if method == "new" && len(a.Previous) > 0 && a.Previous[len(a.Previous)-1].Kind == parser.TokEquals {
+			if call, ok := beanConstruction(a.Scanner, a.Previous); ok {
+				calls = append(calls, call)
 			}
 
-			if region.Kind == parser.RegionTag {
-				if tok.Kind == parser.TokIdent && strings.EqualFold(tok.Value, "cfset") && len(previous) > 0 && previous[len(previous)-1].Kind == parser.TokLT {
-					active = true
-					previous = nil
-
-					continue
-				}
-
-				if tok.Kind == parser.TokGT {
-					active = false
-					previous = nil
-
-					continue
-				}
-			}
-
-			method := strings.ToLower(tok.Value)
-			if active && tok.Kind == parser.TokIdent && method == "new" && len(previous) > 0 && previous[len(previous)-1].Kind == parser.TokEquals {
-				if call, ok := beanConstruction(scanner, previous); ok {
-					calls = append(calls, call)
-				}
-
-				previous = nil
-
-				continue
-			}
-
-			if active && tok.Kind == parser.TokIdent && (method == "addalias" || method == "declarebean" || method == "addbean" || method == "getbean") && scanner.PeekSkipComments().Kind == parser.TokLParen {
-				receiver := beanReceiver(previous)
-
-				scanner.NextSkipComments()
-
-				args := beanArguments(scanner)
-
-				line := region.StartLine + tok.Line
-				if receiver != "" && line >= 0 && line <= math.MaxUint32 {
-					calls = append(calls, beanCall{receiver: receiver, method: method, line: uint32(line), args: args})
-				}
-
-				previous = nil
-
-				continue
-			}
-
-			previous = append(previous, tok)
-			// Only the immediate dotted receiver is needed; bound storage on large files.
-			if len(previous) > 16 {
-				previous = previous[1:]
-			}
+			return true
 		}
-	}
+
+		if (method == "addalias" || method == "declarebean" || method == "addbean" || method == "getbean") && a.Scanner.PeekSkipComments().Kind == parser.TokLParen {
+			receiver := beanReceiver(a.Previous)
+
+			a.Scanner.NextSkipComments()
+
+			args := beanArguments(a.Scanner)
+
+			line := a.Region.StartLine + tok.Line
+			if receiver != "" && line >= 0 && line <= math.MaxUint32 {
+				calls = append(calls, beanCall{receiver: receiver, method: method, line: uint32(line), args: args})
+			}
+
+			return true
+		}
+
+		return false
+	})
 
 	return calls
 }
