@@ -21,19 +21,20 @@ type subcommand struct {
 // an initialisation cycle for any of them that reads it.
 func subcommands() map[string]subcommand {
 	return map[string]subcommand{
-		"parse":        {cmdParse, parseUsage},
-		"scan":         {cmdScan, scanUsage},
-		"format":       {cmdFormat, formatUsage},
-		"deps":         {cmdDeps, depsUsage},
-		"graph":        {cmdGraph, graphUsage},
-		"mcp":          {cmdMCP, mcpUsage},
-		"routes":       {cmdRoutes, routesUsage},
-		"refs":         {cmdRefs, refsUsage},
-		"unresolved":   {cmdUnresolved, unresolvedUsage},
-		"cflint":       {cmdCFLint, cflintUsage},
-		"suppressions": {cmdSuppressions, suppressionsUsage},
-		"hook":         {cmdHook, hookUsage},
-		"explain":      {cmdExplain, explainUsage},
+		"parse":           {cmdParse, parseUsage},
+		"scan":            {cmdScan, scanUsage},
+		"format":          {cmdFormat, formatUsage},
+		"deps":            {cmdDeps, depsUsage},
+		"graph":           {cmdGraph, graphUsage},
+		"mcp":             {cmdMCP, mcpUsage},
+		"routes":          {cmdRoutes, routesUsage},
+		"refs":            {cmdRefs, refsUsage},
+		"unresolved":      {cmdUnresolved, unresolvedUsage},
+		"unresolved-diff": {cmdUnresolvedDiff, unresolvedDiffUsage},
+		"cflint":          {cmdCFLint, cflintUsage},
+		"suppressions":    {cmdSuppressions, suppressionsUsage},
+		"hook":            {cmdHook, hookUsage},
+		"explain":         {cmdExplain, explainUsage},
 	}
 }
 

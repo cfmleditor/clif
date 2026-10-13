@@ -7,10 +7,11 @@
 # and resolves under the .clif.json governing its first directory, as
 # `unresolved` always does. The JSON of each run is kept in $RUNS (default
 # target/resolution/latest); BASELINE names an earlier run's directory to
-# compare with finding by finding.
+# compare with finding by finding; SHOW=n lists the findings removed and added,
+# grouped by reason, with up to n examples of each group.
 #
 #   make resolution-report CORPUS="masa=/src/MasaCMS wheels=/src/cfwheels,/src/cfwheels/vendor/wheels"
-#   make resolution-report CORPUS="..." BASELINE=target/resolution/before LISTS=
+#   make resolution-report CORPUS="..." BASELINE=target/resolution/before LISTS= SHOW=5
 #
 # An empty LISTS (OUT here) compares without rewriting the lists, which is the cheap check
 # to run after a change; the lists are for when a fresh picture is wanted.
@@ -20,6 +21,7 @@ set -euo pipefail
 : "${RUNS:=target/resolution/latest}"
 : "${BASELINE:=}"
 : "${JOBS:=4}"
+: "${SHOW:=0}"
 
 if [ "$#" -eq 0 ]; then
 	echo "usage: $0 name=dir[,dir...] ..." >&2
@@ -60,7 +62,7 @@ for pid in "${pids[@]}"; do
 done
 
 flags=()
-[ -n "$BASELINE" ] && flags+=(-baseline "$BASELINE")
+[ -n "$BASELINE" ] && flags+=(-baseline "$BASELINE" -show "$SHOW")
 
 if [ -n "$OUT" ]; then
 	go run scripts/candidates_report.go "${flags[@]}" -out "$OUT" "${args[@]}"

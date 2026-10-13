@@ -110,7 +110,8 @@ The binary is an LSP server by default; `os.Args[1]` selects a subcommand
 | `deps` | `deps [--mermaid] <dir-or-file> [...]` — transitive dependency graph, built through `deps.Build` so the CLI and `clif.exportDeps` answer alike |
 | `graph` | `graph [--level function\|call\|file\|package] [--format text\|json\|jsonl\|dot\|mermaid\|html] [--db <file>] [--out <f>] [--live\|--detached\|--from <id>] [--under <p>] <dir> [...]` — whole-project code map |
 | `mcp` | `mcp [--db <file>] [--root <dir>] [--allow-lint] [--map-only] [--no-explain]` — serve the workspace over MCP on stdio: unresolved, refs and explain from source, the map's tools with `--db`, CFLint with `--allow-lint`. Writes nothing: the map is opened read-only (`store.OpenReadOnly`), and every path a tool is given must lie under `--root` (or the map's root, or the working directory) after symlinks |
-| `explain` | `explain [--root <dir>] <file> <line> [call-substring]` — trace how a call site resolved |
+| `explain` | `explain [--root <dir>] [--no-infer-args] <file> <line> [call-substring]` — trace how a call site resolved, and what the unresolved report does with it |
+| `unresolved-diff` | `unresolved-diff [--show <n>] [--root <dir>] <before.json> <after.json>` — compare two `unresolved --json` runs finding by finding, the removed and added grouped by reason. How to judge a resolution change: run the old and the new build over a corpus, save each `--json`, diff them (`make resolution-report BASELINE=… SHOW=5` does the same through `unresolved.Diff`) |
 | `version`, `help` | |
 
 `cmd/cfparse` is a separate debug binary for parser development (timing + `-cpuprofile`).

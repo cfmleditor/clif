@@ -208,7 +208,7 @@ clif.exe unresolved "%USERPROFILE%\projects\myapp" > unresolved.txt
 
 Use `>>` (or `Out-File -Append`) to add to an earlier report. Windows PowerShell 5.1 writes UTF-16 for a plain `>` or `>>`, hence `Out-File -Encoding utf8`; PowerShell 7 writes UTF-8 either way. Progress and timing go to stderr, so they stay on the console and out of the file.
 
-Use the binary from `target/release/` after `make build`, or a release download; give its full path if it is not on `PATH`. Add `--json` for machine-readable output, `--verbose` for the reason behind each entry, and `--write` to write `.clif-unresolved.txt` beside the config (see [Generated reports](#generated-reports)). `clif explain <file> <line>` traces one call.
+Use the binary from `target/release/` after `make build`, or a release download; give its full path if it is not on `PATH`. Add `--json` for machine-readable output, `--verbose` for the reason behind each entry, and `--write` to write `.clif-unresolved.txt` beside the config (see [Generated reports](#generated-reports)). `clif explain <file> <line>` traces one call. To judge a change to resolution, save `--json` from two builds and run `clif unresolved-diff before.json after.json`: it lists the findings that went away and the ones that appeared, grouped by reason, which a total cannot show.
 
 For experimental receiver guesses, use `clif unresolved --speculative --verbose
 <dir>`. This connects an unknown receiver when every finding in its file/function

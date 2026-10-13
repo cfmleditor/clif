@@ -86,22 +86,23 @@ func printHelp() {
 	fmt.Printf(`clif %s
 
 Commands:
-  (default)    Run the LSP server over stdio
-  parse        Parse CFML files and report timing
-  scan         Scan CFML files and report parse errors
-  format       Format CFML files (stdout or in-place with -w)
-  unresolved   Scan for unresolved component/method calls
-  cflint       Run CFLint over files, a project, or what is staged or changed
-  suppressions Count CFLint suppressions by rule, and fail if they rise
-  hook         Install and run a git pre-commit hook that runs CFLint
-  refs         Find references to a component or function
-  deps         Print component dependency info
-  graph        Build a whole-project map of functions and their connections
-  mcp          Serve that map over the Model Context Protocol on stdio
-  routes       Report framework routes and what they resolve to
-  explain      Explain how a call site's component was resolved
-  version      Print version (also --version)
-  help         Show this help
+  (default)         Run the LSP server over stdio
+  parse             Parse CFML files and report timing
+  scan              Scan CFML files and report parse errors
+  format            Format CFML files (stdout or in-place with -w)
+  unresolved        Scan for unresolved component/method calls
+  cflint            Run CFLint over files, a project, or what is staged or changed
+  suppressions      Count CFLint suppressions by rule, and fail if they rise
+  hook              Install and run a git pre-commit hook that runs CFLint
+  refs              Find references to a component or function
+  deps              Print component dependency info
+  graph             Build a whole-project map of functions and their connections
+  mcp               Serve that map over the Model Context Protocol on stdio
+  routes            Report framework routes and what they resolve to
+  explain           Explain how a call site's component was resolved
+  unresolved-diff   Compare two unresolved --json runs, finding by finding
+  version           Print version (also --version)
+  help              Show this help
 
 Run "clif <command> --help" (or "clif help <command>")
 for a command's usage and options.
