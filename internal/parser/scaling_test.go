@@ -203,3 +203,166 @@ func TestUnterminatedTagsParseInLinearTime(t *testing.T) {
 		})
 	}
 }
+
+// A '>' inside a quoted value, with no real end after it, sent the quote-aware
+// search to the end of the file from every tag: `<cfset x="a>b"` repeated to
+// 560KB took 19.7s. A run with a single '>' at its very end cost the plain
+// search and its quote counts the same way. Each shape reaches the tag walk,
+// the output-context tracking and the collection-write scan.
+func TestTagsWithNoRealEndParseInLinearTime(t *testing.T) {
+	page := uri.File("/tmp/page.cfm")
+
+	for name, build := range map[string]func(n int) string{
+		"quoted '>' never closed":     func(n int) string { return strings.Repeat(`<cfset x="a>b"`, n) },
+		"one '>' at the end":          func(n int) string { return strings.Repeat("<cf", n) + ">" },
+		"quoted '>', one '>' at end":  func(n int) string { return strings.Repeat(`<cfoutput x="a>b"`, n) + ">" },
+		"single quotes, never closed": func(n int) string { return strings.Repeat(`<cfset x='a>b'`, n) },
+		"comment and quoted '>'":      func(n int) string { return strings.Repeat(`<cf <!-- x="a>b"`, n) },
+		"comment, one '>' at the end": func(n int) string { return strings.Repeat("<cf<!--", n) + ">" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			const n = 4000
+
+			small := nsToParse(page, build(n))
+			large := nsToParse(page, build(n*scalingInputRatio))
+
+			assertScalesLinearly(t, name, small, large)
+		})
+	}
+}
+
+// Every <cfset> looked for calls recorded before it that lie inside its own
+// expression by reading every call the enclosing function had recorded so
+// far, so a function of many <cfset> tags was quadratic: 24,000 took 0.4s.
+func TestManyCFSetsInOneFunctionParseInLinearTime(t *testing.T) {
+	page := uri.File("/tmp/Page.cfc")
+	build := func(n int) string {
+		return "<cfcomponent><cffunction name=\"f\">" + strings.Repeat("<cfset x = g(a)>\n", n) + "</cffunction></cfcomponent>"
+	}
+
+	const n = 2000
+
+	small := nsToParse(page, build(n))
+	large := nsToParse(page, build(n*scalingInputRatio))
+
+	assertScalesLinearly(t, "<cfset> in one function", small, large)
+}
+
+// Folding reads tags with the same search, so a page of unterminated tags
+// was quadratic there too.
+func TestFoldingUnterminatedTagsScalesLinearly(t *testing.T) {
+	cost := func(src string) float64 {
+		best := 0.0
+
+		for range 5 {
+			start := time.Now()
+			_ = StructureSpans(src)
+
+			if d := float64(time.Since(start).Nanoseconds()); best == 0 || d < best {
+				best = d
+			}
+		}
+
+		return best
+	}
+
+	const n = 5000
+
+	build := func(n int) string { return strings.Repeat(`<a x="b>c"`, n) + ">" }
+
+	assertScalesLinearly(t, "folding unterminated tags", cost(build(n)), cost(build(n*scalingInputRatio)))
+}
+
+// A tag name running to the end of the text has no '>' and no attributes,
+// and folding panicked on it.
+func TestFoldingATagNameAtTheEndDoesNotPanic(t *testing.T) {
+	for _, src := range []string{"<a", "<cf", "x\n<div", "</a", "<p>\n<cfif"} {
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Errorf("StructureSpans(%q) panicked: %v", src, r)
+				}
+			}()
+
+			_ = StructureSpans(src)
+		}()
+	}
+}
+
+// The shared search gives every offset the answer tagEndIndex gives for the
+// text from there, which is what the walks used before.
+func TestTagEndsAgreesWithTagEndIndex(t *testing.T) {
+	texts := []string{
+		`<cfset x="a>b"><cfif a>`,
+		`<cfset x='a>b' y="c">d<cfset z="e>f">`,
+		`<cfset x="a""b>c"> <cfset y = 1>`,
+		`<cffunction name="f" <!--- a > b ---> output="false">`,
+		`<cfset x="never closed>`,
+		strings.Repeat(`<cfset x="a>b"`, 50) + `<cfset y=1>`,
+		strings.Repeat("<cf", 2000) + `x="a>b" >` + strings.Repeat(`<cfset q='>'>`, 20),
+		// Enough long spans to build the index, then a walk that steps past
+		// the last '>': the index's "no '>' after here" is not an end.
+		strings.Repeat("<cf"+strings.Repeat(" ", longTagSpan+1), longSpansBeforeIndex+1) + `x="a>b"`,
+		`<input <cfif a>checked</cfif>>`,
+		strings.Repeat(`<cf <!-- x="a>b"`, 30) + `<cfset y=1>`,
+		`<cffunction <!--- a "q" ---> name="f" <!--- unclosed`,
+		`<cf <!-- x='a"b' y="c>d" >` + strings.Repeat(`<cf<!--`, 20) + ">",
+		"",
+		">",
+	}
+
+	// Each text is asked twice: as a walk meets it, and with the index built
+	// before the first answer, since the walk's memo can otherwise answer
+	// from a walk made before the index existed and hide where they differ.
+	for _, text := range texts {
+		for _, indexed := range []bool{false, true} {
+			ends := newTagEnds(text)
+			if indexed {
+				ends.gaps = indexTagGaps(text)
+			}
+
+			for from := range len(text) {
+				if got, want := ends.at(from), tagEndIndex(text[from:]); got != want {
+					t.Errorf("%q from %d (indexed %v): tagEnds %d, tagEndIndex %d", text[:min(len(text), 40)], from, indexed, got, want)
+
+					break
+				}
+			}
+		}
+	}
+}
+
+// A document that keeps asking for ends far away is indexed once, which is
+// what keeps "<cf" repeated before a single '>' linear; the timing sub-case
+// for that shape cannot tell, since the old scan is fast enough per call.
+func TestRepeatedLongSpansBuildTheIndex(t *testing.T) {
+	text := strings.Repeat("<cf", 3000) + ">"
+
+	ends := newTagEnds(text)
+	for i := 0; i < len(text); i += 3 {
+		_ = ends.at(i)
+	}
+
+	if ends.gaps == nil {
+		t.Error("tag ends were scanned again for every tag; want the long spans indexed")
+	}
+
+	// Asked in any order, distinct long tags are what count.
+	backwards := newTagEnds(text)
+	for i := len(text) - 4; i >= 0; i -= 3 {
+		_ = backwards.at(i)
+	}
+
+	if backwards.gaps == nil {
+		t.Error("long tags asked about in descending order never built the index")
+	}
+
+	one := newTagEnds("<cfset q = \"" + strings.Repeat("x", longTagSpan+1) + "\">")
+	for range longSpansBeforeIndex {
+		_ = one.at(0) // the same tag asked again counts once
+	}
+
+	if one.gaps != nil {
+		t.Error("a single long tag built the index; want it kept for documents that keep asking")
+	}
+}

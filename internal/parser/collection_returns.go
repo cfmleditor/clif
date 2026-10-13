@@ -1017,6 +1017,8 @@ func (e *expressionEnds) from(offset int) string {
 }
 
 func collectCollectionTags(text string, offset int, functionAt func(int) string, writes []collectionWrite, cache *expressionWriteCache) []collectionWrite {
+	ends := newTagEnds(text)
+
 	for pos := 0; pos < len(text); {
 		idx := nextTagStart(text[pos:])
 		if idx < 0 {
@@ -1032,7 +1034,7 @@ func collectCollectionTags(text string, offset int, functionAt func(int) string,
 
 		var next int
 
-		writes, next = collectCollectionTag(text, idx, offset, functionAt, writes, cache)
+		writes, next = collectCollectionTag(&ends, idx, offset, functionAt, writes, cache)
 		if next < 0 {
 			break
 		}
@@ -1048,10 +1050,12 @@ func collectCollectionTags(text string, offset int, functionAt func(int) string,
 // walk of its own. It reads each as collectCollectionTags does, and stops
 // where that would: at a tag with no end.
 func collectCollectionTagsAt(text string, sites []int, offset int, functionAt func(int) string, writes []collectionWrite, cache *expressionWriteCache) []collectionWrite {
+	ends := newTagEnds(text)
+
 	for _, idx := range sites {
 		var next int
 
-		if writes, next = collectCollectionTag(text, idx, offset, functionAt, writes, cache); next < 0 {
+		if writes, next = collectCollectionTag(&ends, idx, offset, functionAt, writes, cache); next < 0 {
 			break
 		}
 	}
@@ -1065,10 +1069,12 @@ func collectionTagName(name string) bool {
 	return strings.EqualFold(name, "cfset") || strings.EqualFold(name, "cfparam") || collectionOutputAttributes(name) != nil
 }
 
-// collectCollectionTag reads the writes of the tag opening at text[idx],
+// collectCollectionTag reads the writes of the tag opening at ends.s[idx],
 // returning where the tag ends, or -1 when it has no end.
-func collectCollectionTag(text string, idx, offset int, functionAt func(int) string, writes []collectionWrite, cache *expressionWriteCache) ([]collectionWrite, int) {
-	end := tagEndIndex(text[idx:])
+func collectCollectionTag(ends *tagEnds, idx, offset int, functionAt func(int) string, writes []collectionWrite, cache *expressionWriteCache) ([]collectionWrite, int) {
+	text := ends.s
+
+	end := ends.at(idx)
 	if end < 0 {
 		return writes, -1
 	}

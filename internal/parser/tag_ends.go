@@ -1,0 +1,325 @@
+package parser
+
+import (
+	"slices"
+	"strings"
+
+	"github.com/cfmleditor/clif/internal/conv"
+)
+
+// tagEnds answers tagEndIndex(s[from:]) for the many offsets a walk over one
+// document asks about, without each answer costing a scan to wherever the
+// tag ends.
+//
+// Asked one tag at a time, tagEndIndex is linear in how far the tag's '>' is,
+// so a walk is quadratic whenever that is far for many tags at once:
+//
+//   - Past s's last '>' there is no end to find (lastGT): "<cf" repeated to
+//     1.5MB took 5.9s.
+//   - A '>' inside a quoted value with no real end after it sends the
+//     quote-aware walk to the end of s from every tag: `<cfset x="a>b"`
+//     repeated to 560KB took 19.7s. The walk's state is only its position
+//     between quoted values, so two walks reaching the same position end
+//     alike: walked remembers each position's answer, and every later walk
+//     stops at the first position an earlier one passed through.
+//   - A long run with no '>' at all costs the scan for it and the quote
+//     counts over it from every tag inside the run. Once several tags' '>' have
+//     been more than longTagSpan away, gaps holds the next '>' and the quote
+//     counts for every offset, found once.
+type tagEnds struct {
+	s      string
+	lastGT int
+	walked map[int]int
+	gaps   *tagGaps
+	// longSpans holds the offsets of the tags whose '>' was more than
+	// longTagSpan away; gaps is built once there are longSpansBeforeIndex of
+	// them. A tag asked about twice (the tag walk and the output tracking
+	// both ask) counts once, in whatever order offsets are asked.
+	longSpans []int
+	// commentWalked is walked for commentWalk, whose rules differ.
+	commentWalked map[int]int
+	// visited is the walk's scratch list of positions, kept between walks.
+	visited []int
+}
+
+// longTagSpan is how far a tag's '>' may be before tagEnds indexes s rather
+// than scanning it again for the next tag. Nearly every tag ends within a
+// line or two; a run this long with no '>' is not markup anyone writes.
+const longTagSpan = 4096
+
+// longSpansBeforeIndex is how many long spans tagEnds scans before indexing.
+// The index costs 16 bytes for every byte of the document, so a real file
+// with a tag or two holding a long string (a query in a <cfset>) keeps
+// scanning; only a document that keeps asking pays for it.
+const longSpansBeforeIndex = 8
+
+// tagGaps indexes s for tagEnds: for every offset, where the next '>' and the
+// next "<!--" are, and how many of each quote come before it.
+type tagGaps struct {
+	nextGT, nextComment []int32
+	dq, sq              []int32
+}
+
+// quoteNeverCloses is a walk that met a quote with no closing one, after which
+// tagEndIndex settles for the first '>' from where the walk began.
+const quoteNeverCloses = -2
+
+func newTagEnds(s string) tagEnds {
+	return tagEnds{s: s, lastGT: strings.LastIndexByte(s, '>')}
+}
+
+// at is tagEndIndex(t.s[from:]): the offset of the '>' ending the tag that
+// opens at from, relative to from, or -1 when the tag has no end.
+func (t *tagEnds) at(from int) int {
+	if from > t.lastGT {
+		return -1
+	}
+
+	var gt int
+
+	if t.gaps != nil {
+		gt = int(t.gaps.nextGT[from]) - from
+	} else {
+		gt = strings.IndexByte(t.s[from:], '>')
+		if gt > longTagSpan && !slices.Contains(t.longSpans, from) {
+			t.longSpans = append(t.longSpans, from)
+			if len(t.longSpans) >= longSpansBeforeIndex {
+				t.gaps = indexTagGaps(t.s)
+			}
+		}
+	}
+
+	if t.hasComment(from, from+gt) {
+		switch end := t.commentWalk(from); end {
+		case quoteNeverCloses:
+			return gt
+		case -1:
+			return -1
+		default:
+			return end - from
+		}
+	}
+
+	if t.quotesEven(from, from+gt) {
+		return gt
+	}
+
+	switch end := t.walk(from); end {
+	case quoteNeverCloses:
+		return gt
+	case -1:
+		return -1
+	default:
+		return end - from
+	}
+}
+
+// hasComment says whether a "<!--" starts within s[from:to].
+func (t *tagEnds) hasComment(from, to int) bool {
+	if t.gaps != nil {
+		return int(t.gaps.nextComment[from])+4 <= to
+	}
+
+	return strings.Contains(t.s[from:to], "<!--")
+}
+
+// quotesEven says whether s[from:to] holds an even number of each quote, the
+// fast path tagEndIndex takes.
+func (t *tagEnds) quotesEven(from, to int) bool {
+	if g := t.gaps; g != nil {
+		return (g.dq[to]-g.dq[from])%2 == 0 && (g.sq[to]-g.sq[from])%2 == 0
+	}
+
+	return strings.Count(t.s[from:to], `"`)%2 == 0 && strings.Count(t.s[from:to], "'")%2 == 0
+}
+
+// walk is tagEndWalk(t.s[start:]) in absolute offsets, returning the '>' it
+// ends at, -1, or quoteNeverCloses, and remembering the answer for every
+// position it passed through.
+func (t *tagEnds) walk(start int) int {
+	visited := t.visited[:0]
+	result := -1
+	gtAt := -1
+
+	for pos := start; ; {
+		if r, ok := t.walked[pos]; ok {
+			result = r
+
+			break
+		}
+
+		visited = append(visited, pos)
+
+		if gtAt < pos {
+			gtAt = t.nextGT(pos)
+			if gtAt < 0 {
+				break
+			}
+		}
+
+		q := indexQuote(t.s[pos:gtAt])
+		if q < 0 {
+			result = gtAt
+
+			break
+		}
+
+		j := skipQuotedIn(t.s, pos+q)
+		if j < 0 {
+			result = quoteNeverCloses
+
+			break
+		}
+
+		pos = j + 1
+	}
+
+	if t.walked == nil {
+		t.walked = map[int]int{}
+	}
+
+	for _, p := range visited {
+		t.walked[p] = result
+	}
+
+	t.visited = visited
+
+	return result
+}
+
+// commentWalk is tagEndWithComments(t.s[start:]) in absolute offsets,
+// returning the '>' it ends at, -1, or quoteNeverCloses for its fallbacks (an
+// unclosed quote or <!--- comment, after which it settles for the first '>'
+// from start). Its state is only its position, as walk's is, so it remembers
+// the answer for every position it stopped at: each '>', quote and '<'.
+// Without that a document of tags holding a "<!--" and a quoted '>' with no
+// real end was quadratic, the same shape walk exists for.
+func (t *tagEnds) commentWalk(start int) int {
+	visited := t.visited[:0]
+	result := -1
+
+	for pos := start; pos < len(t.s); {
+		if r, ok := t.commentWalked[pos]; ok {
+			result = r
+
+			break
+		}
+
+		visited = append(visited, pos)
+
+		next, end := t.commentStep(pos)
+		if end != 0 {
+			result = end
+
+			break
+		}
+
+		k := strings.IndexAny(t.s[next:], `>"'<`)
+		if k < 0 {
+			break
+		}
+
+		pos = next + k
+	}
+
+	if t.commentWalked == nil {
+		t.commentWalked = map[int]int{}
+	}
+
+	for _, p := range visited {
+		t.commentWalked[p] = result
+	}
+
+	t.visited = visited
+
+	return result
+}
+
+// commentStep is one step of tagEndWithComments at pos: the position to go on
+// from, or, when the walk ends there, end set to its answer (the '>' or
+// quoteNeverCloses).
+func (t *tagEnds) commentStep(pos int) (next, end int) {
+	switch t.s[pos] {
+	case '>':
+		return 0, pos
+	case '"', '\'':
+		j := skipQuotedIn(t.s, pos)
+		if j < 0 {
+			return 0, quoteNeverCloses
+		}
+
+		return j + 1, 0
+	case '<':
+		if strings.HasPrefix(t.s[pos:], "<!---") {
+			c := strings.Index(t.s[pos+5:], "--->")
+			if c < 0 {
+				return 0, quoteNeverCloses
+			}
+
+			return pos + 5 + c + 4, 0
+		}
+	}
+
+	return pos + 1, 0
+}
+
+// nextGT is the offset of the first '>' at or after pos, or -1.
+func (t *tagEnds) nextGT(pos int) int {
+	if t.gaps != nil {
+		// An offset with no '>' after it holds len(s), which is not an end.
+		if pos >= len(t.s) || int(t.gaps.nextGT[pos]) >= len(t.s) {
+			return -1
+		}
+
+		return int(t.gaps.nextGT[pos])
+	}
+
+	if pos > t.lastGT {
+		return -1
+	}
+
+	return pos + strings.IndexByte(t.s[pos:], '>')
+}
+
+// indexTagGaps builds tagGaps over s in one pass from each end. An offset
+// with no '>' (or no comment) after it holds len(s). at never reads that for
+// a '>', since it checks lastGT first, but walk does through nextGT, which
+// has to answer -1 for it: read as an end, it put a tag's end past the text.
+func indexTagGaps(s string) *tagGaps {
+	n := len(s)
+	g := &tagGaps{
+		nextGT:      make([]int32, n+1),
+		nextComment: make([]int32, n+1),
+		dq:          make([]int32, n+1),
+		sq:          make([]int32, n+1),
+	}
+
+	gt, comment := conv.Int32(n), conv.Int32(n)
+	g.nextGT[n], g.nextComment[n] = gt, comment
+
+	for i := n - 1; i >= 0; i-- {
+		switch s[i] {
+		case '>':
+			gt = conv.Int32(i)
+		case '<':
+			if strings.HasPrefix(s[i:], "<!--") {
+				comment = conv.Int32(i)
+			}
+		}
+
+		g.nextGT[i], g.nextComment[i] = gt, comment
+	}
+
+	for i := range n {
+		g.dq[i+1], g.sq[i+1] = g.dq[i], g.sq[i]
+
+		switch s[i] {
+		case '"':
+			g.dq[i+1]++
+		case '\'':
+			g.sq[i+1]++
+		}
+	}
+
+	return g
+}
