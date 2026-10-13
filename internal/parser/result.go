@@ -107,10 +107,13 @@ type ParseResult struct {
 	// funcRefs caches per-function component refs keyed by "start:end".
 	memberSnapshot        *ParseResult // member refs computed once per document version
 	memberSnapshotContent string
-	funcRefsMu            sync.Mutex
-	funcRefsMap           map[string][]ComponentRef
-	funcLinksMap          map[string][]DocumentLink
-	funcCallsMap          map[string][]CallSite // per-function call sites keyed by "start:end"
+	// refIdx is firstRef's index while resolvePendingCalls runs, nil
+	// otherwise; see firstRef.
+	refIdx       map[*ComponentRef]*refNames
+	funcRefsMu   sync.Mutex
+	funcRefsMap  map[string][]ComponentRef
+	funcLinksMap map[string][]DocumentLink
+	funcCallsMap map[string][]CallSite // per-function call sites keyed by "start:end"
 	// flow is the blocks a full parse recorded, for comparing the branches
 	// that reach a return; nil once resolvePendingCalls has read it.
 	flow *flowBlocks
@@ -422,9 +425,11 @@ func (pr *ParseResult) markStructReturns(calls []pendingCall) {
 
 		if byKey == nil {
 			byKey = make(map[string][]int, len(pr.Funcs))
+			scopeAt := scopeIndex(pr.Scopes, true)
 
 			for j := range pr.Funcs {
-				if scope := findFuncScope(int(pr.Funcs[j].Line), pr.Scopes); scope.Start >= 0 {
+				if k := scopeAt(int(pr.Funcs[j].Line)); k >= 0 {
+					scope := pr.Scopes[k]
 					key := funcKey(scope.Start, scope.End)
 					byKey[key] = append(byKey[key], j)
 				}
@@ -627,7 +632,7 @@ func (pr *ParseResult) mergeTagRegion(r *Region, tagScopes []FuncScope, open *op
 	if s, ok := pr.regionTagScope(tagScopes, r.StartLine); ok {
 		tp.inFunc = funcKey(s.Start-r.StartLine, s.End-r.StartLine)
 		seed, tp.funcs = pr.seedRegionFunction(s.Start, s.Name)
-		tp.localVars = nil
+		tp.localVars, tp.localSet = nil, nil
 
 		for _, arg := range pr.argsOfFuncAt(s.Start) {
 			tp.markVarLocal(arg.Name)
@@ -827,6 +832,9 @@ func (pr *ParseResult) applyServiceProperties() {
 		return
 	}
 
+	// The matches come in order, so the line count is carried between them.
+	lines := lineCounter{text: pr.Content}
+
 	for _, m := range servicePropertyRe.FindAllStringSubmatchIndex(pr.Content, -1) {
 		varName := pr.Content[m[2]:m[3]]
 		kind := strings.ToLower(pr.Content[m[4]:m[5]])
@@ -838,7 +846,7 @@ func (pr *ParseResult) applyServiceProperties() {
 		}
 
 		component := strings.ReplaceAll(tmpl, "${name}", name)
-		line := conv.Uint32(strings.Count(pr.Content[:m[0]], "\n"))
+		line := conv.Uint32(lines.before(m[0]))
 
 		// resolve.CanResolveCall strips a receiver down to the text after its last
 		// top-level "." before comparing against ComponentRef.Variable (e.g.
@@ -1121,6 +1129,9 @@ func (pr *ParseResult) resolvePendingCalls(calls []pendingCall) {
 	// Resolve ReturnComponent from return var before processing calls
 	pr.settleReturnVars(returnPendings, calls)
 
+	pr.refIdx = map[*ComponentRef]*refNames{}
+	defer func() { pr.refIdx = nil }()
+
 	funcReturns := pr.funcReturns()
 	untyped := pr.typePendingCalls(calls, funcReturns, nil)
 
@@ -1397,9 +1408,9 @@ func (pr *ParseResult) receiverIsThisFile(c *pendingCall) bool {
 		return false
 	}
 
-	ref := firstRefIn(pr.ComponentRefs, c.baseVar, c.baseScope)
+	ref := pr.firstRef(pr.ComponentRefs, c.baseVar, c.baseScope)
 	if ref == nil && c.funcKey != "" {
-		ref = firstRefIn(pr.funcRefsMap[c.funcKey], c.baseVar, c.baseScope)
+		ref = pr.firstRef(pr.funcRefsMap[c.funcKey], c.baseVar, c.baseScope)
 	}
 
 	return ref != nil && ref.Component == self
@@ -1419,6 +1430,8 @@ type returnPending struct {
 func (pr *ParseResult) pendingReturnVars() []returnPending {
 	var out []returnPending
 
+	scopeAt := scopeIndex(pr.Scopes, true)
+
 	for i := range pr.Funcs {
 		f := &pr.Funcs[i]
 		if f.ReturnComponent != "" || f.returnVar == "" {
@@ -1435,7 +1448,8 @@ func (pr *ParseResult) pendingReturnVars() []returnPending {
 			continue
 		}
 
-		if scope := findFuncScope(int(f.Line), pr.Scopes); scope.Start >= 0 {
+		if k := scopeAt(int(f.Line)); k >= 0 {
+			scope := pr.Scopes[k]
 			out = append(out, returnPending{
 				funcIdx: i,
 				varName: f.returnVar,
@@ -1628,22 +1642,18 @@ func assignedBetween(calls []pendingCall, name string, from, to uint32) bool {
 // left x an A for good, and a return of x after it returning one.
 func (pr *ParseResult) hasRefFor(c *pendingCall) bool {
 	if c.funcKey != "" {
-		refs := pr.funcRefsMap[c.funcKey]
-		for i := range refs {
-			if ref := &refs[i]; ref.Line == c.line && strings.EqualFold(ref.Variable, c.varName) &&
-				ref.VisibleFrom == c.visibleFrom && ref.VisibleTo == c.visibleTo && ref.HasClosureSpan == c.hasClosureSpan && ref.ClosureFrom == c.closureFrom && ref.ClosureTo == c.closureTo {
-				return true
-			}
-		}
-	}
-
-	for i := range pr.ComponentRefs {
-		if ref := &pr.ComponentRefs[i]; ref.Line == c.line && strings.EqualFold(ref.Variable, c.varName) {
+		local := pr.refsOnLine(pr.funcRefsMap[c.funcKey], c.line, func(ref *ComponentRef) bool {
+			return strings.EqualFold(ref.Variable, c.varName) &&
+				ref.VisibleFrom == c.visibleFrom && ref.VisibleTo == c.visibleTo && ref.HasClosureSpan == c.hasClosureSpan && ref.ClosureFrom == c.closureFrom && ref.ClosureTo == c.closureTo
+		})
+		if local {
 			return true
 		}
 	}
 
-	return false
+	return pr.refsOnLine(pr.ComponentRefs, c.line, func(ref *ComponentRef) bool {
+		return strings.EqualFold(ref.Variable, c.varName)
+	})
 }
 
 // baseVarComponent is the component `x = baseVar.method()` gives x: the
@@ -1671,13 +1681,13 @@ func (pr *ParseResult) baseVarComponent(c *pendingCall, globals []ComponentRef) 
 	}
 
 	if !c.baseLocal {
-		if ref := firstRefIn(globals, c.baseVar, c.baseScope); ref != nil {
+		if ref := pr.firstRef(globals, c.baseVar, c.baseScope); ref != nil {
 			comp = pr.settledComponent(ref)
 		}
 	}
 
 	if comp == "" && c.funcKey != "" {
-		if ref := firstRefIn(pr.funcRefsMap[c.funcKey], c.baseVar, c.baseScope); ref != nil {
+		if ref := pr.firstRef(pr.funcRefsMap[c.funcKey], c.baseVar, c.baseScope); ref != nil {
 			comp = pr.settledComponent(ref)
 		}
 	}
@@ -1750,6 +1760,108 @@ func readThroughLocal(recv string) bool {
 
 	return ok && name != "" && (strings.EqualFold(scope, "arguments") || strings.EqualFold(scope, "local"))
 }
+
+// refNames indexes a refs slice by lowercased variable name: the first ref of
+// each name assigned through this., and the first assigned otherwise, which
+// is all RefScope.Admits tells apart. n is how many refs it covers.
+type refNames struct {
+	n     int
+	this  map[string]int
+	other map[string]int
+	// lines lists, for each line, the refs on it, for hasRefFor.
+	lines map[uint32][]int
+}
+
+// firstRef is firstRefIn, answered from an index while resolvePendingCalls
+// runs. It looked a receiver up by scanning every ref the file had, once per
+// pending call, so a function of n locals each assigned from the one before
+// (`v2 = v1.next()`) was quadratic: 4,000 of them took 330ms. The index is
+// keyed by the slice's first element and extended as refs are appended,
+// which is all the pass does to them; it is dropped when the pass ends,
+// because a reparse refills ComponentRefs in place.
+func (pr *ParseResult) firstRef(refs []ComponentRef, name string, scope RefScope) *ComponentRef {
+	if pr.refIdx == nil || len(refs) <= maxRefScan {
+		return firstRefIn(refs, name, scope)
+	}
+
+	idx := pr.refIndex(refs)
+
+	var buf foldScratch
+
+	key := buf.lowerFold(name)
+	t, inThis := idx.this[string(key)]
+	o, inOther := idx.other[string(key)]
+
+	switch {
+	case scope == RefThis && inThis:
+		return &refs[t]
+	case scope == RefVariables && inOther:
+		return &refs[o]
+	case scope != RefThis && scope != RefVariables && (inThis || inOther):
+		if inThis && (!inOther || t < o) {
+			return &refs[t]
+		}
+
+		return &refs[o]
+	}
+
+	return nil
+}
+
+// refIndex is refs' index for firstRef and refsOnLine, brought up to date
+// with any refs appended since it was last asked.
+func (pr *ParseResult) refIndex(refs []ComponentRef) *refNames {
+	idx := pr.refIdx[&refs[0]]
+	if idx == nil || idx.n > len(refs) {
+		idx = &refNames{this: map[string]int{}, other: map[string]int{}, lines: map[uint32][]int{}}
+		pr.refIdx[&refs[0]] = idx
+	}
+
+	for i := idx.n; i < len(refs); i++ {
+		m := idx.other
+		if refs[i].This {
+			m = idx.this
+		}
+
+		key := strings.ToLower(refs[i].Variable)
+		if _, ok := m[key]; !ok {
+			m[key] = i
+		}
+
+		idx.lines[refs[i].Line] = append(idx.lines[refs[i].Line], i)
+	}
+
+	idx.n = len(refs)
+
+	return idx
+}
+
+// refsOnLine calls fn with each ref in refs on line, stopping when fn says
+// so, from the index while resolvePendingCalls runs. hasRefFor scanned every
+// ref for every pending call, which was quadratic in a function of
+// thousands of assignments.
+func (pr *ParseResult) refsOnLine(refs []ComponentRef, line uint32, fn func(*ComponentRef) bool) bool {
+	if pr.refIdx == nil || len(refs) <= maxRefScan {
+		for i := range refs {
+			if refs[i].Line == line && fn(&refs[i]) {
+				return true
+			}
+		}
+
+		return false
+	}
+
+	for _, i := range pr.refIndex(refs).lines[line] {
+		if fn(&refs[i]) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// maxRefScan is the most refs firstRef scans before it indexes them.
+const maxRefScan = 32
 
 // firstRefIn is firstRefNamed among the refs scope admits.
 func firstRefIn(refs []ComponentRef, name string, scope RefScope) *ComponentRef {
@@ -2717,6 +2829,8 @@ func (pr *ParseResult) filterCallsByName() {
 	// Filter by target names and resolve components
 	pr.Calls = nil
 
+	scopeAt := scopeIndex(pr.Scopes, false)
+
 	for i := range allCalls {
 		call := allCalls[i] // a copy: edited below, and kept
 
@@ -2738,7 +2852,9 @@ func (pr *ParseResult) filterCallsByName() {
 
 		// Determine caller from line
 		if call.Caller == "" {
-			call.Caller = pr.callerAtLine(int(call.Line))
+			if k := scopeAt(int(call.Line)); k >= 0 {
+				call.Caller = pr.Scopes[k].Name
+			}
 		}
 
 		pr.Calls = append(pr.Calls, call)
@@ -3127,6 +3243,18 @@ func (pr *ParseResult) funcRefsUncached(funcStart, funcEnd int) ([]ComponentRef,
 	if len(pr.findCalls) > 0 && !pr.extractCalls {
 		lineNum := funcStart + 1
 
+		// Only the scopes overlapping this function can hold its lines, in
+		// the order callerAtLine scans them.
+		var near []FuncScope
+
+		for _, sc := range pr.Scopes {
+			if sc.End > funcStart && sc.Start < funcEnd {
+				near = append(near, sc)
+			}
+		}
+
+		scopeAt := scopeIndex(near, false)
+
 		scan := pr.Content[start:end]
 		for scan != "" {
 			nl := strings.IndexByte(scan, '\n')
@@ -3140,7 +3268,12 @@ func (pr *ParseResult) funcRefsUncached(funcStart, funcEnd int) ([]ComponentRef,
 				scan = scan[nl+1:]
 			}
 
-			pr.scanLineForCalls(line, lineNum, pr.callerAtLine(lineNum))
+			caller := ""
+			if k := scopeAt(lineNum); k >= 0 {
+				caller = near[k].Name
+			}
+
+			pr.scanLineForCalls(line, lineNum, caller)
 			lineNum++
 		}
 	}
@@ -3477,10 +3610,14 @@ func (pr *ParseResult) funcCallsUncached(funcStart, funcEnd int) []CallSite {
 // function column of find-references both lost them. The scopes are the
 // file's, so the line answers it for every region alike.
 func (pr *ParseResult) fillCallers() {
+	scopeAt := scopeIndex(pr.Scopes, false)
+
 	fill := func(calls []CallSite) {
 		for i := range calls {
 			if calls[i].Caller == "" {
-				calls[i].Caller = pr.callerAtLine(int(calls[i].Line))
+				if k := scopeAt(int(calls[i].Line)); k >= 0 {
+					calls[i].Caller = pr.Scopes[k].Name
+				}
 			}
 		}
 	}

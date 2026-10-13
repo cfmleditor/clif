@@ -46,7 +46,11 @@ type flowRecord struct {
 	// returns lists each return's line and where the blocks open at it sit
 	// in open, one flat slice rather than a slice per return.
 	returns []returnNote
-	open    []uint32
+	// lastReturn is the index in returns of the latest return on each line.
+	// openAt scanned returns from the end for its line, once per function,
+	// which was quadratic in a component of thousands of returns.
+	lastReturn map[uint32]int
+	open       []uint32
 	// assigns is every assignment in a function body, whatever it assigned,
 	// so a return can tell a branch that assigned something untyped (a
 	// string, an argument) from one that assigned nothing.
@@ -200,15 +204,21 @@ func (fb *flowBlocks) noteReturn(line uint32) {
 	from := len(r.open)
 	r.open = append(r.open, fb.stack...)
 	r.returns = append(r.returns, returnNote{line + fb.shift, from, len(r.open)})
+
+	if r.lastReturn == nil {
+		r.lastReturn = map[uint32]int{}
+	}
+
+	r.lastReturn[line+fb.shift] = len(r.returns) - 1
 }
 
 // openAt is the blocks open at the return on line, the latest recorded.
 func (fb *flowBlocks) openAt(line uint32) []uint32 {
 	r := fb.rec
-	for _, n := range slices.Backward(r.returns) {
-		if n.line == line {
-			return r.open[n.from:n.to]
-		}
+	if i, ok := r.lastReturn[line]; ok {
+		n := r.returns[i]
+
+		return r.open[n.from:n.to]
 	}
 
 	return nil

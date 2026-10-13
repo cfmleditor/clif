@@ -60,7 +60,12 @@ type tagParser struct {
 	// keys: a function declares a handful of locals, so the scan is short, and
 	// the map cost both its buckets and a strings.ToLower per insert and per
 	// lookup — together 7% of everything a tag parse allocated.
+	//
+	// localSet indexes localVars, lowercased, once a function declares more
+	// than maxLocalScan of them: a scan per declaration made a function of
+	// thousands of <cfset var> or <cfargument> quadratic.
 	localVars   []string
+	localSet    map[string]struct{}
 	flow        *flowBlocks // the blocks a function's tags open; nil outside a full parse
 	forceGlobal bool        // when true, addRef routes to componentRefs regardless of inFunc
 	refThis     bool        // the assignment being parsed is through `this.` — see ComponentRef.This
@@ -264,21 +269,28 @@ func nextTagStart(s string) int {
 	// per tag — is the obvious next step and was measured: it changed nothing
 	// on the tag benchmarks, because what this costs is the '<' scan's call
 	// overhead on short strings, not the hash scan.
-	for pos := 0; ; {
-		lt := strings.IndexByte(s[pos:], '<')
+	//
+	// The next '<' is found once and kept until a span carries the walk past
+	// it. Searching again for every '#' scanned the same run once per hash, so
+	// a run of hashes far from any '<' (`<cfoutput>` then forty thousand
+	// `#`, or text full of spans) was quadratic.
+	ltAt := -1 // the next '<' at or after pos, or len(s) for none; -1 for unknown
 
-		end := len(s)
-		if lt >= 0 {
-			end = pos + lt
+	for pos := 0; ; {
+		if ltAt < pos {
+			ltAt = len(s)
+			if lt := strings.IndexByte(s[pos:], '<'); lt >= 0 {
+				ltAt = pos + lt
+			}
 		}
 
-		h := strings.IndexByte(s[pos:end], '#')
+		h := strings.IndexByte(s[pos:ltAt], '#')
 		if h < 0 {
-			if lt < 0 {
+			if ltAt == len(s) {
 				return -1
 			}
 
-			return pos + lt
+			return ltAt
 		}
 
 		at := pos + h
@@ -580,6 +592,7 @@ func (p *tagParser) closeTag(idx int) {
 
 	p.inFunc = ""
 	p.localVars = p.localVars[:0]
+	p.localSet = nil
 	p.forceGlobal = false
 }
 
@@ -791,6 +804,7 @@ func (p *tagParser) enterFunctionScope(tagEnd, line int) {
 	// the benchmark component was 13% of everything the tag parser allocated —
 	// and a map is an expensive way to record nothing.
 	p.localVars = p.localVars[:0]
+	p.localSet = nil
 
 	if len(p.funcs) > 0 {
 		for _, arg := range p.funcs[len(p.funcs)-1].Arguments {
@@ -807,7 +821,21 @@ func (p *tagParser) markVarLocal(name string) {
 	}
 
 	p.localVars = append(p.localVars, name)
+
+	switch {
+	case p.localSet != nil:
+		p.localSet[strings.ToLower(name)] = struct{}{}
+	case len(p.localVars) > maxLocalScan:
+		p.localSet = make(map[string]struct{}, 2*len(p.localVars))
+		for _, v := range p.localVars {
+			p.localSet[strings.ToLower(v)] = struct{}{}
+		}
+	}
 }
+
+// maxLocalScan is the most locals isVarDeclaredLocal scans before it reads
+// localSet instead.
+const maxLocalScan = 32
 
 // tagEnds is the tag-end search over p.src, built on first use; see tagEnds.
 func (p *tagParser) tagEnds() *tagEnds {
@@ -2268,6 +2296,14 @@ func (p *tagParser) isArgument(name string) bool {
 // isVarDeclaredLocal returns true if the variable was declared with var or local.
 // in the current function.
 func (p *tagParser) isVarDeclaredLocal(name string) bool {
+	if p.localSet != nil {
+		var buf foldScratch
+
+		_, ok := p.localSet[string(buf.lowerFold(name))]
+
+		return ok
+	}
+
 	for _, v := range p.localVars {
 		if strings.EqualFold(v, name) {
 			return true
@@ -2627,9 +2663,11 @@ func (p *tagParser) mergeExpressionCalls(expr string, line int, topUp bool, offs
 		}
 	}
 
+	exprLines := lineCounter{text: expr}
+
 	emit := func(c CallSite) {
 		if knownOrigin {
-			expressionWrappedCallOrigin(&c, expr, p.srcOffset+offsets[0], line, wrapped, len(offsets) > 1)
+			expressionWrappedCallOrigin(&c, expr, p.srcOffset+offsets[0], line, wrapped, len(offsets) > 1, &exprLines)
 		}
 
 		// The wrapper is not a function of the file: a call it encloses has

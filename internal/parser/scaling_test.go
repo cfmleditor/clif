@@ -1,8 +1,11 @@
 package parser
 
 import (
+	"fmt"
+	"math/rand/v2"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -364,5 +367,211 @@ func TestRepeatedLongSpansBuildTheIndex(t *testing.T) {
 
 	if one.gaps != nil {
 		t.Error("a single long tag built the index; want it kept for documents that keep asking")
+	}
+}
+
+// Ten shapes that were each quadratic in something a real file repeats: a
+// search for the next '<' or <cfscript> redone per '#' or <script> block, a
+// linear scan of a function's locals, of a file's refs, scopes, pending calls
+// or returns, and newline counts from a string's start for every span or
+// call. Each ran 22x to 62x for 8x the input; the parse and one function's
+// lazily parsed variables and refs are held to linear here.
+func TestRepeatedConstructsParseInLinearTime(t *testing.T) {
+	cfc, cfm := uri.File("/tmp/Shape.cfc"), uri.File("/tmp/shape.cfm")
+	script := func(body string) string { return "component {\nfunction f() {\n" + body + "\n}\n}" }
+	tagFn := func(body string) string {
+		return "<cfcomponent><cffunction name=\"f\">\n" + body + "\n</cffunction></cfcomponent>"
+	}
+	each := func(n int, line func(i int) string) string {
+		var b strings.Builder
+		for i := range n {
+			b.WriteString(line(i))
+		}
+
+		return b.String()
+	}
+
+	// n is the smaller size; the milder shapes need more of themselves
+	// before the quadratic part outweighs the rest of a parse.
+	shapes := map[string]struct {
+		u     uri.URI
+		build func(n int) string
+		n     int
+	}{
+		"hashes in <cfoutput>": {cfm, func(n int) string { return "<cfoutput>" + strings.Repeat("#", 40*n) + "</cfoutput>" }, 1000},
+		"<script> blocks":      {cfm, func(n int) string { return strings.Repeat("<script>var a = '#x()#';</script>\n", n) }, 1000},
+		"spans in <cfoutput>":  {cfm, func(n int) string { return "<cfoutput>" + strings.Repeat("#a.b()# text ", n) + "</cfoutput>" }, 6000},
+		"spans in a string":    {cfc, func(n int) string { return script(`x = "` + strings.Repeat("#a()# ", n) + `";`) }, 4000},
+		"named arguments": {cfm, func(n int) string {
+			return "<cfset x = f(" + each(n, func(i int) string { return fmt.Sprintf("a%d=b(),", i) }) + "1)>"
+		}, 6000},
+		"<cfset var> locals": {cfc, func(n int) string {
+			return tagFn(each(n, func(i int) string { return fmt.Sprintf("<cfset var v%d = %d>\n", i, i) }))
+		}, 1000},
+		"<cfargument> list": {cfc, func(n int) string {
+			return tagFn(each(n, func(i int) string { return fmt.Sprintf("<cfargument name=\"a%d\" type=\"A\">\n", i) }) + "<cfreturn a1.m()>")
+		}, 1000},
+		"locals from the last": {cfc, func(n int) string {
+			return script("var v0 = new A();\n" + each(n, func(i int) string { return fmt.Sprintf("var v%d = v%d.next();\n", i+1, i) }))
+		}, 1000},
+		"functions calling next": {cfc, func(n int) string {
+			return "component {\n" + each(n, func(i int) string { return fmt.Sprintf("function f%d() { return f%d(); }\n", i, (i+1)%n) }) + "}"
+		}, 1000},
+		"tag functions": {cfc, func(n int) string {
+			return "<cfcomponent>" + each(n, func(i int) string {
+				return fmt.Sprintf("<cffunction name=\"f%d\"><cfreturn f%d()></cffunction>\n", i, i)
+			}) + "</cfcomponent>"
+		}, 4000},
+	}
+
+	for name, shape := range shapes {
+		t.Run(name, func(t *testing.T) {
+			n := shape.n
+
+			small := nsToParse(shape.u, shape.build(n))
+			large := nsToParse(shape.u, shape.build(n*scalingInputRatio))
+
+			assertScalesLinearly(t, name, small, large)
+
+			lazy := func(n int) float64 {
+				src := shape.build(n)
+				scopes := Parse(shape.u, src).Scopes
+
+				if len(scopes) == 0 {
+					return 0
+				}
+
+				s := scopes[len(scopes)/2]
+
+				return nsToParse(shape.u, src) + nsToRun(func() {
+					pr := Parse(shape.u, src)
+					_ = pr.FuncVars(s.Start, s.End)
+					_, _ = pr.FuncRefs(s.Start, s.End)
+				})
+			}
+
+			if small := lazy(n); small > 0 {
+				assertScalesLinearly(t, name+", one function's variables and refs", small, lazy(n*scalingInputRatio))
+			}
+		})
+	}
+}
+
+// nsToRun is nsToParse for any function.
+func nsToRun(f func()) float64 {
+	best := 0.0
+
+	for range 5 {
+		n := 0
+		start := time.Now()
+
+		for n == 0 || time.Since(start) < 20*time.Millisecond {
+			f()
+
+			n++
+		}
+
+		if perOp := float64(time.Since(start).Nanoseconds()) / float64(n); best == 0 || perOp < best {
+			best = perOp
+		}
+	}
+
+	return best
+}
+
+// scopeIndex answers as the scans it replaced do, past the size where it
+// builds its table: the first scope in order holding the line, nested and
+// overlapping scopes included, with and without the end lines.
+func TestScopeIndexAgreesWithTheScan(t *testing.T) {
+	rng := rand.New(rand.NewPCG(1, 2))
+
+	for round := range 50 {
+		var scopes []FuncScope
+
+		for range maxScopeScan + 1 + rng.IntN(60) {
+			start := rng.IntN(400)
+			scopes = append(scopes, FuncScope{Name: strconv.Itoa(len(scopes)), Start: start, End: start + rng.IntN(40)})
+		}
+
+		inclusive := scopeIndex(scopes, true)
+		exclusive := scopeIndex(scopes, false)
+		pr := &ParseResult{Scopes: scopes}
+
+		for line := -2; line < 460; line++ {
+			want := -1
+
+			if s := findFuncScope(line, scopes); s.Start >= 0 {
+				for i := range scopes {
+					if scopes[i] == s {
+						want = i
+
+						break
+					}
+				}
+			}
+
+			if got := inclusive(line); got != want {
+				t.Fatalf("round %d line %d: inclusive %d, findFuncScope %d", round, line, got, want)
+			}
+
+			wantName, got := pr.callerAtLine(line), ""
+			if k := exclusive(line); k >= 0 {
+				got = scopes[k].Name
+			}
+
+			if got != wantName {
+				t.Fatalf("round %d line %d: exclusive %q, callerAtLine %q", round, line, got, wantName)
+			}
+		}
+	}
+}
+
+// firstRef and refsOnLine answer from their index as the scans they replaced
+// do, for every name and scope, and keep doing so as refs are appended.
+func TestRefIndexAgreesWithTheScan(t *testing.T) {
+	rng := rand.New(rand.NewPCG(3, 4))
+	names := []string{"a", "B", "svc", "Svc", "x", "dao"}
+	pr := &ParseResult{refIdx: map[*ComponentRef]*refNames{}}
+
+	refs := make([]ComponentRef, 0, 400)
+
+	for range 300 {
+		refs = append(refs, ComponentRef{
+			Variable: names[rng.IntN(len(names))],
+			This:     rng.IntN(3) == 0,
+			Line:     uint32(rng.IntN(50)),
+		})
+
+		if len(refs) <= maxRefScan {
+			continue
+		}
+
+		for _, name := range names {
+			for _, scope := range []RefScope{RefAny, RefThis, RefVariables} {
+				if got, want := pr.firstRef(refs, name, scope), firstRefIn(refs, name, scope); got != want {
+					t.Fatalf("%d refs, %q scope %d: index %v, scan %v", len(refs), name, scope, got, want)
+				}
+			}
+		}
+
+		line := uint32(rng.IntN(50))
+
+		var got, want []*ComponentRef
+
+		pr.refsOnLine(refs, line, func(r *ComponentRef) bool {
+			got = append(got, r)
+
+			return false
+		})
+
+		for i := range refs {
+			if refs[i].Line == line {
+				want = append(want, &refs[i])
+			}
+		}
+
+		if !slices.Equal(got, want) {
+			t.Fatalf("%d refs, line %d: index %d refs, scan %d", len(refs), line, len(got), len(want))
+		}
 	}
 }

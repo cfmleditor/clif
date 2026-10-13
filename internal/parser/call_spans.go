@@ -78,11 +78,13 @@ func expressionCallOriginDepth(call *CallSite, text string, offset, line int, co
 		}
 
 		if t.Kind == TokString && strings.Contains(t.Value, "#") {
+			spanLines := lineCounter{text: t.Value}
+
 			for _, span := range interpolatedSpans(t.Value) {
 				candidate := *call
 				candidate.HasSpan = false
 
-				count := expressionCallOriginDepth(&candidate, t.Value[span.start:span.end], offset+t.Offset+span.start, line+t.Line+strings.Count(t.Value[:span.start], "\n"), correctLine, depth+1)
+				count := expressionCallOriginDepth(&candidate, t.Value[span.start:span.end], offset+t.Offset+span.start, line+t.Line+spanLines.before(span.start), correctLine, depth+1)
 				if count > 1 || count == 1 && found {
 					call.HasSpan = false
 					call.Line = originalLine
@@ -151,7 +153,10 @@ func expressionCallOriginDepth(call *CallSite, text string, offset, line int, co
 
 // A member-set subparse wraps real text in a synthetic function. Translate only
 // calls wholly within that text; the wrapper itself has no source identity.
-func expressionWrappedCallOrigin(call *CallSite, text string, offset, line int, wrapped, correctLine bool) {
+//
+// lines counts text's newlines for every call of one expression, so a <cfset>
+// holding thousands of calls does not count from the start for each.
+func expressionWrappedCallOrigin(call *CallSite, text string, offset, line int, wrapped, correctLine bool, lines *lineCounter) {
 	if wrapped && call.HasSpan {
 		prefix := len("function " + memberSetWrapper + "(){")
 		if int(call.StartByte) >= prefix && int(call.EndByte) <= prefix+len(text) {
@@ -169,7 +174,28 @@ func expressionWrappedCallOrigin(call *CallSite, text string, offset, line int, 
 	if correctLine && call.HasSpan {
 		start := int(call.StartByte) - offset
 		if start >= 0 && start <= len(text) {
-			call.Line = conv.Uint32(line + strings.Count(text[:start], "\n"))
+			call.Line = conv.Uint32(line + lines.before(start))
 		}
 	}
+}
+
+// lineCounter counts the newlines in text before an offset, carrying the
+// count forward between calls asked in increasing order, as a token's spans
+// and an expression's calls are. Counting from the start each time was
+// quadratic in a string or a <cfset> holding thousands of them. An offset
+// before the last one asked starts the count again.
+type lineCounter struct {
+	text      string
+	at, lines int
+}
+
+func (l *lineCounter) before(i int) int {
+	if i < l.at {
+		l.at, l.lines = 0, 0
+	}
+
+	l.lines += strings.Count(l.text[l.at:i], "\n")
+	l.at = i
+
+	return l.lines
 }
