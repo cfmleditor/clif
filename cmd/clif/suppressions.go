@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 
+	cfpath "github.com/cfmleditor/clif/internal/path"
+
 	"github.com/cfmleditor/clif/internal/cflint"
 	"github.com/cfmleditor/clif/internal/vfs"
 )
@@ -105,7 +107,7 @@ func cmdSuppressions(args []string) {
 		roots = append(roots, abs)
 	}
 
-	counts, err := cflint.CountSuppressions(collectCFMLFiles(vfs.OS{}, roots))
+	counts, err := cflint.CountSuppressions(cfpath.CollectCFML(vfs.OS{}, roots))
 	if err != nil {
 		cflintFailf("%v\n", err)
 	}

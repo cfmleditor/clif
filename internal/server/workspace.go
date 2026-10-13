@@ -249,7 +249,7 @@ func (s *Server) collectCFCFiles(root string) []string {
 			// complete second copy of the codebase: every component indexed
 			// twice, every shared method name's bucket doubled, and
 			// go-to-definition offering the copy beside the original.
-			if path != root && skipScanDir(info.Name()) {
+			if path != root && cfpath.SkipScanDir(info.Name()) {
 				return filepath.SkipDir
 			}
 
@@ -284,7 +284,7 @@ func (s *Server) indexRoot(root string) {
 			// The same rule as collectCFCFiles. This walk had none at all, so
 			// a folder added mid-session indexed its node_modules and its
 			// dot-directories that the startup scan would have skipped.
-			if path != root && skipScanDir(info.Name()) {
+			if path != root && cfpath.SkipScanDir(info.Name()) {
 				return filepath.SkipDir
 			}
 

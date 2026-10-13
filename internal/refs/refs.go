@@ -3,7 +3,6 @@ package refs
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -71,7 +70,7 @@ func Find(fsys vfs.FS, roots []string, opts *Options) []Entry {
 // file whose text cannot contain the target at all, and reporting that smaller
 // number would describe an implementation detail instead of the search.
 func FindCounted(fsys vfs.FS, roots []string, opts *Options) ([]Entry, int) {
-	files := collectFiles(fsys, roots)
+	files := cfpath.CollectCFML(fsys, roots)
 
 	return findInFiles(fsys, files, opts), len(files)
 }
@@ -87,36 +86,6 @@ func FindCalls(fsys vfs.FS, roots []string, funcName string, r *resolve.Resolver
 // defines it.
 func FindComponentRefs(fsys vfs.FS, roots []string, component string, r *resolve.Resolver) ([]Entry, int) {
 	return FindCounted(fsys, roots, &Options{Component: component, Resolver: r})
-}
-
-func collectFiles(fsys vfs.FS, roots []string) []string {
-	var files []string
-
-	for _, root := range roots {
-		_ = fsys.Walk(root, func(path string, info os.FileInfo, _ error) error {
-			// A root that cannot be stat'ed — deleted, renamed, or a stale
-			// workspacePaths entry — is reported with a nil FileInfo, and
-			// dereferencing it took down the whole search rather than skipping
-			// the one root. Reachable from the LSP now that textDocument/
-			// references walks the editor's own workspace roots.
-			if info == nil {
-				return nil
-			}
-
-			if info.IsDir() {
-				return nil
-			}
-
-			ext := strings.ToLower(filepath.Ext(path))
-			if ext == ".cfc" || ext == ".cfm" || ext == ".cfml" || ext == ".cfs" {
-				files = append(files, path)
-			}
-
-			return nil
-		})
-	}
-
-	return files
 }
 
 func findInFiles(fsys vfs.FS, files []string, opts *Options) []Entry {

@@ -6,7 +6,6 @@ import (
 
 	"github.com/cfmleditor/clif/internal/config"
 	"github.com/cfmleditor/clif/internal/daemon"
-	"github.com/cfmleditor/clif/internal/frameworkapi"
 	"github.com/cfmleditor/clif/internal/index"
 	"github.com/cfmleditor/clif/internal/resolve"
 	"github.com/cfmleditor/clif/internal/vfs"
@@ -22,38 +21,13 @@ import (
 //
 // The second result names the assumed frameworks, for the command to report.
 func batchSettings(fsys vfs.FS, cfg *daemon.Config, folders []string) (resolve.Settings, []string) {
-	s := resolve.Settings{WorkspaceFolders: folders}
-
 	if cfg == nil {
-		assumed := config.AssumedFrameworks(folders, fsys.ReadFile, fsys.ReadDir)
-		for _, rule := range config.FrameworkResolvers(assumed) {
-			s.Resolvers = append(s.Resolvers, rule.Parser())
-		}
+		assumed := config.Assumed(folders, fsys.ReadFile, fsys.ReadDir)
 
-		s.ImplicitExtends = config.ImplicitExtends(assumed)
-		s.HelperScope = config.HelperScope(assumed)
-		s.Stubs = frameworkapi.For(assumed)
-
-		return s, assumed
+		return resolve.SettingsFromConfig(assumed, folders), assumed.Frameworks
 	}
 
-	for _, r := range cfg.ComponentResolvers() {
-		s.Resolvers = append(s.Resolvers, r.Parser())
-	}
-
-	s.CallerInferenceLimits = cfg.CallerInferenceLimits()
-	s.Mappings = cfg.Mappings()
-	s.StartupFiles = cfg.StartupFiles()
-	s.ExpressionMappings = cfg.ExpressionMappings()
-	s.BeanPaths = cfg.BeanPaths()
-	s.PropertyResolvers = configPropertyResolvers(cfg)
-	s.ServicePropertyResolvers = cfg.ServicePropertyResolvers()
-	s.InterpolateAllText = !cfg.ResolvedFeatures().OutputContextInterpolation
-	s.ImplicitExtends = config.ImplicitExtends(cfg.Frameworks())
-	s.HelperScope = config.HelperScope(cfg.Frameworks())
-	s.Stubs = frameworkapi.For(cfg.Frameworks())
-
-	return s, nil
+	return resolve.SettingsFromConfig(cfg.Resolved(), folders), nil
 }
 
 // workspaceResolver is the resolver the bulk commands that take paths (deps,

@@ -49,9 +49,9 @@ func reasonsWithOptions(t *testing.T, r *Resolver, dir, page string, opts func(f
 			return err
 		}
 
-		r.Index.IndexFileWithOptions(cfpath.ToURI(p), string(data), &parser.ParseOptions{
+		r.Index.IndexParsed(cfpath.ToURI(p), string(data), parser.ParseWithOptions(cfpath.ToURI(p), string(data), &parser.ParseOptions{
 			BeanLookup: r.Index.LookupBean,
-		})
+		}))
 
 		return nil
 	})

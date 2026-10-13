@@ -1,9 +1,6 @@
 package server
 
-import (
-	"github.com/cfmleditor/clif/internal/config"
-	"github.com/cfmleditor/clif/internal/route"
-)
+import "github.com/cfmleditor/clif/internal/config"
 
 // Settings is the per-session configuration a Server needs, gathered in one
 // place so that every way of starting a session applies the same set.
@@ -17,63 +14,24 @@ import (
 // because an unset mapping is indistinguishable from a genuinely dynamic
 // expression.
 //
-// Adding a config key now means adding a field here and a line in Apply,
-// rather than remembering three call sites.
+// The configuration itself is [config.Resolved], embedded: a new key reaches every
+// session by being added there once, and not by also remembering a field here
+// and a line in Apply.
 type Settings struct {
-	CallerInferenceLimits config.CallerInferenceLimits
+	config.Resolved
 	// ConfigPath is the .clif.json these settings were read from, empty
 	// when the daemon's own walk found none. It is what tells a session
 	// whether its configuration has already been discovered for it — see
 	// handleInitialize.
-	ConfigPath               string
-	WorkspaceFolders         []string
-	IndexGlobs               []string
-	Mappings                 map[string]string
-	StartupFiles             []string
-	ExpressionMappings       map[string]string
-	ServicePropertyResolvers map[string]string
-	Routes                   route.Config
-	CodeMap                  config.CodeMap
-	KnownIssues              []config.KnownIssues
-	ComponentResolvers       []config.Resolver
-	PropertyResolvers        []config.PropResolver
-	BeanPaths                map[string]string
-	Frameworks               []string
-	Formatting               config.ResolvedFormatting
-	Features                 config.ResolvedFeatures
-	Linting                  bool
-	LintMinSeverity          string
-	References               bool
-	TagSnippets              bool
-	FunctionSnippets         bool
-	GlobalFunctionResolution bool
-	DocBlock                 config.ResolvedDocBlock
+	ConfigPath string
 }
 
 // Apply copies the settings onto a freshly created Server.
 func (set *Settings) Apply(s *Server) {
-	s.CallerInferenceLimits = set.CallerInferenceLimits
 	s.ConfigPath = set.ConfigPath
-	s.WorkspaceFolders = set.WorkspaceFolders
-	s.IndexGlobs = set.IndexGlobs
-	s.Mappings = set.Mappings
-	s.StartupFiles = set.StartupFiles
-	s.ExpressionMappings = set.ExpressionMappings
-	s.ServicePropertyResolvers = set.ServicePropertyResolvers
-	s.Routes = set.Routes
-	s.CodeMap = set.CodeMap
-	s.KnownIssues = set.KnownIssues
-	s.ComponentResolvers = append(s.ComponentResolvers, set.ComponentResolvers...)
-	s.PropertyResolvers = append(s.PropertyResolvers, set.PropertyResolvers...)
-	s.BeanPaths = set.BeanPaths
-	s.Frameworks = set.Frameworks
-	s.Formatting = set.Formatting
-	s.Features = set.Features
-	s.Linting = set.Linting
-	s.LintMinSeverity = set.LintMinSeverity
-	s.References = set.References
-	s.TagSnippets = set.TagSnippets
-	s.FunctionSnippets = set.FunctionSnippets
-	s.GlobalFunctionResolution = set.GlobalFunctionResolution
-	s.DocBlock = set.DocBlock
+
+	// On a server nothing has configured yet, the layered application of a
+	// resolved config (fill what is unset, append resolvers) is an assignment,
+	// and it is the one place the fields are copied.
+	s.applyConfig(&set.Resolved)
 }

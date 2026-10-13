@@ -791,7 +791,9 @@ func (r *Resolver) EnsureIndexed(cfcPath string) []*parser.FunctionDef {
 			return nil
 		}
 
-		r.Index.IndexFileWithOptions(cfcURI, text, &parser.ParseOptions{Resolvers: r.Resolvers, SetterLookup: r.SetterLookup(cfcPath), ConstructorLookup: r.ConstructorLookup(cfcPath), BeanLookup: r.InjectionBeanLookup(cfcPath), PropertyBeanLookup: r.InjectionPropertyLookup(cfcPath)})
+		// Indexed as a batch run indexes it (IndexForBatch), so a component's entry
+		// does not depend on whether a scan or a lookup reached it first.
+		r.Index.IndexParsed(cfcURI, text, r.ParseFile(cfcPath, text, IndexSpec()))
 	}
 
 	return r.Index.FunctionsForFile(cfcURI)

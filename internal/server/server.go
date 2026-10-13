@@ -14,7 +14,6 @@ import (
 	"github.com/cfmleditor/clif/internal/cache"
 	"github.com/cfmleditor/clif/internal/cflint"
 	"github.com/cfmleditor/clif/internal/config"
-	"github.com/cfmleditor/clif/internal/frameworkapi"
 	"github.com/cfmleditor/clif/internal/index"
 	cflog "github.com/cfmleditor/clif/internal/log"
 	"github.com/cfmleditor/clif/internal/parser"
@@ -29,10 +28,15 @@ import (
 
 // Server implements the CFML Language Server Protocol handler.
 type Server struct {
-	CallerInferenceLimits config.CallerInferenceLimits
-	conn                  jsonrpc2.Conn
-	log                   cflog.Logger
-	initialized           bool
+	// The configuration, as config.Resolved reads it: mappings, resolvers, bean
+	// paths, frameworks, formatting, features, linting and the rest. It is
+	// embedded so the server holds the one definition of what a config key
+	// is; the same fields were declared here a third time.
+	config.Resolved
+
+	conn        jsonrpc2.Conn
+	log         cflog.Logger
+	initialized bool
 	// watchedFilesDynamic records whether the client accepted, at initialize,
 	// that it can be asked to watch files. Written by handleInitialize and read
 	// by handleInitialized, which the protocol orders strictly after it on the
@@ -54,62 +58,40 @@ type Server struct {
 	// inside the main lock would put an ordering constraint on almost every
 	// path. Nothing taken while holding rootsMu takes another lock, so it
 	// cannot participate in a cycle.
-	rootsMu                  sync.RWMutex
-	workspaceRoots           []string
-	WorkspaceFolders         []string             // project folders from config
-	IndexGlobs               []string             // optional glob filters (absolute paths)
-	Mappings                 map[string]string    // component path mappings (key -> abs path)
-	StartupFiles             []string             // configured startup templates (abs paths)
-	ExpressionMappings       map[string]string    // runtime expression → static value substitutions
-	ServicePropertyResolvers map[string]string    // "@serviceproperty" annotation kind → dot-path template
-	Routes                   route.Config         // framework routing convention (see internal/route)
-	CodeMap                  config.CodeMap       // entry and utility globs for clif.generateCodeMap
-	KnownIssues              []config.KnownIssues // files of documented findings published as diagnostics
+	rootsMu        sync.RWMutex
+	workspaceRoots []string
 
 	// diag holds every diagnostic this session has published, per file and
 	// source; see diagnostics.go.
-	diag                     diagnosticStore
-	exporting                sync.Map                  // report kinds with an export running (see handleExport)
-	ComponentResolvers       []config.Resolver         // custom method-to-component resolvers
-	PropertyResolvers        []config.PropResolver     // custom property-to-component resolvers
-	resolverMu               sync.Mutex                // guards resolver, cachedResolvers, cachedResolverSet
-	routeMu                  sync.Mutex                // guards cachedRoutes
-	cachedRoutes             *route.Resolver           // memoised; dropped by invalidateRoutes
-	routeScanKey             string                    // content hash the scan below was taken from
-	routeScanRefs            []route.Ref               // memoised whole-document scan; see routeLinks
-	cachedResolvers          []parser.Resolver         // cached parser.Resolver slice
-	cachedResolverSet        *parser.ResolverSet       // pre-grouped for fast matching
-	BeanPaths                map[string]string         // namespace → abs directory path for bean scanning
-	Frameworks               []string                  // framework presets (config.FrameworkResolvers adds their resolvers)
-	Formatting               config.ResolvedFormatting // formatting settings
-	Features                 config.ResolvedFeatures   // per-capability off switches (all default on)
-	Linting                  bool                      // enable cflint diagnostics
-	LintMinSeverity          string                    // CFLint severity floor ("" reports everything)
-	DocBlock                 config.ResolvedDocBlock   // what a `/**` expands to (see config.DocBlock)
-	References               bool                      // answer textDocument/references (opt-in; see config.References)
-	ConfigPath               string                    // the .clif.json the daemon configured this session from, if any
-	TagSnippets              bool                      // insert snippets for tags
-	FunctionSnippets         bool                      // insert snippets for functions
-	GlobalFunctionResolution bool                      // resolve unqualified functions via global index
-	changeCount              map[uri.URI]int           // rapid change counter per file
-	changeWindowStart        map[uri.URI]time.Time     // start of current rapid-change window
-	mappingJSONFiles         map[string]bool
-	mappingJSONDirs          map[string]bool
-	discoveryDependencies    *resolve.DiscoveryDependencies
-	beansResolver            *resolve.Resolver // resolver whose bean roots the index contains
-	index                    *index.Index
-	resolver                 *resolve.Resolver
-	linter                   *cflint.Runner
-	lintCancels              map[uri.URI]context.CancelFunc
-	compCache                *cache.Cache
-	funcRanges               map[uri.URI][]cache.FuncRange   // cached function line ranges per file
-	cacheTimers              map[uri.URI]*time.Timer         // debounce timers for completion cache rebuild
-	reindexTimers            map[uri.URI]*time.Timer         // deferred-reparse timers; see scheduleReparse
-	reparsePending           map[uri.URI]bool                // documents whose ParseResult lags their text; see flushReparse
-	docLocks                 map[uri.URI]*sync.Mutex         // serialises access to each document's ParseResult
-	parseResults             map[uri.URI]*parser.ParseResult // cached parse results per file
-	lastResolveKey           string                          // dedup key for hover/definition (uri:line:char)
-	lastResolveDef           *parser.FunctionDef             // cached result
+	diag                  diagnosticStore
+	exporting             sync.Map              // report kinds with an export running (see handleExport)
+	resolverMu            sync.Mutex            // guards resolver, cachedResolvers, cachedResolverSet
+	routeMu               sync.Mutex            // guards cachedRoutes
+	cachedRoutes          *route.Resolver       // memoised; dropped by invalidateRoutes
+	routeScanKey          string                // content hash the scan below was taken from
+	routeScanRefs         []route.Ref           // memoised whole-document scan; see routeLinks
+	cachedResolvers       []parser.Resolver     // cached parser.Resolver slice
+	cachedResolverSet     *parser.ResolverSet   // pre-grouped for fast matching
+	ConfigPath            string                // the .clif.json the daemon configured this session from, if any
+	changeCount           map[uri.URI]int       // rapid change counter per file
+	changeWindowStart     map[uri.URI]time.Time // start of current rapid-change window
+	mappingJSONFiles      map[string]bool
+	mappingJSONDirs       map[string]bool
+	discoveryDependencies *resolve.DiscoveryDependencies
+	beansResolver         *resolve.Resolver // resolver whose bean roots the index contains
+	index                 *index.Index
+	resolver              *resolve.Resolver
+	linter                *cflint.Runner
+	lintCancels           map[uri.URI]context.CancelFunc
+	compCache             *cache.Cache
+	funcRanges            map[uri.URI][]cache.FuncRange   // cached function line ranges per file
+	cacheTimers           map[uri.URI]*time.Timer         // debounce timers for completion cache rebuild
+	reindexTimers         map[uri.URI]*time.Timer         // deferred-reparse timers; see scheduleReparse
+	reparsePending        map[uri.URI]bool                // documents whose ParseResult lags their text; see flushReparse
+	docLocks              map[uri.URI]*sync.Mutex         // serialises access to each document's ParseResult
+	parseResults          map[uri.URI]*parser.ParseResult // cached parse results per file
+	lastResolveKey        string                          // dedup key for hover/definition (uri:line:char)
+	lastResolveDef        *parser.FunctionDef             // cached result
 }
 
 // NewServer creates a new LSP server. If sharedIndex is non-nil it is used
@@ -454,22 +436,14 @@ func (s *Server) getResolver() *resolve.Resolver {
 		s.logPresetSuggestion()
 		frameworks := s.effectiveFrameworks()
 
-		s.resolver = resolve.NewResolver(s.FS, s.index, &resolve.Settings{
-			CallerInferenceLimits: s.CallerInferenceLimits,
-			Resolvers:             s.buildResolvers(),
-			Mappings:              s.Mappings,
-			StartupFiles:          s.StartupFiles,
-			ExpressionMappings:    s.ExpressionMappings,
-			BeanPaths:             s.BeanPaths,
-			WorkspaceFolders:      s.searchRoots(),
-			ImplicitExtends:       config.ImplicitExtends(frameworks),
-			HelperScope:           config.HelperScope(frameworks),
-			Stubs:                 frameworkapi.For(frameworks),
-
-			PropertyResolvers:        s.cfPropertyResolvers(),
-			ServicePropertyResolvers: s.ServicePropertyResolvers,
-			InterpolateAllText:       !s.Features.OutputContextInterpolation,
-		})
+		// The session's configuration as the batch commands read theirs, with the
+		// frameworks it effectively has (assumed ones when no config names any)
+		// and the resolver set the server keeps built, discovery's included.
+		cfg := s.Resolved
+		cfg.Frameworks = frameworks
+		settings := resolve.SettingsFromConfig(&cfg, s.searchRoots())
+		settings.Resolvers = s.buildResolvers()
+		s.resolver = resolve.NewResolver(s.FS, s.index, &settings)
 		s.resolver.Discovery = s.discoveryDependencies
 		// Saves, watched-file events and edits all reach the index.
 		s.resolver.IndexTracksFiles = true
@@ -800,10 +774,7 @@ func (s *Server) buildResolvers() []parser.Resolver {
 		return nil
 	}
 
-	r := make([]parser.Resolver, len(rules))
-	for i, cr := range rules {
-		r[i] = cr.Parser()
-	}
+	r := config.ParserResolvers(rules)
 
 	// Discovery uses a private index: parsing startup files while holding
 	// resolverMu must not re-enter the server's shared index locks.
@@ -835,19 +806,6 @@ func (s *Server) effectiveFrameworks() []string {
 	discoveryFS := resolve.TrackDiscoveryFS(s.FS, s.discoveryDependencies)
 
 	return config.AssumedFrameworks(s.searchRoots(), discoveryFS.ReadFile, discoveryFS.ReadDir)
-}
-
-func (s *Server) cfPropertyResolvers() []parser.PropertyResolver {
-	if len(s.PropertyResolvers) == 0 {
-		return nil
-	}
-
-	r := make([]parser.PropertyResolver, len(s.PropertyResolvers))
-	for i, pr := range s.PropertyResolvers {
-		r[i] = parser.PropertyResolver{Match: pr.Match, Resolve: pr.Resolve, Attribute: pr.Attribute}
-	}
-
-	return r
 }
 
 // parseContent parses CFC content with all configured resolvers and link

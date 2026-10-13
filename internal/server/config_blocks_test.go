@@ -136,3 +136,69 @@ func write(t *testing.T, path, content string) {
 		t.Fatalf("writing %s: %v", path, err)
 	}
 }
+
+// TestTheEditorMapsAConfigsOwnFolderAsTheCommandLineDoes: a config read from a
+// file maps the folder holding it under its own name, so `myapp.models.User`
+// resolves from a config in a folder called myapp whether or not workspacePaths
+// lists the folder. The command line applied this; the editor did not.
+func TestTheEditorMapsAConfigsOwnFolderAsTheCommandLineDoes(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "myapp")
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+
+	write(t, filepath.Join(dir, ".clif.json"), `{"mappings":{"shared":"./shared"}}`)
+
+	srv := newTestServer()
+	srv.WorkspaceFolders = []string{dir}
+	srv.addWorkspaceRoot(dir)
+
+	if _, cfg := srv.governingConfig(); cfg == nil {
+		t.Fatal("the test config was not found; the assertions below would pass vacuously")
+	}
+
+	srv.configureSession(nil)
+
+	if got := srv.Mappings["myapp"]; got != dir {
+		t.Errorf("the config's own folder is not mapped under its name: %v", srv.Mappings)
+	}
+
+	if srv.Mappings["shared"] == "" {
+		t.Errorf("an explicit mapping was lost: %v", srv.Mappings)
+	}
+}
+
+// TestTheEditorHonoursWorkspacePathsAsADaemonSessionDoes: workspacePaths is the
+// project's folders. A daemon session was handed them; a standalone session read
+// the config for everything but them and indexed whatever folders the editor
+// had open, so one config indexed different code depending on how the editor
+// was started.
+func TestTheEditorHonoursWorkspacePathsAsADaemonSessionDoes(t *testing.T) {
+	root := t.TempDir()
+	app, lib := filepath.Join(root, "app"), filepath.Join(root, "lib")
+
+	for _, d := range []string{app, lib} {
+		if err := os.MkdirAll(d, 0o750); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	write(t, filepath.Join(app, ".clif.json"), `{"workspacePaths":[".","../lib"],"workspaceIndexGlobs":["lib/**/*.cfc"]}`)
+
+	srv := newTestServer()
+	srv.addWorkspaceRoot(app)
+
+	if _, cfg := srv.governingConfig(); cfg == nil {
+		t.Fatal("the test config was not found; the assertions below would pass vacuously")
+	}
+
+	srv.configureSession(nil)
+
+	if len(srv.WorkspaceFolders) != 2 || srv.WorkspaceFolders[1] != lib {
+		t.Errorf("workspacePaths did not reach the session: %v", srv.WorkspaceFolders)
+	}
+
+	if len(srv.IndexGlobs) != 1 || srv.IndexGlobs[0] != lib+"/**/*.cfc" {
+		t.Errorf("workspaceIndexGlobs did not reach the session: %v", srv.IndexGlobs)
+	}
+}

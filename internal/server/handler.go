@@ -18,6 +18,7 @@ import (
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
 	"github.com/cfmleditor/clif/internal/refs"
+	"github.com/cfmleditor/clif/internal/resolve"
 	"go.lsp.dev/jsonrpc2"
 	"go.lsp.dev/protocol"
 	"go.lsp.dev/uri"
@@ -792,7 +793,10 @@ func (s *Server) reindexIfCFC(docURI uri.URI, content string) {
 		return
 	}
 
-	s.index.IndexFile(docURI, content)
+	// Indexed with the workspace's rules, as every other door indexes a
+	// component; a bare parse typed nothing a resolver or a setter would.
+	path := cfpath.FromURI(string(docURI))
+	s.index.IndexParsed(docURI, content, s.getResolver().ParseFile(path, content, resolve.IndexSpec()))
 }
 
 // reindexFromParseResult updates the index using an existing ParseResult.

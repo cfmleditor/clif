@@ -37,7 +37,7 @@ func (s *Server) scanFiles() []string {
 			}
 
 			if info.IsDir() {
-				if path != folder && skipScanDir(info.Name()) {
+				if path != folder && cfpath.SkipScanDir(info.Name()) {
 					return filepath.SkipDir
 				}
 

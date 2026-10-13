@@ -124,7 +124,7 @@ everywhere; read both.** README.md's "Formerly cfmleditor-lsp" lists each pair.
 The fallbacks live in one place each, with a test that fails if it goes:
 
 - config file: `config.FileNames` (`.clif.json` before `.cfmleditor.json`), used by
-  `daemon.FindConfig`, `Server.findConfigUpwards`, `loadResolversFromConfig` and the
+  `daemon.FindConfig`, `Server.findConfigUpwards` and the
   code map's config preload. `TestFindConfigPrefersClifJSON`, `TestAClifConfigOutranksALegacyOne`.
 - commands: `canonicalCommand` maps `cfmleditor.X` to `clif.X` before dispatch; only
   `clif.*` is advertised. `TestLegacyCommandNamesStillRun`, `TestOnlyTheNewCommandNamesAreAdvertised`.
@@ -784,9 +784,29 @@ mapping, Lucee detection); `NewBatchResolver` adds snapshot mode and `CacheMetad
 discovery and `IndexTracksFiles`. `Resolver.Settings()` reads a resolver back for a tool that builds
 another run from it (the editor's export of the unresolved report, which also infers arguments as the CLI
 does). The code map's `FileConfig` is the resolver and its routes and nothing else: the six fields it
-copied from the resolver are gone, and so is `refs`' own bean lookup, its parse, and `loadResolversFromConfig`.
-`TestConfigAccessorsAgreeWithResolve` pins the CLI's reading of `.clif.json` (`daemon.Config`) to the
-editor's (`config.Resolve`).
+copied from the resolver are gone, and so is `refs`' own bean lookup and its parse.
+
+**A `.clif.json` is read one way: `config.ResolveFile`.** The command line (`daemon.Config`), the daemon
+(`daemon.SettingsFrom`) and the standalone editor (`configureSession`) all resolve a config file through it,
+which is `config.Resolve` plus the one thing only a file has: the folder holding it maps under its own
+name (`ImpliedMapping`). `daemon.Config` is `Resolved()` and one-line delegates; `server.Settings` and
+`Server` both embed `config.Resolved`, so a config key is added once, to `Resolved`, and reaches the CLI,
+every daemon session and the standalone editor. A project with no config is `config.Assumed` (the framework
+its source is, as a `Resolved`), and `resolve.SettingsFromConfig` turns any `Resolved` into the resolver's
+settings: the batch commands and the editor's `getResolver` both call it, and `unresolved.Options` embeds
+`resolve.Settings` instead of repeating its fields. Things that moved with it, each with a test that
+fails without it: an absent `formatting` block resolves to the documented defaults, not the zero value that
+left the whitespace-only guard off (`TestResolve_FormattingAbsentIsTheDocumentedDefaults`); the standalone
+editor applies the implied mapping (`TestTheEditorMapsAConfigsOwnFolderAsTheCommandLineDoes`) and takes
+`workspacePaths` and `workspaceIndexGlobs`, which it ignored, from the config
+(`TestTheEditorHonoursWorkspacePathsAsADaemonSessionDoes`). The server's `restoreUnmentionedBlocks` decides
+from the JSON (`merged.Formatting == nil`), not from `Resolved`, which is why the formatting default is safe.
+
+**Walking a workspace is `cfpath.CollectCFML`**, with the skip rule in `cfpath.SkipScanDir` (below): the CLI,
+the code map, the editor's scans and `refs` each had a walker, two with their own copy of the rule and one
+with none. Component indexing is one door, `Index.IndexParsed` over `Resolver.ParseFile` with `IndexSpec`
+(a batch run, the lazy `EnsureIndexed` and the editor's re-index on save); `Index.IndexFile` is the bare
+parse with no workspace rules, for the index package's own fixtures.
 
 **`refs` is the same question everywhere.** `refs.Options` takes the workspace's `Resolver`: a call's
 component must define the function, and with a `SourceFile` be the one searched for, and `Explain` gives an
@@ -796,9 +816,6 @@ CLI drops 2 of 113 hits for `getInstance` and 3 of 78 for `announce`, calls on a
 (`controller.getInterceptorService().announce()`) that the old code credited to the wrong component. A
 component the resolver cannot locate defines nothing, so its calls are dropped too, as the editor always
 did. `TestRefsVerifiesAHitAgainstItsComponent`.
-**Still a fork, a decision rather than a refactor:** the CLI maps the folder holding `.clif.json` under
-its own name (`daemon.Config.Mappings`) where `config.Resolve` does not.
-
 After the change the map's unresolved count equals `unresolved`'s exactly on Masa (3,786 with
 inference, 5,417 without), ColdBox (3,974, 3,981) and TestBox (929, 976), and `unresolved`'s own
 output is byte-identical to before. Differences that remain are on purpose: `deps` parses with its
@@ -901,7 +918,7 @@ real workspace (`init`, `add`, `close`, `get`, `isValid`, the `onXxx` handlers) 
 both declared functions and something `isBuiltin` recognises. Testing the name
 first discarded every bare call to them before anything looked for a definition.
 
-**`collectCFMLFiles` skips every dot-directory**, not a list of named ones. The list
+**`cfpath.SkipScanDir` skips every dot-directory**, not a list of named ones. The list
 was `.git`/`.svn`/`node_modules`/`target`/`vendor`, and on a real workspace it let in
 `.claude/worktrees` — git worktrees holding a complete second copy of the codebase,
 which doubled every count and added thousands of phantom entries to the unreferenced
@@ -2032,8 +2049,7 @@ component { function init(...) {} function methodName(required type argName) {} 
 Set `"javaStubsPath": "<dot.path.to.stubs>"` to auto-resolve any `createObject("java",
 "some.Class.Name")` to `<javaStubsPath>.some.Class.Name` without hand-writing the equivalent
 regex resolver — it's synthesized and appended alongside your own `componentResolvers`
-(`config.JavaStubResolver`, wired in `config.Resolve`, `daemon.Config.ComponentResolvers`, and
-`cmd/clif/cliutil.go: loadResolversFromConfig`). It covers the `createObject("java",
+(`config.JavaStubResolver`, wired in `config.Resolve`, which every reader of a config goes through). It covers the `createObject("java",
 ...)` call site and Lucee's `new java:some.Class.Name()` — the latter because
 `readNewComponent` recognises the `java:` type prefix and re-spells it as the equivalent
 `createObject` expression before resolving, rather than a second resolver existing for it.

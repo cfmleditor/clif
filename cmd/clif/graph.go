@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	cfpath "github.com/cfmleditor/clif/internal/path"
+
 	"github.com/cfmleditor/clif/internal/codemap"
 	"github.com/cfmleditor/clif/internal/codemap/store"
 	"github.com/cfmleditor/clif/internal/config"
@@ -247,7 +249,7 @@ func buildGraph(f *graphFlags) (*codemap.Map, error) {
 	f.utilGlobs = append(slices.Clone(settings.Utility), f.utilGlobs...)
 	f.hideUtility = f.hideUtility || settings.HideUtility
 
-	files := collectCFMLFiles(fsys, scanRoots)
+	files := cfpath.CollectCFML(fsys, scanRoots)
 	if len(files) == 0 {
 		return nil, fmt.Errorf("no CFML files found under %s", strings.Join(scanRoots, ", "))
 	}

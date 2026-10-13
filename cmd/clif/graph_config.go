@@ -14,7 +14,6 @@ import (
 	"github.com/cfmleditor/clif/internal/config"
 	"github.com/cfmleditor/clif/internal/daemon"
 	"github.com/cfmleditor/clif/internal/index"
-	"github.com/cfmleditor/clif/internal/parser"
 	"github.com/cfmleditor/clif/internal/resolve"
 	"github.com/cfmleditor/clif/internal/route"
 	"github.com/cfmleditor/clif/internal/vfs"
@@ -255,16 +254,4 @@ func routeResolver(fsys vfs.FS, resolver *resolve.Resolver, cfg *daemon.Config) 
 			},
 		},
 	}
-}
-
-// configPropertyResolvers is cfg's propertyResolvers in the parser's form.
-func configPropertyResolvers(cfg *daemon.Config) []parser.PropertyResolver {
-	triples := cfg.PropertyResolvers()
-	out := make([]parser.PropertyResolver, 0, len(triples))
-
-	for _, p := range triples {
-		out = append(out, parser.PropertyResolver{Match: p[0], Resolve: p[1], Attribute: p[2]})
-	}
-
-	return out
 }

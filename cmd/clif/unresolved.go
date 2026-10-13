@@ -268,7 +268,7 @@ func scanUnresolved(args []string, fl *unresolvedFlags) (unresolved.Report, *dae
 		scanRoots = opt.WorkspaceFolders
 	}
 
-	files := collectCFMLFiles(fsys, scanRoots)
+	files := cfpath.CollectCFML(fsys, scanRoots)
 
 	scanFiles := scanTargets(fsys, args, configuredRoots)
 
@@ -286,7 +286,9 @@ func unresolvedOptions(cfg *daemon.Config, args []string, fl *unresolvedFlags) *
 	}
 
 	settings, assumed := batchSettings(vfs.OS{}, cfg, opt.WorkspaceFolders)
-	opt.UseSettings(&settings)
+	// The native engine is a command-line choice, not the configuration's.
+	settings.NativeEngine = fl.nativeEngine
+	opt.Settings = settings
 
 	if cfg != nil {
 		if unknown := config.UnknownFrameworks(cfg.Frameworks()); len(unknown) > 0 {
@@ -413,59 +415,6 @@ func reportRoots(args []string, configDir string) []string {
 	return confine.Roots(dirs...)
 }
 
-func collectCFMLFiles(fsys vfs.FS, roots []string) []string {
-	var files []string
-
-	for _, root := range roots {
-		_ = fsys.Walk(root, func(path string, info os.FileInfo, err error) error {
-			if err != nil {
-				return err
-			}
-
-			if info.IsDir() {
-				if path != root && skipDir(info.Name()) {
-					return filepath.SkipDir
-				}
-
-				return nil
-			}
-
-			if cfpath.IsCFMLFile(path) {
-				files = append(files, path)
-			}
-
-			return nil
-		})
-	}
-
-	return files
-}
-
-// skipDir reports whether a directory is one no scan should descend into.
-//
-// Every dot-directory is skipped, not a hand-kept list of them. The list was
-// ".git", ".svn", "node_modules", "target" and "vendor", and on a real workspace
-// it let in ".claude/worktrees" — git worktrees living inside the project, each a
-// complete second copy of the codebase. A whole-project map built over that counts
-// every component twice, reports every function as having a mysterious duplicate,
-// and inflates the unreferenced list with thousands of entries from a checkout
-// nobody is editing. The same applies to any other tool's dot-directory, which is
-// why this is a rule rather than another name on a list.
-//
-// The root itself is exempt, so pointing a scan at a dot-directory still works.
-func skipDir(name string) bool {
-	if strings.HasPrefix(name, ".") && name != "." && name != ".." {
-		return true
-	}
-
-	switch name {
-	case "node_modules", "target", "vendor", "bower_components":
-		return true
-	default:
-		return false
-	}
-}
-
 // presetHint suggests the framework presets the project's box.json implies
 // and its config does not name — how a project finds out a preset exists.
 // It reads box.json beside the config, or in the scanned directory without one.
@@ -516,7 +465,7 @@ func scanTargets(fsys vfs.FS, args []string, indexWiderThanArgs bool) []string {
 	}
 
 	if indexWiderThanArgs {
-		return collectCFMLFiles(fsys, abs)
+		return cfpath.CollectCFML(fsys, abs)
 	}
 
 	var files []string

@@ -486,24 +486,14 @@ func remap[T comparable](entries []T, reps []replacement[T]) {
 }
 
 // IndexFile parses the given CFC content and updates the index for that file URI.
+//
+// It parses with no workspace rules: no resolver, mapping or lookup. That is
+// right for the index package's own fixtures and wrong for a workspace, where
+// the one way to index a component is a parse by the resolver
+// ([resolve.Resolver.ParseFile] with IndexSpec) handed to [Index.IndexParsed];
+// the editor, the batch commands and the lazy lookup all do that.
 func (idx *Index) IndexFile(fileURI uri.URI, content string) {
 	pr := parser.Parse(fileURI, content)
-	idx.indexParseResult(fileURI, content, pr)
-}
-
-// IndexFileWithResolvers parses and indexes a CFC using the component
-// resolvers that govern its workspace. Batch tools use this entry point so a
-// resolver-typed function return survives into callers parsed later; the
-// ordinary IndexFile remains the cheap/default path for callers with no
-// configured resolvers.
-func (idx *Index) IndexFileWithResolvers(fileURI uri.URI, content string, resolvers []parser.Resolver) {
-	pr := parser.Parse(fileURI, content, resolvers)
-	idx.indexParseResult(fileURI, content, pr)
-}
-
-// IndexFileWithOptions indexes with the same dependency typing as the editor.
-func (idx *Index) IndexFileWithOptions(fileURI uri.URI, content string, opts *parser.ParseOptions) {
-	pr := parser.ParseWithOptions(fileURI, content, opts)
 	idx.indexParseResult(fileURI, content, pr)
 }
 

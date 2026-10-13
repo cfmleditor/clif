@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 
+	cfpath "github.com/cfmleditor/clif/internal/path"
+
 	"github.com/cfmleditor/clif/internal/deps"
 	"github.com/cfmleditor/clif/internal/graph"
 	"github.com/cfmleditor/clif/internal/index"
@@ -60,7 +62,7 @@ func cmdDeps(args []string) {
 
 	fsys := vfs.OS{}
 
-	files := collectCFMLFiles(fsys, args)
+	files := cfpath.CollectCFML(fsys, args)
 	if len(files) == 0 {
 		fmt.Fprintf(os.Stderr, "no CFML files found\n")
 		os.Exit(1)

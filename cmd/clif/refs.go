@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	cfpath "github.com/cfmleditor/clif/internal/path"
+
 	"github.com/cfmleditor/clif/internal/refs"
 	"github.com/cfmleditor/clif/internal/vfs"
 )
@@ -54,7 +56,7 @@ func cmdRefs(args []string) {
 	}
 
 	fsys := vfs.OS{}
-	resolver := workspaceResolver(dirs, collectCFMLFiles(fsys, dirs))
+	resolver := workspaceResolver(dirs, cfpath.CollectCFML(fsys, dirs))
 
 	isComponentTarget := strings.Contains(target, ".")
 

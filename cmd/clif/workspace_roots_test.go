@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	cfpath "github.com/cfmleditor/clif/internal/path"
+
 	"github.com/cfmleditor/clif/internal/daemon"
 	"github.com/cfmleditor/clif/internal/resolve"
 	"github.com/cfmleditor/clif/internal/unresolved"
@@ -46,7 +48,7 @@ func TestUnresolvedConfigRetainsArgumentWorkspace(t *testing.T) {
 	root, tools := workspaceFixture(t)
 	folders := []string{root, tools}
 	fsys := vfs.OS{}
-	before := unresolved.Scan(fsys, collectCFMLFiles(fsys, folders), nil, unresolvedOptions(nil, folders, &unresolvedFlags{}))
+	before := unresolved.Scan(fsys, cfpath.CollectCFML(fsys, folders), nil, unresolvedOptions(nil, folders, &unresolvedFlags{}))
 
 	for _, settings := range []string{`{}`, `{"frameworks":["testbox"]}`} {
 		if err := os.WriteFile(filepath.Join(root, ".cfmleditor.json"), []byte(settings), 0o600); err != nil {
@@ -60,7 +62,7 @@ func TestUnresolvedConfigRetainsArgumentWorkspace(t *testing.T) {
 
 		options := unresolvedOptions(cfg, folders, &unresolvedFlags{})
 
-		after := unresolved.Scan(fsys, collectCFMLFiles(fsys, folders), nil, options)
+		after := unresolved.Scan(fsys, cfpath.CollectCFML(fsys, folders), nil, options)
 		if !reflect.DeepEqual(before.Calls, after.Calls) || before.Resolved != after.Resolved || before.Indexed != after.Indexed || before.Scanned != after.Scanned {
 			t.Fatalf("config without workspacePaths changed lookup or coverage: before=%+v after=%+v", before, after)
 		}
@@ -143,7 +145,7 @@ func TestCLIResolutionCommandsShareDefaultRoots(t *testing.T) {
 	}
 
 	fsys := vfs.OS{}
-	files := collectCFMLFiles(fsys, []string{root})
+	files := cfpath.CollectCFML(fsys, []string{root})
 	deps := workspaceResolver([]string{root}, files)
 	mcp := newExplainEnv(fsys, root, true, &unresolvedFlags{}).resolver
 

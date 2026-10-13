@@ -32,7 +32,7 @@ func TestFactoryWrapperReturnsTheFinalComponent(t *testing.T) {
 	r.Index.SetBeans(cfpath.BuildBeanMap(r.BeanPaths, r.FS))
 	r.Resolvers = r.BeanResolvers(r.BeanPaths)
 	wrapper := filepath.Join(dir, "model", "beans", "Wrapper.cfc")
-	r.Index.IndexFileWithOptions(cfpath.ToURI(wrapper), sources["Wrapper"], &parser.ParseOptions{Resolvers: r.Resolvers, FuncLookup: r.FuncLookup(filepath.Dir(wrapper))})
+	r.Index.IndexParsed(cfpath.ToURI(wrapper), sources["Wrapper"], parser.ParseWithOptions(cfpath.ToURI(wrapper), sources["Wrapper"], &parser.ParseOptions{Resolvers: r.Resolvers, FuncLookup: r.FuncLookup(filepath.Dir(wrapper))}))
 
 	consumer := filepath.Join(dir, "Consumer.cfc")
 	pr := parser.ParseWithOptions(cfpath.ToURI(consumer), `component {

@@ -33,7 +33,7 @@ func scanSpeculative(fsys vfs.FS, files, targets []string, opt *Options) Report 
 	strict.SpeculativeRanked = false
 	strict.receiverRoles = opt.SpeculativeRanked
 	strict.unlimitedCandidates = opt.SpeculativeRanked
-	strict.speculativeReceivers = nil
+	strict.SpeculativeReceivers = nil
 	strict.Candidates = true
 	strict.Verbose = nil
 	baseline := Scan(fsys, files, targets, &strict)
@@ -76,7 +76,7 @@ func scanSpeculative(fsys vfs.FS, files, targets []string, opt *Options) Report 
 	guessed.Speculative = false
 	guessed.SpeculativeNative = false
 	guessed.SpeculativeRanked = false
-	guessed.speculativeReceivers = map[resolve.SpeculativeReceiver]string{}
+	guessed.SpeculativeReceivers = map[resolve.SpeculativeReceiver]string{}
 
 	var connections []SpeculativeConnection
 
@@ -114,7 +114,7 @@ func scanSpeculative(fsys vfs.FS, files, targets []string, opt *Options) Report 
 			}
 		}
 
-		guessed.speculativeReceivers[key] = g.component
+		guessed.SpeculativeReceivers[key] = g.component
 
 		connections = append(connections, SpeculativeConnection{
 			File: key.File, Line: g.first.Line, Caller: key.Caller, Variable: key.Variable,

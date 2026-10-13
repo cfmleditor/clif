@@ -5,7 +5,6 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -316,46 +315,10 @@ func parseCodeMapRequest(params []protocol.LSPAny) codeMapRequest {
 	return req
 }
 
-// collectWorkspaceCFMLFiles walks the roots for CFML files, skipping the
-// directories a scan has no business in — the same rule collectCFMLFiles uses in
-// the CLI, kept here rather than shared because the server walks through vfs.FS.
+// collectWorkspaceCFMLFiles walks the roots for CFML files, as the CLI does:
+// cfpath.CollectCFML.
 func collectWorkspaceCFMLFiles(s *Server, roots []string) []string {
-	var files []string
-
-	for _, root := range roots {
-		// An unreadable entry is skipped, not fatal: aborting the walk on one
-		// permission error would silently map a fraction of the workspace and
-		// report it as the whole thing.
-		_ = s.FS.Walk(root, func(path string, info os.FileInfo, err error) error {
-			if err == nil && info.IsDir() && path != root && skipScanDir(info.Name()) {
-				return filepath.SkipDir
-			}
-
-			if err == nil && !info.IsDir() && cfpath.IsCFMLFile(path) {
-				files = append(files, path)
-			}
-
-			return nil
-		})
-	}
-
-	return files
-}
-
-// skipScanDir mirrors the CLI's rule: every dot-directory, plus the usual
-// dependency folders. A git worktree inside the project is a complete second copy
-// of the codebase and doubles every count in the map.
-func skipScanDir(name string) bool {
-	if strings.HasPrefix(name, ".") && name != "." && name != ".." {
-		return true
-	}
-
-	switch name {
-	case "node_modules", "target", "vendor", "bower_components":
-		return true
-	default:
-		return false
-	}
+	return cfpath.CollectCFML(s.FS, roots)
 }
 
 func (s *Server) notifyInfo(ctx context.Context, msg string) {

@@ -46,6 +46,35 @@ type Settings struct {
 	SpeculativeReceivers map[SpeculativeReceiver]string
 }
 
+// SettingsFromConfig is the resolution settings a resolved configuration
+// describes, over the given workspace folders. The command line (a config file,
+// or the framework a project is assumed to be) and the editor (the config its
+// session was started with, plus what the editor sent) both reduce to a
+// [config.Resolved], and this is the one place that becomes settings: what each
+// rule means, which framework's bases and helpers and bundled API apply.
+func SettingsFromConfig(r *config.Resolved, folders []string) Settings {
+	s := Settings{
+		CallerInferenceLimits:    r.CallerInferenceLimits,
+		Mappings:                 r.Mappings,
+		StartupFiles:             r.StartupFiles,
+		ExpressionMappings:       r.ExpressionMappings,
+		ServicePropertyResolvers: r.ServicePropertyResolvers,
+		PropertyResolvers:        config.ParserPropertyResolvers(r.PropertyResolvers),
+		BeanPaths:                r.BeanPaths,
+		WorkspaceFolders:         folders,
+		ImplicitExtends:          config.ImplicitExtends(r.Frameworks),
+		HelperScope:              config.HelperScope(r.Frameworks),
+		Stubs:                    frameworkapi.For(r.Frameworks),
+		InterpolateAllText:       !r.Features.OutputContextInterpolation,
+	}
+
+	if len(r.ComponentResolvers) > 0 {
+		s.Resolvers = config.ParserResolvers(r.ComponentResolvers)
+	}
+
+	return s
+}
+
 // NewBatchResolver is the resolver a batch run checks calls with, over idx.
 //
 // A batch run (a scan, an explain, the code map) reads files that do not change

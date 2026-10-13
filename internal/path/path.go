@@ -744,6 +744,65 @@ func IsCFMLFile(path string) bool {
 	return false
 }
 
+// SkipScanDir reports whether a directory is one no scan of a workspace should
+// descend into.
+//
+// Every dot-directory is skipped, not a hand-kept list of them. The list was
+// ".git", ".svn", "node_modules", "target" and "vendor", and on a real workspace
+// it let in ".claude/worktrees" — git worktrees living inside the project, each a
+// complete second copy of the codebase. A whole-project map built over that counts
+// every component twice, reports every function as having a mysterious duplicate,
+// and inflates the unreferenced list with thousands of entries from a checkout
+// nobody is editing. The same applies to any other tool's dot-directory, which is
+// why this is a rule rather than another name on a list.
+//
+// The root itself is exempt (callers test path != root), so pointing a scan at a
+// dot-directory, or at a vendored package, still works.
+func SkipScanDir(name string) bool {
+	if strings.HasPrefix(name, ".") && name != "." && name != ".." {
+		return true
+	}
+
+	switch name {
+	case "node_modules", "target", "vendor", "bower_components":
+		return true
+	default:
+		return false
+	}
+}
+
+// CollectCFML walks the roots for CFML files, skipping the directories
+// [SkipScanDir] names. The unresolved scan, the code map, the editor's scans and
+// find-references each walked on their own, with two copies of the rule and a
+// third walker that skipped nothing.
+//
+// An unreadable entry is skipped, not fatal: aborting a walk on one permission
+// error would silently scan a fraction of the workspace and report it as the
+// whole thing.
+func CollectCFML(fsys vfs.FS, roots []string) []string {
+	var files []string
+
+	for _, root := range roots {
+		_ = fsys.Walk(root, func(path string, info os.FileInfo, err error) error {
+			// An entry that could not be read, or a root that cannot be stat'ed
+			// (reported with a nil FileInfo), is neither descended into nor
+			// collected.
+			readable := err == nil && info != nil
+
+			switch {
+			case readable && info.IsDir() && path != root && SkipScanDir(info.Name()):
+				return filepath.SkipDir
+			case readable && !info.IsDir() && IsCFMLFile(path):
+				files = append(files, path)
+			}
+
+			return nil
+		})
+	}
+
+	return files
+}
+
 // IsCFCFile returns true if the path/URI refers to a CFC file.
 func IsCFCFile(path string) bool {
 	return len(path) > 4 && path[len(path)-4] == '.' &&

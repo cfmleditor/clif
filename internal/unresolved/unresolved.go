@@ -15,9 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cfmleditor/clif/internal/config"
 	"github.com/cfmleditor/clif/internal/conv"
-	"github.com/cfmleditor/clif/internal/frameworkapi"
 	"github.com/cfmleditor/clif/internal/index"
 	"github.com/cfmleditor/clif/internal/knownissues"
 	"github.com/cfmleditor/clif/internal/parser"
@@ -58,6 +56,12 @@ type Call struct {
 // Options is what a scan resolves with: the .clif.json settings that
 // shape parsing and resolution.
 type Options struct {
+	// Settings is what the scan resolves with: the configuration reduced to the
+	// plain fields a resolver is built from, the same ones every batch command
+	// and the editor build theirs from (resolve.SettingsFromConfig). The
+	// options used to repeat its fields and convert to and from it.
+	resolve.Settings
+
 	SpeculativeMethods  bool // opt-in direct global declaration shortcuts
 	methodTargets       bool
 	SpeculativeRanked   bool // opt-in unique best receiver-role candidate
@@ -66,67 +70,12 @@ type Options struct {
 	unlimitedCandidates bool
 	SpeculativeNative   bool // opt-in native family guesses, then primitive-family fallback
 
-	NativeEngine string // auto source-layout detection, or explicit generic/lucee
+	Speculative bool // opt-in sole-candidate receiver guesses; not source-proven
 
-	Speculative          bool // opt-in sole-candidate receiver guesses; not source-proven
-	speculativeReceivers map[resolve.SpeculativeReceiver]string
-
-	CallerInferenceLimits    config.CallerInferenceLimits
-	Resolvers                []parser.Resolver
-	Mappings                 map[string]string
-	StartupFiles             []string
-	ExpressionMappings       map[string]string
-	ServicePropertyResolvers map[string]string
-	PropertyResolvers        []parser.PropertyResolver
-	BeanPaths                map[string]string // configured beanPaths; Application.cfc's are added
-	WorkspaceFolders         []string
-	ImplicitExtends          func(path string) string // frameworks' implicit bases; see config.ImplicitExtends
-	HelperScope              func(path string) bool   // files frameworks mix helpers into; see config.HelperScope
-	Stubs                    *frameworkapi.Set        // frameworks' API when their source is absent; see internal/frameworkapi
-	InterpolateAll           bool                     // features.outputContextInterpolation off
-	GlobalDefs               bool                     // accept a bare call any indexed file defines
-	Candidates               bool                     // annotate each finding with its category and liberal matches; see candidates.go
-	InferArgs                bool                     // type an untyped argument from what every caller passes it (resolve.Resolver.InferArgsFiles)
-	Verbose                  io.Writer
-}
-
-// Settings is the resolution half of the options, as the batch resolver takes it.
-func (o *Options) Settings() *resolve.Settings {
-	return &resolve.Settings{
-		NativeEngine:             o.NativeEngine,
-		SpeculativeReceivers:     o.speculativeReceivers,
-		CallerInferenceLimits:    o.CallerInferenceLimits,
-		Resolvers:                o.Resolvers,
-		Mappings:                 o.Mappings,
-		StartupFiles:             o.StartupFiles,
-		ExpressionMappings:       o.ExpressionMappings,
-		PropertyResolvers:        o.PropertyResolvers,
-		ServicePropertyResolvers: o.ServicePropertyResolvers,
-		BeanPaths:                o.BeanPaths,
-		WorkspaceFolders:         o.WorkspaceFolders,
-		ImplicitExtends:          o.ImplicitExtends,
-		HelperScope:              o.HelperScope,
-		Stubs:                    o.Stubs,
-		InterpolateAllText:       o.InterpolateAll,
-	}
-}
-
-// UseSettings takes the resolution half of the options from s. The native
-// engine is a command-line choice, not the configuration's, and is left alone.
-func (o *Options) UseSettings(s *resolve.Settings) {
-	o.CallerInferenceLimits = s.CallerInferenceLimits
-	o.Resolvers = s.Resolvers
-	o.Mappings = s.Mappings
-	o.StartupFiles = s.StartupFiles
-	o.ExpressionMappings = s.ExpressionMappings
-	o.PropertyResolvers = s.PropertyResolvers
-	o.ServicePropertyResolvers = s.ServicePropertyResolvers
-	o.BeanPaths = s.BeanPaths
-	o.WorkspaceFolders = s.WorkspaceFolders
-	o.ImplicitExtends = s.ImplicitExtends
-	o.HelperScope = s.HelperScope
-	o.Stubs = s.Stubs
-	o.InterpolateAll = s.InterpolateAllText
+	GlobalDefs bool // accept a bare call any indexed file defines
+	Candidates bool // annotate each finding with its category and liberal matches; see candidates.go
+	InferArgs  bool // type an untyped argument from what every caller passes it (resolve.Resolver.InferArgsFiles)
+	Verbose    io.Writer
 }
 
 // Report is a scan's result.
@@ -252,12 +201,12 @@ func Scan(fsys vfs.FS, files, targets []string, opt *Options) Report {
 // report accepted. Speculative batch scans add their own fallback snapshot;
 // explain retains strict behavior.
 func NewResolver(fsys vfs.FS, files []string, opt *Options) *resolve.Resolver {
-	settings := opt.Settings()
+	settings := opt.Settings
 	if opt.InferArgs {
 		settings.InferArgsFiles = files
 	}
 
-	resolver := resolve.NewBatchResolver(fsys, index.New(), settings)
+	resolver := resolve.NewBatchResolver(fsys, index.New(), &settings)
 	// Discovery lazily indexes factory metadata with the original rules.
 	// The scan must index every return using the augmented rules.
 	resolver.Index = index.New()

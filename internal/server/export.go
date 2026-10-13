@@ -193,11 +193,7 @@ func (s *Server) unresolvedReports(files, targets []string) ([]report, int) {
 	// resolver rather than copied field by field, and infers an untyped
 	// argument from its callers as the CLI's default does: without that the
 	// exported report listed calls `clif unresolved` accepts.
-	opt := unresolved.Options{InferArgs: true}
-	opt.UseSettings(s.getResolver().Settings())
-	opt.ServicePropertyResolvers = s.ServicePropertyResolvers
-	opt.PropertyResolvers = s.cfPropertyResolvers()
-	opt.InterpolateAll = !s.Features.OutputContextInterpolation
+	opt := unresolved.Options{InferArgs: true, Settings: *s.getResolver().Settings()}
 	// The export scans the folders the session was configured with, not every
 	// root an open document has added.
 	opt.WorkspaceFolders = s.WorkspaceFolders

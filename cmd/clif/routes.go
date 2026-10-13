@@ -252,7 +252,7 @@ func routeScanSetup(fsys vfs.FS, root string, paths []string, quiet bool) (*conf
 	configs := newConfigSet(fsys, shared, &fallback)
 	configs.preload(scanRoots)
 
-	return configs, collectCFMLFiles(fsys, scanRoots)
+	return configs, cfpath.CollectCFML(fsys, scanRoots)
 }
 
 // printRouteReport groups the findings by the leading segments of the route,

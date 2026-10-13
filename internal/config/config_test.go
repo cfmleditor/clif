@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -237,18 +238,24 @@ func TestResolve_CompletionsDefaults(t *testing.T) {
 	}
 }
 
-func TestResolve_FormattingAbsentIsZeroValueNotDefaults(t *testing.T) {
-	// When the "formatting" section is entirely absent, ResolvedFormatting stays at its
-	// zero value (Enabled=false, LineWidth=0, ...) — it does NOT pick up the same defaults
-	// (LineWidth=100 etc.) that apply to individually-unset fields within a present section.
+func TestResolve_FormattingAbsentIsTheDocumentedDefaults(t *testing.T) {
+	// An absent "formatting" section resolves to the same defaults an unset key
+	// in a present one does (Enabled stays false: the capability is opt-in). The
+	// zero value it used to resolve to left the whitespace-only guard off for a
+	// caller that formatted without checking Enabled, and disagreed with what
+	// the command line reads.
 	r := Resolve(&JSON{}, "/proj")
+
+	if r.Formatting != DefaultResolvedFormatting() {
+		t.Errorf("absent formatting resolved to %+v, want the defaults %+v", r.Formatting, DefaultResolvedFormatting())
+	}
 
 	if r.Formatting.Enabled {
 		t.Error("expected Formatting.Enabled false when section is absent")
 	}
 
-	if r.Formatting.LineWidth != 0 {
-		t.Errorf("expected LineWidth 0 (zero value, not the 100 default) when section is absent, got %d", r.Formatting.LineWidth)
+	if !r.Formatting.WhitespaceOnly {
+		t.Error("the whitespace-only guard must default on")
 	}
 }
 
@@ -366,5 +373,22 @@ func TestLintingEnabledSurvivesAMinSeverityOnlyOverride(t *testing.T) {
 
 	if got.Linting.MinSeverity != "ERROR" {
 		t.Errorf("MinSeverity = %q, want over's ERROR", got.Linting.MinSeverity)
+	}
+}
+
+func TestResolveWorkspaceFoldersAndIndexGlobs(t *testing.T) {
+	r := Resolve(&JSON{
+		WorkspacePaths:      []string{".", "../shared-lib", "/abs/vendor"},
+		WorkspaceIndexGlobs: []string{"shared-lib/**/*.cfc", "vendor", "nowhere/**/*.cfc"},
+	}, "/proj/app")
+
+	wantFolders := []string{"/proj/app", "/proj/shared-lib", "/abs/vendor"}
+	if !slices.Equal(r.WorkspaceFolders, wantFolders) {
+		t.Errorf("WorkspaceFolders = %v, want %v", r.WorkspaceFolders, wantFolders)
+	}
+
+	wantGlobs := []string{"/proj/shared-lib/**/*.cfc", "/abs/vendor"}
+	if !slices.Equal(r.IndexGlobs, wantGlobs) {
+		t.Errorf("IndexGlobs = %v, want %v (a glob naming no workspace folder is dropped)", r.IndexGlobs, wantGlobs)
 	}
 }

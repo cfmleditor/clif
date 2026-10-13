@@ -66,3 +66,15 @@ func AssumedFrameworks(roots []string, read func(string) ([]byte, error), direct
 
 	return out
 }
+
+// Assumed is the configuration a project with no config file is read as: the
+// framework its source is, when it is one, with that framework's resolvers.
+// Everything else is the defaults. The command line and the editor each did this
+// by hand.
+func Assumed(roots []string, read func(string) ([]byte, error), directories ...func(string) ([]fs.DirEntry, error)) *Resolved {
+	r := Resolve(&JSON{}, "")
+	r.Frameworks = AssumedFrameworks(roots, read, directories...)
+	r.ComponentResolvers = append(r.ComponentResolvers, FrameworkResolvers(r.Frameworks)...)
+
+	return r
+}

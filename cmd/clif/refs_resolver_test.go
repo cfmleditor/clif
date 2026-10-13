@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	cfpath "github.com/cfmleditor/clif/internal/path"
+
 	"github.com/cfmleditor/clif/internal/refs"
 	"github.com/cfmleditor/clif/internal/vfs"
 )
@@ -32,7 +34,7 @@ func TestRefsVerifiesAHitAgainstItsComponent(t *testing.T) {
 	}
 
 	fsys := vfs.OS{}
-	resolver := workspaceResolver([]string{dir}, collectCFMLFiles(fsys, []string{dir}))
+	resolver := workspaceResolver([]string{dir}, cfpath.CollectCFML(fsys, []string{dir}))
 
 	entries, _ := refs.FindCalls(fsys, []string{dir}, "save", resolver)
 

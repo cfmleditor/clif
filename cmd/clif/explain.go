@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strconv"
 
+	cfpath "github.com/cfmleditor/clif/internal/path"
+
 	"github.com/cfmleditor/clif/internal/daemon"
 	"github.com/cfmleditor/clif/internal/resolve"
 	"github.com/cfmleditor/clif/internal/unresolved"
@@ -113,7 +115,7 @@ func newExplainEnv(fsys vfs.FS, searchDir string, quiet bool, fl *unresolvedFlag
 	}
 
 	opt := unresolvedOptions(cfg, []string{searchDir}, fl)
-	files := collectCFMLFiles(fsys, opt.WorkspaceFolders)
+	files := cfpath.CollectCFML(fsys, opt.WorkspaceFolders)
 
 	if !quiet {
 		fmt.Fprintf(os.Stderr, "Indexing %d files...\n", len(files))
