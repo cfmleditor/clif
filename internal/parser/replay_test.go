@@ -147,3 +147,28 @@ func TestCollectionWritesComeFromTheParsesOwnWalk(t *testing.T) {
 		t.Error("the loop's write to iix was not collected")
 	}
 }
+
+// TestSourceExpressionsAreReadOncePerParse: the member and collection passes
+// ask about the same right-hand sides, and each read runs the resolvers over
+// the text, so a read is kept for the passes sharing writesMemo. And a bare
+// call is checked against the file's functions by a name set, which must stay
+// case-insensitive.
+func TestSourceExpressionsAreReadOncePerParse(t *testing.T) {
+	pr := ParseWithOptions(testURI, "component {\n function Build() {}\n}", &ParseOptions{})
+	pr.writesMemo = &writesMemo{}
+
+	first := pr.readSourceExpression("svc.make()", "1:2")
+	again := pr.readSourceExpression("svc.make()", "3:4")
+
+	if len(pr.writesMemo.sources) != 1 {
+		t.Errorf("reads kept = %d, want 1 for one expression read twice", len(pr.writesMemo.sources))
+	}
+
+	if len(first.pending) != len(again.pending) {
+		t.Errorf("the second read differs from the first")
+	}
+
+	if !pr.declaresFunction("build") || pr.declaresFunction("missing") {
+		t.Error("declaresFunction should find Build case-insensitively and nothing else")
+	}
+}

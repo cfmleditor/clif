@@ -598,6 +598,92 @@ type writesMemo struct {
 	// keys is collectionKeys' answer for writes and each write's key, which
 	// the member and collection passes both read (writeKeys).
 	keys *writeKeySet
+	// sources is readSourceExpression's answer by expression and whether it
+	// is read inside a function, and funcNames the file's function names,
+	// lowercased: both passes ask about the same expressions.
+	sources   map[sourceKey]sourceRead
+	funcNames map[string]bool
+}
+
+type sourceKey struct {
+	expression string
+	inFunction bool
+}
+
+// sourceRead is what a tag parser reads from an assignment's right-hand side:
+// the first ref it makes, and its pending calls.
+type sourceRead struct {
+	ref     *ComponentRef
+	pending []pendingCall
+}
+
+// readSourceExpression reads expression as the right-hand side of an
+// assignment in function, as collectionValueSource needs it. What it reads
+// does not depend on which function beyond whether there is one, so it is
+// read once per expression for the passes sharing writesMemo: the member and
+// collection passes ask about the same right-hand sides, and the resolver
+// matching each read pays for was 4.5ms of an edit on a 58,000-line component.
+func (pr *ParseResult) readSourceExpression(expression, function string) sourceRead {
+	key := sourceKey{expression, function != ""}
+
+	m := pr.writesMemo
+	if m != nil {
+		if read, ok := m.sources[key]; ok {
+			return read
+		}
+	}
+
+	tp := &tagParser{fileURI: string(pr.URI), inFunc: function, resolvers: pr.Resolvers, resolverSet: pr.resolverSet, funcs: pr.Funcs}
+	tp.checkSetRHSStr(expression, "$element", 0)
+
+	refs := tp.componentRefs
+	if function != "" {
+		refs = tp.funcRefs[function]
+	}
+
+	var read sourceRead
+	if len(refs) > 0 {
+		read.ref = &refs[0]
+	} else {
+		read.pending = tp.pendingCalls
+	}
+
+	if m != nil {
+		if m.sources == nil {
+			m.sources = map[sourceKey]sourceRead{}
+		}
+
+		m.sources[key] = read
+	}
+
+	return read
+}
+
+// declaresFunction reports whether the file declares a function named name,
+// from a set built once for the passes sharing writesMemo rather than a walk
+// of every function for each call asked about.
+func (pr *ParseResult) declaresFunction(name string) bool {
+	m := pr.writesMemo
+	if m == nil {
+		for i := range pr.Funcs {
+			if strings.EqualFold(pr.Funcs[i].Name, name) {
+				return true
+			}
+		}
+
+		return false
+	}
+
+	if m.funcNames == nil {
+		m.funcNames = make(map[string]bool, len(pr.Funcs))
+		for i := range pr.Funcs {
+			m.funcNames[strings.ToLower(pr.Funcs[i].Name)] = true
+		}
+	}
+
+	var buf foldScratch
+
+	return m.funcNames[string(buf.lowerFold(name))]
 }
 
 // writeKeySet is collectionKeys' answer and each write's key.
@@ -1030,20 +1116,13 @@ func (pr *ParseResult) collectionValueSource(expression, function string, locals
 		}
 	}
 
-	tp := &tagParser{fileURI: string(pr.URI), inFunc: function, resolvers: pr.Resolvers, resolverSet: pr.resolverSet, funcs: pr.Funcs}
-	tp.checkSetRHSStr(expression, "$element", 0)
-
-	refs := tp.componentRefs
-	if function != "" {
-		refs = tp.funcRefs[function]
+	read := pr.readSourceExpression(expression, function)
+	if read.ref != nil {
+		return ReturnSource{Component: read.ref.Component, Methods: read.ref.ChainRest}
 	}
 
-	if len(refs) > 0 {
-		return ReturnSource{Component: refs[0].Component, Methods: refs[0].ChainRest}
-	}
-
-	for i := range tp.pendingCalls {
-		c := &tp.pendingCalls[i]
+	for i := range read.pending {
+		c := &read.pending[i]
 		if c.alias {
 			// A plain name is read by the caller from the refs it names.
 			continue
@@ -1062,13 +1141,8 @@ func (pr *ParseResult) collectionValueSource(expression, function string, locals
 			if ref != nil {
 				return ReturnSource{Component: pr.settledComponent(ref), Methods: append([]string{collectionCallHop(c)}, c.rest...)}
 			}
-		} else {
-			for i := range pr.Funcs {
-				f := &pr.Funcs[i]
-				if strings.EqualFold(f.Name, c.funcName) {
-					return ReturnSource{Component: pr.URI.Path(), Methods: append([]string{collectionCallHop(c)}, c.rest...)}
-				}
-			}
+		} else if pr.declaresFunction(c.funcName) {
+			return ReturnSource{Component: pr.URI.Path(), Methods: append([]string{collectionCallHop(c)}, c.rest...)}
 		}
 	}
 
