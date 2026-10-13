@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"path/filepath"
 	"slices"
-	"strings"
 
 	"github.com/cfmleditor/clif/internal/confine"
 )
@@ -82,7 +81,5 @@ func WriteTargets(targets, roots []string) ([]string, error) {
 
 // Within reports whether path is dir or lies beneath it.
 func Within(path, dir string) bool {
-	rel, err := filepath.Rel(dir, path)
-
-	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
+	return confine.Within(path, []string{dir})
 }

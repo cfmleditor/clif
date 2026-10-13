@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/cfmleditor/clif/internal/confine"
+
 	"github.com/cfmleditor/clif/internal/index"
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
@@ -228,25 +230,11 @@ func (p *diPolicy) serves(file string) bool {
 }
 
 func underAny(roots []string, file string) bool {
-	for _, root := range roots {
-		rel, err := filepath.Rel(root, file)
-		if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			return true
-		}
-	}
-
-	return false
+	return confine.Within(file, roots)
 }
 
 func (p *diPolicy) contains(file string) bool {
-	for _, root := range p.roots {
-		rel, err := filepath.Rel(root, file)
-		if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			return true
-		}
-	}
-
-	return false
+	return confine.Within(file, p.roots)
 }
 
 func (p *diPolicy) dependency(name, comp string, r *Resolver, seen map[string]bool, singletonOnly bool) string {

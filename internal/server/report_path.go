@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/cfmleditor/clif/internal/confine"
 )
 
 // reportPath is where a report named base is written in dir, or an error when
@@ -42,9 +44,7 @@ func insideDir(root, path string) bool {
 		return false
 	}
 
-	rel, err := filepath.Rel(rootAbs, abs)
-
-	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+	return confine.Within(abs, []string{rootAbs})
 }
 
 // reportPerm is owner-only: a report can quote the source it was made from, and

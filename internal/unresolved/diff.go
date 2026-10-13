@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/cfmleditor/clif/internal/confine"
 )
 
 // Delta is how one run's findings differ from an earlier run's. A count of
@@ -195,7 +197,7 @@ func RelativeTo(root string) func(string) string {
 	root = filepath.Clean(root)
 
 	return func(path string) string {
-		if rel, err := filepath.Rel(root, path); err == nil && !strings.HasPrefix(rel, "..") {
+		if rel, err := filepath.Rel(root, path); err == nil && confine.Within(path, []string{root}) {
 			return filepath.ToSlash(rel)
 		}
 

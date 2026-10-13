@@ -2,9 +2,13 @@ package resolve
 
 import (
 	"io/fs"
+	"maps"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
+
+	"github.com/cfmleditor/clif/internal/confine"
 
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
@@ -47,8 +51,7 @@ func (d *DiscoveryDependencies) contains(file string) bool {
 	}
 
 	for dir := range d.dirs {
-		rel, err := filepath.Rel(dir, pathKey(file))
-		if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		if confine.Within(pathKey(file), []string{dir}) {
 			return true
 		}
 	}
@@ -105,14 +108,7 @@ func (r *Resolver) DiscoveryAffected(file string) bool {
 		return true
 	}
 
-	for _, root := range r.managedBeanPaths() {
-		rel, err := filepath.Rel(root, file)
-		if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			return true
-		}
-	}
-
-	return false
+	return confine.Within(file, slices.Collect(maps.Values(r.managedBeanPaths())))
 }
 
 // InvalidatePaths drops source/path caches while retaining immutable discovery
