@@ -3,9 +3,10 @@ package daemon
 
 import (
 	"encoding/json"
-	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/cfmleditor/clif/internal/vfs"
 
 	"github.com/cfmleditor/clif/internal/config"
 	cfpath "github.com/cfmleditor/clif/internal/path"
@@ -49,7 +50,7 @@ func FindConfig(dir string) (*Config, error) {
 	for {
 		// .clif.json first, then the legacy .cfmleditor.json (config.FileNames).
 		for _, p := range config.CandidatesIn(d) {
-			data, err := os.ReadFile(p) //nolint:gosec // a config file found walking up from the working directory
+			data, err := vfs.ReadRegular(p)
 			if err != nil {
 				continue
 			}
@@ -76,7 +77,7 @@ func FindConfig(dir string) (*Config, error) {
 }
 
 func (c *Config) raw() *configJSON {
-	data, err := os.ReadFile(c.Path)
+	data, err := vfs.ReadRegular(c.Path)
 	if err != nil {
 		return nil
 	}

@@ -1,10 +1,12 @@
 package server
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/cfmleditor/clif/internal/codemap"
 	"go.lsp.dev/protocol"
 )
 
@@ -43,6 +45,43 @@ func TestCodeMapOutputStaysInsideTheWorkspace(t *testing.T) {
 		if got, err := s.codeMapOutputPath(&codeMapRequest{Out: bad}, root); err == nil {
 			t.Errorf("out=%q was accepted and resolved to %q", bad, got)
 		}
+	}
+}
+
+// TestCodeMapOutputRefusesASymlinkedDirectory is a repository that commits
+// .clif as a link out of it. The path test read text only, so the map and the
+// directories above it were created wherever the link pointed.
+func TestCodeMapOutputRefusesASymlinkedDirectory(t *testing.T) {
+	s := &Server{}
+	base := t.TempDir()
+	root := filepath.Join(base, "repo")
+	outside := filepath.Join(base, "outside")
+
+	for _, d := range []string{root, outside} {
+		if err := os.MkdirAll(d, 0o750); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	for _, link := range []string{".clif", "reports"} {
+		if err := os.Symlink(outside, filepath.Join(root, link)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	for _, out := range []string{"", "reports/map.html", "reports/deeper/map.html"} {
+		if got, err := s.codeMapOutputPath(&codeMapRequest{Out: out, Format: "html"}, root); err == nil {
+			t.Errorf("out=%q was accepted as %q, through a link out of the workspace", out, got)
+		}
+	}
+
+	m := &codemap.Map{Root: root}
+	if err := s.writeCodeMap(m, &codeMapRequest{Format: "text"}, filepath.Join(root, ".clif", "sub", "map.txt"), root); err == nil {
+		t.Error("writeCodeMap wrote through a link out of the workspace")
+	}
+
+	if _, err := os.Stat(filepath.Join(outside, "sub")); err == nil {
+		t.Error("writeCodeMap created a directory outside the workspace")
 	}
 }
 

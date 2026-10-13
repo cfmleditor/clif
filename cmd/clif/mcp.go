@@ -10,6 +10,7 @@ import (
 	"github.com/cfmleditor/clif/internal/codemap/mcp"
 	"github.com/cfmleditor/clif/internal/codemap/store"
 	"github.com/cfmleditor/clif/internal/config"
+	"github.com/cfmleditor/clif/internal/confine"
 	"github.com/cfmleditor/clif/internal/conv"
 	"github.com/cfmleditor/clif/internal/daemon"
 	"github.com/cfmleditor/clif/internal/docs"
@@ -38,13 +39,16 @@ With --allow-lint:
                           CFLint process (carried by released builds)
 
   --db <file>     the database written by "graph --db"
-  --root <dir>    workspace root for explain_call (default: the map's own root,
-                  or the working directory without a map)
+  --root <dir>    workspace root: explain_call indexes it, and every tool's
+                  paths must lie in it (default: the map's own root, or the
+                  working directory without a map)
   --allow-lint    offer the lint tool
   --map-only      offer only the map tools, and never read source (needs --db)
   --no-explain    do not offer explain_call
 
-Paths given to a tool are relative to the server's working directory.
+Paths given to a tool are relative to the server's working directory, and
+must lie inside the workspace root (--root, the map's root, or the working
+directory), after symlinks.
 
 Register it with your MCP client, for example:
   {"command": "clif", "args": ["mcp", "--allow-lint"], "cwd": "/path/to/project"}
@@ -110,7 +114,9 @@ func openMap(path string) *store.Store {
 		fatalf("No map at %s. Build one first:\n  clif graph --db %s <dir>\n", path, path)
 	}
 
-	db, err := store.Open(path)
+	// Read-only: the command says it writes nothing, and Open would create
+	// the schema in whatever file --db names.
+	db, err := store.OpenReadOnly(path)
 	if err != nil {
 		fatalf("%v\n", err)
 	}
@@ -134,27 +140,40 @@ func mcpServer(f *mcpFlags, db *store.Store) *mcp.Server {
 		return srv
 	}
 
-	srv.Unresolved = mcpUnresolved
-	srv.FindRefs = mcpFindRefs
+	root := mcpRoot(f, db)
+
+	srv.Unresolved = func(paths []string, globalDefs bool, limit int) (any, error) {
+		return mcpUnresolved(root, paths, globalDefs, limit)
+	}
+	srv.FindRefs = func(target string, paths []string, limit int) (any, error) {
+		return mcpFindRefs(root, target, paths, limit)
+	}
 
 	if f.allowLint {
-		srv.Lint = newMCPLinter()
+		srv.Lint = newMCPLinter(root)
 	}
 
 	if !f.noExplain {
-		root := f.root
-		if root == "" && db != nil {
-			root, _ = db.Meta("root")
-		}
-
-		if root == "" {
-			root = mustGetwd()
-		}
-
 		srv.Explain = newExplainer(root)
 	}
 
 	return srv
+}
+
+// mcpRoot is the workspace the task tools serve, and every path a tool is
+// given must lie in it: --root, or the map's own root, or the working
+// directory.
+func mcpRoot(f *mcpFlags, db *store.Store) string {
+	root := f.root
+	if root == "" && db != nil {
+		root, _ = db.Meta("root")
+	}
+
+	if root == "" {
+		root = mustGetwd()
+	}
+
+	return root
 }
 
 func cmdMCP(args []string) {
@@ -207,7 +226,7 @@ func newExplainer(root string) mcp.Explainer {
 			return "", fmt.Errorf("could not index the workspace at %s", root)
 		}
 
-		return explainAt(resolver, cfg, file, line, match)
+		return explainAt(root, resolver, cfg, file, line, match)
 	}
 }
 
@@ -290,13 +309,19 @@ func buildExplainResolver(root string) (*resolve.Resolver, explainConfig) {
 	return resolver, cfg
 }
 
-func explainAt(resolver *resolve.Resolver, cfg explainConfig, file string, line int, match string) (string, error) {
+func explainAt(root string, resolver *resolve.Resolver, cfg explainConfig, file string, line int, match string) (string, error) {
 	abs, err := filepath.Abs(file)
 	if err != nil {
 		return "", fmt.Errorf("resolving %s: %w", file, err)
 	}
 
-	data, err := os.ReadFile(abs)
+	// The answer quotes the line it explains, so a file outside the
+	// workspace would be read back to the caller; see absPaths.
+	if err := withinRoot(file, abs, confine.Roots(root)); err != nil {
+		return "", err
+	}
+
+	data, err := vfs.ReadRegular(abs)
 	if err != nil {
 		return "", fmt.Errorf("reading %s: %w", file, err)
 	}

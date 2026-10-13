@@ -88,6 +88,29 @@ func TestChangedLinesAreTheStagedOnes(t *testing.T) {
 	}
 }
 
+// TestAChangedRefIsNeverAnOption: the ref is joined to "...HEAD" and handed to
+// git diff as one argument, so "--output=<file>" was read as an option and git
+// wrote the diff over that file.
+func TestAChangedRefIsNeverAnOption(t *testing.T) {
+	repo := gitRepo(t, map[string]string{"a.cfm": "1\n"})
+	victim := filepath.Join(t.TempDir(), "victim")
+
+	ref := "--output=" + victim
+
+	if _, err := gitChangedFiles(repo, ref); err == nil {
+		t.Error("gitChangedFiles ran with a ref that is an option")
+	}
+
+	if _, err := gitAddedLines(repo, false, ref); err == nil {
+		t.Error("gitAddedLines ran with a ref that is an option")
+	}
+
+	// git appends "...HEAD" to the ref, so that is the file --output names.
+	if _, err := os.Stat(victim + "...HEAD"); err == nil {
+		t.Error("git wrote the diff to the file the ref named")
+	}
+}
+
 // TestHookInstallLeavesAForeignHookAlone: install writes its hooks and sets
 // core.hooksPath, rewrites its own hook freely, refuses one it did not write
 // unless forced, and uninstall takes away only what it wrote.

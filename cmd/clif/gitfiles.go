@@ -69,12 +69,28 @@ func gitStagedFiles(repo string) ([]string, error) {
 // gitChangedFiles are the files changed between ref's merge base with HEAD and
 // HEAD, as a pull request's diff reads.
 func gitChangedFiles(repo, ref string) ([]string, error) {
+	if err := checkRef(ref); err != nil {
+		return nil, err
+	}
+
 	out, err := git(repo, "diff", "--name-only", "--diff-filter=ACMR", "-z", ref+"...HEAD")
 	if err != nil {
 		return nil, err
 	}
 
 	return gitPaths(repo, out), nil
+}
+
+// checkRef refuses a ref git would read as an option. "--changed
+// --output=/some/file" makes the argument "--output=/some/file...HEAD", which
+// git diff takes as --output and writes the diff to that file. A ref never
+// starts with '-' (git check-ref-format refuses one), so nothing real is lost.
+func checkRef(ref string) error {
+	if strings.HasPrefix(ref, "-") {
+		return fmt.Errorf("--changed %q: a ref cannot start with '-'", ref)
+	}
+
+	return nil
 }
 
 // gitStagedContent is path's content in the index.
@@ -95,6 +111,10 @@ func gitAddedLines(repo string, staged bool, ref string) (map[string]map[int]boo
 	if staged {
 		args = append(args, "--cached")
 	} else {
+		if err := checkRef(ref); err != nil {
+			return nil, err
+		}
+
 		args = append(args, ref+"...HEAD")
 	}
 
