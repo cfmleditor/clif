@@ -716,8 +716,15 @@ func splitCFScriptBlocks(content string) ([]Region, []int32) {
 
 	pos := 0
 
+	// The next <cfscript> is found once and kept until the walk passes it.
+	// Searching again for every skip span scanned to the end of a page with
+	// no <cfscript> once per <script> block, which was quadratic.
+	openIdx := -2 // -1 for none left
+
 	for {
-		openIdx := nextCFScriptOpen(content, pos)
+		if openIdx != -1 && openIdx < pos {
+			openIdx = nextCFScriptOpen(content, pos)
+		}
 
 		// Find the next script-skip span at or after pos.
 		for skipIdx < len(skipSpans) && skipSpans[skipIdx].end <= pos {
@@ -873,6 +880,78 @@ func findFuncScope(line int, scopes []FuncScope) FuncScope {
 
 	return FuncScope{Start: -1, End: -1}
 }
+
+// scopeIndex answers, for many lines, which scope a scan of scopes in order
+// would find first: the scope with Start < line < End, or with inclusive
+// Start <= line <= End as findFuncScope tests, as its index, or -1. Asking
+// findFuncScope or callerAtLine once per function or per call scanned every
+// scope each time, which was quadratic in a file of thousands of functions.
+// Past maxScopeScan scopes it maps every line once instead; next skips the
+// lines already claimed, so nested scopes cost no more than the lines they
+// cover.
+func scopeIndex(scopes []FuncScope, inclusive bool) func(line int) int {
+	lo, hi := 1, -1
+	if inclusive {
+		lo, hi = 0, 0
+	}
+
+	if len(scopes) <= maxScopeScan {
+		return func(line int) int {
+			for i := range scopes {
+				if line >= scopes[i].Start+lo && line <= scopes[i].End+hi {
+					return i
+				}
+			}
+
+			return -1
+		}
+	}
+
+	last := 0
+	for i := range scopes {
+		last = max(last, scopes[i].End+hi)
+	}
+
+	owner := make([]int32, last+1)
+	next := make([]int32, last+2)
+
+	for l := range next {
+		next[l] = conv.Int32(l)
+	}
+
+	find := func(l int32) int32 {
+		for next[l] != l {
+			next[l] = next[next[l]]
+			l = next[l]
+		}
+
+		return l
+	}
+
+	for i := range scopes {
+		from, to := max(scopes[i].Start+lo, 0), scopes[i].End+hi
+		if from > to {
+			continue
+		}
+
+		for l := find(conv.Int32(from)); int(l) <= to; l = find(l) {
+			owner[l] = conv.Int32(i + 1)
+			next[l] = l + 1
+		}
+	}
+
+	return func(line int) int {
+		if line < 0 || line >= len(owner) {
+			return -1
+		}
+
+		return int(owner[line]) - 1
+	}
+}
+
+// maxScopeScan is the most scopes scopeIndex scans for each line before it
+// maps every line to its scope instead.
+const maxScopeScan = 32
 
 // FindFuncScopeAt returns the FuncScope containing the given line, or {-1,-1}.
 func FindFuncScopeAt(line int, scopes []FuncScope) FuncScope {

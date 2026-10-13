@@ -1900,11 +1900,19 @@ func (p *scriptParser) scanInterpolation(tok Token) {
 
 	tokBase := p.baseLine + tok.Line
 
+	// lines counts the newlines before counted, carried from span to span:
+	// counting from the token's start for each span was quadratic in a
+	// string holding thousands of them.
+	lines, counted := 0, 0
+
 	for _, span := range interpolatedSpans(tok.Value) {
 		// A string token can span lines — CFML's `""` escape is what makes a
 		// multi-line one ordinary — so the span's own line is the token's start
 		// plus the newlines before it, not the token's start.
-		p.baseLine = tokBase + countNewlines(tok.Value[:span.start])
+		lines += countNewlines(tok.Value[counted:span.start])
+		counted = span.start
+		p.baseLine = tokBase + lines
+
 		if outerOffset >= 0 {
 			p.baseOffset = outerOffset + tok.Offset + span.start
 		}
@@ -2246,6 +2254,7 @@ func (p *scriptParser) parseBody(funcLine int, args []Argument) int {
 	// Use a placeholder funcKey; we'll remap after finding the real end
 	tempKey := funcKey(funcLine, funcLine)
 	p.inFunc = tempKey
+	pendingFrom := len(p.pendingCalls)
 	p.returnVar = ""
 
 	p.localVarSet = make(map[string]bool)
@@ -2325,7 +2334,7 @@ func (p *scriptParser) parseBody(funcLine int, args []Argument) int {
 	}
 
 	realKey := funcKey(funcLine, p.baseLine+endLine)
-	p.rekeyFunc(tempKey, realKey)
+	p.rekeyFunc(tempKey, realKey, pendingFrom)
 
 	p.inFunc = realKey
 
@@ -2455,7 +2464,11 @@ func sharedScopeOf(tok Token) Scope {
 
 // rekeyFunc moves what a function body recorded under the placeholder key it
 // was parsed with to its real key, once its end is known.
-func (p *scriptParser) rekeyFunc(tempKey, realKey string) {
+//
+// Only the pending calls recorded since the body began can carry tempKey, so
+// the search starts at pendingFrom: scanning them all for every function was
+// quadratic in a component of thousands of functions.
+func (p *scriptParser) rekeyFunc(tempKey, realKey string, pendingFrom int) {
 	if refs, ok := p.funcRefs[tempKey]; ok {
 		delete(p.funcRefs, tempKey)
 		p.funcRefs[realKey] = refs
@@ -2466,7 +2479,7 @@ func (p *scriptParser) rekeyFunc(tempKey, realKey string) {
 		p.funcCalls[realKey] = calls
 	}
 
-	for i := range p.pendingCalls {
+	for i := pendingFrom; i < len(p.pendingCalls); i++ {
 		if p.pendingCalls[i].funcKey == tempKey {
 			p.pendingCalls[i].funcKey = realKey
 		}
