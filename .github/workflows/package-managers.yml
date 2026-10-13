@@ -205,27 +205,41 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: gh release download "${TAG}" --repo "${GITHUB_REPOSITORY}" --pattern 'clif-windows-amd64.zip' --dir dist
 
+      # The package embeds clif.exe rather than downloading it at install time,
+      # so an install needs no access to GitHub. Chocolatey's rules for an
+      # embedded binary: its licence in legal\LICENSE.txt, and in
+      # legal\VERIFICATION.txt how a moderator checks it is the release's.
       - name: Fill in the package
         shell: pwsh
         run: |
           $version = $env:TAG.TrimStart('v')
-          $sum = (Get-FileHash dist/clif-windows-amd64.zip -Algorithm SHA256).Hash.ToLower()
+          $zip = 'dist/clif-windows-amd64.zip'
+          $zipSum = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
           $url = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$env:TAG/clif-windows-amd64.zip"
+
+          Expand-Archive $zip -DestinationPath dist/windows -Force
+          Copy-Item dist/windows/clif.exe packaging/chocolatey/tools/clif.exe
+          $exeSum = (Get-FileHash packaging/chocolatey/tools/clif.exe -Algorithm SHA256).Hash.ToLower()
 
           $nuspec = 'packaging/chocolatey/clif.nuspec'
           (Get-Content $nuspec -Raw).Replace('__VERSION__', $version) | Set-Content $nuspec -NoNewline
 
-          $install = 'packaging/chocolatey/tools/chocolateyinstall.ps1'
-          (Get-Content $install -Raw).Replace('__URL__', $url).Replace('__CHECKSUM__', $sum) | Set-Content $install -NoNewline
+          $verification = 'packaging/chocolatey/legal/VERIFICATION.txt'
+          (Get-Content $verification -Raw).Replace('__VERSION__', $version).Replace('__URL__', $url).Replace('__ZIP_CHECKSUM__', $zipSum).Replace('__EXE_CHECKSUM__', $exeSum) | Set-Content $verification -NoNewline
 
-          if (Select-String -Path $nuspec, $install -Pattern '__[A-Z]+__') { throw 'a placeholder was left unfilled' }
+          # The licence clif is distributed under, and the notices of what its
+          # binary carries (CFLint, and the GraalVM runtime compiled into it).
+          $license = 'packaging/chocolatey/legal/LICENSE.txt'
+          (Get-Content LICENSE -Raw) + "`n`n" + (Get-Content THIRD_PARTY_NOTICES.md -Raw) | Set-Content $license -NoNewline
+
+          if (Select-String -Path $nuspec, $verification -Pattern '__[A-Z_]+__') { throw 'a placeholder was left unfilled' }
           "version=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Pack
         run: choco pack packaging/chocolatey/clif.nuspec --outputdirectory dist
 
-      # The package is installed from the file just packed, which downloads the
-      # release's archive and checks its checksum the way a user's install will.
+      # The package is installed from the file just packed, as a user's install
+      # will: from the clif.exe it embeds, with nothing downloaded.
       - name: Install it on this runner
         shell: pwsh
         run: |
