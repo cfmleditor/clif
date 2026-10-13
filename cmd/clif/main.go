@@ -8,10 +8,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/cfmleditor/clif/internal/config"
+	"github.com/cfmleditor/clif/internal/confine"
 	"github.com/cfmleditor/clif/internal/daemon"
 	"github.com/cfmleditor/clif/internal/formatter"
 	"github.com/cfmleditor/clif/internal/index"
@@ -153,12 +155,14 @@ func runServer() {
 		sock := cfg.SocketPath()
 
 		// Try to connect to an existing daemon
-		if err := daemon.Proxy(sock); err == nil {
+		proxyErr := daemon.Proxy(sock)
+		if proxyErr == nil {
 			return
 		}
 
-		// No daemon running — become the daemon and serve this client over stdio
-		log.Info("starting daemon mode", cflog.String("socket", sock))
+		// No daemon running, or a socket that is not this user's: become the
+		// daemon and serve this client over stdio
+		log.Info("starting daemon mode", cflog.String("socket", sock), cflog.Err(proxyErr))
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -173,7 +177,11 @@ func runServer() {
 		settings := daemon.SettingsFrom(cfg)
 
 		go func() {
-			_ = daemon.Serve(ctx, sock, log, sharedIndex, ct, &settings)
+			// A daemon that cannot serve its socket still serves this editor
+			// over stdio; later editors start sessions of their own.
+			if err := daemon.Serve(ctx, sock, log, sharedIndex, ct, &settings); err != nil {
+				log.Warn("daemon socket not served", cflog.String("socket", sock), cflog.Err(err))
+			}
 		}()
 
 		// Serve this editor session over stdio with the shared index
@@ -258,7 +266,7 @@ func cmdParse(args []string) {
 	var totalFuncs, totalRefs, totalFiles int
 
 	for _, f := range files {
-		content, err := os.ReadFile(f)
+		content, err := vfs.ReadRegular(f)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "  skip %s: %v\n", f, err)
 
@@ -296,6 +304,7 @@ func cmdFormat(args []string) {
 	var (
 		write              bool
 		allowNonWhitespace bool
+		followSymlinks     bool
 		configRoot         string
 		files              []string
 	)
@@ -306,6 +315,8 @@ func cmdFormat(args []string) {
 			write = true
 		case "--allow-non-whitespace":
 			allowNonWhitespace = true
+		case "--follow-symlinks":
+			followSymlinks = true
 		case "--root":
 			if i+1 >= len(args) {
 				fmt.Fprintf(os.Stderr, "error: --root needs a directory\n")
@@ -325,11 +336,12 @@ func cmdFormat(args []string) {
 	}
 
 	optionsFor := formatOptionsFor(configRoot, allowNonWhitespace)
+	links := symlinkRule{follow: followSymlinks, root: configRoot}
 
 	failed := false
 
 	for _, f := range files {
-		if err := formatOneFile(f, new(optionsFor(f)), write); err != nil {
+		if err := formatOneFile(f, new(optionsFor(f)), write, links); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %s: %v\n", f, err)
 
 			failed = true
@@ -400,8 +412,8 @@ func formatOptionsFor(configRoot string, allowNonWhitespace bool) func(path stri
 // formatOneFile formats a single file, writing it back in place when write is
 // set. A file is only ever rewritten after Format returned successfully, so a
 // refused format leaves the original untouched.
-func formatOneFile(path string, opts *formatter.Options, write bool) error {
-	content, err := os.ReadFile(path)
+func formatOneFile(path string, opts *formatter.Options, write bool, links symlinkRule) error {
+	content, err := vfs.ReadRegular(path)
 	if err != nil {
 		return err
 	}
@@ -435,7 +447,7 @@ func formatOneFile(path string, opts *formatter.Options, write bool) error {
 		return nil
 	}
 
-	if err := writeFileInPlace(path, content, out); err != nil {
+	if err := writeFileInPlace(path, content, out, links); err != nil {
 		return err
 	}
 
@@ -452,12 +464,16 @@ func formatOneFile(path string, opts *formatter.Options, write bool) error {
 // through leaves a half-written source file with no copy of the original
 // anywhere. Writing a sibling temp file and renaming it over the target makes
 // the replacement atomic for any concurrent reader.
-func writeFileInPlace(path string, original, out []byte) error {
+func writeFileInPlace(path string, original, out []byte, links symlinkRule) error {
 	// A symlinked file should have its target rewritten; renaming onto the link
 	// itself would replace the link with a regular file.
 	target := path
 	if resolved, err := filepath.EvalSymlinks(path); err == nil {
 		target = resolved
+	}
+
+	if err := links.check(path, target); err != nil {
+		return err
 	}
 
 	info, err := os.Stat(target)
@@ -488,11 +504,47 @@ func writeFileInPlace(path string, original, out []byte) error {
 
 	// Re-read rather than trusting the content from before Format ran: a write
 	// landing on top of an edit made in the meantime would discard it silently.
-	if current, err := os.ReadFile(target); err == nil && !bytes.Equal(current, original) {
+	if current, err := vfs.ReadRegular(target); err == nil && !bytes.Equal(current, original) {
 		return errors.New("file changed on disk while formatting, not overwriting")
 	}
 
 	return os.Rename(tmpName, target)
+}
+
+// symlinkRule says where format -w may rewrite a file it reached through a
+// symlink.
+//
+// Following every link meant a cloned repository could commit x.cfm as a link
+// to ~/.zshrc or a file in another project, and formatting the tree rewrote
+// that file. A link is therefore followed only when its target lies in the
+// link's own directory or beneath it, or beneath --root when one is given:
+// that keeps a project's own links (a shared template linked into a sibling
+// folder under --root, a renamed file kept under its old name) and refuses
+// one that leaves. --follow-symlinks follows every link, as before.
+type symlinkRule struct {
+	follow bool   // --follow-symlinks
+	root   string // --root, "" when not given
+}
+
+// check refuses to rewrite target, which path resolved to, when path is a
+// symlink the rule does not follow.
+func (r symlinkRule) check(path, target string) error {
+	if r.follow {
+		return nil
+	}
+
+	// writeFileInPlace stats the target next and reports a missing file, so
+	// a failed Lstat is left to it.
+	if info, err := os.Lstat(path); err != nil || info.Mode()&os.ModeSymlink == 0 {
+		return nil //nolint:nilerr // see above
+	}
+
+	roots := confine.Roots(filepath.Dir(path), r.root)
+	if confine.Within(target, roots) {
+		return nil
+	}
+
+	return fmt.Errorf("is a symlink to %s, outside %s; pass --follow-symlinks to rewrite it", target, strings.Join(roots, " and "))
 }
 
 // writeAndSync writes out to f and flushes it to disk before closing.

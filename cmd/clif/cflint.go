@@ -10,6 +10,7 @@ import (
 
 	"github.com/cfmleditor/clif/internal/cflint"
 	"github.com/cfmleditor/clif/internal/config"
+	"github.com/cfmleditor/clif/internal/confine"
 	"github.com/cfmleditor/clif/internal/daemon"
 	"github.com/cfmleditor/clif/internal/knownissues"
 	cfpath "github.com/cfmleditor/clif/internal/path"
@@ -311,7 +312,7 @@ func cmdCFLint(args []string) {
 	}
 
 	if fl.format == "report" {
-		writeCFLintReports(&fl, run, targets, logf)
+		writeCFLintReports(&fl, run, targets, confine.Roots(roots...), logf)
 	} else {
 		root := configDir
 		if sel.repo != "" {
@@ -335,7 +336,7 @@ func applyCFLintBaseline(path string, run *cflint.Run, logf func(string, ...any)
 		cflintFailf("--baseline %s: %v\n", path, err)
 	}
 
-	data, err := os.ReadFile(abs)
+	data, err := vfs.ReadRegular(abs)
 	if err != nil {
 		cflintFailf("--baseline: %v\n", err)
 	}
@@ -472,7 +473,7 @@ func lintSelection(runner *cflint.Runner, sel *cflintSelection) (*cflint.Run, er
 
 // writeCFLintReports writes the known-issues report: to stdout, or to the
 // files --out or --write name.
-func writeCFLintReports(fl *cflintFlags, run *cflint.Run, targets []string, logf func(string, ...any)) {
+func writeCFLintReports(fl *cflintFlags, run *cflint.Run, targets, writeRoots []string, logf func(string, ...any)) {
 	reports, left := cflint.Reports(run.Diagnostics(), targets, version)
 
 	for _, r := range reports {
@@ -483,7 +484,15 @@ func writeCFLintReports(fl *cflintFlags, run *cflint.Run, targets []string, logf
 		}
 
 		// Owner-only, as the server writes the same report for .exportCFLint.
-		if err := os.WriteFile(r.Path, []byte(r.Content), 0o600); err != nil {
+		// cflintTargets checked a --write target against the directories
+		// linted; the write holds it to them too. --out is the user's own
+		// path and goes wherever it names.
+		write := func() error { return os.WriteFile(r.Path, []byte(r.Content), 0o600) }
+		if fl.write {
+			write = func() error { return confine.WriteFile(r.Path, []byte(r.Content), 0o600, writeRoots) }
+		}
+
+		if err := write(); err != nil {
 			cflintFailf("could not write %s: %v\n", r.Path, err)
 		}
 

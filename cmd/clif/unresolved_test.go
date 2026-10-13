@@ -97,3 +97,46 @@ func TestPresetHint(t *testing.T) {
 		t.Errorf("all named: %q", got)
 	}
 }
+
+// TestUnresolvedWriteStaysUnderTheScan is --write against a cloned repository
+// whose config names a report outside it, or which commits a symlink at the
+// default report's name. writeReport used os.WriteFile and wrote either.
+func TestUnresolvedWriteStaysUnderTheScan(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	victim := filepath.Join(base, "victim")
+
+	if err := os.MkdirAll(repo, 0o750); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(victim, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	roots := reportRoots([]string{repo}, repo)
+
+	link := filepath.Join(repo, ".clif-unresolved.txt")
+	if err := os.Symlink(victim, link); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, target := range []string{link, filepath.Join(repo, "..", "victim")} {
+		if _, err := writeReport(target, nil, "", roots); err == nil {
+			t.Errorf("wrote %s, which leads out of the scanned directory", target)
+		}
+	}
+
+	if got, _ := os.ReadFile(victim); string(got) != "keep" {
+		t.Fatalf("the file outside the repository was overwritten: %q", got)
+	}
+
+	inside := filepath.Join(repo, "sub", "report.txt")
+	if err := os.MkdirAll(filepath.Dir(inside), 0o750); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := writeReport(inside, nil, "", roots); err != nil {
+		t.Errorf("a report inside the scan was refused: %v", err)
+	}
+}
