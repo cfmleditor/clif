@@ -298,19 +298,54 @@ func TestTagEndsAgreesWithTagEndIndex(t *testing.T) {
 		`<cfset x="never closed>`,
 		strings.Repeat(`<cfset x="a>b"`, 50) + `<cfset y=1>`,
 		strings.Repeat("<cf", 2000) + `x="a>b" >` + strings.Repeat(`<cfset q='>'>`, 20),
+		// Enough long spans to build the index, then a walk that steps past
+		// the last '>': the index's "no '>' after here" is not an end.
+		strings.Repeat("<cf"+strings.Repeat(" ", longTagSpan+1), longSpansBeforeIndex+1) + `x="a>b"`,
 		`<input <cfif a>checked</cfif>>`,
 		"",
 		">",
 	}
 
+	// Each text is asked twice: as a walk meets it, and with the index built
+	// before the first answer, since the walk's memo can otherwise answer
+	// from a walk made before the index existed and hide where they differ.
 	for _, text := range texts {
-		ends := newTagEnds(text)
-		for from := range len(text) {
-			if got, want := ends.at(from), tagEndIndex(text[from:]); got != want {
-				t.Errorf("%q from %d: tagEnds %d, tagEndIndex %d", text[:min(len(text), 40)], from, got, want)
+		for _, indexed := range []bool{false, true} {
+			ends := newTagEnds(text)
+			if indexed {
+				ends.gaps = indexTagGaps(text)
+			}
 
-				break
+			for from := range len(text) {
+				if got, want := ends.at(from), tagEndIndex(text[from:]); got != want {
+					t.Errorf("%q from %d (indexed %v): tagEnds %d, tagEndIndex %d", text[:min(len(text), 40)], from, indexed, got, want)
+
+					break
+				}
 			}
 		}
+	}
+}
+
+// A document that keeps asking for ends far away is indexed once, which is
+// what keeps "<cf" repeated before a single '>' linear; the timing sub-case
+// for that shape cannot tell, since the old scan is fast enough per call.
+func TestRepeatedLongSpansBuildTheIndex(t *testing.T) {
+	text := strings.Repeat("<cf", 3000) + ">"
+
+	ends := newTagEnds(text)
+	for i := 0; i < len(text); i += 3 {
+		_ = ends.at(i)
+	}
+
+	if ends.gaps == nil {
+		t.Error("tag ends were scanned again for every tag; want the long spans indexed")
+	}
+
+	one := newTagEnds("<cfset q = \"" + strings.Repeat("x", longTagSpan+1) + "\">")
+	_ = one.at(0)
+
+	if one.gaps != nil {
+		t.Error("a single long tag built the index; want it kept for documents that keep asking")
 	}
 }

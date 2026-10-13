@@ -37,6 +37,9 @@ type tagParser struct {
 	// outputContext and outputState.
 	gated      bool
 	closeKnown bool
+	// tagCalls is how many calls the current bucket held when the tag being
+	// handled was reached, so recordedForExpression reads only that tag's.
+	tagCalls   int
 	endsReady  bool  // ends is built over p.src
 	chainDepth uint8 // chained assignments being parsed; see maxChainedAssignments
 	output     *outputState
@@ -612,6 +615,11 @@ func (p *tagParser) handleCFTag(idx int) int {
 	tagEnd += idx + 1 // past the >
 	tag := p.src[idx:tagEnd]
 	line := p.lineAt(idx)
+
+	p.tagCalls = len(p.calls)
+	if p.inFunc != "" {
+		p.tagCalls = len(p.funcCalls[p.inFunc])
+	}
 
 	// A handled tag is stepped over whole, so its own attributes are in
 	// no text gap: `<cfloop array="#svc.list()#">` is scanned here.
@@ -2672,24 +2680,14 @@ func (p *tagParser) recordedForExpression(expr string, line int, offsets []int) 
 	cs := slices.Clone(bucket[offsets[1]:])
 
 	// The calls recorded before the string paths ran that lie inside this
-	// expression were recorded for this tag, so they are the last ones in
-	// the bucket: the walk reaches tags in order. The search runs back from
-	// there and stops at the first call that starts before the expression,
-	// rather than reading every call the function has made so far for every
-	// <cfset>, which was quadratic in a function's tags: 24,000 took 0.4s.
+	// expression were recorded while this tag was handled, from tagCalls on.
+	// Reading every call the function had made so far for every <cfset> was
+	// quadratic in a function's tags: 24,000 took 0.4s.
 	exprStart, exprEnd := p.srcOffset+offsets[0], p.srcOffset+offsets[0]+len(expr)
 
-	for i := offsets[1] - 1; i >= 0; i-- {
+	for i := min(p.tagCalls, offsets[1]); i < offsets[1]; i++ {
 		call := &bucket[i]
-		if !call.HasSpan {
-			continue
-		}
-
-		if int(call.StartByte) < exprStart {
-			break
-		}
-
-		if int(call.EndByte) <= exprEnd {
+		if call.HasSpan && int(call.StartByte) >= exprStart && int(call.EndByte) <= exprEnd {
 			cs = append(cs, *call)
 		}
 	}

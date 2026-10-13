@@ -1888,7 +1888,18 @@ two-count fast path. A `--->` inside a quoted string still ends a comment
 early, on purpose: tree-sitter and an engine do the same, so do not "fix" it.
 `TestACommentBetweenTagAttributesDoesNotEndTheTag` and `TestTagEndSkipsComments`
 pin it. Routed through it: the walk, `<cfargument>` and the `<cfscript>` open
-tag. Still by a bare `IndexByte`: the `</cffunction>` close in `cfparser.go`
+tag. **A walk over a whole document asks through `tagEnds` (`tag_ends.go`)**,
+which gives `tagEndIndex`'s answer at every offset without each answer scanning
+to the tag's end: past the last `>` there is none, the quote-aware walk
+remembers each position between quoted values it passed (two walks there end
+alike), and after `longSpansBeforeIndex` tags whose `>` is over 4KB away it
+indexes the next `>`, next comment and quote counts once. Without it
+`<cfset x="a>b">` repeated to 560KB took 19.7s. It restates `tagEndIndex`'s
+fast path, comment check and walk, so a change to one is a change to both;
+`TestTagEndsAgreesWithTagEndIndex` compares them at every offset. Every
+document-level walk uses it: the tag walk, output-context tracking, managed
+metadata, script skip spans, `<cfargument>`, collection writes and folding.
+Still by a bare `IndexByte`: the `</cffunction>` close in `cfparser.go`
 and the cursor lookups in `edit_parser.go`/`tags.go`, where the text is a
 closer or a position inside an edit rather than a tag being read.
 

@@ -22,14 +22,17 @@ import (
 //     alike: walked remembers each position's answer, and every later walk
 //     stops at the first position an earlier one passed through.
 //   - A long run with no '>' at all costs the scan for it and the quote
-//     counts over it from every tag inside the run. Once one tag's '>' is
-//     more than longTagSpan away, gaps holds the next '>' and the quote
+//     counts over it from every tag inside the run. Once several tags' '>' have
+//     been more than longTagSpan away, gaps holds the next '>' and the quote
 //     counts for every offset, found once.
 type tagEnds struct {
 	s      string
 	lastGT int
 	walked map[int]int
 	gaps   *tagGaps
+	// longSpans counts the tags whose '>' was more than longTagSpan away;
+	// gaps is built only once there have been longSpansBeforeIndex of them.
+	longSpans int
 	// visited is the walk's scratch list of positions, kept between walks.
 	visited []int
 }
@@ -38,6 +41,12 @@ type tagEnds struct {
 // than scanning it again for the next tag. Nearly every tag ends within a
 // line or two; a run this long with no '>' is not markup anyone writes.
 const longTagSpan = 4096
+
+// longSpansBeforeIndex is how many long spans tagEnds scans before indexing.
+// The index costs 16 bytes for every byte of the document, so a real file
+// with a tag or two holding a long string (a query in a <cfset>) keeps
+// scanning; only a document that keeps asking pays for it.
+const longSpansBeforeIndex = 8
 
 // tagGaps indexes s for tagEnds: for every offset, where the next '>' and the
 // next "<!--" are, and how many of each quote come before it.
@@ -68,7 +77,10 @@ func (t *tagEnds) at(from int) int {
 	} else {
 		gt = strings.IndexByte(t.s[from:], '>')
 		if gt > longTagSpan {
-			t.gaps = indexTagGaps(t.s)
+			t.longSpans++
+			if t.longSpans >= longSpansBeforeIndex {
+				t.gaps = indexTagGaps(t.s)
+			}
 		}
 	}
 
@@ -166,7 +178,8 @@ func (t *tagEnds) walk(start int) int {
 // nextGT is the offset of the first '>' at or after pos, or -1.
 func (t *tagEnds) nextGT(pos int) int {
 	if t.gaps != nil {
-		if pos >= len(t.gaps.nextGT) {
+		// An offset with no '>' after it holds len(s), which is not an end.
+		if pos >= len(t.s) || int(t.gaps.nextGT[pos]) >= len(t.s) {
 			return -1
 		}
 
