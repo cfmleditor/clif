@@ -1,0 +1,16 @@
+# Every action in .github/workflows is pinned to a commit, so a new release of
+# one reaches this repository only as a reviewed pull request from here.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
