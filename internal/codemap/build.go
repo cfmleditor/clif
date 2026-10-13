@@ -16,7 +16,6 @@ import (
 
 	"github.com/cfmleditor/clif/internal/frameworkapi"
 
-	"github.com/cfmleditor/clif/internal/docs"
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
 	"github.com/cfmleditor/clif/internal/resolve"
@@ -321,9 +320,50 @@ func Build(opts *Options) *Map {
 // sorted order, so it is stable across runs and across the parallel scan that
 // follows.
 func indexPass(opts *Options) string {
+	// Indexing is the shared parallel pass; what the fingerprint needs from each
+	// file is collected as it goes and written out in sorted order afterwards, so
+	// it does not depend on which worker finished first.
+	type indexed struct {
+		includes []string
+		sum      [sha256.Size]byte
+	}
+
+	var (
+		mu   sync.Mutex
+		got  = make(map[string]indexed, len(opts.Files))
+		done int
+	)
+
+	opts.Resolver.IndexFiles(opts.Files, opts.PropertyResolvers, func(f, content string, includes []string) {
+		var ix indexed
+
+		ix.includes = includes
+
+		// A component's content is always part of the environment; a page's only
+		// when InferArgs is on, because it can then be the caller that types an
+		// argument.
+		if cfpath.IsCFCFile(f) || opts.InferArgs {
+			ix.sum = sha256.Sum256([]byte(content))
+		}
+
+		mu.Lock()
+		defer mu.Unlock()
+
+		got[f] = ix
+		done++
+
+		if opts.Progress != nil {
+			opts.Progress(PhaseIndex, done, len(opts.Files))
+		}
+	})
+
 	var cfcs, templates []string
 
 	for _, f := range opts.Files {
+		if _, ok := got[f]; !ok {
+			continue
+		}
+
 		if cfpath.IsCFCFile(f) {
 			cfcs = append(cfcs, f)
 		} else {
@@ -343,25 +383,8 @@ func indexPass(opts *Options) string {
 		_, _ = fmt.Fprintf(fp, "infer-args\n")
 	}
 
-	for i, f := range cfcs {
-		data, err := opts.FS.ReadFile(f)
-		if err != nil || cfpath.IsBinary(data) {
-			continue
-		}
-
-		// The scan's own indexing, so a return type is inferred with the
-		// resolver's rules and an injected property is typed as `unresolved`
-		// types it; IndexFile alone parsed with none of them.
-		opts.Resolver.IndexForBatch(f, string(data), opts.PropertyResolvers)
-
-		sum := sha256.Sum256(data)
-		// hash.Hash.Write never returns an error, which is why Fprintf to one
-		// cannot fail.
-		_, _ = fmt.Fprintf(fp, "%s\x00%x\n", f, sum)
-
-		if opts.Progress != nil {
-			opts.Progress(PhaseIndex, i+1, len(cfcs))
-		}
+	for _, f := range cfcs {
+		_, _ = fmt.Fprintf(fp, "%s\x00%x\n", f, got[f].sum)
 	}
 
 	// A template's includes decide what its includers' and its own bare calls
@@ -369,22 +392,13 @@ func indexPass(opts *Options) string {
 	// computed in: the paths go into the fingerprint, not the content, so
 	// editing a page's body still leaves every other file's cache valid.
 	for _, f := range templates {
-		data, err := opts.FS.ReadFile(f)
-		if err != nil || cfpath.IsBinary(data) {
-			continue
+		if includes := got[f].includes; len(includes) > 0 {
+			_, _ = fmt.Fprintf(fp, "%s\x00includes\x00%s\n", f, strings.Join(includes, "\x00"))
 		}
-
-		opts.Resolver.IndexForBatch(f, string(data), opts.PropertyResolvers)
-
-		includes := parser.ExtractIncludes(string(data))
 
 		// A page can be the caller that decides an argument's type.
 		if opts.InferArgs {
-			_, _ = fmt.Fprintf(fp, "%s\x00content\x00%x\n", f, sha256.Sum256(data))
-		}
-
-		if len(includes) > 0 {
-			_, _ = fmt.Fprintf(fp, "%s\x00includes\x00%s\n", f, strings.Join(includes, "\x00"))
+			_, _ = fmt.Fprintf(fp, "%s\x00content\x00%x\n", f, got[f].sum)
 		}
 	}
 
@@ -692,16 +706,18 @@ func (res *FileGraph) addCalls(opts *Options, cfg *FileConfig, pr *parser.ParseR
 
 		res.Stats.CallSites++
 
-		target, reason := cfg.Resolver.ResolveCallTarget(call, pr, baseDir)
+		class := cfg.Resolver.ClassifyCall(call, pr, baseDir, resolve.ClassifyOptions{WantTarget: true})
+		target, reason := class.Target, class.Reason
 		from := res.callerID(pr, rel, call.Line)
 
-		// The builtin check runs *after* resolution, not before. A workspace
+		// A builtin is set aside after resolution, not before. A workspace
 		// function may share a name with a built-in or a member method — init,
 		// add, close, get, isValid and about sixty others do in one real codebase
 		// — and testing the name first threw away every call to them before
 		// anything looked for a definition. A call that resolved to a real
 		// definition is a call to that definition, whatever else shares its name.
-		if !target.Kind.Definite() && isBuiltin(call.FuncName) && call.Variable == "" {
+		// What counts as a builtin is the resolver's, the one `unresolved` uses.
+		if class.Verdict == resolve.Builtin || (class.Verdict == resolve.Accepted && !target.Kind.Definite() && resolve.IsBuiltinCall(call)) {
 			res.Stats.Builtin++
 
 			if !opts.IncludeBuiltins {
@@ -853,14 +869,6 @@ func resolveInclude(opts *Options, cfg *FileConfig, raw, baseDir string) string 
 	}
 
 	return ""
-}
-
-func isBuiltin(name string) bool {
-	if docs.IsBuiltinFunction(name) {
-		return true
-	}
-
-	return parser.IsMemberMethod(name)
 }
 
 // relPath reports file relative to root, slash-separated so a node id is the same

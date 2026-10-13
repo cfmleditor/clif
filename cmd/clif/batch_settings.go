@@ -1,9 +1,11 @@
 package main
 
 import (
+	"github.com/cfmleditor/clif/internal/codemap"
 	"github.com/cfmleditor/clif/internal/config"
 	"github.com/cfmleditor/clif/internal/daemon"
 	"github.com/cfmleditor/clif/internal/frameworkapi"
+	"github.com/cfmleditor/clif/internal/index"
 	"github.com/cfmleditor/clif/internal/resolve"
 	"github.com/cfmleditor/clif/internal/vfs"
 )
@@ -43,9 +45,27 @@ func batchSettings(fsys vfs.FS, cfg *daemon.Config, folders []string) (resolve.S
 	s.ExpressionMappings = cfg.ExpressionMappings()
 	s.BeanPaths = cfg.BeanPaths()
 	s.PropertyResolvers = configPropertyResolvers(cfg)
+	s.ServicePropertyResolvers = cfg.ServicePropertyResolvers()
+	s.InterpolateAllText = !cfg.ResolvedFeatures().OutputContextInterpolation
 	s.ImplicitExtends = config.ImplicitExtends(cfg.Frameworks())
 	s.HelperScope = config.HelperScope(cfg.Frameworks())
 	s.Stubs = frameworkapi.For(cfg.Frameworks())
 
 	return s, nil
+}
+
+// batchFileConfig is the code map's per-file environment over a batch resolver:
+// the same resolver and the same parse inputs `unresolved` parses with. The
+// fallback config used to be built apart from the per-config one and left out
+// features.outputContextInterpolation.
+func batchFileConfig(shared *index.Index, resolver *resolve.Resolver, s *resolve.Settings) codemap.FileConfig {
+	return codemap.FileConfig{
+		Resolver:                 resolver,
+		Resolvers:                resolver.Resolvers,
+		ExpressionMappings:       s.ExpressionMappings,
+		ServicePropertyResolvers: s.ServicePropertyResolvers,
+		PropertyResolvers:        s.PropertyResolvers,
+		BeanLookup:               shared.LookupBean,
+		InterpolateAllText:       s.InterpolateAllText,
+	}
 }

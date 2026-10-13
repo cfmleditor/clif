@@ -17,7 +17,6 @@ import (
 
 	"github.com/cfmleditor/clif/internal/config"
 	"github.com/cfmleditor/clif/internal/conv"
-	"github.com/cfmleditor/clif/internal/docs"
 	"github.com/cfmleditor/clif/internal/frameworkapi"
 	"github.com/cfmleditor/clif/internal/index"
 	"github.com/cfmleditor/clif/internal/knownissues"
@@ -90,6 +89,45 @@ type Options struct {
 	Candidates               bool                     // annotate each finding with its category and liberal matches; see candidates.go
 	InferArgs                bool                     // type an untyped argument from what every caller passes it (resolve.Resolver.InferArgsFiles)
 	Verbose                  io.Writer
+}
+
+// Settings is the resolution half of the options, as the batch resolver takes it.
+func (o *Options) Settings() *resolve.Settings {
+	return &resolve.Settings{
+		NativeEngine:             o.NativeEngine,
+		SpeculativeReceivers:     o.speculativeReceivers,
+		CallerInferenceLimits:    o.CallerInferenceLimits,
+		Resolvers:                o.Resolvers,
+		Mappings:                 o.Mappings,
+		StartupFiles:             o.StartupFiles,
+		ExpressionMappings:       o.ExpressionMappings,
+		PropertyResolvers:        o.PropertyResolvers,
+		ServicePropertyResolvers: o.ServicePropertyResolvers,
+		BeanPaths:                o.BeanPaths,
+		WorkspaceFolders:         o.WorkspaceFolders,
+		ImplicitExtends:          o.ImplicitExtends,
+		HelperScope:              o.HelperScope,
+		Stubs:                    o.Stubs,
+		InterpolateAllText:       o.InterpolateAll,
+	}
+}
+
+// UseSettings takes the resolution half of the options from s. The native
+// engine is a command-line choice, not the configuration's, and is left alone.
+func (o *Options) UseSettings(s *resolve.Settings) {
+	o.CallerInferenceLimits = s.CallerInferenceLimits
+	o.Resolvers = s.Resolvers
+	o.Mappings = s.Mappings
+	o.StartupFiles = s.StartupFiles
+	o.ExpressionMappings = s.ExpressionMappings
+	o.PropertyResolvers = s.PropertyResolvers
+	o.ServicePropertyResolvers = s.ServicePropertyResolvers
+	o.BeanPaths = s.BeanPaths
+	o.WorkspaceFolders = s.WorkspaceFolders
+	o.ImplicitExtends = s.ImplicitExtends
+	o.HelperScope = s.HelperScope
+	o.Stubs = s.Stubs
+	o.InterpolateAll = s.InterpolateAllText
 }
 
 // Report is a scan's result.
@@ -215,21 +253,7 @@ func Scan(fsys vfs.FS, files, targets []string, opt *Options) Report {
 // report accepted. Speculative batch scans add their own fallback snapshot;
 // explain retains strict behavior.
 func NewResolver(fsys vfs.FS, files []string, opt *Options) *resolve.Resolver {
-	settings := &resolve.Settings{
-		NativeEngine:          opt.NativeEngine,
-		SpeculativeReceivers:  opt.speculativeReceivers,
-		CallerInferenceLimits: opt.CallerInferenceLimits,
-		Resolvers:             opt.Resolvers,
-		Mappings:              opt.Mappings,
-		StartupFiles:          opt.StartupFiles,
-		BeanPaths:             opt.BeanPaths,
-		ExpressionMappings:    opt.ExpressionMappings,
-		WorkspaceFolders:      opt.WorkspaceFolders,
-		ImplicitExtends:       opt.ImplicitExtends,
-		HelperScope:           opt.HelperScope,
-		Stubs:                 opt.Stubs,
-	}
-
+	settings := opt.Settings()
 	if opt.InferArgs {
 		settings.InferArgsFiles = files
 	}
@@ -240,39 +264,9 @@ func NewResolver(fsys vfs.FS, files []string, opt *Options) *resolve.Resolver {
 	resolver.Index = index.New()
 	resolver.LoadBeans(opt.BeanPaths)
 
-	// Each file is read and parsed on its own, and what a parse looks up (the
-	// bean map and the DI policies) is settled before the first one starts,
-	// so the files are indexed in parallel. Serially this was most of a
-	// scan's wall time on a large workspace.
-	work := make(chan string)
-
-	var wg sync.WaitGroup
-
-	for range runtime.GOMAXPROCS(0) {
-		wg.Go(func() {
-			for f := range work {
-				indexOne(fsys, resolver, f, opt)
-			}
-		})
-	}
-
-	for _, f := range files {
-		work <- f
-	}
-
-	close(work)
-	wg.Wait()
+	resolver.IndexFiles(files, opt.PropertyResolvers, nil)
 
 	return resolver
-}
-
-func indexOne(fsys vfs.FS, resolver *resolve.Resolver, f string, opt *Options) {
-	content, err := vfs.ReadString(fsys, f)
-	if err != nil || cfpath.IsBinary(content) {
-		return
-	}
-
-	resolver.IndexForBatch(f, content, opt.PropertyResolvers)
 }
 
 func scanFile(fsys vfs.FS, resolver *resolve.Resolver, file string, opt *Options) (out []Call, resolved int) {
@@ -294,8 +288,10 @@ func scanFile(fsys vfs.FS, resolver *resolve.Resolver, file string, opt *Options
 	for i := range calls {
 		call := &calls[i]
 
-		reason := resolver.CanResolveCall(call, pr, baseDir)
-		if reason == "" {
+		c := resolver.ClassifyCall(call, pr, baseDir, resolve.ClassifyOptions{GlobalDefs: opt.GlobalDefs})
+
+		switch c.Verdict {
+		case resolve.Accepted:
 			resolved++
 
 			if opt.Verbose != nil {
@@ -303,13 +299,9 @@ func scanFile(fsys vfs.FS, resolver *resolve.Resolver, file string, opt *Options
 			}
 
 			continue
-		}
-
-		if call.Variable == "" && len(call.Chain) == 0 && IsBuiltin(call.FuncName) {
+		case resolve.Builtin:
 			continue
-		}
-
-		if opt.GlobalDefs && resolver.Index.CountFunctions(call.FuncName) > 0 {
+		case resolve.GlobalDef:
 			resolved++
 
 			if opt.Verbose != nil {
@@ -317,13 +309,14 @@ func scanFile(fsys vfs.FS, resolver *resolve.Resolver, file string, opt *Options
 			}
 
 			continue
-		}
-
-		if base, ok := resolve.MissingBaseOf(reason); ok {
-			bases.add(base, call)
+		case resolve.MissingBase:
+			bases.add(c.Base, call)
 
 			continue
+		case resolve.Unresolved:
 		}
+
+		reason := c.Reason
 
 		entry := Call{
 			This:     call.This,
@@ -494,34 +487,6 @@ func MissingBases(calls []Call) []MissingBase {
 	return out
 }
 
-// IsBuiltin reports whether name is a built-in function or member function,
-// which the report leaves out.
-func IsBuiltin(name string) bool {
-	if docs.IsBuiltinFunction(name) {
-		return true
-	}
-
-	if parser.IsMemberMethod(name) {
-		return true
-	}
-
-	return IsMemberFunction(name)
-}
-
-var memberFuncSet = func() map[string]bool {
-	m := make(map[string]bool)
-	for _, mf := range docs.AllMemberFunctions() {
-		m[strings.ToLower(mf.Name)] = true
-	}
-
-	return m
-}()
-
-// IsMemberFunction reports whether name is a documented member function.
-func IsMemberFunction(name string) bool {
-	return memberFuncSet[strings.ToLower(name)]
-}
-
 // CallText is how a call is written in the report: variable.function.
 func (c *Call) CallText() string {
 	if c.Variable != "" {
@@ -638,12 +603,7 @@ func isOutside(rel string) bool {
 // Parse is file parsed as a scan checks it: with the resolver's lookups, so
 // what a variable is assigned from is typed the same way in both commands.
 func Parse(resolver *resolve.Resolver, file, content string, opt *Options) *parser.ParseResult {
-	po := resolver.BatchParseOptions(file, &resolve.ParseInputs{
-		ExpressionMappings:       opt.ExpressionMappings,
-		ServicePropertyResolvers: opt.ServicePropertyResolvers,
-		PropertyResolvers:        opt.PropertyResolvers,
-		InterpolateAllText:       opt.InterpolateAll,
-	})
+	po := resolver.BatchParseOptions(file, opt.Settings().ParseInputs())
 
 	pr := parser.ParseWithOptions(uri.URI("file://"+file), content, po)
 

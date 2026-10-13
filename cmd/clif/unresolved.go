@@ -286,21 +286,9 @@ func unresolvedOptions(cfg *daemon.Config, args []string, fl *unresolvedFlags) *
 	}
 
 	settings, assumed := batchSettings(vfs.OS{}, cfg, opt.WorkspaceFolders)
-	opt.CallerInferenceLimits = settings.CallerInferenceLimits
-	opt.Resolvers = settings.Resolvers
-	opt.Mappings = settings.Mappings
-	opt.StartupFiles = settings.StartupFiles
-	opt.ExpressionMappings = settings.ExpressionMappings
-	opt.BeanPaths = settings.BeanPaths
-	opt.PropertyResolvers = settings.PropertyResolvers
-	opt.ImplicitExtends = settings.ImplicitExtends
-	opt.HelperScope = settings.HelperScope
-	opt.Stubs = settings.Stubs
+	opt.UseSettings(&settings)
 
 	if cfg != nil {
-		opt.ServicePropertyResolvers = cfg.ServicePropertyResolvers()
-		opt.InterpolateAll = !cfg.ResolvedFeatures().OutputContextInterpolation
-
 		if unknown := config.UnknownFrameworks(cfg.Frameworks()); len(unknown) > 0 {
 			fmt.Fprintf(os.Stderr, "frameworks: no preset named %s (known: %s)\n",
 				strings.Join(unknown, ", "), strings.Join(config.KnownFrameworks(), ", "))

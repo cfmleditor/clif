@@ -507,19 +507,7 @@ func routeWorkspace(fsys vfs.FS, root string, f *graphFlags) (scanRoots []string
 	// every config, as one index does.
 	resolver.LoadBeans(bs.BeanPaths)
 
-	var servicePropertyResolvers map[string]string
-	if cfg != nil {
-		servicePropertyResolvers = cfg.ServicePropertyResolvers()
-	}
-
-	fallback = codemap.FileConfig{
-		Resolver:                 resolver,
-		Resolvers:                resolver.Resolvers,
-		ExpressionMappings:       bs.ExpressionMappings,
-		ServicePropertyResolvers: servicePropertyResolvers,
-		PropertyResolvers:        bs.PropertyResolvers,
-		BeanLookup:               shared.LookupBean,
-	}
+	fallback = batchFileConfig(shared, resolver, &bs)
 
 	return scanRoots, fallback, shared, settings
 }

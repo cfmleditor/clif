@@ -81,25 +81,6 @@ func TestSplitByTargetGivesEachReportItsOwnDirectory(t *testing.T) {
 	}
 }
 
-func TestIsBuiltin(t *testing.T) {
-	// A tag called as a function is built in too: cfheader( name = "x" ).
-	// "cf" alone and a cf-prefixed name no tag has are not.
-	for name, want := range map[string]bool{
-		"trim": true, "TRIM": true, "append": true, "someUserDefinedFunctionXyz": false,
-		"cfheader": true, "CFHTTP": true, "cf": false, "cfNotATag": false,
-	} {
-		if got := IsBuiltin(name); got != want {
-			t.Errorf("IsBuiltin(%q) = %v, want %v", name, got, want)
-		}
-	}
-
-	for name, want := range map[string]bool{"append": true, "APPEND": true, "notARealMemberFunctionXyz": false} {
-		if got := IsMemberFunction(name); got != want {
-			t.Errorf("IsMemberFunction(%q) = %v, want %v", name, got, want)
-		}
-	}
-}
-
 // TestConfiguredResolverReturnCrossesFiles covers the batch-indexing half of
 // resolver-backed returns. Factory.make() is parsed before Page calls it, so
 // its configured return must be stored in the index rather than existing only

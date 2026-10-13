@@ -315,7 +315,7 @@ func (a *annotator) receiverMethods(call *parser.CallSite) []string {
 			continue
 		}
 
-		if IsMemberFunction(c.FuncName) && !strings.EqualFold(c.FuncName, call.FuncName) {
+		if resolve.IsMemberFunction(c.FuncName) && !strings.EqualFold(c.FuncName, call.FuncName) {
 			continue
 		}
 

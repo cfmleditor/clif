@@ -2,6 +2,8 @@ package resolve
 
 import (
 	"path/filepath"
+	"runtime"
+	"sync"
 
 	"github.com/cfmleditor/clif/internal/config"
 	"github.com/cfmleditor/clif/internal/frameworkapi"
@@ -20,18 +22,21 @@ import (
 // resolvers and the map did neither, so 18,185 calls the one resolved the other
 // reported — 21,962 against 3,786.
 type Settings struct {
-	CallerInferenceLimits config.CallerInferenceLimits
-	Resolvers             []parser.Resolver
-	Mappings              map[string]string
-	StartupFiles          []string
-	ExpressionMappings    map[string]string
-	PropertyResolvers     []parser.PropertyResolver
-	BeanPaths             map[string]string // configured beanPaths; Application.cfc's are added
-	WorkspaceFolders      []string
-	ImplicitExtends       func(path string) string
-	HelperScope           func(path string) bool
-	Stubs                 *frameworkapi.Set
-	NativeEngine          string // "", "generic" or "lucee"; empty detects it from the layout
+	CallerInferenceLimits    config.CallerInferenceLimits
+	Resolvers                []parser.Resolver
+	Mappings                 map[string]string
+	StartupFiles             []string
+	ExpressionMappings       map[string]string
+	PropertyResolvers        []parser.PropertyResolver
+	ServicePropertyResolvers map[string]string
+	BeanPaths                map[string]string // configured beanPaths; Application.cfc's are added
+	WorkspaceFolders         []string
+	ImplicitExtends          func(path string) string
+	HelperScope              func(path string) bool
+	Stubs                    *frameworkapi.Set
+	NativeEngine             string // "", "generic" or "lucee"; empty detects it from the layout
+	// InterpolateAllText is features.outputContextInterpolation turned off.
+	InterpolateAllText bool
 
 	// InferArgsFiles are the files to search for the callers of a function, to
 	// type an argument from what they pass it; empty leaves it off. It must be
@@ -48,6 +53,10 @@ type Settings struct {
 // are settled here, before anything is indexed, because indexing parses with
 // them. Files are indexed afterwards through [Resolver.IndexForBatch].
 func NewBatchResolver(fsys vfs.FS, idx *index.Index, s *Settings) *Resolver {
+	// Files do not change under a batch run, which is what SnapshotScan says and
+	// what lets the filesystem answer a stat or a read once.
+	fsys = vfs.CacheMetadata(fsys)
+
 	r := &Resolver{
 		NativeEngine:          s.NativeEngine,
 		FS:                    fsys,
@@ -105,21 +114,22 @@ func (r *Resolver) LoadBeans(beanPaths map[string]string) {
 	}
 }
 
-// IndexForBatch indexes one file the way every batch run must: a template only
+// IndexForBatch indexes one file, and returns a template's include paths the way every batch run must: a template only
 // records its includes (a page that includes a helper can call what the helper
 // declares), and a component is parsed with the resolver's own rules, so what
 // it returns and what its injected properties hold are typed as the scan will
 // type them. The code map indexed with the default parse options and typed a
 // component's returns differently from the scan that checked the same calls.
-func (r *Resolver) IndexForBatch(f, content string, propertyResolvers []parser.PropertyResolver) {
+func (r *Resolver) IndexForBatch(f, content string, propertyResolvers []parser.PropertyResolver) (includes []string) {
 	r.IndexCallerFile(f, content)
 
 	fileURI := cfpath.ToURI(f)
 
 	if !cfpath.IsCFCFile(f) {
-		r.Index.SetIncludes(fileURI, parser.ExtractIncludes(content))
+		includes = parser.ExtractIncludes(content)
+		r.Index.SetIncludes(fileURI, includes)
 
-		return
+		return includes
 	}
 
 	r.Index.IndexFileWithOptions(fileURI, content, &parser.ParseOptions{
@@ -130,6 +140,8 @@ func (r *Resolver) IndexForBatch(f, content string, propertyResolvers []parser.P
 		PropertyBeanLookup: r.InjectionPropertyLookup(f),
 		PropertyResolvers:  propertyResolvers,
 	})
+
+	return nil
 }
 
 // ParseInputs is what a batch parse takes from the configuration beyond the
@@ -139,6 +151,16 @@ type ParseInputs struct {
 	ServicePropertyResolvers map[string]string
 	PropertyResolvers        []parser.PropertyResolver
 	InterpolateAllText       bool
+}
+
+// ParseInputs is the part of the settings a parse takes.
+func (s *Settings) ParseInputs() *ParseInputs {
+	return &ParseInputs{
+		ExpressionMappings:       s.ExpressionMappings,
+		ServicePropertyResolvers: s.ServicePropertyResolvers,
+		PropertyResolvers:        s.PropertyResolvers,
+		InterpolateAllText:       s.InterpolateAllText,
+	}
 }
 
 // BatchParseOptions are the options every batch run parses a file's calls with.
@@ -162,4 +184,42 @@ func (r *Resolver) BatchParseOptions(file string, in *ParseInputs) *parser.Parse
 		FuncLookup:               r.FuncLookup(filepath.Dir(file)),
 		BuiltinReturnLookup:      r.BuiltinReturnLookupFor(file),
 	}
+}
+
+// IndexFiles indexes every file for a batch run, in parallel: each is read and
+// parsed on its own, and what a parse looks up (the bean map and the DI
+// policies) is settled before the first starts. Serially this was most of a
+// scan's wall time on a large workspace.
+//
+// A file that cannot be read, or is binary, is skipped. visit, when given, is
+// called from the workers with each indexed file's content and, for a template,
+// its include paths; it must be safe to call concurrently.
+func (r *Resolver) IndexFiles(files []string, propertyResolvers []parser.PropertyResolver, visit func(f, content string, includes []string)) {
+	work := make(chan string)
+
+	var wg sync.WaitGroup
+
+	for range runtime.GOMAXPROCS(0) {
+		wg.Go(func() {
+			for f := range work {
+				content, err := vfs.ReadString(r.FS, f)
+				if err != nil || cfpath.IsBinary(content) {
+					continue
+				}
+
+				includes := r.IndexForBatch(f, content, propertyResolvers)
+
+				if visit != nil {
+					visit(f, content, includes)
+				}
+			}
+		})
+	}
+
+	for _, f := range files {
+		work <- f
+	}
+
+	close(work)
+	wg.Wait()
 }

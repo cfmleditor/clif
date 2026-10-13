@@ -8,14 +8,11 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/cfmleditor/clif/internal/config"
 	"github.com/cfmleditor/clif/internal/daemon"
 	"github.com/cfmleditor/clif/internal/deps"
-	"github.com/cfmleditor/clif/internal/frameworkapi"
 	"github.com/cfmleditor/clif/internal/graph"
 	"github.com/cfmleditor/clif/internal/index"
 	"github.com/cfmleditor/clif/internal/parser"
-	cfpath "github.com/cfmleditor/clif/internal/path"
 	"github.com/cfmleditor/clif/internal/resolve"
 	"github.com/cfmleditor/clif/internal/vfs"
 	"go.lsp.dev/uri"
@@ -40,9 +37,9 @@ type DepResult struct {
 	Edges []DepEdge `json:"edges"`
 }
 
-// depsInterpolateAll is the features.outputContextInterpolation switch turned
-// off in the config the deps command found. One command reads one config.
-var depsInterpolateAll bool
+// depsSettings are the settings the deps command resolved with, kept for the
+// parses that follow its traversal. One command reads one config.
+var depsSettings resolve.Settings
 
 func cmdDeps(args []string) {
 	format := "json"
@@ -120,14 +117,6 @@ func cmdDeps(args []string) {
 // what lets a dependency be followed to another file at all; the previous
 // implementation did none, which is why it could only ever report one level.
 func depsResolver(fsys vfs.FS, args, files []string) (*resolve.Resolver, *index.Index) {
-	var (
-		workspaceFolders   []string
-		mappings           map[string]string
-		startupFiles       []string
-		expressionMappings map[string]string
-		cfResolvers        []parser.Resolver
-	)
-
 	searchDir := "."
 	if info, err := os.Stat(args[0]); err == nil && info.IsDir() {
 		searchDir = args[0]
@@ -135,61 +124,33 @@ func depsResolver(fsys vfs.FS, args, files []string) (*resolve.Resolver, *index.
 		searchDir = filepath.Dir(args[0])
 	}
 
-	var (
-		implicitExtends func(string) string
-		helperScope     func(string) bool
-		stubs           *frameworkapi.Set
-	)
+	cfg, _ := daemon.FindConfig(searchDir)
 
-	if cfg, _ := daemon.FindConfig(searchDir); cfg != nil {
-		implicitExtends = config.ImplicitExtends(cfg.Frameworks())
-		helperScope = config.HelperScope(cfg.Frameworks())
-		stubs = frameworkapi.For(cfg.Frameworks())
-		depsInterpolateAll = !cfg.ResolvedFeatures().OutputContextInterpolation
-		workspaceFolders = cliWorkspaceFolders(fsys, cfg, args)
-		mappings = cfg.Mappings()
-		startupFiles = cfg.StartupFiles()
-		expressionMappings = cfg.ExpressionMappings()
-
-		for _, r := range cfg.ComponentResolvers() {
-			cfResolvers = append(cfResolvers, r.Parser())
-		}
-	} else {
-		workspaceFolders = cliWorkspaceFolders(fsys, nil, args)
-	}
+	// The same settings and the same resolver as every other bulk command, and
+	// the components indexed the way they are: deps built its own resolver from a
+	// subset of the config and indexed from a bare parse.
+	settings, _ := batchSettings(fsys, cfg, cliWorkspaceFolders(fsys, cfg, args))
+	depsSettings = settings
 
 	idx := index.New()
+	resolver := resolve.NewBatchResolver(fsys, idx, &settings)
+	resolver.LoadBeans(settings.BeanPaths)
+	resolver.IndexFiles(files, settings.PropertyResolvers, nil)
 
-	for _, f := range files {
-		if !cfpath.IsCFCFile(f) {
-			continue
-		}
+	return resolver, idx
+}
 
-		content, err := vfs.ReadRegular(f)
-		if err != nil {
-			continue
-		}
-
-		abs, _ := filepath.Abs(f)
-		pr := parser.ParseWithOptions(uri.File(abs), string(content), &parser.ParseOptions{
-			Resolvers: cfResolvers, ExpressionMappings: expressionMappings,
-			InterpolateAllText: depsInterpolateAll,
-		})
-		idx.IndexFileFromResult(pr.URI, pr.Funcs, pr.ComponentRefs)
+// depsParseOptions are how deps reads a file: its resolvers and expression
+// mappings and nothing that types a call by the function it names. A scan
+// types `getService("UserService")` by what getService returns, which is `$any`
+// where the resolver names the component; a dependency graph wants the
+// component, and it is what clif.exportDeps parses with. The resolver and the
+// index behind it are the batch ones; this is the one place deps differs.
+func depsParseOptions(resolver *resolve.Resolver) *parser.ParseOptions {
+	return &parser.ParseOptions{
+		Resolvers: resolver.Resolvers, ExpressionMappings: resolver.ExpressionMappings,
+		ExtractCalls: true, InterpolateAllText: depsSettings.InterpolateAllText,
 	}
-
-	return &resolve.Resolver{
-		FS:                 fsys,
-		Index:              idx,
-		Resolvers:          cfResolvers,
-		Mappings:           mappings,
-		StartupFiles:       startupFiles,
-		ExpressionMappings: expressionMappings,
-		WorkspaceFolders:   workspaceFolders,
-		ImplicitExtends:    implicitExtends,
-		HelperScope:        helperScope,
-		Stubs:              stubs,
-	}, idx
 }
 
 // depsForFile builds the dependency graph rooted at one file, the same way
@@ -205,10 +166,7 @@ func depsForFile(path string, resolver *resolve.Resolver, idx *index.Index) []gr
 	abs, _ := filepath.Abs(path)
 	fileURI := uri.File(abs)
 
-	pr := parser.ParseWithOptions(fileURI, string(content), &parser.ParseOptions{
-		Resolvers: resolver.Resolvers, ExpressionMappings: resolver.ExpressionMappings,
-		ExtractCalls: true, InterpolateAllText: depsInterpolateAll,
-	})
+	pr := parser.ParseWithOptions(fileURI, string(content), depsParseOptions(resolver))
 
 	var calls []parser.CallSite
 	for _, sc := range pr.Scopes {
@@ -243,10 +201,7 @@ func depsCallLoader(resolver *resolve.Resolver) func(uri.URI, string) ([]parser.
 				return nil, nil
 			}
 
-			pr = parser.ParseWithOptions(fileURI, string(data), &parser.ParseOptions{
-				Resolvers: resolver.Resolvers, ExpressionMappings: resolver.ExpressionMappings,
-				ExtractCalls: true, InterpolateAllText: depsInterpolateAll,
-			})
+			pr = parser.ParseWithOptions(fileURI, string(data), depsParseOptions(resolver))
 			parsed[fileURI] = pr
 		}
 

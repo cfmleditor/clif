@@ -738,21 +738,35 @@ A caller may be a page, so with it on the fingerprint covers every template's co
 editing a `.cfm` invalidates the cache, which it otherwise does not.
 `TestTheMapTypesAnArgumentAsUnresolvedDoes`, `TestInferringArgumentsWidensTheFingerprintToPages`.
 
-**`unresolved`, `explain` and the code map build their resolver in one place, and index and parse
-through it.** Each had its own, and each had drifted: on Masa CMS (no `.clif.json`) `unresolved`
-assumed the mura preset and added the startup beans' resolvers, and the map did neither, so
-the map reported 21,962 unresolved calls to `unresolved`'s 3,786. `batchSettings`
-(`cmd/clif/batch_settings.go`) reduces a config, or the framework a project is assumed to be,
-to a `resolve.Settings`; `resolve.NewBatchResolver` builds the resolver from it (snapshot scan,
-Lucee detection, `BeanResolvers`); `Resolver.IndexForBatch` indexes a file with the resolver's
-own rules and `Resolver.BatchParseOptions` is what a scan parses its calls with (setter,
-constructor and injected-bean lookups included). A new setting goes into `Settings` and
-`batchSettings`, not into one command. After the change Masa is 3,758 against 3,786 and
-inference removes 1,634 findings in the map against 1,631; ColdBox and TestBox did not move.
-`TestGraphAssumesTheFrameworkUnresolvedAssumes` (cmd) and `TestTheMapResolvesWhatUnresolvedResolves`
-hold the two to the same count. The second needs the index, the parse and the bean lookup all
-reverted before it fails, because any one types the fixture's property; the first is
-sensitive to the assumed framework alone.
+**`unresolved`, `explain`, `deps`, the MCP tools and the code map share one batch pipeline, and a
+change goes into it, not into one command.** Each had its own copy and each had drifted: on Masa CMS
+(no `.clif.json`) `unresolved` assumed the mura preset and added the startup beans' resolvers, and
+the map did neither, so the map reported 21,962 unresolved calls to `unresolved`'s 3,786. The
+pieces, each used by every command that resolves in bulk:
+- `batchSettings` (`cmd/clif/batch_settings.go`) reduces a config, or the framework a project is
+  assumed to be, to a `resolve.Settings`; `unresolved.Options.Settings`/`UseSettings` convert to and
+  from it. A new setting goes into `Settings` and `batchSettings`.
+- `resolve.NewBatchResolver` builds the resolver (snapshot scan, `vfs.CacheMetadata`, Lucee
+  detection, `BeanResolvers`); `Resolver.IndexFiles`/`IndexForBatch` index in parallel with the
+  resolver's own rules; `Resolver.BatchParseOptions` is what a scan parses calls with (setter,
+  constructor and injected-bean lookups included).
+- `Resolver.ClassifyCall` decides what a call is: accepted, builtin, global definition, missing
+  base or unresolved. The map had its own copy that hid a call as a builtin when it had a chain
+  (`f().len()`) and by a shorter list of names, which is why it stayed a few dozen to a hundred
+  calls from `unresolved` after everything else matched. `resolve.IsBuiltin` is the one list.
+- `explainEnv` (`cmd/clif/explain.go`) is the CLI's and the MCP tool's explain; `batchFileConfig`
+  is the map's per-file environment, fallback and per-config alike.
+After the change the map's unresolved count equals `unresolved`'s exactly on Masa (3,786 with
+inference, 5,417 without), ColdBox (3,974, 3,981) and TestBox (929, 976), and `unresolved`'s own
+output is byte-identical to before. Differences that remain are on purpose: `deps` parses with its
+own light options (a scan types `getService("X")` by what getService returns, which is `$any`
+where the resolver names the component, and a dependency graph wants the component); `unresolved`
+reads the one config nearest its argument where the map reads each file's own; `unresolved`
+reports a missing base once per file and the map counts the calls; and the editor server's
+resolver is a live per-session one, not a batch one.
+`TestGraphAssumesTheFrameworkUnresolvedAssumes` (cmd), `TestTheMapResolvesWhatUnresolvedResolves`
+and `TestClassifyCallIsTheOneDecision`. The second needs the index, the parse and the bean lookup
+all reverted before it fails, because any one types the fixture's property.
 
 **`indexPass` records every template's includes before the scan starts.** A bare call
 in a page resolves through the include graph (a page calling a function its includer
