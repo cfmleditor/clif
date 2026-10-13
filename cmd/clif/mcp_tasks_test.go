@@ -37,12 +37,61 @@ func TestMCPFlagsChooseTheTools(t *testing.T) {
 }
 
 func TestAMissingPathIsAnErrorNotAnEmptyAnswer(t *testing.T) {
-	if _, err := mcpUnresolved([]string{filepath.Join(t.TempDir(), "nope")}, false, 10); err == nil {
+	root := t.TempDir()
+
+	if _, err := mcpUnresolved(root, []string{filepath.Join(root, "nope")}, false, 10); err == nil {
 		t.Error("unresolved over a missing path answered; it would read as no findings")
 	}
 
-	if _, err := mcpFindRefs("f", []string{filepath.Join(t.TempDir(), "nope")}, 10); err == nil {
+	if _, err := mcpFindRefs(root, "f", []string{filepath.Join(root, "nope")}, 10); err == nil {
 		t.Error("refs over a missing path answered")
+	}
+}
+
+// TestMCPToolsStayInsideTheRoot: a tool's paths come from whatever drives the
+// assistant, and every tool accepted any absolute path, so a prompt could have
+// it scan, lint or quote a file anywhere the user can read. A symlink in the
+// workspace that leads out is refused the same way.
+func TestMCPToolsStayInsideTheRoot(t *testing.T) {
+	base := t.TempDir()
+	root := filepath.Join(base, "ws")
+	outside := filepath.Join(base, "outside")
+
+	for _, d := range []string{root, outside} {
+		if err := os.MkdirAll(d, 0o750); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	secret := filepath.Join(outside, "secret.cfm")
+	if err := os.WriteFile(secret, []byte("<cfset x = f()>\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.Symlink(outside, filepath.Join(root, "link")); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, p := range []string{outside, secret, filepath.Join(root, "link"), filepath.Join(root, "..", "outside")} {
+		if _, err := mcpUnresolved(root, []string{p}, false, 10); err == nil || !strings.Contains(err.Error(), "outside the workspace root") {
+			t.Errorf("unresolved over %s: %v, want a refusal", p, err)
+		}
+
+		if _, err := mcpFindRefs(root, "f", []string{p}, 10); err == nil {
+			t.Errorf("refs over %s answered", p)
+		}
+
+		if _, err := newMCPLinter(root)([]string{p}, 10); err == nil {
+			t.Errorf("lint over %s answered", p)
+		}
+	}
+
+	if _, err := explainAt(root, nil, explainConfig{}, secret, 1, ""); err == nil || !strings.Contains(err.Error(), "outside the workspace root") {
+		t.Errorf("explain_call on a file outside the root: %v, want a refusal", err)
+	}
+
+	if _, err := mcpUnresolved(root, []string{root}, false, 10); err != nil {
+		t.Errorf("the root itself was refused: %v", err)
 	}
 }
 
@@ -51,7 +100,7 @@ func TestAMissingPathIsAnErrorNotAnEmptyAnswer(t *testing.T) {
 func TestMCPLinesAreOneBased(t *testing.T) {
 	td := repoTestdata(t)
 
-	res, err := mcpUnresolved([]string{td}, false, 1000)
+	res, err := mcpUnresolved(td, []string{td}, false, 1000)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +124,7 @@ func TestMCPLinesAreOneBased(t *testing.T) {
 		}
 	}
 
-	refsRes, err := mcpFindRefs("GetData", []string{filepath.Join(td, "refs")}, 10)
+	refsRes, err := mcpFindRefs(td, "GetData", []string{filepath.Join(td, "refs")}, 10)
 	if err != nil {
 		t.Fatal(err)
 	}

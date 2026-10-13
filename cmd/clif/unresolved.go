@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/config"
+	"github.com/cfmleditor/clif/internal/confine"
 	"github.com/cfmleditor/clif/internal/daemon"
 	"github.com/cfmleditor/clif/internal/frameworkapi"
 	cfpath "github.com/cfmleditor/clif/internal/path"
@@ -338,11 +339,20 @@ func unresolvedOptions(cfg *daemon.Config, args []string, fl *unresolvedFlags) *
 func writeUnresolved(results []unresolved.Call, cfg *daemon.Config, args []string, searchDir string, fl *unresolvedFlags) bool {
 	switch {
 	case fl.write:
-		targets := config.GenerateTargets(cfg.KnownIssues(), config.GenerateUnresolved, filepath.Dir(cfg.Path))
+		configDir := filepath.Dir(cfg.Path)
+		targets := config.GenerateTargets(cfg.KnownIssues(), config.GenerateUnresolved, configDir)
+		roots := reportRoots(args, configDir)
+
+		for _, t := range targets {
+			if _, err := confine.Check(t, roots); err != nil {
+				fmt.Fprintf(os.Stderr, "--write: %v\n", err)
+				os.Exit(1)
+			}
+		}
 
 		byTarget, rest := unresolved.SplitByTarget(results, targets)
 		for _, t := range targets {
-			n, err := writeReport(t, byTarget[t], unresolved.RegenerateHint)
+			n, err := writeReport(t, byTarget[t], unresolved.RegenerateHint, roots)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "could not write %s: %v\n", t, err)
 				os.Exit(1)
@@ -394,14 +404,36 @@ func writeUnresolved(results []unresolved.Call, cfg *daemon.Config, args []strin
 }
 
 // writeReport writes calls to path as a known-issues file relative to its own
-// directory, and returns how many entries it holds.
-func writeReport(path string, calls []unresolved.Call, regenerate string) (int, error) {
+// directory, and returns how many entries it holds. The write stays under
+// roots after symlinks (reportRoots).
+func writeReport(path string, calls []unresolved.Call, regenerate string, roots []string) (int, error) {
 	var b strings.Builder
 
 	skipped := unresolved.WriteKnownIssues(&b, calls, filepath.Dir(path), false, regenerate, version)
 
 	// Owner-only, as the server writes the same report for .exportUnresolved.
-	return len(calls) - skipped, os.WriteFile(path, []byte(b.String()), 0o600)
+	return len(calls) - skipped, confine.WriteFile(path, []byte(b.String()), 0o600, roots)
+}
+
+// reportRoots is where --write may put a report named in the config: under a
+// directory the command was asked to scan (a file's own directory, for a file)
+// or the config's directory, after symlinks. The config names the report, and
+// it comes with the repository, so a cloned project's .clif.json naming
+// "../../.zshrc", or a committed symlink at the default report's name, would
+// otherwise have the command overwrite that file.
+func reportRoots(args []string, configDir string) []string {
+	dirs := make([]string, 0, 1+len(args))
+	dirs = append(dirs, configDir)
+
+	for _, a := range args {
+		if info, err := os.Stat(a); err == nil && !info.IsDir() {
+			a = filepath.Dir(a)
+		}
+
+		dirs = append(dirs, a)
+	}
+
+	return confine.Roots(dirs...)
 }
 
 func collectCFMLFiles(fsys vfs.FS, roots []string) []string {

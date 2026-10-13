@@ -102,9 +102,9 @@ CREATE TABLE IF NOT EXISTS file_cache (
 
 // Open opens or creates a database at path.
 func Open(path string) (*Store, error) {
-	db, err := sql.Open("sqlite", path+"?_pragma=busy_timeout(10000)")
+	db, err := open(path, "")
 	if err != nil {
-		return nil, fmt.Errorf("opening %s: %w", path, err)
+		return nil, err
 	}
 
 	if _, err := db.Exec(schema); err != nil {
@@ -114,6 +114,37 @@ func Open(path string) (*Store, error) {
 	}
 
 	return &Store{db: db}, nil
+}
+
+// OpenReadOnly opens the database at path for reading only. The schema is not
+// created or migrated and every write is refused (SQLite's query_only), which
+// is what lets the MCP server say it writes nothing: Open ran the schema's
+// DDL and its journal_mode pragma against the file on every start.
+func OpenReadOnly(path string) (*Store, error) {
+	db, err := open(path, "&_pragma=query_only(1)")
+	if err != nil {
+		return nil, err
+	}
+
+	return &Store{db: db}, nil
+}
+
+// open passes path to the driver with its settings appended as a query
+// string. The driver splits a name at its first '?' and reads what follows as
+// settings, and a name starting "file:" as a URI with settings of its own, so
+// such a path would set pragmas or open another file; it is refused rather
+// than escaped, since a database named like that is not one graph ever wrote.
+func open(path, extra string) (*sql.DB, error) {
+	if strings.ContainsRune(path, '?') || strings.HasPrefix(strings.ToLower(path), "file:") {
+		return nil, fmt.Errorf("refusing database path %q: a '?' or a leading file: would be read as driver settings", path)
+	}
+
+	db, err := sql.Open("sqlite", path+"?_pragma=busy_timeout(10000)"+extra)
+	if err != nil {
+		return nil, fmt.Errorf("opening %s: %w", path, err)
+	}
+
+	return db, nil
 }
 
 // Close releases the database.

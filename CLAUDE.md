@@ -104,12 +104,12 @@ The binary is an LSP server by default; `os.Args[1]` selects a subcommand
 | *(none)* | Run the LSP server over stdio (JSON-RPC 2.0, Content-Length framing) |
 | `parse` | `parse <file-or-dir> [...]` — parse and report per-file timing/counts |
 | `scan` | `scan <file-or-dir> [...]` — report parse errors |
-| `format` | `format [-w] [--allow-non-whitespace] [--root <dir>] <file> [...]` — format to stdout, or in place with `-w`. Reads `formatting` from each file's governing `.clif.json`, or from `--root`'s |
+| `format` | `format [-w] [--allow-non-whitespace] [--root <dir>] [--follow-symlinks] <file> [...]` — format to stdout, or in place with `-w`. Reads `formatting` from each file's governing `.clif.json`, or from `--root`'s |
 | `unresolved` | `unresolved [--json] [--verbose] [--global-defs] <dir> [...]` — batch scan for unresolvable component/method calls |
 | `refs` | `refs [--mermaid] <component-or-function> <dir> [...]` — find references |
 | `deps` | `deps [--mermaid] <dir-or-file> [...]` — transitive dependency graph, built through `deps.Build` so the CLI and `clif.exportDeps` answer alike |
 | `graph` | `graph [--level function\|call\|file\|package] [--format text\|json\|jsonl\|dot\|mermaid\|html] [--db <file>] [--out <f>] [--live\|--detached\|--from <id>] [--under <p>] <dir> [...]` — whole-project code map |
-| `mcp` | `mcp [--db <file>] [--root <dir>] [--allow-lint] [--map-only] [--no-explain]` — serve the workspace over MCP on stdio: unresolved, refs and explain from source, the map's tools with `--db`, CFLint with `--allow-lint`. Writes nothing |
+| `mcp` | `mcp [--db <file>] [--root <dir>] [--allow-lint] [--map-only] [--no-explain]` — serve the workspace over MCP on stdio: unresolved, refs and explain from source, the map's tools with `--db`, CFLint with `--allow-lint`. Writes nothing: the map is opened read-only (`store.OpenReadOnly`), and every path a tool is given must lie under `--root` (or the map's root, or the working directory) after symlinks |
 | `explain` | `explain [--root <dir>] <file> <line> [call-substring]` — trace how a call site resolved |
 | `version`, `help` | |
 
@@ -201,6 +201,7 @@ Editor document change
 | `internal/vfs` | `FS` interface + stdio transport, abstracted for native vs WASM builds. **Every file read goes through `ReadRegular`** (`vfs.OS` and every former `os.ReadFile`): it refuses a device, a FIFO or a socket, whatever a symlink at the path points to, and anything over `MaxFileSize` (32MB). A workspace file symlinked to `/dev/zero` took a scan to 17GB in eight seconds, and a FIFO hung indexing for good; the open is non-blocking so a FIFO cannot wait for a writer, and the checks come from the opened file. `TestReadRegularRefusesADevice`, `TestReadRegularDoesNotWaitOnAFIFO` |
 | `internal/log` | zap wrapper; `debug: true` in config switches to `zap.NewDevelopment`. `EnableCrashReports` (called from `runServer` only, so test binaries never write to the user's cache) sends the runtime's crash output and every panic record to `CLIF_LOG` or, unset, `<os.UserCacheDir>/clif/crash.log`. A recover site calls `cflog.Recovered`, not `log.Error`, so the record carries its stack and reaches that file |
 | `internal/conv` | Range-checked integer conversions (`Uint32`, `Uint32FromUint`, `Int32`) for LSP line and column numbers; imports only `math` |
+| `internal/confine` | Keeps a write, or an MCP tool's path, inside given roots after resolving symlinks (a link at the final name and a linked directory above it). A link that stays inside is followed; one that leaves is refused |
 
 ### Parser design (`internal/parser`)
 
@@ -640,6 +641,10 @@ formats byte-identically with all three in place.
 The `-w` write path (`writeFileInPlace`) writes a sibling temp file, fsyncs, restores the
 replaced file's permission bits, re-checks that the file on disk still matches what was read,
 and renames over the target — following a symlink to its target rather than replacing the link.
+It follows a link only to a file in the link's own directory or beneath it, or beneath `--root`
+(`symlinkRule`), unless `--follow-symlinks` is given: following every link let a cloned
+repository commit `x.cfm` as a link to `~/.zshrc` and have formatting the tree rewrite it.
+`TestFormatOneFileRefusesALinkOutOfItsDirectory`.
 Unchanged output is not written at all, so formatting an already-clean file leaves its mtime
 alone.
 
@@ -1130,9 +1135,22 @@ Declared in `Server.capabilities()` (`internal/server/server.go`):
   goes through `writeReport`/`createReport` (the code map too): an `os.Root` on the report's
   directory, which refuses a symlink planted at the report's name — the old write followed one
   and emptied its target — and owner-only permissions. Only the name is confined, so a
-  workspace reached through a symlinked directory still gets its reports. It used to write unconditionally, which meant the code action on an ordinary "find all
+  workspace reached through a symlinked directory still gets its reports. The code map's
+  directory is also resolved (`internal/confine`) and must stay inside the workspace, since a
+  committed `.clif -> /elsewhere` had `MkdirAll` and the map land there. It used to write unconditionally, which meant the code action on an ordinary "find all
   references" gesture dropped two files beside the source file being read. The plain code actions
   pass two arguments; a separate "Export references to X to a file" action passes the third.
+- **A known-issues report named in the config is written only where `internal/confine`
+  allows** (`exportScope`'s `writeRoots`; the CLI's `reportRoots` and `cflint.WriteTargets`): the
+  folders open in the editor and the config's directory for `clif.exportUnresolved`/`.exportCFLint`,
+  the directories scanned and the config's directory for `unresolved --write`, the directories
+  linted for `cflint --write`, compared after symlinks. The configured `workspacePaths` do not
+  count, since the config naming the report would then name its own licence. The config comes
+  with the repository, so `"file": "../../.zshrc"`, or a committed symlink at the default
+  report's name, had the export code action overwrite that file. A link that stays inside is
+  still followed, which is why these do not go through `writeReport`.
+  `TestExportRefusesAReportOutsideTheWorkspace`, `TestUnresolvedWriteStaysUnderTheScan`,
+  `TestWriteTargetsRefusesALinkOutOfTheLintedFolder`.
 - `workspace/executeCommand`: `clif.reindex`, `.format`, `.showComponentPath`,
   `.restartDaemon`, `.showResolvers`, `.showFileIndex`, `.showConnections`,
   `.openActiveApplicationFile`, `.goToMatchingTag`, `.copyPackage`, `.findRefs`, `.exportDeps`,
