@@ -35,14 +35,18 @@ type tagParser struct {
 	// region's offset in the file. The attributes of CF tags and of
 	// importPrefixes custom tags are scanned wherever they stand. See
 	// outputContext and outputState.
-	gated  bool
-	output *outputState
+	gated      bool
+	closeKnown bool
+	gtKnown    bool  // lastGT holds the offset of p.src's last '>'
+	chainDepth uint8 // chained assignments being parsed; see maxChainedAssignments
+	output     *outputState
 	// collectionTags are the offsets of the tags the walk met that can hold a
 	// collection write (collectionTagName), for collectWrites.
 	collectionTags []int
-	// closeAt is where the </cffunction> after offset closeFrom is, -1 for
-	// none, as parseCFFunction found it for enterFunctionScope.
+	// closeAt is where the first </cffunction> at or after offset closeFrom
+	// is, -1 for none, once closeKnown; see functionCloseAfter.
 	closeFrom, closeAt  int
+	lastGT              int
 	importPrefixes      []string
 	srcOffset           int
 	builtinReturnLookup func(string) string
@@ -160,6 +164,20 @@ func tagEndIndex(s string) int {
 	}
 
 	return tagEndWalk(s)
+}
+
+// tagEndFrom is tagEndIndex(s[from:]) for a walk that asks it at many offsets
+// of s, where lastGT is strings.LastIndexByte(s, '>'), found once by the walk.
+// Past it there is no '>' and so no end to find, and asking tagEndIndex
+// anyway scans to the end of s for nothing: a walk that steps one byte past a
+// tag it cannot end and asks again was quadratic on a file of unterminated
+// tags, "<cf" repeated to 1.5MB taking 5.9s.
+func tagEndFrom(s string, from, lastGT int) int {
+	if from > lastGT {
+		return -1
+	}
+
+	return tagEndIndex(s[from:])
 }
 
 // tagEndWithComments is the '>' closing a tag whose attribute list holds
@@ -600,7 +618,7 @@ func (p *tagParser) handleCFTag(idx int) int {
 		return p.stepOverEvaluatedTag(idx)
 	}
 
-	tagEnd := tagEndIndex(p.src[idx:])
+	tagEnd := tagEndFrom(p.src, idx, p.lastTagEnd())
 	if tagEnd < 0 {
 		return idx + 1
 	}
@@ -711,7 +729,7 @@ func (p *tagParser) nextTag(pos int) int {
 // trackOutput moves the output state past the tag at idx, when gated.
 func (p *tagParser) trackOutput(idx int) {
 	if p.gated {
-		p.output.track(p.src, idx)
+		p.output.track(p.src, idx, p.lastTagEnd())
 	}
 }
 
@@ -733,7 +751,7 @@ func (p *tagParser) stepOverEvaluatedTag(idx int) int {
 		return idx + 1
 	}
 
-	end := tagEndIndex(p.src[idx:])
+	end := tagEndFrom(p.src, idx, p.lastTagEnd())
 	if end < 0 {
 		return idx + 1
 	}
@@ -749,11 +767,7 @@ func (p *tagParser) stepOverEvaluatedTag(idx int) int {
 func (p *tagParser) enterFunctionScope(tagEnd, line int) {
 	endLine := -1
 
-	closeIdx := p.closeAt
-	if p.closeFrom != tagEnd {
-		closeIdx = indexCFTag(p.src[tagEnd:], "/cffunction")
-	}
-
+	closeIdx := p.functionCloseAfter(tagEnd)
 	if closeIdx >= 0 {
 		endLine = p.lineAt(tagEnd + closeIdx)
 	} else {
@@ -801,6 +815,43 @@ func (p *tagParser) markVarLocal(name string) {
 	p.localVars = append(p.localVars, name)
 }
 
+// lastTagEnd is the offset of p.src's last '>', -1 for none, for tagEndFrom.
+func (p *tagParser) lastTagEnd() int {
+	if !p.gtKnown {
+		p.lastGT, p.gtKnown = strings.LastIndexByte(p.src, '>'), true
+	}
+
+	return p.lastGT
+}
+
+// functionCloseAfter is the offset from from of the first </cffunction> at or
+// after it, -1 for none. Each <cffunction> asks, twice, and the search ran to
+// the end of the file whenever there was no close: a page repeating
+// <cffunction name="f"><cfset x = g()> with no </cffunction> was quadratic,
+// 12,000 of them (432KB) taking 1.6s. The answer is remembered with the offset
+// it was searched from, and holds for any later offset up to the close it
+// found, since no close lies between the two; with none found it holds for
+// every later offset. The walk only moves forward, so each byte is searched
+// once.
+func (p *tagParser) functionCloseAfter(from int) int {
+	if p.closeKnown && from >= p.closeFrom && (p.closeAt < 0 || from <= p.closeAt) {
+		if p.closeAt < 0 {
+			return -1
+		}
+
+		return p.closeAt - from
+	}
+
+	ci := indexCFTag(p.src[from:], "/cffunction")
+	p.closeKnown, p.closeFrom, p.closeAt = true, from, ci
+
+	if ci >= 0 {
+		p.closeAt = from + ci
+	}
+
+	return ci
+}
+
 // parseCFFunction extracts a function def from <cffunction> and its <cfargument> children.
 func (p *tagParser) parseCFFunction(tag string, idx, tagEnd, line int) {
 	name := getAttr(tag, "name")
@@ -816,9 +867,7 @@ func (p *tagParser) parseCFFunction(tag string, idx, tagEnd, line int) {
 
 	end := len(rest)
 
-	ci := indexCFTag(rest, "/cffunction")
-	p.closeFrom, p.closeAt = tagEnd, ci // enterFunctionScope asks the same
-
+	ci := p.functionCloseAfter(tagEnd)
 	if ci >= 0 {
 		end = ci
 	}
@@ -1473,7 +1522,7 @@ func (p *tagParser) checkSetRHS(rest, varName string, line int) {
 func (p *tagParser) checkSetRHSStr(rhs, varName string, line int) {
 	rhs = strings.TrimSpace(rhs)
 
-	if chainedSetTarget(rhs) {
+	if p.chainDepth < maxChainedAssignments && chainedSetTarget(rhs) {
 		p.chainedSet(rhs, varName, line)
 
 		return
@@ -1665,7 +1714,9 @@ func (p *tagParser) chainedSet(inner, varName string, line int) {
 	forceGlobal, refThis := p.forceGlobal, p.refThis
 	nGlobal, nLocal, nPending := len(p.componentRefs), len(p.funcRefs[p.inFunc]), len(p.pendingCalls)
 
+	p.chainDepth++
 	p.setAssign(inner, line)
+	p.chainDepth--
 
 	made := refsMadeFor(p.componentRefs, nGlobal, p.funcRefs[p.inFunc], nLocal, varName)
 	p.forceGlobal, p.refThis = forceGlobal, refThis

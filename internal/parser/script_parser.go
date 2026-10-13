@@ -50,12 +50,13 @@ type scriptParser struct {
 	// was padded to eight bytes, and the struct fell into a larger size class.
 	accessors    bool
 	persistent   bool
-	extractLinks bool // whether to extract document links
-	extractCalls bool // whether to extract all call sites
-	afterLT      bool // previous token was '<' — see looksLikeTagAttrs
-	forceGlobal  bool // when true, addRef routes to componentRefs
-	inClosure    bool // scanning a closure's body as statements — see scanClosureBody
-	refThis      bool // the assignment being parsed is through `this.` — see ComponentRef.This
+	extractLinks bool  // whether to extract document links
+	extractCalls bool  // whether to extract all call sites
+	afterLT      bool  // previous token was '<' — see looksLikeTagAttrs
+	forceGlobal  bool  // when true, addRef routes to componentRefs
+	inClosure    bool  // scanning a closure's body as statements — see scanClosureBody
+	refThis      bool  // the assignment being parsed is through `this.` — see ComponentRef.This
+	chainDepth   uint8 // chained assignments being parsed; see maxChainedAssignments
 
 	// Two four-byte fields share the eight bytes after the flags.
 	argNesting int32  // recursion depth of skipParenBody's scan, bounded by maxArgNesting
@@ -493,8 +494,10 @@ func (p *scriptParser) recordBareCallAndChain(tok Token) (alone string) {
 			first = false
 			funcName = methTok.Value
 
-			hops := make([]string, len(chainHops))
-			copy(hops, chainHops)
+			hops := chainSoFar(chainHops)
+			if hops == nil {
+				hops = []string{} // as the copy this replaced made it
+			}
 
 			p.addCall(&CallSite{
 				FuncName:  funcName,
@@ -751,7 +754,7 @@ func (p *scriptParser) recordChainContinuationFrom(baseVar string, prior []strin
 		if p.extractCalls {
 			call = CallSite{
 				FuncName: funcName, Variable: baseVar, Component: baseComp,
-				Chain: slices.Clone(chainHops), Line: conv.Uint32(p.baseLine + methTok.Line),
+				Chain: chainSoFar(chainHops), Line: conv.Uint32(p.baseLine + methTok.Line),
 				Caller: caller, Resolved: baseComp != "",
 			}
 			// Each hop has its own lexical origin. Capture it while the
@@ -3584,6 +3587,10 @@ func (p *scriptParser) checkAssignRef(tok Token) {
 // `var a = b = new X()` makes a local a and a variables-scope b. Reports
 // whether the right-hand side was one; the scanner has not moved if not.
 func (p *scriptParser) chainedAssign(outer string) bool {
+	if p.chainDepth >= maxChainedAssignments {
+		return false
+	}
+
 	// Decided from the peek and the bytes after it, which leave the peek
 	// cached for the caller: saving and restoring on every assignment was
 	// 4.5% of a script parse, because a restore drops it.
@@ -3615,6 +3622,8 @@ func (p *scriptParser) chainedAssign(outer string) bool {
 	forceGlobal, refThis := p.forceGlobal, p.refThis
 	nGlobal, nLocal, nPending := len(p.componentRefs), len(p.funcRefs[p.inFunc]), len(p.pendingCalls)
 
+	p.chainDepth++
+
 	switch {
 	case scope == ScopeLocal:
 		p.checkAssignRef(tok)
@@ -3623,6 +3632,8 @@ func (p *scriptParser) chainedAssign(outer string) bool {
 	default:
 		p.parseScopedVar(tok, scope)
 	}
+
+	p.chainDepth--
 
 	made := refsMadeFor(p.componentRefs, nGlobal, p.funcRefs[p.inFunc], nLocal, outer)
 	p.forceGlobal, p.refThis = forceGlobal, refThis
@@ -4050,7 +4061,7 @@ func (p *scriptParser) scanChainedCalls(component string, line int) []string {
 		p.addCall(&CallSite{
 			FuncName:  methTok.Value,
 			Component: component,
-			Chain:     slices.Clone(chain),
+			Chain:     chainSoFar(chain),
 			Line:      conv.Uint32(p.baseLine + line),
 			Caller:    caller,
 			Resolved:  true,

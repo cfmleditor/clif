@@ -23,8 +23,10 @@ func TestParserStructsKeepTheirSize(t *testing.T) {
 		{"Scanner", unsafe.Sizeof(Scanner{}), 128},
 		// The managed-setter lookup and the flowBlocks pointer add a word
 		// each, and fill the existing 384-byte allocation class: the next
-		// word moves it to 416. The source-origin offset now adds that word.
-		{"scriptParser", unsafe.Sizeof(scriptParser{}), 392},
+		// word moves it to 416. The source-origin offset now adds that word,
+		// and the chained-assignment depth a byte past the bools, padded to
+		// another word, still inside the 416-byte class.
+		{"scriptParser", unsafe.Sizeof(scriptParser{}), 400},
 	}
 
 	for _, c := range cases {

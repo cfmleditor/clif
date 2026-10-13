@@ -8,6 +8,16 @@ import "strings"
 // outer name is filed by its own scope's rules: `var a = b = new X()` makes a
 // local a and a variables-scope b.
 
+// maxChainedAssignments is how deep `a = b = … = rhs` is followed. Each name
+// in the chain refiles what every name inside it made, so following a chain of
+// n names is n nested parses each reading the refs of all those inside it:
+// `a=a=…=new X();` with 20,000 names took 1.1s, and the nesting is a Go
+// recursion, which nothing recovers from when it exhausts the stack. Real code
+// chains two or three. Past the limit an outer assignment is read as though
+// its right-hand side were not an assignment, so its name is left untyped
+// rather than the parse being made to wait.
+const maxChainedAssignments = 16
+
 // refsMadeFor is the refs made since the marks in global and local, renamed
 // for name, one per component and line: an assignment inside a function may
 // file one ref in both lists, and the caller refiles each under name's own

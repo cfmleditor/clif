@@ -94,6 +94,8 @@ func outputContext(content string) (spans [][2]int, prefixes []string) {
 		}
 	)
 
+	lastGT := strings.LastIndexByte(content, '>')
+
 	for pos := 0; pos < len(content); {
 		i := strings.IndexByte(content[pos:], '<')
 		if i < 0 {
@@ -115,7 +117,7 @@ func outputContext(content string) (spans [][2]int, prefixes []string) {
 			continue
 		}
 
-		end := tagEndIndex(content[i:])
+		end := tagEndFrom(content, i, lastGT)
 		if end < 0 {
 			pos = i + 1
 
@@ -310,8 +312,9 @@ func (o *outputState) active() bool {
 	return o.depth > 0 || o.fnOut || o.compOut
 }
 
-// track moves o past the tag opening at src[idx] ('<').
-func (o *outputState) track(src string, idx int) {
+// track moves o past the tag opening at src[idx] ('<'); lastGT is the offset
+// of src's last '>', for tagEndFrom.
+func (o *outputState) track(src string, idx, lastGT int) {
 	kind, closing, isCF := cfTagAt(src, idx)
 	if !isCF {
 		return
@@ -323,7 +326,7 @@ func (o *outputState) track(src string, idx int) {
 		return
 	}
 
-	end := tagEndIndex(src[idx:])
+	end := tagEndFrom(src, idx, lastGT)
 	if end < 0 {
 		return
 	}
