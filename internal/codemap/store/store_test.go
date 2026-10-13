@@ -3,6 +3,7 @@
 package store_test
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -305,5 +306,82 @@ func TestUtilityReachesTheStore(t *testing.T) {
 
 	if n != 1 {
 		t.Errorf("SELECT ... WHERE utility = 1 found %d rows, want 1", n)
+	}
+}
+
+// TestOpenRefusesDriverSettingsInThePath: the driver reads everything after a
+// path's first '?' as settings, so "--db x.db?_pragma=..." set pragmas the
+// caller never meant to, and a "file:" name is a URI with settings of its own.
+func TestOpenRefusesDriverSettingsInThePath(t *testing.T) {
+	dir := t.TempDir()
+
+	for _, p := range []string{
+		filepath.Join(dir, "map.db?_pragma=journal_mode(DELETE)"),
+		"file:" + filepath.Join(dir, "map.db"),
+	} {
+		if db, err := store.Open(p); err == nil {
+			_ = db.Close()
+
+			t.Errorf("Open(%q) was accepted", p)
+		}
+
+		if db, err := store.OpenReadOnly(p); err == nil {
+			_ = db.Close()
+
+			t.Errorf("OpenReadOnly(%q) was accepted", p)
+		}
+	}
+}
+
+// TestOpenReadOnlyWritesNothing: the MCP server says it writes nothing, and it
+// opened its map with Open, which runs the schema's DDL on every start. A file
+// that holds no map stays empty, and a map stays as it was.
+func TestOpenReadOnlyWritesNothing(t *testing.T) {
+	empty := filepath.Join(t.TempDir(), "empty.db")
+	if err := os.WriteFile(empty, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := store.OpenReadOnly(empty)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := db.Stats(); err == nil {
+		t.Error("an empty file answered Stats; the schema was created in it")
+	}
+
+	_ = db.Close()
+
+	if info, err := os.Stat(empty); err != nil || info.Size() != 0 {
+		t.Errorf("the empty file was written to: %v, %v", info, err)
+	}
+
+	path := filepath.Join(t.TempDir(), "map.db")
+
+	w, err := store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := w.Save(sample()); err != nil {
+		t.Fatal(err)
+	}
+
+	_ = w.Close()
+
+	r, err := store.OpenReadOnly(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer func() { _ = r.Close() }()
+
+	if _, err := r.Stats(); err != nil {
+		t.Errorf("a read-only map does not answer Stats: %v", err)
+	}
+
+	if err := r.Save(sample()); err == nil {
+		t.Error("a read-only map accepted a Save")
 	}
 }

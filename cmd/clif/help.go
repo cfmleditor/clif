@@ -57,7 +57,7 @@ Parse CFML files with the tree-sitter grammar and report every file it could
 not parse, with the position of each error.
 `
 
-const formatUsage = `usage: clif format [-w] [--allow-non-whitespace] [--root <dir>] <file> [...]
+const formatUsage = `usage: clif format [-w] [--allow-non-whitespace] [--root <dir>] [--follow-symlinks] <file> [...]
 
 Format CFML files to stdout, or in place with -w. The formatting settings are
 read from each file's governing .clif.json.
@@ -66,6 +66,9 @@ read from each file's governing .clif.json.
   --allow-non-whitespace  permit changes beyond whitespace (off by default)
   --root <dir>            read formatting config from this directory's
                           .clif.json instead of each file's own
+  --follow-symlinks       with -w, rewrite a symlinked file's target wherever
+                          it is. Without it a link is followed only to a file
+                          in its own directory or beneath it, or beneath --root
 `
 
 const depsUsage = `usage: clif deps [--mermaid] <dir-or-file> [...]

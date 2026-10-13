@@ -43,7 +43,7 @@ func TestFormatOneFileLeavesUnparseableFileIntact(t *testing.T) {
 	src := "<cfcomponent>\n\t<cfinvoke component=\"models.Widget\" method=\"render\" returnvariable=\"r\">\n</cfcomponent>\n"
 	path := writeTemp(t, "victim.cfc", src)
 
-	err := formatOneFile(path, new(cliOpts()), true)
+	err := formatOneFile(path, new(cliOpts()), true, symlinkRule{})
 	if err == nil {
 		t.Fatal("expected formatOneFile to refuse an unparseable file")
 	}
@@ -74,7 +74,7 @@ func TestFormatOneFileAllowsNormalization(t *testing.T) {
 	src := "component {\n\tfunction getAll() {\n\t\treturn []\n\t}\n}\n"
 	path := writeTemp(t, "semi.cfc", src)
 
-	if err := formatOneFile(path, new(cliOpts()), true); err != nil {
+	if err := formatOneFile(path, new(cliOpts()), true, symlinkRule{}); err != nil {
 		t.Fatalf("formatOneFile refused a deliberate normalisation: %v", err)
 	}
 
@@ -90,7 +90,7 @@ func TestFormatOneFileWritesCleanFile(t *testing.T) {
 	src := "component {\n        function a() {\n                return 1;\n        }\n}\n"
 	path := writeTemp(t, "clean.cfc", src)
 
-	if err := formatOneFile(path, new(cliOpts()), true); err != nil {
+	if err := formatOneFile(path, new(cliOpts()), true, symlinkRule{}); err != nil {
 		t.Fatalf("formatOneFile: %v", err)
 	}
 
@@ -116,7 +116,7 @@ func TestFormatOneFilePreservesMode(t *testing.T) {
 		t.Fatalf("chmod: %v", err)
 	}
 
-	if err := formatOneFile(path, new(cliOpts()), true); err != nil {
+	if err := formatOneFile(path, new(cliOpts()), true, symlinkRule{}); err != nil {
 		t.Fatalf("formatOneFile: %v", err)
 	}
 
@@ -137,7 +137,7 @@ func TestFormatOneFileSkipsUnchangedFile(t *testing.T) {
 	src := "component {\n        function a() {\n                return 1;\n        }\n}\n"
 	path := writeTemp(t, "idempotent.cfc", src)
 
-	if err := formatOneFile(path, new(cliOpts()), true); err != nil {
+	if err := formatOneFile(path, new(cliOpts()), true, symlinkRule{}); err != nil {
 		t.Fatalf("first format: %v", err)
 	}
 
@@ -146,7 +146,7 @@ func TestFormatOneFileSkipsUnchangedFile(t *testing.T) {
 		t.Fatalf("chtimes: %v", err)
 	}
 
-	if err := formatOneFile(path, new(cliOpts()), true); err != nil {
+	if err := formatOneFile(path, new(cliOpts()), true, symlinkRule{}); err != nil {
 		t.Fatalf("second format: %v", err)
 	}
 
@@ -172,7 +172,7 @@ func TestFormatOneFileFollowsSymlink(t *testing.T) {
 		t.Fatalf("symlink: %v", err)
 	}
 
-	if err := formatOneFile(link, new(cliOpts()), true); err != nil {
+	if err := formatOneFile(link, new(cliOpts()), true, symlinkRule{}); err != nil {
 		t.Fatalf("formatOneFile: %v", err)
 	}
 
@@ -195,6 +195,69 @@ func TestFormatOneFileFollowsSymlink(t *testing.T) {
 	}
 }
 
+// TestFormatOneFileRefusesALinkOutOfItsDirectory is a cloned repository
+// committing x.cfc as a link to a file elsewhere. format -w followed every
+// link, so formatting the tree rewrote that file. Following one out needs
+// --follow-symlinks or a --root above the target.
+func TestFormatOneFileRefusesALinkOutOfItsDirectory(t *testing.T) {
+	src := "component {\n        function a() {\n                return 1;\n        }\n}\n"
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	outside := filepath.Join(base, "outside")
+
+	for _, d := range []string{repo, outside} {
+		if err := os.MkdirAll(d, 0o750); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	target := filepath.Join(outside, "victim.cfc")
+	link := filepath.Join(repo, "x.cfc")
+
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+
+	reset := func() {
+		t.Helper()
+
+		if err := os.WriteFile(target, []byte(src), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	read := func() string {
+		t.Helper()
+
+		b, err := os.ReadFile(target)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		return string(b)
+	}
+
+	reset()
+
+	if err := formatOneFile(link, new(cliOpts()), true, symlinkRule{}); err == nil {
+		t.Error("a link out of its directory was followed")
+	}
+
+	if read() != src {
+		t.Fatal("the file outside the repository was rewritten")
+	}
+
+	if err := formatOneFile(link, new(cliOpts()), true, symlinkRule{root: base}); err != nil || read() == src {
+		t.Errorf("a link under --root was not followed: %v", err)
+	}
+
+	reset()
+
+	if err := formatOneFile(link, new(cliOpts()), true, symlinkRule{follow: true}); err != nil || read() == src {
+		t.Errorf("--follow-symlinks did not follow the link: %v", err)
+	}
+}
+
 // TestWriteFileInPlaceRefusesStaleWrite covers the race the atomic write opens
 // up: reading, formatting, and writing are three steps, and an edit landing in
 // between must not be overwritten by output computed from the old bytes.
@@ -202,7 +265,7 @@ func TestWriteFileInPlaceRefusesStaleWrite(t *testing.T) {
 	onDisk := "edited by someone else\n"
 	path := writeTemp(t, "raced.cfc", onDisk)
 
-	err := writeFileInPlace(path, []byte("what we read earlier\n"), []byte("our formatted output\n"))
+	err := writeFileInPlace(path, []byte("what we read earlier\n"), []byte("our formatted output\n"), symlinkRule{})
 	if err == nil {
 		t.Fatal("expected writeFileInPlace to refuse a stale write")
 	}
