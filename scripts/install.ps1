@@ -13,10 +13,15 @@
 #           how when it is not there already.
 #
 # CLIF_DOWNLOAD_URL replaces https://github.com/cfmleditor/clif/releases, for a
-# mirror laid out the same way. The archive is checked against the release's
-# checksums.txt when the release has one. Releases from before the rename to
-# clif publish cfmleditor-lsp archives only; one of those is installed as
-# clif.exe. Windows on ARM runs the amd64 build.
+# mirror laid out the same way. It must be https. The archive is checked
+# against the release's checksums.txt, which every release from 0.5.1 on
+# publishes: for those, and for latest, a missing checksums.txt stops the
+# install; older releases are checked when they have one. When gh is installed
+# and signed in, an archive from a release that publishes build provenance
+# (after 0.5.3) is also checked with `gh attestation verify`; without gh that
+# check is skipped. Releases from before the rename to clif publish
+# cfmleditor-lsp archives only; one of those is installed as clif.exe. Windows
+# on ARM runs the amd64 build.
 [CmdletBinding()]
 param(
     [string]$Version = "",
@@ -44,7 +49,55 @@ if (-not $Dir) {
     $Dir = if ($env:CLIF_INSTALL_DIR) { $env:CLIF_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA 'clif\bin' }
 }
 
+$repo = 'cfmleditor/clif'
+$firstChecksums = '0.5.1' # the first release with a checksums.txt
+$firstAttested = '0.5.4'  # the first release built with provenance attestations
+
 $releases = if ($env:CLIF_DOWNLOAD_URL) { $env:CLIF_DOWNLOAD_URL } else { 'https://github.com/cfmleditor/clif/releases' }
+if (-not $releases.StartsWith('https://', [StringComparison]::OrdinalIgnoreCase)) {
+    throw "clif install: CLIF_DOWNLOAD_URL must be an https:// URL, not $releases"
+}
+if ($Version -ne 'latest' -and $Version -notmatch '\Av?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?\z') {
+    throw "clif install: '$Version' is not a version (expected 0.5.0, v0.5.0 or latest)"
+}
+
+# Whether a version's X.Y.Z is $min or later. A prerelease counts as its
+# release, which is built by the same workflow.
+function Test-AtLeast([string]$v, [string]$min) {
+    $core = ($v.TrimStart('v') -split '[-+]')[0]
+    return ([version]$core -ge [version]$min)
+}
+
+# gh is used only to verify provenance, and only when it can: installed and
+# signed in (or given GH_TOKEN). Asked here so latest can be resolved to the
+# version it is, which decides whether there is an attestation to check. A
+# native command's stderr is an error record to Windows PowerShell, which
+# 'Stop' would turn into a throw, so these run under 'Continue'.
+$attest = $false
+if (Get-Command gh -ErrorAction SilentlyContinue) {
+    $eap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        & gh auth status *> $null
+        if ($LASTEXITCODE -eq 0) {
+            $attest = $true
+            if ($Version -eq 'latest') {
+                $tag = & gh release view --repo $repo --json tagName -q .tagName 2> $null
+                if ($LASTEXITCODE -eq 0 -and $tag) { $Version = "$tag".Trim().TrimStart('v') }
+            }
+        }
+    } catch {
+        $attest = $false
+    } finally {
+        $ErrorActionPreference = $eap
+        # A failed probe (gh installed but signed out) leaves its exit code
+        # behind, and a caller that ends with `exit $LASTEXITCODE`, as a CI
+        # step does, would report the install as failed.
+        $global:LASTEXITCODE = 0
+    }
+}
+if ($attest -and ($Version -eq 'latest' -or -not (Test-AtLeast $Version $firstAttested))) { $attest = $false }
+
 $base = if ($Version -eq 'latest') { "$releases/latest/download" } else { "$releases/download/v$($Version.TrimStart('v'))" }
 
 $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("clif-install-" + [System.Guid]::NewGuid())
@@ -83,8 +136,25 @@ try {
         if (-not $want -or $want -ne $got) {
             throw "clif install: $asset does not match the release's checksums.txt (want $want, got $got)"
         }
+    } elseif ($Version -eq 'latest' -or (Test-AtLeast $Version $firstChecksums)) {
+        # Every release since 0.5.1 has one, so its absence is a fault in the
+        # download, not an old release: install nothing unverified.
+        throw "clif install: could not fetch checksums.txt for $Version from $base, so $asset cannot be verified"
     } else {
         Write-Warning "clif install: $Version has no checksums.txt, so $asset was not verified"
+    }
+
+    if ($attest) {
+        $eap = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        try {
+            $out = & gh attestation verify $archive --repo $repo --signer-workflow "$repo/.github/workflows/release.yml" 2>&1
+            $ok = ($LASTEXITCODE -eq 0)
+        } finally {
+            $ErrorActionPreference = $eap
+        }
+        if (-not $ok) { throw "clif install: $asset has no valid build provenance from ${repo}: $out" }
+        Write-Output "clif install: verified $asset's build provenance with gh attestation verify"
     }
 
     Expand-Archive -Path $archive -DestinationPath $tmp -Force

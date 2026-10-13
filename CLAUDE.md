@@ -2297,8 +2297,13 @@ cases whose absence has an observable it happens to assert.
 `make release <version>` (`scripts/release.go`) validates, builds, tests, lints, scans for
 vulnerabilities, updates `CHANGELOG.md` and `VERSION`, commits, tags, and pushes. Use `make
 release-dry <version>` first. Pushing a `v*` tag triggers `.github/workflows/release.yml`, which
-cross-compiles darwin/linux/windows (amd64 + arm64) with zig as the CGO cross-compiler and
-embeds the tag as `main.version`.
+builds linux (amd64, arm64) and windows/amd64 on Ubuntu with the distribution's gcc
+cross-compilers (`gcc-aarch64-linux-gnu`, `gcc-mingw-w64-x86-64`), and darwin (arm64, amd64) on
+a macOS runner with clang, since CGO there needs the real Apple SDK; nothing uses zig any more.
+It embeds the tag as `main.version`, and the built-in docs from the committed
+`internal/docs/generated_docs.go` rather than a fresh `make docs`, so a tag always builds the
+docs that were reviewed (a release fails if that file lacks the Lucee-only entries). The publish
+job attests SLSA build provenance for every asset and `checksums.txt`.
 
 **`make vuln` gates the release.** Every check runs *after* `CHANGELOG.md`/`VERSION` are
 rewritten but before anything is committed, so a failure leaves those two files modified and
