@@ -1178,8 +1178,9 @@ clif carries CFLint inside it (the native build, so no Java), at the version
 lints, so linting needs no download. CFLint's licence is in
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), which each release archive
 carries. A `cflint` already on `PATH` wins. A clif
-built from source has none inside, and downloads the latest from the
-`cfmleditor/CFLint` releases on first use:
+built from source has none inside, and downloads that same pinned version
+from the `cfmleditor/CFLint` releases on first use, refusing it unless it has
+the checksum compiled into clif:
 
 ```json
 {

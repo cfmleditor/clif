@@ -150,12 +150,14 @@ func runServer() {
 		sock := cfg.SocketPath()
 
 		// Try to connect to an existing daemon
-		if err := daemon.Proxy(sock); err == nil {
+		proxyErr := daemon.Proxy(sock)
+		if proxyErr == nil {
 			return
 		}
 
-		// No daemon running — become the daemon and serve this client over stdio
-		log.Info("starting daemon mode", cflog.String("socket", sock))
+		// No daemon running, or a socket that is not this user's: become the
+		// daemon and serve this client over stdio
+		log.Info("starting daemon mode", cflog.String("socket", sock), cflog.Err(proxyErr))
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -170,7 +172,11 @@ func runServer() {
 		settings := daemon.SettingsFrom(cfg)
 
 		go func() {
-			_ = daemon.Serve(ctx, sock, log, sharedIndex, ct, &settings)
+			// A daemon that cannot serve its socket still serves this editor
+			// over stdio; later editors start sessions of their own.
+			if err := daemon.Serve(ctx, sock, log, sharedIndex, ct, &settings); err != nil {
+				log.Warn("daemon socket not served", cflog.String("socket", sock), cflog.Err(err))
+			}
 		}()
 
 		// Serve this editor session over stdio with the shared index

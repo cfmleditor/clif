@@ -1083,10 +1083,19 @@ Declared in `Server.capabilities()` (`internal/server/server.go`):
   the file `CLIF_CFLINT` names first (an error if missing), then a `cflint` on PATH, then the CFLint a release build embeds (`embedded.go`, behind
   `-tags cflint_embed`; the release workflow writes `internal/cflint/embedded/cflint.archive`
   with `scripts/fetch-cflint.sh`, which pins the version and checksums), unpacked once into
-  the cache under `fallbackVersion`, then a download from `cfmleditor/CFLint` releases. A
-  plain `go build` embeds nothing (`embed_off.go`). `CLIF_CFLINT_DIR` replaces the cache
-  directory, for machines that will not run programs from it. `fallbackVersion` equals the script's pin
-  (`TestFallbackIsTheEmbeddedVersion`).
+  the cache under `pinnedVersion`, then a download of that same version from
+  `cfmleditor/CFLint` releases. A plain `go build` embeds nothing (`embed_off.go`).
+  `CLIF_CFLINT_DIR` replaces the cache directory, for machines that will not run programs
+  from it. `pinnedVersion` equals the script's pin (`TestPinnedVersionIsTheEmbeddedVersion`).
+
+  **A download is the pinned version, checked, or nothing.** It used to follow
+  `releases/latest` and run whatever came back, so whoever could publish a CFLint release
+  could run code on every source-built clif with linting on. `executableSums` holds the
+  sha256 of each platform's executable (the raw asset's digest, which is also what each
+  archive holds), `installAsset` hashes what it writes and refuses a mismatch before the
+  rename, and a cached file without the sum is downloaded again rather than run, since an
+  older clif filled the same directory unchecked. `TestFetchAssetRefusesTheWrongChecksum`
+  and `TestTheDownloadIsThePinnedVersionChecked`.
 
   **`mapSeverity` may return only Error or Warning.** CFLint's seven levels
   (`com.cflint.Levels`: FATAL, CRITICAL, ERROR, WARNING, CAUTION, INFO, COSMETIC,
