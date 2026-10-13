@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/cfmleditor/clif/internal/config"
@@ -30,6 +31,8 @@ var version = "dev"
 func main() {
 	stopProfiling := startProfiling()
 	defer stopProfiling()
+
+	reportUntrustedConfigs()
 
 	// Subcommand routing
 	if len(os.Args) > 1 {
@@ -510,4 +513,18 @@ func writeAndSync(f *os.File, out []byte) error {
 	}
 
 	return f.Close()
+}
+
+// reportUntrustedConfigs says on stderr, once per file, that a config file was
+// skipped because another user could have written it (config.TrustedCandidates).
+// Without it a planted file is ignored silently, and so is a project's own
+// config with the wrong owner or mode, which reads as clif ignoring it.
+func reportUntrustedConfigs() {
+	var seen sync.Map
+
+	config.ReportUntrustedTo(func(path, reason string) {
+		if _, dup := seen.LoadOrStore(path, true); !dup {
+			fmt.Fprintf(os.Stderr, "clif: ignoring %s: %s\n", path, reason)
+		}
+	})
 }
