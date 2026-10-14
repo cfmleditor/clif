@@ -60,6 +60,24 @@ func newConfigSet(fsys vfs.FS, shared *index.Index, fallback *codemap.FileConfig
 	}
 }
 
+// use makes cfg the environment for files the config at path governs, in place
+// of building another from it. The scan's own resolver was built from that
+// config already, and building a second left every file read under a copy with
+// empty caches while the first went unused.
+func (cs *configSet) use(path string, cfg codemap.FileConfig) {
+	hash := ""
+
+	if data, err := vfs.ReadRegular(path); err == nil {
+		sum := sha256.Sum256(data)
+		hash = hex.EncodeToString(sum[:])
+	}
+
+	cs.mu.Lock()
+	cs.byPath[path] = cfg
+	cs.seen[path] = hash
+	cs.mu.Unlock()
+}
+
 // For returns the resolution environment for one file, memoised per directory.
 // It is called once per file from the scan's worker goroutines.
 func (cs *configSet) For(file string) codemap.FileConfig {

@@ -716,3 +716,51 @@ change to what a parse records. Compare type facts per file — functions with
 their return types, file and per-function refs, scopes, variables — between
 the old and new parser over the corpus and tassweb (23,280 files, about 30s).
 That is how the call-extraction and gating differences above were found.
+
+## 16. The batch scan on tassweb after the shared pipeline — measured, three fixes
+
+`clif unresolved` on tassweb (twelve applications, eleven configs; 11,926
+files indexed, 6,698 scanned), same-run medians:
+
+| build | time | peak memory |
+|---|---|---|
+| before the shared pipeline (#263) | 5.5-6.0s | 0.97 GB |
+| #263 | 6.8-7.7s | 1.35-1.42 GB |
+| reuse the scan's resolver, one indexing pool | 5.8s | 1.04 GB |
+| + `funcCache` lock, DI built up front | 5.55s | 1.03 GB |
+
+Findings are identical throughout. The regression was `6661c7d` (each
+file under its governing config), and two parts of it were waste:
+
+- **A second resolver for the scan's own config.** `configSet` built one
+  for every config it met, including the one the scan's resolver came
+  from, so every file under it was read by a copy with empty caches.
+  `configSet.use` seeds the set with the scan's resolver. Single-config
+  scans (kiosk, parentlounge, studentcafe) went from about 2.5s to 1.5s.
+- **One config's files indexed after another's.** Each group's pool
+  waited on its slowest file; `resolve.IndexFilesUnder` indexes them all
+  in one pool, each under its own resolver.
+- **One lock for sixty caches.** `r.mu` guards nearly every resolver cache,
+  so a miss writing any of them blocks every reader. `funcCache` (the
+  most contended, 0.8s of workers' time) has its own now. The rest of the
+  contention, from a `CLIF_TRACE` trace (`go tool trace -pprof=sync`):
+  `tokenCache.put` 0.7s (it also discards the whole cache when full),
+  the index's write lock 0.45s, `returnCache` 0.26s, `ComponentPath`
+  0.13s. Not acted on.
+- **DI policies built on first use.** Each of the eleven resolvers built
+  its policies inside a `sync.Once` while every worker reaching a file
+  under that config waited: 1.7s of workers' time. `PrepareDI` builds them
+  side by side before indexing.
+
+Measured and **not** worth doing: keeping each file's text from the index
+pass for the scan. Reading all 19,733 files under tassdev (325 MB) takes
+about 0.35s across the cores, and `ReadRegular` is as fast as
+`os.ReadFile`, so the cache would save under 0.2s for about 200 MB. The
+CPU profile's 12% in `open()` is spread across many cores.
+
+Left, in CPU terms: every `.cfc` is parsed twice (index 3.8s, scan 7.0s
+of CPU); `applyMemberBindings` is 3.75s (10%); the `FuncLookup` memo
+behind `<cfset>` typing misses often (2.5s); and the eleven configs each
+walk the same twelve application folders and parse their
+`Application.cfc` files for their DI policies (about 1.7s), which a cache
+keyed by workspace folders could share.

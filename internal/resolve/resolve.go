@@ -116,6 +116,7 @@ type pathCaches struct {
 	includerCache     map[string]string                   // template, name, depth and include generation → includerHeld's answer
 	returnCache       returnCache                         // ReturnComponentOf answers, for one index generation
 	funcCache         funcCache                           // lookupFunc answers, for one index generation
+	funcMu            sync.RWMutex                        // guards funcCache alone; see lookupFunc
 	computedIncludes  map[string]computedIncludeFile      // file → its computed includes (computedIncludesOf)
 	callerIdx         *callerIndex                        // name → files calling it, built once for argumentFromCallers
 	argCache          map[string]string                   // an argument → what its callers pass (argumentFromCallers)
@@ -851,10 +852,14 @@ func (r *Resolver) lookupFunc(cfcPath, funcName string, depth int) *parser.Funct
 	gen := r.Index.Generation()
 	key := funcKey{path: cfcPath, name: funcName, depth: depth}
 
-	r.mu.RLock()
+	// funcCache has a lock of its own. Under r.mu, which some sixty caches
+	// share, every miss's write here blocked every reader of all of them, and
+	// it was the most contended lock in a batch scan: 0.8s of tassweb's
+	// workers' time waiting.
+	r.funcMu.RLock()
 	def, ok := r.funcCache.entries[key]
 	ok = ok && (r.SnapshotScan || r.funcCache.gen == gen)
-	r.mu.RUnlock()
+	r.funcMu.RUnlock()
 
 	if ok {
 		return def
@@ -866,13 +871,13 @@ func (r *Resolver) lookupFunc(cfcPath, funcName string, depth int) *parser.Funct
 		return def
 	}
 
-	r.mu.Lock()
+	r.funcMu.Lock()
 	if r.funcCache.entries == nil || !r.SnapshotScan && (r.funcCache.gen != gen || len(r.funcCache.entries) >= maxFuncCache) {
 		r.funcCache = funcCache{gen: gen, entries: map[funcKey]*parser.FunctionDef{}}
 	}
 
 	r.funcCache.entries[key] = def
-	r.mu.Unlock()
+	r.funcMu.Unlock()
 
 	return def
 }

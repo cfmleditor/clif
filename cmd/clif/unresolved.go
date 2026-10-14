@@ -265,7 +265,7 @@ func scanUnresolved(args []string, fl *unresolvedFlags) (unresolved.Report, *dae
 	opt := unresolvedOptions(cfg, args, fl)
 
 	if !fl.oneConfig {
-		opt.ResolverFor = perFileResolver(fsys)
+		opt.ResolverFor = perFileResolver(cfg)
 	}
 
 	// Collect files from workspace folders or args
@@ -499,7 +499,11 @@ func nativeEngineFlag(value string) string {
 // code map does (configSet), instead of under the one above the first path. A
 // workspace of several applications otherwise checks the others' code with
 // resolvers that never fire. Every resolver shares the scan's index.
-func perFileResolver(fsys vfs.FS) func(base *resolve.Resolver, file string) *resolve.Resolver {
+//
+// Files under the config the scan's resolver was built from (cfg) are read under
+// that resolver, not a second one built from the same file: on a workspace with
+// one config, tassweb, the copy cost 1.4s and 400MB for identical findings.
+func perFileResolver(cfg *daemon.Config) func(base *resolve.Resolver, file string) *resolve.Resolver {
 	var (
 		mu   sync.Mutex
 		set  *configSet
@@ -511,7 +515,10 @@ func perFileResolver(fsys vfs.FS) func(base *resolve.Resolver, file string) *res
 		defer mu.Unlock()
 
 		if set == nil {
-			set = newConfigSet(fsys, base.Index, &codemap.FileConfig{Resolver: base})
+			set = newConfigSet(base.FS, base.Index, &codemap.FileConfig{Resolver: base})
+			if cfg != nil && cfg.Path != "" {
+				set.use(cfg.Path, codemap.FileConfig{Resolver: base})
+			}
 		}
 
 		r := set.For(file).Resolver
