@@ -117,6 +117,7 @@ type pathCaches struct {
 	returnCache       returnCache                         // ReturnComponentOf answers, for one index generation
 	funcCache         funcCache                           // lookupFunc answers, for one index generation
 	funcMu            sync.RWMutex                        // guards funcCache alone; see lookupFunc
+	funcLookups       sync.Map                            // funcLookupKey → FuncLookup's answer, in a batch scan
 	computedIncludes  map[string]computedIncludeFile      // file → its computed includes (computedIncludesOf)
 	callerIdx         *callerIndex                        // name → files calling it, built once for argumentFromCallers
 	argCache          map[string]string                   // an argument → what its callers pass (argumentFromCallers)
@@ -2863,6 +2864,37 @@ func (r *Resolver) isInterface(path string) bool {
 // resolved from baseDir: ParseOptions.FuncLookup, which types a variable
 // assigned from a call on another component.
 func (r *Resolver) FuncLookup(baseDir string) func(component, funcName string) string {
+	lookup := r.funcLookupUncached(baseDir)
+	if !r.SnapshotScan {
+		return lookup
+	}
+
+	// In a batch scan the answer is a function of the directory, the component
+	// and the name alone (see funcCache for why it holds for the whole scan),
+	// and the files of one directory ask the same questions: each parse
+	// memoised only its own, which left 2.3s of tassweb's scan in lookups
+	// another file beside it had already made.
+	cache := &r.owner().funcLookups
+
+	return func(component, funcName string) string {
+		key := funcLookupKey{dir: baseDir, component: component, name: funcName}
+		if answer, ok := cache.Load(key); ok {
+			s, _ := answer.(string)
+
+			return s
+		}
+
+		answer := lookup(component, funcName)
+		cache.Store(key, answer)
+
+		return answer
+	}
+}
+
+// funcLookupKey is one FuncLookup question in a batch scan.
+type funcLookupKey struct{ dir, component, name string }
+
+func (r *Resolver) funcLookupUncached(baseDir string) func(component, funcName string) string {
 	r = r.forCaller(baseDir)
 
 	return func(component, funcName string) string {
