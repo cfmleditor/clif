@@ -85,3 +85,58 @@ func TestNameIndexesAgreeWithTheWalk(t *testing.T) {
 		}
 	}
 }
+
+// FuncScopeAt's index is rebuilt after an edit: a reparse refills Scopes in
+// the same array with the same count, and an edit inside a function shifts
+// them in place, and neither shows in the slice the index was built from.
+func TestFuncScopeAtFollowsEdits(t *testing.T) {
+	var b strings.Builder
+
+	b.WriteString("component {\n")
+
+	for i := range 40 {
+		fmt.Fprintf(&b, "function f%d() {\n\tvar x = 1;\n}\n", i)
+	}
+
+	b.WriteString("}\n")
+
+	pr := ParseWithOptions("file:///w/Edit.cfc", b.String(), &ParseOptions{})
+	if len(pr.Scopes) <= maxScopeScan {
+		t.Fatalf("%d scopes: the premise is a file past maxScopeScan", len(pr.Scopes))
+	}
+
+	check := func(when string) {
+		t.Helper()
+
+		for line := range strings.Count(pr.Content, "\n") + 1 {
+			if got, want := pr.FuncScopeAt(line), findFuncScope(line, pr.Scopes); got != want {
+				t.Fatalf("%s: FuncScopeAt(%d) = %+v, findFuncScope %+v", when, line, got, want)
+			}
+		}
+	}
+
+	check("parsed")
+	pr.ApplyEdit(0, 0, 0, 0, "// above\n")
+	check("after an edit outside a function")
+	pr.ApplyEdit(3, 0, 3, 0, "\tvar y = 2;\n")
+	check("after an edit inside a function")
+}
+
+// CallsNamed reads its index only where the calls still are: a bucket that
+// shrank under its key after the index was built is not read past its end.
+func TestCallsNamedSurvivesABucketThatShrank(t *testing.T) {
+	src := "component {\nfunction f() {\n\tgo();\n\tgo();\n\tgo();\n}\n}\n"
+	pr := ParseWithOptions("file:///w/Shrink.cfc", src, &ParseOptions{ExtractCalls: true})
+
+	if len(pr.CallsNamed("go")) != 3 {
+		t.Fatalf("premise: %d calls to go, want 3", len(pr.CallsNamed("go")))
+	}
+
+	for k, calls := range pr.funcCallsMap {
+		pr.funcCallsMap[k] = calls[:1]
+	}
+
+	if got := len(pr.CallsNamed("go")); got > 3 {
+		t.Errorf("%d calls after the bucket shrank", got)
+	}
+}

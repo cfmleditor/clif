@@ -193,6 +193,8 @@ var cfcLifecycle = map[string]bool{
 // workspace: holding a few thousand ExtractCalls parse trees at once is gigabytes,
 // and holding eight is nothing.
 func Build(opts *Options) *Map {
+	defer resolve.BatchTextCaches()()
+
 	// A copy: the defaults below are filled into it, and must not reach the
 	// caller's options.
 	o := *opts
@@ -407,9 +409,11 @@ func inferArgsFrom(opts *Options) (restore func()) {
 
 	// Every resolver searches the same files for callers, so the index of who
 	// calls what is built once for all of them rather than once each.
-	resolve.ShareCallerIndex(set)
+	restoreCallers := resolve.ShareCallerIndex(set)
 
 	return func() {
+		restoreCallers()
+
 		for i, r := range set {
 			r.InferArgsFiles = prev[i]
 		}

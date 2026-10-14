@@ -342,7 +342,9 @@ func (idx *Index) FunctionInFile(fileURI uri.URI, name string) *parser.FunctionD
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
 
-	file := idx.fileFuncs[uriKey(fileURI)]
+	fk := uriKey(fileURI)
+
+	file := idx.fileFuncs[fk]
 	if len(file) == 0 {
 		return nil
 	}
@@ -353,7 +355,7 @@ func (idx *Index) FunctionInFile(fileURI uri.URI, name string) *parser.FunctionD
 		n := 0
 
 		for _, d := range bucket {
-			if d.URI == file[0].URI {
+			if sameFileURI(d.URI, file[0].URI, fk) {
 				found = d
 				n++
 			}
@@ -372,6 +374,93 @@ func (idx *Index) FunctionInFile(fileURI uri.URI, name string) *parser.FunctionD
 	}
 
 	return nil
+}
+
+// sameFileURI reports whether u names the file whose index key is fk, given
+// u0, one URI that file was indexed under. Spelled alike or differing only in
+// case it is decided without allocating; it is unescaped only when one of the
+// two is escaped.
+func sameFileURI(u, u0 uri.URI, fk string) bool {
+	if u == u0 || strings.EqualFold(string(u), string(u0)) {
+		return true
+	}
+
+	escaped := strings.ContainsRune(string(u), '%') || strings.ContainsRune(string(u0), '%')
+
+	return escaped && keyMatches(string(u), fk)
+}
+
+// keyMatches is uriKey(u) == fk, decoding and lowering u as it goes rather
+// than building its key. A decoded byte beyond ASCII, where strings.ToLower
+// may change more than one byte, and a malformed escape go to uriKey itself.
+func keyMatches(u, fk string) bool {
+	// PathUnescape refuses the whole URI over one malformed escape, and then
+	// uriKey compares it undecoded, so decoding any of it would disagree.
+	for i := strings.IndexByte(u, '%'); i >= 0; i = nextEscape(u, i) {
+		if _, ok := unhexAt(u, i+1); !ok {
+			return uriKey(uri.URI(u)) == fk
+		}
+
+		if _, ok := unhexAt(u, i+2); !ok {
+			return uriKey(uri.URI(u)) == fk
+		}
+	}
+
+	j := 0
+
+	for i := 0; i < len(u); i++ {
+		c := u[i]
+
+		if c == '%' {
+			hi, _ := unhexAt(u, i+1)
+			lo, _ := unhexAt(u, i+2)
+			c = hi<<4 | lo
+			i += 2
+		}
+
+		if c >= 0x80 {
+			return uriKey(uri.URI(u)) == fk
+		}
+
+		if 'A' <= c && c <= 'Z' {
+			c += 'a' - 'A'
+		}
+
+		if j >= len(fk) || fk[j] != c {
+			return false
+		}
+
+		j++
+	}
+
+	return j == len(fk)
+}
+
+// nextEscape is the index of the next '%' after the escape at i, or -1.
+func nextEscape(u string, i int) int {
+	if n := strings.IndexByte(u[min(i+3, len(u)):], '%'); n >= 0 {
+		return min(i+3, len(u)) + n
+	}
+
+	return -1
+}
+
+// unhexAt is the value of the hex digit at u[i], and whether there is one.
+func unhexAt(u string, i int) (byte, bool) {
+	if i >= len(u) {
+		return 0, false
+	}
+
+	switch c := u[i]; {
+	case '0' <= c && c <= '9':
+		return c - '0', true
+	case 'a' <= c && c <= 'f':
+		return c - 'a' + 10, true
+	case 'A' <= c && c <= 'F':
+		return c - 'A' + 10, true
+	}
+
+	return 0, false
 }
 
 // HasFile reports whether the index holds an entry for this file, which is not

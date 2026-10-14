@@ -21,6 +21,7 @@ import (
 	cflog "github.com/cfmleditor/clif/internal/log"
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
+	"github.com/cfmleditor/clif/internal/resolve"
 	"github.com/cfmleditor/clif/internal/server"
 	"github.com/cfmleditor/clif/internal/vfs"
 	sitter "github.com/tree-sitter/go-tree-sitter"
@@ -109,6 +110,16 @@ for a command's usage and options.
 `, version)
 }
 
+// longLivedCacheBytes is each text cache's budget in a process that stays up
+// answering requests: the editor's server and the MCP server ask about the
+// documents being edited, and their caches would otherwise fill with old
+// versions up to a batch scan's budget. TestLongLivedProcessesLimitTextCaches.
+const longLivedCacheBytes = 16 << 20
+
+func limitLongLivedCaches() {
+	resolve.LimitTextCaches(longLivedCacheBytes)
+}
+
 func runServer() {
 	cwd, _ := os.Getwd()
 	cfg, _ := daemon.FindConfig(cwd)
@@ -125,6 +136,8 @@ func runServer() {
 	// here is one nothing expected, and without this the only trace is a stack on
 	// a stderr the client may already have stopped reading.
 	defer cflog.CapturePanic("runServer")()
+
+	limitLongLivedCaches()
 
 	// Through the logger rather than straight to stderr, which is where this
 	// used to go. An LSP client has no way to know that a line on a server's

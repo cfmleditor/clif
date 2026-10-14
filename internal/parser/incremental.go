@@ -159,7 +159,8 @@ func (pr *ParseResult) shiftAfter(editLine, delta int) {
 	// Keyed by function and line, both of which just moved. They are read
 	// only when a call is checked, which works from a fresh parse.
 	pr.memberSets = nil
-	pr.memberSetsByName = nil
+	// Scopes move in place below, so their index is rebuilt with the rest.
+	pr.resetNameIndexes()
 
 	for i := range pr.Scopes {
 		if pr.Scopes[i].Start > editLine {
@@ -193,15 +194,12 @@ func (pr *ParseResult) reparseShallow() {
 	pr.Persistent = false
 	pr.Funcs = pr.Funcs[:0]
 	pr.ComponentRefs = pr.ComponentRefs[:0]
-	pr.refsByName = nil
 	pr.Scopes = pr.Scopes[:0]
 	// The calls are recorded afresh like the rest. Kept, the last parse's
 	// top-level calls were listed again after every reparse, each copy
 	// keeping its version of the document alive.
 	pr.Calls = nil
-	pr.callsByName = nil
 	pr.memberSets = nil
-	pr.memberSetsByName = nil
 	pr.extractSignatures()
 	pr.resetGlobalCaches()
 	pr.resetFuncCaches()
@@ -230,9 +228,31 @@ func (pr *ParseResult) resetFuncCaches() {
 	pr.funcCallsMap = nil
 	pr.funcRefsMu.Unlock()
 
-	pr.callsMu.Lock()
-	pr.callsByName = nil
-	pr.callsMu.Unlock()
+	pr.resetNameIndexes()
+}
+
+// resetNameIndexes drops the lookups built over Scopes, ComponentRefs, the
+// calls, memberSets and FuncVars, each under its own lock. They check the
+// slice they were built from, but a reparse refills the same arrays and an
+// edit shifts lines in place, which that check cannot see.
+func (pr *ParseResult) resetNameIndexes() {
+	pr.memberSetsMu.Lock()
+	pr.memberSetsByName = nil
+	pr.memberSetsMu.Unlock()
+
+	pr.refsMu.Lock()
+	pr.refsByName = nil
+	pr.refsMu.Unlock()
+
+	pr.dropCallsIndex()
+
+	pr.scopeAtMu.Lock()
+	pr.scopeAt = nil
+	pr.scopeAtMu.Unlock()
+
+	pr.funcVarsMu.Lock()
+	pr.funcVarSets = nil
+	pr.funcVarsMu.Unlock()
 }
 
 func (pr *ParseResult) resetGlobalCaches() {

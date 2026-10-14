@@ -626,6 +626,8 @@ func (pr *ParseResult) mergeScriptRegion(r *Region, tagScopes []FuncScope, open 
 		pr.funcCallsMap = appendKeyed(pr.funcCallsMap, k, calls)
 	}
 
+	pr.dropCallsIndex()
+
 	if sp.extends != "" {
 		pr.Extends = sp.extends
 	}
@@ -778,6 +780,8 @@ func (pr *ParseResult) mergeTagRegion(r *Region, tagScopes []FuncScope, open *op
 
 		pr.funcCallsMap = appendKeyed(pr.funcCallsMap, k, calls)
 	}
+
+	pr.dropCallsIndex()
 
 	// Tag scopes are computed from full content after region processing
 	// to handle functions spanning region boundaries.
@@ -3759,7 +3763,7 @@ func (pr *ParseResult) CallsNamed(names ...string) []CallSite {
 				calls = pr.funcCallsMap[a.bucket]
 			}
 
-			if matches(calls[a.i].FuncName) {
+			if a.i < len(calls) && matches(calls[a.i].FuncName) {
 				out = append(out, calls[a.i])
 			}
 		}
@@ -3768,6 +3772,14 @@ func (pr *ParseResult) CallsNamed(names ...string) []CallSite {
 	sortCallsLikeAllCalls(out)
 
 	return out
+}
+
+// dropCallsIndex forgets callsAt's index: a bucket that grows under its key
+// changes none of the counts the index is checked against.
+func (pr *ParseResult) dropCallsIndex() {
+	pr.callsMu.Lock()
+	pr.callsByName = nil
+	pr.callsMu.Unlock()
 }
 
 // callAt is where one call is: Calls[i] when bucket is "", else

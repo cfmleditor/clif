@@ -3,7 +3,6 @@ package resolve
 import (
 	"regexp"
 	"strings"
-	"sync"
 
 	"github.com/cfmleditor/clif/internal/conv"
 	"github.com/cfmleditor/clif/internal/parser"
@@ -581,47 +580,16 @@ func precededByLocal(text string, i int) bool {
 }
 
 func precededByVar(text string, i int) bool {
-	j := i
-	for j > 0 && isRegexSpace(text[j-1]) {
-		j--
-	}
+	_, ok := varMarker(text, i)
 
-	return j < i && j >= 3 && strings.EqualFold(text[j-3:j], "var") && wordStart(text, j-3)
+	return ok
 }
 
 // precededByArgumentName is <cfargument\s[^>]*name\s*=\s*["'] ending at i.
 func precededByArgumentName(text string, i int) bool {
-	if i == 0 || text[i-1] != '"' && text[i-1] != '\'' {
-		return false
-	}
+	_, ok := argumentNameMarker(text, i)
 
-	j := i - 1
-	for j > 0 && isRegexSpace(text[j-1]) {
-		j--
-	}
-
-	if j == 0 || text[j-1] != '=' {
-		return false
-	}
-
-	j--
-	for j > 0 && isRegexSpace(text[j-1]) {
-		j--
-	}
-
-	if j < 4 || !strings.EqualFold(text[j-4:j], "name") {
-		return false
-	}
-
-	// [^>]* back to a "<cfargument" followed by a space character.
-	j -= 4
-	for k := j - 1; k >= 0 && text[k] != '>'; k-- {
-		if k+len("<cfargument") < j && strings.EqualFold(text[k:k+len("<cfargument")], "<cfargument") && isRegexSpace(text[k+len("<cfargument")]) {
-			return true
-		}
-	}
-
-	return false
+	return ok
 }
 
 // wordStart is \b before text[i] when text[i] is a word character.
@@ -695,7 +663,7 @@ func windowDeclaresLocal(content string, from, to int, name string) bool {
 		return textDeclaresLocal(content[begin:end], name)
 	}
 
-	for _, d := range declaredNames.of(content)[strings.ToLower(name)] {
+	for _, d := range declaredNames.of(content, declarationsIn)[strings.ToLower(name)] {
 		if d.marker >= begin && d.end <= end {
 			return true
 		}
@@ -762,24 +730,26 @@ func declarationsIn(content string) map[string][]localDeclaration {
 	return out
 }
 
-// varMarker is precededByVar's answer and where its "var" starts.
+// varMarker reports whether `var` and spacing end at i, and where the "var"
+// starts.
 func varMarker(text string, i int) (int, bool) {
-	if !precededByVar(text, i) {
-		return 0, false
-	}
-
 	j := i
 	for j > 0 && isRegexSpace(text[j-1]) {
 		j--
 	}
 
-	return j - 3, true
+	if j < i && j >= 3 && strings.EqualFold(text[j-3:j], "var") && wordStart(text, j-3) {
+		return j - 3, true
+	}
+
+	return 0, false
 }
 
-// argumentNameMarker is precededByArgumentName's answer and where the nearest
-// "<cfargument" it accepts starts, which is the one a window must hold.
+// argumentNameMarker reports whether <cfargument\s[^>]*name\s*=\s*["'] ends
+// at i, and where the nearest "<cfargument" it accepts starts, which is the
+// one a window must hold.
 func argumentNameMarker(text string, i int) (int, bool) {
-	if !precededByArgumentName(text, i) {
+	if i == 0 || text[i-1] != '"' && text[i-1] != '\'' {
 		return 0, false
 	}
 
@@ -788,11 +758,20 @@ func argumentNameMarker(text string, i int) (int, bool) {
 		j--
 	}
 
+	if j == 0 || text[j-1] != '=' {
+		return 0, false
+	}
+
 	j--
 	for j > 0 && isRegexSpace(text[j-1]) {
 		j--
 	}
 
+	if j < 4 || !strings.EqualFold(text[j-4:j], "name") {
+		return 0, false
+	}
+
+	// [^>]* back to a "<cfargument" followed by a space character.
 	j -= 4
 	for k := j - 1; k >= 0 && text[k] != '>'; k-- {
 		if k+len("<cfargument") < j && strings.EqualFold(text[k:k+len("<cfargument")], "<cfargument") && isRegexSpace(text[k+len("<cfargument")]) {
@@ -805,35 +784,15 @@ func argumentNameMarker(text string, i int) (int, bool) {
 
 // declaredNames remembers declarationsIn's answer for the texts asked about
 // most recently, as lineStarts does for line tables.
-var declaredNames = &declarationCache{}
+var declaredNames = &textCache[map[string][]localDeclaration]{size: declarationsSize}
 
-type declarationCache struct {
-	mu    sync.Mutex
-	next  int
-	slots [lineStartSlots]struct {
-		content string
-		names   map[string][]localDeclaration
+// declarationsSize is roughly what a declarationsIn map holds: each name and
+// its slice header, and 16 bytes per declaration.
+func declarationsSize(m map[string][]localDeclaration) int {
+	n := 0
+	for name, ds := range m {
+		n += len(name) + 48 + 16*len(ds)
 	}
-}
 
-func (c *declarationCache) of(content string) map[string][]localDeclaration {
-	c.mu.Lock()
-	for i := range c.slots {
-		if s := &c.slots[i]; s.names != nil && len(s.content) == len(content) && s.content == content {
-			names := s.names
-			c.mu.Unlock()
-
-			return names
-		}
-	}
-	c.mu.Unlock()
-
-	names := declarationsIn(content)
-
-	c.mu.Lock()
-	c.slots[c.next].content, c.slots[c.next].names = content, names
-	c.next = (c.next + 1) % lineStartSlots
-	c.mu.Unlock()
-
-	return names
+	return n
 }

@@ -14,7 +14,6 @@ import (
 	cflog "github.com/cfmleditor/clif/internal/log"
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
-	"github.com/cfmleditor/clif/internal/vfs"
 )
 
 // An untyped argument holds what its callers pass. ContentBox's
@@ -229,14 +228,14 @@ func (r *Resolver) buildCallerIndexOnce() *callerIndex {
 // (their InferArgsFiles, which must be the same list), in parallel, and gives
 // it to every one of them. A workspace of several configs has a resolver per
 // config, and each built the same index from the same files: callerNames
-// depends on a file's text alone.
-func ShareCallerIndex(rs []*Resolver) {
+// depends on a file's text alone. The returned function gives each resolver
+// back the index it had, for a resolver that outlives the run (the editor's).
+func ShareCallerIndex(rs []*Resolver) (restore func()) {
 	if len(rs) == 0 || len(rs[0].InferArgsFiles) == 0 {
-		return
+		return func() {}
 	}
 
 	files := rs[0].InferArgsFiles
-	fsys := rs[0].fs()
 	names := make([]map[string]bool, len(files))
 
 	var wg sync.WaitGroup
@@ -246,7 +245,7 @@ func ShareCallerIndex(rs []*Resolver) {
 	for range runtime.GOMAXPROCS(0) {
 		wg.Go(func() {
 			for i := range work {
-				if text, err := vfs.ReadString(fsys, files[i]); err == nil {
+				if text, err := rs[0].readText(files[i]); err == nil {
 					names[i] = callerNames(text)
 				}
 			}
@@ -268,12 +267,28 @@ func ShareCallerIndex(rs []*Resolver) {
 		}
 	}
 
-	for _, r := range rs {
+	prev := make([]*callerIndex, len(rs))
+
+	for i, r := range rs {
 		o := r.owner()
 
 		o.mu.Lock()
-		o.callerIdx = idx
+		prev[i], o.callerIdx = o.callerIdx, idx
 		o.mu.Unlock()
+	}
+
+	return func() {
+		for i, r := range rs {
+			o := r.owner()
+
+			o.mu.Lock()
+			if o.callerIdx == idx {
+				// argCache holds answers read from idx, which this resolver
+				// would not have given with its own.
+				o.callerIdx, o.argCache = prev[i], nil
+			}
+			o.mu.Unlock()
+		}
 	}
 }
 
