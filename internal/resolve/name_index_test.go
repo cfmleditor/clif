@@ -195,8 +195,10 @@ func repoTestdata() string {
 // A textCache keeps no more than textCacheBytes of text alive, however many
 // slots are free, and still answers what it built.
 func TestTextCacheIsBoundedByBytes(t *testing.T) {
-	c := &textCache[int]{}
-	text := strings.Repeat("x", textCacheBytes/4)
+	const budget = 1 << 20
+
+	c := &textCache[int]{budget: budget}
+	text := strings.Repeat("x", budget/4)
 
 	for i := range 10 {
 		v := text + strconv.Itoa(i)
@@ -211,8 +213,8 @@ func TestTextCacheIsBoundedByBytes(t *testing.T) {
 		held += len(c.slots[i].content)
 	}
 
-	if held > textCacheBytes || held != c.held {
-		t.Errorf("holding %d bytes (counted %d), budget %d", held, c.held, textCacheBytes)
+	if held > budget || held != c.held {
+		t.Errorf("holding %d bytes (counted %d), budget %d", held, c.held, budget)
 	}
 }
 

@@ -21,6 +21,7 @@ import (
 	cflog "github.com/cfmleditor/clif/internal/log"
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
+	"github.com/cfmleditor/clif/internal/resolve"
 	"github.com/cfmleditor/clif/internal/server"
 	"github.com/cfmleditor/clif/internal/vfs"
 	sitter "github.com/tree-sitter/go-tree-sitter"
@@ -125,6 +126,10 @@ func runServer() {
 	// here is one nothing expected, and without this the only trace is a stack on
 	// a stderr the client may already have stopped reading.
 	defer cflog.CapturePanic("runServer")()
+
+	// The editor asks about the documents being edited, so its text caches
+	// would otherwise fill with their old versions up to a batch scan's budget.
+	resolve.LimitTextCaches(16 << 20)
 
 	// Through the logger rather than straight to stderr, which is where this
 	// used to go. An LSP client has no way to know that a line on a server's

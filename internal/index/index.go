@@ -387,7 +387,64 @@ func sameFileURI(u, u0 uri.URI, fk string) bool {
 
 	escaped := strings.ContainsRune(string(u), '%') || strings.ContainsRune(string(u0), '%')
 
-	return escaped && uriKey(u) == fk
+	return escaped && keyMatches(string(u), fk)
+}
+
+// keyMatches is uriKey(u) == fk, decoding and lowering u as it goes rather
+// than building its key. A decoded byte beyond ASCII, where strings.ToLower
+// may change more than one byte, and a malformed escape go to uriKey itself.
+func keyMatches(u, fk string) bool {
+	j := 0
+
+	for i := 0; i < len(u); i++ {
+		c := u[i]
+
+		if c == '%' {
+			hi, ok1 := unhexAt(u, i+1)
+			lo, ok2 := unhexAt(u, i+2)
+
+			if !ok1 || !ok2 {
+				return uriKey(uri.URI(u)) == fk
+			}
+
+			c = hi<<4 | lo
+			i += 2
+		}
+
+		if c >= 0x80 {
+			return uriKey(uri.URI(u)) == fk
+		}
+
+		if 'A' <= c && c <= 'Z' {
+			c += 'a' - 'A'
+		}
+
+		if j >= len(fk) || fk[j] != c {
+			return false
+		}
+
+		j++
+	}
+
+	return j == len(fk)
+}
+
+// unhexAt is the value of the hex digit at u[i], and whether there is one.
+func unhexAt(u string, i int) (byte, bool) {
+	if i >= len(u) {
+		return 0, false
+	}
+
+	switch c := u[i]; {
+	case '0' <= c && c <= '9':
+		return c - '0', true
+	case 'a' <= c && c <= 'f':
+		return c - 'a' + 10, true
+	case 'A' <= c && c <= 'F':
+		return c - 'A' + 10, true
+	}
+
+	return 0, false
 }
 
 // HasFile reports whether the index holds an entry for this file, which is not

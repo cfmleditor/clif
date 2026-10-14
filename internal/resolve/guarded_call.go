@@ -206,14 +206,30 @@ const (
 	textCacheBytes = 128 << 20
 )
 
+// LimitTextCaches bounds each of the process's text caches to bytes, for a
+// long-lived process (the editor's) whose entries are mostly superseded
+// versions of a document; a batch scan keeps the default, sized for its
+// workers. It applies to what is cached from then on.
+func LimitTextCaches(bytes int) {
+	lineStarts.setBudget(bytes)
+	declaredNames.setBudget(bytes)
+}
+
+func (c *textCache[T]) setBudget(bytes int) {
+	c.mu.Lock()
+	c.budget = bytes
+	c.mu.Unlock()
+}
+
 // textCache remembers a value derived from each of the texts asked about most
 // recently, keeping at most textCacheSlots texts and textCacheBytes of them.
 type textCache[T any] struct {
-	size  func(T) int // the bytes a value holds beyond its text
-	mu    sync.Mutex
-	next  int
-	held  int
-	slots [textCacheSlots]struct {
+	size   func(T) int // the bytes a value holds beyond its text
+	budget int         // textCacheBytes when zero; see LimitTextCaches
+	mu     sync.Mutex
+	next   int
+	held   int
+	slots  [textCacheSlots]struct {
 		content string
 		value   T
 		bytes   int
@@ -241,12 +257,24 @@ func (c *textCache[T]) of(content string, build func(string) T) T {
 		n += c.size(v)
 	}
 
-	if n > textCacheBytes {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	budget := c.budget
+	if budget <= 0 {
+		budget = textCacheBytes
+	}
+
+	if n > budget {
 		return v
 	}
 
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	// Another goroutine may have built it meanwhile: one slot per text.
+	for i := range c.slots {
+		if s := &c.slots[i]; s.set && len(s.content) == len(content) && s.content == content {
+			return s.value
+		}
+	}
 
 	at := c.next
 	c.held += n - c.slots[at].bytes
@@ -257,7 +285,7 @@ func (c *textCache[T]) of(content string, build func(string) T) T {
 	// Over budget: drop the oldest texts until it fits.
 	var zero T
 
-	for k := c.next; c.held > textCacheBytes && k != at; k = (k + 1) % textCacheSlots {
+	for k := c.next; c.held > budget && k != at; k = (k + 1) % textCacheSlots {
 		c.held -= c.slots[k].bytes
 		c.slots[k].content, c.slots[k].value, c.slots[k].bytes, c.slots[k].set = "", zero, 0, false
 	}

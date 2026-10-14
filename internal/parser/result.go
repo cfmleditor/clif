@@ -624,8 +624,9 @@ func (pr *ParseResult) mergeScriptRegion(r *Region, tagScopes []FuncScope, open 
 	pr.Calls = append(pr.Calls, sp.calls...)
 	for k, calls := range sp.funcCalls {
 		pr.funcCallsMap = appendKeyed(pr.funcCallsMap, k, calls)
-		pr.dropCallsIndex()
 	}
+
+	pr.dropCallsIndex()
 
 	if sp.extends != "" {
 		pr.Extends = sp.extends
@@ -778,8 +779,9 @@ func (pr *ParseResult) mergeTagRegion(r *Region, tagScopes []FuncScope, open *op
 		}
 
 		pr.funcCallsMap = appendKeyed(pr.funcCallsMap, k, calls)
-		pr.dropCallsIndex()
 	}
+
+	pr.dropCallsIndex()
 
 	// Tag scopes are computed from full content after region processing
 	// to handle functions spanning region boundaries.
