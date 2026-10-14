@@ -216,6 +216,22 @@ func TestTextCacheIsBoundedByBytes(t *testing.T) {
 	if held > budget || held != c.held {
 		t.Errorf("holding %d bytes (counted %d), budget %d", held, c.held, budget)
 	}
+
+	// A text over the whole budget is still kept, as the newest.
+	huge := strings.Repeat("z", 2*budget)
+	builds := 0
+
+	for range 2 {
+		c.of(huge, func(s string) int {
+			builds++
+
+			return len(s)
+		})
+	}
+
+	if builds != 1 {
+		t.Errorf("a text over the budget was built %d times, want once", builds)
+	}
 }
 
 // FunctionInFile's bucket path finds a definition whose URI is spelled
@@ -268,36 +284,41 @@ func TestShareCallerIndexRestoreForgetsWhatItAnswered(t *testing.T) {
 // that limits the caches does not change them for whatever runs after it;
 // and a batch running meanwhile is held to the batch budget.
 func TestLimitTextCachesRestoresAndBatchesLiftIt(t *testing.T) {
-	before := lineStarts.budget
+	// Not parallel: it changes the process's caches, and puts them back.
+	before := lineStarts.budgetNow()
 
 	restore := LimitTextCaches(1 << 10)
+	defer restore()
 
-	if lineStarts.budget != 1<<10 || declaredNames.budget != 1<<10 {
-		t.Fatalf("budgets %d and %d, want the limit", lineStarts.budget, declaredNames.budget)
+	if lineStarts.budgetNow() != 1<<10 || declaredNames.budgetNow() != 1<<10 {
+		t.Fatalf("budgets %d and %d, want the limit", lineStarts.budgetNow(), declaredNames.budgetNow())
 	}
 
 	text := strings.Repeat("y\n", 1<<12)
-
 	done := BatchTextCaches()
 
-	lineStarts.of(text, lineStartsOf)
-	done()
-
-	held := false
-
-	for i := range lineStarts.slots {
-		if lineStarts.slots[i].content == text {
-			held = true
-		}
+	if lineStarts.budgetNow() != textCacheBytes {
+		t.Errorf("budget %d while a batch runs, want the batch default", lineStarts.budgetNow())
 	}
 
-	if !held {
-		t.Error("a text over the limit was not kept while a batch ran")
+	lineStarts.of(text, lineStartsOf)
+	lineStarts.of(text+"other", lineStartsOf)
+	done()
+
+	if held := heldBytes(lineStarts); held > 1<<10 {
+		t.Errorf("after the batch: holding %d bytes, want the limit's 1KB at most", held)
 	}
 
 	restore()
 
-	if lineStarts.budget != before || declaredNames.budget != before {
-		t.Errorf("after restore: budgets %d and %d, want %d", lineStarts.budget, declaredNames.budget, before)
+	if lineStarts.budgetNow() != before || declaredNames.budgetNow() != before {
+		t.Errorf("after restore: budgets %d and %d, want %d", lineStarts.budgetNow(), declaredNames.budgetNow(), before)
 	}
+}
+
+func heldBytes[T any](c *textCache[T]) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.held
 }

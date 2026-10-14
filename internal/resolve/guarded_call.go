@@ -230,11 +230,61 @@ func LimitTextCaches(bytes int) (restore func()) {
 func BatchTextCaches() (done func()) {
 	batchesRunning.Add(1)
 
-	return func() { batchesRunning.Add(-1) }
+	return func() {
+		// The last batch out gives back what it was allowed beyond the limit.
+		if batchesRunning.Add(-1) == 0 {
+			lineStarts.trim()
+			declaredNames.trim()
+		}
+	}
 }
 
 // batchesRunning counts the BatchTextCaches calls not yet done.
 var batchesRunning atomic.Int32
+
+// effectiveBudget is the budget an insert is held to now. c.mu is held.
+func (c *textCache[T]) effectiveBudget() int {
+	if c.budget <= 0 || batchesRunning.Load() > 0 {
+		return textCacheBytes
+	}
+
+	return c.budget
+}
+
+// trim drops the oldest texts until the cache is within its budget.
+func (c *textCache[T]) trim() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.evictFrom(c.next, -1, c.effectiveBudget())
+}
+
+// evictFrom drops texts oldest first, from slot k, until held fits budget,
+// never dropping slot keep. c.mu is held.
+func (c *textCache[T]) evictFrom(k, keep, budget int) {
+	var zero T
+
+	for range textCacheSlots {
+		if c.held <= budget {
+			return
+		}
+
+		if k != keep && c.slots[k].set {
+			c.held -= c.slots[k].bytes
+			c.slots[k].content, c.slots[k].value, c.slots[k].bytes, c.slots[k].set = "", zero, 0, false
+		}
+
+		k = (k + 1) % textCacheSlots
+	}
+}
+
+// budgetNow is the budget an insert would be held to, for tests.
+func (c *textCache[T]) budgetNow() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.effectiveBudget()
+}
 
 func (c *textCache[T]) setBudget(bytes int) (prev int) {
 	c.mu.Lock()
@@ -283,14 +333,7 @@ func (c *textCache[T]) of(content string, build func(string) T) T {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	budget := c.budget
-	if budget <= 0 || batchesRunning.Load() > 0 {
-		budget = textCacheBytes
-	}
-
-	if n > budget {
-		return v
-	}
+	budget := c.effectiveBudget()
 
 	// Another goroutine may have built it meanwhile: one slot per text.
 	for i := range c.slots {
@@ -305,13 +348,10 @@ func (c *textCache[T]) of(content string, build func(string) T) T {
 	c.slots[at].content, c.slots[at].value, c.slots[at].bytes, c.slots[at].set = content, v, n, true
 	c.next = (at + 1) % textCacheSlots
 
-	// Over budget: drop the oldest texts until it fits.
-	var zero T
-
-	for k := c.next; c.held > budget && k != at; k = (k + 1) % textCacheSlots {
-		c.held -= c.slots[k].bytes
-		c.slots[k].content, c.slots[k].value, c.slots[k].bytes, c.slots[k].set = "", zero, 0, false
-	}
+	// Over budget: drop the oldest texts until it fits. The newest is kept
+	// even when it alone is over: a file that large is the one whose table is
+	// most expensive to rebuild on every call.
+	c.evictFrom(c.next, at, budget)
 
 	return v
 }
