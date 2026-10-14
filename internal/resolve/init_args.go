@@ -117,7 +117,7 @@ func (a *initArgSites) scan(path string) bool {
 		read[site.line] = true
 
 		expr, passed := callArgumentAt(tokens, site.at, a.pos, a.argName)
-		if passed && !a.take(expr, conv.Uint32(site.line), parser.FindFuncScopeAt(site.line, hpr.Scopes).Name, hpr, dir) {
+		if passed && !a.take(expr, conv.Uint32(site.line), hpr.FuncScopeAt(site.line).Name, hpr, dir) {
 			return false
 		}
 	}

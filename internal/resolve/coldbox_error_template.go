@@ -5,7 +5,6 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
 )
 
@@ -86,7 +85,7 @@ func (r *Resolver) bootstrapErrorSite(dir string) (includeHost, bool) {
 	}
 
 	line := strings.Count(hpr.Content[:at], "\n")
-	if !strings.EqualFold(parser.FindFuncScopeAt(line, hpr.Scopes).Name, "processException") {
+	if !strings.EqualFold(hpr.FuncScopeAt(line).Name, "processException") {
 		return includeHost{}, false
 	}
 

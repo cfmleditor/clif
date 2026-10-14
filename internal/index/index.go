@@ -332,6 +332,48 @@ func (idx *Index) FunctionsForFile(fileURI uri.URI) []*parser.FunctionDef {
 	return snapshot(idx.fileFuncs[uriKey(fileURI)])
 }
 
+// FunctionInFile is the first of fileURI's definitions named name,
+// case-insensitively, as a walk of FunctionsForFile finds it, without the
+// copy: a component's methods are looked up one name at a time, and copying
+// and walking every definition in the file for each was quadratic in a
+// component that calls most of its own methods. It walks the shorter of the
+// file's list and the name's bucket.
+func (idx *Index) FunctionInFile(fileURI uri.URI, name string) *parser.FunctionDef {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+
+	file := idx.fileFuncs[uriKey(fileURI)]
+	if len(file) == 0 {
+		return nil
+	}
+
+	if bucket := idx.funcs[strings.ToLower(name)]; len(bucket) < len(file) {
+		var found *parser.FunctionDef
+
+		n := 0
+
+		for _, d := range bucket {
+			if d.URI == file[0].URI {
+				found = d
+				n++
+			}
+		}
+
+		// Two of the file's: which comes first is the file's order.
+		if n < 2 {
+			return found
+		}
+	}
+
+	for _, d := range file {
+		if strings.EqualFold(d.Name, name) {
+			return d
+		}
+	}
+
+	return nil
+}
+
 // HasFile reports whether the index holds an entry for this file, which is not
 // the same question as whether the file declares any functions: a component
 // with only properties or `this` assignments indexes to an empty — but present

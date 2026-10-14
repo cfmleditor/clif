@@ -124,7 +124,7 @@ func (r *Resolver) includerHeldUncached(variable, file string, g *includeGraph, 
 			}
 
 			line := uint32(strings.Count(hpr.Content[:site.Offset], "\n")) //nolint:gosec // a file offset's line count is non-negative
-			caller := parser.FindFuncScopeAt(int(line), hpr.Scopes).Name
+			caller := hpr.FuncScopeAt(int(line)).Name
 
 			comp, _ := r.receiverComponentD(variable, line, caller, "", hpr, dir, nil, lookupCtx{depth: ctx.depth + 1})
 			if comp == "" || strings.HasPrefix(comp, "$") {
@@ -149,7 +149,7 @@ func (r *Resolver) includerHeldUncached(variable, file string, g *includeGraph, 
 		sites++
 
 		line := conv.Uint32(h.line)
-		caller := parser.FindFuncScopeAt(h.line, hpr.Scopes).Name
+		caller := hpr.FuncScopeAt(h.line).Name
 
 		comp, _ := r.receiverComponentD(variable, line, caller, "", hpr, filepath.Dir(h.path), nil, lookupCtx{depth: ctx.depth + 1})
 		if comp == "" || strings.HasPrefix(comp, "$") {

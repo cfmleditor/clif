@@ -148,7 +148,7 @@ func (r *Resolver) fw1ActionsUncached(controllers, section, item string) []fw1Ac
 
 			line := strings.Count(hpr.Content[:m[0]], "\n")
 
-			scope := parser.FindFuncScopeAt(line, hpr.Scopes)
+			scope := hpr.FuncScopeAt(line)
 			if scope.Start == -1 {
 				return nil
 			}

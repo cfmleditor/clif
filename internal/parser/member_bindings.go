@@ -85,9 +85,18 @@ func (pr *ParseResult) applyMemberBindings(hasBindings bool) {
 
 	spans := newMemberSpans(nodes, identities, writes, targets)
 
+	// Each closure in a function withholds the same members, and every node
+	// exists before this loop, so a function's are withheld once: once per
+	// closure walked every node for each, quadratic in a function holding
+	// many closures and members (16,000 of each took 4s).
+	withheld := map[string]bool{}
+
 	for i, w := range writes {
 		if w.target == "" && w.unknown {
-			withholdForClosure(nodes, w.function)
+			if !withheld[w.function] {
+				withheld[w.function] = true
+				withholdForClosure(nodes, w.function)
+			}
 
 			continue
 		}

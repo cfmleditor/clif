@@ -50,7 +50,7 @@ func (r *Resolver) loopElement(call *parser.CallSite, pr *parser.ParseResult, ba
 		start, end, caller = scope.Start, scope.End, scope.Name
 	}
 
-	collection, header, ok := enclosingLoop(r.loopsOf(pr), name, int(call.Line), start, end)
+	collection, header, ok := enclosingLoop(r.loopsOf(pr)[name], name, int(call.Line), start, end)
 	if !ok {
 		return ""
 	}
@@ -112,15 +112,25 @@ func enclosingLoop(loops []loopSpan, name string, line, start, end int) (collect
 	return best.collection, best.header, true
 }
 
-// loopsOf is every loop in pr's file, found once per version of its content:
-// the lookup runs for every untyped receiver, and finding them anew each time
-// tokenised the whole file per call.
-func (r *Resolver) loopsOf(pr *parser.ParseResult) []loopSpan {
+// loopsByName is a file's loops by the variable they bind.
+type loopsByName map[string][]loopSpan
+
+// loopsOf is every loop in pr's file by the variable it binds, found once per
+// version of its content: the lookup runs for every untyped receiver, and
+// finding them anew each time tokenised the whole file per call. Grouped,
+// because walking every loop in the file per receiver was quadratic in a
+// function of thousands of loops.
+func (r *Resolver) loopsOf(pr *parser.ParseResult) loopsByName {
 	o := r.owner()
 
-	return o.loopCache.get(&o.mu, pr, func() []loopSpan {
-		return append(scriptLoops(o.fileTokens(pr)), tagLoops(pr.Content)...)
-	})
+	return o.loopCache.get(&o.mu, pr, func() []loopsByName {
+		byName := loopsByName{}
+		for _, s := range append(scriptLoops(o.fileTokens(pr)), tagLoops(pr.Content)...) {
+			byName[s.name] = append(byName[s.name], s)
+		}
+
+		return []loopsByName{byName}
+	})[0]
 }
 
 // fileSpans is what a per-file cache holds: the spans found in a file and the

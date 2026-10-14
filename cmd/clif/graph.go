@@ -226,7 +226,12 @@ func parseGraphFlags(args []string) (graphFlags, error) {
 // utility globs and then written with the flags as typed, so --hide-utility set
 // in config silently did nothing to the report.
 func buildGraph(f *graphFlags) (*codemap.Map, error) {
-	fsys := vfs.OS{}
+	// One metadata and content cache for the whole run, shared by every
+	// resolver: NewBatchResolver wraps the file system it is given, so handing
+	// each config's resolver the bare one gave each a cache of its own, and a
+	// map of tassweb's eleven configs re-read and re-stat'ed the same files once
+	// per config (27% of its CPU in system calls).
+	fsys := vfs.CacheMetadata(vfs.OS{})
 
 	root, err := filepath.Abs(f.paths[0])
 	if err != nil {

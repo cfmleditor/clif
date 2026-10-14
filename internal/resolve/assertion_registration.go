@@ -126,7 +126,7 @@ func (r *Resolver) registeredAssertion(comp string, call *parser.CallSite, pr *p
 	}
 	// Unknown code receiving the instance may replace its assertion field before
 	// this call, even when it never spells $assert itself.
-	scope := parser.FindFuncScopeAt(int(call.Line), pr.Scopes)
+	scope := pr.FuncScopeAt(int(call.Line))
 	if !call.HasSpan || scope.Start < 0 {
 		return nil
 	}

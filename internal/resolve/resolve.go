@@ -89,7 +89,7 @@ type Resolver struct {
 	discoveringDI         bool       // private policy discovery never re-enters injection lookup
 	sourceFacts           spanCache[lexicalSourceFacts]
 	callerTokens          spanCache[parser.Token]      // caller file URI → tokens for its current content
-	loopCache             spanCache[loopSpan]          // file URI → every loop its current text holds (loopsOf)
+	loopCache             spanCache[loopsByName]       // file URI → every loop its current text holds (loopsOf)
 	typeGuardCache        spanCache[receiverTypeGuard] // exact builtin checks in current source
 	closureCache          spanCache[closureSpan]       // file URI → every function literal its current text holds (closuresOf)
 	pathCaches                                         // what InvalidatePaths clears
@@ -781,8 +781,30 @@ func (r *Resolver) inFolderNamed(component string, dirs *cfpath.DirCache) string
 // asking the second question re-read and re-parsed every such file on every
 // single lookup, since re-indexing it produced the same empty result.
 func (r *Resolver) EnsureIndexed(cfcPath string) []*parser.FunctionDef {
+	idx, cfcURI, ok := r.ensureFileIndexed(cfcPath)
+	if !ok {
+		return nil
+	}
+
+	return idx.FunctionsForFile(cfcURI)
+}
+
+// funcInFile is the first function of cfcPath's named name, indexing the file
+// first as EnsureIndexed does.
+func (r *Resolver) funcInFile(cfcPath, name string) *parser.FunctionDef {
+	idx, cfcURI, ok := r.ensureFileIndexed(cfcPath)
+	if !ok {
+		return nil
+	}
+
+	return idx.FunctionInFile(cfcURI, name)
+}
+
+// ensureFileIndexed indexes cfcPath if it is not yet, and says which index
+// holds it under which URI; false when it cannot be read.
+func (r *Resolver) ensureFileIndexed(cfcPath string) (*index.Index, uri.URI, bool) {
 	if r.indexer != nil {
-		return r.indexer.EnsureIndexed(cfcPath)
+		return r.indexer.ensureFileIndexed(cfcPath)
 	}
 
 	cfcURI := cfpath.ToURI(cfcPath)
@@ -790,7 +812,7 @@ func (r *Resolver) EnsureIndexed(cfcPath string) []*parser.FunctionDef {
 	if !r.Index.HasFile(cfcURI) {
 		text, err := r.readText(cfcPath)
 		if err != nil {
-			return nil
+			return nil, "", false
 		}
 
 		// Indexed as a batch run indexes it (IndexForBatch), so a component's entry
@@ -798,7 +820,7 @@ func (r *Resolver) EnsureIndexed(cfcPath string) []*parser.FunctionDef {
 		r.Index.IndexParsed(cfcURI, text, r.ParseFile(cfcPath, text, IndexSpec()))
 	}
 
-	return r.Index.FunctionsForFile(cfcURI)
+	return r.Index, cfcURI, true
 }
 
 // LookupFuncWithExtends searches for a function in cfcPath, walking the
@@ -899,11 +921,8 @@ func (r *Resolver) lookupFuncUncached(cfcPath, funcName string, depth int) *pars
 			return d
 		}
 
-		defs := r.EnsureIndexed(cfcPath)
-		for _, d := range defs {
-			if strings.EqualFold(d.Name, funcName) {
-				return d
-			}
+		if d := r.funcInFile(cfcPath, funcName); d != nil {
+			return d
 		}
 
 		ext, ok := r.extendsOf(cfcPath, cfcURI)
@@ -1964,14 +1983,12 @@ func (r *Resolver) resolveBareCall(call *parser.CallSite, pr *parser.ParseResult
 	// ARGUMENTS.x-as-function-reference case below — there's nothing further to
 	// verify statically, and it should not be reported as if it were a missing
 	// function.
-	if scope := parser.FindFuncScopeAt(int(call.Line), pr.Scopes); scope.Start != -1 {
-		for _, v := range pr.FuncVars(scope.Start, scope.End) {
-			if strings.EqualFold(v, funcName) {
-				tr.addf("%q is a declared local variable/argument in the enclosing function — treating as a call through a function-reference value, not a missing function", funcName)
-				tr.hit(TargetDynamic, "", nil)
+	if scope := pr.FuncScopeAt(int(call.Line)); scope.Start != -1 {
+		if pr.FuncDeclares(scope.Start, scope.End, funcName) {
+			tr.addf("%q is a declared local variable/argument in the enclosing function — treating as a call through a function-reference value, not a missing function", funcName)
+			tr.hit(TargetDynamic, "", nil)
 
-				return ""
-			}
+			return ""
 		}
 	}
 
@@ -2349,11 +2366,9 @@ func (r *Resolver) inheritedFromMissingBase(variable string, line uint32, pr *pa
 	// A closure's locals and parameters and a catch variable are the
 	// enclosing function's to the body scan, and not in the file-wide
 	// declarations.
-	if scope := parser.FindFuncScopeAt(int(line), pr.Scopes); scope.Start != -1 {
-		for _, v := range pr.FuncVars(scope.Start, scope.End) {
-			if strings.EqualFold(v, root) {
-				return "", false
-			}
+	if scope := pr.FuncScopeAt(int(line)); scope.Start != -1 {
+		if pr.FuncDeclares(scope.Start, scope.End, root) {
+			return "", false
 		}
 	}
 
@@ -3210,7 +3225,7 @@ func displayComponent(comp string) string {
 // else the line holds. And "$any" and "$builtin." are not components, so they
 // are reported as unknown.
 func (r *Resolver) ComponentOf(variable string, line uint32, pr *parser.ParseResult, baseDir string) string {
-	caller := parser.FindFuncScopeAt(int(line), pr.Scopes).Name
+	caller := pr.FuncScopeAt(int(line)).Name
 
 	comp, _ := r.receiverComponent(variable, line, caller, "", pr, baseDir, nil)
 
@@ -3242,11 +3257,9 @@ func (r *Resolver) recordReceiver(variable, name string, scope parser.RefScope, 
 			return ""
 		}
 
-		if fs := parser.FindFuncScopeAt(int(line), pr.Scopes); fs.Start != -1 {
-			for _, local := range pr.FuncVars(fs.Start, fs.End) {
-				if strings.EqualFold(local, root) {
-					return ""
-				}
+		if fs := pr.FuncScopeAt(int(line)); fs.Start != -1 {
+			if pr.FuncDeclares(fs.Start, fs.End, root) {
+				return ""
 			}
 		}
 	}
@@ -3474,7 +3487,7 @@ func funcScopedRefFor(pr *parser.ParseResult, line uint32, name string, in parse
 		if scopeIndex < len(pr.Scopes) {
 			scope = pr.Scopes[scopeIndex]
 		} else {
-			scope = parser.FuncScope{Start: 0, End: strings.Count(pr.Content, "\n")}
+			scope = parser.FuncScope{Start: 0, End: len(lineStarts.of(pr.Content)) - 1}
 		}
 
 		if int(line) < scope.Start || int(line) > scope.End {
@@ -3634,9 +3647,11 @@ func fileLevelRef(pr *parser.ParseResult, line uint32, name string, scope parser
 func fileLevelRefFor(pr *parser.ParseResult, line uint32, name string, scope parser.RefScope, method string) *parser.ComponentRef {
 	var best *parser.ComponentRef
 
-	for i := range pr.ComponentRefs {
+	named := pr.RefsNamed(name)
+
+	for _, i := range named {
 		ref := &pr.ComponentRefs[i]
-		if !strings.EqualFold(ref.Variable, name) || ref.Line > line || !scope.Admits(ref) || assignedByCallAt(ref, line) || nativeDefaultOverwritten(ref.Component, method) {
+		if ref.Line > line || !scope.Admits(ref) || assignedByCallAt(ref, line) || nativeDefaultOverwritten(ref.Component, method) {
 			continue
 		}
 
@@ -3649,8 +3664,8 @@ func fileLevelRefFor(pr *parser.ParseResult, line uint32, name string, scope par
 		return best
 	}
 
-	for i := range pr.ComponentRefs {
-		if ref := &pr.ComponentRefs[i]; strings.EqualFold(ref.Variable, name) && scope.Admits(ref) && !assignedByCallAt(ref, line) && !nativeDefaultOverwritten(ref.Component, method) {
+	for _, i := range named {
+		if ref := &pr.ComponentRefs[i]; scope.Admits(ref) && !assignedByCallAt(ref, line) && !nativeDefaultOverwritten(ref.Component, method) {
 			return ref
 		}
 	}

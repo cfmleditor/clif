@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"runtime"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -398,17 +399,19 @@ func (r *Resolver) inferArgument(fd *parser.FunctionDef, pos int, file string, c
 
 		var tokens []parser.Token
 
-		calls := hpr.AllCalls()
+		// Only a call to the function, or to invoke(), can pass it the
+		// argument; and the directory is the file's, not the call's.
+		calls := hpr.CallsNamed(fd.Name, "invoke")
+		dir := filepath.Dir(path)
 
 		for ci := range calls {
 			call := &calls[ci]
 
-			invoke := r.builtinInvoke(call, hpr, filepath.Dir(path))
+			invoke := r.builtinInvoke(call, hpr, dir)
 			if !invoke && !strings.EqualFold(call.FuncName, fd.Name) {
 				continue
 			}
 
-			dir := filepath.Dir(path)
 			expr, passed, ours, known := r.callerArgument(call, hpr, path, fd, file, dir, pos, argName, ctx)
 
 			if !ours {
@@ -490,7 +493,20 @@ func (r *Resolver) callerArgument(call *parser.CallSite, pr *parser.ParseResult,
 func callSiteArgument(tokens []parser.Token, call *parser.CallSite, pos int, name string) ([]parser.Token, bool) {
 	selected := -1
 
-	for i := 0; i+1 < len(tokens); i++ {
+	// The tokens are the file's in order, so the call's own are found by
+	// search: walking every token of the file for each call was quadratic
+	// in a file making thousands of calls. A call with a span is the token
+	// at its offset; one without is among its line's.
+	from := sort.Search(len(tokens), func(i int) bool { return tokens[i].Line >= int(call.Line) })
+	if call.HasSpan {
+		from = sort.Search(len(tokens), func(i int) bool { return tokens[i].Offset >= int(call.StartByte) })
+	}
+
+	for i := from; i+1 < len(tokens); i++ {
+		if call.HasSpan && tokens[i].Offset != int(call.StartByte) || !call.HasSpan && tokens[i].Line != int(call.Line) {
+			break
+		}
+
 		if tokens[i].Kind != parser.TokIdent || !strings.EqualFold(tokens[i].Value, call.FuncName) || tokens[i+1].Kind != parser.TokLParen {
 			continue
 		}
@@ -500,15 +516,7 @@ func callSiteArgument(tokens []parser.Token, call *parser.CallSite, pos int, nam
 		}
 
 		if call.HasSpan {
-			if tokens[i].Offset == int(call.StartByte) {
-				return callArgumentAt(tokens, i, pos, name)
-			}
-
-			continue
-		}
-
-		if tokens[i].Line != int(call.Line) {
-			continue
+			return callArgumentAt(tokens, i, pos, name)
 		}
 
 		if selected >= 0 {

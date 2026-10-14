@@ -99,10 +99,46 @@ type ParseResult struct {
 
 	// memberSets are the `a.m = …` assignments met; see AssignsMember.
 	memberSets []pendingCall
+	// memberSetsByName indexes memberSets by lowercased member name, built on
+	// AssignsMember's first question and rebuilt when memberSets has changed
+	// length; a reparse that resets memberSets resets it too. memberSetsMu
+	// guards it.
+	memberSetsMu     sync.Mutex
+	memberSetsByName map[string][]int
+	memberSetsCount  int
+
+	// refsByName indexes ComponentRefs by lowercased variable name, built on
+	// RefsNamed's first question and rebuilt when ComponentRefs is no longer
+	// the slice it was built from (refsBuiltFrom, refsBuiltLen). refsMu
+	// guards it.
+	refsMu        sync.Mutex
+	refsByName    map[string][]int
+	refsBuiltFrom *ComponentRef
+	refsBuiltLen  int
 
 	// funcVars caches per-function variable lists keyed by "start:end".
 	funcVarsMu sync.Mutex
 	funcVars   map[string][]string
+	// funcVarSets holds each function's funcVars as a set, for FuncDeclares,
+	// with the list it was built from so a list replaced is noticed.
+	funcVarSets map[string]funcVarSet
+
+	// callsByName indexes the calls AllCalls returns by lowercased name, for
+	// CallsNamed: where each is, in Calls (key "") or a funcCallsMap bucket.
+	// callsMu guards it; callsFrom, callsLen and callsBuckets are what it was
+	// built from. A reparse resets it.
+	callsMu      sync.Mutex
+	callsByName  map[string][]callAt
+	callsFrom    *CallSite
+	callsLen     int
+	callsBuckets int
+
+	// scopeAtMu guards scopeAt, FuncScopeAt's index over Scopes, and the
+	// Scopes it was built from.
+	scopeAtMu    sync.Mutex
+	scopeAt      func(line int) int
+	scopeAtFrom  *FuncScope
+	scopeAtCount int
 
 	// funcRefs caches per-function component refs keyed by "start:end".
 	memberSnapshot        *ParseResult // member refs computed once per document version
@@ -2429,21 +2465,104 @@ func (pr *ParseResult) FuncVars(funcStart, funcEnd int) []string {
 	return vars
 }
 
+type funcVarSet struct {
+	from  *string
+	n     int
+	names map[string]struct{}
+}
+
+// FuncDeclares reports whether FuncVars(funcStart, funcEnd) holds name,
+// case-insensitively. Asked for every call, a walk of a function's every
+// variable was quadratic in a function that declares as often as it calls.
+func (pr *ParseResult) FuncDeclares(funcStart, funcEnd int, name string) bool {
+	vars := pr.FuncVars(funcStart, funcEnd)
+	if len(vars) < maxScopeScan || !isASCII(name) {
+		return slices.ContainsFunc(vars, func(v string) bool { return strings.EqualFold(v, name) })
+	}
+
+	key := funcKey(funcStart, funcEnd)
+
+	pr.funcVarsMu.Lock()
+	set := pr.funcVarSets[key]
+
+	if set.from != &vars[0] || set.n != len(vars) {
+		set = funcVarSet{from: &vars[0], n: len(vars), names: make(map[string]struct{}, len(vars))}
+
+		for _, v := range vars {
+			// A name EqualFold matches without lowering alike.
+			if !isASCII(v) {
+				set.names = nil
+
+				break
+			}
+
+			set.names[strings.ToLower(v)] = struct{}{}
+		}
+
+		if pr.funcVarSets == nil {
+			pr.funcVarSets = map[string]funcVarSet{}
+		}
+
+		pr.funcVarSets[key] = set
+	}
+	pr.funcVarsMu.Unlock()
+
+	if set.names == nil {
+		return slices.ContainsFunc(vars, func(v string) bool { return strings.EqualFold(v, name) })
+	}
+
+	var buf foldScratch
+
+	_, ok := set.names[string(buf.lowerFold(name))]
+
+	return ok
+}
+
+// FuncScopeAt is FindFuncScopeAt(line, pr.Scopes), through an index of the
+// scopes built once: asked for every call, a walk of every scope was
+// quadratic in a file of thousands of functions.
+func (pr *ParseResult) FuncScopeAt(line int) FuncScope {
+	scopes := pr.Scopes
+	if len(scopes) <= maxScopeScan {
+		return findFuncScope(line, scopes)
+	}
+
+	pr.scopeAtMu.Lock()
+	if pr.scopeAt == nil || pr.scopeAtFrom != &scopes[0] || pr.scopeAtCount != len(scopes) {
+		pr.scopeAt, pr.scopeAtFrom, pr.scopeAtCount = scopeIndex(scopes, true), &scopes[0], len(scopes)
+	}
+
+	at := pr.scopeAt
+	pr.scopeAtMu.Unlock()
+
+	if i := at(line); i >= 0 {
+		return scopes[i]
+	}
+
+	return FuncScope{Start: -1, End: -1}
+}
+
 // AssignsMember reports whether the function holding line assigns
 // variable.member on a line before it: `a.getVariables = getVariables;` then
 // `a.getVariables()` calls what was stored there, which is no method of a's
 // component. Compared case-insensitively, as CFML names are. A member stored
 // as `variables.a.m = …` counts from any function and any line.
 func (pr *ParseResult) AssignsMember(variable, member string, line uint32) bool {
-	key := ""
-	if s := findFuncScope(int(line), pr.Scopes); s.Start >= 0 {
-		key = funcKey(s.Start, s.End)
-	}
+	// Asked for every call the method check looks at, it scanned every scope
+	// for the call's function and every member assignment in the file each
+	// time: quadratic in a file with many of both. The assignments are looked
+	// up by name, and the scope found only once one names the member.
+	key, keyed := "", false
 
-	for i := range pr.memberSets {
+	for _, i := range pr.memberSetsNamed(member) {
 		m := &pr.memberSets[i]
-		if !strings.EqualFold(m.funcName, member) {
-			continue
+
+		if !keyed {
+			if s := findFuncScope(int(line), pr.Scopes); s.Start >= 0 {
+				key = funcKey(s.Start, s.End)
+			}
+
+			keyed = true
 		}
 
 		if m.funcKey == key && m.line <= line && strings.EqualFold(m.varName, variable) {
@@ -2461,6 +2580,64 @@ func (pr *ParseResult) AssignsMember(variable, member string, line uint32) bool 
 	}
 
 	return false
+}
+
+// memberSetsNamed is the indexes of memberSets assigning member, in order.
+func (pr *ParseResult) memberSetsNamed(member string) []int {
+	pr.memberSetsMu.Lock()
+	defer pr.memberSetsMu.Unlock()
+
+	if pr.memberSetsByName == nil || pr.memberSetsCount != len(pr.memberSets) {
+		pr.memberSetsByName = make(map[string][]int, len(pr.memberSets))
+
+		for i := range pr.memberSets {
+			name := strings.ToLower(pr.memberSets[i].funcName)
+			pr.memberSetsByName[name] = append(pr.memberSetsByName[name], i)
+		}
+
+		pr.memberSetsCount = len(pr.memberSets)
+	}
+
+	if !isASCII(member) {
+		return pr.memberSetsByName[strings.ToLower(member)]
+	}
+
+	var buf foldScratch
+
+	return pr.memberSetsByName[string(buf.lowerFold(member))]
+}
+
+// RefsNamed is the indexes of the ComponentRefs whose Variable is name,
+// case-insensitively, in order. A resolver asking for one variable's refs on
+// every call in a file walked them all each time, which is quadratic in a
+// file that assigns as often as it calls.
+func (pr *ParseResult) RefsNamed(name string) []int {
+	pr.refsMu.Lock()
+	defer pr.refsMu.Unlock()
+
+	var from *ComponentRef
+	if len(pr.ComponentRefs) > 0 {
+		from = &pr.ComponentRefs[0]
+	}
+
+	if pr.refsByName == nil || pr.refsBuiltFrom != from || pr.refsBuiltLen != len(pr.ComponentRefs) {
+		pr.refsByName = make(map[string][]int, len(pr.ComponentRefs))
+
+		for i := range pr.ComponentRefs {
+			n := strings.ToLower(pr.ComponentRefs[i].Variable)
+			pr.refsByName[n] = append(pr.refsByName[n], i)
+		}
+
+		pr.refsBuiltFrom, pr.refsBuiltLen = from, len(pr.ComponentRefs)
+	}
+
+	if !isASCII(name) {
+		return pr.refsByName[strings.ToLower(name)]
+	}
+
+	var buf foldScratch
+
+	return pr.refsByName[string(buf.lowerFold(name))]
 }
 
 // cutVariablesScope is name without a leading variables., and whether it had one.
@@ -3533,6 +3710,131 @@ func (pr *ParseResult) AllCalls() []CallSite {
 	// The buckets come out of a map, so without this the order changes between
 	// runs of one build — and every caller here writes a report a reader is
 	// meant to diff against an earlier one.
+	sortCallsLikeAllCalls(all)
+
+	return all
+}
+
+// CallsNamed is AllCalls' answer restricted to calls whose name is one of
+// names (compared case-insensitively), in the same order. Argument inference
+// asks it for each untyped argument of each caller file, and taking AllCalls
+// each time copied and sorted every call in the file to keep a few: with n
+// functions called from one file, n² log n.
+func (pr *ParseResult) CallsNamed(names ...string) []CallSite {
+	if !pr.extractCalls {
+		return nil
+	}
+
+	matches := func(name string) bool {
+		for _, n := range names {
+			if strings.EqualFold(name, n) {
+				return true
+			}
+		}
+
+		return false
+	}
+
+	var out []CallSite
+
+	at := pr.callsAt(names)
+	if at == nil {
+		for i := range pr.Calls {
+			if matches(pr.Calls[i].FuncName) {
+				out = append(out, pr.Calls[i])
+			}
+		}
+
+		for _, calls := range pr.funcCallsMap {
+			for i := range calls {
+				if matches(calls[i].FuncName) {
+					out = append(out, calls[i])
+				}
+			}
+		}
+	} else {
+		for _, a := range at {
+			calls := pr.Calls
+			if a.bucket != "" {
+				calls = pr.funcCallsMap[a.bucket]
+			}
+
+			if matches(calls[a.i].FuncName) {
+				out = append(out, calls[a.i])
+			}
+		}
+	}
+
+	sortCallsLikeAllCalls(out)
+
+	return out
+}
+
+// callAt is where one call is: Calls[i] when bucket is "", else
+// funcCallsMap[bucket][i].
+type callAt struct {
+	bucket string
+	i      int
+}
+
+// callsAt is where the calls named names are, through callsByName, or nil
+// when a name is not ASCII (EqualFold and lowering then disagree) and the
+// caller should walk every call. Asked once per untyped argument of every
+// function called from a file, a walk of the file's every call was
+// quadratic in a file that calls thousands of them.
+func (pr *ParseResult) callsAt(names []string) []callAt {
+	for _, n := range names {
+		if !isASCII(n) {
+			return nil
+		}
+	}
+
+	var from *CallSite
+	if len(pr.Calls) > 0 {
+		from = &pr.Calls[0]
+	}
+
+	pr.callsMu.Lock()
+	defer pr.callsMu.Unlock()
+
+	if pr.callsByName == nil || pr.callsFrom != from || pr.callsLen != len(pr.Calls) || pr.callsBuckets != len(pr.funcCallsMap) {
+		pr.callsByName = map[string][]callAt{}
+
+		add := func(bucket string, calls []CallSite) {
+			for i := range calls {
+				n := strings.ToLower(calls[i].FuncName)
+				pr.callsByName[n] = append(pr.callsByName[n], callAt{bucket: bucket, i: i})
+			}
+		}
+
+		add("", pr.Calls)
+
+		for k, calls := range pr.funcCallsMap {
+			add(k, calls)
+		}
+
+		pr.callsFrom, pr.callsLen, pr.callsBuckets = from, len(pr.Calls), len(pr.funcCallsMap)
+	}
+
+	out := []callAt{}
+
+	for i, n := range names {
+		// A name given twice is one name: each call is listed once.
+		if slices.ContainsFunc(names[:i], func(m string) bool { return strings.EqualFold(m, n) }) {
+			continue
+		}
+
+		var buf foldScratch
+
+		out = append(out, pr.callsByName[string(buf.lowerFold(n))]...)
+	}
+
+	return out
+}
+
+// sortCallsLikeAllCalls orders calls by line, then variable, then name, as
+// AllCalls returns them.
+func sortCallsLikeAllCalls(all []CallSite) {
 	sort.SliceStable(all, func(i, j int) bool {
 		if all[i].Line != all[j].Line {
 			return all[i].Line < all[j].Line
@@ -3544,8 +3846,6 @@ func (pr *ParseResult) AllCalls() []CallSite {
 
 		return all[i].FuncName < all[j].FuncName
 	})
-
-	return all
 }
 
 // funcCallsUncached parses a function body on-demand to extract call sites.

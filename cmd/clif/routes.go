@@ -153,7 +153,8 @@ func cmdRoutes(args []string) {
 // scanRoutes walks the workspace once, resolving every route it finds under the
 // config that governs each file.
 func scanRoutes(paths []string, quiet bool) (resolved, unresolved []routeFinding, scanned int) {
-	fsys := vfs.OS{}
+	// One cache shared by every config's resolver; see buildGraph.
+	fsys := vfs.CacheMetadata(vfs.OS{})
 
 	root, err := filepath.Abs(paths[0])
 	if err != nil {

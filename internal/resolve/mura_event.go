@@ -137,15 +137,13 @@ func declaresLocal(pr *parser.ParseResult, line uint32, caller, name string) (in
 		return 0, false
 	}
 
-	scope := parser.FindFuncScopeAt(int(line), pr.Scopes)
+	scope := pr.FuncScopeAt(int(line))
 	if scope.Start == -1 {
 		return 0, false
 	}
 
-	for _, v := range pr.FuncVars(scope.Start, scope.End) {
-		if strings.EqualFold(v, name) {
-			return scope.Start, true
-		}
+	if pr.FuncDeclares(scope.Start, scope.End, name) {
+		return scope.Start, true
 	}
 
 	return 0, false

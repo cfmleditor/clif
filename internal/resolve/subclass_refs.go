@@ -47,11 +47,9 @@ func (r *Resolver) subclassComponent(variable string, line uint32, pr *parser.Pa
 
 	// An unscoped name a function declares is its local, not the component's.
 	if !qualified {
-		if scope := parser.FindFuncScopeAt(int(line), pr.Scopes); scope.Start != -1 {
-			for _, v := range pr.FuncVars(scope.Start, scope.End) {
-				if strings.EqualFold(v, name) {
-					return ""
-				}
+		if scope := pr.FuncScopeAt(int(line)); scope.Start != -1 {
+			if pr.FuncDeclares(scope.Start, scope.End, name) {
+				return ""
 			}
 		}
 	}

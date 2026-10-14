@@ -27,7 +27,7 @@ func (r *Resolver) returnsCriteriaList(fd *parser.FunctionDef) bool {
 		return false
 	}
 
-	start := parser.FindFuncScopeAt(int(fd.Line), pr.Scopes).Start
+	start := pr.FuncScopeAt(int(fd.Line)).Start
 	found := false
 
 	for i := open + 1; i < end; i++ {

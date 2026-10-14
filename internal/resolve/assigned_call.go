@@ -3,6 +3,7 @@ package resolve
 import (
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/cfmleditor/clif/internal/conv"
 	"github.com/cfmleditor/clif/internal/parser"
@@ -125,7 +126,7 @@ func (r *Resolver) assignedFromCall(variable string, line uint32, caller string,
 			end = scope.End
 		}
 
-		if _, _, loop := enclosingLoop(r.loopsOf(pr), strings.ToLower(name), int(line), start, end); loop {
+		if _, _, loop := enclosingLoop(r.loopsOf(pr)[strings.ToLower(name)], strings.ToLower(name), int(line), start, end); loop {
 			return ""
 		}
 
@@ -519,12 +520,11 @@ func containsFold(list []string, s string) bool {
 // found is a `var` or local. one, which never left its function.
 func (r *Resolver) variablesAssignment(pr *parser.ParseResult, name, caller string, start, line int, scoped bool) (string, int, bool) {
 	from := min(start, line)
-	window := sourceText(pr.Content, from, line)
 
 	// A local or an argument of the same name hides an unscoped one; a
 	// variables.-scoped receiver is the component's whatever the function
 	// declares.
-	if !scoped && (argumentOf(pr, caller, name) != nil || textDeclaresLocal(window, name)) {
+	if !scoped && (argumentOf(pr, caller, name) != nil || windowDeclaresLocal(pr.Content, from, line, name)) {
 		return "", 0, false
 	}
 
@@ -670,4 +670,170 @@ func placeholderStruct(rhs string) bool {
 	compact := strings.ToLower(strings.Join(strings.Fields(rhs), ""))
 
 	return compact == "structnew()" || compact == "{}"
+}
+
+// windowDeclaresLocal is textDeclaresLocal(sourceText(content, from, to),
+// name), answered from the declarations in content found once. Asked for
+// every call on an unscoped name, with the text from the function's start to
+// the call, it rescanned a longer prefix of the function for each: quadratic
+// in a function's length (a function of 32,000 loops took 15s). A name with a
+// character that is not a word character keeps the scan.
+func windowDeclaresLocal(content string, from, to int, name string) bool {
+	from = max(from, 0)
+
+	begin, ok := lineOffset(content, from)
+	if !ok || to <= from {
+		return false
+	}
+
+	end := len(content)
+	if e, ok := lineOffset(content, to); ok {
+		end = e - 1
+	}
+
+	if !allWordBytes(name) {
+		return textDeclaresLocal(content[begin:end], name)
+	}
+
+	for _, d := range declaredNames.of(content)[strings.ToLower(name)] {
+		if d.marker >= begin && d.end <= end {
+			return true
+		}
+	}
+
+	return false
+}
+
+// allWordBytes reports whether name is a non-empty run of word characters.
+func allWordBytes(name string) bool {
+	for i := range len(name) {
+		if !isRegexWordByte(name[i]) {
+			return false
+		}
+	}
+
+	return name != ""
+}
+
+// localDeclaration is a word declared by `var `, `local.` or a <cfargument>'s
+// name attribute: marker is where the declaring text starts and end where
+// the word ends.
+type localDeclaration struct{ marker, end int }
+
+// declarationsIn finds every declaration textDeclaresLocal would accept in
+// content, by lowercased name. Each predicate needs the name to start a word,
+// and textDeclaresLocal's \b after it needs the name to end one, so a word
+// declared is the whole run of word characters.
+func declarationsIn(content string) map[string][]localDeclaration {
+	out := map[string][]localDeclaration{}
+
+	for s := 0; s < len(content); s++ {
+		if !isRegexWordByte(content[s]) || s > 0 && isRegexWordByte(content[s-1]) {
+			continue
+		}
+
+		e := s
+		for e < len(content) && isRegexWordByte(content[e]) {
+			e++
+		}
+
+		marker := -1
+
+		if precededByLocal(content, s) {
+			marker = s - len("local.")
+		}
+
+		if m, ok := varMarker(content, s); ok {
+			marker = max(marker, m)
+		}
+
+		if m, ok := argumentNameMarker(content, s); ok {
+			marker = max(marker, m)
+		}
+
+		if marker >= 0 {
+			name := strings.ToLower(content[s:e])
+			out[name] = append(out[name], localDeclaration{marker: marker, end: e})
+		}
+
+		s = e - 1
+	}
+
+	return out
+}
+
+// varMarker is precededByVar's answer and where its "var" starts.
+func varMarker(text string, i int) (int, bool) {
+	if !precededByVar(text, i) {
+		return 0, false
+	}
+
+	j := i
+	for j > 0 && isRegexSpace(text[j-1]) {
+		j--
+	}
+
+	return j - 3, true
+}
+
+// argumentNameMarker is precededByArgumentName's answer and where the nearest
+// "<cfargument" it accepts starts, which is the one a window must hold.
+func argumentNameMarker(text string, i int) (int, bool) {
+	if !precededByArgumentName(text, i) {
+		return 0, false
+	}
+
+	j := i - 1
+	for j > 0 && isRegexSpace(text[j-1]) {
+		j--
+	}
+
+	j--
+	for j > 0 && isRegexSpace(text[j-1]) {
+		j--
+	}
+
+	j -= 4
+	for k := j - 1; k >= 0 && text[k] != '>'; k-- {
+		if k+len("<cfargument") < j && strings.EqualFold(text[k:k+len("<cfargument")], "<cfargument") && isRegexSpace(text[k+len("<cfargument")]) {
+			return k, true
+		}
+	}
+
+	return 0, false
+}
+
+// declaredNames remembers declarationsIn's answer for the texts asked about
+// most recently, as lineStarts does for line tables.
+var declaredNames = &declarationCache{}
+
+type declarationCache struct {
+	mu    sync.Mutex
+	next  int
+	slots [lineStartSlots]struct {
+		content string
+		names   map[string][]localDeclaration
+	}
+}
+
+func (c *declarationCache) of(content string) map[string][]localDeclaration {
+	c.mu.Lock()
+	for i := range c.slots {
+		if s := &c.slots[i]; s.names != nil && len(s.content) == len(content) && s.content == content {
+			names := s.names
+			c.mu.Unlock()
+
+			return names
+		}
+	}
+	c.mu.Unlock()
+
+	names := declarationsIn(content)
+
+	c.mu.Lock()
+	c.slots[c.next].content, c.slots[c.next].names = content, names
+	c.next = (c.next + 1) % lineStartSlots
+	c.mu.Unlock()
+
+	return names
 }
