@@ -334,6 +334,15 @@ type diSource struct {
 	application *parser.ParseResult
 }
 
+// PrepareDI builds the resolver's dependency-injection policies now rather than
+// on the first lookup that needs them. A scan reading files under several
+// configs calls it for each resolver at once: built on first use, every worker
+// that reached a file under the config waited on the one building it, 1.7s of
+// tassweb's workers' time across eleven configs.
+func (r *Resolver) PrepareDI() {
+	r.diPolicySet()
+}
+
 // diPolicySet is the workspace's DI/1 policies, built once by the owning
 // resolver: each view building its own was a scan of every Application.cfc
 // per application (FW/1's examples: ten, 5x v0.5.2's time). The owner's are

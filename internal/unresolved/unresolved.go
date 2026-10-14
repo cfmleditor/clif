@@ -240,12 +240,24 @@ func NewResolver(fsys vfs.FS, files []string, opt *Options) *resolve.Resolver {
 	// code map does; the index is shared, so every config fills one index, and
 	// one pool indexes them all rather than one config's files at a time.
 	under := make(map[string]*resolve.Resolver, len(files))
+	distinct := map[*resolve.Resolver]bool{}
 
 	for _, f := range files {
 		r := opt.resolverFor(resolver, f)
 		r.InferArgsFiles = settings.InferArgsFiles
 		under[f] = r
+		distinct[r] = true
 	}
+
+	// Each config's DI policies are built at once, side by side, before any
+	// worker needs them; see resolve.Resolver.PrepareDI.
+	var wg sync.WaitGroup
+
+	for r := range distinct {
+		wg.Go(r.PrepareDI)
+	}
+
+	wg.Wait()
 
 	resolve.IndexFilesUnder(files, func(f string) *resolve.Resolver { return under[f] }, nil)
 
