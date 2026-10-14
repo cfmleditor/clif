@@ -288,7 +288,14 @@ func TestLimitTextCachesRestoresAndBatchesLiftIt(t *testing.T) {
 	before := lineStarts.budgetNow()
 
 	restore := LimitTextCaches(1 << 10)
-	defer restore()
+	restored := false
+
+	// Only for a failure before the restore below, which is what is checked.
+	t.Cleanup(func() {
+		if !restored {
+			restore()
+		}
+	})
 
 	if lineStarts.budgetNow() != 1<<10 || declaredNames.budgetNow() != 1<<10 {
 		t.Fatalf("budgets %d and %d, want the limit", lineStarts.budgetNow(), declaredNames.budgetNow())
@@ -310,6 +317,8 @@ func TestLimitTextCachesRestoresAndBatchesLiftIt(t *testing.T) {
 	}
 
 	restore()
+
+	restored = true
 
 	if lineStarts.budgetNow() != before || declaredNames.budgetNow() != before {
 		t.Errorf("after restore: budgets %d and %d, want %d", lineStarts.budgetNow(), declaredNames.budgetNow(), before)
