@@ -9,16 +9,7 @@ import (
 
 	"github.com/cfmleditor/clif/internal/codemap/mcp"
 	"github.com/cfmleditor/clif/internal/codemap/store"
-	"github.com/cfmleditor/clif/internal/config"
 	"github.com/cfmleditor/clif/internal/confine"
-	"github.com/cfmleditor/clif/internal/conv"
-	"github.com/cfmleditor/clif/internal/daemon"
-	"github.com/cfmleditor/clif/internal/docs"
-	"github.com/cfmleditor/clif/internal/frameworkapi"
-	"github.com/cfmleditor/clif/internal/index"
-	"github.com/cfmleditor/clif/internal/parser"
-	cfpath "github.com/cfmleditor/clif/internal/path"
-	"github.com/cfmleditor/clif/internal/resolve"
 	"github.com/cfmleditor/clif/internal/vfs"
 )
 
@@ -214,102 +205,26 @@ func cmdMCP(args []string) {
 // handshake time out on exactly the codebases where the map is most useful.
 func newExplainer(root string) mcp.Explainer {
 	var (
-		once     sync.Once
-		resolver *resolve.Resolver
-		cfg      explainConfig
+		once sync.Once
+		env  *explainEnv
 	)
 
 	return func(file string, line int, match string) (string, error) {
-		once.Do(func() { resolver, cfg = buildExplainResolver(root) })
+		once.Do(func() {
+			if abs, err := filepath.Abs(root); err == nil {
+				env = newExplainEnv(vfs.OS{}, abs, true, &unresolvedFlags{})
+			}
+		})
 
-		if resolver == nil {
+		if env == nil {
 			return "", fmt.Errorf("could not index the workspace at %s", root)
 		}
 
-		return explainAt(root, resolver, cfg, file, line, match)
+		return explainAt(root, env, file, line, match)
 	}
 }
 
-type explainConfig struct {
-	resolvers                []parser.Resolver
-	implicitExtends          func(string) string
-	helperScope              func(string) bool
-	stubs                    *frameworkapi.Set
-	expressionMappings       map[string]string
-	servicePropertyResolvers map[string]string
-	interpolateAll           bool
-}
-
-func buildExplainResolver(root string) (*resolve.Resolver, explainConfig) {
-	fsys := vfs.OS{}
-
-	abs, err := filepath.Abs(root)
-	if err != nil {
-		return nil, explainConfig{}
-	}
-
-	var (
-		cfg              explainConfig
-		mappings         map[string]string
-		startupFiles     []string
-		workspaceFolders []string
-	)
-
-	if c, _ := daemon.FindConfig(abs); c != nil {
-		workspaceFolders = cliWorkspaceFolders(fsys, c, []string{abs})
-		mappings = c.Mappings()
-		startupFiles = c.StartupFiles()
-		cfg.expressionMappings = c.ExpressionMappings()
-		cfg.implicitExtends = config.ImplicitExtends(c.Frameworks())
-		cfg.helperScope = config.HelperScope(c.Frameworks())
-		cfg.stubs = frameworkapi.For(c.Frameworks())
-		cfg.servicePropertyResolvers = c.ServicePropertyResolvers()
-		cfg.interpolateAll = !c.ResolvedFeatures().OutputContextInterpolation
-
-		for _, r := range c.ComponentResolvers() {
-			cfg.resolvers = append(cfg.resolvers, r.Parser())
-		}
-	}
-
-	scanRoots := workspaceFolders
-	if len(scanRoots) == 0 {
-		scanRoots = []string{abs}
-	}
-
-	if len(workspaceFolders) == 0 {
-		workspaceFolders = cliWorkspaceFolders(fsys, nil, scanRoots)
-	}
-
-	resolver := &resolve.Resolver{
-		FS:                 fsys,
-		Index:              index.New(),
-		Resolvers:          cfg.resolvers,
-		Mappings:           mappings,
-		StartupFiles:       startupFiles,
-		ExpressionMappings: cfg.expressionMappings,
-		WorkspaceFolders:   workspaceFolders,
-		ImplicitExtends:    cfg.implicitExtends,
-		HelperScope:        cfg.helperScope,
-		Stubs:              cfg.stubs,
-	}
-
-	for _, f := range collectCFMLFiles(fsys, scanRoots) {
-		if !cfpath.IsCFCFile(f) {
-			continue
-		}
-
-		data, err := fsys.ReadFile(f)
-		if err != nil || cfpath.IsBinary(data) {
-			continue
-		}
-
-		resolver.Index.IndexFile(cfpath.ToURI(f), string(data))
-	}
-
-	return resolver, cfg
-}
-
-func explainAt(root string, resolver *resolve.Resolver, cfg explainConfig, file string, line int, match string) (string, error) {
+func explainAt(root string, env *explainEnv, file string, line int, match string) (string, error) {
 	abs, err := filepath.Abs(file)
 	if err != nil {
 		return "", fmt.Errorf("resolving %s: %w", file, err)
@@ -326,66 +241,9 @@ func explainAt(root string, resolver *resolve.Resolver, cfg explainConfig, file 
 		return "", fmt.Errorf("reading %s: %w", file, err)
 	}
 
-	content := string(data)
-	baseDir := filepath.Dir(abs)
-
-	funcLookup := resolver.FuncLookup(baseDir)
-
-	pr := parser.ParseWithOptions(cfpath.ToURI(abs), content, &parser.ParseOptions{
-		Resolvers:                cfg.resolvers,
-		ExpressionMappings:       cfg.expressionMappings,
-		ServicePropertyResolvers: cfg.servicePropertyResolvers,
-		InterpolateAllText:       cfg.interpolateAll,
-		ExtractCalls:             true,
-		ScanAllScopes:            true,
-		FuncLookup:               funcLookup,
-		BuiltinReturnLookup:      docs.LookupBuiltinReturnComponent,
-	})
-	pr.FuncLookup = funcLookup
-
-	// The parser numbers lines from zero; users and editors number from one.
-	target := conv.Uint32(line - 1)
-
 	var b strings.Builder
 
-	found := 0
-
-	calls := pr.AllCalls()
-
-	for i := range calls {
-		call := &calls[i]
-
-		if call.Line != target {
-			continue
-		}
-
-		if match != "" && !strings.Contains(strings.ToLower(call.Text), strings.ToLower(match)) {
-			continue
-		}
-
-		found++
-
-		name := call.FuncName
-		if call.Variable != "" {
-			name = call.Variable + "." + call.FuncName
-		}
-
-		reason, steps := resolver.ExplainCall(call, pr, baseDir)
-
-		fmt.Fprintf(&b, "%s:%d  %s\n", file, line, name)
-
-		for _, step := range steps {
-			fmt.Fprintf(&b, "    - %s\n", step)
-		}
-
-		if reason == "" {
-			b.WriteString("    => resolved\n\n")
-		} else {
-			fmt.Fprintf(&b, "    => UNRESOLVED: %s\n\n", reason)
-		}
-	}
-
-	if found == 0 {
+	if !env.explain(&b, abs, string(data), line, match) {
 		return fmt.Sprintf("No call site found at %s:%d%s.\n", file, line,
 			map[bool]string{true: "", false: " matching " + match}[match == ""]), nil
 	}

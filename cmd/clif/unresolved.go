@@ -1,19 +1,20 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 
+	"github.com/cfmleditor/clif/internal/codemap"
 	"github.com/cfmleditor/clif/internal/config"
 	"github.com/cfmleditor/clif/internal/confine"
 	"github.com/cfmleditor/clif/internal/daemon"
-	"github.com/cfmleditor/clif/internal/frameworkapi"
 	cfpath "github.com/cfmleditor/clif/internal/path"
+	"github.com/cfmleditor/clif/internal/resolve"
 	"github.com/cfmleditor/clif/internal/unresolved"
 	"github.com/cfmleditor/clif/internal/vfs"
 )
@@ -53,6 +54,8 @@ does not exist. Reads the .clif.json above the first directory.
                        --json emits {calls, assumedCalls, ...} with audit evidence
   --no-assume-open-world restore ordinary diagnostic reporting
   --native-engine <name> runtime API profile: auto (default), generic or lucee
+  --one-config         read every file under the first directory's .clif.json,
+                       not the one that governs it
   --no-infer-args      do not type an untyped argument from what its callers
                        pass it
 
@@ -77,6 +80,7 @@ type unresolvedFlags struct {
 	globalDefs         bool
 	candidates         bool
 	noInferArgs        bool
+	oneConfig          bool
 	speculative        bool
 	speculativeNative  bool
 }
@@ -154,6 +158,8 @@ func parseUnresolvedFlags(args []string) (unresolvedFlags, []string) {
 			fl.speculative = false
 		case "--no-infer-args":
 			fl.noInferArgs = true
+		case "--one-config":
+			fl.oneConfig = true
 		default:
 			paths = append(paths, positional(a, unresolvedUsage))
 		}
@@ -230,9 +236,6 @@ func cmdUnresolved(args []string) {
 }
 
 func writeOpenWorldJSON(out io.Writer, rep *unresolved.Report) error {
-	enc := json.NewEncoder(out)
-	enc.SetIndent("", "  ")
-
 	audit := struct {
 		Calls        []unresolved.Call                        `json:"calls"`
 		AssumedCalls []unresolved.AssumedCall                 `json:"assumedCalls"`
@@ -243,7 +246,7 @@ func writeOpenWorldJSON(out io.Writer, rep *unresolved.Report) error {
 		Scanned      int                                      `json:"scanned"`
 	}{Calls: rep.Calls, AssumedCalls: rep.AssumedCalls, Connections: rep.SpeculativeConnections, Methods: rep.SpeculativeMethodConnections, Resolved: rep.Resolved, Indexed: rep.Indexed, Scanned: rep.Scanned}
 
-	return enc.Encode(audit)
+	return writeJSON(out, audit)
 }
 
 // scanUnresolved runs the scan the unresolved command reports: it indexes the
@@ -261,6 +264,10 @@ func scanUnresolved(args []string, fl *unresolvedFlags) (unresolved.Report, *dae
 	cfg, _ := daemon.FindConfig(searchDir)
 	opt := unresolvedOptions(cfg, args, fl)
 
+	if !fl.oneConfig {
+		opt.ResolverFor = perFileResolver(fsys)
+	}
+
 	// Collect files from workspace folders or args
 	scanRoots := args
 
@@ -269,7 +276,7 @@ func scanUnresolved(args []string, fl *unresolvedFlags) (unresolved.Report, *dae
 		scanRoots = opt.WorkspaceFolders
 	}
 
-	files := collectCFMLFiles(fsys, scanRoots)
+	files := cfpath.CollectCFML(fsys, scanRoots)
 
 	scanFiles := scanTargets(fsys, args, configuredRoots)
 
@@ -286,26 +293,15 @@ func unresolvedOptions(cfg *daemon.Config, args []string, fl *unresolvedFlags) *
 		opt.Verbose = os.Stderr
 	}
 
-	if cfg != nil {
-		opt.CallerInferenceLimits = cfg.CallerInferenceLimits()
-		opt.Mappings = cfg.Mappings()
-		opt.StartupFiles = cfg.StartupFiles()
-		opt.ExpressionMappings = cfg.ExpressionMappings()
-		opt.ServicePropertyResolvers = cfg.ServicePropertyResolvers()
-		opt.BeanPaths = cfg.BeanPaths()
-		opt.PropertyResolvers = configPropertyResolvers(cfg)
-		opt.ImplicitExtends = config.ImplicitExtends(cfg.Frameworks())
-		opt.HelperScope = config.HelperScope(cfg.Frameworks())
-		opt.Stubs = frameworkapi.For(cfg.Frameworks())
-		opt.InterpolateAll = !cfg.ResolvedFeatures().OutputContextInterpolation
+	settings, assumed := batchSettings(vfs.OS{}, cfg, opt.WorkspaceFolders)
+	// The native engine is a command-line choice, not the configuration's.
+	settings.NativeEngine = fl.nativeEngine
+	opt.Settings = settings
 
+	if cfg != nil {
 		if unknown := config.UnknownFrameworks(cfg.Frameworks()); len(unknown) > 0 {
 			fmt.Fprintf(os.Stderr, "frameworks: no preset named %s (known: %s)\n",
 				strings.Join(unknown, ", "), strings.Join(config.KnownFrameworks(), ", "))
-		}
-
-		for _, r := range cfg.ComponentResolvers() {
-			opt.Resolvers = append(opt.Resolvers, r.Parser())
 		}
 
 		fmt.Fprintf(os.Stderr, "Using config: %s\n", cfg.Path)
@@ -318,15 +314,6 @@ func unresolvedOptions(cfg *daemon.Config, args []string, fl *unresolvedFlags) *
 		os.Exit(1)
 	}
 
-	assumed := config.AssumedFrameworks(opt.WorkspaceFolders, vfs.OS{}.ReadFile, vfs.OS{}.ReadDir)
-	for _, rule := range config.FrameworkResolvers(assumed) {
-		opt.Resolvers = append(opt.Resolvers, rule.Parser())
-	}
-
-	opt.ImplicitExtends = config.ImplicitExtends(assumed)
-	opt.HelperScope = config.HelperScope(assumed)
-
-	opt.Stubs = frameworkapi.For(assumed)
 	if len(assumed) > 0 {
 		fmt.Fprintf(os.Stderr, "Assuming framework context from project source: %s (override with .clif.json)\n", strings.Join(assumed, ", "))
 	}
@@ -369,13 +356,7 @@ func writeUnresolved(results []unresolved.Call, cfg *daemon.Config, args []strin
 
 		return false
 	case fl.json:
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-
-		if err := enc.Encode(results); err != nil {
-			fmt.Fprintf(os.Stderr, "writing JSON: %v\n", err)
-			os.Exit(1)
-		}
+		writeJSONOrExit(results)
 	case fl.knownIssues:
 		baseDir, _ := filepath.Abs(searchDir)
 		if cfg != nil {
@@ -436,59 +417,6 @@ func reportRoots(args []string, configDir string) []string {
 	return confine.Roots(dirs...)
 }
 
-func collectCFMLFiles(fsys vfs.FS, roots []string) []string {
-	var files []string
-
-	for _, root := range roots {
-		_ = fsys.Walk(root, func(path string, info os.FileInfo, err error) error {
-			if err != nil {
-				return err
-			}
-
-			if info.IsDir() {
-				if path != root && skipDir(info.Name()) {
-					return filepath.SkipDir
-				}
-
-				return nil
-			}
-
-			if cfpath.IsCFMLFile(path) {
-				files = append(files, path)
-			}
-
-			return nil
-		})
-	}
-
-	return files
-}
-
-// skipDir reports whether a directory is one no scan should descend into.
-//
-// Every dot-directory is skipped, not a hand-kept list of them. The list was
-// ".git", ".svn", "node_modules", "target" and "vendor", and on a real workspace
-// it let in ".claude/worktrees" — git worktrees living inside the project, each a
-// complete second copy of the codebase. A whole-project map built over that counts
-// every component twice, reports every function as having a mysterious duplicate,
-// and inflates the unreferenced list with thousands of entries from a checkout
-// nobody is editing. The same applies to any other tool's dot-directory, which is
-// why this is a rule rather than another name on a list.
-//
-// The root itself is exempt, so pointing a scan at a dot-directory still works.
-func skipDir(name string) bool {
-	if strings.HasPrefix(name, ".") && name != "." && name != ".." {
-		return true
-	}
-
-	switch name {
-	case "node_modules", "target", "vendor", "bower_components":
-		return true
-	default:
-		return false
-	}
-}
-
 // presetHint suggests the framework presets the project's box.json implies
 // and its config does not name — how a project finds out a preset exists.
 // It reads box.json beside the config, or in the scanned directory without one.
@@ -539,7 +467,7 @@ func scanTargets(fsys vfs.FS, args []string, indexWiderThanArgs bool) []string {
 	}
 
 	if indexWiderThanArgs {
-		return collectCFMLFiles(fsys, abs)
+		return cfpath.CollectCFML(fsys, abs)
 	}
 
 	var files []string
@@ -564,5 +492,35 @@ func nativeEngineFlag(value string) string {
 		os.Exit(1)
 
 		return ""
+	}
+}
+
+// perFileResolver reads each file under the .clif.json that governs it, as the
+// code map does (configSet), instead of under the one above the first path. A
+// workspace of several applications otherwise checks the others' code with
+// resolvers that never fire. Every resolver shares the scan's index.
+func perFileResolver(fsys vfs.FS) func(base *resolve.Resolver, file string) *resolve.Resolver {
+	var (
+		mu   sync.Mutex
+		set  *configSet
+		seen = map[*resolve.Resolver]bool{}
+	)
+
+	return func(base *resolve.Resolver, file string) *resolve.Resolver {
+		mu.Lock()
+		defer mu.Unlock()
+
+		if set == nil {
+			set = newConfigSet(fsys, base.Index, &codemap.FileConfig{Resolver: base})
+		}
+
+		r := set.For(file).Resolver
+		if !seen[r] {
+			// The engine profile is a command-line choice, not a config's.
+			seen[r] = true
+			r.NativeEngine = base.NativeEngine
+		}
+
+		return r
 	}
 }

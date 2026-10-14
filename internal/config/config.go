@@ -325,6 +325,37 @@ type PropResolver struct {
 	Attribute string `json:"attribute"`
 }
 
+// Parser is the rule as the parser takes it.
+func (p PropResolver) Parser() parser.PropertyResolver {
+	return parser.PropertyResolver{Match: p.Match, Resolve: p.Resolve, Attribute: p.Attribute}
+}
+
+// ParserResolvers converts a configuration's component resolvers for the parser.
+// The server, the batch commands and the code map each looped over them by hand.
+func ParserResolvers(rules []Resolver) []parser.Resolver {
+	out := make([]parser.Resolver, len(rules))
+	for i := range rules {
+		out[i] = rules[i].Parser()
+	}
+
+	return out
+}
+
+// ParserPropertyResolvers converts a configuration's property resolvers for the
+// parser, or nil for none.
+func ParserPropertyResolvers(rules []PropResolver) []parser.PropertyResolver {
+	if len(rules) == 0 {
+		return nil
+	}
+
+	out := make([]parser.PropertyResolver, len(rules))
+	for i, r := range rules {
+		out[i] = r.Parser()
+	}
+
+	return out
+}
+
 // javaStubCreateObjectPattern matches createObject("java", "some.Class.Name")
 // (single or double quotes, arbitrary whitespace inside the parens).
 const javaStubCreateObjectPattern = `createObject\s*\(\s*['"]java['"]\s*,\s*['"](.+?)['"]\s*\)`
@@ -637,6 +668,12 @@ func IntDefault(p *int, def int) int {
 
 // Resolved holds fully resolved configuration ready for use by the server.
 type Resolved struct {
+	// WorkspaceFolders are the project folders the config names, absolute, and
+	// IndexGlobs the workspaceIndexGlobs resolved against them. The command line
+	// and the daemon read them; a standalone editor session did not, and indexed
+	// the folders the editor opened instead.
+	WorkspaceFolders         []string
+	IndexGlobs               []string
 	CallerInferenceLimits    CallerInferenceLimits
 	Mappings                 map[string]string
 	StartupFiles             []string // absolute
@@ -686,10 +723,18 @@ type ResolvedFormatting struct {
 
 // Resolve takes a parsed JSON config and its directory, returning a fully resolved config.
 func Resolve(cfg *JSON, dir string) *Resolved {
-	r := &Resolved{}
+	// An absent formatting block resolves to the documented defaults, as every
+	// individually unset key in a present one does and as the command line has
+	// always read it. It used to resolve to the zero value, which left the
+	// formatter's whitespace-only guard off for anything that read it without
+	// checking Enabled first.
+	r := &Resolved{Formatting: DefaultResolvedFormatting()}
 	if cfg.CallerInferenceLimits != nil {
 		r.CallerInferenceLimits = *cfg.CallerInferenceLimits
 	}
+
+	r.WorkspaceFolders = ResolvePathList(cfg.WorkspacePaths, dir)
+	r.IndexGlobs = resolveIndexGlobs(cfg.WorkspaceIndexGlobs, r.WorkspaceFolders)
 
 	if len(cfg.StartupFiles) > 0 {
 		r.StartupFiles = ResolvePathList(cfg.StartupFiles, dir)
@@ -783,6 +828,76 @@ func Resolve(cfg *JSON, dir string) *Resolved {
 	}
 
 	return r
+}
+
+// ResolveFile is [Resolve] for a configuration read from the file at path, which
+// adds the one thing only a file has: the folder holding it maps under its own
+// name, so `myapp.models.User` finds <config dir>/models/User.cfc from a config
+// in a folder called myapp, whether or not workspacePaths lists that folder. An
+// explicit mapping of the same name, in any case, wins. The command line applied
+// this rule and the editor did not, so a dot-path resolved in one and not the
+// other.
+func ResolveFile(cfg *JSON, path string) *Resolved {
+	dir := filepath.Dir(path)
+	r := Resolve(cfg, dir)
+	r.Mappings = ImpliedMapping(r.Mappings, dir)
+
+	return r
+}
+
+// ImpliedMapping adds the mapping a config's own folder implies to mappings.
+func ImpliedMapping(mappings map[string]string, configDir string) map[string]string {
+	name := filepath.Base(configDir)
+	if name == "" || name == "." || name == string(filepath.Separator) {
+		return mappings
+	}
+
+	for k := range mappings {
+		if strings.EqualFold(k, name) {
+			return mappings
+		}
+	}
+
+	if mappings == nil {
+		mappings = make(map[string]string, 1)
+	}
+
+	mappings[name] = configDir
+
+	return mappings
+}
+
+// resolveIndexGlobs turns workspaceIndexGlobs into absolute patterns, replacing
+// the leading folder name with that workspace folder's path. If workspacePaths
+// contains "../shared-lib" and workspaceIndexGlobs "shared-lib/**/*.cfc", the
+// result is "/abs/path/to/shared-lib/**/*.cfc". A glob whose first segment names
+// no workspace folder is dropped.
+func resolveIndexGlobs(globs, folders []string) []string {
+	if len(globs) == 0 {
+		return nil
+	}
+
+	byName := make(map[string]string, len(folders))
+	for _, f := range folders {
+		byName[filepath.Base(f)] = f
+	}
+
+	out := make([]string, 0, len(globs))
+
+	for _, g := range globs {
+		first, rest, hasRest := strings.Cut(g, "/")
+
+		folder, ok := byName[first]
+		switch {
+		case !ok:
+		case hasRest:
+			out = append(out, folder+"/"+rest)
+		default:
+			out = append(out, folder)
+		}
+	}
+
+	return out
 }
 
 // ResolvePathList resolves each relative path in raw against baseDir, keeping

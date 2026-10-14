@@ -29,6 +29,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/cfmleditor/clif/internal/confine"
+
 	"github.com/cfmleditor/clif/internal/config"
 	"github.com/cfmleditor/clif/internal/frameworkapi"
 	"github.com/cfmleditor/clif/internal/parser"
@@ -265,7 +267,7 @@ func (g *generator) resolve(dotted, dir string) (abs, qualified string) {
 
 func (g *generator) qualify(abs string) string {
 	rel, err := filepath.Rel(g.root, abs)
-	if err != nil || strings.HasPrefix(rel, "..") {
+	if err != nil || !confine.Within(abs, []string{g.root}) {
 		return ""
 	}
 

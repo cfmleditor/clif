@@ -832,39 +832,8 @@ func (s *Server) rebuildFileCompletionCacheFromPR(docURI uri.URI, pr *parser.Par
 	varPrefix := s.scopePrefix("variables")
 	thisPrefix := s.scopePrefix("this")
 
-	for _, v := range globals {
-		scoped := varPrefix + "." + v
-		items = append(items, protocol.CompletionItem{
-			Label:    scoped,
-			Kind:     protocol.CompletionItemKindVariable,
-			SortText: optStr(SortGlobalVariables + v),
-		}, protocol.CompletionItem{
-			Label:  v,
-			Kind:   protocol.CompletionItemKindVariable,
-			Detail: optStr(scoped),
-
-			InsertText: optStr(scoped),
-
-			SortText: optStr(SortGlobalVariables + v),
-		})
-	}
-
-	for _, v := range thisVarNames {
-		scoped := thisPrefix + "." + v
-		items = append(items, protocol.CompletionItem{
-			Label:    scoped,
-			Kind:     protocol.CompletionItemKindProperty,
-			SortText: optStr(SortGlobalVariables + v),
-		}, protocol.CompletionItem{
-			Label:  v,
-			Kind:   protocol.CompletionItemKindProperty,
-			Detail: optStr(scoped),
-
-			InsertText: optStr(scoped),
-
-			SortText: optStr(SortGlobalVariables + v),
-		})
-	}
+	items = appendScopedVars(items, globals, varPrefix, protocol.CompletionItemKindVariable)
+	items = appendScopedVars(items, thisVarNames, thisPrefix, protocol.CompletionItemKindProperty)
 
 	for j := range pr.Funcs {
 		f := &pr.Funcs[j]
@@ -1382,4 +1351,27 @@ func (s *Server) scopePrefix(scope string) string {
 	default:
 		return scope
 	}
+}
+
+// appendScopedVars offers each name twice: spelled with its scope, and bare
+// but inserting the scoped spelling.
+func appendScopedVars(items []protocol.CompletionItem, names []string, prefix string, kind protocol.CompletionItemKind) []protocol.CompletionItem {
+	for _, v := range names {
+		scoped := prefix + "." + v
+		items = append(items, protocol.CompletionItem{
+			Label:    scoped,
+			Kind:     kind,
+			SortText: optStr(SortGlobalVariables + v),
+		}, protocol.CompletionItem{
+			Label:  v,
+			Kind:   kind,
+			Detail: optStr(scoped),
+
+			InsertText: optStr(scoped),
+
+			SortText: optStr(SortGlobalVariables + v),
+		})
+	}
+
+	return items
 }

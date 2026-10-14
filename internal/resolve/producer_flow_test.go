@@ -573,7 +573,7 @@ func TestProducerPreservesNonComponentContracts(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	r.Index.IndexFileWithOptions(cfpath.ToURI(file), string(data), &parser.ParseOptions{BuiltinReturnLookup: docs.LookupBuiltinReturnComponent})
+	r.Index.IndexParsed(cfpath.ToURI(file), string(data), parser.ParseWithOptions(cfpath.ToURI(file), string(data), &parser.ParseOptions{BuiltinReturnLookup: docs.LookupBuiltinReturnComponent}))
 
 	if ret := r.FuncLookup(dir)("DAO", "read"); ret != "$builtin.querynew" {
 		t.Fatalf("builtin contract lost: %q", ret)

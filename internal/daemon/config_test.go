@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strconv"
 	"testing"
+
+	cfpath "github.com/cfmleditor/clif/internal/path"
 )
 
 func writeConfig(t *testing.T, dir, content string) {
@@ -217,7 +219,7 @@ func TestExpandGlobDoubleStar(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(sub, "Deep.cfc"), []byte(""), 0o644)
 	_ = os.WriteFile(filepath.Join(sub, "skip.txt"), []byte(""), 0o644)
 
-	matches := expandGlob(root + "/**/*.cfc")
+	matches := cfpath.ExpandGlob(root + "/**/*.cfc")
 	sort.Strings(matches)
 
 	if len(matches) != 2 {
@@ -233,7 +235,7 @@ func TestExpandGlobParentRefDoubleStar(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(subDir, "Nested.cfc"), []byte(""), 0o644)
 
 	pattern := filepath.Join(root, "shared-lib") + "/**/*.cfc"
-	matches := expandGlob(pattern)
+	matches := cfpath.ExpandGlob(pattern)
 
 	if len(matches) != 2 {
 		t.Fatalf("expected 2 matches, got %d: %v", len(matches), matches)

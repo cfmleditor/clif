@@ -10,14 +10,13 @@ import (
 	"strings"
 	"time"
 
+	cfpath "github.com/cfmleditor/clif/internal/path"
+
 	"github.com/cfmleditor/clif/internal/codemap"
 	"github.com/cfmleditor/clif/internal/codemap/store"
 	"github.com/cfmleditor/clif/internal/config"
 	"github.com/cfmleditor/clif/internal/daemon"
-	"github.com/cfmleditor/clif/internal/frameworkapi"
 	"github.com/cfmleditor/clif/internal/index"
-	"github.com/cfmleditor/clif/internal/parser"
-	cfpath "github.com/cfmleditor/clif/internal/path"
 	"github.com/cfmleditor/clif/internal/resolve"
 	"github.com/cfmleditor/clif/internal/vfs"
 )
@@ -46,6 +45,9 @@ instantiations, inheritance and includes between them.
   --under-strict   with --under, cut hard at the prefix instead
   --unresolved     include calls that resolved to nothing
   --builtins       include calls to built-in CFML functions
+  --no-infer-args  do not type an untyped argument from what its callers pass it
+                   (as unresolved --no-infer-args; on by default so the map and
+                   unresolved accept the same calls)
   --entry <glob>   also treat files matching this as entry points, for code a
                    runner invokes by a constructed name (repeatable), e.g.
                    --entry '../prs' --entry 'tasks/*'
@@ -86,6 +88,7 @@ type graphFlags struct {
 	detached    bool
 	unresolved  bool
 	builtins    bool
+	noInferArgs bool
 	oneConfig   bool
 	workers     int
 	limit       int
@@ -182,6 +185,8 @@ func parseGraphFlags(args []string) (graphFlags, error) {
 			f.unresolved = true
 		case "--builtins":
 			f.builtins = true
+		case "--no-infer-args":
+			f.noInferArgs = true
 		case "--hide-utility":
 			f.hideUtility = true
 		case "--one-config":
@@ -244,7 +249,7 @@ func buildGraph(f *graphFlags) (*codemap.Map, error) {
 	f.utilGlobs = append(slices.Clone(settings.Utility), f.utilGlobs...)
 	f.hideUtility = f.hideUtility || settings.HideUtility
 
-	files := collectCFMLFiles(fsys, scanRoots)
+	files := cfpath.CollectCFML(fsys, scanRoots)
 	if len(files) == 0 {
 		return nil, fmt.Errorf("no CFML files found under %s", strings.Join(scanRoots, ", "))
 	}
@@ -281,21 +286,17 @@ func buildGraph(f *graphFlags) (*codemap.Map, error) {
 	}
 
 	opts := codemap.Options{
-		Root:                     root,
-		Files:                    files,
-		FS:                       fsys,
-		Resolver:                 fallback.Resolver,
-		Resolvers:                fallback.Resolvers,
-		ExpressionMappings:       fallback.ExpressionMappings,
-		ServicePropertyResolvers: fallback.ServicePropertyResolvers,
-		PropertyResolvers:        fallback.PropertyResolvers,
-		BeanLookup:               fallback.BeanLookup,
-		Workers:                  f.workers,
-		ConfigExtra:              configs.Fingerprint(),
-		EntryGlobs:               f.entryGlobs,
-		UtilityGlobs:             f.utilGlobs,
-		IncludeUnresolved:        f.unresolved,
-		IncludeBuiltins:          f.builtins,
+		Root:              root,
+		Files:             files,
+		FS:                fsys,
+		Resolver:          fallback.Resolver,
+		Workers:           f.workers,
+		ConfigExtra:       configs.Fingerprint(),
+		EntryGlobs:        f.entryGlobs,
+		UtilityGlobs:      f.utilGlobs,
+		IncludeUnresolved: f.unresolved,
+		IncludeBuiltins:   f.builtins,
+		InferArgs:         !f.noInferArgs,
 	}
 
 	if cache != nil {
@@ -460,30 +461,10 @@ func writeGraph(m *codemap.Map, f *graphFlags) error {
 func routeWorkspace(fsys vfs.FS, root string, f *graphFlags) (scanRoots []string, fallback codemap.FileConfig, shared *index.Index, settings config.CodeMap) {
 	cfg, _ := daemon.FindConfig(root)
 
-	var (
-		resolvers                []parser.Resolver
-		mappings                 map[string]string
-		startupFiles             []string
-		expressionMappings       map[string]string
-		servicePropertyResolvers map[string]string
-		propertyResolvers        []parser.PropertyResolver
-		beanPaths                map[string]string
-		workspaceFolders         []string
-	)
+	var workspaceFolders []string
 
 	if cfg != nil {
 		workspaceFolders = cfg.WorkspaceFolders()
-		mappings = cfg.Mappings()
-		startupFiles = cfg.StartupFiles()
-		expressionMappings = cfg.ExpressionMappings()
-		servicePropertyResolvers = cfg.ServicePropertyResolvers()
-		propertyResolvers = configPropertyResolvers(cfg)
-		beanPaths = cfg.BeanPaths()
-
-		for _, r := range cfg.ComponentResolvers() {
-			resolvers = append(resolvers, r.Parser())
-		}
-
 		settings = cfg.CodeMap()
 
 		if !f.quiet {
@@ -507,50 +488,23 @@ func routeWorkspace(fsys vfs.FS, root string, f *graphFlags) (scanRoots []string
 	// a property of the workspace, not of whose resolvers you read them under.
 	shared = index.New()
 
-	var (
-		implicitExtends func(string) string
-		helperScope     func(string) bool
-		stubs           *frameworkapi.Set
-	)
-	if cfg != nil {
-		implicitExtends = config.ImplicitExtends(cfg.Frameworks())
-		helperScope = config.HelperScope(cfg.Frameworks())
-		stubs = frameworkapi.For(cfg.Frameworks())
+	// The same settings, and the same builder, as `unresolved`: a map that
+	// resolved a different set of calls from the report it is compared with is
+	// not a map of the same code. Without a config this includes the framework
+	// the project is assumed to be.
+	bs, assumed := batchSettings(fsys, cfg, workspaceFolders)
+	if len(assumed) > 0 && !f.quiet {
+		fmt.Fprintf(os.Stderr, "Assuming framework context from project source: %s (override with .clif.json)\n", strings.Join(assumed, ", "))
 	}
 
-	resolver := &resolve.Resolver{
-		FS:                 fsys,
-		Index:              shared,
-		Resolvers:          resolvers,
-		Mappings:           mappings,
-		StartupFiles:       startupFiles,
-		ExpressionMappings: expressionMappings,
-		WorkspaceFolders:   workspaceFolders,
-		ImplicitExtends:    implicitExtends,
-		HelperScope:        helperScope,
-		Stubs:              stubs,
-	}
+	resolver := resolve.NewBatchResolver(fsys, shared, &bs)
 
 	// The bean map is the root config's, with each scanned root's
 	// Application.cfc beanPaths, as the editor builds it. One map serves
 	// every config, as one index does.
-	appDirs := make([]string, 0, len(scanRoots))
-	for _, r := range scanRoots {
-		appDirs = append(appDirs, resolver.FindApplicationRoot(r))
-	}
+	resolver.LoadBeans(bs.BeanPaths)
 
-	if all := cfpath.BeanPathsFor(beanPaths, appDirs); len(all) > 0 {
-		shared.SetBeans(cfpath.BuildBeanMap(all, fsys))
-	}
-
-	fallback = codemap.FileConfig{
-		Resolver:                 resolver,
-		Resolvers:                resolvers,
-		ExpressionMappings:       expressionMappings,
-		ServicePropertyResolvers: servicePropertyResolvers,
-		PropertyResolvers:        propertyResolvers,
-		BeanLookup:               shared.LookupBean,
-	}
+	fallback = codemap.FileConfig{Resolver: resolver}
 
 	return scanRoots, fallback, shared, settings
 }

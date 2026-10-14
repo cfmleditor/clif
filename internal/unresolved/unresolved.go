@@ -15,17 +15,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cfmleditor/clif/internal/config"
 	"github.com/cfmleditor/clif/internal/conv"
-	"github.com/cfmleditor/clif/internal/docs"
-	"github.com/cfmleditor/clif/internal/frameworkapi"
 	"github.com/cfmleditor/clif/internal/index"
 	"github.com/cfmleditor/clif/internal/knownissues"
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
 	"github.com/cfmleditor/clif/internal/resolve"
 	"github.com/cfmleditor/clif/internal/vfs"
-	"go.lsp.dev/uri"
 )
 
 // Call is one call the resolver could not follow.
@@ -60,6 +56,12 @@ type Call struct {
 // Options is what a scan resolves with: the .clif.json settings that
 // shape parsing and resolution.
 type Options struct {
+	// Settings is what the scan resolves with: the configuration reduced to the
+	// plain fields a resolver is built from, the same ones every batch command
+	// and the editor build theirs from (resolve.SettingsFromConfig). The
+	// options used to repeat its fields and convert to and from it.
+	resolve.Settings
+
 	SpeculativeMethods  bool // opt-in direct global declaration shortcuts
 	methodTargets       bool
 	SpeculativeRanked   bool // opt-in unique best receiver-role candidate
@@ -68,28 +70,30 @@ type Options struct {
 	unlimitedCandidates bool
 	SpeculativeNative   bool // opt-in native family guesses, then primitive-family fallback
 
-	NativeEngine string // auto source-layout detection, or explicit generic/lucee
+	Speculative bool // opt-in sole-candidate receiver guesses; not source-proven
 
-	Speculative          bool // opt-in sole-candidate receiver guesses; not source-proven
-	speculativeReceivers map[resolve.SpeculativeReceiver]string
+	GlobalDefs bool // accept a bare call any indexed file defines
+	Candidates bool // annotate each finding with its category and liberal matches; see candidates.go
+	InferArgs  bool // type an untyped argument from what every caller passes it (resolve.Resolver.InferArgsFiles)
+	Verbose    io.Writer
 
-	CallerInferenceLimits    config.CallerInferenceLimits
-	Resolvers                []parser.Resolver
-	Mappings                 map[string]string
-	StartupFiles             []string
-	ExpressionMappings       map[string]string
-	ServicePropertyResolvers map[string]string
-	PropertyResolvers        []parser.PropertyResolver
-	BeanPaths                map[string]string // configured beanPaths; Application.cfc's are added
-	WorkspaceFolders         []string
-	ImplicitExtends          func(path string) string // frameworks' implicit bases; see config.ImplicitExtends
-	HelperScope              func(path string) bool   // files frameworks mix helpers into; see config.HelperScope
-	Stubs                    *frameworkapi.Set        // frameworks' API when their source is absent; see internal/frameworkapi
-	InterpolateAll           bool                     // features.outputContextInterpolation off
-	GlobalDefs               bool                     // accept a bare call any indexed file defines
-	Candidates               bool                     // annotate each finding with its category and liberal matches; see candidates.go
-	InferArgs                bool                     // type an untyped argument from what every caller passes it (resolve.Resolver.InferArgsFiles)
-	Verbose                  io.Writer
+	// ResolverFor, when set, gives the resolver a file is checked and indexed
+	// under, given the scan's own resolver (whose index it must share). It is how
+	// a workspace of several applications reads each file under the .clif.json
+	// that governs it. Returning nil, or leaving it unset, keeps the scan's
+	// resolver. Speculative scans ignore it.
+	ResolverFor func(base *resolve.Resolver, file string) *resolve.Resolver
+}
+
+// resolverFor is the resolver one file is read under.
+func (o *Options) resolverFor(base *resolve.Resolver, file string) *resolve.Resolver {
+	if o.ResolverFor != nil {
+		if r := o.ResolverFor(base, file); r != nil {
+			return r
+		}
+	}
+
+	return base
 }
 
 // Report is a scan's result.
@@ -169,7 +173,7 @@ func Scan(fsys vfs.FS, files, targets []string, opt *Options) Report {
 			defer wg.Done()
 			defer func() { <-sem }()
 
-			calls, resolved := scanFile(fsys, resolver, file, opt)
+			calls, resolved := scanFile(fsys, opt.resolverFor(resolver, file), file, opt)
 
 			mu.Lock()
 
@@ -215,115 +219,45 @@ func Scan(fsys vfs.FS, files, targets []string, opt *Options) Report {
 // report accepted. Speculative batch scans add their own fallback snapshot;
 // explain retains strict behavior.
 func NewResolver(fsys vfs.FS, files []string, opt *Options) *resolve.Resolver {
-	resolver := &resolve.Resolver{
-		NativeEngine:          opt.NativeEngine,
-		SpeculativeReceivers:  opt.speculativeReceivers,
-		FS:                    fsys,
-		Index:                 index.New(),
-		CallerInferenceLimits: opt.CallerInferenceLimits,
-		Resolvers:             opt.Resolvers,
-		Mappings:              opt.Mappings,
-		StartupFiles:          opt.StartupFiles,
-		BeanPaths:             opt.BeanPaths,
-		ExpressionMappings:    opt.ExpressionMappings,
-		WorkspaceFolders:      opt.WorkspaceFolders,
-		ImplicitExtends:       opt.ImplicitExtends,
-		HelperScope:           opt.HelperScope,
-		Stubs:                 opt.Stubs,
-	}
-
-	if resolver.NativeEngine == "" && len(opt.WorkspaceFolders) > 0 {
-		lucee := true
-
-		for _, root := range opt.WorkspaceFolders {
-			if cfpath.AssumedProjectMappings(root, fsys.ReadFile)["admin"] == "" {
-				lucee = false
-
-				break
-			}
-		}
-
-		if lucee {
-			resolver.NativeEngine = "lucee"
-		}
-	}
-
-	// A resolver made here serves one batch run, a scan or an explain, over
-	// files that do not change while it runs (Scan reads them through
-	// vfs.CacheMetadata on that assumption).
-	resolver.SnapshotScan = true
-
+	settings := opt.Settings
 	if opt.InferArgs {
-		resolver.InferArgsFiles = files
+		settings.InferArgsFiles = files
 	}
 
-	resolver.Resolvers = resolver.BeanResolvers(opt.BeanPaths)
+	resolver := resolve.NewBatchResolver(fsys, index.New(), &settings)
 	// Discovery lazily indexes factory metadata with the original rules.
 	// The scan must index every return using the augmented rules.
 	resolver.Index = index.New()
-	loadBeans(resolver, opt)
+	resolver.LoadBeans(opt.BeanPaths)
 
-	// Each file is read and parsed on its own, and what a parse looks up (the
-	// bean map and the DI policies) is settled before the first one starts,
-	// so the files are indexed in parallel. Serially this was most of a
-	// scan's wall time on a large workspace.
-	work := make(chan string)
+	if opt.ResolverFor == nil {
+		resolver.IndexFiles(files, nil)
 
-	var wg sync.WaitGroup
-
-	for range runtime.GOMAXPROCS(0) {
-		wg.Go(func() {
-			for f := range work {
-				indexOne(fsys, resolver, f, opt)
-			}
-		})
+		return resolver
 	}
+
+	// Each file is indexed under the rules of the config that governs it, as the
+	// code map does; the index is shared, so the groups fill one index.
+	var (
+		order  []*resolve.Resolver
+		groups = map[*resolve.Resolver][]string{}
+	)
 
 	for _, f := range files {
-		work <- f
+		r := opt.resolverFor(resolver, f)
+		if _, ok := groups[r]; !ok {
+			order = append(order, r)
+		}
+
+		groups[r] = append(groups[r], f)
 	}
 
-	close(work)
-	wg.Wait()
+	for _, r := range order {
+		r.InferArgsFiles = settings.InferArgsFiles
+		r.IndexFiles(groups[r], nil)
+	}
 
 	return resolver
-}
-
-func indexOne(fsys vfs.FS, resolver *resolve.Resolver, f string, opt *Options) {
-	content, err := vfs.ReadString(fsys, f)
-	if err != nil || cfpath.IsBinary(content) {
-		return
-	}
-
-	resolver.IndexCallerFile(f, content)
-
-	fileURI := uri.URI("file://" + f)
-
-	// A template is not indexed for its functions here, but what it
-	// includes is part of the include graph a bare call resolves through:
-	// a page that includes a helper can call what the helper declares.
-	if !cfpath.IsCFCFile(f) {
-		resolver.Index.SetIncludes(fileURI, parser.ExtractIncludes(content))
-
-		return
-	}
-
-	resolver.Index.IndexFileWithOptions(fileURI, content, &parser.ParseOptions{Resolvers: resolver.Resolvers, SetterLookup: resolver.SetterLookup(f), ConstructorLookup: resolver.ConstructorLookup(f), BeanLookup: resolver.InjectionBeanLookup(f), PropertyBeanLookup: resolver.InjectionPropertyLookup(f), PropertyResolvers: opt.PropertyResolvers})
-}
-
-// loadBeans gives the resolver's index the bean map the server would build
-// for the same workspace, so an injected property is typed the same way in
-// the report as in the editor. The report used to ignore beanPaths and
-// propertyResolvers altogether.
-func loadBeans(resolver *resolve.Resolver, opt *Options) {
-	appDirs := make([]string, 0, len(opt.WorkspaceFolders))
-	for _, root := range opt.WorkspaceFolders {
-		appDirs = append(appDirs, resolver.FindApplicationRoot(root))
-	}
-
-	if all := cfpath.BeanPathsFor(opt.BeanPaths, appDirs); len(all) > 0 {
-		resolver.Index.SetBeans(cfpath.BuildBeanMap(all, resolver.FS))
-	}
 }
 
 func scanFile(fsys vfs.FS, resolver *resolve.Resolver, file string, opt *Options) (out []Call, resolved int) {
@@ -333,7 +267,7 @@ func scanFile(fsys vfs.FS, resolver *resolve.Resolver, file string, opt *Options
 	}
 
 	baseDir := filepath.Dir(file)
-	pr := Parse(resolver, file, content, opt)
+	pr := Parse(resolver, file, content)
 	calls := pr.AllCalls()
 
 	// Calls into a base that does not resolve are one finding per file and
@@ -345,8 +279,10 @@ func scanFile(fsys vfs.FS, resolver *resolve.Resolver, file string, opt *Options
 	for i := range calls {
 		call := &calls[i]
 
-		reason := resolver.CanResolveCall(call, pr, baseDir)
-		if reason == "" {
+		c := resolver.ClassifyCall(call, pr, baseDir, resolve.ClassifyOptions{GlobalDefs: opt.GlobalDefs})
+
+		switch c.Verdict {
+		case resolve.Accepted:
 			resolved++
 
 			if opt.Verbose != nil {
@@ -354,13 +290,9 @@ func scanFile(fsys vfs.FS, resolver *resolve.Resolver, file string, opt *Options
 			}
 
 			continue
-		}
-
-		if call.Variable == "" && len(call.Chain) == 0 && IsBuiltin(call.FuncName) {
+		case resolve.Builtin:
 			continue
-		}
-
-		if opt.GlobalDefs && resolver.Index.CountFunctions(call.FuncName) > 0 {
+		case resolve.GlobalDef:
 			resolved++
 
 			if opt.Verbose != nil {
@@ -368,13 +300,14 @@ func scanFile(fsys vfs.FS, resolver *resolve.Resolver, file string, opt *Options
 			}
 
 			continue
-		}
-
-		if base, ok := resolve.MissingBaseOf(reason); ok {
-			bases.add(base, call)
+		case resolve.MissingBase:
+			bases.add(c.Base, call)
 
 			continue
+		case resolve.Unresolved:
 		}
+
+		reason := c.Reason
 
 		entry := Call{
 			This:     call.This,
@@ -545,34 +478,6 @@ func MissingBases(calls []Call) []MissingBase {
 	return out
 }
 
-// IsBuiltin reports whether name is a built-in function or member function,
-// which the report leaves out.
-func IsBuiltin(name string) bool {
-	if docs.IsBuiltinFunction(name) {
-		return true
-	}
-
-	if parser.IsMemberMethod(name) {
-		return true
-	}
-
-	return IsMemberFunction(name)
-}
-
-var memberFuncSet = func() map[string]bool {
-	m := make(map[string]bool)
-	for _, mf := range docs.AllMemberFunctions() {
-		m[strings.ToLower(mf.Name)] = true
-	}
-
-	return m
-}()
-
-// IsMemberFunction reports whether name is a documented member function.
-func IsMemberFunction(name string) bool {
-	return memberFuncSet[strings.ToLower(name)]
-}
-
 // CallText is how a call is written in the report: variable.function.
 func (c *Call) CallText() string {
 	if c.Variable != "" {
@@ -688,26 +593,6 @@ func isOutside(rel string) bool {
 
 // Parse is file parsed as a scan checks it: with the resolver's lookups, so
 // what a variable is assigned from is typed the same way in both commands.
-func Parse(resolver *resolve.Resolver, file, content string, opt *Options) *parser.ParseResult {
-	funcLookup := resolver.FuncLookup(filepath.Dir(file))
-
-	pr := parser.ParseWithOptions(uri.URI("file://"+file), content, &parser.ParseOptions{
-		Resolvers:                resolver.Resolvers,
-		ExpressionMappings:       opt.ExpressionMappings,
-		ServicePropertyResolvers: opt.ServicePropertyResolvers,
-		PropertyResolvers:        opt.PropertyResolvers,
-		BeanLookup:               resolver.InjectionBeanLookup(file),
-		PropertyBeanLookup:       resolver.InjectionPropertyLookup(file),
-		SetterLookup:             resolver.SetterLookup(file),
-		ConstructorLookup:        resolver.ConstructorLookup(file),
-		InterpolateAllText:       opt.InterpolateAll,
-		ExtractCalls:             true,
-		ScanAllScopes:            true,
-		FuncLookup:               funcLookup,
-		BuiltinReturnLookup:      resolver.BuiltinReturnLookupFor(file),
-	})
-
-	pr.FuncLookup = funcLookup
-
-	return pr
+func Parse(resolver *resolve.Resolver, file, content string) *parser.ParseResult {
+	return resolver.ParseFile(file, content, resolve.BatchSpec())
 }

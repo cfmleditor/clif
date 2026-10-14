@@ -2314,19 +2314,7 @@ func (p *tagParser) isVarDeclaredLocal(name string) bool {
 }
 
 func (p *tagParser) resolveCall(expr string) string {
-	if p.resolverSet != nil {
-		if comp := p.resolverSet.Resolve(expr); comp != "" {
-			return comp
-		}
-
-		return dynamicCall(expr)
-	}
-
-	if comp := ResolveFromCall(expr, p.resolvers); comp != "" {
-		return comp
-	}
-
-	return dynamicCall(expr)
+	return resolveCallExpr(p.resolverSet, p.resolvers, expr)
 }
 
 // Refs assigned to VARIABLES. or this. scopes are always global.

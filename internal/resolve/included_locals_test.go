@@ -36,7 +36,7 @@ func templateReasonsWith(t *testing.T, r *Resolver, dir, page string) map[string
 			return err
 		}
 
-		r.Index.IndexFileWithOptions(cfpath.ToURI(p), string(data), &parser.ParseOptions{})
+		r.Index.IndexParsed(cfpath.ToURI(p), string(data), parser.ParseWithOptions(cfpath.ToURI(p), string(data), &parser.ParseOptions{}))
 		r.Index.SetIncludes(cfpath.ToURI(p), parser.ExtractIncludes(string(data)))
 
 		return nil

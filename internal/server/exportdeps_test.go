@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cfmleditor/clif/internal/config"
 	"go.lsp.dev/protocol"
 	"go.lsp.dev/uri"
 )
@@ -232,5 +233,70 @@ func TestExportDepsAfterAnEditOutsideAFunction(t *testing.T) {
 		if lineNo.ReplaceAllString(after, "") != lineNo.ReplaceAllString(before[i], "") {
 			t.Errorf("exportDeps %v changed after a comment was added:\nbefore:\n%s\nafter:\n%s", forms[i][1:], before[i], after)
 		}
+	}
+}
+
+// TestExportDepsDrawsTheComponentTheResolverNames: `clif deps` and the editor's
+// `clif.exportDeps` draw one graph. The editor read a file as a scan does, typing
+// `getService("UserService")` by what getService returns — `any`, so `$any` —
+// where the command line, reading by the configured resolvers, drew the
+// component. The graph of a page that fetches its services that way was a row
+// of `$any`.
+func TestExportDepsDrawsTheComponentTheResolverNames(t *testing.T) {
+	dir := t.TempDir()
+
+	for name, src := range map[string]string{
+		"services/UserService.cfc": `component { function load(){} }`,
+		"Locator.cfc":              `component { function getService( required name ) returntype="any" { return {}; } }`,
+		"page.cfm":                 `<cfset svc = getService("UserService")><cfset users = svc.load()>`,
+	} {
+		p := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
+			t.Fatal(err)
+		}
+
+		if err := os.WriteFile(p, []byte(src), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	srv := newTestServer()
+	srv.WorkspaceFolders = []string{dir}
+	srv.ComponentResolvers = []config.Resolver{{Match: `getService("$1")`, Resolve: "services.$1", Prefix: "getService"}}
+
+	page := filepath.Join(dir, "page.cfm")
+
+	data, err := os.ReadFile(page)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	docURI := uri.File(page)
+
+	open := makeCall(t, protocol.MethodTextDocumentDidOpen, protocol.DidOpenTextDocumentParams{
+		TextDocument: protocol.TextDocumentItem{URI: docURI, Text: string(data)},
+	})
+
+	if _, err := srv.handleDidOpen(context.Background(), open); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := srv.handleExecuteCommand(context.Background(), makeCall(t, protocol.MethodWorkspaceExecuteCommand, protocol.ExecuteCommandParams{
+		Command:   "clif.exportDeps",
+		Arguments: lspAnyArgs(string(docURI)),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mermaid, _ := res.(string)
+	t.Logf("graph:\n%s", mermaid)
+
+	if !strings.Contains(mermaid, "UserService.cfc") {
+		t.Errorf("the graph does not reach the component the resolver names:\n%s", mermaid)
+	}
+
+	if strings.Contains(mermaid, "$any") {
+		t.Errorf("the graph typed a call by the declared return, as a scan does:\n%s", mermaid)
 	}
 }

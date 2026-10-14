@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	cfpath "github.com/cfmleditor/clif/internal/path"
+
 	"github.com/cfmleditor/clif/internal/daemon"
 	"github.com/cfmleditor/clif/internal/vfs"
 )
@@ -32,7 +34,7 @@ func TestCollectCFMLFiles(t *testing.T) {
 	mustWrite("vendor/skip.cfc")       // excluded dir
 	mustWrite("nested/deep/keep.cfml") // nested, real CFML — included
 
-	files := collectCFMLFiles(vfs.OS{}, []string{dir})
+	files := cfpath.CollectCFML(vfs.OS{}, []string{dir})
 
 	found := make(map[string]bool, len(files))
 	for _, f := range files {

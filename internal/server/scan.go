@@ -3,8 +3,6 @@ package server
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/conv"
@@ -24,35 +22,7 @@ import (
 // Split out from scanWorkspace because the scan itself only reports through
 // notifications, so this is the part a test can see.
 func (s *Server) scanFiles() []string {
-	var files []string
-
-	for _, folder := range s.searchRoots() {
-		_ = s.FS.Walk(folder, func(path string, info os.FileInfo, err error) error {
-			if err != nil {
-				return err
-			}
-
-			if info == nil {
-				return nil
-			}
-
-			if info.IsDir() {
-				if path != folder && skipScanDir(info.Name()) {
-					return filepath.SkipDir
-				}
-
-				return nil
-			}
-
-			if cfpath.IsCFMLFile(path) {
-				files = append(files, path)
-			}
-
-			return nil
-		})
-	}
-
-	return files
+	return cfpath.CollectCFML(s.FS, s.searchRoots())
 }
 
 func (s *Server) scanWorkspace(ctx context.Context) {

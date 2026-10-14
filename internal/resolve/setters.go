@@ -1,8 +1,12 @@
 package resolve
 
 import (
+	"maps"
 	"path/filepath"
+	"slices"
 	"strings"
+
+	"github.com/cfmleditor/clif/internal/confine"
 
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
@@ -25,18 +29,8 @@ func (r *Resolver) SetterLookup(file string) func(string) string {
 	}
 
 	roots := r.managedBeanPaths()
-	managed := false
 
-	for _, root := range roots {
-		rel, err := filepath.Rel(root, file)
-		if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			managed = true
-
-			break
-		}
-	}
-
-	if !managed && !r.fw1SetterManaged(file) {
+	if !confine.Within(file, slices.Collect(maps.Values(roots))) && !r.fw1SetterManaged(file) {
 		return nil
 	}
 

@@ -5,12 +5,12 @@
 // group of findings is missing, whether the method exists anywhere, and the
 // liberal matches the scan offers for it, every one with its evidence.
 //
-//	go run scripts/candidates_report.go [-out <dir>] [-baseline <dir>] name=report.json[@root] ...
+//	go run scripts/candidates_report.go [-out <dir>] [-baseline <dir> [-show <n>]] name=report.json[@root] ...
 //
 // A root makes the report's paths relative to it. With -baseline, each scan is
 // also compared finding by finding with <baseline>/<name>.json and the
-// findings removed and added are printed: a count of either alone hides one
-// file breaking while another is fixed. Nothing here resolves a finding; it
+// findings removed and added are printed (with -show, listed by reason): a count
+// of either alone hides one file breaking while another is fixed. Nothing here resolves a finding; it
 // only arranges them.
 package main
 
@@ -23,6 +23,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/cfmleditor/clif/internal/unresolved"
 )
 
 type candidate struct {
@@ -63,6 +65,7 @@ var categoryTitle = map[string]string{
 func main() {
 	out := flag.String("out", ".ai/docs/resolution-candidates", "directory to write the reports to")
 	baseline := flag.String("baseline", "", "directory of earlier <name>.json reports to compare with")
+	show := flag.Int("show", 0, "with -baseline, list the removed and added findings grouped by reason, up to this many examples a group")
 	flag.Parse()
 
 	if err := os.MkdirAll(*out, 0o755); err != nil {
@@ -98,7 +101,7 @@ func main() {
 		index = append(index, summaryRow(name, findings))
 
 		if *baseline != "" {
-			compare(name, filepath.Join(*baseline, name+".json"), findings)
+			compare(name, filepath.Join(*baseline, name+".json"), path, *show)
 		}
 	}
 
@@ -128,49 +131,39 @@ func rel(path string) string {
 	return corpusRe.ReplaceAllString(path, "")
 }
 
-var uncheckedRe = regexp.MustCompile(`; \d+ (?:inherited )?calls? not checked`)
-
-// compare prints how the findings differ from the baseline's, finding by
-// finding: a count changed only by a number in its reason is not a change.
-func compare(name, path string, findings []finding) {
-	data, err := os.ReadFile(path)
+// compare prints how a scan's findings differ from the baseline's, finding by
+// finding: a count changed only by a number in its reason is not a change. The
+// comparison is `clif unresolved-diff`'s, so the two cannot disagree.
+func compare(name, basePath, path string, show int) {
+	before, err := readCalls(basePath)
 	if err != nil {
-		fmt.Printf("%-10s %6d  (no baseline: %v)\n", name, len(findings), err)
+		fmt.Printf("%-10s  (no baseline: %v)\n", name, err)
 
 		return
 	}
 
-	var before []finding
-	if err := json.Unmarshal(data, &before); err != nil {
-		fail(fmt.Errorf("%s: %w", path, err))
+	after, err := readCalls(path)
+	if err != nil {
+		fail(err)
 	}
 
-	key := func(f *finding) string {
-		return fmt.Sprintf("%s\x00%d\x00%s\x00%s", rel(f.File), f.Line, f.Function, uncheckedRe.ReplaceAllString(f.Reason, ""))
+	opt := &unresolved.DiffOptions{Rel: rel}
+	delta := unresolved.Diff(before, after, opt)
+	unresolved.WriteDelta(os.Stdout, name, &delta, show, opt)
+}
+
+func readCalls(path string) ([]unresolved.Call, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
 	}
 
-	counts := map[string]int{}
-	for i := range before {
-		counts[key(&before[i])]++
+	var calls []unresolved.Call
+	if err := json.Unmarshal(data, &calls); err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 
-	added := 0
-
-	for i := range findings {
-		k := key(&findings[i])
-		if counts[k] > 0 {
-			counts[k]--
-		} else {
-			added++
-		}
-	}
-
-	removed := 0
-	for _, n := range counts {
-		removed += n
-	}
-
-	fmt.Printf("%-10s %6d -> %6d  removed %5d  added %5d\n", name, len(before), len(findings), removed, added)
+	return calls, nil
 }
 
 func top(f *finding) *candidate {

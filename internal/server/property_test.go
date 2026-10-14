@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	cfpath "github.com/cfmleditor/clif/internal/path"
+
 	"github.com/cfmleditor/clif/internal/parser"
 	"github.com/cfmleditor/clif/internal/vfs"
 	"go.lsp.dev/uri"
@@ -21,7 +23,7 @@ func TestPropertyDefinition_BeanLookupViaInject(t *testing.T) {
 	}
 
 	// Build bean map
-	beans := buildBeanMap(srv.BeanPaths, vfs.OS{})
+	beans := cfpath.BuildBeanMap(srv.BeanPaths, vfs.OS{})
 	srv.index.SetBeans(beans)
 
 	// Parse PropertyTest.cfc which has inject="UserDAO@dao"
@@ -102,7 +104,7 @@ func TestPropertyDefinition_TagCFC(t *testing.T) {
 	srv.BeanPaths = map[string]string{
 		"dao": filepath.Join(dir, "dao"),
 	}
-	beans := buildBeanMap(srv.BeanPaths, vfs.OS{})
+	beans := cfpath.BuildBeanMap(srv.BeanPaths, vfs.OS{})
 	srv.index.SetBeans(beans)
 
 	abs := filepath.Join(dir, "PropertyTestTag.cfc")

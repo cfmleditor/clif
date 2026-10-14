@@ -1,11 +1,12 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+
+	cfpath "github.com/cfmleditor/clif/internal/path"
 
 	"github.com/cfmleditor/clif/internal/refs"
 	"github.com/cfmleditor/clif/internal/vfs"
@@ -53,8 +54,8 @@ func cmdRefs(args []string) {
 		os.Exit(1)
 	}
 
-	resolvers := loadResolversFromConfig(dirs)
 	fsys := vfs.OS{}
+	resolver := workspaceResolver(dirs, cfpath.CollectCFML(fsys, dirs))
 
 	isComponentTarget := strings.Contains(target, ".")
 
@@ -64,9 +65,9 @@ func cmdRefs(args []string) {
 	)
 
 	if isComponentTarget {
-		entries, scanned = refs.FindComponentRefs(fsys, dirs, target, resolvers)
+		entries, scanned = refs.FindComponentRefs(fsys, dirs, target, resolver)
 	} else {
-		entries, scanned = refs.FindCalls(fsys, dirs, target, resolvers)
+		entries, scanned = refs.FindCalls(fsys, dirs, target, resolver)
 	}
 
 	result := RefResult{
@@ -79,13 +80,7 @@ func cmdRefs(args []string) {
 	case "mermaid":
 		printMermaidRefs(target, entries)
 	default:
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-
-		if err := enc.Encode(result); err != nil {
-			fmt.Fprintf(os.Stderr, "writing JSON: %v\n", err)
-			os.Exit(1)
-		}
+		writeJSONOrExit(result)
 	}
 }
 

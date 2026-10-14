@@ -230,10 +230,11 @@ corpus:
 #
 #   make resolution-report CORPUS="masa=/src/MasaCMS lucee=/src/Lucee"
 #   make resolution-report CORPUS="..." RUNS=target/resolution/after BASELINE=target/resolution/before LISTS=
+#   ... SHOW=5   lists the findings removed and added, by reason (see: clif unresolved-diff)
 LISTS ?= .ai/docs/resolution-candidates
 resolution-report:
 	@test -n "$(CORPUS)" || { echo "usage: make resolution-report CORPUS=\"name=dir[,dir...] ...\" [BASELINE=<dir>] [RUNS=<dir>] [LISTS=<dir>]" >&2; exit 2; }
-	OUT="$(LISTS)" JOBS="$(or $(JOBS),4)" RUNS="$(or $(RUNS),target/resolution/latest)" BASELINE="$(BASELINE)" bash scripts/resolution-report.sh $(CORPUS)
+	OUT="$(LISTS)" JOBS="$(or $(JOBS),4)" RUNS="$(or $(RUNS),target/resolution/latest)" BASELINE="$(BASELINE)" SHOW="$(or $(SHOW),0)" bash scripts/resolution-report.sh $(CORPUS)
 
 # Reduces the parse-refused and script-refused entries in a corpus report to
 # the smallest contiguous fragment that still fails, so "the grammar cannot

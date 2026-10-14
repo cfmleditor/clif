@@ -163,3 +163,17 @@ func TestResolveFollowsLinkLoopsToAnError(t *testing.T) {
 		t.Fatal("a symlink loop resolved")
 	}
 }
+
+// TestWithinTreatsADotDotNamedEntryAsInside: "..cache" is a file name, not a
+// parent directory. Several callers once tested the prefix ".." alone.
+func TestWithinTreatsADotDotNamedEntryAsInside(t *testing.T) {
+	root := filepath.Join(string(filepath.Separator), "w", "root")
+
+	if !Within(filepath.Join(root, "..cache", "a.cfc"), []string{root}) {
+		t.Error("a ..cache directory under the root was reported outside")
+	}
+
+	if Within(filepath.Join(root, "..", "other"), []string{root}) {
+		t.Error("a sibling of the root was reported inside")
+	}
+}

@@ -7,9 +7,16 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cfmleditor/clif/internal/parser"
+	"github.com/cfmleditor/clif/internal/index"
+	"github.com/cfmleditor/clif/internal/resolve"
 	"github.com/cfmleditor/clif/internal/vfs"
 )
+
+// testResolver is the workspace's resolver over dir: the one refs verifies a
+// call against and parses by.
+func testResolver(dir string) *resolve.Resolver {
+	return resolve.NewBatchResolver(vfs.OS{}, index.New(), &resolve.Settings{WorkspaceFolders: []string{dir}})
+}
 
 func testdataDir() string {
 	_, f, _, _ := runtime.Caller(0)
@@ -31,16 +38,7 @@ func TestTrace_OnlyMatchesTargetComponent(t *testing.T) {
 	opts := Options{
 		FuncName:   "GetData",
 		SourceFile: persistPath,
-		VerifyTarget: func(component, _, sourceFile string) bool {
-			switch component {
-			case "persist":
-				return sourceFile == persistPath
-			case "service":
-				return sourceFile == servicePath
-			}
-
-			return false
-		},
+		Resolver:   testResolver(dir),
 	}
 
 	entries := Trace(fs, roots, &opts)
@@ -107,15 +105,7 @@ func TestTrace_RecursesUpstream(t *testing.T) {
 	opts := Options{
 		FuncName:   "GetData",
 		SourceFile: controllerPath,
-		VerifyTarget: func(component, fileDir, sourceFile string) bool {
-			if component == "controller" {
-				resolved, _ := filepath.Abs(filepath.Join(fileDir, "controller.cfc"))
-
-				return resolved == sourceFile
-			}
-
-			return false
-		},
+		Resolver:   testResolver(dir),
 	}
 
 	entries := Trace(fs, roots, &opts)
@@ -192,9 +182,7 @@ func TestTrace_DoesNotMatchSameNameInOtherFile(t *testing.T) {
 	opts := Options{
 		FuncName:   "DoWork",
 		SourceFile: aPath,
-		VerifyTarget: func(_, _, _ string) bool {
-			return false // no qualified calls in this test
-		},
+		Resolver:   testResolver(dir),
 	}
 
 	entries := Trace(fs, roots, &opts)
@@ -263,9 +251,7 @@ func TestTrace_SameFileMatchToleratesPathFormatting(t *testing.T) {
 	opts := Options{
 		FuncName:   "DoWork",
 		SourceFile: messySourceFile,
-		VerifyTarget: func(_, _, _ string) bool {
-			return false // no qualified calls in this test
-		},
+		Resolver:   testResolver(dir),
 	}
 
 	entries := Trace(fs, roots, &opts)
@@ -313,15 +299,7 @@ func TestTrace_GetReportChainIsolated(t *testing.T) {
 	opts := Options{
 		FuncName:   "GetReport",
 		SourceFile: controllerPath,
-		VerifyTarget: func(component, fileDir, sourceFile string) bool {
-			if component == "controller" {
-				resolved, _ := filepath.Abs(filepath.Join(fileDir, "controller.cfc"))
-
-				return resolved == sourceFile
-			}
-
-			return false
-		},
+		Resolver:   testResolver(dir),
 	}
 
 	entries := Trace(fs, roots, &opts)
@@ -403,15 +381,7 @@ func TestTrace_DepthAndViaAnnotateChain(t *testing.T) {
 	opts := Options{
 		FuncName:   "GetReport",
 		SourceFile: controllerPath,
-		VerifyTarget: func(component, fileDir, sourceFile string) bool {
-			if component == "controller" {
-				resolved, _ := filepath.Abs(filepath.Join(fileDir, "controller.cfc"))
-
-				return resolved == sourceFile
-			}
-
-			return false
-		},
+		Resolver:   testResolver(dir),
 	}
 
 	entries := Trace(fs, roots, &opts)
@@ -465,9 +435,9 @@ func TestTrace_DepthAndViaAnnotateChain(t *testing.T) {
 	}
 }
 
-// TestFind_UnresolvedEntryCarriesReason verifies that when Options.Reason is
-// supplied (internal/server wires it to resolve.Resolver.CanResolveCall), an
-// entry whose call couldn't be verified against the traced target carries a
+// TestFind_UnresolvedEntryCarriesReason verifies that when Options.Explain is
+// set (the reason is resolve.Resolver.CanResolveCall's, as `unresolved` gives),
+// an entry whose call couldn't be verified against the traced target carries a
 // Reason string instead of just Resolved=false, and that FormatResult surfaces
 // it in the "[unresolved: ...]" marker instead of a bare "[unresolved]".
 func TestFind_UnresolvedEntryCarriesReason(t *testing.T) {
@@ -483,9 +453,8 @@ func TestFind_UnresolvedEntryCarriesReason(t *testing.T) {
 
 	opts := Options{
 		FuncName: "GetReport",
-		Reason: func(call parser.CallSite, _ *parser.ParseResult, _ string) string {
-			return "variable '" + call.Variable + "' has no component ref"
-		},
+		Resolver: testResolver(dir),
+		Explain:  true,
 	}
 
 	entries := Find(fs, roots, &opts)
@@ -534,7 +503,7 @@ func TestFindCounted_ReportsFileSetSize(t *testing.T) {
 		}
 	}
 
-	entries, scanned := FindCalls(vfs.OS{}, []string{dir}, "GetReport", nil)
+	entries, scanned := FindCalls(vfs.OS{}, []string{dir}, "GetReport", testResolver(dir))
 
 	if scanned != 3 {
 		t.Errorf("expected 3 CFML files counted (including the one with no mention, excluding .txt/.css), got %d", scanned)
@@ -555,7 +524,7 @@ func TestFindCounted_CountsAnEmptyResultToo(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	entries, scanned := FindComponentRefs(vfs.OS{}, []string{dir}, "app.models.Nothing", nil)
+	entries, scanned := FindComponentRefs(vfs.OS{}, []string{dir}, "app.models.Nothing", testResolver(dir))
 
 	if len(entries) != 0 {
 		t.Fatalf("expected no entries, got %d", len(entries))
@@ -575,26 +544,8 @@ func TestFindStillReturnsEntriesOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if entries := Find(vfs.OS{}, []string{dir}, &Options{FuncName: "GetReport"}); len(entries) != 1 {
+	if entries := Find(vfs.OS{}, []string{dir}, &Options{FuncName: "GetReport", Resolver: testResolver(dir)}); len(entries) != 1 {
 		t.Errorf("expected 1 entry from Find, got %d", len(entries))
-	}
-}
-
-// TestCollectFilesSkipsAnUnstattableRoot covers a search root that is not
-// there. filepath.Walk reports it with a nil FileInfo, and dereferencing that
-// took down the whole search instead of skipping the one root — so a stale
-// workspacePaths entry, or a folder removed since the editor opened it, turned
-// every Find All References into an internal error.
-func TestCollectFilesSkipsAnUnstattableRoot(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "a.cfc"), []byte("component {}"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	got := collectFiles(vfs.OS{}, []string{filepath.Join(dir, "does-not-exist"), dir})
-
-	if len(got) != 1 || filepath.Base(got[0]) != "a.cfc" {
-		t.Errorf("collectFiles = %v, want just a.cfc from the root that exists", got)
 	}
 }
 
@@ -621,7 +572,7 @@ func TestFindPopulatesCallTextLazily(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	entries := Find(vfs.OS{}, []string{dir}, &Options{FuncName: "GetReport"})
+	entries := Find(vfs.OS{}, []string{dir}, &Options{FuncName: "GetReport", Resolver: testResolver(dir)})
 	if len(entries) != 2 {
 		t.Fatalf("expected 2 entries, got %d: %+v", len(entries), entries)
 	}

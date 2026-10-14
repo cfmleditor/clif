@@ -4,12 +4,10 @@ package daemon
 import (
 	"encoding/json"
 	"path/filepath"
-	"strings"
 
 	"github.com/cfmleditor/clif/internal/vfs"
 
 	"github.com/cfmleditor/clif/internal/config"
-	cfpath "github.com/cfmleditor/clif/internal/path"
 	"github.com/cfmleditor/clif/internal/server"
 
 	"github.com/cfmleditor/clif/internal/route"
@@ -90,120 +88,29 @@ func (c *Config) raw() *configJSON {
 	return &raw
 }
 
+// Resolved is the configuration the file at c.Path describes, read once.
+//
+// It is [config.ResolveFile] over the file as it is now, so the command line
+// reads a .clif.json exactly as the standalone editor does. The accessors below
+// each re-derived their setting from the raw file, a second reading of one
+// schema, and the two had drifted apart on the folder-name mapping and on an
+// absent formatting block. A file that cannot be read resolves like an empty
+// one (and gets no implied mapping, having no folder to name).
+func (c *Config) Resolved() *config.Resolved {
+	raw := c.raw()
+	if raw == nil {
+		return config.Resolve(&config.JSON{}, filepath.Dir(c.Path))
+	}
+
+	return config.ResolveFile(raw, c.Path)
+}
+
 // WorkspaceFolders returns the resolved absolute paths of the project folders.
-func (c *Config) WorkspaceFolders() []string {
-	raw := c.raw()
-	if raw == nil {
-		return nil
-	}
+func (c *Config) WorkspaceFolders() []string { return c.Resolved().WorkspaceFolders }
 
-	dir := filepath.Dir(c.Path)
-	out := make([]string, 0, len(raw.WorkspacePaths))
-
-	for _, p := range raw.WorkspacePaths {
-		out = append(out, cfpath.ResolveFrom(dir, p))
-	}
-
-	return out
-}
-
-// Mappings returns component path mappings with values resolved to absolute
-// paths, plus one the config implies: the folder holding .clif.json maps
-// under its own name, so `myapp.models.User` finds
-// <config dir>/models/User.cfc from a config in a folder called myapp,
-// whether or not workspacePaths lists that folder. An explicit mapping of the
-// same name (in any case) wins.
-func (c *Config) Mappings() map[string]string {
-	raw := c.raw()
-	if raw == nil {
-		return nil
-	}
-
-	dir := filepath.Dir(c.Path)
-	out := cfpath.ResolveMappings(raw.Mappings, dir)
-
-	name := filepath.Base(dir)
-	if name == "" || name == "." || name == string(filepath.Separator) {
-		return out
-	}
-
-	for k := range out {
-		if strings.EqualFold(k, name) {
-			return out
-		}
-	}
-
-	if out == nil {
-		out = make(map[string]string, 1)
-	}
-
-	out[name] = dir
-
-	return out
-}
-
-// StartupFiles returns the configured startup templates as absolute paths.
-func (c *Config) StartupFiles() []string {
-	raw := c.raw()
-	if raw == nil {
-		return nil
-	}
-
-	return config.ResolvePathList(raw.StartupFiles, filepath.Dir(c.Path))
-}
-
-// ExpressionMappings returns expression-to-value substitutions from config.
-func (c *Config) ExpressionMappings() map[string]string {
-	raw := c.raw()
-	if raw == nil {
-		return nil
-	}
-
-	return raw.ExpressionMappings
-}
-
-// ServicePropertyResolvers returns the "@serviceproperty" annotation kind → dot-path
-// template map from config (see config.JSON.ServicePropertyResolvers).
-func (c *Config) ServicePropertyResolvers() map[string]string {
-	raw := c.raw()
-	if raw == nil {
-		return nil
-	}
-
-	return raw.ServicePropertyResolvers
-}
-
-// Routes returns the framework routing convention from config (see
-// config.JSON.Routes).
-func (c *Config) Routes() route.Config {
-	raw := c.raw()
-	if raw == nil {
-		return route.Config{}
-	}
-
-	return raw.Routes
-}
-
-// CodeMap returns the code-map settings from config (see config.JSON.CodeMap).
-func (c *Config) CodeMap() config.CodeMap {
-	raw := c.raw()
-	if raw == nil {
-		return config.CodeMap{}
-	}
-
-	return raw.CodeMap
-}
-
-// KnownIssues returns the known-issues files in config, made absolute against
-// the directory the config file is in.
-func (c *Config) KnownIssues() []config.KnownIssues {
-	raw := c.raw()
-	if raw == nil {
-		return nil
-	}
-
-	return config.ResolveKnownIssues(raw.KnownIssues, filepath.Dir(c.Path))
-}
+// IndexGlobs returns absolute glob patterns for workspace indexing, the
+// config's workspaceIndexGlobs resolved against its workspace folders.
+func (c *Config) IndexGlobs() []string { return c.Resolved().IndexGlobs }
 
 // Debug returns whether debug logging is enabled in config.
 func (c *Config) Debug() bool {
@@ -212,322 +119,82 @@ func (c *Config) Debug() bool {
 	return raw != nil && raw.Debug
 }
 
-// ResolvedFeatures returns the feature switches with their defaults applied.
-//
-// Through config.ResolveFeatures rather than reading the pointers here, so the
-// daemon and a standalone session cannot disagree about what an absent block
-// means — the drift that left daemon sessions with completions switched off.
-func (c *Config) ResolvedFeatures() config.ResolvedFeatures {
-	raw := c.raw()
-	if raw == nil {
-		return config.ResolveFeatures(nil)
-	}
+// The accessors below are the resolved configuration, one setting at a time, for
+// the callers that want one. They re-read the file on each call, as they always
+// have; a caller that wants several calls Resolved once.
 
-	return config.ResolveFeatures(raw.Features)
+// Mappings returns component path mappings with values resolved to absolute
+// paths, plus the one the folder holding the config implies.
+func (c *Config) Mappings() map[string]string { return c.Resolved().Mappings }
+
+// StartupFiles returns the configured startup templates as absolute paths.
+func (c *Config) StartupFiles() []string { return c.Resolved().StartupFiles }
+
+// ExpressionMappings returns expression-to-value substitutions from config.
+func (c *Config) ExpressionMappings() map[string]string { return c.Resolved().ExpressionMappings }
+
+// ServicePropertyResolvers returns the "@serviceproperty" annotation kind →
+// dot-path template map from config.
+func (c *Config) ServicePropertyResolvers() map[string]string {
+	return c.Resolved().ServicePropertyResolvers
 }
+
+// Routes returns the framework routing convention from config.
+func (c *Config) Routes() route.Config { return c.Resolved().Routes }
+
+// CodeMap returns the code-map settings from config.
+func (c *Config) CodeMap() config.CodeMap { return c.Resolved().CodeMap }
+
+// KnownIssues returns the known-issues files in config, made absolute against
+// the directory the config file is in.
+func (c *Config) KnownIssues() []config.KnownIssues { return c.Resolved().KnownIssues }
+
+// ResolvedFeatures returns the feature switches with their defaults applied.
+func (c *Config) ResolvedFeatures() config.ResolvedFeatures { return c.Resolved().Features }
 
 // Linting returns whether linting (cflint) is enabled in config.
-func (c *Config) Linting() bool {
-	raw := c.raw()
-
-	return raw != nil && raw.Linting != nil && config.BoolDefault(raw.Linting.Enabled, false)
-}
+func (c *Config) Linting() bool { return c.Resolved().Linting }
 
 // LintMinSeverity returns the configured CFLint severity floor, or "" for none.
-func (c *Config) LintMinSeverity() string {
-	raw := c.raw()
-	if raw == nil || raw.Linting == nil {
-		return ""
-	}
-
-	return raw.Linting.MinSeverity
-}
+func (c *Config) LintMinSeverity() string { return c.Resolved().LintMinSeverity }
 
 // References returns whether textDocument/references is enabled in config.
-func (c *Config) References() bool {
-	raw := c.raw()
+func (c *Config) References() bool { return c.Resolved().References }
 
-	return raw != nil && raw.References != nil && raw.References.Enabled
-}
-
-// FormattingEnabled returns whether formatting is enabled in config.
-func (c *Config) FormattingEnabled() bool {
-	raw := c.raw()
-
-	return raw != nil && raw.Formatting != nil && config.BoolDefault(raw.Formatting.Enabled, false)
-}
-
-// FormattingDebug returns whether formatting debug checks are enabled.
-func (c *Config) FormattingDebug() bool {
-	raw := c.raw()
-
-	return raw != nil && raw.Formatting != nil && config.BoolDefault(raw.Formatting.Debug, false)
-}
-
-// FormattingSelfCloseTags returns whether void/implicit-end HTML tags should be self-closed.
-// Defaults to true if not specified.
-func (c *Config) FormattingSelfCloseTags() bool {
-	raw := c.raw()
-	if raw == nil || raw.Formatting == nil || raw.Formatting.SelfCloseTags == nil {
-		return true
-	}
-
-	return *raw.Formatting.SelfCloseTags
-}
-
-// FormattingWhitespaceOnly returns whether the formatter should reject non-whitespace changes.
-// Defaults to true if not specified.
-func (c *Config) FormattingWhitespaceOnly() bool {
-	raw := c.raw()
-	if raw == nil || raw.Formatting == nil || raw.Formatting.WhitespaceOnly == nil {
-		return true
-	}
-
-	return *raw.Formatting.WhitespaceOnly
-}
-
-// FormattingQueryFormat returns whether cfquery content should be formatted. Default false.
-func (c *Config) FormattingQueryFormat() bool {
-	raw := c.raw()
-	if raw == nil || raw.Formatting == nil || raw.Formatting.QueryFormat == nil {
-		return false
-	}
-
-	return *raw.Formatting.QueryFormat
-}
-
-// FormattingLowercaseTags returns whether CF tag names should be lowercased. Default true.
-func (c *Config) FormattingLowercaseTags() bool {
-	raw := c.raw()
-	if raw == nil || raw.Formatting == nil || raw.Formatting.LowercaseTags == nil {
-		return true
-	}
-
-	return *raw.Formatting.LowercaseTags
-}
-
-// FormattingLowercaseAttributes returns whether attribute names should be lowercased. Default true.
-func (c *Config) FormattingLowercaseAttributes() bool {
-	raw := c.raw()
-	if raw == nil || raw.Formatting == nil || raw.Formatting.LowercaseAttributes == nil {
-		return true
-	}
-
-	return *raw.Formatting.LowercaseAttributes
-}
-
-// FormattingDoubleQuoteAttributes returns whether attribute values should be double-quoted. Default true.
-func (c *Config) FormattingDoubleQuoteAttributes() bool {
-	raw := c.raw()
-	if raw == nil || raw.Formatting == nil || raw.Formatting.DoubleQuoteAttributes == nil {
-		return true
-	}
-
-	return *raw.Formatting.DoubleQuoteAttributes
-}
-
-// FormattingQueryUppercaseKeywords returns whether SQL keywords should be uppercased. Default true.
-func (c *Config) FormattingQueryUppercaseKeywords() bool {
-	raw := c.raw()
-	if raw == nil || raw.Formatting == nil || raw.Formatting.QueryUppercaseKeywords == nil {
-		return true
-	}
-
-	return *raw.Formatting.QueryUppercaseKeywords
-}
-
-// FormattingScopeCase returns the scope case setting ("upper", "lower", or "leave"). Default "leave".
-func (c *Config) FormattingScopeCase() string {
-	raw := c.raw()
-	if raw == nil || raw.Formatting == nil || raw.Formatting.ScopeCase == "" {
-		return "leave"
-	}
-
-	return raw.Formatting.ScopeCase
-}
-
-// FormattingCommaPosition returns the comma position setting ("before" or "after"). Default "after".
-func (c *Config) FormattingCommaPosition() string {
-	raw := c.raw()
-	if raw == nil || raw.Formatting == nil || raw.Formatting.CommaPosition == "" {
-		return "after"
-	}
-
-	return raw.Formatting.CommaPosition
-}
-
-// FormattingQueryCommaPosition returns the SQL comma position setting. Defaults to commaPosition value.
-func (c *Config) FormattingQueryCommaPosition() string {
-	raw := c.raw()
-	if raw == nil || raw.Formatting == nil || raw.Formatting.QueryCommaPosition == "" {
-		return ""
-	}
-
-	return raw.Formatting.QueryCommaPosition
-}
-
-// FormattingLineWidth returns the configured line width, or 0 if not set.
-func (c *Config) FormattingLineWidth() int {
-	raw := c.raw()
-	if raw == nil || raw.Formatting == nil || raw.Formatting.LineWidth == nil {
-		return 0
-	}
-
-	return *raw.Formatting.LineWidth
-}
-
-// FormattingParamBreakThreshold returns the configured parameter break
-// threshold, or 0 if not set.
-func (c *Config) FormattingParamBreakThreshold() int {
-	raw := c.raw()
-	if raw == nil || raw.Formatting == nil || raw.Formatting.ParamBreakThreshold == nil {
-		return 0
-	}
-
-	return *raw.Formatting.ParamBreakThreshold
-}
-
-// FormattingAttrBreakThreshold returns the configured attr break threshold, or 0 if not set.
-func (c *Config) FormattingAttrBreakThreshold() int {
-	raw := c.raw()
-	if raw == nil || raw.Formatting == nil || raw.Formatting.AttrBreakThreshold == nil {
-		return 0
-	}
-
-	return *raw.Formatting.AttrBreakThreshold
-}
-
-// FormattingIndentWidth returns the configured indent width, or 0 if not set.
-func (c *Config) FormattingIndentWidth() int {
-	raw := c.raw()
-	if raw == nil || raw.Formatting == nil || raw.Formatting.IndentWidth == nil {
-		return 0
-	}
-
-	return *raw.Formatting.IndentWidth
-}
-
-// ComponentResolvers returns the configured component resolver patterns as [match, resolve, prefix] triples.
-func (c *Config) ComponentResolvers() []config.Resolver {
-	raw := c.raw()
-	if raw == nil {
-		return nil
-	}
-
-	out := make([]config.Resolver, 0, len(raw.ComponentResolvers)+1)
-
-	for _, r := range raw.ComponentResolvers {
-		if r.Match != "" && r.Resolve != "" {
-			out = append(out, r)
-		}
-	}
-
-	if jr := config.JavaStubResolver(raw.JavaStubsPath); jr.Match != "" {
-		out = append(out, jr)
-	}
-
-	return append(out, config.FrameworkResolvers(raw.Frameworks)...)
-}
+// ComponentResolvers returns the configured component resolvers, then the Java
+// stub resolver and the frameworks' presets.
+func (c *Config) ComponentResolvers() []config.Resolver { return c.Resolved().ComponentResolvers }
 
 // Frameworks returns the framework presets the config names.
-func (c *Config) Frameworks() []string {
-	raw := c.raw()
-	if raw == nil {
-		return nil
-	}
+func (c *Config) Frameworks() []string { return c.Resolved().Frameworks }
 
-	return raw.Frameworks
-}
+// PropertyResolvers returns the configured property resolvers.
+func (c *Config) PropertyResolvers() []config.PropResolver { return c.Resolved().PropertyResolvers }
 
-// PropertyResolvers returns the configured property resolver patterns as [match, resolve, attribute] triples.
-func (c *Config) PropertyResolvers() [][3]string {
-	raw := c.raw()
-	if raw == nil || len(raw.PropertyResolvers) == 0 {
-		return nil
-	}
-
-	out := make([][3]string, 0, len(raw.PropertyResolvers))
-
-	for _, r := range raw.PropertyResolvers {
-		if r.Match != "" && r.Resolve != "" && r.Attribute != "" {
-			out = append(out, [3]string{r.Match, r.Resolve, r.Attribute})
-		}
-	}
-
-	return out
-}
-
-// BeanPaths returns the resolved bean namespace → absolute directory path mapping.
-func (c *Config) BeanPaths() map[string]string {
-	raw := c.raw()
-	if raw == nil || len(raw.BeanPaths) == 0 {
-		return nil
-	}
-
-	return cfpath.ResolveMappings(raw.BeanPaths, filepath.Dir(c.Path))
-}
-
-// IndexGlobs returns absolute glob patterns for workspace indexing,
-// replacing the leading folder name with the corresponding resolved workspace
-// folder path. For example, if workspacePaths contains "../shared-lib" and
-// workspaceIndexGlobs contains "shared-lib/**/*.cfc", the result is
-// "/abs/path/to/shared-lib/**/*.cfc".
-func (c *Config) IndexGlobs() []string {
-	raw := c.raw()
-	if raw == nil || len(raw.WorkspaceIndexGlobs) == 0 {
-		return nil
-	}
-
-	dir := filepath.Dir(c.Path)
-	// Build map from folder base name to resolved absolute path
-	folderMap := make(map[string]string)
-
-	for _, p := range raw.WorkspacePaths {
-		resolved := cfpath.ResolveFrom(dir, p)
-		base := filepath.Base(resolved)
-		folderMap[base] = resolved
-	}
-
-	out := make([]string, 0, len(raw.WorkspaceIndexGlobs))
-
-	for _, g := range raw.WorkspaceIndexGlobs {
-		// First path component is the folder name
-		parts := strings.SplitN(g, "/", 2)
-		if resolved, ok := folderMap[parts[0]]; ok {
-			if len(parts) == 2 {
-				out = append(out, resolved+"/"+parts[1])
-			} else {
-				out = append(out, resolved)
-			}
-		}
-	}
-
-	return out
-}
-
-// expandGlob expands a glob pattern, handling ** for recursive directory matching.
-func expandGlob(pattern string) []string {
-	return cfpath.ExpandGlob(pattern)
-}
+// BeanPaths returns the resolved bean namespace → absolute directory mapping.
+func (c *Config) BeanPaths() map[string]string { return c.Resolved().BeanPaths }
 
 // ResolvedCompletions returns the completion settings with defaults applied.
 func (c *Config) ResolvedCompletions() config.ResolvedCompletions {
-	raw := c.raw()
-	if raw == nil {
-		return config.ResolveCompletions(nil)
-	}
+	r := c.Resolved()
 
-	return config.ResolveCompletions(raw.Completions)
+	return config.ResolvedCompletions{
+		TagSnippets:              r.TagSnippets,
+		FunctionSnippets:         r.FunctionSnippets,
+		GlobalFunctionResolution: r.GlobalFunctionResolution,
+	}
 }
 
 // ResolvedDocBlock returns the doc block settings with defaults applied.
-func (c *Config) ResolvedDocBlock() config.ResolvedDocBlock {
-	raw := c.raw()
-	if raw == nil {
-		return config.ResolveDocBlock(nil)
-	}
+func (c *Config) ResolvedDocBlock() config.ResolvedDocBlock { return c.Resolved().DocBlock }
 
-	return config.ResolveDocBlock(raw.DocBlock)
+// ResolvedFormatting returns the formatting settings with defaults applied, for
+// the daemon startup path and the `format` subcommand.
+func (c *Config) ResolvedFormatting() config.ResolvedFormatting { return c.Resolved().Formatting }
+
+// CallerInferenceLimits returns the optional batch caller inference policy.
+func (c *Config) CallerInferenceLimits() config.CallerInferenceLimits {
+	return c.Resolved().CallerInferenceLimits
 }
 
 // SettingsFrom builds the per-session settings for every daemon session from a
@@ -537,124 +204,9 @@ func (c *Config) ResolvedDocBlock() config.ResolvedDocBlock {
 // main, which nothing can test. A key read from config but never copied into
 // Settings reaches no daemon session at all, and that is not a visible
 // failure: it looks exactly like the key not being set. `completions` was
-// missing for exactly that reason, so every daemon session ran with global
-// function resolution and both kinds of snippet switched off — unless the
-// config happened to omit componentResolvers, which is the one case where
-// handleInitialize falls back to loading the config itself.
+// missing for exactly that reason. The settings are now the resolved
+// configuration itself (server.Settings embeds it), so a new key reaches every
+// session by being in config.Resolved.
 func SettingsFrom(c *Config) server.Settings {
-	props := make([]config.PropResolver, 0, len(c.PropertyResolvers()))
-	for _, p := range c.PropertyResolvers() {
-		props = append(props, config.PropResolver{Match: p[0], Resolve: p[1], Attribute: p[2]})
-	}
-
-	comp := c.ResolvedCompletions()
-
-	return server.Settings{
-		CallerInferenceLimits:    c.CallerInferenceLimits(),
-		ConfigPath:               c.Path,
-		Routes:                   c.Routes(),
-		CodeMap:                  c.CodeMap(),
-		KnownIssues:              c.KnownIssues(),
-		WorkspaceFolders:         c.WorkspaceFolders(),
-		IndexGlobs:               c.IndexGlobs(),
-		Mappings:                 c.Mappings(),
-		StartupFiles:             c.StartupFiles(),
-		ExpressionMappings:       c.ExpressionMappings(),
-		ServicePropertyResolvers: c.ServicePropertyResolvers(),
-		ComponentResolvers:       c.ComponentResolvers(),
-		PropertyResolvers:        props,
-		BeanPaths:                c.BeanPaths(),
-		Frameworks:               c.Frameworks(),
-		Formatting:               c.ResolvedFormatting(),
-		Features:                 c.ResolvedFeatures(),
-		Linting:                  c.Linting(),
-		LintMinSeverity:          c.LintMinSeverity(),
-		References:               c.References(),
-		TagSnippets:              comp.TagSnippets,
-		FunctionSnippets:         comp.FunctionSnippets,
-		GlobalFunctionResolution: comp.GlobalFunctionResolution,
-		DocBlock:                 c.ResolvedDocBlock(),
-	}
-}
-
-// FormattingBlankLinesInBlocks reports whether a block's body is padded with a
-// blank line after the opening brace and before the closing one (default true).
-func (c *Config) FormattingBlankLinesInBlocks() bool {
-	raw := c.raw()
-	if raw == nil || raw.Formatting == nil {
-		return true
-	}
-
-	return config.BoolDefault(raw.Formatting.BlankLinesInBlocks, true)
-}
-
-// FormattingSwitchCaseIndent reports whether `case` and `default` labels are
-// indented one level inside the switch (default false).
-func (c *Config) FormattingSwitchCaseIndent() bool {
-	raw := c.raw()
-	if raw == nil || raw.Formatting == nil {
-		return false
-	}
-
-	return config.BoolDefault(raw.Formatting.SwitchCaseIndent, false)
-}
-
-// FormattingParenSpacing returns the padding inside parentheses ("pad",
-// "tight", or empty for the formatter's existing per-context behaviour).
-func (c *Config) FormattingParenSpacing() string {
-	raw := c.raw()
-	if raw == nil || raw.Formatting == nil {
-		return ""
-	}
-
-	return raw.Formatting.ParenSpacing
-}
-
-// FormattingBraceStyle returns where a block's opening brace goes
-// ("same-line", "next-line", or empty for the formatter's default same-line).
-func (c *Config) FormattingBraceStyle() string {
-	raw := c.raw()
-	if raw == nil || raw.Formatting == nil {
-		return ""
-	}
-
-	return raw.Formatting.BraceStyle
-}
-
-// ResolvedFormatting collects every formatting accessor into one resolved
-// struct, so the daemon startup path and the `format` subcommand read the same
-// settings without each restating the field list.
-func (c *Config) ResolvedFormatting() config.ResolvedFormatting {
-	return config.ResolvedFormatting{
-		Enabled:                c.FormattingEnabled(),
-		Debug:                  c.FormattingDebug(),
-		SelfCloseTags:          c.FormattingSelfCloseTags(),
-		WhitespaceOnly:         c.FormattingWhitespaceOnly(),
-		QueryFormat:            c.FormattingQueryFormat(),
-		LowercaseTags:          c.FormattingLowercaseTags(),
-		LowercaseAttributes:    c.FormattingLowercaseAttributes(),
-		DoubleQuoteAttributes:  c.FormattingDoubleQuoteAttributes(),
-		QueryUppercaseKeywords: c.FormattingQueryUppercaseKeywords(),
-		BlankLinesInBlocks:     c.FormattingBlankLinesInBlocks(),
-		SwitchCaseIndent:       c.FormattingSwitchCaseIndent(),
-		ParenSpacing:           c.FormattingParenSpacing(),
-		BraceStyle:             c.FormattingBraceStyle(),
-		ScopeCase:              c.FormattingScopeCase(),
-		CommaPosition:          c.FormattingCommaPosition(),
-		QueryCommaPosition:     c.FormattingQueryCommaPosition(),
-		LineWidth:              c.FormattingLineWidth(),
-		ParamBreakThreshold:    c.FormattingParamBreakThreshold(),
-		AttrBreakThreshold:     c.FormattingAttrBreakThreshold(),
-		IndentWidth:            c.FormattingIndentWidth(),
-	}
-}
-
-// CallerInferenceLimits returns the optional batch caller inference policy.
-func (c *Config) CallerInferenceLimits() config.CallerInferenceLimits {
-	raw := c.raw()
-	if raw == nil || raw.CallerInferenceLimits == nil {
-		return config.CallerInferenceLimits{}
-	}
-
-	return *raw.CallerInferenceLimits
+	return server.Settings{Resolved: *c.Resolved(), ConfigPath: c.Path}
 }

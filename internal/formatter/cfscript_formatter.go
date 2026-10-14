@@ -1926,36 +1926,26 @@ func holdsMultilineClosure(n *sitter.Node, items []collectionItem) bool {
 }
 
 func (f *Formatter) exprArray(n *sitter.Node) string {
-	if n.NamedChildCount() == 0 {
-		return "[]"
-	}
-
-	items, hasLineComment := f.collectionItems(n)
-	trailing := hasTrailingComma(n)
-
-	if !hasLineComment && !holdsMultilineClosure(n, items) {
-		inline := "[" + joinCollectionInline(items, trailing) + "]"
-		if f.lineLen+len(inline) <= f.opts.LineWidth {
-			return inline
-		}
-	}
-
-	f.deepenItems(n, items)
-	indent := f.indented() + f.opts.indent(1)
-
-	return "[\n" + indent + joinCollectionLines(items, indent, trailing) + "\n" + f.indented() + "]"
+	return f.exprCollection(n, "[", "]", "[", "]")
 }
 
 func (f *Formatter) exprObject(n *sitter.Node) string {
+	return f.exprCollection(n, "{", "}", "{ ", " }")
+}
+
+// exprCollection renders an array or struct literal: on one line when it fits,
+// else one item per line. open and shut bracket the broken form; inlineOpen and
+// inlineClose bracket the one-line form.
+func (f *Formatter) exprCollection(n *sitter.Node, open, shut, inlineOpen, inlineClose string) string {
 	if n.NamedChildCount() == 0 {
-		return "{}"
+		return open + shut
 	}
 
 	items, hasLineComment := f.collectionItems(n)
 	trailing := hasTrailingComma(n)
 
 	if !hasLineComment && !holdsMultilineClosure(n, items) {
-		inline := "{ " + joinCollectionInline(items, trailing) + " }"
+		inline := inlineOpen + joinCollectionInline(items, trailing) + inlineClose
 		if f.lineLen+len(inline) <= f.opts.LineWidth {
 			return inline
 		}
@@ -1964,7 +1954,7 @@ func (f *Formatter) exprObject(n *sitter.Node) string {
 	f.deepenItems(n, items)
 	indent := f.indented() + f.opts.indent(1)
 
-	return "{\n" + indent + joinCollectionLines(items, indent, trailing) + "\n" + f.indented() + "}"
+	return open + "\n" + indent + joinCollectionLines(items, indent, trailing) + "\n" + f.indented() + shut
 }
 
 // exprPair renders one struct entry as key, separator, value. When the entry

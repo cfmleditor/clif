@@ -1,7 +1,6 @@
 package server
 
 import (
-	"os"
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
@@ -233,37 +232,10 @@ func (s *Server) isOrmPath(filePath string) bool {
 	return strings.HasPrefix(filePath, appDir)
 }
 
-// collectCFCFiles walks root and returns all .cfc file paths.
+// collectCFCFiles walks root and returns all .cfc file paths, by the rule the
+// code map and every other scan share.
 func (s *Server) collectCFCFiles(root string) []string {
-	var files []string
-
-	_ = s.FS.Walk(root, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-
-		if info.IsDir() {
-			// The code map's rule, so the index and the map see one set of
-			// files. The list this replaced named .git and .svn but let every
-			// other dot-directory in, and a git worktree under .claude/ is a
-			// complete second copy of the codebase: every component indexed
-			// twice, every shared method name's bucket doubled, and
-			// go-to-definition offering the copy beside the original.
-			if path != root && skipScanDir(info.Name()) {
-				return filepath.SkipDir
-			}
-
-			return nil
-		}
-
-		if cfpath.IsCFCFile(path) {
-			files = append(files, path)
-		}
-
-		return nil
-	})
-
-	return files
+	return cfpath.CollectCFC(s.FS, []string{root})
 }
 
 func expandGlob(pattern string) []string {
@@ -275,48 +247,29 @@ func (s *Server) indexRoot(root string) {
 
 	s.log.Info("indexing workspace", cflog.String("root", root))
 
-	err := s.FS.Walk(root, func(path string, info os.FileInfo, err error) error {
+	// The same file set as collectCFCFiles: this walk once had no skip rule, so
+	// a folder added mid-session indexed its node_modules and dot-directories
+	// that the startup scan would have skipped.
+	for _, path := range s.collectCFCFiles(root) {
+		fileURI := uri.File(path)
+		// Skip files already open in the editor — their buffer
+		// content was indexed via didOpen and may be newer than disk.
+		if _, open := s.getDocument(fileURI); open {
+			continue
+		}
+
+		data, err := s.FS.ReadFile(path)
 		if err != nil {
-			return err
+			s.log.Warn("skipping file", cflog.String("path", path), cflog.Err(err))
+
+			continue
 		}
 
-		if info.IsDir() {
-			// The same rule as collectCFCFiles. This walk had none at all, so
-			// a folder added mid-session indexed its node_modules and its
-			// dot-directories that the startup scan would have skipped.
-			if path != root && skipScanDir(info.Name()) {
-				return filepath.SkipDir
-			}
-
-			return nil
+		if cfpath.IsBinary(data) {
+			continue
 		}
 
-		if cfpath.IsCFCFile(path) {
-			fileURI := uri.File(path)
-			// Skip files already open in the editor — their buffer
-			// content was indexed via didOpen and may be newer than disk.
-			if _, open := s.getDocument(fileURI); open {
-				return nil
-			}
-
-			data, err := s.FS.ReadFile(path)
-			if err != nil {
-				s.log.Warn("skipping file", cflog.String("path", path), cflog.Err(err))
-
-				return nil
-			}
-
-			if cfpath.IsBinary(data) {
-				return nil
-			}
-
-			s.applyIndexResult(fileURI, path, s.parseContentForIndex(fileURI, string(data)))
-		}
-
-		return nil
-	})
-	if err != nil {
-		s.log.Error("failed to walk directory", cflog.String("root", root), cflog.Err(err))
+		s.applyIndexResult(fileURI, path, s.parseContentForIndex(fileURI, string(data)))
 	}
 }
 

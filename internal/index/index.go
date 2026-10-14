@@ -486,24 +486,21 @@ func remap[T comparable](entries []T, reps []replacement[T]) {
 }
 
 // IndexFile parses the given CFC content and updates the index for that file URI.
+//
+// It parses with no workspace rules: no resolver, mapping or lookup. That is
+// right for the index package's own fixtures and wrong for a workspace, where
+// the one way to index a component is a parse by the resolver
+// ([resolve.Resolver.ParseFile] with IndexSpec) handed to [Index.IndexParsed];
+// the editor, the batch commands and the lazy lookup all do that.
 func (idx *Index) IndexFile(fileURI uri.URI, content string) {
 	pr := parser.Parse(fileURI, content)
 	idx.indexParseResult(fileURI, content, pr)
 }
 
-// IndexFileWithResolvers parses and indexes a CFC using the component
-// resolvers that govern its workspace. Batch tools use this entry point so a
-// resolver-typed function return survives into callers parsed later; the
-// ordinary IndexFile remains the cheap/default path for callers with no
-// configured resolvers.
-func (idx *Index) IndexFileWithResolvers(fileURI uri.URI, content string, resolvers []parser.Resolver) {
-	pr := parser.Parse(fileURI, content, resolvers)
-	idx.indexParseResult(fileURI, content, pr)
-}
-
-// IndexFileWithOptions indexes with the same dependency typing as the editor.
-func (idx *Index) IndexFileWithOptions(fileURI uri.URI, content string, opts *parser.ParseOptions) {
-	pr := parser.ParseWithOptions(fileURI, content, opts)
+// IndexParsed indexes a file whose parse the caller has made, with whatever
+// rules the caller parsed it by: the parse a batch run indexes by is the same
+// one it then reads calls from.
+func (idx *Index) IndexParsed(fileURI uri.URI, content string, pr *parser.ParseResult) {
 	idx.indexParseResult(fileURI, content, pr)
 }
 
@@ -792,31 +789,26 @@ func (idx *Index) removeFileEntries(fileURI uri.URI) {
 // they are filed under, so a bucket sweep only has to consider the entries that
 // could actually be in it.
 func groupFuncsByName(defs []*parser.FunctionDef) map[string][]*parser.FunctionDef {
-	if len(defs) == 0 {
-		return nil
-	}
-
-	byName := make(map[string][]*parser.FunctionDef, len(defs))
-	for _, d := range defs {
-		k := strings.ToLower(d.Name)
-		byName[k] = append(byName[k], d)
-	}
-
-	return byName
+	return groupByLower(defs, func(d *parser.FunctionDef) string { return d.Name })
 }
 
 func groupRefsByVariable(refs []*parser.ComponentRef) map[string][]*parser.ComponentRef {
-	if len(refs) == 0 {
+	return groupByLower(refs, func(r *parser.ComponentRef) string { return r.Variable })
+}
+
+// groupByLower buckets items by the lowercased key; nil for no items.
+func groupByLower[T any](items []T, key func(T) string) map[string][]T {
+	if len(items) == 0 {
 		return nil
 	}
 
-	byVar := make(map[string][]*parser.ComponentRef, len(refs))
-	for _, r := range refs {
-		k := strings.ToLower(r.Variable)
-		byVar[k] = append(byVar[k], r)
+	out := make(map[string][]T, len(items))
+	for _, it := range items {
+		k := strings.ToLower(key(it))
+		out[k] = append(out[k], it)
 	}
 
-	return byVar
+	return out
 }
 
 // dropEntries removes group's entries from a bucket, for the caller that knows

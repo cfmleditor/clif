@@ -2,9 +2,12 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
+
+	cfpath "github.com/cfmleditor/clif/internal/path"
 
 	"github.com/cfmleditor/clif/internal/daemon"
 	"github.com/cfmleditor/clif/internal/resolve"
@@ -18,11 +21,20 @@ import (
 // call, and why the final method-exists check passed or failed. This turns a manual
 // trace through script_parser.go/tag_parser.go/result.go/resolve.go into one command.
 func cmdExplain(args []string) {
-	var configRoot string
+	var (
+		configRoot string
+		fl         unresolvedFlags
+	)
 
 	var filteredArgs []string
 
 	for i := 0; i < len(args); i++ {
+		if args[i] == "--no-infer-args" {
+			fl.noInferArgs = true
+
+			continue
+		}
+
 		if args[i] == "--root" && i+1 < len(args) {
 			configRoot = args[i+1]
 			i++
@@ -71,19 +83,7 @@ func cmdExplain(args []string) {
 		searchDir = abs
 	}
 
-	// The resolver and the parse are the unresolved scan's own, so the trace
-	// explains the verdict the report gives.
-	cfg, _ := daemon.FindConfig(searchDir)
-	if cfg != nil {
-		fmt.Fprintf(os.Stderr, "Using config: %s\n", cfg.Path)
-	}
-
-	opt := unresolvedOptions(cfg, []string{searchDir}, &unresolvedFlags{})
-	files := collectCFMLFiles(fsys, opt.WorkspaceFolders)
-
-	fmt.Fprintf(os.Stderr, "Indexing %d files...\n", len(files))
-
-	resolver := unresolved.NewResolver(fsys, files, opt)
+	env := newExplainEnv(fsys, searchDir, false, &fl)
 
 	data, err := fsys.ReadFile(file)
 	if err != nil {
@@ -91,17 +91,52 @@ func cmdExplain(args []string) {
 		os.Exit(1)
 	}
 
-	baseDir := filepath.Dir(file)
-	pr := unresolved.Parse(resolver, file, string(data), opt)
-
-	// The selection and the report are shared with clif.explainCall, so
-	// the server's answer reads exactly as this one does.
-	matches := resolve.CallsOnLine(pr, line-1, filter)
-
-	if len(matches) == 0 {
+	if !env.explain(os.Stdout, file, string(data), line, filter) {
 		fmt.Fprintf(os.Stderr, "no call sites found on %s:%d\n", file, line)
 		os.Exit(1)
 	}
+}
 
-	resolver.WriteExplanation(os.Stdout, file, line-1, matches, pr, baseDir)
+// explainEnv is what an explanation is made with: the unresolved scan's own
+// options and resolver, so the trace explains the verdict the report gives. The
+// CLI and the MCP tool both build one; the MCP tool had its own, without the
+// bean resolvers, the assumed framework, or the scan's indexing and parse.
+type explainEnv struct {
+	opt      *unresolved.Options
+	resolver *resolve.Resolver
+}
+
+// newExplainEnv takes the flags the unresolved report was run with, so a trace
+// can be made under the same ones; the MCP tool passes none.
+func newExplainEnv(fsys vfs.FS, searchDir string, quiet bool, fl *unresolvedFlags) *explainEnv {
+	cfg, _ := daemon.FindConfig(searchDir)
+	if cfg != nil && !quiet {
+		fmt.Fprintf(os.Stderr, "Using config: %s\n", cfg.Path)
+	}
+
+	opt := unresolvedOptions(cfg, []string{searchDir}, fl)
+	files := cfpath.CollectCFML(fsys, opt.WorkspaceFolders)
+
+	if !quiet {
+		fmt.Fprintf(os.Stderr, "Indexing %d files...\n", len(files))
+	}
+
+	return &explainEnv{opt: opt, resolver: unresolved.NewResolver(fsys, files, opt)}
+}
+
+// explain writes the trace of every call on a 1-based line of file, narrowed by
+// filter, and reports whether there were any. The selection and the report are
+// shared with clif.explainCall, so the server's answer reads exactly as this
+// one does.
+func (e *explainEnv) explain(w io.Writer, file, content string, line int, filter string) bool {
+	pr := unresolved.Parse(e.resolver, file, content)
+
+	matches := resolve.CallsOnLine(pr, line-1, filter)
+	if len(matches) == 0 {
+		return false
+	}
+
+	e.resolver.WriteExplanation(w, file, line-1, matches, pr, filepath.Dir(file))
+
+	return true
 }

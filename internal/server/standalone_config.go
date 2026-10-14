@@ -91,6 +91,8 @@ func (s *Server) configureSession(editorCfg *config.JSON) {
 	// which is quieter and was not noticed.
 	prev := s.optionalBlocks()
 
+	s.WorkspaceFolders = nil
+	s.IndexGlobs = nil
 	s.Mappings = nil
 	s.ExpressionMappings = nil
 	s.ServicePropertyResolvers = nil
@@ -99,7 +101,14 @@ func (s *Server) configureSession(editorCfg *config.JSON) {
 	s.BeanPaths = nil
 	s.Frameworks = nil
 
-	s.applyConfig(config.Resolve(merged, dir))
+	// A config read from a file is resolved as a file is, which maps the folder
+	// holding it under its own name; one the editor sent has no folder to name.
+	resolved := config.Resolve(merged, dir)
+	if fileCfg != nil {
+		resolved = config.ResolveFile(merged, path)
+	}
+
+	s.applyConfig(resolved)
 	s.restoreUnmentionedBlocks(merged, &prev)
 }
 
@@ -287,6 +296,16 @@ func (s *Server) skipUntrustedConfig(path, reason string) {
 func (s *Server) applyConfig(r *config.Resolved) {
 	s.invalidateResolver()
 	s.CallerInferenceLimits = r.CallerInferenceLimits
+
+	// The config's own workspace folders and index globs, as a daemon session has
+	// always had them; an editor that sent none still indexes its own roots.
+	if len(r.WorkspaceFolders) > 0 && len(s.WorkspaceFolders) == 0 {
+		s.WorkspaceFolders = r.WorkspaceFolders
+	}
+
+	if len(r.IndexGlobs) > 0 && len(s.IndexGlobs) == 0 {
+		s.IndexGlobs = r.IndexGlobs
+	}
 
 	if len(r.Mappings) > 0 && len(s.Mappings) == 0 {
 		s.Mappings = r.Mappings

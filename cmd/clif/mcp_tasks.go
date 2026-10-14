@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 
+	cfpath "github.com/cfmleditor/clif/internal/path"
+
 	"github.com/cfmleditor/clif/internal/cflint"
 	"github.com/cfmleditor/clif/internal/codemap/mcp"
 	"github.com/cfmleditor/clif/internal/confine"
@@ -157,7 +159,8 @@ func mcpFindRefs(root, target string, paths []string, limit int) (any, error) {
 	}
 
 	target = strings.TrimSpace(target)
-	resolvers := loadResolversFromConfig(abs)
+	fsys := vfs.OS{}
+	resolver := workspaceResolver(abs, cfpath.CollectCFML(fsys, abs))
 
 	var (
 		entries []refs.Entry
@@ -165,9 +168,9 @@ func mcpFindRefs(root, target string, paths []string, limit int) (any, error) {
 	)
 
 	if strings.Contains(target, ".") {
-		entries, scanned = refs.FindComponentRefs(vfs.OS{}, abs, target, resolvers)
+		entries, scanned = refs.FindComponentRefs(fsys, abs, target, resolver)
 	} else {
-		entries, scanned = refs.FindCalls(vfs.OS{}, abs, target, resolvers)
+		entries, scanned = refs.FindCalls(fsys, abs, target, resolver)
 	}
 
 	list := make([]reference, 0, len(entries))
@@ -227,7 +230,7 @@ func newMCPLinter(root string) mcp.Linter {
 			runner = r
 		}
 
-		files := collectCFMLFiles(vfs.OS{}, abs)
+		files := cfpath.CollectCFML(vfs.OS{}, abs)
 		if len(files) == 0 {
 			return nil, errors.New("no CFML files under the paths given")
 		}

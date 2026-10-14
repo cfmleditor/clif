@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cfmleditor/clif/internal/confine"
+
 	"github.com/cfmleditor/clif/internal/vfs"
 
 	cflog "github.com/cfmleditor/clif/internal/log"
@@ -255,7 +257,7 @@ func hookInstall(args []string) {
 	}
 
 	rel, err := filepath.Rel(repo, dir)
-	if err != nil || strings.HasPrefix(rel, "..") {
+	if err != nil || !confine.Within(dir, []string{repo}) {
 		rel = dir
 	}
 

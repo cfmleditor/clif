@@ -1845,11 +1845,22 @@ func (f *Formatter) isWhitespaceNode(n *sitter.Node) bool {
 }
 
 func (f *Formatter) formatChildren(n *sitter.Node) {
+	children := make([]*sitter.Node, 0, n.ChildCount())
+	for i := range n.ChildCount() {
+		children = append(children, n.Child(i))
+	}
+
+	f.formatNodes(children)
+}
+
+// formatNodes formats siblings in order, with a blank line between two groups of
+// tags (a different kind of tag, a block tag, or after a multi-line one) unless a
+// comment sits between them.
+func (f *Formatter) formatNodes(nodes []*sitter.Node) {
 	prevTagKind := ""
 	prevWasComment := false
 
-	for i := range n.ChildCount() {
-		c := n.Child(i)
+	for _, c := range nodes {
 		kind := f.nodeTagKind(c)
 
 		if kind != "" && prevTagKind != "" && !prevWasComment && !f.nodeIsComment(c) &&
@@ -2674,28 +2685,7 @@ func (f *Formatter) formatCFIfTag(n *sitter.Node) {
 	f.level++
 	f.write("\n")
 
-	prevTagKind2 := ""
-	prevWasComment2 := false
-
-	for _, c := range bodyNodes {
-		tagKind := f.nodeTagKind(c)
-		if tagKind != "" && prevTagKind2 != "" && !prevWasComment2 && !f.nodeIsComment(c) &&
-			(tagKind != prevTagKind2 || f.isBlockTagKind(c) || f.lastTagMultiLine) {
-			f.write("\n")
-		}
-
-		f.formatNode(c)
-
-		if f.isWhitespaceNode(c) {
-			continue
-		}
-
-		if tagKind != "" && !f.nodeIsComment(c) {
-			prevTagKind2 = tagKind
-		}
-
-		prevWasComment2 = f.nodeIsComment(c)
-	}
+	f.formatNodes(bodyNodes)
 
 	f.level--
 
@@ -2786,28 +2776,7 @@ func (f *Formatter) formatCFIfAlt(n *sitter.Node) {
 	f.level++
 	f.write("\n")
 
-	prevAltTagKind := ""
-	prevAltWasComment := false
-
-	for _, c := range bodyNodes {
-		tagKind := f.nodeTagKind(c)
-		if tagKind != "" && prevAltTagKind != "" && !prevAltWasComment && !f.nodeIsComment(c) &&
-			(tagKind != prevAltTagKind || f.isBlockTagKind(c) || f.lastTagMultiLine) {
-			f.write("\n")
-		}
-
-		f.formatNode(c)
-
-		if f.isWhitespaceNode(c) {
-			continue
-		}
-
-		if tagKind != "" && !f.nodeIsComment(c) {
-			prevAltTagKind = tagKind
-		}
-
-		prevAltWasComment = f.nodeIsComment(c)
-	}
+	f.formatNodes(bodyNodes)
 
 	f.level--
 

@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/cfmleditor/clif/internal/confine"
 )
 
 // levels is com.cflint.Levels in its declared order, which is the order
@@ -238,7 +240,7 @@ func WriteSARIF(w io.Writer, run *Run, root string) error {
 			loc := &issue.Locations[j]
 			al := artifactLocation{URI: filepath.ToSlash(loc.File)}
 
-			if rel, err := filepath.Rel(root, loc.File); err == nil && root != "" && filepath.IsAbs(loc.File) && !strings.HasPrefix(rel, "..") {
+			if rel, err := filepath.Rel(root, loc.File); err == nil && root != "" && filepath.IsAbs(loc.File) && confine.Within(loc.File, []string{root}) {
 				al = artifactLocation{URI: (&url.URL{Path: filepath.ToSlash(rel)}).EscapedPath(), URIBaseID: "SRCROOT"}
 			}
 

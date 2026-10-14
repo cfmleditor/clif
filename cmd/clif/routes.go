@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -129,9 +128,7 @@ func cmdRoutes(args []string) {
 
 	switch format {
 	case "json":
-		enc := json.NewEncoder(w)
-		enc.SetIndent("", "  ")
-		err = enc.Encode(map[string]any{"scanned": scanned, "resolved": resolved, "unresolved": unresolved})
+		err = writeJSON(w, map[string]any{"scanned": scanned, "resolved": resolved, "unresolved": unresolved})
 	case "md", "markdown":
 		err = writeRouteMarkdown(w, resolved, unresolved, scanned, limit)
 	case "text":
@@ -252,7 +249,7 @@ func routeScanSetup(fsys vfs.FS, root string, paths []string, quiet bool) (*conf
 	configs := newConfigSet(fsys, shared, &fallback)
 	configs.preload(scanRoots)
 
-	return configs, collectCFMLFiles(fsys, scanRoots)
+	return configs, cfpath.CollectCFML(fsys, scanRoots)
 }
 
 // printRouteReport groups the findings by the leading segments of the route,

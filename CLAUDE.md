@@ -110,7 +110,8 @@ The binary is an LSP server by default; `os.Args[1]` selects a subcommand
 | `deps` | `deps [--mermaid] <dir-or-file> [...]` — transitive dependency graph, built through `deps.Build` so the CLI and `clif.exportDeps` answer alike |
 | `graph` | `graph [--level function\|call\|file\|package] [--format text\|json\|jsonl\|dot\|mermaid\|html] [--db <file>] [--out <f>] [--live\|--detached\|--from <id>] [--under <p>] <dir> [...]` — whole-project code map |
 | `mcp` | `mcp [--db <file>] [--root <dir>] [--allow-lint] [--map-only] [--no-explain]` — serve the workspace over MCP on stdio: unresolved, refs and explain from source, the map's tools with `--db`, CFLint with `--allow-lint`. Writes nothing: the map is opened read-only (`store.OpenReadOnly`), and every path a tool is given must lie under `--root` (or the map's root, or the working directory) after symlinks |
-| `explain` | `explain [--root <dir>] <file> <line> [call-substring]` — trace how a call site resolved |
+| `explain` | `explain [--root <dir>] [--no-infer-args] <file> <line> [call-substring]` — trace how a call site resolved, and what the unresolved report does with it |
+| `unresolved-diff` | `unresolved-diff [--show <n>] [--root <dir>] <before.json> <after.json>` — compare two `unresolved --json` runs finding by finding, the removed and added grouped by reason. How to judge a resolution change: run the old and the new build over a corpus, save each `--json`, diff them (`make resolution-report BASELINE=… SHOW=5` does the same through `unresolved.Diff`) |
 | `version`, `help` | |
 
 `cmd/cfparse` is a separate debug binary for parser development (timing + `-cpuprofile`).
@@ -123,7 +124,7 @@ everywhere; read both.** README.md's "Formerly cfmleditor-lsp" lists each pair.
 The fallbacks live in one place each, with a test that fails if it goes:
 
 - config file: `config.FileNames` (`.clif.json` before `.cfmleditor.json`), used by
-  `daemon.FindConfig`, `Server.findConfigUpwards`, `loadResolversFromConfig` and the
+  `daemon.FindConfig`, `Server.findConfigUpwards` and the
   code map's config preload. `TestFindConfigPrefersClifJSON`, `TestAClifConfigOutranksALegacyOne`.
 - commands: `canonicalCommand` maps `cfmleditor.X` to `clif.X` before dispatch; only
   `clif.*` is advertised. `TestLegacyCommandNamesStillRun`, `TestOnlyTheNewCommandNamesAreAdvertised`.
@@ -728,6 +729,122 @@ moves a method. Editing any `.cfc` therefore invalidates everything; editing `.c
 pages does not, unless the edit changes what the page `<cfinclude>`s. `PruneCache` keeps
 one generation, since older ones can never match.
 
+**`Options.InferArgs` makes the map accept what `unresolved` accepts.** `unresolved` types an
+untyped argument from what every caller passes it (`Resolver.InferArgsFiles`); the map's
+resolver never set that, so `thing.ping()` in `use( thing )` was an unresolved edge to an
+external node where `unresolved` reported nothing. `clif graph` turns it on (`--no-infer-args`
+opts out); `Build` sets it on each resolver `ConfigFor` hands out for the length of the build
+and restores it, so the editor's `generateCodeMap`, which shares a live resolver, leaves it off.
+A caller may be a page, so with it on the fingerprint covers every template's content and
+editing a `.cfm` invalidates the cache, which it otherwise does not.
+`TestTheMapTypesAnArgumentAsUnresolvedDoes`, `TestInferringArgumentsWidensTheFingerprintToPages`.
+
+**`unresolved`, `explain`, `deps`, the MCP tools and the code map share one batch pipeline, and a
+change goes into it, not into one command.** Each had its own copy and each had drifted: on Masa CMS
+(no `.clif.json`) `unresolved` assumed the mura preset and added the startup beans' resolvers, and
+the map did neither, so the map reported 21,962 unresolved calls to `unresolved`'s 3,786. The
+pieces, each used by every command that resolves in bulk:
+- `batchSettings` (`cmd/clif/batch_settings.go`) reduces a config, or the framework a project is
+  assumed to be, to a `resolve.Settings`; `unresolved.Options.Settings`/`UseSettings` convert to and
+  from it. A new setting goes into `Settings` and `batchSettings`.
+- `resolve.NewBatchResolver` builds the resolver (snapshot scan, `vfs.CacheMetadata`, Lucee
+  detection, `BeanResolvers`); `Resolver.IndexFiles`/`IndexForBatch` index in parallel with the
+  resolver's own rules; `Resolver.BatchParseOptions` is what a scan parses calls with (setter,
+  constructor and injected-bean lookups included).
+- `Resolver.ClassifyCall` decides what a call is: accepted, builtin, global definition, missing
+  base or unresolved. The map had its own copy that hid a call as a builtin when it had a chain
+  (`f().len()`) and by a shorter list of names, which is why it stayed a few dozen to a hundred
+  calls from `unresolved` after everything else matched. `resolve.IsBuiltin` is the one list.
+- `explainEnv` (`cmd/clif/explain.go`) is the CLI's and the MCP tool's explain, built with the
+  scan's own options (inference on, `--no-infer-args` to match a run that used it). Its trace is
+  `canResolveCall` with a recorder, and `WriteExplanation` ends every call with a `report:` line,
+  `ClassifyReason` applied to the reason just printed, so a built-in or a missing-base call says what
+  the report does with it instead of a bare "unresolved". The editor's `clif.explainCall` prints
+  the same line but traces with the session's live resolver, which does not infer arguments.
+  `batchFileConfig` is the map's per-file environment, fallback and per-config alike.
+**There is one way to parse a file of a workspace, and it is the resolver's.** `Resolver.ParseFile(file,
+content, spec)` parses a file as the workspace types it: the resolvers, mappings and property rules the
+resolver was built with (`PropertyResolvers`, `ServicePropertyResolvers`, `InterpolateAllText` are fields
+of it, set from `Settings`) and the five lookups that type an injected dependency or a function's
+return. The caller says only what it wants (`ParseSpec`: `Calls`, `AllScopes`, `Links`, `Shallow`,
+`FindCalls`, a logger). Every parse of a workspace file goes through it: the unresolved scan and
+`explain` (`BatchSpec`), the code map (`BatchSpec` plus links), the editor's live parse (calls only on
+request, signatures only for an ordinary file's index entry), `refs`, `deps`, and the index a batch run
+builds (`IndexSpec`). Two specs type a call by the configured resolvers alone (`ByResolversOnly`) and
+that is deliberate: a scan wants `getService("X")` to be what getService returns, which is `$any`, and a
+dependency graph or a reference search wants the component the resolver names; an index parse must not
+read another file's declared return, which indexing in parallel would make depend on which worker got
+there first (`IndexSpec`; it was the first thing the move changed, caught by `unresolved`'s output no
+longer being byte-identical). What does not go through it is not a workspace file as the workspace types
+it: `resolve`'s own reads of framework internals, `config`'s detection of a tool, `cfstubgen`, and the
+editor's folding and docblock reads of text. The index has `Index.IndexParsed` for a parse the caller made.
+
+**One resolver, built in one place.** `resolve.NewResolver` builds every resolver from a `Settings` (field
+mapping, Lucee detection); `NewBatchResolver` adds snapshot mode and `CacheMetadata`; the editor adds its
+discovery and `IndexTracksFiles`. `Resolver.Settings()` reads a resolver back for a tool that builds
+another run from it (the editor's export of the unresolved report, which also infers arguments as the CLI
+does). The code map's `FileConfig` is the resolver and its routes and nothing else: the six fields it
+copied from the resolver are gone, and so is `refs`' own bean lookup and its parse.
+
+**A `.clif.json` is read one way: `config.ResolveFile`.** The command line (`daemon.Config`), the daemon
+(`daemon.SettingsFrom`) and the standalone editor (`configureSession`) all resolve a config file through it,
+which is `config.Resolve` plus the one thing only a file has: the folder holding it maps under its own
+name (`ImpliedMapping`). `daemon.Config` is `Resolved()` and one-line delegates; `server.Settings` and
+`Server` both embed `config.Resolved`, so a config key is added once, to `Resolved`, and reaches the CLI,
+every daemon session and the standalone editor. A project with no config is `config.Assumed` (the framework
+its source is, as a `Resolved`), and `resolve.SettingsFromConfig` turns any `Resolved` into the resolver's
+settings: the batch commands and the editor's `getResolver` both call it, and `unresolved.Options` embeds
+`resolve.Settings` instead of repeating its fields. Things that moved with it, each with a test that
+fails without it: an absent `formatting` block resolves to the documented defaults, not the zero value that
+left the whitespace-only guard off (`TestResolve_FormattingAbsentIsTheDocumentedDefaults`); the standalone
+editor applies the implied mapping (`TestTheEditorMapsAConfigsOwnFolderAsTheCommandLineDoes`) and takes
+`workspacePaths` and `workspaceIndexGlobs`, which it ignored, from the config
+(`TestTheEditorHonoursWorkspacePathsAsADaemonSessionDoes`). The server's `restoreUnmentionedBlocks` decides
+from the JSON (`merged.Formatting == nil`), not from `Resolved`, which is why the formatting default is safe.
+
+**A dependency graph is `deps.BuildDocument`, for both `clif deps` and `clif.exportDeps`.** They differ in
+how a file is parsed and in nothing else: the document's calls (`deps.DocumentCalls`), the refs fallback
+and the memoising walk (`deps.CallLoader`) are shared, and both parse with `resolve.DepsSpec()`, which types
+a call by the configured resolvers and not by what the called function declares it returns. The editor
+used the scan's parse and drew `$any` for `getService("UserService")` where the command line drew the
+component, while a comment in `deps.go` said they matched
+(`TestExportDepsDrawsTheComponentTheResolverNames`). Bean maps load through `Resolver.LoadBeans`, which the
+server's lazy load had written out again; the server's assumed-framework decision is `assumedConfig`,
+`config.Assumed` read through the discovery filesystem. Two of the three private resolvers in `resolve` and
+`server` (the discovery ones) are minimal on purpose, with a private index; the third, the caller-context
+view, is a full copy, and `TestACallerContextViewCarriesEveryField` fails when a field is added to
+`Resolver` and the view forgets it.
+
+**Walking a workspace is `cfpath.CollectCFML`**, with the skip rule in `cfpath.SkipScanDir` (below): the CLI,
+the code map, the editor's scans and `refs` each had a walker, two with their own copy of the rule and one
+with none. Component indexing is one door, `Index.IndexParsed` over `Resolver.ParseFile` with `IndexSpec`
+(a batch run, the lazy `EnsureIndexed` and the editor's re-index on save); `Index.IndexFile` is the bare
+parse with no workspace rules, for the index package's own fixtures.
+
+**`refs` is the same question everywhere.** `refs.Options` takes the workspace's `Resolver`: a call's
+component must define the function, and with a `SourceFile` be the one searched for, and `Explain` gives an
+unresolved call its reason from `CanResolveCall`. The editor's find-references, `clif refs` and the MCP
+`find_references` each wired their own closures, or none, and answered differently; on ColdBox the new
+CLI drops 2 of 113 hits for `getInstance` and 3 of 78 for `announce`, calls on a chain's first receiver
+(`controller.getInterceptorService().announce()`) that the old code credited to the wrong component. A
+component the resolver cannot locate defines nothing, so its calls are dropped too, as the editor always
+did. `TestRefsVerifiesAHitAgainstItsComponent`.
+**`unresolved` reads each file under its own nearest `.clif.json`, as the map does**
+(`unresolved.Options.ResolverFor`, wired by `perFileResolver` over the map's `configSet`; indexing
+is grouped by governing resolver too, all sharing one index). `--one-config` restores the single
+config above the first path. Speculative scans ignore the hook.
+`TestUnresolvedReadsEachFileUnderItsOwnConfig`.
+After the change the map's unresolved count equals `unresolved`'s exactly on Masa (3,786 with
+inference, 5,417 without), ColdBox (3,974, 3,981) and TestBox (929, 976), and `unresolved`'s own
+output is byte-identical to before. Differences that remain are on purpose: `deps` parses with its
+own light options (a scan types `getService("X")` by what getService returns, which is `$any`
+where the resolver names the component, and a dependency graph wants the component); `unresolved`
+reports a missing base once per file and the map counts the calls; and the editor server's
+resolver is a live per-session one, not a batch one.
+`TestGraphAssumesTheFrameworkUnresolvedAssumes` (cmd), `TestTheMapResolvesWhatUnresolvedResolves`
+and `TestClassifyCallIsTheOneDecision`. The second needs the index, the parse and the bean lookup
+all reverted before it fails, because any one types the fixture's property.
+
 **`indexPass` records every template's includes before the scan starts.** A bare call
 in a page resolves through the include graph (a page calling a function its includer
 declares, as Lucee's admin pages do), and it recorded only components' includes, so a
@@ -818,7 +935,7 @@ real workspace (`init`, `add`, `close`, `get`, `isValid`, the `onXxx` handlers) 
 both declared functions and something `isBuiltin` recognises. Testing the name
 first discarded every bare call to them before anything looked for a definition.
 
-**`collectCFMLFiles` skips every dot-directory**, not a list of named ones. The list
+**`cfpath.SkipScanDir` skips every dot-directory**, not a list of named ones. The list
 was `.git`/`.svn`/`node_modules`/`target`/`vendor`, and on a real workspace it let in
 `.claude/worktrees` — git worktrees holding a complete second copy of the codebase,
 which doubled every count and added thousands of phantom entries to the unreferenced
@@ -1949,8 +2066,7 @@ component { function init(...) {} function methodName(required type argName) {} 
 Set `"javaStubsPath": "<dot.path.to.stubs>"` to auto-resolve any `createObject("java",
 "some.Class.Name")` to `<javaStubsPath>.some.Class.Name` without hand-writing the equivalent
 regex resolver — it's synthesized and appended alongside your own `componentResolvers`
-(`config.JavaStubResolver`, wired in `config.Resolve`, `daemon.Config.ComponentResolvers`, and
-`cmd/clif/cliutil.go: loadResolversFromConfig`). It covers the `createObject("java",
+(`config.JavaStubResolver`, wired in `config.Resolve`, which every reader of a config goes through). It covers the `createObject("java",
 ...)` call site and Lucee's `new java:some.Class.Name()` — the latter because
 `readNewComponent` recognises the `java:` type prefix and re-spells it as the equivalent
 `createObject` expression before resolving, rather than a second resolver existing for it.

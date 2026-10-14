@@ -86,7 +86,7 @@ func TestMCPToolsStayInsideTheRoot(t *testing.T) {
 		}
 	}
 
-	if _, err := explainAt(root, nil, explainConfig{}, secret, 1, ""); err == nil || !strings.Contains(err.Error(), "outside the workspace root") {
+	if _, err := explainAt(root, nil, secret, 1, ""); err == nil || !strings.Contains(err.Error(), "outside the workspace root") {
 		t.Errorf("explain_call on a file outside the root: %v, want a refusal", err)
 	}
 

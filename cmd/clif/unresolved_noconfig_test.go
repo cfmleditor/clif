@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	cfpath "github.com/cfmleditor/clif/internal/path"
+
 	"github.com/cfmleditor/clif/internal/unresolved"
 	"github.com/cfmleditor/clif/internal/vfs"
 )
@@ -48,7 +50,7 @@ func TestUnresolvedWithoutAConfig(t *testing.T) {
 
 	fsys := vfs.OS{}
 	opt := unresolvedOptions(nil, []string{root}, &unresolvedFlags{})
-	rep := unresolved.Scan(fsys, collectCFMLFiles(fsys, opt.WorkspaceFolders), nil, opt)
+	rep := unresolved.Scan(fsys, cfpath.CollectCFML(fsys, opt.WorkspaceFolders), nil, opt)
 
 	reasons := make(map[string]string)
 

@@ -16,7 +16,6 @@ import (
 
 	"github.com/cfmleditor/clif/internal/frameworkapi"
 
-	"github.com/cfmleditor/clif/internal/docs"
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
 	"github.com/cfmleditor/clif/internal/resolve"
@@ -51,24 +50,14 @@ const (
 // signatures are a property of the workspace, not of whose config you read them
 // under. Only the resolver chain and the mappings differ.
 type FileConfig struct {
-	Resolver                 *resolve.Resolver
-	Resolvers                []parser.Resolver
-	ExpressionMappings       map[string]string
-	ServicePropertyResolvers map[string]string
-	PropertyResolvers        []parser.PropertyResolver
-
-	// BeanLookup types an injected property from the workspace's bean map,
-	// as the editor does (parser.ParseOptions.BeanLookup). Nil leaves the
-	// injection's id to name the component.
-	BeanLookup func(string) string
+	// Resolver carries everything a parse and a resolution of this file take:
+	// the resolvers, mappings, property rules and lookups. The map parses with
+	// it exactly as `unresolved` does (resolve.Resolver.ParseFile).
+	Resolver *resolve.Resolver
 
 	// Routes, when set, resolves the framework routes found in this file's
 	// source. Nil leaves route edges out entirely.
 	Routes *route.Resolver
-
-	// InterpolateAllText is parser.ParseOptions.InterpolateAllText: the
-	// features.outputContextInterpolation switch turned off.
-	InterpolateAllText bool
 }
 
 // Options configures a build.
@@ -84,12 +73,6 @@ type Options struct {
 	FS       vfs.FS
 	Resolver *resolve.Resolver
 
-	Resolvers                []parser.Resolver
-	ExpressionMappings       map[string]string
-	ServicePropertyResolvers map[string]string
-	PropertyResolvers        []parser.PropertyResolver
-	BeanLookup               func(string) string
-
 	// Workers bounds the scan's parallelism. Zero means GOMAXPROCS.
 	Workers int
 
@@ -103,6 +86,20 @@ type Options struct {
 	// every file calls len() and structNew(), and the edges say nothing about the
 	// project's own structure.
 	IncludeBuiltins bool
+
+	// InferArgs types an untyped argument from what every caller passes it, as
+	// `unresolved` does by default (resolve.Resolver.InferArgsFiles). Without it
+	// the map leaves as unresolved a call `unresolved` accepts, and Svc::use has
+	// no edge into the component its argument always holds.
+	//
+	// It is opt-in because it changes what the resolver does for as long as Build
+	// runs: the resolvers ConfigFor hands out get InferArgsFiles set to the
+	// scanned files, and have it cleared on return, so a caller sharing a live
+	// resolver with other work (the editor's) must leave it off. It also widens
+	// the cache fingerprint to every template's content, since a caller may be a
+	// page: an edit to one then invalidates the cache, which it otherwise does
+	// not.
+	InferArgs bool
 
 	// EntryGlobs marks files as entry points by path, in addition to the ones the
 	// map works out for itself (.cfm pages, remote methods, Application.cfc hooks).
@@ -213,15 +210,13 @@ func Build(opts *Options) *Map {
 	}
 
 	if opts.ConfigFor == nil {
-		single := FileConfig{
-			Resolver:                 opts.Resolver,
-			Resolvers:                opts.Resolvers,
-			ExpressionMappings:       opts.ExpressionMappings,
-			ServicePropertyResolvers: opts.ServicePropertyResolvers,
-			PropertyResolvers:        opts.PropertyResolvers,
-			BeanLookup:               opts.BeanLookup,
-		}
+		single := FileConfig{Resolver: opts.Resolver}
 		opts.ConfigFor = func(string) FileConfig { return single }
+	}
+
+	// Before the index pass: indexing a file is what fills the caller index.
+	if opts.InferArgs {
+		defer inferArgsFrom(opts)()
 	}
 
 	fingerprint := indexPass(opts)
@@ -302,9 +297,50 @@ func Build(opts *Options) *Map {
 // sorted order, so it is stable across runs and across the parallel scan that
 // follows.
 func indexPass(opts *Options) string {
+	// Indexing is the shared parallel pass; what the fingerprint needs from each
+	// file is collected as it goes and written out in sorted order afterwards, so
+	// it does not depend on which worker finished first.
+	type indexed struct {
+		includes []string
+		sum      [sha256.Size]byte
+	}
+
+	var (
+		mu   sync.Mutex
+		got  = make(map[string]indexed, len(opts.Files))
+		done int
+	)
+
+	opts.Resolver.IndexFiles(opts.Files, func(f, content string, includes []string) {
+		var ix indexed
+
+		ix.includes = includes
+
+		// A component's content is always part of the environment; a page's only
+		// when InferArgs is on, because it can then be the caller that types an
+		// argument.
+		if cfpath.IsCFCFile(f) || opts.InferArgs {
+			ix.sum = sha256.Sum256([]byte(content))
+		}
+
+		mu.Lock()
+		defer mu.Unlock()
+
+		got[f] = ix
+		done++
+
+		if opts.Progress != nil {
+			opts.Progress(PhaseIndex, done, len(opts.Files))
+		}
+	})
+
 	var cfcs, templates []string
 
 	for _, f := range opts.Files {
+		if _, ok := got[f]; !ok {
+			continue
+		}
+
 		if cfpath.IsCFCFile(f) {
 			cfcs = append(cfcs, f)
 		} else {
@@ -320,22 +356,12 @@ func indexPass(opts *Options) string {
 	// hash.Hash.Write never returns an error, so neither can a Fprintf to one.
 	_, _ = fmt.Fprintf(fp, "config\x00%s\n", opts.ConfigExtra)
 
-	for i, f := range cfcs {
-		data, err := opts.FS.ReadFile(f)
-		if err != nil || cfpath.IsBinary(data) {
-			continue
-		}
+	if opts.InferArgs {
+		_, _ = fmt.Fprintf(fp, "infer-args\n")
+	}
 
-		opts.Resolver.Index.IndexFile(cfpath.ToURI(f), string(data))
-
-		sum := sha256.Sum256(data)
-		// hash.Hash.Write never returns an error, which is why Fprintf to one
-		// cannot fail.
-		_, _ = fmt.Fprintf(fp, "%s\x00%x\n", f, sum)
-
-		if opts.Progress != nil {
-			opts.Progress(PhaseIndex, i+1, len(cfcs))
-		}
+	for _, f := range cfcs {
+		_, _ = fmt.Fprintf(fp, "%s\x00%x\n", f, got[f].sum)
 	}
 
 	// A template's includes decide what its includers' and its own bare calls
@@ -343,20 +369,47 @@ func indexPass(opts *Options) string {
 	// computed in: the paths go into the fingerprint, not the content, so
 	// editing a page's body still leaves every other file's cache valid.
 	for _, f := range templates {
-		data, err := opts.FS.ReadFile(f)
-		if err != nil || cfpath.IsBinary(data) {
-			continue
+		if includes := got[f].includes; len(includes) > 0 {
+			_, _ = fmt.Fprintf(fp, "%s\x00includes\x00%s\n", f, strings.Join(includes, "\x00"))
 		}
 
-		includes := parser.ExtractIncludes(string(data))
-		opts.Resolver.Index.SetIncludes(cfpath.ToURI(f), includes)
-
-		if len(includes) > 0 {
-			_, _ = fmt.Fprintf(fp, "%s\x00includes\x00%s\n", f, strings.Join(includes, "\x00"))
+		// A page can be the caller that decides an argument's type.
+		if opts.InferArgs {
+			_, _ = fmt.Fprintf(fp, "%s\x00content\x00%x\n", f, got[f].sum)
 		}
 	}
 
 	return hex.EncodeToString(fp.Sum(nil))
+}
+
+// inferArgsFrom sets InferArgsFiles on every distinct resolver the scan will
+// use and returns what puts them back. It runs after indexPass, as unresolved's
+// does: the caller search needs the index complete.
+func inferArgsFrom(opts *Options) (restore func()) {
+	seen := map[*resolve.Resolver]bool{}
+
+	var set []*resolve.Resolver
+
+	for _, f := range opts.Files {
+		r := opts.ConfigFor(f).Resolver
+		if r != nil && !seen[r] {
+			seen[r] = true
+			set = append(set, r)
+		}
+	}
+
+	prev := make([][]string, len(set))
+
+	for i, r := range set {
+		prev[i] = r.InferArgsFiles
+		r.InferArgsFiles = opts.Files
+	}
+
+	return func() {
+		for i, r := range set {
+			r.InferArgsFiles = prev[i]
+		}
+	}
 }
 
 // FileGraph is one file's contribution, ready to merge. Nodes marked provisional
@@ -395,28 +448,15 @@ func scanFile(opts *Options, root, file, fingerprint string) *FileGraph {
 	}
 
 	content := string(data)
-	fileURI := cfpath.ToURI(file)
 	baseDir := filepath.Dir(file)
 	rel := relPath(root, file)
 	isCFC := cfpath.IsCFCFile(file)
 	cfg := opts.ConfigFor(file)
 
-	funcLookup := cfg.Resolver.FuncLookup(baseDir)
-
-	pr := parser.ParseWithOptions(fileURI, content, &parser.ParseOptions{
-		Resolvers:                cfg.Resolvers,
-		ExpressionMappings:       cfg.ExpressionMappings,
-		ServicePropertyResolvers: cfg.ServicePropertyResolvers,
-		PropertyResolvers:        cfg.PropertyResolvers,
-		BeanLookup:               cfg.BeanLookup,
-		ExtractCalls:             true,
-		ScanAllScopes:            true,
-		ExtractLinks:             true,
-		InterpolateAllText:       cfg.InterpolateAllText,
-		FuncLookup:               funcLookup,
-		BuiltinReturnLookup:      cfg.Resolver.BuiltinReturnLookupFor(file),
-	})
-	pr.FuncLookup = funcLookup
+	// The parse is the resolver's: the same one `unresolved` makes, plus links.
+	spec := resolve.BatchSpec()
+	spec.Links = true
+	pr := cfg.Resolver.ParseFile(file, content, spec)
 
 	base := filepath.Base(file)
 	isApplication := strings.EqualFold(base, "Application.cfc") || strings.EqualFold(base, "Application.cfm")
@@ -630,16 +670,18 @@ func (res *FileGraph) addCalls(opts *Options, cfg *FileConfig, pr *parser.ParseR
 
 		res.Stats.CallSites++
 
-		target, reason := cfg.Resolver.ResolveCallTarget(call, pr, baseDir)
+		class := cfg.Resolver.ClassifyCall(call, pr, baseDir, resolve.ClassifyOptions{WantTarget: true})
+		target, reason := class.Target, class.Reason
 		from := res.callerID(pr, rel, call.Line)
 
-		// The builtin check runs *after* resolution, not before. A workspace
+		// A builtin is set aside after resolution, not before. A workspace
 		// function may share a name with a built-in or a member method — init,
 		// add, close, get, isValid and about sixty others do in one real codebase
 		// — and testing the name first threw away every call to them before
 		// anything looked for a definition. A call that resolved to a real
 		// definition is a call to that definition, whatever else shares its name.
-		if !target.Kind.Definite() && isBuiltin(call.FuncName) && call.Variable == "" {
+		// What counts as a builtin is the resolver's, the one `unresolved` uses.
+		if class.Verdict == resolve.Builtin || (class.Verdict == resolve.Accepted && !target.Kind.Definite() && resolve.IsBuiltinCall(call)) {
 			res.Stats.Builtin++
 
 			if !opts.IncludeBuiltins {
@@ -793,14 +835,6 @@ func resolveInclude(opts *Options, cfg *FileConfig, raw, baseDir string) string 
 	return ""
 }
 
-func isBuiltin(name string) bool {
-	if docs.IsBuiltinFunction(name) {
-		return true
-	}
-
-	return parser.IsMemberMethod(name)
-}
-
 // relPath reports file relative to root, slash-separated so a node id is the same
 // string on every platform. A file outside root keeps its ../ prefix rather than
 // being dropped — it is still a real file and still part of the graph.
@@ -905,7 +939,16 @@ func (c *collector) merge(r *FileGraph) {
 	for i := range r.Provisional {
 		n := &r.Provisional[i]
 
-		if _, ok := c.nodes[n.ID]; ok && !c.provisional[n.ID] {
+		existing, ok := c.nodes[n.ID]
+		if ok && !c.provisional[n.ID] {
+			continue
+		}
+
+		// Two placeholders for one id (an external node is keyed by its
+		// lowercased label, so `expandPath` and `Expandpath` are one) keep the
+		// same spelling whichever file was merged first: files finish in no
+		// fixed order, and the first to arrive named the node in the report.
+		if ok && n.Name >= existing.Name {
 			continue
 		}
 

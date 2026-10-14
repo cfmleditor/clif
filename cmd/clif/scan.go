@@ -29,7 +29,7 @@ func cmdScan(args []string) {
 		}
 
 		if info.IsDir() {
-			files = append(files, cfmlFilesUnder(arg)...)
+			files = append(files, cfpath.CollectCFML(vfs.OS{}, []string{arg})...)
 		} else {
 			files = append(files, arg)
 		}
@@ -183,31 +183,4 @@ func printErrorsOffset(file string, lang string, n *sitter.Node, src []byte, lin
 	walk(n)
 
 	return count
-}
-
-// cfmlFilesUnder lists the CFML files beneath root, for the parse and scan
-// commands. An unreadable entry is skipped rather than ending the walk, so the
-// callback returns no error and Walk has none to report.
-func cfmlFilesUnder(root string) []string {
-	var files []string
-
-	_ = filepath.Walk(root, func(path string, _ os.FileInfo, err error) error {
-		if err == nil && hasCFMLExt(path) {
-			files = append(files, path)
-		}
-
-		return nil
-	})
-
-	return files
-}
-
-// hasCFMLExt reports whether path names a file the parse and scan commands read.
-func hasCFMLExt(path string) bool {
-	switch strings.ToLower(filepath.Ext(path)) {
-	case ".cfc", ".cfm", ".cfml", ".cfs":
-		return true
-	}
-
-	return false
 }

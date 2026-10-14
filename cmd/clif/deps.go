@@ -1,21 +1,17 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 
-	"github.com/cfmleditor/clif/internal/config"
-	"github.com/cfmleditor/clif/internal/daemon"
+	cfpath "github.com/cfmleditor/clif/internal/path"
+
 	"github.com/cfmleditor/clif/internal/deps"
-	"github.com/cfmleditor/clif/internal/frameworkapi"
 	"github.com/cfmleditor/clif/internal/graph"
 	"github.com/cfmleditor/clif/internal/index"
 	"github.com/cfmleditor/clif/internal/parser"
-	cfpath "github.com/cfmleditor/clif/internal/path"
 	"github.com/cfmleditor/clif/internal/resolve"
 	"github.com/cfmleditor/clif/internal/vfs"
 	"go.lsp.dev/uri"
@@ -39,10 +35,6 @@ type DepResult struct {
 	Files int       `json:"files"`
 	Edges []DepEdge `json:"edges"`
 }
-
-// depsInterpolateAll is the features.outputContextInterpolation switch turned
-// off in the config the deps command found. One command reads one config.
-var depsInterpolateAll bool
 
 func cmdDeps(args []string) {
 	format := "json"
@@ -68,13 +60,14 @@ func cmdDeps(args []string) {
 
 	fsys := vfs.OS{}
 
-	files := collectCFMLFiles(fsys, args)
+	files := cfpath.CollectCFML(fsys, args)
 	if len(files) == 0 {
 		fmt.Fprintf(os.Stderr, "no CFML files found\n")
 		os.Exit(1)
 	}
 
-	resolver, idx := depsResolver(fsys, args, files)
+	resolver := workspaceResolver(args, files)
+	idx := resolver.Index
 
 	var (
 		edges []DepEdge
@@ -107,95 +100,13 @@ func cmdDeps(args []string) {
 		return
 	}
 
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetIndent("", "  ")
-
-	if err := enc.Encode(result); err != nil {
-		fmt.Fprintf(os.Stderr, "writing JSON: %v\n", err)
-		os.Exit(1)
-	}
-}
-
-// depsResolver builds the resolver and index the traversal needs. Resolution is
-// what lets a dependency be followed to another file at all; the previous
-// implementation did none, which is why it could only ever report one level.
-func depsResolver(fsys vfs.FS, args, files []string) (*resolve.Resolver, *index.Index) {
-	var (
-		workspaceFolders   []string
-		mappings           map[string]string
-		startupFiles       []string
-		expressionMappings map[string]string
-		cfResolvers        []parser.Resolver
-	)
-
-	searchDir := "."
-	if info, err := os.Stat(args[0]); err == nil && info.IsDir() {
-		searchDir = args[0]
-	} else if len(args) > 0 {
-		searchDir = filepath.Dir(args[0])
-	}
-
-	var (
-		implicitExtends func(string) string
-		helperScope     func(string) bool
-		stubs           *frameworkapi.Set
-	)
-
-	if cfg, _ := daemon.FindConfig(searchDir); cfg != nil {
-		implicitExtends = config.ImplicitExtends(cfg.Frameworks())
-		helperScope = config.HelperScope(cfg.Frameworks())
-		stubs = frameworkapi.For(cfg.Frameworks())
-		depsInterpolateAll = !cfg.ResolvedFeatures().OutputContextInterpolation
-		workspaceFolders = cliWorkspaceFolders(fsys, cfg, args)
-		mappings = cfg.Mappings()
-		startupFiles = cfg.StartupFiles()
-		expressionMappings = cfg.ExpressionMappings()
-
-		for _, r := range cfg.ComponentResolvers() {
-			cfResolvers = append(cfResolvers, r.Parser())
-		}
-	} else {
-		workspaceFolders = cliWorkspaceFolders(fsys, nil, args)
-	}
-
-	idx := index.New()
-
-	for _, f := range files {
-		if !cfpath.IsCFCFile(f) {
-			continue
-		}
-
-		content, err := vfs.ReadRegular(f)
-		if err != nil {
-			continue
-		}
-
-		abs, _ := filepath.Abs(f)
-		pr := parser.ParseWithOptions(uri.File(abs), string(content), &parser.ParseOptions{
-			Resolvers: cfResolvers, ExpressionMappings: expressionMappings,
-			InterpolateAllText: depsInterpolateAll,
-		})
-		idx.IndexFileFromResult(pr.URI, pr.Funcs, pr.ComponentRefs)
-	}
-
-	return &resolve.Resolver{
-		FS:                 fsys,
-		Index:              idx,
-		Resolvers:          cfResolvers,
-		Mappings:           mappings,
-		StartupFiles:       startupFiles,
-		ExpressionMappings: expressionMappings,
-		WorkspaceFolders:   workspaceFolders,
-		ImplicitExtends:    implicitExtends,
-		HelperScope:        helperScope,
-		Stubs:              stubs,
-	}, idx
+	writeJSONOrExit(result)
 }
 
 // depsForFile builds the dependency graph rooted at one file, the same way
-// clif.exportDeps does for a whole document — so the CLI and the editor
-// command answer with the same graph rather than each having their own idea of
-// what a dependency is.
+// clif.exportDeps does for a whole document (deps.BuildDocument) — so the CLI and
+// the editor command answer with the same graph rather than each having their
+// own idea of what a dependency is.
 func depsForFile(path string, resolver *resolve.Resolver, idx *index.Index) []graph.Edge {
 	content, err := vfs.ReadRegular(path)
 	if err != nil {
@@ -203,73 +114,23 @@ func depsForFile(path string, resolver *resolve.Resolver, idx *index.Index) []gr
 	}
 
 	abs, _ := filepath.Abs(path)
-	fileURI := uri.File(abs)
 
-	pr := parser.ParseWithOptions(fileURI, string(content), &parser.ParseOptions{
-		Resolvers: resolver.Resolvers, ExpressionMappings: resolver.ExpressionMappings,
-		ExtractCalls: true, InterpolateAllText: depsInterpolateAll,
-	})
+	result := deps.BuildDocument(&deps.Document{
+		URI: string(uri.File(abs)),
+		PR:  resolver.ParseFile(abs, string(content), resolve.DepsSpec()),
+		Parse: func(fileURI uri.URI) *parser.ParseResult {
+			file := strings.TrimPrefix(string(fileURI), "file://")
 
-	var calls []parser.CallSite
-	for _, sc := range pr.Scopes {
-		calls = append(calls, pr.FuncCalls(sc.Start, sc.End)...)
-	}
+			data, err := vfs.ReadRegular(file)
+			if err != nil {
+				return nil
+			}
 
-	result := deps.Build(&deps.Options{
-		DocURI:    string(fileURI),
-		Calls:     calls,
-		Refs:      pr.ComponentRefs,
-		Index:     idx,
-		Resolver:  resolver,
-		LoadCalls: depsCallLoader(resolver),
-		MaxDepth:  10,
+			return resolver.ParseFile(file, string(data), resolve.DepsSpec())
+		},
+		Index:    idx,
+		Resolver: resolver,
 	})
 
 	return result.Graph.Edges
-}
-
-// depsCallLoader parses a target file on demand so the traversal can continue
-// past the first hop, memoised for the life of one command.
-func depsCallLoader(resolver *resolve.Resolver) func(uri.URI, string) ([]parser.CallSite, []parser.ComponentRef) {
-	parsed := make(map[uri.URI]*parser.ParseResult)
-
-	return func(fileURI uri.URI, funcName string) ([]parser.CallSite, []parser.ComponentRef) {
-		pr, ok := parsed[fileURI]
-		if !ok {
-			data, err := vfs.ReadRegular(strings.TrimPrefix(string(fileURI), "file://"))
-			if err != nil {
-				parsed[fileURI] = nil
-
-				return nil, nil
-			}
-
-			pr = parser.ParseWithOptions(fileURI, string(data), &parser.ParseOptions{
-				Resolvers: resolver.Resolvers, ExpressionMappings: resolver.ExpressionMappings,
-				ExtractCalls: true, InterpolateAllText: depsInterpolateAll,
-			})
-			parsed[fileURI] = pr
-		}
-
-		if pr == nil {
-			return nil, nil
-		}
-
-		for _, sc := range pr.Scopes {
-			for i := range pr.Funcs {
-				f := &pr.Funcs[i]
-
-				if !strings.EqualFold(f.Name, funcName) || int(f.Line) != sc.Start {
-					continue
-				}
-
-				// Function locals first, then file-level: a `var x = new Foo()`
-				// shadows a `variables.x`, and the consumer takes the first match.
-				refs := slices.Concat(pr.FuncComponentRefs(sc.Start, sc.End), pr.ComponentRefs)
-
-				return pr.FuncCalls(sc.Start, sc.End), refs
-			}
-		}
-
-		return nil, nil
-	}
 }

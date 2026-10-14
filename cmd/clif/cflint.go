@@ -401,7 +401,7 @@ type cflintSelection struct {
 
 func selectCFLintFiles(fl *cflintFlags, dir string, roots, scanRoots []string) cflintSelection {
 	if !fl.staged && fl.changed == "" {
-		return cflintSelection{files: collectCFMLFiles(vfs.OS{}, scanRoots)}
+		return cflintSelection{files: cfpath.CollectCFML(vfs.OS{}, scanRoots)}
 	}
 
 	repo, err := gitTopLevel(dir)

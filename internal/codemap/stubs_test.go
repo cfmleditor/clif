@@ -52,7 +52,7 @@ func TestFrameworkStubsAreNotPartOfTheMap(t *testing.T) {
 	for _, unresolved := range []bool{false, true} {
 		fsys := vfs.OS{}
 		m := codemap.Build(&codemap.Options{
-			Root: root, Files: []string{path}, FS: fsys, Workers: 1, Resolvers: resolvers,
+			Root: root, Files: []string{path}, FS: fsys, Workers: 1,
 			IncludeUnresolved: unresolved,
 			Resolver: &resolve.Resolver{
 				FS: fsys, Index: index.New(), WorkspaceFolders: []string{root}, Resolvers: resolvers,

@@ -110,15 +110,22 @@ func newScriptParser(src, fileURI string, baseLine int, resolvers []Resolver) *s
 }
 
 func (p *scriptParser) resolveCall(expr string) string {
-	if p.resolverSet != nil {
-		if comp := p.resolverSet.Resolve(expr); comp != "" {
+	return resolveCallExpr(p.resolverSet, p.resolvers, expr)
+}
+
+// resolveCallExpr is the component a call expression returns: what the
+// configured resolvers name, else whatever dynamicCall makes of it. Both parsers
+// ask it.
+func resolveCallExpr(set *ResolverSet, resolvers []Resolver, expr string) string {
+	if set != nil {
+		if comp := set.Resolve(expr); comp != "" {
 			return comp
 		}
 
 		return dynamicCall(expr)
 	}
 
-	if comp := ResolveFromCall(expr, p.resolvers); comp != "" {
+	if comp := ResolveFromCall(expr, resolvers); comp != "" {
 		return comp
 	}
 

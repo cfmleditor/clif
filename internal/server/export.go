@@ -189,23 +189,14 @@ func checkTargets(targets, writeRoots []string) error {
 // unresolvedReports runs the unresolved scan the CLI runs, with this
 // session's settings, and splits it across targets.
 func (s *Server) unresolvedReports(files, targets []string) ([]report, int) {
-	resolver := s.getResolver()
-	opt := unresolved.Options{
-		CallerInferenceLimits:    s.CallerInferenceLimits,
-		Mappings:                 s.Mappings,
-		ExpressionMappings:       s.ExpressionMappings,
-		ServicePropertyResolvers: s.ServicePropertyResolvers,
-		PropertyResolvers:        s.cfPropertyResolvers(),
-		BeanPaths:                s.BeanPaths,
-		WorkspaceFolders:         s.WorkspaceFolders,
-		InterpolateAll:           !s.Features.OutputContextInterpolation,
-	}
-
-	opt.Resolvers = resolver.Resolvers
-	opt.StartupFiles = resolver.StartupFiles
-	opt.ImplicitExtends = resolver.ImplicitExtends
-	opt.HelperScope = resolver.HelperScope
-	opt.Stubs = resolver.Stubs
+	// The scan resolves with the session's own settings, read back from its
+	// resolver rather than copied field by field, and infers an untyped
+	// argument from its callers as the CLI's default does: without that the
+	// exported report listed calls `clif unresolved` accepts.
+	opt := unresolved.Options{InferArgs: true, Settings: *s.getResolver().Settings()}
+	// The export scans the folders the session was configured with, not every
+	// root an open document has added.
+	opt.WorkspaceFolders = s.WorkspaceFolders
 
 	rep := unresolved.Scan(s.FS, files, nil, &opt)
 	byTarget, rest := unresolved.SplitByTarget(rep.Calls, targets)

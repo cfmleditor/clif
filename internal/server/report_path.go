@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/cfmleditor/clif/internal/confine"
 )
 
 // reportPath is where a report named base is written in dir, or an error when
@@ -42,9 +44,7 @@ func insideDir(root, path string) bool {
 		return false
 	}
 
-	rel, err := filepath.Rel(rootAbs, abs)
-
-	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+	return confine.Within(abs, []string{rootAbs})
 }
 
 // reportPerm is owner-only: a report can quote the source it was made from, and
@@ -60,25 +60,22 @@ const reportPerm = 0o600
 // it, so a workspace reached through a symlinked directory still gets its
 // reports.
 func writeReport(path string, data []byte) error {
-	root, err := os.OpenRoot(filepath.Dir(path))
+	f, err := createReport(path)
 	if err != nil {
 		return err
 	}
 
-	defer func() { _ = root.Close() }()
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
 
-	return root.WriteFile(filepath.Base(path), data, reportPerm)
+		return err
+	}
+
+	return f.Close()
 }
 
 // createReport is writeReport for a report written as a stream. The file stays
 // usable after the root is closed.
 func createReport(path string) (*os.File, error) {
-	root, err := os.OpenRoot(filepath.Dir(path))
-	if err != nil {
-		return nil, err
-	}
-
-	defer func() { _ = root.Close() }()
-
-	return root.OpenFile(filepath.Base(path), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, reportPerm)
+	return confine.CreateNamed(path, reportPerm)
 }
