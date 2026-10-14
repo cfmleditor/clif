@@ -247,6 +247,7 @@ func routeScanSetup(fsys vfs.FS, root string, paths []string, quiet bool) (*conf
 	scanRoots, fallback, shared, _ := routeWorkspace(fsys, root, &f)
 
 	configs := newConfigSet(fsys, shared, &fallback)
+	seedRootConfig(fsys, configs, root, &fallback)
 	configs.preload(scanRoots)
 
 	return configs, cfpath.CollectCFML(fsys, scanRoots)

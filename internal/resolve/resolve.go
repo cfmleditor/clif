@@ -119,6 +119,7 @@ type pathCaches struct {
 	funcMu            sync.RWMutex                        // guards funcCache alone; see lookupFunc
 	computedIncludes  map[string]computedIncludeFile      // file → its computed includes (computedIncludesOf)
 	callerIdx         *callerIndex                        // name → files calling it, built once for argumentFromCallers
+	callerBuild       sync.Mutex                          // held while callerIdx is built; see buildCallerIndexOnce
 	argCache          map[string]string                   // an argument → what its callers pass (argumentFromCallers)
 	requestWriterIdx  map[string][]string                 // request key → files writing it (requestWriters)
 	handlerCache      map[string]*parser.ParseResult      // handler path → its parse (handlerParse)

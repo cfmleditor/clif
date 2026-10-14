@@ -405,6 +405,10 @@ func inferArgsFrom(opts *Options) (restore func()) {
 		r.InferArgsFiles = opts.Files
 	}
 
+	// Every resolver searches the same files for callers, so the index of who
+	// calls what is built once for all of them rather than once each.
+	resolve.ShareCallerIndex(set)
+
 	return func() {
 		for i, r := range set {
 			r.InferArgsFiles = prev[i]

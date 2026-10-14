@@ -3,6 +3,7 @@ package resolve
 import (
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	cflog "github.com/cfmleditor/clif/internal/log"
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
+	"github.com/cfmleditor/clif/internal/vfs"
 )
 
 // An untyped argument holds what its callers pass. ContentBox's
@@ -187,7 +189,7 @@ func (r *Resolver) callerFiles(name string) []string {
 	o.mu.RUnlock()
 
 	if idx == nil {
-		idx = o.buildCallerIndex()
+		idx = o.buildCallerIndexOnce()
 	}
 
 	key := strings.ToLower(name)
@@ -201,6 +203,77 @@ func (r *Resolver) callerFiles(name string) []string {
 	o.mu.Unlock()
 
 	return files
+}
+
+// buildCallerIndexOnce builds the caller index unless another worker has, or
+// is: without the lock every worker that asked before the first build finished
+// read and scanned every file itself, and the code map's scan of tassweb spent
+// 95s of CPU (58% of the build) building the same index over and over.
+func (r *Resolver) buildCallerIndexOnce() *callerIndex {
+	r.callerBuild.Lock()
+	defer r.callerBuild.Unlock()
+
+	r.mu.RLock()
+	idx := r.callerIdx
+	r.mu.RUnlock()
+
+	if idx != nil {
+		return idx
+	}
+
+	return r.buildCallerIndex()
+}
+
+// ShareCallerIndex builds one caller index over the files the resolvers search
+// (their InferArgsFiles, which must be the same list), in parallel, and gives
+// it to every one of them. A workspace of several configs has a resolver per
+// config, and each built the same index from the same files: callerNames
+// depends on a file's text alone.
+func ShareCallerIndex(rs []*Resolver) {
+	if len(rs) == 0 || len(rs[0].InferArgsFiles) == 0 {
+		return
+	}
+
+	files := rs[0].InferArgsFiles
+	fsys := rs[0].fs()
+	names := make([]map[string]bool, len(files))
+
+	var wg sync.WaitGroup
+
+	work := make(chan int)
+
+	for range runtime.GOMAXPROCS(0) {
+		wg.Go(func() {
+			for i := range work {
+				if text, err := vfs.ReadString(fsys, files[i]); err == nil {
+					names[i] = callerNames(text)
+				}
+			}
+		})
+	}
+
+	for i := range files {
+		work <- i
+	}
+
+	close(work)
+	wg.Wait()
+
+	idx := &callerIndex{byName: map[string][]string{}}
+
+	for i, seen := range names {
+		for name := range seen {
+			idx.byName[name] = append(idx.byName[name], files[i])
+		}
+	}
+
+	for _, r := range rs {
+		o := r.owner()
+
+		o.mu.Lock()
+		o.callerIdx = idx
+		o.mu.Unlock()
+	}
 }
 
 func (r *Resolver) buildCallerIndex() *callerIndex {

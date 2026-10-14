@@ -4,11 +4,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/cfmleditor/clif/internal/config"
+	"github.com/cfmleditor/clif/internal/index"
 	"github.com/cfmleditor/clif/internal/parser"
 )
 
@@ -544,5 +547,73 @@ func TestChainedUnknownCallOmittingArgumentDoesNotVeto(t *testing.T) {
 				expectReasons(t, got, map[string]string{"arguments.bean.ready": "", "arguments.bean.missing": "method 'missing' not found in Item"})
 			}
 		})
+	}
+}
+
+// callerIndexFixture writes three files calling helper() and returns them.
+func callerIndexFixture(t *testing.T) []string {
+	t.Helper()
+
+	dir := t.TempDir()
+
+	var files []string
+
+	for i, body := range []string{"helper();", "x = helper( 1 );", "other();"} {
+		p := filepath.Join(dir, fmt.Sprintf("f%d.cfm", i))
+		if err := os.WriteFile(p, []byte("<cfscript>"+body+"</cfscript>"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		files = append(files, p)
+	}
+
+	return files
+}
+
+// Every worker asking for callers before the index existed built it itself,
+// reading every file: the code map's scan of tassweb spent 58% of its CPU on
+// that. It is built once however many ask at the same time.
+func TestTheCallerIndexIsBuiltOnce(t *testing.T) {
+	files := callerIndexFixture(t)
+	cfs := newCountingFS()
+	r := &Resolver{FS: cfs, Index: index.New(), InferArgsFiles: files}
+
+	var wg sync.WaitGroup
+
+	for range 32 {
+		wg.Go(func() { _ = r.callerFiles("helper") })
+	}
+
+	wg.Wait()
+
+	for _, f := range files {
+		if n := cfs.count(f); n != 1 {
+			t.Errorf("%s read %d times, want once", filepath.Base(f), n)
+		}
+	}
+
+	if got := r.callerFiles("helper"); len(got) != 2 {
+		t.Errorf("callerFiles(helper) = %v, want the two files calling it", got)
+	}
+}
+
+// Resolvers searching the same files share one index: a workspace of eleven
+// configs built the same one eleven times.
+func TestShareCallerIndexBuildsOneForEveryResolver(t *testing.T) {
+	files := callerIndexFixture(t)
+	cfs := newCountingFS()
+	a := &Resolver{FS: cfs, Index: index.New(), InferArgsFiles: files}
+	b := &Resolver{FS: cfs, Index: index.New(), InferArgsFiles: files}
+
+	ShareCallerIndex([]*Resolver{a, b})
+
+	if got, want := b.callerFiles("helper"), a.callerFiles("helper"); !slices.Equal(got, want) || len(got) != 2 {
+		t.Errorf("callers of helper: %v and %v, want the same two files", want, got)
+	}
+
+	for _, f := range files {
+		if n := cfs.count(f); n != 1 {
+			t.Errorf("%s read %d times, want once for both resolvers", filepath.Base(f), n)
+		}
 	}
 }

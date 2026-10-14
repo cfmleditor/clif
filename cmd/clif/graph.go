@@ -255,6 +255,8 @@ func buildGraph(f *graphFlags) (*codemap.Map, error) {
 	}
 
 	configs := newConfigSet(fsys, shared, &fallback)
+	seedRootConfig(fsys, configs, root, &fallback)
+
 	if !f.oneConfig {
 		configs.preload(scanRoots)
 

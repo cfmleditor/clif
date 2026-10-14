@@ -273,3 +273,17 @@ func routeResolver(fsys vfs.FS, resolver *resolve.Resolver, cfg *daemon.Config) 
 		},
 	}
 }
+
+// seedRootConfig gives the files the root's own config governs the resolver
+// routeWorkspace built from it, with that config's routes, rather than a second
+// resolver configSet would build from the same file. The two read files alike
+// (one index, one bean map), so the copy was only a second set of empty caches;
+// unresolved stopped building it for the same reason.
+func seedRootConfig(fsys vfs.FS, configs *configSet, root string, fallback *codemap.FileConfig) {
+	cfg, _ := daemon.FindConfig(root)
+	if cfg == nil || cfg.Path == "" || fallback.Resolver == nil {
+		return
+	}
+
+	configs.use(cfg.Path, codemap.FileConfig{Resolver: fallback.Resolver, Routes: routeResolver(fsys, fallback.Resolver, cfg)})
+}
