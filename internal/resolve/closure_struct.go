@@ -239,7 +239,7 @@ func (r *Resolver) fnBody(fd *parser.FunctionDef) (pr *parser.ParseResult, token
 		return nil, nil, 0, 0, false
 	}
 
-	scope := parser.FindFuncScopeAt(int(fd.Line), pr.Scopes)
+	scope := pr.FuncScopeAt(int(fd.Line))
 	if scope.Start == -1 || !strings.EqualFold(scope.Name, fd.Name) {
 		return nil, nil, 0, 0, false
 	}

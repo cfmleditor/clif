@@ -3,6 +3,7 @@ package resolve
 import (
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/cfmleditor/clif/internal/parser"
 )
@@ -55,7 +56,7 @@ func guardText(pr *parser.ParseResult, variable, funcName string, line int) (str
 	}
 
 	from := 0
-	if scope := parser.FindFuncScopeAt(line, pr.Scopes); scope.Start != -1 {
+	if scope := pr.FuncScopeAt(line); scope.Start != -1 {
 		from = scope.Start
 	}
 
@@ -164,18 +165,65 @@ func isTagGuard(before string) bool {
 }
 
 func lineOffset(content string, n int) (int, bool) {
-	off := 0
+	starts := lineStarts.of(content)
+	if n < 0 || n >= len(starts) {
+		return 0, false
+	}
 
-	for range n {
+	return starts[n], true
+}
+
+// lineStarts remembers the line table of the texts lineOffset was asked about
+// most recently. lineOffset counted newlines from the top on every call, and
+// it is asked once or more per call site a file holds, so a file was walked
+// again for each: 0.7s of tassweb's code map. A text is recognised by its
+// bytes, which for the same file's content is a pointer comparison.
+var lineStarts = &lineStartCache{}
+
+const lineStartSlots = 64
+
+type lineStartCache struct {
+	mu    sync.Mutex
+	next  int
+	slots [lineStartSlots]struct {
+		content string
+		starts  []int
+	}
+}
+
+func (c *lineStartCache) of(content string) []int {
+	c.mu.Lock()
+	for i := range c.slots {
+		if s := &c.slots[i]; s.starts != nil && len(s.content) == len(content) && s.content == content {
+			starts := s.starts
+			c.mu.Unlock()
+
+			return starts
+		}
+	}
+	c.mu.Unlock()
+
+	starts := []int{0}
+
+	for off := 0; ; {
 		i := strings.IndexByte(content[off:], '\n')
 		if i < 0 {
-			return 0, false
+			break
 		}
 
 		off += i + 1
+		starts = append(starts, off)
 	}
 
-	return off, true
+	c.mu.Lock()
+	c.slots[c.next] = struct {
+		content string
+		starts  []int
+	}{content, starts}
+	c.next = (c.next + 1) % lineStartSlots
+	c.mu.Unlock()
+
+	return starts
 }
 
 // guardedInstanceOf is the components a type check guarding the call names

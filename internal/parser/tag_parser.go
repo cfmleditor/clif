@@ -21,6 +21,10 @@ type tagParser struct {
 	calls         []CallSite                // global scope call sites
 	scopes        []FuncScope
 	pendingCalls  []pendingCall
+	// pendingByName indexes pendingCalls by lowercased varName, for
+	// assignedSince; pendingNamed is how many it has indexed.
+	pendingByName map[string][]int
+	pendingNamed  int
 	properties    []propertyDef
 	extends       string
 	accessors     bool
@@ -2370,11 +2374,34 @@ func (p *tagParser) lookupComponentRef(varName string, atLine int) string {
 	// checked against what z held before. Left empty, the resolver reads the
 	// refs at check time, once that assignment has its own. One on atLine
 	// itself is the statement the call is in, which runs first.
-	if ref == nil || atLine > 0 && assignedBetween(p.pendingCalls, lookupVar, ref.Line, conv.Uint32(atLine-1)) {
+	if ref == nil || atLine > 0 && p.assignedSince(lookupVar, ref.Line, conv.Uint32(atLine-1)) {
 		return ""
 	}
 
 	return ref.Component
+}
+
+// assignedSince is assignedBetween(p.pendingCalls, name, from, to), through
+// an index by name kept as pendingCalls grows: asked for every call on a
+// variable, the walk over every pending call was quadratic in a page of
+// assignments and calls.
+func (p *tagParser) assignedSince(name string, from, to uint32) bool {
+	if p.pendingByName == nil || p.pendingNamed > len(p.pendingCalls) {
+		p.pendingByName, p.pendingNamed = map[string][]int{}, 0
+	}
+
+	for ; p.pendingNamed < len(p.pendingCalls); p.pendingNamed++ {
+		n := strings.ToLower(p.pendingCalls[p.pendingNamed].varName)
+		p.pendingByName[n] = append(p.pendingByName[n], p.pendingNamed)
+	}
+
+	for _, i := range p.pendingByName[strings.ToLower(name)] {
+		if c := &p.pendingCalls[i]; !c.returnExpr && !c.memberSet && c.line > from && c.line <= to && strings.EqualFold(c.varName, name) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // nearestComponentRef returns the ref matching lookupVar whose Line is the

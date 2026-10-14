@@ -4130,6 +4130,10 @@ type globalScriptParser struct {
 	vars     []VarDef
 	baseLine int
 	scopes   []FuncScope
+	// scopeAt is findFuncScope's answer by index, through scopeIndex: asked
+	// once per function, a scan of every scope was quadratic in a component
+	// of thousands of them.
+	scopeAt func(line int) int
 }
 
 // newGlobalScriptParser is only ever handed a RegionScript's text, so its
@@ -4143,7 +4147,17 @@ func newGlobalScriptParser(src string, baseLine int, scopes []FuncScope) *global
 		sc:       sc,
 		baseLine: baseLine,
 		scopes:   scopes,
+		scopeAt:  scopeIndex(scopes, true),
 	}
+}
+
+// funcScopeAt is findFuncScope(line, p.scopes).
+func (p *globalScriptParser) funcScopeAt(line int) FuncScope {
+	if i := p.scopeAt(line); i >= 0 {
+		return p.scopes[i]
+	}
+
+	return FuncScope{Start: -1, End: -1}
 }
 
 func (p *globalScriptParser) parse() {
@@ -4164,7 +4178,7 @@ func (p *globalScriptParser) parse() {
 
 		line := p.baseLine + tok.Line
 		// Skip if inside a function
-		if findFuncScope(line, p.scopes).Start != -1 {
+		if p.funcScopeAt(line).Start != -1 {
 			// Skip to end of function body
 			p.skipPastScope(line)
 
@@ -4206,7 +4220,7 @@ func (p *globalScriptParser) parse() {
 }
 
 func (p *globalScriptParser) skipPastScope(line int) {
-	fs := findFuncScope(line, p.scopes)
+	fs := p.funcScopeAt(line)
 	if fs.Start == -1 {
 		return
 	}

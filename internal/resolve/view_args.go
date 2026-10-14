@@ -107,7 +107,7 @@ func (r *Resolver) renderedValue(value []parser.Token, s viewArgSite) string {
 	dir := filepath.Dir(s.file)
 
 	caller := ""
-	if scope := parser.FindFuncScopeAt(s.line, hpr.Scopes); scope.Start != -1 {
+	if scope := hpr.FuncScopeAt(s.line); scope.Start != -1 {
 		caller = scope.Name
 	}
 
@@ -336,7 +336,7 @@ func (r *Resolver) viewArgsElement(name string, pr *parser.ParseResult, depth in
 		}
 
 		start, caller := 0, ""
-		if scope := parser.FindFuncScopeAt(s.line, hpr.Scopes); scope.Start != -1 {
+		if scope := hpr.FuncScopeAt(s.line); scope.Start != -1 {
 			start, caller = scope.Start, scope.Name
 		}
 

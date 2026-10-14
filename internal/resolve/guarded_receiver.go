@@ -48,11 +48,9 @@ func (r *Resolver) guardedReceiver(variable string, pr *parser.ParseResult, base
 			return ""
 		}
 
-		scope := parser.FindFuncScopeAt(int(ctx.call.Line), pr.Scopes)
-		for _, local := range pr.FuncVars(max(0, scope.Start), scope.End) {
-			if strings.EqualFold(local, "isInstanceOf") {
-				return ""
-			}
+		scope := pr.FuncScopeAt(int(ctx.call.Line))
+		if pr.FuncDeclares(max(0, scope.Start), scope.End, "isInstanceOf") {
+			return ""
 		}
 
 		if path := r.ComponentPath(guard.component, baseDir); path != "" {
