@@ -1,6 +1,7 @@
 package resolve
 
 import (
+	"hash/maphash"
 	"maps"
 	"path/filepath"
 	"slices"
@@ -120,22 +121,41 @@ func producerTokens(source string) []parser.Token {
 }
 
 // producerTokenCache holds producerTokens' answers, up to maxProducerTokens
-// tokens in all; past it, it starts again. Tokens depend only on the text, so
-// it is shared by every resolver.
+// tokens in all; past it, a shard starts again. Tokens depend only on the
+// text, so it is shared by every resolver.
 var producerTokenCache = &tokenCache{}
 
 const maxProducerTokens = 1 << 17
 
+// tokenShards splits tokenCache so a write locks one shard. With one lock its
+// put was the most contended lock in a batch scan, 1.6s of tassweb's workers'
+// time waiting, every miss's write blocking every worker's read.
+const tokenShards = 16
+
 type tokenCache struct {
+	seed   maphash.Seed
+	once   sync.Once
+	shards [tokenShards]tokenShard
+}
+
+type tokenShard struct {
 	mu      sync.RWMutex
 	entries map[string][]parser.Token
 	held    int
 }
 
+func (c *tokenCache) shard(source string) *tokenShard {
+	c.once.Do(func() { c.seed = maphash.MakeSeed() })
+
+	return &c.shards[maphash.String(c.seed, source)%tokenShards]
+}
+
 func (c *tokenCache) get(source string) ([]parser.Token, bool) {
-	c.mu.RLock()
-	tokens, ok := c.entries[source]
-	c.mu.RUnlock()
+	sh := c.shard(source)
+
+	sh.mu.RLock()
+	tokens, ok := sh.entries[source]
+	sh.mu.RUnlock()
 
 	return tokens, ok
 }
@@ -145,17 +165,19 @@ func (c *tokenCache) put(source string, tokens []parser.Token) {
 		return
 	}
 
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	sh := c.shard(source)
 
-	if c.entries == nil || c.held+len(tokens) > maxProducerTokens {
-		c.entries = map[string][]parser.Token{}
-		c.held = 0
+	sh.mu.Lock()
+	defer sh.mu.Unlock()
+
+	if sh.entries == nil || sh.held+len(tokens) > maxProducerTokens/tokenShards {
+		sh.entries = map[string][]parser.Token{}
+		sh.held = 0
 	}
 
 	// The key is copied, so an entry does not keep the file it was cut from.
-	c.entries[strings.Clone(source)] = slices.Clip(tokens)
-	c.held += len(tokens)
+	sh.entries[strings.Clone(source)] = slices.Clip(tokens)
+	sh.held += len(tokens)
 }
 
 func scanProducerTokens(source string) []parser.Token {

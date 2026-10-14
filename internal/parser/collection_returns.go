@@ -855,6 +855,15 @@ func scanExpressionWrites(expression string) []expressionWrite {
 func scanExpressionWritesFrom(sc *Scanner, expression string, toks []Token) []expressionWrite {
 	var writes []expressionWrite
 
+	// pooled is the token list borrowed from tokenPool, if one was.
+	var pooled *[]Token
+
+	defer func() {
+		if pooled != nil {
+			tokenPool.Put(pooled)
+		}
+	}()
+
 	var ends *expressionEnds
 
 	previous := TokEOF
@@ -930,7 +939,11 @@ func scanExpressionWritesFrom(sc *Scanner, expression string, toks []Token) []ex
 
 		if ends == nil {
 			if toks == nil {
-				toks = tokenize(expression)
+				// The tokens are needed only to find where each right-hand
+				// side ends, so the list is borrowed and given back.
+				pooled, _ = tokenPool.Get().(*[]Token)
+				*pooled = tokenizeInto(*pooled, expression)
+				toks = *pooled
 			}
 
 			ends = newExpressionEndsFrom(expression, toks)
@@ -960,12 +973,16 @@ func newExpressionEnds(src string) *expressionEnds {
 
 // newExpressionEndsFrom is newExpressionEnds from src's tokens.
 func newExpressionEndsFrom(src string, toks []Token) *expressionEnds {
-	var (
-		offsets, depths []int
-		terminal        []bool
-	)
+	// Sized from the tokens, and the nearest terminator per depth kept in a
+	// slice rather than a map: built for every assignment a <cfset> holds,
+	// four growing slices and a map apiece were most of what collecting a
+	// file's collection writes allocated.
+	n := len(toks)
+	offsets := make([]int, 0, n)
+	depths := make([]int, 0, n)
+	terminal := make([]bool, 0, n)
 
-	depth := 0
+	depth, lo, hi := 0, 0, 0
 
 	for _, t := range toks {
 		if t.Kind == TokEOF {
@@ -983,19 +1000,27 @@ func newExpressionEndsFrom(src string, toks []Token) *expressionEnds {
 			depth--
 		default:
 		}
+
+		lo, hi = min(lo, depth), max(hi, depth)
 	}
 
 	// Backwards: the nearest terminator at or after each token, at its depth.
+	// next is indexed by depth less the lowest depth reached, -1 for none.
 	ends := make([]int, len(offsets))
-	next := map[int]int{}
+	next := make([]int, hi-lo+1)
+
+	for i := range next {
+		next[i] = -1
+	}
 
 	for i := len(offsets) - 1; i >= 0; i-- {
+		d := depths[i] - lo
 		if terminal[i] {
-			next[depths[i]] = offsets[i]
+			next[d] = offsets[i]
 		}
 
-		end, ok := next[depths[i]]
-		if !ok {
+		end := next[d]
+		if end < 0 {
 			end = len(src)
 		}
 
