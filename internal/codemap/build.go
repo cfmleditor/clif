@@ -939,7 +939,16 @@ func (c *collector) merge(r *FileGraph) {
 	for i := range r.Provisional {
 		n := &r.Provisional[i]
 
-		if _, ok := c.nodes[n.ID]; ok && !c.provisional[n.ID] {
+		existing, ok := c.nodes[n.ID]
+		if ok && !c.provisional[n.ID] {
+			continue
+		}
+
+		// Two placeholders for one id (an external node is keyed by its
+		// lowercased label, so `expandPath` and `Expandpath` are one) keep the
+		// same spelling whichever file was merged first: files finish in no
+		// fixed order, and the first to arrive named the node in the report.
+		if ok && n.Name >= existing.Name {
 			continue
 		}
 
