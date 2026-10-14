@@ -394,19 +394,26 @@ func sameFileURI(u, u0 uri.URI, fk string) bool {
 // than building its key. A decoded byte beyond ASCII, where strings.ToLower
 // may change more than one byte, and a malformed escape go to uriKey itself.
 func keyMatches(u, fk string) bool {
+	// PathUnescape refuses the whole URI over one malformed escape, and then
+	// uriKey compares it undecoded, so decoding any of it would disagree.
+	for i := strings.IndexByte(u, '%'); i >= 0; i = nextEscape(u, i) {
+		if _, ok := unhexAt(u, i+1); !ok {
+			return uriKey(uri.URI(u)) == fk
+		}
+
+		if _, ok := unhexAt(u, i+2); !ok {
+			return uriKey(uri.URI(u)) == fk
+		}
+	}
+
 	j := 0
 
 	for i := 0; i < len(u); i++ {
 		c := u[i]
 
 		if c == '%' {
-			hi, ok1 := unhexAt(u, i+1)
-			lo, ok2 := unhexAt(u, i+2)
-
-			if !ok1 || !ok2 {
-				return uriKey(uri.URI(u)) == fk
-			}
-
+			hi, _ := unhexAt(u, i+1)
+			lo, _ := unhexAt(u, i+2)
 			c = hi<<4 | lo
 			i += 2
 		}
@@ -427,6 +434,15 @@ func keyMatches(u, fk string) bool {
 	}
 
 	return j == len(fk)
+}
+
+// nextEscape is the index of the next '%' after the escape at i, or -1.
+func nextEscape(u string, i int) int {
+	if n := strings.IndexByte(u[min(i+3, len(u)):], '%'); n >= 0 {
+		return min(i+3, len(u)) + n
+	}
+
+	return -1
 }
 
 // unhexAt is the value of the hex digit at u[i], and whether there is one.

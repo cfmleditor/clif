@@ -110,6 +110,16 @@ for a command's usage and options.
 `, version)
 }
 
+// longLivedCacheBytes is each text cache's budget in a process that stays up
+// answering requests: the editor's server and the MCP server ask about the
+// documents being edited, and their caches would otherwise fill with old
+// versions up to a batch scan's budget. TestLongLivedProcessesLimitTextCaches.
+const longLivedCacheBytes = 16 << 20
+
+func limitLongLivedCaches() {
+	resolve.LimitTextCaches(longLivedCacheBytes)
+}
+
 func runServer() {
 	cwd, _ := os.Getwd()
 	cfg, _ := daemon.FindConfig(cwd)
@@ -127,9 +137,7 @@ func runServer() {
 	// a stderr the client may already have stopped reading.
 	defer cflog.CapturePanic("runServer")()
 
-	// The editor asks about the documents being edited, so its text caches
-	// would otherwise fill with their old versions up to a batch scan's budget.
-	resolve.LimitTextCaches(16 << 20)
+	limitLongLivedCaches()
 
 	// Through the logger rather than straight to stderr, which is where this
 	// used to go. An LSP client has no way to know that a line on a server's

@@ -263,3 +263,41 @@ func TestShareCallerIndexRestoreForgetsWhatItAnswered(t *testing.T) {
 		t.Errorf("after restore: callerIdx %v, argCache %v; want both as before the share", a.callerIdx, a.argCache)
 	}
 }
+
+// LimitTextCaches hands back the budgets it replaced, so a test or command
+// that limits the caches does not change them for whatever runs after it;
+// and a batch running meanwhile is held to the batch budget.
+func TestLimitTextCachesRestoresAndBatchesLiftIt(t *testing.T) {
+	before := lineStarts.budget
+
+	restore := LimitTextCaches(1 << 10)
+
+	if lineStarts.budget != 1<<10 || declaredNames.budget != 1<<10 {
+		t.Fatalf("budgets %d and %d, want the limit", lineStarts.budget, declaredNames.budget)
+	}
+
+	text := strings.Repeat("y\n", 1<<12)
+
+	done := BatchTextCaches()
+
+	lineStarts.of(text, lineStartsOf)
+	done()
+
+	held := false
+
+	for i := range lineStarts.slots {
+		if lineStarts.slots[i].content == text {
+			held = true
+		}
+	}
+
+	if !held {
+		t.Error("a text over the limit was not kept while a batch ran")
+	}
+
+	restore()
+
+	if lineStarts.budget != before || declaredNames.budget != before {
+		t.Errorf("after restore: budgets %d and %d, want %d", lineStarts.budget, declaredNames.budget, before)
+	}
+}

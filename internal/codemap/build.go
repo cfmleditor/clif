@@ -193,6 +193,8 @@ var cfcLifecycle = map[string]bool{
 // workspace: holding a few thousand ExtractCalls parse trees at once is gigabytes,
 // and holding eight is nothing.
 func Build(opts *Options) *Map {
+	defer resolve.BatchTextCaches()()
+
 	// A copy: the defaults below are filled into it, and must not reach the
 	// caller's options.
 	o := *opts

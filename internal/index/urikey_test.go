@@ -13,6 +13,7 @@ func TestKeyMatchesAgreesWithURIKey(t *testing.T) {
 		"file:///w/My%20Svc.cfc", "file:///w/My Svc.cfc", "file:///W/MY%20SVC.cfc",
 		"file:///w/my%2fsvc.cfc", "file:///w/my%2Fsvc.cfc", "file:///w/my/svc.cfc",
 		"file:///w/%zzbad.cfc", "file:///w/trail%2", "file:///w/caf%C3%A9.cfc",
+		"file:///A%20%zz.cfc", "file:///a%20%zz.cfc", "file:///A %zz.cfc",
 		"file:///w/CAFÉ.cfc", "file:///w/café.cfc", "file:///w/Svc.cfc", "",
 	}
 

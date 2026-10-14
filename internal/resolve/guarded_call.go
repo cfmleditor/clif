@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/cfmleditor/clif/internal/parser"
 )
@@ -207,18 +208,40 @@ const (
 )
 
 // LimitTextCaches bounds each of the process's text caches to bytes, for a
-// long-lived process (the editor's) whose entries are mostly superseded
-// versions of a document; a batch scan keeps the default, sized for its
-// workers. It applies to what is cached from then on.
-func LimitTextCaches(bytes int) {
-	lineStarts.setBudget(bytes)
-	declaredNames.setBudget(bytes)
+// long-lived process (the editor's, the MCP server's) whose entries are mostly
+// superseded versions of a document; a batch scan keeps the default, sized
+// for its workers. It applies to what is cached from then on, except while a
+// batch runs (BatchTextCaches), and returns a function putting back the
+// budgets it replaced.
+func LimitTextCaches(bytes int) (restore func()) {
+	prevLines, prevDecls := lineStarts.setBudget(bytes), declaredNames.setBudget(bytes)
+
+	return func() {
+		lineStarts.setBudget(prevLines)
+		declaredNames.setBudget(prevDecls)
+	}
 }
 
-func (c *textCache[T]) setBudget(bytes int) {
+// BatchTextCaches lifts LimitTextCaches' budget to the batch default until
+// the returned function is called. A scan or map run inside a long-lived
+// process has a worker per core asking about a file of its own at once, and
+// the long-lived budget would evict one worker's file for another's on every
+// call.
+func BatchTextCaches() (done func()) {
+	batchesRunning.Add(1)
+
+	return func() { batchesRunning.Add(-1) }
+}
+
+// batchesRunning counts the BatchTextCaches calls not yet done.
+var batchesRunning atomic.Int32
+
+func (c *textCache[T]) setBudget(bytes int) (prev int) {
 	c.mu.Lock()
-	c.budget = bytes
+	prev, c.budget = c.budget, bytes
 	c.mu.Unlock()
+
+	return prev
 }
 
 // textCache remembers a value derived from each of the texts asked about most
@@ -261,7 +284,7 @@ func (c *textCache[T]) of(content string, build func(string) T) T {
 	defer c.mu.Unlock()
 
 	budget := c.budget
-	if budget <= 0 {
+	if budget <= 0 || batchesRunning.Load() > 0 {
 		budget = textCacheBytes
 	}
 
