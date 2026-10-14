@@ -300,7 +300,11 @@ lint-fix: $(GOLANGCI_BIN)
 
 install: build
 	@mkdir -p $(GOBIN_DIR)
-	cp $(OUT) $(GOBIN_DIR)/$(BINARY)
+	@# Copied beside the target and renamed over it: cp onto a `make link`
+	@# symlink follows the link back to $(OUT) and fails as a copy onto itself,
+	@# where a rename replaces the link.
+	cp $(OUT) $(GOBIN_DIR)/.$(BINARY).tmp
+	mv -f $(GOBIN_DIR)/.$(BINARY).tmp $(GOBIN_DIR)/$(BINARY)
 	ln -sfn $(BINARY) $(GOBIN_DIR)/$(LEGACY_BINARY)
 
 # Point the zed-cfml extension at this working tree's build.
