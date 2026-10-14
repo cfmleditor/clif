@@ -304,6 +304,16 @@ func (r *Resolver) IndexForBatch(f, content string) (includes []string) {
 // called from the workers with each indexed file's content and, for a template,
 // its include paths; it must be safe to call concurrently.
 func (r *Resolver) IndexFiles(files []string, visit func(f, content string, includes []string)) {
+	IndexFilesUnder(files, func(string) *Resolver { return r }, visit)
+}
+
+// IndexFilesUnder is IndexFiles with each file indexed by the resolver under
+// returns for it, in one pool. A workspace of several configs indexed one
+// config's files after another's, so every group waited on its slowest file
+// before the next began: on tassweb's eleven configs that was a second of a
+// six-second scan. under is called from the workers and must be safe to call
+// concurrently.
+func IndexFilesUnder(files []string, under func(file string) *Resolver, visit func(f, content string, includes []string)) {
 	work := make(chan string)
 
 	var wg sync.WaitGroup
@@ -311,6 +321,8 @@ func (r *Resolver) IndexFiles(files []string, visit func(f, content string, incl
 	for range runtime.GOMAXPROCS(0) {
 		wg.Go(func() {
 			for f := range work {
+				r := under(f)
+
 				content, err := vfs.ReadString(r.FS, f)
 				if err != nil || cfpath.IsBinary(content) {
 					continue

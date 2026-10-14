@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/cfmleditor/clif/internal/daemon"
 	"github.com/cfmleditor/clif/internal/unresolved"
 	"github.com/cfmleditor/clif/internal/vfs"
 )
@@ -40,7 +41,7 @@ func TestUnresolvedReadsEachFileUnderItsOwnConfig(t *testing.T) {
 		opt := unresolvedOptions(nil, args, fl)
 
 		if !oneConfig {
-			opt.ResolverFor = perFileResolver(vfs.OS{})
+			opt.ResolverFor = perFileResolver(nil)
 		}
 
 		files := []string{filepath.Join(root, "app2", "Svc.cfc"), filepath.Join(root, "app2", "Page.cfc"), filepath.Join(root, "app1", "Other.cfc")}
@@ -86,7 +87,7 @@ func TestTheMapAndUnresolvedAgreeOnAMultiConfigWorkspace(t *testing.T) {
 	for _, oneConfig := range []bool{false, true} {
 		opt := unresolvedOptions(nil, []string{root}, &unresolvedFlags{oneConfig: oneConfig})
 		if !oneConfig {
-			opt.ResolverFor = perFileResolver(vfs.OS{})
+			opt.ResolverFor = perFileResolver(nil)
 		}
 
 		fromScan := len(unresolved.Scan(vfs.OS{}, files, nil, opt).Calls)
@@ -108,5 +109,45 @@ func TestTheMapAndUnresolvedAgreeOnAMultiConfigWorkspace(t *testing.T) {
 		if fromScan != want {
 			t.Errorf("oneConfig=%v: %d unresolved, want %d (the premise)", oneConfig, fromScan, want)
 		}
+	}
+}
+
+// The config the scan's resolver was built from is read under that resolver,
+// not under a second one built from the same file: the copy started with empty
+// caches while the first went unused, which on tassweb, one config, cost 1.4s
+// and 400MB for identical findings. Another config still gets its own.
+func TestUnresolvedReusesItsResolverForItsOwnConfig(t *testing.T) {
+	root := t.TempDir()
+
+	for name, content := range map[string]string{
+		".clif.json":      `{"workspaceName":"mono"}`,
+		"app2/.clif.json": `{"workspaceName":"app2"}`,
+		"app1/A.cfc":      `component {}`,
+		"app2/B.cfc":      `component {}`,
+	} {
+		p := filepath.Join(root, name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
+			t.Fatal(err)
+		}
+
+		if err := os.WriteFile(p, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	cfg, err := daemon.FindConfig(root)
+	if err != nil || cfg == nil {
+		t.Fatalf("FindConfig(%s) = %v, %v", root, cfg, err)
+	}
+
+	base := unresolved.NewResolver(vfs.OS{}, nil, unresolvedOptions(cfg, []string{root}, &unresolvedFlags{}))
+	resolverFor := perFileResolver(cfg)
+
+	if got := resolverFor(base, filepath.Join(root, "app1", "A.cfc")); got != base {
+		t.Error("a file under the scan's own config was read under a second resolver built from it")
+	}
+
+	if got := resolverFor(base, filepath.Join(root, "app2", "B.cfc")); got == base {
+		t.Error("a file under another config was read under the scan's resolver")
 	}
 }
