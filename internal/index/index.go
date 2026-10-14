@@ -342,7 +342,9 @@ func (idx *Index) FunctionInFile(fileURI uri.URI, name string) *parser.FunctionD
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
 
-	file := idx.fileFuncs[uriKey(fileURI)]
+	fk := uriKey(fileURI)
+
+	file := idx.fileFuncs[fk]
 	if len(file) == 0 {
 		return nil
 	}
@@ -353,7 +355,7 @@ func (idx *Index) FunctionInFile(fileURI uri.URI, name string) *parser.FunctionD
 		n := 0
 
 		for _, d := range bucket {
-			if d.URI == file[0].URI {
+			if sameFileURI(d.URI, file[0].URI, fk) {
 				found = d
 				n++
 			}
@@ -372,6 +374,20 @@ func (idx *Index) FunctionInFile(fileURI uri.URI, name string) *parser.FunctionD
 	}
 
 	return nil
+}
+
+// sameFileURI reports whether u names the file whose index key is fk, given
+// u0, one URI that file was indexed under. Spelled alike or differing only in
+// case it is decided without allocating; it is unescaped only when one of the
+// two is escaped.
+func sameFileURI(u, u0 uri.URI, fk string) bool {
+	if u == u0 || strings.EqualFold(string(u), string(u0)) {
+		return true
+	}
+
+	escaped := strings.ContainsRune(string(u), '%') || strings.ContainsRune(string(u0), '%')
+
+	return escaped && uriKey(u) == fk
 }
 
 // HasFile reports whether the index holds an entry for this file, which is not

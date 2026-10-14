@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -189,4 +190,74 @@ func repoTestdata() string {
 	_, file, _, _ := runtime.Caller(0)
 
 	return filepath.Join(filepath.Dir(file), "..", "..", "testdata")
+}
+
+// A textCache keeps no more than textCacheBytes of text alive, however many
+// slots are free, and still answers what it built.
+func TestTextCacheIsBoundedByBytes(t *testing.T) {
+	c := &textCache[int]{}
+	text := strings.Repeat("x", textCacheBytes/4)
+
+	for i := range 10 {
+		v := text + strconv.Itoa(i)
+		if got := c.of(v, func(s string) int { return len(s) }); got != len(v) {
+			t.Fatalf("of = %d, want %d", got, len(v))
+		}
+	}
+
+	held := 0
+
+	for i := range c.slots {
+		held += len(c.slots[i].content)
+	}
+
+	if held > textCacheBytes || held != c.held {
+		t.Errorf("holding %d bytes (counted %d), budget %d", held, c.held, textCacheBytes)
+	}
+}
+
+// FunctionInFile's bucket path finds a definition whose URI is spelled
+// differently from the file's first (case, escaping) as the walk does.
+func TestFunctionInFileMatchesTheFileHoweverItsURIIsSpelled(t *testing.T) {
+	idx := index.New()
+	funcs := []parser.FunctionDef{
+		{Name: "a", URI: "file:///w/My%20Svc.cfc"},
+		{Name: "b", URI: "file:///w/My%20Svc.cfc"},
+		{Name: "target", URI: "file:///W/MY%20SVC.cfc"},
+		{Name: "escaped", URI: "file:///w/My Svc.cfc"},
+	}
+	idx.IndexFileFromResult("file:///w/My%20Svc.cfc", funcs, nil)
+
+	for _, name := range []string{"target", "escaped"} {
+		if d := idx.FunctionInFile("file:///w/My%20Svc.cfc", name); d == nil || d.Name != name {
+			t.Errorf("FunctionInFile(%q) = %v, want the file's definition", name, d)
+		}
+	}
+
+	plain := []parser.FunctionDef{
+		{Name: "a", URI: "file:///w/Svc.cfc"},
+		{Name: "b", URI: "file:///w/Svc.cfc"},
+		{Name: "cased", URI: "file:///W/SVC.cfc"},
+	}
+	idx.IndexFileFromResult("file:///w/Svc.cfc", plain, nil)
+
+	if d := idx.FunctionInFile("file:///w/Svc.cfc", "cased"); d == nil || d.Name != "cased" {
+		t.Errorf("FunctionInFile(%q) = %v, want the file's definition", "cased", d)
+	}
+}
+
+// ShareCallerIndex's restore gives each resolver back the index it had and
+// forgets the answers read from the shared one.
+func TestShareCallerIndexRestoreForgetsWhatItAnswered(t *testing.T) {
+	files := callerIndexFixture(t)
+	a := &Resolver{FS: newCountingFS(), Index: index.New(), InferArgsFiles: files}
+
+	restore := ShareCallerIndex([]*Resolver{a})
+	a.argCache = map[string]string{"k": "from the shared index"}
+
+	restore()
+
+	if a.callerIdx != nil || a.argCache != nil {
+		t.Errorf("after restore: callerIdx %v, argCache %v; want both as before the share", a.callerIdx, a.argCache)
+	}
 }
