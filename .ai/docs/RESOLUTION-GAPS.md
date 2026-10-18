@@ -72,8 +72,31 @@ At PR #184 the totals are **9,520** with presets and **18,618** without
 (18,623 when re-measured at the branch point of gap #3's fix, see "The batch
 scan is not deterministic" below). After gaps #3 and #4 they are **9,476**
 and **18,028**; after gap #1, **9,225** and **17,645**; after gap #2, **9,115** and
-**17,532**; after gap #5, **9,020** and **17,439**; after gaps #6 and #7, **9,001**
-and **17,429**. Use
+**17,532**; after gap #5, **9,020** and **17,439**; after gaps #6 and #7, **9,001** and
+**17,429**. On 2026-10-18, after everything merged since the lists' cut
+(#244 through #270), the same two modes measure **7,243** and **16,428**
+(cfwheels measured at its root, as above).
+
+The checkouts are snapshots without their git pins, so snapshots and totals
+drift and the two sets are not directly comparable. The comparison that
+controls for that runs each scan twice, with a binary built at the lists'
+commit (`6ebe727`) and with the current one, over the same checkouts and
+configs: **121 unresolved call sites resolved, none added**, and 38 lines
+that still fail report a different, sharper reason at the same call. The
+largest causes, each verified by replaying single commits:
+
+- The PR-244 follow-up typed a loop's element over an `$any` collection as
+  dynamic and Mura's zero-argument `event()` as the `servletEvent|event`
+  union (44 of ContentBox's 46 cleared; verified on the patch files' `oRule`
+  and `thisPage` loops).
+- PR #269's param-statement fix stopped an untyped `param` from voiding
+  guarded shared-field contracts, which restored MuraScope typing: all 52
+  `MuraScope … no component return type` chains masa-c reported at the old
+  binary are gone, and TestBox's BaseReporter receivers resolved with it.
+- PR #268's missing-base suffix parse cleared the few remaining single-hop
+  entries.
+
+Use
 `clif explain <file> <line+1> [call]` to trace any entry. The report's
 lines are 0-based and `explain` takes 1-based lines. `explain` indexes only the
 file's own directory unless given `--root <project>`, so pass `--root` or it
@@ -81,30 +104,32 @@ can disagree with the batch scan.
 
 ## Where the entries are
 
-With presets, the largest groups by project and reason are:
+With presets, the largest groups by project and reason are (measured
+2026-10-18 on the configured root scan of each project; cfwheels at its
+root):
 
 | Entries | Project | Reason |
 |---|---|---|
-| 2,081 | ContentBox | variable has no component ref |
-| 1,596 | coldbox-platform | variable has no component ref |
-| 1,155 | Lucee | variable has no component ref |
-| 863 | cfwheels | variable has no component ref |
-| 557 | Lucee | no qualifier, not in file |
-| 395 | cfwheels | not found in extends chain |
-| 232 | fw1 | variable has no component ref |
-| 181 | cfwheels | component does not exist |
-| 164 | cfwheels | base component does not resolve |
+| 1,571 | Lucee | variable has no component ref |
+| 1,439 | ContentBox | variable has no component ref |
+| 1,253 | coldbox-platform | variable has no component ref |
+| 838 | cfwheels | variable has no component ref |
+| 293 | TestBox | variable has no component ref |
+| 272 | fw1 | variable has no component ref |
+| 158 | cfwheels | component does not exist |
+| 94 | coldbox-platform | method has no component return type (chain) |
+| 84 | Lucee | no qualifier, not in file |
 
-"Variable has no component ref" is two thirds of the report. The variables
-behind it, most frequent first:
+"Variable has no component ref" is nearly four fifths of the report. The
+variables behind it, most frequent first:
 
 | Project | Variables |
 |---|---|
-| coldbox-platform | `scheduler` 156, `iservice` 105, `arguments.mapping` 73, `oexception` 70, `now` 50, `arguments.prc.response` 47 |
-| ContentBox | `content` 83, `thiscontent` 74, `comment` 65, `prc.author` 60, `c` 54, `entry` 53, `c.restrictions` 47 |
-| Lucee | `field` 160, `driver` 97, `coll` 62 |
-| cfwheels | `variables.helpers` 70, `details` 64, `arguments.printer` 53, `ssh` 49 |
-| fw1 | `user` / `local.user` 29 each, `answer` 18, `rc.question` 17 |
+| coldbox-platform | `mapping` 45, `variables.withClosure` 40, `e` 34, `variables.native` 33, `results.config` 27, `item` 26 |
+| ContentBox | `content` 52, `arguments.content` 45, `entry` 38, `item` 34, `args.menuItem` 30, `arguments.original` 27 |
+| Lucee | `field` 205, `coll` 98, `driver` 73, `msg` 36, `result` 33, `res` 26 |
+| cfwheels | `local.stmt` 86, `local.rs` 66, `variables.helpers` 53, `ssh` 49, `variables.config` 39, `binder` 32 |
+| fw1 | `local.user` 32, `user` 28, `variables.userService` 23, `rc.question` 17, `variables.targetBean` 15, `q` 14 |
 
 The gaps below explain the largest of these.
 
@@ -1430,12 +1455,18 @@ cause has a test that fails without its fix:
 | A loop over `pageService.getAll()` from an uninstalled module's model left its variable untyped though calls on the receiver were accepted | `collectionExpressionElement` returns `$any` for a dynamic receiver | 40 |
 | The new Mura preset typed `$`, and `$.event()` declares no return type | zero-argument `event()` is `mura.servletEvent|mura.event`, as `content()` and `siteConfig()` were | 35 |
 
-Remaining: tassweb 0, the nine apps 22 (Mura 14 chains through event methods
-with no declared return type, the long-standing "no component return type"
-rule; coldbox-samples 7 unexamined; cfdocs 1, a string typed in one `<cfif>`
-branch and read after an `elseif` reassignment that `nativeReassignedAt` does
-not recognise in tag syntax). Every other finding these apps add over v0.5.2 is
-a call v0.5.2 never extracted.
+Left after the PR-244 batch: tassweb 0, the nine apps 22 (Mura 14 chains
+through event methods with no declared return type, the long-standing "no
+component return type" rule; coldbox-samples 7 unexamined; cfdocs 1, a string
+typed in one `<cfif>` branch and read after an `elseif` reassignment that
+`nativeReassignedAt` does not recognise in tag syntax). Re-measured on
+2026-10-18: the 14 Mura chains are gone — PR #269's param-statement fix
+stopped an untyped `param` from voiding the guarded shared-field contracts
+the Mura preset types `MuraScope` with (the masa-c replay that controls for
+checkout drift clears all 52 `MuraScope` chains the old binary reported, and
+TestBox's BaseReporter receivers resolve with the same fix). The remaining
+eight are coldbox-samples 7 unexamined and cfdocs 1. Every other finding
+these apps add over v0.5.2 is a call v0.5.2 never extracted.
 
 Against the PR-244 fresh-review reports (same seven projects, roots and flags):
 
