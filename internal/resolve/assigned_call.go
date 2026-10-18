@@ -108,6 +108,14 @@ func (r *Resolver) assignedFromCall(variable string, line uint32, caller string,
 		return ""
 	}
 
+	// An element of a registry a component registry recipe fills: the struct
+	// the listing loop stores components in, whose elements are the family
+	// the loop's package holds. Before the call-chain typing below, which is
+	// the other thing a right-hand side can be.
+	if comp := r.registryElementRes(rhs, pr, tr); comp != "" {
+		return comp
+	}
+
 	if native := nativeLiteral(rhs); native != "" {
 		if container == "" && !scoped && evalCaller == caller {
 			if output, written := r.literalQueryOutput(pr, name, at, int(line), caller, baseDir, ctx.call); written {

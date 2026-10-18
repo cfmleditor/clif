@@ -92,7 +92,10 @@ type Resolver struct {
 	loopCache             spanCache[loopsByName]       // file URI → every loop its current text holds (loopsOf)
 	typeGuardCache        spanCache[receiverTypeGuard] // exact builtin checks in current source
 	closureCache          spanCache[closureSpan]       // file URI → every function literal its current text holds (closuresOf)
-	pathCaches                                         // what InvalidatePaths clears
+	registryCache         spanCache[[]registryFact]    // file URI → every registry recipe its current text holds (registriesOf)
+	registryTextMu        sync.Mutex
+	registryTextCache     map[string]registryText // includer path → its registry facts, with its text
+	pathCaches                                    // what InvalidatePaths clears
 }
 
 // pathCaches are the answers a Resolver keeps that depend on files, paths and
@@ -1634,6 +1637,14 @@ func (r *Resolver) walkHops(comp, softComp string, call *parser.CallSite, pr *pa
 			break
 		}
 
+		// A registry family is its members' set, which no single hop's
+		// declared return type can name. The chain continues dynamically.
+		if paths := familyPaths(comp); len(paths) > 0 {
+			tr.addf("chain hop %q is on a registry family (%s) — the rest of the chain is dynamic", hop, displayFamilyMembers(paths))
+
+			break
+		}
+
 		if strings.HasPrefix(comp, "$builtin.") {
 			ret, ok := docs.LookupBuiltinMethodReturn(comp, hop)
 			if !ok {
@@ -3029,6 +3040,12 @@ func (r *Resolver) checkMethodOn(comp, softComp string, call *parser.CallSite, p
 		tr.hit(TargetDynamic, comp, nil)
 
 		return ""
+	}
+
+	// A registry family: the receiver is any one of the package directory's
+	// components, so the method must be each member's own, or its base's.
+	if pkg, members := familyParts(comp); len(members) > 0 {
+		return r.checkFamilyMethod(pkg, members, call, pr, tr)
 	}
 
 	// Builtin return type — check method exists in-memory
