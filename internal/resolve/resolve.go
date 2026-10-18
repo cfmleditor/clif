@@ -3384,7 +3384,7 @@ func keyedReceiverStem(variable string) (stem string) {
 	return m[1]
 }
 
-var keyedReceiverRe = regexp.MustCompile(`^([A-Za-z_]\w*)\[\]$`)
+var keyedReceiverRe = regexp.MustCompile(`^([A-Za-z_]\w*)\[[^[\]]*\]$`)
 
 // speculativeReceiverOver is the guess a batch scan recorded for the
 // receiver, when the origin the lookup ran at proves nothing of its own —

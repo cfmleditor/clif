@@ -25,6 +25,30 @@ func (r *Resolver) collectionExpressionElement(receiver string, calls []chainCal
 		return r.elementOf(collectionExpression(receiver, calls[:len(calls)-1]), header, start, caller, pr, baseDir, depth+1, leaf)
 	}
 
+	// A chain the receiver runs — receiver.hop1().hop2() — walks its earlier
+	// hops' returns to what the last call runs on, as the check's own walk
+	// does. Each hop's return must be a proven component: an erased one
+	// leaves the element unprovable.
+	if receiver != "" && len(calls) > 1 {
+		comp, _ := r.receiverComponentD(receiver, conv.Uint32(header), caller, last.name, pr, baseDir, nil, lookupCtx{leaf: leaf})
+
+		lookup := r.FuncLookup(baseDir)
+
+		for _, c := range calls[:len(calls)-1] {
+			if comp == "" || strings.HasPrefix(comp, "$") && !strings.HasPrefix(comp, "$builtin.") {
+				return ""
+			}
+
+			comp = hopReturns(lookup, comp, c, false)
+		}
+
+		if comp == "" || strings.HasPrefix(comp, "$") && !strings.HasPrefix(comp, "$builtin.") {
+			return ""
+		}
+
+		return r.methodElement(comp, last.name, last.args, baseDir)
+	}
+
 	if len(calls) != 1 {
 		return ""
 	}
