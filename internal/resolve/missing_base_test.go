@@ -196,3 +196,25 @@ func TestACallOnAComponentWithAMissingBaseBlamesTheBase(t *testing.T) {
 		t.Errorf("plain.missing: %q, want %q", got["plain.missing"], want)
 	}
 }
+
+// TestMissingBaseReasonRoundTrips: MissingBaseReason builds the reason string
+// and MissingBaseOf recovers the base from it, including names that contain
+// quotes or commas, while a string that is not one of those reasons, or an
+// empty base, answers false — every producer guards base != "", so ok means a
+// base was found.
+func TestMissingBaseReasonRoundTrips(t *testing.T) {
+	for _, base := range []string{"vendor.Missing", "a.b.c", "x'y"} {
+		reason := MissingBaseReason(base)
+
+		got, ok := MissingBaseOf(reason)
+		if !ok || got != base {
+			t.Errorf("base %q: round trip got %q, %v", base, got, ok)
+		}
+	}
+
+	for _, bad := range []string{"", "not found in extends chain", "extends chain breaks at vendor.Missing", "extends chain breaks at 'vendor.Missing", MissingBaseReason("")} {
+		if base, ok := MissingBaseOf(bad); ok {
+			t.Errorf("%q: want false, got %q", bad, base)
+		}
+	}
+}

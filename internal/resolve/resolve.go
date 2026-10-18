@@ -2320,13 +2320,17 @@ func (r *Resolver) resolveSuperCall(funcName string, pr *parser.ParseResult, bas
 // reads back.
 const missingBasePrefix = "extends chain breaks at "
 
+// missingBaseSuffix closes MissingBaseReason's answer; MissingBaseOf requires
+// the same text.
+const missingBaseSuffix = "', which does not resolve"
+
 // MissingBaseReason is canResolveCall's answer for an inherited call when a
 // component in the file's extends chain does not resolve. The method may well
 // be declared there; what is missing is the base, and a report that blames the
 // call names the wrong problem once per call — 56,000 times over the six-project
 // corpus, for a dozen missing bases.
 func MissingBaseReason(base string) string {
-	return missingBasePrefix + "'" + base + "', which does not resolve"
+	return missingBasePrefix + "'" + base + missingBaseSuffix
 }
 
 // MissingBaseOf reports the base a MissingBaseReason names.
@@ -2336,9 +2340,14 @@ func MissingBaseOf(reason string) (string, bool) {
 		return "", false
 	}
 
-	base, _, ok := strings.Cut(rest, "'")
+	if !strings.HasSuffix(rest, missingBaseSuffix) {
+		return "", false
+	}
 
-	return base, ok
+	base := strings.TrimSuffix(rest, missingBaseSuffix)
+	// Every producer of MissingBaseReason guards base != "", so ok means a
+	// base was found, never none.
+	return base, base != ""
 }
 
 // inheritedFromMissingBase is the base a receiver with no component is taken
