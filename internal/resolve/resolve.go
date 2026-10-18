@@ -2102,40 +2102,8 @@ func (r *Resolver) resolveBareChain(call *parser.CallSite, pr *parser.ParseResul
 
 	def := r.bareFunc(first, pr, baseDir, call.Caller)
 	if def == nil {
-		if r.builtinCallShadowed(first, call.Line, call.Caller, pr) {
-			return "variable '" + first + "' has no component ref"
-		}
-
-		if r.fileExtends(pr) != "" {
-			if base, implied := r.fileMissingBase(pr, baseDir); base != "" {
-				if implied {
-					tr.addf("the framework base %s implies does not resolve (%s) — the chain is dynamic", r.fileExtends(pr), base)
-					tr.hit(TargetDynamic, "", nil)
-
-					return ""
-				}
-
-				return MissingBaseReason(base)
-			}
-		}
-
-		// A built-in function returns a value, not a component:
-		// getPageContext().getRequest() and now().format() are calls on what
-		// the engine hands back, which the method lists here only partly
-		// know. The file's own function of that name was looked for first.
-		if ret := r.BuiltinReturnLookup(first); ret != "" {
-			rest := *call
-			rest.Chain = call.Chain[1:]
-			rest.Component = ret
-
-			return r.canResolveCall(&rest, pr, baseDir, tr)
-		}
-
-		if docs.IsBuiltinFunction(first) {
-			tr.addf("%q is a built-in function — the chain on what it returns is dynamic", first)
-			tr.hit(TargetDynamic, "", nil)
-
-			return ""
+		if answer, ok := r.unboundChainHop(first, expression, call, pr, baseDir, tr); ok {
+			return answer
 		}
 
 		return "chained on '" + first + "', which is not found (calling '" + call.FuncName + "')"
