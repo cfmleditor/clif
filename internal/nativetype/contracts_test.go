@@ -136,3 +136,29 @@ func TestHibernateContractsCoverWhatORMCodeCalls(t *testing.T) {
 		}
 	}
 }
+
+// TestNumericContractsCoverMemberFunctionSyntax: Lucee (and CF2016+) support
+// member-function syntax on primitive numeric receivers — the lucee corpus
+// test functions call a.sgn(), y.abs(), a.aCos(), and similar directly on
+// numbers — natives were declared without members, and each call was
+// reported as "not found on builtin native.numeric".
+func TestNumericContractsCoverMemberFunctionSyntax(t *testing.T) {
+	numeric := []string{"abs", "aCos", "aSin", "atn", "bitAnd", "bitMaskClear", "bitMaskRead", "bitMaskSet", "bitNot", "bitOr", "bitSHLN", "bitSHRN", "bitXor", "ceiling", "cos", "fix", "floor", "int", "len", "log", "log10", "max", "min", "round", "sgn", "sin", "sqr", "tan"}
+	for _, name := range numeric {
+		if got, ok := Method(Type("numeric"), name); !ok || got != Type("numeric") {
+			t.Errorf("numeric.%s = %q, %v; want %q", name, got, ok, Type("numeric"))
+		}
+	}
+
+	for _, name := range []string{"booleanFormat", "formatBaseN"} {
+		if got, ok := Method(Type("numeric"), name); !ok || got != Type("string") {
+			t.Errorf("numeric.%s = %q, %v; want %q", name, got, ok, Type("string"))
+		}
+	}
+
+	for _, name := range []string{"nope", "reReplace", "append"} {
+		if _, ok := Method(Type("numeric"), name); ok {
+			t.Errorf("numeric.%s unexpectedly supported", name)
+		}
+	}
+}

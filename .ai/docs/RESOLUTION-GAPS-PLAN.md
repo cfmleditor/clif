@@ -3808,3 +3808,30 @@ source-backed callback/constructor-chain fixes, opt-in ranked receiver matching,
 and open-world assumptions. The low open-world remainder is a triage count;
 original unproven diagnostics remain in `assumedCalls` and are not counted as
 resolved. Scalar unknown-return policy and literal-array inference remain deferred.
+
+## Registry-family receiver (slice 2) and numeric member functions
+
+The admin registry drivers section is now implemented — recipe read from the
+registering template's own text or an includer's, family members from the
+package directory minus the guard's literal skips, method checks as an
+intersection across members (`internal/resolve/registry.go`), family receiver
+marker `$family:<package>#...` accepted at `checkMethodOn` and broken at
+`walkHops` hop (chains past a family stay dynamic). PR #273 landed with a
+seven-scan per-entry delta against `after-slice1` of lucee 1,985 → 1,924
+(61 removed, 0 added) and the six other corpora byte-identical; baseline
+directory `target/resolution/after-slice2c/`. The registry census entries
+ended with it: the `driver` family's remaining sites are its element rows in
+the `field` loop contract, which stays on the plan.
+
+While auditing the census, the lucee 33× "not found on builtin
+native.numeric" entries turned out to be Lucee's member-function syntax on
+primitive receivers (`a.sgn()`, `y.abs()`, `a.aCos()` — `test/functions/`,
+`test/tickets/LDEV1824`), and the native numeric contract was empty. Every
+entry is a generated-catalogue function taking a number first
+(`booleanFormat`/`formatBaseN` return strings), so the numeric contract now
+lists CFML member functions explicitly (`internal/nativetype/contracts.go`).
+Seven-scan delta against `after-slice2c`: lucee 1,924 → 1,891 (exactly the 33
+numeric member rows, 0 added), the six other corpora identical; baseline
+directory `target/resolution/after-num/`. Candidate lists re-cut with the same
+run. The remaining lucee `field` loop contract (Debug family returns) is the
+next slice on this family.
