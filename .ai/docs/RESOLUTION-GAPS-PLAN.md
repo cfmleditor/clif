@@ -3863,3 +3863,57 @@ rows); dbdriver's create page reads its element through a struct key
 (`field=fields[idx]` under a `getFields` no member of the flat dir's base
 declares, 19 rows); and ResourceAppender/DatasourceAppender loop a
 `duplicate(variables.fields)` copy inside the member's own getter (6 rows).
+
+## The logging admin's indirect registries (slice 4)
+
+`server.logging.cfm` fills both its registries through a factory, and the
+pages that consume them never name a container:
+
+```
+<cfloop collection="#names#" index="n" item="fn">
+	<cfif n NEQ "Appender" and n NEQ "Field" and n NEQ "Group">
+		<cfset arrayAppend(arr,createObject("component",fn))>
+	</cfif>
+</cfloop>
+<cfset appenders=doSortedStruct(arr)>
+
+<cfloop list="appender,layout" item="_name">
+	<cfset drivers=variables[_name&"s"]>
+	<cfloop collection="#drivers#" index="driverClass" item="driver">
+```
+
+Three seams close the gap (`internal/resolve/registry.go`,
+`registry_pickup.go`). The factory fill is a recipe: the listing's loop ships
+its constructions into an array with arrayAppend, and the first call after
+the loop hands the array to a same-file function whose body walks
+`arguments.` its first parameter and stores each walked element in the struct
+it returns — the assignment's left side is the container. Both recipes reuse
+one listing struct's and one array's name, so the listing's loop is the first
+one after the listing itself, and the factory call the first one after the
+loop. The consumers read the container under a name no recipe spells:
+`variables[_name&"s"]` where `_name` is the item of a `<cfloop
+list="appender,layout">`, so each turn's concatenation names one of the
+template's own containers, and the families the turns name cannot be told
+apart statically — the receiver is a comma-joined pair of family markers,
+answered by whichever family holds it, since exactly one does. And a chain
+receiver the assignment graph cannot type is now also tried as the variable
+of the loop around the read, the way a direct assignment of one element
+would be. `constructorItemComponent` keeps the absolute path the construction
+proved instead of the spelling it went by: an appender's Field and a
+layout's Field are different components spelled the same, and the element
+union must not collapse them.
+
+Measured against `after-field2`: lucee 1,749 → 1,727 (22 removed, 0 added)
+— the 14 `driver` getter rows of `server.logging.create.cfm` and the 4
+`appender`/4 `layout` rows of `server.logging.list.cfm`, every one a receiver
+the families' own declarations answer — and the six other corpora identical.
+Baseline directory `target/resolution/after-slice4/`; candidate lists re-cut
+with the same run (11,740 findings, 2,608 with a high-confidence candidate).
+
+Still open on the logging entry: the 36 `field` element rows — the loop
+element's strict proof asks every family to name its helpers, and the
+appender family's DatasourceAppender/ResourceAppender prove theirs through a
+`duplicate(variables.fields)` copy the member-own getter seam (next rung,
+6 rows there) is the one to read — plus 4 `_driver` rows (the ternary's
+`variables[_name]`, a container the page does not spell) and 3 factory
+internals (`arguments.l`/`arguments.r`/`el`).

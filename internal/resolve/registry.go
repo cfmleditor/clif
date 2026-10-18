@@ -55,7 +55,7 @@ var (
 	scriptLoopPartsRe = regexp.MustCompile(`(?is)\bloop\b([^\{;]*?)\{`)
 
 	// The header's attributes, quoted or bare.
-	loopAttrPairsRe = regexp.MustCompile(`(?i)\b(collection|struct|array|index|item)\s*=\s*(?:"([^"]*)"|'([^']*)'|([A-Za-z_][\w]*))`)
+	loopAttrPairsRe = regexp.MustCompile(`(?i)\b(collection|struct|array|index|item|list)\s*=\s*(?:"([^"]*)"|'([^']*)'|([A-Za-z_][\w]*))`)
 
 	// Both polarities guard the listing key: equal to a name skips it out,
 	// unequal to one lets only the others construct. Both deny the literal.
@@ -70,6 +70,30 @@ var (
 	// V = createObject("component", path): the variable the construction was
 	// assigned to, and the path it spells.
 	createdAssignRe = regexp.MustCompile(`(?i)\b([A-Za-z_]\w*)\s*=\s*createObject\s*\(\s*["']\s*component\s*["']\s*,\s*([^)]*?)\s*\)`)
+
+	// arrayAppend(ARR, createObject("component", V)): the constructions the
+	// listing's loop ships into an array a factory call turns into the
+	// registry.
+	arrayAppendCreateRe = regexp.MustCompile(`(?i)\barrayAppend\s*\(\s*((?:variables\.)?[A-Za-z_]\w*)\s*,\s*createObject\s*\(\s*["']\s*component\s*["']\s*,\s*([^)]*?)\s*\)`)
+
+	// arrayAppend(ARR, V), where V is the variable the construction was
+	// assigned to.
+	arrayAppendVarRe = regexp.MustCompile(`(?i)\barrayAppend\s*\(\s*((?:variables\.)?[A-Za-z_]\w*)\s*,\s*([A-Za-z_]\w*)\s*\)`)
+
+	// CONTAINER = FN(ARR ...): the assignment whose right side is the call
+	// that turns an appended array into the struct the page reads back.
+	factoryCallRe = regexp.MustCompile(`(?i)\b((?:variables\.)?[A-Za-z_]\w*)\s*=\s*([A-Za-z_]\w*)\s*\(\s*((?:variables\.)?[A-Za-z_]\w*)\s*(?:,|\))`)
+
+	// function FN(...): the script definition of a factory function's name
+	// and its parameter list.
+	factoryDefRe = regexp.MustCompile(`(?i)\bfunction\s+([A-Za-z_]\w*)\s*\(([^)]*)\)`)
+
+	// loop array=arguments.P item="X": the factory body's walk of the array
+	// its argument received.
+	factoryLoopRe = regexp.MustCompile(`(?i)\bloop\s+array=arguments\.([A-Za-z_]\w*)\s+item="([^"]*)"`)
+
+	// for (X in arguments.P): the factory body's walk, script for-in form.
+	factoryForRe = regexp.MustCompile(`(?i)\bfor\s*\(\s*(?:var\s+)?([A-Za-z_]\w*)\s+in\s+arguments\.([A-Za-z_]\w*)\b`)
 )
 
 // registriesOf is the registry facts the template's own text holds, read for
@@ -169,13 +193,17 @@ func (r *Resolver) registryFamily(container string, pr *parser.ParseResult) (reg
 // findRegistries reads a template's registry recipes out of its text: each
 // listing whose loop constructs components with the loop's item and stores
 // them in a struct, with the names the template's guards keep out of it.
+// The loop is the first one naming the listing's struct after the listing
+// itself — a template that fills two registries reuses one struct's name,
+// and each listing's own loop is the one its recipe fills.
 func (r *Resolver) findRegistries(content, file string) []registryFact {
 	var facts []registryFact
 
-	for _, listing := range pkgListRe.FindAllStringSubmatch(content, -1) {
-		target := strings.TrimPrefix(listing[2], "variables.")
+	for _, listing := range pkgListRe.FindAllStringSubmatchIndex(content, -1) {
+		pkg := content[listing[2]:listing[3]]
+		target := strings.TrimPrefix(content[listing[4]:listing[5]], "variables.")
 
-		span, ok := listingLoopSpan(content, target)
+		span, ok := listingLoopSpan(content, target, listing[1])
 		if !ok {
 			continue
 		}
@@ -184,7 +212,11 @@ func (r *Resolver) findRegistries(content, file string) []registryFact {
 		container, ok := registryContainer(spanText, span.item)
 
 		if !ok {
-			continue
+			container, ok = factoryContainer(content, span.end, span.item)
+
+			if !ok {
+				continue
+			}
 		}
 
 		name := strings.ToLower(strings.TrimPrefix(container, "variables."))
@@ -194,13 +226,13 @@ func (r *Resolver) findRegistries(content, file string) []registryFact {
 		}
 
 		skips := registrySkips(spanText, span.index)
-		members := r.registryMembers(file, listing[1], skips)
+		members := r.registryMembers(file, pkg, skips)
 
 		if len(members) == 0 {
 			continue
 		}
 
-		facts = append(facts, registryFact{pkg: listing[1], container: name, members: members})
+		facts = append(facts, registryFact{pkg: pkg, container: name, members: members})
 	}
 
 	return facts
@@ -214,10 +246,15 @@ type registrySpan struct {
 	index      string
 }
 
-// listingLoopSpan answers the span of the loop whose collection or struct
-// names listingVar, and the item and index variables its header binds.
-func listingLoopSpan(content, listingVar string) (registrySpan, bool) {
+// listingLoopSpan answers the span of the first loop after from whose
+// collection or struct names listingVar, and the item and index variables
+// its header binds.
+func listingLoopSpan(content, listingVar string, from int) (registrySpan, bool) {
 	for _, m := range loopTagPartsRe.FindAllStringSubmatchIndex(content, -1) {
+		if m[0] < from {
+			continue
+		}
+
 		if content[m[2]:m[3]] != "" { // a close tag
 			continue
 		}
@@ -237,6 +274,10 @@ func listingLoopSpan(content, listingVar string) (registrySpan, bool) {
 	}
 
 	for _, m := range scriptLoopPartsRe.FindAllStringSubmatchIndex(content, -1) {
+		if m[0] < from {
+			continue
+		}
+
 		attrs := loopAttrs(content[m[2]:m[3]])
 
 		if !strings.EqualFold(loopIterated(attrs), listingVar) {
@@ -372,6 +413,144 @@ func registryContainer(spanText, item string) (string, bool) {
 	}
 
 	return "", false
+}
+
+// factoryContainer is the struct a factory call fills, when the listing's
+// loop ships its constructions into an array with arrayAppend and hands the
+// array to a function:
+//
+//	<cfset arrayAppend(arr,createObject("component",fn))>
+//	<cfset appenders=doSortedStruct(arr)>
+//
+// doSortedStruct is the same template's own function, whose body walks the
+// array its argument received and stores each walked element in the struct
+// it returns — appenders is that struct. The call is the first after the
+// loop's span: a template that fills two registries hands both to the same
+// factory, and each loop's own call is the one naming its container. The
+// function must prove the shape: its first parameter the call's argument, a
+// walk of `arguments.` it on the item a store and a return agree on.
+func factoryContainer(content string, from int, item string) (string, bool) {
+	spanText := content[:from]
+
+	var arrs []string
+
+	for _, m := range arrayAppendCreateRe.FindAllStringSubmatch(spanText, -1) {
+		if pathsToItem(spanText, m[2], item) && !slices.ContainsFunc(arrs, func(a string) bool { return strings.EqualFold(a, m[1]) }) {
+			arrs = append(arrs, m[1])
+		}
+	}
+
+	for _, m := range arrayAppendVarRe.FindAllStringSubmatch(spanText, -1) {
+		if assignedFromCreate(spanText, m[2], item) && !slices.ContainsFunc(arrs, func(a string) bool { return strings.EqualFold(a, m[1]) }) {
+			arrs = append(arrs, m[1])
+		}
+	}
+
+	if len(arrs) == 0 {
+		return "", false
+	}
+
+	for _, m := range factoryCallRe.FindAllStringSubmatch(content[from:], -1) {
+		if !slices.ContainsFunc(arrs, func(a string) bool { return strings.EqualFold(a, m[3]) }) {
+			continue
+		}
+
+		if factoryFillsRegistry(content, m[2]) {
+			return m[1], true
+		}
+	}
+
+	return "", false
+}
+
+// factoryFillsRegistry is whether content's fn walks the array the call's
+// argument handed it and stores each walked element in the struct it
+// returns:
+//
+//	function doSortedStruct(arr) {
+//		var sct=structNew('ordered');
+//		loop array=arguments.arr item="local.el" {
+//			sct[el.getClass()]=el;
+//		}
+//		return sct;
+//	}
+//
+// The call's argument binding the factory proved itself in factoryContainer:
+// its first argument is one of the arrays the appends shipped into.
+func factoryFillsRegistry(content, fn string) bool {
+	var params []string
+
+	for _, m := range factoryDefRe.FindAllStringSubmatch(content, -1) {
+		if strings.EqualFold(m[1], fn) {
+			params = strings.Split(m[2], ",")
+
+			break
+		}
+	}
+
+	if len(params) == 0 {
+		return false
+	}
+
+	words := strings.Fields(params[0])
+	if len(words) == 0 {
+		return false
+	}
+
+	param := words[len(words)-1]
+
+	// The body begins at the first brace after the signature.
+	for _, m := range factoryDefRe.FindAllStringSubmatchIndex(content, -1) {
+		if !strings.EqualFold(content[m[2]:m[3]], fn) {
+			continue
+		}
+
+		open := strings.Index(content[m[1]:], "{")
+		if open < 0 {
+			return false
+		}
+
+		end, ok := braceEnd(content, m[1]+open)
+		if !ok {
+			return false
+		}
+
+		return factoryBodyFills(content[m[1]+open:end+1], param)
+	}
+
+	return false
+}
+
+// factoryBodyFills is whether the function body walks the array its param
+// received, binding an item, and stores each walked element in the struct it
+// returns: one store `sct[...]=item`, spelled under the same name the body's
+// return names. A walk the store's key or value does not keep to leaves the
+// shape unproven.
+func factoryBodyFills(body, param string) bool {
+	var item string
+
+	if m := factoryLoopRe.FindStringSubmatch(body); m != nil && strings.EqualFold(m[1], param) {
+		item = strings.TrimPrefix(strings.TrimPrefix(m[2], "local."), "var ")
+	} else if m := factoryForRe.FindStringSubmatch(body); m != nil && strings.EqualFold(m[2], param) {
+		item = m[1]
+	} else {
+		return false
+	}
+
+	if item == "" {
+		return false
+	}
+
+	store := regexp.MustCompile(`(?i)\b([A-Za-z_]\w*)\s*\[[^\]]*\]\s*=\s*(?:local\.)?` + regexp.QuoteMeta(item) + `\b`)
+
+	m := store.FindStringSubmatch(body)
+	if m == nil {
+		return false
+	}
+
+	ret := regexp.MustCompile(`(?i)\breturn\s+(?:variables\.)?` + regexp.QuoteMeta(m[1]) + `\b`)
+
+	return ret.MatchString(body)
 }
 
 // pathsToItem is whether the construction's path names the listing's item,
@@ -556,6 +735,28 @@ func familyComp(fact registryFact) string {
 	return familyPrefix + fact.pkg + "#" + strings.Join(fact.members, "|")
 }
 
+// familyRef is one family marker's package and member file paths.
+type familyRef struct {
+	pkg     string
+	members []string
+}
+
+// familyRefs is the families a receiver's marker names: the single family
+// `$family:pkg#m1|m2`, or each comma-joined marker of a multi-family
+// receiver. A comp that names no family answers none.
+func familyRefs(comp string) []familyRef {
+	var refs []familyRef
+
+	for piece := range strings.SplitSeq(comp, ",") {
+		pkg, members := familyParts(piece)
+		if len(members) > 0 {
+			refs = append(refs, familyRef{pkg: pkg, members: members})
+		}
+	}
+
+	return refs
+}
+
 // familyParts is the package a family receiver names and its member file
 // paths.
 func familyParts(comp string) (pkg string, members []string) {
@@ -572,11 +773,22 @@ func familyParts(comp string) (pkg string, members []string) {
 	return pkg, strings.Split(rest, "|")
 }
 
-// familyPaths is the member file paths of a family receiver.
+// familyPaths is the member file paths of a family receiver — of every
+// family a multi-family receiver names, each file once.
 func familyPaths(comp string) []string {
-	_, members := familyParts(comp)
+	var paths []string
 
-	return members
+	for _, ref := range familyRefs(comp) {
+		for _, member := range ref.members {
+			if !slices.Contains(paths, member) {
+				paths = append(paths, member)
+			}
+		}
+	}
+
+	slices.Sort(paths)
+
+	return paths
 }
 
 func (r *Resolver) checkFamilyMethod(pkg string, members []string, call *parser.CallSite, pr *parser.ParseResult, tr *callTrace) string {

@@ -4,7 +4,7 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 
 | Category | Findings | high | medium | low | none | method defined nowhere |
 |---|---:|---:|---:|---:|---:|---:|
-| variable | 1368 | 48 | 62 | 260 | 998 | 848 |
+| variable | 1346 | 48 | 62 | 252 | 984 | 846 |
 | return-type | 31 | 0 | 3 | 9 | 19 | 18 |
 | method | 277 | 0 | 30 | 23 | 224 | 208 |
 | object | 73 | 0 | 3 | 12 | 58 | 37 |
@@ -25,7 +25,6 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 | 17 | `mysql` | 0 | none |  | `test/jira/Jira3043.cfc:74` variable 'mySQL' has no component ref |
 | 16 | `result.filecontent` | 0 | none |  | `test/tags/ProcessingDirective.cfc:9` variable 'result.fileContent' has no component ref |
 | 14 | `docsfound` | 0 | none |  | `test/a_debug_build/_MongoDB.cfc:166` variable 'docsFound' has no component ref |
-| 14 | `driver` | 26 | none |  | `core/src/main/cfml/context/admin/server.logging.create.cfm:233` variable 'driver' has no component ref |
 | 14 | `props` | 0 | none |  | `test/tickets/LDEV0719.cfc:24` variable 'props' has no component ref |
 | 14 | `results` | 0 | none |  | `core/src/main/java/resource/component/org/lucee/cfml/test/LuceeTestSuiteRunner.cfc:43` variable 'results' has no component ref |
 | 13 | `tz` | 0 | none |  | `test/datasource/Oracle.cfc:44` variable 'tz' has no component ref |
@@ -79,7 +78,6 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 | 5 | `sum` | 0 | none |  | `test/tickets/LDEV1296.cfc:11` variable 'sum' has no component ref |
 | 4 | `_driver → core/src/main/java/resource/context/admin/dbdriver/Driver.cfc` | 26 | low | declares getClass(); named like the receiver 'driver' (26 candidates) | `core/src/main/cfml/context/admin/server.logging.create.cfm:235` variable '_driver' has no component ref |
 | 4 | `afterstored` | 0 | none |  | `test/tickets/LDEV5941/testCommitNoMetadataBump.cfm:19` variable 'afterStored' has no component ref |
-| 4 | `appender → core/src/main/java/resource/context/admin/aidriver/Claude.cfc` | 40 | low | declares getLabel(), getClass() (21 candidates) | `core/src/main/cfml/context/admin/server.logging.list.cfm:97` variable 'appender' has no component ref |
 | 4 | `arguments.spec` | 0 | none |  | `test/tickets/LDEV0359.cfc:37` variable 'arguments.spec' has no component ref |
 | 4 | `before` | 0 | none |  | `test/tickets/LDEV5941/testCommitNoMetadataBump.cfm:12` variable 'before' has no component ref |
 | 4 | `body` | 0 | none |  | `ant/upload_to_s3.cfm:170` variable 'body' has no component ref |
@@ -92,7 +90,6 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 | 4 | `id` | 0 | none |  | `test/a_debug_build/_MongoDB.cfc:132` variable 'id' has no component ref |
 | 4 | `javaproxies` | 0 | none |  | `test/tickets/LDEV5459.cfc:72` variable 'javaProxies' has no component ref |
 | 4 | `jdbc → test/functions/serializeJSON/_Json.cfc` | 5 | low | declares get() (4 candidates) | `test/_setupTestServices.cfc:874` variable 'jdbc' has no component ref |
-| 4 | `layout → core/src/main/java/resource/context/admin/aidriver/Claude.cfc` | 40 | low | declares getLabel(), getClass() (21 candidates) | `core/src/main/cfml/context/admin/server.logging.list.cfm:98` variable 'layout' has no component ref |
 | 4 | `locals` | 0 | none |  | `core/src/main/cfml/context/admin/ext.functions.cfm:311` variable 'locals' has no component ref |
 | 4 | `mongo → test/functions/ORMExecuteQuery/Person.cfc` | 67 | low | declares getName() (67 candidates) | `test/a_debug_build/_MongoDB.cfc:89` variable 'mongo' has no component ref |
 | 4 | `mystruct` | 0 | none |  | `test/functions/structEvery.cfc:9` variable 'myStruct' has no component ref |
@@ -556,16 +553,6 @@ Every finding below is still reported. A candidate is a liberal match offered fo
   - low `core/src/main/java/resource/context/admin/cdriver/RamCache.cfc` — declares getClass()
   - low `core/src/main/java/resource/context/admin/gdriver/ActiveMQ.cfc` — declares getClass()
   - … 18 more
-- `appender → core/src/main/java/resource/context/admin/aidriver/Claude.cfc` — 4 finding(s), 21 candidate(s):
-  - low `core/src/main/java/resource/context/admin/aidriver/Claude.cfc` — declares getLabel(), getClass()
-  - low `core/src/main/java/resource/context/admin/aidriver/Gemini.cfc` — declares getLabel(), getClass()
-  - low `core/src/main/java/resource/context/admin/aidriver/OpenAI.cfc` — declares getLabel(), getClass()
-  - low `core/src/main/java/resource/context/admin/cdriver/MemCache.cfc` — declares getLabel(), getClass()
-  - low `core/src/main/java/resource/context/admin/cdriver/RamCache.cfc` — declares getLabel(), getClass()
-  - low `core/src/main/java/resource/context/admin/gdriver/ActiveMQ.cfc` — declares getLabel(), getClass()
-  - low `core/src/main/java/resource/context/admin/gdriver/AsynchronousEvents.cfc` — declares getLabel(), getClass()
-  - low `core/src/main/java/resource/context/admin/gdriver/DirectoryWatcher.cfc` — declares getLabel(), getClass()
-  - … 13 more
 - `drivers[] → core/src/main/java/resource/context/admin/debug/Classic.cfc` — 4 finding(s), 4 candidate(s):
   - low `core/src/main/java/resource/context/admin/debug/Classic.cfc` — declares getDescription(), getId(), getLabel()
   - low `core/src/main/java/resource/context/admin/debug/Comment.cfc` — declares getDescription(), getId(), getLabel()
@@ -576,16 +563,6 @@ Every finding below is still reported. A candidate is a liberal match offered fo
   - low `test/tickets/LDEV3963/test3963quoted.cfc` — declares get()
   - low `test/tickets/LDEV3963/test3963unquoted.cfc` — declares get()
   - low `test/functions/Duplicate/comps/some/Hello.cfc` — declares get()
-- `layout → core/src/main/java/resource/context/admin/aidriver/Claude.cfc` — 4 finding(s), 21 candidate(s):
-  - low `core/src/main/java/resource/context/admin/aidriver/Claude.cfc` — declares getLabel(), getClass()
-  - low `core/src/main/java/resource/context/admin/aidriver/Gemini.cfc` — declares getLabel(), getClass()
-  - low `core/src/main/java/resource/context/admin/aidriver/OpenAI.cfc` — declares getLabel(), getClass()
-  - low `core/src/main/java/resource/context/admin/cdriver/MemCache.cfc` — declares getLabel(), getClass()
-  - low `core/src/main/java/resource/context/admin/cdriver/RamCache.cfc` — declares getLabel(), getClass()
-  - low `core/src/main/java/resource/context/admin/gdriver/ActiveMQ.cfc` — declares getLabel(), getClass()
-  - low `core/src/main/java/resource/context/admin/gdriver/AsynchronousEvents.cfc` — declares getLabel(), getClass()
-  - low `core/src/main/java/resource/context/admin/gdriver/DirectoryWatcher.cfc` — declares getLabel(), getClass()
-  - … 13 more
 - `mongo → test/functions/ORMExecuteQuery/Person.cfc` — 4 finding(s), 67 candidate(s):
   - low `test/functions/ORMExecuteQuery/Person.cfc` — declares getName()
   - low `test/jira/Jira0713/Test.cfc` — declares getName()

@@ -68,6 +68,20 @@ func (r *Resolver) collectionExpressionElement(receiver string, calls []chainCal
 		}
 	}
 
+	// The receiver is the variable of a loop around the read — the admin's
+	// pages chain off the item a registry container's collection loop binds:
+	//
+	//	<cfloop collection="#drivers#" index="driverClass" item="driver">
+	//		<cfloop array="#driver.getCustomFields()#" index="field">
+	//
+	// The item holds what the collection's elements are, the way a direct
+	// assignment of one would.
+	if receiver != "" && (target == "" || target == self) {
+		if comp := r.loopElement(&parser.CallSite{Variable: receiver, Line: conv.Uint32(header)}, pr, baseDir, nil); comp != "" {
+			return r.methodElement(comp, last.name, last.args, baseDir)
+		}
+	}
+
 	return r.methodElement(target, last.name, last.args, baseDir)
 }
 
