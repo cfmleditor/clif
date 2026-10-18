@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/cfmleditor/clif/internal/parser"
 )
@@ -165,7 +166,7 @@ func isTagGuard(before string) bool {
 }
 
 func lineOffset(content string, n int) (int, bool) {
-	starts := lineStarts.of(content)
+	starts := lineStarts.of(content, lineStartsOf)
 	if n < 0 || n >= len(starts) {
 		return 0, false
 	}
@@ -178,52 +179,181 @@ func lineOffset(content string, n int) (int, bool) {
 // it is asked once or more per call site a file holds, so a file was walked
 // again for each: 0.7s of tassweb's code map. A text is recognised by its
 // bytes, which for the same file's content is a pointer comparison.
-var lineStarts = &lineStartCache{}
+var lineStarts = &textCache[[]int]{size: func(s []int) int { return 8 * len(s) }}
 
-const lineStartSlots = 64
-
-type lineStartCache struct {
-	mu    sync.Mutex
-	next  int
-	slots [lineStartSlots]struct {
-		content string
-		starts  []int
-	}
-}
-
-func (c *lineStartCache) of(content string) []int {
-	c.mu.Lock()
-	for i := range c.slots {
-		if s := &c.slots[i]; s.starts != nil && len(s.content) == len(content) && s.content == content {
-			starts := s.starts
-			c.mu.Unlock()
-
-			return starts
-		}
-	}
-	c.mu.Unlock()
-
+func lineStartsOf(content string) []int {
 	starts := []int{0}
 
 	for off := 0; ; {
 		i := strings.IndexByte(content[off:], '\n')
 		if i < 0 {
-			break
+			return starts
 		}
 
 		off += i + 1
 		starts = append(starts, off)
 	}
+}
 
+const (
+	textCacheSlots = 64
+	// textCacheBytes bounds the texts a textCache keeps alive, and what it
+	// derived from them: in the editor's long-lived process each is a version
+	// of a document, and 64 versions of a large component were hundreds of
+	// megabytes held for nothing. It is sized for a batch scan, whose workers
+	// each ask about a file of their own at once: a budget the files in flight
+	// outgrow evicts one worker's file for another's, and every call then
+	// rebuilds its file's table.
+	textCacheBytes = 128 << 20
+)
+
+// LimitTextCaches bounds each of the process's text caches to bytes, for a
+// long-lived process (the editor's, the MCP server's) whose entries are mostly
+// superseded versions of a document; a batch scan keeps the default, sized
+// for its workers. It applies to what is cached from then on, except while a
+// batch runs (BatchTextCaches), and returns a function putting back the
+// budgets it replaced.
+func LimitTextCaches(bytes int) (restore func()) {
+	prevLines, prevDecls := lineStarts.setBudget(bytes), declaredNames.setBudget(bytes)
+
+	return func() {
+		lineStarts.setBudget(prevLines)
+		declaredNames.setBudget(prevDecls)
+	}
+}
+
+// BatchTextCaches lifts LimitTextCaches' budget to the batch default until
+// the returned function is called. A scan or map run inside a long-lived
+// process has a worker per core asking about a file of its own at once, and
+// the long-lived budget would evict one worker's file for another's on every
+// call.
+func BatchTextCaches() (done func()) {
+	batchesRunning.Add(1)
+
+	return func() {
+		// The last batch out gives back what it was allowed beyond the limit.
+		if batchesRunning.Add(-1) == 0 {
+			lineStarts.trim()
+			declaredNames.trim()
+		}
+	}
+}
+
+// batchesRunning counts the BatchTextCaches calls not yet done.
+var batchesRunning atomic.Int32
+
+// effectiveBudget is the budget an insert is held to now. c.mu is held.
+func (c *textCache[T]) effectiveBudget() int {
+	if c.budget <= 0 || batchesRunning.Load() > 0 {
+		return textCacheBytes
+	}
+
+	return c.budget
+}
+
+// trim drops the oldest texts until the cache is within its budget.
+func (c *textCache[T]) trim() {
 	c.mu.Lock()
-	c.slots[c.next] = struct {
-		content string
-		starts  []int
-	}{content, starts}
-	c.next = (c.next + 1) % lineStartSlots
+	defer c.mu.Unlock()
+
+	c.evictFrom(c.next, -1, c.effectiveBudget())
+}
+
+// evictFrom drops texts oldest first, from slot k, until held fits budget,
+// never dropping slot keep. c.mu is held.
+func (c *textCache[T]) evictFrom(k, keep, budget int) {
+	var zero T
+
+	for range textCacheSlots {
+		if c.held <= budget {
+			return
+		}
+
+		if k != keep && c.slots[k].set {
+			c.held -= c.slots[k].bytes
+			c.slots[k].content, c.slots[k].value, c.slots[k].bytes, c.slots[k].set = "", zero, 0, false
+		}
+
+		k = (k + 1) % textCacheSlots
+	}
+}
+
+// budgetNow is the budget an insert would be held to, for tests.
+func (c *textCache[T]) budgetNow() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.effectiveBudget()
+}
+
+func (c *textCache[T]) setBudget(bytes int) (prev int) {
+	c.mu.Lock()
+	prev, c.budget = c.budget, bytes
 	c.mu.Unlock()
 
-	return starts
+	return prev
+}
+
+// textCache remembers a value derived from each of the texts asked about most
+// recently, keeping at most textCacheSlots texts and textCacheBytes of them.
+type textCache[T any] struct {
+	size   func(T) int // the bytes a value holds beyond its text
+	budget int         // textCacheBytes when zero; see LimitTextCaches
+	mu     sync.Mutex
+	next   int
+	held   int
+	slots  [textCacheSlots]struct {
+		content string
+		value   T
+		bytes   int
+		set     bool
+	}
+}
+
+// of is build(content), from the cache when content was asked about recently.
+func (c *textCache[T]) of(content string, build func(string) T) T {
+	c.mu.Lock()
+	for i := range c.slots {
+		if s := &c.slots[i]; s.set && len(s.content) == len(content) && s.content == content {
+			v := s.value
+			c.mu.Unlock()
+
+			return v
+		}
+	}
+	c.mu.Unlock()
+
+	v := build(content)
+
+	n := len(content)
+	if c.size != nil {
+		n += c.size(v)
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	budget := c.effectiveBudget()
+
+	// Another goroutine may have built it meanwhile: one slot per text.
+	for i := range c.slots {
+		if s := &c.slots[i]; s.set && len(s.content) == len(content) && s.content == content {
+			return s.value
+		}
+	}
+
+	at := c.next
+	c.held += n - c.slots[at].bytes
+
+	c.slots[at].content, c.slots[at].value, c.slots[at].bytes, c.slots[at].set = content, v, n, true
+	c.next = (at + 1) % textCacheSlots
+
+	// Over budget: drop the oldest texts until it fits. The newest is kept
+	// even when it alone is over: a file that large is the one whose table is
+	// most expensive to rebuild on every call.
+	c.evictFrom(c.next, at, budget)
+
+	return v
 }
 
 // guardedInstanceOf is the components a type check guarding the call names

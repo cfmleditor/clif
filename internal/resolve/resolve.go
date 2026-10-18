@@ -3528,7 +3528,7 @@ func funcScopedRefFor(pr *parser.ParseResult, line uint32, name string, in parse
 		if scopeIndex < len(pr.Scopes) {
 			scope = pr.Scopes[scopeIndex]
 		} else {
-			scope = parser.FuncScope{Start: 0, End: len(lineStarts.of(pr.Content)) - 1}
+			scope = parser.FuncScope{Start: 0, End: len(lineStarts.of(pr.Content, lineStartsOf)) - 1}
 		}
 
 		if int(line) < scope.Start || int(line) > scope.End {

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -189,4 +190,144 @@ func repoTestdata() string {
 	_, file, _, _ := runtime.Caller(0)
 
 	return filepath.Join(filepath.Dir(file), "..", "..", "testdata")
+}
+
+// A textCache keeps no more than textCacheBytes of text alive, however many
+// slots are free, and still answers what it built.
+func TestTextCacheIsBoundedByBytes(t *testing.T) {
+	const budget = 1 << 20
+
+	c := &textCache[int]{budget: budget}
+	text := strings.Repeat("x", budget/4)
+
+	for i := range 10 {
+		v := text + strconv.Itoa(i)
+		if got := c.of(v, func(s string) int { return len(s) }); got != len(v) {
+			t.Fatalf("of = %d, want %d", got, len(v))
+		}
+	}
+
+	held := 0
+
+	for i := range c.slots {
+		held += len(c.slots[i].content)
+	}
+
+	if held > budget || held != c.held {
+		t.Errorf("holding %d bytes (counted %d), budget %d", held, c.held, budget)
+	}
+
+	// A text over the whole budget is still kept, as the newest.
+	huge := strings.Repeat("z", 2*budget)
+	builds := 0
+
+	for range 2 {
+		c.of(huge, func(s string) int {
+			builds++
+
+			return len(s)
+		})
+	}
+
+	if builds != 1 {
+		t.Errorf("a text over the budget was built %d times, want once", builds)
+	}
+}
+
+// FunctionInFile's bucket path finds a definition whose URI is spelled
+// differently from the file's first (case, escaping) as the walk does.
+func TestFunctionInFileMatchesTheFileHoweverItsURIIsSpelled(t *testing.T) {
+	idx := index.New()
+	funcs := []parser.FunctionDef{
+		{Name: "a", URI: "file:///w/My%20Svc.cfc"},
+		{Name: "b", URI: "file:///w/My%20Svc.cfc"},
+		{Name: "target", URI: "file:///W/MY%20SVC.cfc"},
+		{Name: "escaped", URI: "file:///w/My Svc.cfc"},
+	}
+	idx.IndexFileFromResult("file:///w/My%20Svc.cfc", funcs, nil)
+
+	for _, name := range []string{"target", "escaped"} {
+		if d := idx.FunctionInFile("file:///w/My%20Svc.cfc", name); d == nil || d.Name != name {
+			t.Errorf("FunctionInFile(%q) = %v, want the file's definition", name, d)
+		}
+	}
+
+	plain := []parser.FunctionDef{
+		{Name: "a", URI: "file:///w/Svc.cfc"},
+		{Name: "b", URI: "file:///w/Svc.cfc"},
+		{Name: "cased", URI: "file:///W/SVC.cfc"},
+	}
+	idx.IndexFileFromResult("file:///w/Svc.cfc", plain, nil)
+
+	if d := idx.FunctionInFile("file:///w/Svc.cfc", "cased"); d == nil || d.Name != "cased" {
+		t.Errorf("FunctionInFile(%q) = %v, want the file's definition", "cased", d)
+	}
+}
+
+// ShareCallerIndex's restore gives each resolver back the index it had and
+// forgets the answers read from the shared one.
+func TestShareCallerIndexRestoreForgetsWhatItAnswered(t *testing.T) {
+	files := callerIndexFixture(t)
+	a := &Resolver{FS: newCountingFS(), Index: index.New(), InferArgsFiles: files}
+
+	restore := ShareCallerIndex([]*Resolver{a})
+	a.argCache = map[string]string{"k": "from the shared index"}
+
+	restore()
+
+	if a.callerIdx != nil || a.argCache != nil {
+		t.Errorf("after restore: callerIdx %v, argCache %v; want both as before the share", a.callerIdx, a.argCache)
+	}
+}
+
+// LimitTextCaches hands back the budgets it replaced, so a test or command
+// that limits the caches does not change them for whatever runs after it;
+// and a batch running meanwhile is held to the batch budget.
+func TestLimitTextCachesRestoresAndBatchesLiftIt(t *testing.T) {
+	// Not parallel: it changes the process's caches, and puts them back.
+	before := lineStarts.budgetNow()
+
+	restore := LimitTextCaches(1 << 10)
+	restored := false
+
+	// Only for a failure before the restore below, which is what is checked.
+	t.Cleanup(func() {
+		if !restored {
+			restore()
+		}
+	})
+
+	if lineStarts.budgetNow() != 1<<10 || declaredNames.budgetNow() != 1<<10 {
+		t.Fatalf("budgets %d and %d, want the limit", lineStarts.budgetNow(), declaredNames.budgetNow())
+	}
+
+	text := strings.Repeat("y\n", 1<<12)
+	done := BatchTextCaches()
+
+	if lineStarts.budgetNow() != textCacheBytes {
+		t.Errorf("budget %d while a batch runs, want the batch default", lineStarts.budgetNow())
+	}
+
+	lineStarts.of(text, lineStartsOf)
+	lineStarts.of(text+"other", lineStartsOf)
+	done()
+
+	if held := heldBytes(lineStarts); held > 1<<10 {
+		t.Errorf("after the batch: holding %d bytes, want the limit's 1KB at most", held)
+	}
+
+	restore()
+
+	restored = true
+
+	if lineStarts.budgetNow() != before || declaredNames.budgetNow() != before {
+		t.Errorf("after restore: budgets %d and %d, want %d", lineStarts.budgetNow(), declaredNames.budgetNow(), before)
+	}
+}
+
+func heldBytes[T any](c *textCache[T]) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.held
 }

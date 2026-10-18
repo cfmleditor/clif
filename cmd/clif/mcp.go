@@ -170,6 +170,8 @@ func mcpRoot(f *mcpFlags, db *store.Store) string {
 func cmdMCP(args []string) {
 	f := parseMCPFlags(args)
 
+	limitLongLivedCaches()
+
 	var db *store.Store
 	if f.db != "" {
 		db = openMap(f.db)
