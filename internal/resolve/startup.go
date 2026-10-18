@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/cfmleditor/clif/internal/docs"
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
 )
@@ -38,6 +39,107 @@ var (
 	createdComponent = regexp.MustCompile(`(?i)^createObject\s*\(\s*["']component["']\s*,\s*["']([^"']+)["']`)
 	newComponent     = regexp.MustCompile(`(?i)^new\s+(?:cfml:)?([A-Za-z_$#][\w$.#]*)\s*\(`)
 )
+
+// componentFromConstruction returns the component as the resolver tracks it
+// for a createObject( "component", name ) construction: the dot path
+// resolved through the mappings, or the calling directory's own file when
+// the name has no dot — an unqualified name is its sibling in CFML. Empty
+// when neither resolves, and the chain stays dynamic.
+func (r *Resolver) componentFromConstruction(name, baseDir string) string {
+	if strings.ContainsAny(name, "./\\") {
+		if r.ComponentPath(name, baseDir) != "" {
+			return name
+		}
+
+		return ""
+	}
+
+	if r.ComponentPath(name, baseDir) != "" {
+		return name
+	}
+
+	file := filepath.Join(baseDir, name+".cfc")
+	if filepath.IsAbs(file) {
+		if info, err := r.fs().Stat(file); err == nil && !info.IsDir() {
+			return file
+		}
+	}
+
+	return ""
+}
+
+// unboundChainHop answers a bare chain whose first hop names nothing the
+// file declares: a shadowed builtin, a missing base, a builtin's known
+// return, a createObject construction, or a plain builtin's dynamic value.
+// ok reports there is an answer; the caller supplies its own "not found"
+// reason otherwise.
+func (r *Resolver) unboundChainHop(first, expression string, call *parser.CallSite, pr *parser.ParseResult, baseDir string, tr *callTrace) (string, bool) {
+	if r.builtinCallShadowed(first, call.Line, call.Caller, pr) {
+		return "variable '" + first + "' has no component ref", true
+	}
+
+	if r.fileExtends(pr) != "" {
+		if base, implied := r.fileMissingBase(pr, baseDir); base != "" {
+			if implied {
+				tr.addf("the framework base %s implies does not resolve (%s) — the chain is dynamic", r.fileExtends(pr), base)
+				tr.hit(TargetDynamic, "", nil)
+
+				return "", true
+			}
+
+			return MissingBaseReason(base), true
+		}
+	}
+
+	if ret := r.BuiltinReturnLookup(first); ret != "" {
+		rest := *call
+		rest.Chain = call.Chain[1:]
+		rest.Component = ret
+
+		return r.canResolveCall(&rest, pr, baseDir, tr), true
+	}
+
+	if unresolved, ok := r.resolveCreatedChain(first, expression, call, pr, baseDir, tr); ok {
+		return unresolved, true
+	}
+
+	if docs.IsBuiltinFunction(first) {
+		tr.addf("%q is a built-in function — the chain on what it returns is dynamic", first)
+		tr.hit(TargetDynamic, "", nil)
+
+		return "", true
+	}
+
+	return "", false
+}
+
+// resolveCreatedChain continues a bare chain whose first hop is a
+// createObject( "component", "path" ) construction: the created component
+// is the receiver of the rest of the chain. ok reports the chain was
+// typed this way and the answer is final.
+func (r *Resolver) resolveCreatedChain(first, expression string, call *parser.CallSite, pr *parser.ParseResult, baseDir string, tr *callTrace) (string, bool) {
+	if !strings.EqualFold(first, "createObject") {
+		return "", false
+	}
+
+	m := createdComponent.FindStringSubmatch(expression)
+	if m == nil {
+		return "", false
+	}
+
+	comp := r.componentFromConstruction(m[1], baseDir)
+	if comp == "" {
+		return "", false
+	}
+
+	tr.addf("constructed %q — the chain continues on the component", displayComponent(comp))
+
+	rest := *call
+	rest.Chain = call.Chain[1:]
+	rest.Component = comp
+
+	return r.canResolveCall(&rest, pr, baseDir, tr), true
+}
 
 // startupAssign is one shared-scope assignment a startup template makes.
 type startupAssign struct {
