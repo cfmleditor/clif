@@ -410,6 +410,12 @@ func (r *Resolver) elementOf(expression string, header, start int, caller string
 
 // methodElement is the element type of what method returns on comp.
 func (r *Resolver) methodElement(comp, method, arguments, baseDir string) string {
+	// A registry family's getter: the element its files' array literals
+	// prove, or untyped.
+	if _, members := familyParts(comp); len(members) > 0 {
+		return r.familyLoopElement(members, method)
+	}
+
 	if comp == "" || strings.HasPrefix(comp, "$") {
 		return ""
 	}

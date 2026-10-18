@@ -1638,11 +1638,14 @@ func (r *Resolver) walkHops(comp, softComp string, call *parser.CallSite, pr *pa
 		}
 
 		// A registry family is its members' set, which no single hop's
-		// declared return type can name. The chain continues dynamically.
+		// declared return type can name: what it returns is an array of the
+		// element the members' own files prove, and the chain past the
+		// getter runs on that array, not on the family. Dynamic.
 		if paths := familyPaths(comp); len(paths) > 0 {
 			tr.addf("chain hop %q is on a registry family (%s) — the rest of the chain is dynamic", hop, displayFamilyMembers(paths))
+			tr.hit(TargetDynamic, "", nil)
 
-			break
+			return comp, softComp, "", true
 		}
 
 		if strings.HasPrefix(comp, "$builtin.") {
