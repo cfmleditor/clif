@@ -4,7 +4,7 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 
 | Category | Findings | high | medium | low | none | method defined nowhere |
 |---|---:|---:|---:|---:|---:|---:|
-| variable | 1571 | 53 | 62 | 286 | 1170 | 853 |
+| variable | 1510 | 48 | 62 | 260 | 1140 | 848 |
 | return-type | 31 | 0 | 3 | 9 | 19 | 18 |
 | method | 310 | 0 | 31 | 24 | 255 | 239 |
 | object | 73 | 0 | 3 | 12 | 58 | 37 |
@@ -15,7 +15,6 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 |---:|---|---:|---|---|---|
 | 180 | `field` | 67 | none |  | `core/src/main/cfml/context/admin/debugging.templates.create.cfm:145` variable 'field' has no component ref |
 | 96 | `coll` | 0 | none |  | `test/a_debug_build/_MongoDB.cfc:54` variable 'coll' has no component ref |
-| 44 | `driver` | 15 | none |  | `core/src/main/cfml/context/admin/debugging.templates.create.cfm:47` variable 'driver' has no component ref |
 | 30 | `msg` | 1 | none |  | `test/tags/Mail2.cfc:52` variable 'msg' has no component ref |
 | 29 | `result` | 0 | none |  | `core/src/main/cfml/context/admin/ext.functions.cfm:11` variable 'result' has no component ref |
 | 24 | `res` | 0 | none |  | `test/functions/StructToSorted.cfc:138` variable 'res' has no component ref |
@@ -26,7 +25,7 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 | 17 | `mysql` | 0 | none |  | `test/jira/Jira3043.cfc:74` variable 'mySQL' has no component ref |
 | 16 | `result.filecontent` | 0 | none |  | `test/tags/ProcessingDirective.cfc:9` variable 'result.fileContent' has no component ref |
 | 14 | `docsfound` | 0 | none |  | `test/a_debug_build/_MongoDB.cfc:166` variable 'docsFound' has no component ref |
-| 14 | `driver → core/src/main/java/resource/context/admin/mailservers/GMX.cfc` | 8 | low | declares getShortName(), getLabel(), getHost(), getPort(), useSSL(), useTLS() (8 candidates) | `core/src/main/cfml/context/admin/services.mail.form.cfm:67` variable 'driver' has no component ref |
+| 14 | `driver` | 26 | none |  | `core/src/main/cfml/context/admin/server.logging.create.cfm:233` variable 'driver' has no component ref |
 | 14 | `props` | 0 | none |  | `test/tickets/LDEV0719.cfc:24` variable 'props' has no component ref |
 | 14 | `results` | 0 | none |  | `core/src/main/java/resource/component/org/lucee/cfml/test/LuceeTestSuiteRunner.cfc:43` variable 'results' has no component ref |
 | 13 | `tz` | 0 | none |  | `test/datasource/Oracle.cfc:44` variable 'tz' has no component ref |
@@ -71,8 +70,6 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 | 6 | `s → test/tickets/LDEV5627/ClassPropertyAccessor.cfc` | 26 | low | declares getClass() (26 candidates) | `test/jira/Jira2384.cfc:45` variable 's' has no component ref |
 | 6 | `tos[]` | 0 | none |  | `test/tags/Mail2.cfc:59` variable 'tos[]' has no component ref |
 | 5 | `application.adminfunctions → core/src/main/cfml/context/admin/adminfunctions.cfc` | 1 | high | declares canAccessContext(), isFavorite(); named like the receiver 'adminfunctions' | `core/src/main/cfml/context/admin/admin_layout.cfm:71` variable 'application.adminfunctions' has no component ref |
-| 5 | `driver → core/src/main/java/resource/context/admin/aidriver/Claude.cfc` | 40 | low | declares getLabel(), getClass() (21 candidates) | `core/src/main/cfml/context/admin/services.cache.list.cfm:135` variable 'driver' has no component ref |
-| 5 | `driver → core/src/main/java/resource/context/admin/aidriver/OpenAI.cfc` | 40 | high | declares getLabel(), getClass(), getLabelLong(), getDescription() | `core/src/main/cfml/context/admin/services.ai.list.cfm:94` variable 'driver' has no component ref |
 | 5 | `drivers[] → core/src/main/java/resource/context/admin/mailservers/GMX.cfc` | 8 | low | declares getHost(), getPort(), useSSL(), useTLS(), getLabel() (8 candidates) | `core/src/main/cfml/context/admin/services.mail.serverlist.cfm:12` variable 'drivers[]' has no component ref |
 | 5 | `extmeta` | 67 | none |  | `test/tickets/LDEV6088.cfc:18` variable 'extMeta' has no component ref |
 | 5 | `file` | 0 | none |  | `core/src/main/cfml/context/gateway/WatchService.cfc:29` variable 'file' has no component ref |
@@ -121,7 +118,6 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 | 3 | `class1` | 67 | none |  | `test/tickets/LDEV6226.cfc:78` variable 'class1' has no component ref |
 | 3 | `content` | 2 | none |  | `test/tags/Mail2.cfc:255` variable 'content' has no component ref |
 | 3 | `dr → core/src/main/java/resource/context/admin/aidriver/Claude.cfc` | 26 | low | declares getClass() (26 candidates) | `core/src/main/cfml/context/admin/services.datasource.cfm:26` variable 'dr' has no component ref |
-| 3 | `driver → core/src/main/java/resource/context/admin/debug/Classic.cfc` | 5 | low | declares output() (5 candidates) | `core/src/main/cfml/context/admin/debugging.logs.detail.cfm:104` variable 'driver' has no component ref |
 | 3 | `email` | 0 | none |  | `test/tags/_Mail.cfc:59` variable 'email' has no component ref |
 | 3 | `findanimals` | 0 | none |  | `test/functions/structFind.cfc:11` variable 'findAnimals' has no component ref |
 | 3 | `fruit → test/tickets/LDEV0423/Fruit.cfc` | 67 | medium | declares getName(); named like the receiver 'fruit' (67 candidates) | `test/tickets/LDEV0423/Basket.cfc:19` variable 'fruit' has no component ref |
@@ -142,7 +138,6 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 | 3 | `src.rest` | 0 | none |  | `test/tickets/LDEV5758.cfc:353` variable 'src.rest' has no component ref |
 | 3 | `str` | 0 | none |  | `test/jira/Jira2397.cfc:29` variable 'str' has no component ref |
 | 3 | `url` | 0 | none |  | `test/orm/events/Application.cfc:24` variable 'url' has no component ref |
-| 2 | `_defaultdriver → core/src/main/java/resource/context/admin/aidriver/Claude.cfc` | 40 | low | declares getLabel() (40 candidates) | `core/src/main/cfml/context/admin/services.mail.form.cfm:76` variable '_DefaultDriver' has no component ref |
 | 2 | `antisamyresult` | 0 | none |  | `test/tickets/LDEV5085/AntiSamyService.cfc:20` variable 'antiSamyResult' has no component ref |
 | 2 | `args.num → test/functions/ORMExecuteQuery/Person.cfc` | 67 | low | declares getName() (67 candidates) | `test/tags/InvokeArgument.cfc:38` variable 'args.num' has no component ref |
 | 2 | `args.num → test/tickets/LDEV5627/ClassPropertyAccessor.cfc` | 26 | low | declares getClass() (26 candidates) | `test/tags/InvokeArgument.cfc:38` variable 'args.num' has no component ref |
@@ -162,7 +157,6 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 | 2 | `componentmappings[]` | 0 | none |  | `test/general/Mappings.cfc:70` variable 'componentMappings[]' has no component ref |
 | 2 | `config` | 0 | none |  | `core/src/main/cfml/context/admin/messaging.cfm:105` variable 'config' has no component ref |
 | 2 | `customtagmappings[]` | 0 | none |  | `test/general/Mappings.cfc:81` variable 'customTagMappings[]' has no component ref |
-| 2 | `d → core/src/main/java/resource/context/admin/gdriver/ActiveMQ.cfc` | 6 | low | declares getCFCPath(), getClass() (6 candidates) | `core/src/main/cfml/context/admin/services.gateway.cfm:45` variable 'd' has no component ref |
 | 2 | `data.content.cookie` | 0 | none |  | `test/tickets/LDEV0581.cfc:32` variable 'data.content.cookie' has no component ref |
 | 2 | `data.content.form` | 0 | none |  | `test/tickets/LDEV0581.cfc:36` variable 'data.content.form' has no component ref |
 | 2 | `data.content.httprequestdata.headers` | 0 | none |  | `test/tickets/LDEV0581.cfc:44` variable 'data.content.HTTPRequestData.headers' has no component ref |
@@ -470,15 +464,6 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 
 <details><summary>Groups with several candidates</summary>
 
-- `driver → core/src/main/java/resource/context/admin/mailservers/GMX.cfc` — 14 finding(s), 8 candidate(s):
-  - low `core/src/main/java/resource/context/admin/mailservers/GMX.cfc` — declares getShortName(), getLabel(), getHost(), getPort(), useSSL(), useTLS()
-  - low `core/src/main/java/resource/context/admin/mailservers/GMail.cfc` — declares getShortName(), getLabel(), getHost(), getPort(), useSSL(), useTLS()
-  - low `core/src/main/java/resource/context/admin/mailservers/MailCom.cfc` — declares getShortName(), getLabel(), getHost(), getPort(), useSSL(), useTLS()
-  - low `core/src/main/java/resource/context/admin/mailservers/MailServer.cfc` — declares getShortName(), getLabel(), getHost(), getPort(), useSSL(), useTLS()
-  - low `core/src/main/java/resource/context/admin/mailservers/Other.cfc` — declares getShortName(), getLabel(), getHost(), getPort(), useSSL(), useTLS()
-  - low `core/src/main/java/resource/context/admin/mailservers/Outlook.cfc` — declares getShortName(), getLabel(), getHost(), getPort(), useSSL(), useTLS()
-  - low `core/src/main/java/resource/context/admin/mailservers/Yahoo.cfc` — declares getShortName(), getLabel(), getHost(), getPort(), useSSL(), useTLS()
-  - low `core/src/main/java/resource/context/admin/mailservers/iCloud.cfc` — declares getShortName(), getLabel(), getHost(), getPort(), useSSL(), useTLS()
 - `application.objects.utils → core/src/main/cfml/context/doc/DocUtils.cfc` — 9 finding(s), 3 candidate(s):
   - low `core/src/main/cfml/context/doc/DocUtils.cfc` — declares getAllFunctions()
   - low `core/src/main/java/resource/context/admin/debug/Modern.cfc` — declares getAllFunctions()
@@ -552,16 +537,6 @@ Every finding below is still reported. A candidate is a liberal match offered fo
   - low `core/src/main/java/resource/context/admin/cdriver/RamCache.cfc` — declares getClass()
   - low `core/src/main/java/resource/context/admin/dbdriver/Driver.cfc` — declares getClass()
   - … 18 more
-- `driver → core/src/main/java/resource/context/admin/aidriver/Claude.cfc` — 5 finding(s), 21 candidate(s):
-  - low `core/src/main/java/resource/context/admin/aidriver/Claude.cfc` — declares getLabel(), getClass()
-  - low `core/src/main/java/resource/context/admin/aidriver/Gemini.cfc` — declares getLabel(), getClass()
-  - low `core/src/main/java/resource/context/admin/aidriver/OpenAI.cfc` — declares getLabel(), getClass()
-  - low `core/src/main/java/resource/context/admin/cdriver/MemCache.cfc` — declares getLabel(), getClass()
-  - low `core/src/main/java/resource/context/admin/cdriver/RamCache.cfc` — declares getLabel(), getClass()
-  - low `core/src/main/java/resource/context/admin/gdriver/ActiveMQ.cfc` — declares getLabel(), getClass()
-  - low `core/src/main/java/resource/context/admin/gdriver/AsynchronousEvents.cfc` — declares getLabel(), getClass()
-  - low `core/src/main/java/resource/context/admin/gdriver/DirectoryWatcher.cfc` — declares getLabel(), getClass()
-  - … 13 more
 - `drivers[] → core/src/main/java/resource/context/admin/mailservers/GMX.cfc` — 5 finding(s), 8 candidate(s):
   - low `core/src/main/java/resource/context/admin/mailservers/GMX.cfc` — declares getHost(), getPort(), useSSL(), useTLS(), getLabel()
   - low `core/src/main/java/resource/context/admin/mailservers/GMail.cfc` — declares getHost(), getPort(), useSSL(), useTLS(), getLabel()
@@ -706,12 +681,6 @@ Every finding below is still reported. A candidate is a liberal match offered fo
   - low `core/src/main/java/resource/context/admin/gdriver/ActiveMQ.cfc` — declares getClass()
   - low `core/src/main/java/resource/context/admin/gdriver/AsynchronousEvents.cfc` — declares getClass()
   - … 18 more
-- `driver → core/src/main/java/resource/context/admin/debug/Classic.cfc` — 3 finding(s), 5 candidate(s):
-  - low `core/src/main/java/resource/context/admin/debug/Classic.cfc` — declares output()
-  - low `core/src/main/java/resource/context/admin/debug/Comment.cfc` — declares output()
-  - low `core/src/main/java/resource/context/admin/debug/Debug.cfc` — declares output()
-  - low `core/src/main/java/resource/context/admin/debug/Modern.cfc` — declares output()
-  - low `core/src/main/java/resource/context/admin/debug/Simple.cfc` — declares output()
 - `fruit → test/tickets/LDEV0423/Fruit.cfc` — 3 finding(s), 67 candidate(s):
   - medium `test/tickets/LDEV0423/Fruit.cfc` — declares getName(); named like the receiver 'fruit'
   - low `test/tickets/LDEV0423/Basket.cfc` — declares getName()
@@ -777,16 +746,6 @@ Every finding below is still reported. A candidate is a liberal match offered fo
   - low `test/tickets/LDEV3963/test3963unquoted.cfc` — declares get()
   - low `test/functions/serializeJSON/_Json.cfc` — declares get()
   - low `test/functions/Duplicate/comps/some/Hello.cfc` — declares get()
-- `_defaultdriver → core/src/main/java/resource/context/admin/aidriver/Claude.cfc` — 2 finding(s), 40 candidate(s):
-  - low `core/src/main/java/resource/context/admin/aidriver/Claude.cfc` — declares getLabel()
-  - low `core/src/main/java/resource/context/admin/aidriver/Gemini.cfc` — declares getLabel()
-  - low `core/src/main/java/resource/context/admin/aidriver/OpenAI.cfc` — declares getLabel()
-  - low `core/src/main/java/resource/context/admin/cdriver/MemCache.cfc` — declares getLabel()
-  - low `core/src/main/java/resource/context/admin/cdriver/RamCache.cfc` — declares getLabel()
-  - low `core/src/main/java/resource/context/admin/debug/Classic.cfc` — declares getLabel()
-  - low `core/src/main/java/resource/context/admin/debug/Comment.cfc` — declares getLabel()
-  - low `core/src/main/java/resource/context/admin/debug/Modern.cfc` — declares getLabel()
-  - … 32 more
 - `args.num → test/functions/ORMExecuteQuery/Person.cfc` — 2 finding(s), 67 candidate(s):
   - low `test/functions/ORMExecuteQuery/Person.cfc` — declares getName()
   - low `test/jira/Jira0713/Test.cfc` — declares getName()
@@ -854,13 +813,6 @@ Every finding below is still reported. A candidate is a liberal match offered fo
   - low `test/orm/simple/Code.cfc` — declares getId(), getCode(); named like the receiver 'code'
   - low `test/tickets/LDEV0881/Ref.cfc` — declares getId(), getCode()
   - low `test/orm/many2one/Ref.cfc` — declares getId(), getCode()
-- `d → core/src/main/java/resource/context/admin/gdriver/ActiveMQ.cfc` — 2 finding(s), 6 candidate(s):
-  - low `core/src/main/java/resource/context/admin/gdriver/ActiveMQ.cfc` — declares getCFCPath(), getClass()
-  - low `core/src/main/java/resource/context/admin/gdriver/AsynchronousEvents.cfc` — declares getCFCPath(), getClass()
-  - low `core/src/main/java/resource/context/admin/gdriver/DirectoryWatcher.cfc` — declares getCFCPath(), getClass()
-  - low `core/src/main/java/resource/context/admin/gdriver/JMS.cfc` — declares getCFCPath(), getClass()
-  - low `core/src/main/java/resource/context/admin/gdriver/MailWatcher.cfc` — declares getCFCPath(), getClass()
-  - low `core/src/main/java/resource/context/admin/gdriver/TaskGatewayDriver.cfc` — declares getCFCPath(), getClass()
 - `data.ps → core/src/main/cfml/context/gateway/WatchService.cfc` — 2 finding(s), 2 candidate(s):
   - low `core/src/main/cfml/context/gateway/WatchService.cfc` — declares close()
   - low `core/src/main/java/resource/component/org/lucee/cfml/Ftp.cfc` — declares close()

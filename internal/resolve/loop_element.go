@@ -32,7 +32,7 @@ import (
 
 var (
 	loopTagRe      = regexp.MustCompile(`(?is)<(/?)cfloop\b([^>]*)>`)
-	loopAttrRe     = regexp.MustCompile(`(?i)\b(array|index|item)\s*=\s*["']([^"']*)["']`)
+	loopAttrRe     = regexp.MustCompile(`(?i)\b(array|collection|struct|index|item)\s*=\s*["']([^"']*)["']`)
 	loopPathRe     = regexp.MustCompile(`^(?:(local|variables|this|arguments)\.)?(\w+)$`)
 	maxElementHops = 4
 )
@@ -277,6 +277,20 @@ func tagLoops(content string) []loopSpan {
 		}
 
 		variable := attrs["index"]
+		if collection := attrs["collection"]; collection != "" {
+			// A collection loop's item is the value it holds, and its index
+			// the key — a string, which types no component. Without an item
+			// the loop's variable stays unkeyed.
+			variable = attrs["item"]
+
+			stack = append(stack, open{span: loopSpan{
+				name:       strings.TrimPrefix(strings.ToLower(variable), "local."),
+				collection: strings.Trim(collection, "#"), header: line, start: line,
+			}, match: strings.ContainsAny(collection, "#") || attrs["item"] != ""})
+
+			continue
+		}
+
 		if variable == "" {
 			variable = attrs["item"]
 		}
@@ -319,6 +333,14 @@ func (r *Resolver) elementOf(expression string, header, start int, caller string
 
 	if depth > maxElementHops || expression == "" {
 		return ""
+	}
+
+	// A registry's own element read: a struct a ComponentListPackageAsStruct
+	// recipe fills, whose values are the package's family components.
+	if name, ok := registryExprName(expression); ok {
+		if fact, found := r.registryFamily(name, pr); found {
+			return familyComp(fact)
+		}
 	}
 
 	self := pr.URI.Path()
