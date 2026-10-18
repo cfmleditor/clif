@@ -563,10 +563,14 @@ the *formatter*, not the parser.
   `<cfelse>`/`<cfloop>`/`<cftry>`/`<cfcatch>`/`<cfcase>`/`<cfdefaultcase>`,
   and the function body. An assignment in a block open at the return always
   ran and replaces what came before; any other may not have and joins it
-  (`flowBlocks.reaching`). If what reaches the return disagrees the function
-  has no return type, and if any of it is `$any` the return is
-  (`agreedComponent`). `<cflock>`, `<cftransaction>` and `<cfoutput>` run their
-  body once and are not blocks. A ref notes its block in `addRef`, and a
+  (`flowBlocks.reaching`). If what reaches the return disagrees, the
+  components join into one union value (`agreedComponent`, `unionComponents`):
+  the sorted pipe form `a|b`; `$any` swallows the rest, and an untyped or
+  native value in the set keeps the return untyped, since a component
+  alternative cannot stand for one (`internal/parser/union_returns_test.go`;
+  the chained-call shape end to end is `internal/resolve/
+  union_return_test.go`). `<cflock>`, `<cftransaction>` and `<cfoutput>` run
+  their body once and are not blocks. A ref notes its block in `addRef`, and a
   pending call is stamped by the body loop (`stampFlow`), so a ref appended
   anywhere else reads as always running, as every ref did before. **A braceless body is a block when it can be bounded**
   (`openBracelessBody`): `var x = new A(); if ( c ) x = new B(); return x;` has
@@ -1655,7 +1659,9 @@ steps, not just the ones that look like factory-method calls.
 
 Two component values short-circuit the method-exists check unconditionally: `$any` (dynamic —
 see "Expression mappings") and `$builtin.<fn>` (a built-in CFML function's return type, from
-`internal/docs/builtin_returns.go`).
+`internal/docs/builtin_returns.go`). A `ReturnComponent` may also be a pipe-delimited union of
+candidates (`a|b`); the method lookups treat it as a set, accepting a method any candidate
+declares and reporting one none does against the joined display.
 
 **How matching works** (`internal/parser/ast.go: matchResolverWithCache`):
 - Each resolver has a `prefix` (fast-rejection substring) and a `match` pattern.

@@ -805,7 +805,29 @@ unchanged. The addition is `Util.cfc:30`: `getClassMappingHelper()` assigns a
 `BoxLangMappingHelper`, a `LuceeMappingHelper` or a `CFMappingHelper` by
 engine, three components with no common base that each declare
 `addCustomTagPath()`. It had been typed as the last. Answering it needs a
-return type that is a set of components, which nothing holds yet.
+return type that is a set of components; see "A return that is one of several
+components" below.
+
+### A return that is one of several components
+
+Fixed: `flow.go`'s `agreedComponent` now joins the components reaching a
+return into one value (`unionComponents`): the component when they all agree,
+`$any` when one is, the sorted pipe form `a|b` when each is a different
+component, and nothing when one is untyped or a native value — a component
+alternative cannot stand for it. `FunctionDef.ReturnComponent` carries the
+union string.
+
+A call on the result follows the set at each hop: `ResolveFunc` splits the
+pipe and accepts the method when a candidate declares it, so
+`getClassMappingHelper().addCustomTagPath()` resolves, and a method no
+candidate declares is reported once against the joined display —
+`method 'x' not found in A|B|C`. A call one candidate declares is accepted,
+following the interface precedent: an implementation may add the method.
+`componentExists`, `chainBreak` and `ComponentPath` treat a set as a set.
+
+Verify: `parser/union_returns_test.go` pins the union mechanics, and
+`internal/resolve/union_return_test.go` pins the chained-call shape end to
+end (every candidate declaring, one declaring, none declaring).
 
 ### Braceless bodies are not blocks
 
