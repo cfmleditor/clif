@@ -4,7 +4,7 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 
 | Category | Findings | high | medium | low | none | method defined nowhere |
 |---|---:|---:|---:|---:|---:|---:|
-| variable | 1346 | 48 | 62 | 252 | 984 | 846 |
+| variable | 1304 | 42 | 62 | 252 | 948 | 846 |
 | return-type | 31 | 0 | 3 | 9 | 19 | 18 |
 | method | 277 | 0 | 30 | 23 | 224 | 208 |
 | object | 73 | 0 | 3 | 12 | 58 | 37 |
@@ -14,7 +14,6 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 | Findings | Group | Defined | Confidence | Evidence | Example |
 |---:|---|---:|---|---|---|
 | 96 | `coll` | 0 | none |  | `test/a_debug_build/_MongoDB.cfc:54` variable 'coll' has no component ref |
-| 38 | `field` | 7 | none |  | `core/src/main/cfml/context/admin/server.logging.create.cfm:277` variable 'field' has no component ref |
 | 30 | `msg` | 1 | none |  | `test/tags/Mail2.cfc:52` variable 'msg' has no component ref |
 | 29 | `result` | 0 | none |  | `core/src/main/cfml/context/admin/ext.functions.cfm:11` variable 'result' has no component ref |
 | 24 | `res` | 0 | none |  | `test/functions/StructToSorted.cfc:138` variable 'res' has no component ref |
@@ -55,7 +54,6 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 | 6 | `class2` | 67 | none |  | `test/tickets/LDEV6226.cfc:78` variable 'class2' has no component ref |
 | 6 | `data` | 0 | none |  | `core/src/main/cfml/context/doc/DocUtils.cfc:77` variable 'data' has no component ref |
 | 6 | `data.extensions` | 0 | none |  | `core/src/main/cfml/context/admin/ext.functions.cfm:373` variable 'data.extensions' has no component ref |
-| 6 | `field → core/src/main/java/resource/context/admin/logging/appender/Field.cfc` | 67 | high | declares getName(), getDefaultValue(), setDefaultValue(); named like the receiver 'field' | `core/src/main/java/resource/context/admin/logging/appender/DatasourceAppender.cfc:24` variable 'field' has no component ref |
 | 6 | `froms[]` | 0 | none |  | `test/tags/Mail2.cfc:54` variable 'froms[]' has no component ref |
 | 6 | `msg → test/tickets/LDEV5074.cfc` | 3 | low | declares toString() (2 candidates) | `test/tags/Mail2.cfc:62` variable 'msg' has no component ref |
 | 6 | `q` | 0 | none |  | `test/jira/Jira2360.cfc:38` variable 'q' has no component ref |
@@ -170,6 +168,7 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 | 2 | `event` | 0 | none |  | `core/src/main/cfml/context/gateway/WatchService.cfc:62` variable 'event' has no component ref |
 | 2 | `externals` | 0 | none |  | `core/src/main/cfml/context/admin/ext.functions.cfm:425` variable 'externals' has no component ref |
 | 2 | `failedtestcase.cfmlstacktrace` | 0 | none |  | `test/_testRunner.cfc:196` variable 'failedTestCase.cfmlStackTrace' has no component ref |
+| 2 | `field` | 0 | none |  | `test/tickets/LDEV6240.cfc:74` variable 'field' has no component ref |
 | 2 | `fruits` | 0 | none |  | `test/tickets/LDEV0423/index.cfm:11` variable 'fruits' has no component ref |
 | 2 | `header` | 67 | none |  | `test/tags/Mail.cfc:142` variable 'header' has no component ref |
 | 2 | `headers` | 0 | none |  | `test/tags/Mail.cfc:140` variable 'headers' has no component ref |
