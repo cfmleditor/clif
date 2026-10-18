@@ -4,7 +4,7 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 
 | Category | Findings | high | medium | low | none | method defined nowhere |
 |---|---:|---:|---:|---:|---:|---:|
-| variable | 1510 | 48 | 62 | 260 | 1140 | 848 |
+| variable | 1368 | 48 | 62 | 260 | 998 | 848 |
 | return-type | 31 | 0 | 3 | 9 | 19 | 18 |
 | method | 277 | 0 | 30 | 23 | 224 | 208 |
 | object | 73 | 0 | 3 | 12 | 58 | 37 |
@@ -13,8 +13,8 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 
 | Findings | Group | Defined | Confidence | Evidence | Example |
 |---:|---|---:|---|---|---|
-| 180 | `field` | 67 | none |  | `core/src/main/cfml/context/admin/debugging.templates.create.cfm:145` variable 'field' has no component ref |
 | 96 | `coll` | 0 | none |  | `test/a_debug_build/_MongoDB.cfc:54` variable 'coll' has no component ref |
+| 38 | `field` | 7 | none |  | `core/src/main/cfml/context/admin/server.logging.create.cfm:277` variable 'field' has no component ref |
 | 30 | `msg` | 1 | none |  | `test/tags/Mail2.cfc:52` variable 'msg' has no component ref |
 | 29 | `result` | 0 | none |  | `core/src/main/cfml/context/admin/ext.functions.cfm:11` variable 'result' has no component ref |
 | 24 | `res` | 0 | none |  | `test/functions/StructToSorted.cfc:138` variable 'res' has no component ref |

@@ -3835,3 +3835,31 @@ numeric member rows, 0 added), the six other corpora identical; baseline
 directory `target/resolution/after-num/`. Candidate lists re-cut with the same
 run. The remaining lucee `field` loop contract (Debug family returns) is the
 next slice on this family.
+
+## The registry family's custom-field loop element (slice 3)
+
+The consumers' custom-field loop reads `driver.getCustomFields()` — a getter
+every family member declares through its base — and the sources name the
+elements: each member's own file assigns the getter's returned variable an
+array literal whose items are the base `field()`/`group()` calls returning
+`createObject("component","Field"/"Group").init(...)`. The element is now the
+union of the literal items' components, when every member proves a non-empty
+literal set (`internal/resolve/registry_element.go`); `fields=array(...)` and
+`variables.fields = [ ... ]` both read, and`<cfset fields=array(...)>` /
+`<cfreturn ...>` tag functions read the same as their script shapes. A chain
+through a family is accepted as dynamic (the getters' arrays are dynamic
+values; the element contract answers element reads, and the pages'
+isInstanceOf(field,"Group") guards split the branches as before).
+
+Measured against `after-num` (the numeric-member baseline): lucee 1,891 →
+1,749 (142 removed, 0 added) — ai 37, gateway 36, cache 35, debug 34 — and
+the six other corpora identical. Baseline directory
+`target/resolution/after-field2/`; candidate lists re-cut with the same run.
+
+The families still looped from a shard the contract does not reach are next
+rungs on this entry: server.logging's appender/layout consumers pick their
+registry container up indirectly (`<cfset drivers=variables[_name&"s"]>`, 36
+rows); dbdriver's create page reads its element through a struct key
+(`field=fields[idx]` under a `getFields` no member of the flat dir's base
+declares, 19 rows); and ResourceAppender/DatasourceAppender loop a
+`duplicate(variables.fields)` copy inside the member's own getter (6 rows).
