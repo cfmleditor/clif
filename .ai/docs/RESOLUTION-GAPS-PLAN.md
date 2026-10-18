@@ -3970,3 +3970,50 @@ internals (`arguments.l`/`arguments.r`/`el`). The dbdriver struct-key
 element seam (`field=fields[idx]` under a `getFields` only Other.cfc
 declares, whose base `types.Driver` lives in the flat-excluded
 `dbdriver/types/` subdir, 19 rows) is the next rung on the family stack.
+
+## The dbdriver page's listing construction and struct-key element (slice 6)
+
+`services.datasource.create.cfm` picks its driver straight from the listing
+struct the recipe fills, not from a container:
+
+```
+<cfset dbdriver = form.type>
+<cfset driver=createObject("component", drivernames[ dbdriver ])>   <!-- the listing, case-insensitive -->
+<cfset driver.init(datasource)>
+<cfset fields=driver.getFields()>
+<cfloop collection="#fields#" item="idx">
+	<cfset field = fields[idx]>
+	<cfset type  = field.getType()>
+```
+
+Three seams. The construction of a listing read is the recipe's own
+construction: the recipes that walk the listing create exactly
+`createObject("component", listing[n])` per key, guard what they keep, and
+store it in their containers — so a construction whose path argument is a
+listing read is a member of the family the recipes' guards serve (the
+fact's members, the listing's base and helpers kept out). The facts carry
+their listing's name now, and `registryListingFamily` answers it. A
+parse-time dynamic guess ($any a ComponentRef holds for a construction the
+parse could not walk) is a weak claim: the family an assignment of the
+receiver proves overwrites it, and only a family does
+(`familyOverGuess`). And an element read under a key — `fields[idx]` — is
+the element of the collection the read indexes, the collection's own
+element contract (`elementOf`'s keyed read; an assigned one
+`assignedKeyedElement`), answered only by what the collection proves, a
+dynamic guess being no answer. That guard is what keeps a view handoff's
+per-leaf walk from short-circuiting on the base action's guess: the leaves'
+own contracts still type the pass.
+
+Other.cfc's own getFields returns the fields its init assigned a literal
+of — the member-copy rule of slice 5 reads it as is — and the fields'
+items' field() is types/Driver.cfc's, returning types/Field.cfc: the
+page's field calls read against types/Field.cfc's own declarations.
+
+Measured against `after-membercopy`: lucee 1,685 → 1,664 (21 removed, 0
+added) — the dbdriver create page's 19 `field` rows, plus the keyed read
+`bookmark=bookmarks[1]` over an entityLoad array (the orm many2many test's
+`bookmark.getTags`/`t.getId`) the keyed-element seam now walks — and
+masa-c 3,484 → 3,483 (`kid=variables.kids[i]`, `kid.save`), the same
+seam's honest resolution. The five other corpora identical. Baseline
+directory `target/resolution/after-dbdriver/`; candidate lists re-cut with
+the same run (11,676 findings, 2,608 with a high-confidence candidate).

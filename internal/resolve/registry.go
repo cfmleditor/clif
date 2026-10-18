@@ -38,6 +38,7 @@ const familyPrefix = "$family:"
 type registryFact struct {
 	pkg       string   // the listing literal, for a reason's display
 	container string   // the struct the writes fill, lowercased, without variables.
+	listing   string   // the struct the listing merges into, lowercased, without variables.
 	members   []string // absolute .cfc paths of the family, sorted
 }
 
@@ -190,6 +191,32 @@ func (r *Resolver) registryFamily(container string, pr *parser.ParseResult) (reg
 	return registryFact{}, false
 }
 
+// registryListingFamily is the fact of the recipe whose listing merges into
+// name: the construction of a listing read — createObject("component",
+// listing[key]) — is the recipes' own construction of their listing's keys,
+// a member of the family the recipes' guards serve.
+func (r *Resolver) registryListingFamily(name string, pr *parser.ParseResult) (registryFact, bool) {
+	name = strings.ToLower(strings.TrimPrefix(name, "variables."))
+
+	for _, fact := range r.registriesOf(pr) {
+		if fact.listing == name {
+			return fact, true
+		}
+	}
+
+	if pr == nil || pr.URI == "" {
+		return registryFact{}, false
+	}
+
+	for _, fact := range r.includeRegistries(cfpath.FromURI(string(pr.URI))) {
+		if fact.listing == name {
+			return fact, true
+		}
+	}
+
+	return registryFact{}, false
+}
+
 // findRegistries reads a template's registry recipes out of its text: each
 // listing whose loop constructs components with the loop's item and stores
 // them in a struct, with the names the template's guards keep out of it.
@@ -232,7 +259,7 @@ func (r *Resolver) findRegistries(content, file string) []registryFact {
 			continue
 		}
 
-		facts = append(facts, registryFact{pkg: pkg, container: name, members: members})
+		facts = append(facts, registryFact{pkg: pkg, container: name, listing: strings.ToLower(target), members: members})
 	}
 
 	return facts

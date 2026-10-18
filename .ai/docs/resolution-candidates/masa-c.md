@@ -4,7 +4,7 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 
 | Category | Findings | high | medium | low | none | method defined nowhere |
 |---|---:|---:|---:|---:|---:|---:|
-| variable | 2846 | 1129 | 263 | 651 | 803 | 97 |
+| variable | 2845 | 1129 | 263 | 650 | 803 | 97 |
 | return-type | 490 | 94 | 122 | 249 | 25 | 3 |
 | method | 54 | 0 | 14 | 23 | 17 | 17 |
 | object | 94 | 0 | 0 | 0 | 94 | 13 |
@@ -330,7 +330,6 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 | 1 | `item → core/mura/bean/bean.cfc` | 9 | low | declares getEntityName() (9 candidates) | `core/mura/client/api/json/v1/apiUtility.cfc:2930` variable 'item' has no component ref |
 | 1 | `item → core/mura/user/userBean.cfc` | 1 | medium | declares getGroupName() | `admin/core/views/cchain/edit.cfm:74` variable 'item' has no component ref |
 | 1 | `iterator → core/mura/utility.cfc` | 7 | low | declares getNextN() (7 candidates) | `core/modules/v1/collection/layouts/list/index.cfm:65` variable 'iterator' has no component ref |
-| 1 | `kid → core/mura/category/categoryBean.cfc` | 44 | low | declares save() (44 candidates) | `core/mura/category/categoryBean.cfc:140` variable 'kid' has no component ref |
 | 1 | `local.i → core/mura/content/contentCommentBean.cfc` | 21 | low | declares getName() (21 candidates) | `core/mura/content/dataCollection/dataCollectionBean.cfc:90` variable 'local.i' has no component ref |
 | 1 | `local.nestedform → core/mura/content/contentBean.cfc` | 1 | medium | declares getBody() | `core/modules/v1/formbuilder/dsp_form.cfm:76` variable 'local.nestedForm' has no component ref |
 | 1 | `local.parentbean → core/mura/content/contentCommentFeedBean.cfc` | 26 | low | declares setSiteID() (26 candidates) | `core/mura/content/contentDAO.cfc:1263` variable 'local.parentBean' has no component ref |
@@ -1328,16 +1327,6 @@ Every finding below is still reported. A candidate is a liberal match offered fo
   - low `core/mura/iterator/queryIterator.cfc` — declares getNextN()
   - low `core/mura/settings/settingsBean.cfc` — declares getNextN()
   - low `core/mura/content/feed/feedBean.cfc` — declares getNextN()
-- `kid → core/mura/category/categoryBean.cfc` — 1 finding(s), 44 candidate(s):
-  - low `core/mura/category/categoryBean.cfc` — declares save()
-  - low `core/mura/category/categoryManager.cfc` — declares save()
-  - low `core/mura/bean/beanEntity.cfc` — declares save()
-  - low `core/mura/bean/beanORM.cfc` — declares save()
-  - low `core/mura/content/contentBean.cfc` — declares save()
-  - low `core/mura/content/contentCommentBean.cfc` — declares save()
-  - low `core/mura/content/contentDisplayIntervalBean.cfc` — declares save()
-  - low `core/mura/content/contentFileMetaDataBean.cfc` — declares save()
-  - … 36 more
 - `local.i → core/mura/content/contentCommentBean.cfc` — 1 finding(s), 21 candidate(s):
   - low `core/mura/content/contentCommentBean.cfc` — declares getName()
   - low `core/mura/content/contentCommenterBean.cfc` — declares getName()

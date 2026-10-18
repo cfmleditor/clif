@@ -35,6 +35,7 @@ var (
 	loopTagRe      = regexp.MustCompile(`(?is)<(/?)cfloop\b([^>]*)>`)
 	loopAttrRe     = regexp.MustCompile(`(?i)\b(array|collection|struct|index|item)\s*=\s*["']([^"']*)["']`)
 	loopPathRe     = regexp.MustCompile(`^(?:(local|variables|this|arguments)\.)?(\w+)$`)
+	indexedReadRe  = regexp.MustCompile(`^((?:local|variables|this|arguments)\.[\w.]+|[A-Za-z_]\w*)\s*\[[^\]]*\]$`)
 	maxElementHops = 4
 )
 
@@ -393,6 +394,19 @@ func (r *Resolver) elementOf(expression string, header, start int, caller string
 
 	m := loopPathRe.FindStringSubmatch(expression)
 	if m == nil {
+		// An element read under a key — fields[idx], a struct-key element
+		// of a local — is the element of the collection the read indexes:
+		// the read's own brackets name no chain and no member. Only what
+		// the collection proves answers; a dynamic guess is no answer.
+		if k := indexedReadRe.FindStringSubmatch(expression); k != nil && !isScopeWord(k[1]) {
+			comp := r.elementOf(k[1], header, start, caller, pr, baseDir, depth+1, leaf)
+			if comp != "" && (!strings.HasPrefix(comp, "$") || strings.HasPrefix(comp, familyPrefix)) {
+				return comp
+			}
+
+			return ""
+		}
+
 		return ""
 	}
 

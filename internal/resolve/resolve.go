@@ -3351,6 +3351,26 @@ func (r *Resolver) inferredReceiver(variable string, line uint32, caller, funcNa
 	return r.includerHeld(variable, pr, tr, ctx)
 }
 
+// familyOverGuess is the family an assignment of the receiver proves over a
+// parse-time dynamic guess, or the guess when no family does: a construction
+// a registry recipe's own listing serves is a member of the family the
+// recipes' guards keep, and the guess the parse could not walk stays its
+// guess against anything else.
+func (r *Resolver) familyOverGuess(comp, variable string, line uint32, caller string, pr *parser.ParseResult, baseDir string, tr *callTrace, ctx lookupCtx) string {
+	if comp != "$any" {
+		return comp
+	}
+
+	family := r.assignedFamily(variable, line, caller, pr, baseDir, ctx)
+	if family == "" {
+		return comp
+	}
+
+	tr.addf("%q's dynamic guess is overwritten by the family the construction's listing serves: %q", variable, family)
+
+	return family
+}
+
 // receiverComponentD is receiverComponent with a lookupCtx: the depth of
 // assignments read to type a variable, which bounds `x = y.f()` through
 // `y = z.g()`, and the subclass a handoff reads on behalf of.
@@ -3450,6 +3470,10 @@ func (r *Resolver) receiverComponentD(variable string, line uint32, caller, func
 			tr.addf("resolved %q to %q via file-level ComponentRef (nearest preceding assignment at line %d)", variable, comp, best.Line+1)
 		}
 	}
+
+	// A parse-time dynamic guess is a weak claim; a family an assignment
+	// proves is the sharper answer.
+	comp = r.familyOverGuess(comp, variable, line, caller, pr, baseDir, tr, ctx)
 
 	// Fall back to Application.cfc component refs
 	if comp == "" {
