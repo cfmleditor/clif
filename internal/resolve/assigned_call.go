@@ -96,6 +96,9 @@ func (r *Resolver) assignedFromCall(variable string, line uint32, caller string,
 		name, container = variable[3:], "rc"
 	case strings.HasPrefix(lower, "arguments.rc."):
 		name, container = variable[13:], "rc"
+	case strings.HasPrefix(lower, "arguments."):
+		// A defaulted or re-set argument: the body writes arguments.x itself.
+		name, container = variable[10:], "arguments"
 	case strings.HasPrefix(lower, "local."):
 		name = variable[6:]
 	}
