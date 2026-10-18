@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/cfmleditor/clif/internal/conv"
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
 )
@@ -295,6 +296,13 @@ func tagLoops(content string) []loopSpan {
 			variable = attrs["item"]
 		}
 
+		if attrs["item"] != "" {
+			// A loop that names an item holds the element there: an array
+			// loop's index, when an item is named too, is the element's
+			// position, not the element.
+			variable = attrs["item"]
+		}
+
 		array := strings.TrimSpace(attrs["array"])
 		match := array != "" && variable != "" &&
 			strings.HasPrefix(array, "#") && strings.HasSuffix(array, "#") && strings.Count(array, "#") == 2
@@ -399,6 +407,14 @@ func (r *Resolver) elementOf(expression string, header, start int, caller string
 				return comp
 			}
 
+			// A member's own getter that copies its own fields —
+			// `var fields=duplicate(variables.fields)` in an overridden
+			// getCustomFields — walks the member's own literal of it, and
+			// the loop over the copy reads as the getter's element proves.
+			if comp := r.memberCopyElement(pr, rhs, name, header, self); comp != "" {
+				return comp
+			}
+
 			return r.elementOf(rhs, header, start, caller, pr, baseDir, depth+1, leaf)
 		}
 
@@ -413,6 +429,26 @@ func (r *Resolver) elementOf(expression string, header, start int, caller string
 
 	// The component's own property, read through the variable it fills.
 	return r.methodElement(self, "get"+name, "", baseDir)
+}
+
+// memberCopyElement is the element the member's own getter proves for a
+// variable it duplicates out of the member's own fields: `var
+// fields=duplicate(variables.fields)` in an overridden getCustomFields,
+// whose loop the page reads through. Only a copy of the same name reads.
+func (r *Resolver) memberCopyElement(pr *parser.ParseResult, rhs, name string, header int, self string) string {
+	src, dup := duplicatePlain(rhs)
+	if !dup || !strings.EqualFold(strings.TrimPrefix(strings.ToLower(src), "variables."), name) {
+		return ""
+	}
+
+	fn, ok := enclosingScope(pr, conv.Uint32(header))
+	if !ok {
+		return ""
+	}
+
+	set, _ := r.memberArrayElements(self, fn.Name)
+
+	return set
 }
 
 // methodElement is the element type of what method returns on comp.

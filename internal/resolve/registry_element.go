@@ -2,6 +2,7 @@ package resolve
 
 import (
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -31,20 +32,20 @@ import (
 // The union only answers an element read; the array itself has no component.
 
 // familyLoopElement is the registry family's array getter's element, or ""
-// when the family does not prove one. Every member's own files must give a
-// non-empty literal element set — the page serves whichever member the form
+// when the family does not prove one. Every member's own files must prove a
+// set — an empty one is a set too; the page serves whichever member the form
 // chose, and the element is the union of what members' literals name.
 func (r *Resolver) familyLoopElement(members []string, method string) string {
 	var elements []string
 
 	for _, member := range members {
-		set := r.memberArrayElements(member, method)
-		if set == "" {
+		set, proved := r.memberArrayElements(member, method)
+		if !proved {
 			return ""
 		}
 
 		for comp := range strings.SplitSeq(set, "|") {
-			if !slices.Contains(elements, comp) {
+			if comp != "" && !slices.Contains(elements, comp) {
 				elements = append(elements, comp)
 			}
 		}
@@ -59,38 +60,66 @@ func (r *Resolver) familyLoopElement(members []string, method string) string {
 	return strings.Join(elements, "|")
 }
 
-// memberArrayElements is one member's element union. Every own-level return
-// of the method resolves to one identifier, every assignment to it in the
-// member's own file is an array or list literal, and every literal item is a
-// call whose function returns, everywhere, one component by a literal path.
-func (r *Resolver) memberArrayElements(member, method string) string {
+// memberArrayElements is one member's element union and whether the member's
+// own files prove a set of it. Every own-level return of the method resolves
+// to one identifier, every assignment to it in the member's own file is an
+// array or list literal — save the copy a getter's own body makes of the
+// member's own fields, whose source's literal is the set the copy proves —
+// and every literal item is a call whose function returns, everywhere, one
+// component by a literal path.
+func (r *Resolver) memberArrayElements(member, method string) (string, bool) {
 	fd := r.LookupFuncWithExtends(member, method)
 	if fd == nil {
-		return ""
+		return "", false
 	}
 
 	name := r.fdReturnsLocal(fd)
 	if name == "" {
-		return ""
+		return "", false
 	}
 
-	assignments, ok := r.memberAssignmentLiterals(name, member)
+	assignments, ok := r.memberAssignments(name, member)
 	if !ok {
-		return ""
+		return "", false
 	}
+
+	bodyStart, bodyEnd, spanned := r.memberGetterSpan(member, fd)
 
 	var elements []string
 
-	for _, rhs := range assignments {
-		items, ok := literalItems(rhs)
+	for _, as := range assignments {
+		items, ok := literalItems(as.rhs)
+
 		if !ok {
-			return ""
+			// An empty literal is a set too: a member whose own file assigns
+			// `fields=array()` proves it holds none, and contributes nothing
+			// to the union.
+			if emptyLiteral(as.rhs) {
+				continue
+			}
+
+			// A member's own getter that copies its own fields walks the
+			// copy's source — `var fields=duplicate(variables.fields)` —
+			// and the copy proves the same set the member's own fields
+			// literal holds. A non-literal anywhere else, or a copy of
+			// something the member's own file does not assign, leaves the
+			// element untyped.
+			src, dup := duplicatePlain(producerText(as.rhs))
+			if !dup || !spanned || as.at < bodyStart || as.at >= bodyEnd ||
+				!strings.EqualFold(src, name) {
+				return "", false
+			}
+
+			items, ok = r.memberFieldItems(name, member, bodyStart, bodyEnd)
+			if !ok {
+				return "", false
+			}
 		}
 
 		for _, item := range items {
 			comp, ok := r.constructorItemComponent(member, item)
 			if !ok || comp == "" {
-				return ""
+				return "", false
 			}
 
 			if !slices.Contains(elements, comp) {
@@ -99,13 +128,98 @@ func (r *Resolver) memberArrayElements(member, method string) string {
 		}
 	}
 
-	if len(elements) == 0 {
-		return ""
-	}
-
 	slices.Sort(elements)
 
-	return strings.Join(elements, "|")
+	return strings.Join(elements, "|"), true
+}
+
+// memberGetterSpan is the member's own file's byte range of the function
+// fd's scope, or ok=false when the file holds no scope it names.
+func (r *Resolver) memberGetterSpan(member string, fd *parser.FunctionDef) (start, end int, ok bool) {
+	pr := r.handlerParse(member)
+	if pr == nil || fd == nil {
+		return 0, 0, false
+	}
+
+	scope := pr.FuncScopeAt(int(fd.Line))
+	if scope.Start == -1 || !strings.EqualFold(scope.Name, fd.Name) {
+		return 0, 0, false
+	}
+
+	start, ok = lineOffset(pr.Content, scope.Start)
+	if !ok {
+		return 0, 0, false
+	}
+
+	end, ok = lineOffset(pr.Content, scope.End+1)
+	if !ok {
+		end = len(pr.Content)
+	}
+
+	return start, end, true
+}
+
+// memberFieldItems is the literal items the member's own file proves for
+// name outside the getter's body — the top-level fields literal a getter's
+// own duplicate copy walks. An assignment there that is not a literal
+// leaves the set unproven.
+func (r *Resolver) memberFieldItems(name, member string, bodyStart, bodyEnd int) ([][]parser.Token, bool) {
+	assignments, ok := r.memberAssignments(name, member)
+	if !ok {
+		return nil, false
+	}
+
+	var items [][]parser.Token
+
+	for _, as := range assignments {
+		if as.at >= bodyStart && as.at < bodyEnd { // the getter's own copy
+			continue
+		}
+
+		lits, ok := literalItems(as.rhs)
+		if !ok {
+			return nil, false
+		}
+
+		items = append(items, lits...)
+	}
+
+	if len(items) == 0 {
+		return nil, false
+	}
+
+	return items, true
+}
+
+// emptyLiteral is whether the value's tokens are an empty array or list
+// literal — `array()`, `[ ]` — a set of none.
+func emptyLiteral(rhs []parser.Token) bool {
+	switch {
+	case len(rhs) == 3 && rhs[0].Kind == parser.TokIdent && strings.EqualFold(rhs[0].Value, "array") &&
+		rhs[1].Kind == parser.TokLParen && rhs[2].Kind == parser.TokRParen:
+		return true
+	case len(rhs) == 2 && rhs[0].Kind == parser.TokLBracket && rhs[1].Kind == parser.TokRBracket:
+		return true
+	}
+
+	return false
+}
+
+// duplicatePlain is the plain name a `duplicate(X)` text copies, its
+// variables. spelling trimmed, or ok=false. The text is normalized the way
+// an element read's expression is, and the tail a tag assignment's
+// statement runs past — the `>` and the body after it — does not read.
+var duplicatePlainRe = regexp.MustCompile(`(?i)^duplicate\s*\(\s*(?:var\s+)?(?:variables\.)?([A-Za-z_]\w*)\s*\)`)
+
+func duplicatePlain(text string) (string, bool) {
+	text = strings.ReplaceAll(text, " . ", ".")
+
+	m := duplicatePlainRe.FindStringSubmatch(strings.TrimSpace(text))
+	if m == nil {
+		return "", false
+	}
+
+	return m[1], true
 }
 
 // fnScopeTokens is fd's function's span as tokens — the script body's or the
@@ -203,10 +317,18 @@ func localNameOf(tokens []parser.Token) string {
 	return ""
 }
 
-// memberAssignmentLiterals is every assignment of name in the member's own
-// file, or ok=false when the file assigns it none. Whether each is a literal
-// is the caller's demand.
-func (r *Resolver) memberAssignmentLiterals(name, member string) ([][]parser.Token, bool) {
+// memberAssignment is one assignment of a name in a member's own file: the
+// file offset the assigned name's token sits at, and the value's tokens.
+type memberAssignment struct {
+	at  int
+	rhs []parser.Token
+}
+
+// memberAssignments is every assignment of name in the member's own file,
+// with the offset the assigned name's token holds in it, or ok=false when
+// the file assigns it none. Whether each is a literal is the caller's
+// demand.
+func (r *Resolver) memberAssignments(name, member string) ([]memberAssignment, bool) {
 	pr := r.handlerParse(member)
 	if pr == nil {
 		return nil, false
@@ -214,7 +336,7 @@ func (r *Resolver) memberAssignmentLiterals(name, member string) ([][]parser.Tok
 
 	tokens := significantTokens(pr.Content)
 
-	var found [][]parser.Token
+	var found []memberAssignment
 
 	for i := 0; i+1 < len(tokens); i++ {
 		if tokens[i].Kind != parser.TokIdent || tokens[i+1].Kind != parser.TokEquals ||
@@ -231,7 +353,7 @@ func (r *Resolver) memberAssignmentLiterals(name, member string) ([][]parser.Tok
 			return nil, false
 		}
 
-		found = append(found, tokens[i+2:stop])
+		found = append(found, memberAssignment{at: tokens[i].Offset, rhs: tokens[i+2 : stop]})
 		i = stop - 1
 	}
 

@@ -3917,3 +3917,56 @@ appender family's DatasourceAppender/ResourceAppender prove theirs through a
 6 rows there) is the one to read — plus 4 `_driver` rows (the ternary's
 `variables[_name]`, a container the page does not spell) and 3 factory
 internals (`arguments.l`/`arguments.r`/`el`).
+
+## The member's own getter's copy of its fields (slice 5)
+
+The family element contract asked every member's own file to assign the
+getter's returned variable an array literal — and the logging appender
+family's DatasourceAppender/ResourceAppender spell theirs through a copy:
+
+```
+<cffunction name="getCustomFields" returntype="array">
+	<cfif !isNull(form._name)>
+		<cfset var fields=duplicate(variables.fields)>
+		<cfloop array="#fields#" index="local.i" item="local.field">
+			... field.setDefaultValue(...) ...
+		</cfloop>
+	</cfif>
+	<cfreturn fields>
+</cffunction>
+```
+
+A duplicate is a deep copy — a copy of a collection holds the same
+elements — so the copy proves the set its source holds: the member's own
+top-level `fields=array(...)` literal, outside the getter's body
+(`internal/resolve/registry_element.go`: `memberAssignments` carries each
+assignment's file offset, `memberGetterSpan` is the getter's own byte
+range, and a non-literal inside it that duplicates the returned name reads
+as `memberFieldItems` over the assignments outside it). And a literal that
+assigns none — ClassicLayout's and DatadogLayout's `fields=array()` — is a
+set too, a set of none: `emptyLiteral` marks it proven, it contributes
+nothing to the union, and the family proof holds. The layout family's
+helpers are the other members' literals (HTML/Json/Pattern/XML), so the
+logging consumers' `field` element is the two families' helpers — the
+appender's and the layout's Field/Group.
+
+One more correction of the family's own loops: a `<cfloop
+array="#fields#" index="local.i" item="local.field">` binds the element in
+its item — the index, when an item is named too, is the element's position
+(`tagLoops`). The member's own getter's loop now types its item the way the
+consumers' loops do, through `memberCopyElement`.
+
+Measured against `after-slice4`: lucee 1,727 → 1,685 (42 removed, 0 added)
+— the 6 member-file rows (DatasourceAppender/ResourceAppender's own
+`field.getName`/`getDefaultValue`/`setDefaultValue`) and the 36 remaining
+consumer `field` rows — and the six other corpora identical. Baseline
+directory `target/resolution/after-membercopy/`; candidate lists re-cut
+with the same run (11,698 findings, 2,608 with a high-confidence
+candidate).
+
+The logging entry's leftovers are 4 `_driver` rows (the ternary's
+`variables[_name]`, a container the page does not spell) and 3 factory
+internals (`arguments.l`/`arguments.r`/`el`). The dbdriver struct-key
+element seam (`field=fields[idx]` under a `getFields` only Other.cfc
+declares, whose base `types.Driver` lives in the flat-excluded
+`dbdriver/types/` subdir, 19 rows) is the next rung on the family stack.

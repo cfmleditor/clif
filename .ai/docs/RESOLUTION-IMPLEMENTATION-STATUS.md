@@ -1911,3 +1911,34 @@ the member-own getter seam that also covers the 6 member-file rows), the 4
 `_driver` rows (the ternary's `variables[_name]`), the 3 factory internals
 (`arguments.l`/`arguments.r`/`el` in `doSortedStruct`), and after that the
 dbdriver struct-key element seam (19 rows).
+
+## Checkpoint 38: the member's own getter's copy of its fields
+
+The element contract's strict proof — every member's own file assigns the
+getter's returned variable an array literal — met the logging appender
+family's own getters: DatasourceAppender and ResourceAppender override
+getCustomFields, copy the member's own fields
+(`var fields=duplicate(variables.fields)`), walk the copy, and return it.
+A duplicate is a deep copy, so the copy proves the set its source holds:
+the member's own top-level fields literal. The assignments carry their
+file offsets now, the getter's own byte range is known
+(`memberGetterSpan`), and a non-literal inside it that duplicates the
+returned name reads as the assignments outside it
+(`memberFieldItems`). A literal that assigns none — the layout family's
+Classic and Datadog — is a proven set of none (`emptyLiteral`), which
+contributes nothing and lets the family proof hold over the other
+members' literals. And an array loop that names both an index and an item
+binds the element in its item — the index is the element's position — so
+the member's own getter's loop types its item
+(`memberCopyElement`).
+
+Measured against `after-slice4`: lucee 1,727 → 1,685 (42 removed, 0
+added) — the 6 member-file rows and the 36 remaining consumer `field`
+rows of `server.logging.create.cfm` — and the six other corpora
+byte-identical. Candidate lists re-cut with the same run: 11,698 findings
+on the seven scans, 2,608 with a high-confidence candidate
+([summary](resolution-candidates/summary.md)). Baseline directory
+`target/resolution/after-membercopy/`.
+
+Still open on this entry: 4 `_driver` rows, 3 factory internals, then the
+dbdriver struct-key element seam (19 rows).
