@@ -791,6 +791,31 @@ func (p *producerScript) expressionStatement() producerNode {
 }
 
 func producerAssignment(tokens []parser.Token) producerNode {
+	if len(tokens) > 1 && strings.EqualFold(tokens[0].Value, "param") && tokens[1].Kind == parser.TokIdent {
+		// cfscript `param x = value;` is the tag form's statement alias: a
+		// default that only creates a variable the caller left absent. Reading
+		// it as an assignment made it an opaque write to the whole component's
+		// plan, and every guarded shared field lost its all-writes-agree
+		// contract behind one the statement can never write (TestBox's
+		// BaseReporter.getConsoleUtil went unresolved behind a `param url = {}`
+		// in an unrelated method).
+		at := -1
+
+		for i := 1; i < len(tokens); i++ {
+			if tokens[i].Kind == parser.TokEquals {
+				at = i
+
+				break
+			}
+		}
+
+		target := producerPath(tokens[1:max(2, at)])
+
+		if target != "" {
+			return producerNode{kind: "param", target: target}
+		}
+	}
+
 	local := len(tokens) > 0 && strings.EqualFold(tokens[0].Value, "var")
 	if local {
 		tokens = tokens[1:]
