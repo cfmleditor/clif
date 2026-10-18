@@ -1850,3 +1850,25 @@ same JSONs. Quantities in this file before this checkpoint retain their date
 and commit and were not retroactively rewritten. Replay artifacts:
 `target/resolution/vintage-1012/` and `fresh-1018/` runs, the two binaries,
 and `delta-by-line.sh` for the per-scan counts.
+
+## Checkpoint 36: registry-family receiver (#273) and numeric member functions
+
+The admin registry drivers slice opened as PR #273 and merged (`1a4a1d6`) with
+its regression suite and in-PR candidate-list cut. The census entry it closed
+was measured per entry against `after-slice1`: lucee 1,985 → 1,924, all six
+other corpora byte-identical. This checkpoint's second item followed the audit
+tail: every remaining lucee "not found on builtin native.numeric" row is a
+Lucee primitive member-function call (`a.sgn()`, `y.abs()`, `a.aCos()`), and
+the native numeric contract was empty. The contract now names the
+generated-catalogue functions that take a number first, with `booleanFormat`
+and `formatBaseN` returning strings. Measured against `after-slice2c`
+(lucee 1,924): lucee → 1,891, exactly the 33 numeric rows removed and 0 added,
+six other corpora identical; candidate lists re-cut from the same run.
+Totals: eleven and a half thousand findings on the seven scans is now
+11,904 with 2,608 carrying a high-confidence candidate
+([summary](resolution-candidates/summary.md)); per-entry scan baselines live
+in `target/resolution/after-num/` (after-slice2c retains the previous run for
+replay). The presets canon of RESOLUTION-GAPS.md is unaffected (its
+measurement modes replay unchanged binary-neutral scopes). Next on this
+family: the `field` loop contract over the registry consumers' getCustomFields
+calls (1,510 variable rows keep the entry on top).
