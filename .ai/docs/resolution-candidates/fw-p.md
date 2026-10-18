@@ -4,7 +4,7 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 
 | Category | Findings | high | medium | low | none | method defined nowhere |
 |---|---:|---:|---:|---:|---:|---:|
-| variable | 272 | 83 | 26 | 127 | 36 | 27 |
+| variable | 269 | 80 | 26 | 127 | 36 | 27 |
 | return-type | 65 | 0 | 27 | 38 | 0 | 0 |
 | method | 20 | 0 | 9 | 3 | 8 | 8 |
 | object | 1 | 0 | 0 | 0 | 1 | 0 |
@@ -36,7 +36,6 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 | 4 | `todoservice → examples/todos/controllers/main.cfc` | 11 | low | declares get() (11 candidates) | `examples/todos/controllers/main.cfc:14` variable 'todoservice' has no component ref |
 | 4 | `variables.parent` | 1 | none |  | `framework/ioc.cfc:700` variable 'variables.parent' has no component ref |
 | 4 | `variables.targetbean → framework/beanProxy.cfc` | 1 | high | declares $methodExists(), $call() | `framework/beanProxy.cfc:83` variable 'variables.targetBean' has no component ref |
-| 3 | `answers[] → examples/qBall/model/beans/answer.cfc` | 14 | high | declares getId(), setSelectedAnswer() | `examples/qBall/model/services/question.cfc:58` variable 'answers[]' has no component ref |
 | 3 | `arguments.entity → examples/qBall/model/beans/answer.cfc` | 3 | low | declares setCreated(), setEdited() (3 candidates) | `examples/qBall/model/beans/eventHandler.cfc:10` variable 'arguments.entity' has no component ref |
 | 3 | `session.auth.user → examples/userManagerAccessControl/model/beans/user.cfc` | 14 | low | declares getId(); named like the receiver 'user' (14 candidates) | `examples/userManagerAccessControl/controllers/main.cfc:10` variable 'session.auth.user' has no component ref |
 | 3 | `trace.msg` | 0 | none |  | `framework/one.cfc:1774` variable 'trace.msg' has no component ref |

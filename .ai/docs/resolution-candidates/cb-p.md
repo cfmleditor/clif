@@ -4,8 +4,8 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 
 | Category | Findings | high | medium | low | none | method defined nowhere |
 |---|---:|---:|---:|---:|---:|---:|
-| variable | 1439 | 538 | 169 | 155 | 577 | 253 |
-| return-type | 109 | 9 | 38 | 19 | 43 | 29 |
+| variable | 1433 | 534 | 169 | 153 | 577 | 253 |
+| return-type | 111 | 11 | 38 | 19 | 43 | 29 |
 | method | 74 | 1 | 0 | 5 | 68 | 28 |
 | object | 61 | 0 | 0 | 0 | 61 | 3 |
 
@@ -170,7 +170,6 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 | 2 | `clone → modules/contentbox/models/content/BaseContent.cfc` | 9 | high | declares clone(), getSlug() | `modules/contentbox/modules/contentbox-admin/handlers/baseContentHandler.cfc:583` variable 'clone' has no component ref |
 | 2 | `content → modules/contentbox/models/comments/Comment.cfc` | 4 | low | declares getContent() (4 candidates) | `modules/contentbox/models/system/NotificationService.cfc:450` variable 'content' has no component ref |
 | 2 | `contentitem → modules/contentbox/models/content/BaseContent.cfc` | 1 | high | declares setContentTemplate(), setChildContentTemplate() | `modules/contentbox/models/content/ContentTemplateService.cfc:109` variable 'contentItem' has no component ref |
-| 2 | `contentobjects[] → modules/contentbox/models/content/BaseContent.cfc` | 1 | high | declares setpublishedDate(), setisPublished() | `modules/contentbox/models/content/ContentService.cfc:627` variable 'contentObjects[]' has no component ref |
 | 2 | `e → modules/contentbox/models/system/Site.cfc` | 2 | low | declares hasCategories(), getCategories() (2 candidates) | `modules/contentbox/models/system/CBHelper.cfc:1839` variable 'e' has no component ref |
 | 2 | `entry → modules/contentbox/models/content/BaseContent.cfc` | 1 | medium | declares getIsPublished() | `modules/contentbox/models/content/EntryService.cfc:32` variable 'entry' has no component ref |
 | 2 | `fkeys` | 0 | none |  | `modules/contentbox/migrations/2020_08_24_150933_v5Upgrade.cfc:203` variable 'FKeys' has no component ref |
@@ -289,8 +288,6 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 | 1 | `definition[].value` | 3 | none |  | `modules/contentbox/models/content/BaseContent.cfc:1856` variable 'definition[].value' has no component ref |
 | 1 | `e → modules/contentbox/models/security/LoginAttempt.cfc` | 1 | medium | declares setIsBlocked() | `modules/contentbox/models/security/LoginTrackerService.cfc:63` variable 'e' has no component ref |
 | 1 | `editorperms` | 0 | none |  | `modules/contentbox/migrations/init/seed_roles.cfc:89` variable 'editorPerms' has no component ref |
-| 1 | `entries[] → modules/contentbox/models/comments/Comment.cfc` | 6 | low | declares getAuthor() (6 candidates) | `tests/specs/contentbox-web/contentbox/unit/content/EntryServiceTest.cfc:65` variable 'entries[]' has no component ref |
-| 1 | `entries[] → modules/contentbox/models/security/Author.cfc` | 1 | high | declares getAuthorID(); named like the receiver 'Author' | `tests/specs/contentbox-web/contentbox/unit/content/EntryServiceTest.cfc:65` variable 'entries[]' has no component ref |
 | 1 | `entry → modules/contentbox/models/comments/Comment.cfc` | 4 | low | declares getContent() (4 candidates) | `modules/contentbox/models/system/NotificationService.cfc:190` variable 'entry' has no component ref |
 | 1 | `entryresults.content[] → modules/contentbox/models/content/BaseContent.cfc` | 4 | low | declares getTitle() (4 candidates) | `modules/contentbox/widgets/RecentEntries.cfc:95` variable 'entryResults.content[]' has no component ref |
 | 1 | `existingfields` | 0 | none |  | `modules/contentbox/models/content/BaseContent.cfc:1835` variable 'existingFields' has no component ref |
@@ -318,8 +315,6 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 | 1 | `otheme → modules/contentbox/themes/default/Theme.cfc` | 1 | high | declares onActivation(); named like the receiver 'oTheme' | `modules/contentbox/models/ui/ThemeService.cfc:270` variable 'oTheme' has no component ref |
 | 1 | `page → modules/contentbox/models/comments/Comment.cfc` | 4 | low | declares getContent() (4 candidates) | `modules/contentbox/models/system/NotificationService.cfc:320` variable 'page' has no component ref |
 | 1 | `page → modules/contentbox/models/content/BaseContent.cfc` | 3 | low | declares renderContent() (2 candidates) | `modules/contentbox/widgets/PageInclude.cfc:39` variable 'page' has no component ref |
-| 1 | `pages[] → modules/contentbox/models/comments/Comment.cfc` | 6 | low | declares getAuthor() (6 candidates) | `tests/specs/contentbox-web/contentbox/unit/content/PageServiceTest.cfc:45` variable 'pages[]' has no component ref |
-| 1 | `pages[] → modules/contentbox/models/security/Author.cfc` | 1 | high | declares getAuthorID(); named like the receiver 'Author' | `tests/specs/contentbox-web/contentbox/unit/content/PageServiceTest.cfc:45` variable 'pages[]' has no component ref |
 | 1 | `perms` | 1 | none |  | `modules/contentbox/migrations/init/seed_permissions.cfc:188` variable 'perms' has no component ref |
 | 1 | `prc` | 0 | none |  | `modules/contentbox/modules/contentbox-api/modules/contentbox-api-v1/handlers/baseContentHandler.cfc:140` variable 'prc' has no component ref |
 | 1 | `prc → modules/contentbox/models/security/Author.cfc` | 3 | low | declares hasPermission() (3 candidates) | `modules/contentbox/modules/contentbox-api/modules/contentbox-api-v1/handlers/baseContentHandler.cfc:140` variable 'prc' has no component ref |
@@ -721,13 +716,6 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 - `config → modules/contentbox/modules_user/Hello/ModuleConfig.cfc` — 1 finding(s), 2 candidate(s):
   - low `modules/contentbox/modules_user/Hello/ModuleConfig.cfc` — declares onDeactivate()
   - low `modules/contentbox/modules_user/Hello/modules/hello-child/ModuleConfig.cfc` — declares onDeactivate()
-- `entries[] → modules/contentbox/models/comments/Comment.cfc` — 1 finding(s), 6 candidate(s):
-  - low `modules/contentbox/models/comments/Comment.cfc` — declares getAuthor()
-  - low `modules/contentbox/models/content/BaseContent.cfc` — declares getAuthor()
-  - low `modules/contentbox/models/content/ContentVersion.cfc` — declares getAuthor()
-  - low `modules/contentbox/models/modules/Module.cfc` — declares getAuthor()
-  - low `modules/contentbox/models/ui/BaseWidget.cfc` — declares getAuthor()
-  - low `modules/contentbox/models/ui/Widget.cfc` — declares getAuthor()
 - `entry → modules/contentbox/models/comments/Comment.cfc` — 1 finding(s), 4 candidate(s):
   - low `modules/contentbox/models/comments/Comment.cfc` — declares getContent()
   - low `modules/contentbox/models/content/BaseContent.cfc` — declares getContent()
@@ -825,13 +813,6 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 - `page → modules/contentbox/models/content/BaseContent.cfc` — 1 finding(s), 2 candidate(s):
   - low `modules/contentbox/models/content/BaseContent.cfc` — declares renderContent()
   - low `modules/contentbox/models/content/ContentVersion.cfc` — declares renderContent()
-- `pages[] → modules/contentbox/models/comments/Comment.cfc` — 1 finding(s), 6 candidate(s):
-  - low `modules/contentbox/models/comments/Comment.cfc` — declares getAuthor()
-  - low `modules/contentbox/models/content/BaseContent.cfc` — declares getAuthor()
-  - low `modules/contentbox/models/content/ContentVersion.cfc` — declares getAuthor()
-  - low `modules/contentbox/models/modules/Module.cfc` — declares getAuthor()
-  - low `modules/contentbox/models/ui/BaseWidget.cfc` — declares getAuthor()
-  - low `modules/contentbox/models/ui/Widget.cfc` — declares getAuthor()
 - `prc → modules/contentbox/models/security/Author.cfc` — 1 finding(s), 3 candidate(s):
   - low `modules/contentbox/models/security/Author.cfc` — declares hasPermission()
   - low `modules/contentbox/models/security/PermissionGroup.cfc` — declares hasPermission()
@@ -951,6 +932,8 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 | 1 | `method 'getActiveContent' in ContentStore\|Entry\|Page\|BaseContent has no component return type → modules/contentbox/models/BaseEntityMethods.cfc` | 1 | medium | declares getDisplayCreatedDate() | `modules/contentbox/modules/contentbox-admin/views/content/contentViewlet.cfm:91` method 'getActiveContent' in ContentStore\|Entry\|Page\|BaseContent has no component return type (chain to 'getDisplayCreatedDate') |
 | 1 | `method 'getAllPreferences' in cbAuthor has no component return type` | 3 | none |  | `modules/contentbox/modules/contentbox-admin/handlers/authors.cfc:518` method 'getAllPreferences' in cbAuthor has no component return type (chain to 'append') |
 | 1 | `method 'getAllSettings' in SettingService@contentbox has no component return type` | 0 | none |  | `modules/contentbox/modules/contentbox-api/modules/contentbox-api-v1/handlers/settings.cfc:21` method 'getAllSettings' in SettingService@contentbox has no component return type (chain to 'filter') |
+| 1 | `method 'getAuthor' in Entry has no component return type → modules/contentbox/models/security/Author.cfc` | 1 | high | declares getAuthorID(); named like the receiver 'Author' | `tests/specs/contentbox-web/contentbox/unit/content/EntryServiceTest.cfc:65` method 'getAuthor' in Entry has no component return type (chain to 'getAuthorID') |
+| 1 | `method 'getAuthor' in Page has no component return type → modules/contentbox/models/security/Author.cfc` | 1 | high | declares getAuthorID(); named like the receiver 'Author' | `tests/specs/contentbox-web/contentbox/unit/content/PageServiceTest.cfc:45` method 'getAuthor' in Page has no component return type (chain to 'getAuthorID') |
 | 1 | `method 'getCache' has no component return type` | 4 | none |  | `modules/contentbox/modules/contentbox-admin/handlers/dashboard.cfc:275` method 'getCache' has no component return type (chain to 'clearAll') |
 | 1 | `method 'getCategories' has no component return type` | 1 | none |  | `modules/contentbox/models/content/BaseContent.cfc:1851` method 'getCategories' has no component return type (chain to 'map') |
 | 1 | `method 'getCategories' in BaseContent has no component return type` | 1 | none |  | `modules/contentbox/models/content/ContentTemplateService.cfc:206` method 'getCategories' in BaseContent has no component return type (chain to 'map') |

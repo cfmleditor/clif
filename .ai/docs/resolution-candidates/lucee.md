@@ -4,16 +4,16 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 
 | Category | Findings | high | medium | low | none | method defined nowhere |
 |---|---:|---:|---:|---:|---:|---:|
-| variable | 1283 | 22 | 62 | 251 | 948 | 846 |
+| variable | 1209 | 22 | 60 | 234 | 893 | 793 |
 | return-type | 31 | 0 | 3 | 9 | 19 | 18 |
-| method | 277 | 0 | 30 | 23 | 224 | 208 |
+| method | 278 | 0 | 30 | 23 | 225 | 209 |
 | object | 73 | 0 | 3 | 12 | 58 | 37 |
 
 ## Variable definitions — a receiver whose component is unknown
 
 | Findings | Group | Defined | Confidence | Evidence | Example |
 |---:|---|---:|---|---|---|
-| 96 | `coll` | 0 | none |  | `test/a_debug_build/_MongoDB.cfc:54` variable 'coll' has no component ref |
+| 74 | `coll` | 3 | none |  | `test/a_debug_build/_MongoDB.cfc:183` variable 'coll' has no component ref |
 | 30 | `msg` | 1 | none |  | `test/tags/Mail2.cfc:52` variable 'msg' has no component ref |
 | 29 | `result` | 0 | none |  | `core/src/main/cfml/context/admin/ext.functions.cfm:11` variable 'result' has no component ref |
 | 24 | `res` | 0 | none |  | `test/functions/StructToSorted.cfc:138` variable 'res' has no component ref |
@@ -22,12 +22,10 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 | 20 | `qry` | 0 | none |  | `test/functions/QueryColumnData.cfc:27` variable 'qry' has no component ref |
 | 17 | `mysql` | 0 | none |  | `test/jira/Jira3043.cfc:74` variable 'mySQL' has no component ref |
 | 16 | `result.filecontent` | 0 | none |  | `test/tags/ProcessingDirective.cfc:9` variable 'result.fileContent' has no component ref |
-| 14 | `docsfound` | 0 | none |  | `test/a_debug_build/_MongoDB.cfc:166` variable 'docsFound' has no component ref |
 | 14 | `props` | 0 | none |  | `test/tickets/LDEV0719.cfc:24` variable 'props' has no component ref |
 | 14 | `results` | 0 | none |  | `core/src/main/java/resource/component/org/lucee/cfml/test/LuceeTestSuiteRunner.cfc:43` variable 'results' has no component ref |
 | 13 | `tz` | 0 | none |  | `test/datasource/Oracle.cfc:44` variable 'tz' has no component ref |
 | 12 | `c` | 0 | none |  | `test/general/CodeIsland.cfc:47` variable 'c' has no component ref |
-| 12 | `db` | 0 | none |  | `test/a_debug_build/_MongoDB.cfc:45` variable 'db' has no component ref |
 | 12 | `sss` | 0 | none |  | `test/general/Resources.cfc:258` variable 'sss' has no component ref |
 | 11 | `_cookies` | 0 | none |  | `test/tickets/LDEV3478.cfc:26` variable '_cookies' has no component ref |
 | 11 | `engine` | 0 | none |  | `test/general/JSR223.cfc:60` variable 'engine' has no component ref |
@@ -66,7 +64,6 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 | 6 | `s → test/tickets/LDEV5627/ClassPropertyAccessor.cfc` | 26 | low | declares getClass() (26 candidates) | `test/jira/Jira2384.cfc:45` variable 's' has no component ref |
 | 6 | `tos[]` | 0 | none |  | `test/tags/Mail2.cfc:59` variable 'tos[]' has no component ref |
 | 5 | `application.adminfunctions → core/src/main/cfml/context/admin/adminfunctions.cfc` | 1 | high | declares canAccessContext(), isFavorite(); named like the receiver 'adminfunctions' | `core/src/main/cfml/context/admin/admin_layout.cfm:71` variable 'application.adminfunctions' has no component ref |
-| 5 | `drivers[] → core/src/main/java/resource/context/admin/mailservers/GMX.cfc` | 8 | low | declares getHost(), getPort(), useSSL(), useTLS(), getLabel() (8 candidates) | `core/src/main/cfml/context/admin/services.mail.serverlist.cfm:12` variable 'drivers[]' has no component ref |
 | 5 | `extmeta` | 67 | none |  | `test/tickets/LDEV6088.cfc:18` variable 'extMeta' has no component ref |
 | 5 | `file` | 0 | none |  | `core/src/main/cfml/context/gateway/WatchService.cfc:29` variable 'file' has no component ref |
 | 5 | `pgsql` | 0 | none |  | `test/datasource/PostgreSQL.cfc:101` variable 'pgsql' has no component ref |
@@ -81,14 +78,11 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 | 4 | `callercache` | 0 | none |  | `test/tickets/LDEV6240.cfc:170` variable 'callerCache' has no component ref |
 | 4 | `class2 → test/general/static/StaticCreateInstance.cfc` | 1 | medium | declares newInstance() | `test/tickets/LDEV6226.cfc:94` variable 'class2' has no component ref |
 | 4 | `currfunc.parameters` | 1 | none |  | `core/src/main/cfml/context/doc/components.cfm:245` variable 'currFunc.parameters' has no component ref |
-| 4 | `drivers[] → core/src/main/java/resource/context/admin/debug/Classic.cfc` | 48 | low | declares getDescription(), getId(), getLabel() (4 candidates) | `core/src/main/cfml/context/admin/debugging.logs.detail.cfm:72` variable 'drivers[]' has no component ref |
 | 4 | `e` | 0 | none |  | `test/tickets/LDEV0321.cfc:36` variable 'e' has no component ref |
 | 4 | `form` | 0 | none |  | `core/src/main/cfml/context/admin/ext.applications.cfm:34` variable 'form' has no component ref |
-| 4 | `id` | 0 | none |  | `test/a_debug_build/_MongoDB.cfc:132` variable 'id' has no component ref |
 | 4 | `javaproxies` | 0 | none |  | `test/tickets/LDEV5459.cfc:72` variable 'javaProxies' has no component ref |
 | 4 | `jdbc → test/functions/serializeJSON/_Json.cfc` | 5 | low | declares get() (4 candidates) | `test/_setupTestServices.cfc:874` variable 'jdbc' has no component ref |
 | 4 | `locals` | 0 | none |  | `core/src/main/cfml/context/admin/ext.functions.cfm:311` variable 'locals' has no component ref |
-| 4 | `mongo → test/functions/ORMExecuteQuery/Person.cfc` | 67 | low | declares getName() (67 candidates) | `test/a_debug_build/_MongoDB.cfc:89` variable 'mongo' has no component ref |
 | 4 | `mystruct` | 0 | none |  | `test/functions/structEvery.cfc:9` variable 'myStruct' has no component ref |
 | 4 | `notexa.b.c → test/general/InlineComponent.cfc` | 2 | low | declares d() (2 candidates) | `test/general/Elvis.cfc:65` variable 'notexa.b.c' has no component ref |
 | 4 | `orcl` | 0 | none |  | `test/datasource/Oracle.cfc:39` variable 'orcl' has no component ref |
@@ -178,7 +172,6 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 | 2 | `loadobj → test/tickets/LDEV0506.cfc` | 2 | high | declares cachedFunction(), nonCachedFunction() | `test/tickets/LDEV0506.cfc:17` variable 'loadObj' has no component ref |
 | 2 | `local.result` | 0 | none |  | `test/tickets/LDEV1337.cfc:6` variable 'local.result' has no component ref |
 | 2 | `mails[]` | 0 | none |  | `test/tags/Mail.cfc:190` variable 'mails[]' has no component ref |
-| 2 | `mongo` | 0 | none |  | `test/a_debug_build/_MongoDB.cfc:106` variable 'mongo' has no component ref |
 | 2 | `myvar` | 0 | none |  | `test/general/SafeNavOp.cfc:20` variable 'myvar' has no component ref |
 | 2 | `myvar.firstlevel` | 0 | none |  | `test/general/SafeNavOp.cfc:21` variable 'myvar.firstlevel' has no component ref |
 | 2 | `myvar.firstlevel.nextlevel` | 0 | none |  | `test/general/SafeNavOp.cfc:22` variable 'myvar.firstlevel.nextlevel' has no component ref |
@@ -213,7 +206,6 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 | 2 | `struct1 → core/src/main/java/resource/context/admin/dbdriver/Driver.cfc` | 4 | low | declares equals() (4 candidates) | `test/tickets/LDEV2608.cfc:10` variable 'struct1' has no component ref |
 | 2 | `student` | 0 | none |  | `test/functions/structfindkey.cfc:48` variable 'student' has no component ref |
 | 2 | `studentnew` | 0 | none |  | `test/functions/structkeylist.cfc:41` variable 'studentnew' has no component ref |
-| 2 | `t3[] → test/tickets/LDEV0374/users.cfc` | 1 | medium | declares getDateJoined() | `test/tickets/LDEV0374/test.cfm:24` variable 't3[]' has no component ref |
 | 2 | `templ` | 0 | none |  | `core/src/main/java/resource/component/org/lucee/cfml/test/LuceeTestSuite.cfc:26` variable 'templ' has no component ref |
 | 2 | `this.mimetypes` | 0 | none |  | `core/src/main/cfml/context/doc/StaticResourceProvider.cfc:91` variable 'this.mimeTypes' has no component ref |
 | 2 | `threadsct` | 0 | none |  | `test/tickets/LDEV3780.cfc:41` variable 'threadsct' has no component ref |
@@ -258,7 +250,6 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 | 1 | `compmetadata.functions` | 0 | none |  | `test/tickets/LDEV2242.cfc:10` variable 'compMetaData.functions' has no component ref |
 | 1 | `compmetadata.properties` | 0 | none |  | `test/tickets/LDEV2242.cfc:9` variable 'compMetaData.properties' has no component ref |
 | 1 | `configutil → core/src/main/java/resource/component/org/lucee/cfml/Ftp.cfc` | 1 | medium | declares getFile() | `test/tickets/LDEV-4796.cfc:22` variable 'ConfigUtil' has no component ref |
-| 1 | `conn` | 0 | none |  | `test/_setupTestServices.cfc:338` variable 'conn' has no component ref |
 | 1 | `cookie` | 0 | none |  | `test/tickets/LDEV5288/ldev5288-createJsession.cfm:6` variable 'cookie' has no component ref |
 | 1 | `d → core/src/main/java/resource/component/org/lucee/cfml/Ftp.cfc` | 1 | medium | declares remove() | `test/general/Resources.cfc:297` variable 'd' has no component ref |
 | 1 | `d → test/functions/ORMExecuteQuery/Person.cfc` | 67 | low | declares getName() (67 candidates) | `test/general/Resources.cfc:413` variable 'd' has no component ref |
@@ -275,7 +266,6 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 | 1 | `deleted` | 0 | none |  | `test/tickets/LDEV4670/ldev4670.cfm:19` variable 'deleted' has no component ref |
 | 1 | `desc` | 0 | none |  | `test/tickets/LDEV4889.cfc:118` variable 'desc' has no component ref |
 | 1 | `detail.provider → core/src/main/cfml/context/admin/ExtensionProviderProxy.cfc` | 2 | medium | declares getDownloadDetails() | `core/src/main/cfml/context/admin/ext.functions.cfm:153` variable 'detail.provider' has no component ref |
-| 1 | `drivers[] → core/src/main/java/resource/context/admin/aidriver/Claude.cfc` | 48 | low | declares getDescription() (48 candidates) | `core/src/main/cfml/context/admin/debugging.templates.list.cfm:82` variable 'drivers[]' has no component ref |
 | 1 | `ds` | 0 | none |  | `test/_setupTestServices.cfc:604` variable 'ds' has no component ref |
 | 1 | `e → test/tickets/LDEV0078/Test.cfc` | 67 | low | declares getName() (67 candidates) | `test/tickets/LDEV3878.cfc:16` variable 'e' has no component ref |
 | 1 | `e → test/tickets/LDEV5627/ClassPropertyAccessor.cfc` | 26 | low | declares getClass() (26 candidates) | `test/tickets/LDEV3878.cfc:16` variable 'e' has no component ref |
@@ -334,9 +324,6 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 | 1 | `mssql` | 0 | none |  | `test/tickets/LDEV1760/AutoDetectMsSql/Application.cfc:9` variable 'msSQL' has no component ref |
 | 1 | `mynumb` | 0 | none |  | `test/functions/structsort.cfc:93` variable 'myNumb' has no component ref |
 | 1 | `nestedstruct` | 0 | none |  | `test/functions/StructToSorted.cfc:74` variable 'nestedStruct' has no component ref |
-| 1 | `obj[] → test/tickets/LDEV1741/App1/model/Foo.cfc` | 40 | low | declares getLabel() (40 candidates) | `test/tickets/LDEV1741/App1/index.cfm:14` variable 'obj[]' has no component ref |
-| 1 | `obj[] → test/tickets/LDEV1741/App2/model/Foo.cfc` | 40 | low | declares getLabel() (40 candidates) | `test/tickets/LDEV1741/App2/index.cfm:14` variable 'obj[]' has no component ref |
-| 1 | `obj[] → test/tickets/LDEV1984/App1/model/Foo.cfc` | 40 | low | declares getLabel() (40 candidates) | `test/tickets/LDEV1984/App1/index.cfm:14` variable 'obj[]' has no component ref |
 | 1 | `oldfiles` | 0 | none |  | `test/datasource/HSQLDB.cfc:64` variable 'oldFiles' has no component ref |
 | 1 | `oracle` | 0 | none |  | `test/tickets/LDEV1760/AutoDetectOracle/Application.cfc:9` variable 'oracle' has no component ref |
 | 1 | `orderedstruct` | 0 | none |  | `test/functions/structValueArray.cfc:42` variable 'orderedStruct' has no component ref |
@@ -530,15 +517,6 @@ Every finding below is still reported. A candidate is a liberal match offered fo
   - low `core/src/main/java/resource/context/admin/cdriver/RamCache.cfc` — declares getClass()
   - low `core/src/main/java/resource/context/admin/dbdriver/Driver.cfc` — declares getClass()
   - … 18 more
-- `drivers[] → core/src/main/java/resource/context/admin/mailservers/GMX.cfc` — 5 finding(s), 8 candidate(s):
-  - low `core/src/main/java/resource/context/admin/mailservers/GMX.cfc` — declares getHost(), getPort(), useSSL(), useTLS(), getLabel()
-  - low `core/src/main/java/resource/context/admin/mailservers/GMail.cfc` — declares getHost(), getPort(), useSSL(), useTLS(), getLabel()
-  - low `core/src/main/java/resource/context/admin/mailservers/MailCom.cfc` — declares getHost(), getPort(), useSSL(), useTLS(), getLabel()
-  - low `core/src/main/java/resource/context/admin/mailservers/MailServer.cfc` — declares getHost(), getPort(), useSSL(), useTLS(), getLabel()
-  - low `core/src/main/java/resource/context/admin/mailservers/Other.cfc` — declares getHost(), getPort(), useSSL(), useTLS(), getLabel()
-  - low `core/src/main/java/resource/context/admin/mailservers/Outlook.cfc` — declares getHost(), getPort(), useSSL(), useTLS(), getLabel()
-  - low `core/src/main/java/resource/context/admin/mailservers/Yahoo.cfc` — declares getHost(), getPort(), useSSL(), useTLS(), getLabel()
-  - low `core/src/main/java/resource/context/admin/mailservers/iCloud.cfc` — declares getHost(), getPort(), useSSL(), useTLS(), getLabel()
 - `_driver → core/src/main/java/resource/context/admin/dbdriver/Driver.cfc` — 4 finding(s), 26 candidate(s):
   - low `core/src/main/java/resource/context/admin/dbdriver/Driver.cfc` — declares getClass(); named like the receiver 'driver'
   - low `core/src/main/java/resource/context/admin/dbdriver/types/Driver.cfc` — declares getClass(); named like the receiver 'driver'
@@ -549,26 +527,11 @@ Every finding below is still reported. A candidate is a liberal match offered fo
   - low `core/src/main/java/resource/context/admin/cdriver/RamCache.cfc` — declares getClass()
   - low `core/src/main/java/resource/context/admin/gdriver/ActiveMQ.cfc` — declares getClass()
   - … 18 more
-- `drivers[] → core/src/main/java/resource/context/admin/debug/Classic.cfc` — 4 finding(s), 4 candidate(s):
-  - low `core/src/main/java/resource/context/admin/debug/Classic.cfc` — declares getDescription(), getId(), getLabel()
-  - low `core/src/main/java/resource/context/admin/debug/Comment.cfc` — declares getDescription(), getId(), getLabel()
-  - low `core/src/main/java/resource/context/admin/debug/Modern.cfc` — declares getDescription(), getId(), getLabel()
-  - low `core/src/main/java/resource/context/admin/debug/Simple.cfc` — declares getDescription(), getId(), getLabel()
 - `jdbc → test/functions/serializeJSON/_Json.cfc` — 4 finding(s), 4 candidate(s):
   - low `test/functions/serializeJSON/_Json.cfc` — declares get()
   - low `test/tickets/LDEV3963/test3963quoted.cfc` — declares get()
   - low `test/tickets/LDEV3963/test3963unquoted.cfc` — declares get()
   - low `test/functions/Duplicate/comps/some/Hello.cfc` — declares get()
-- `mongo → test/functions/ORMExecuteQuery/Person.cfc` — 4 finding(s), 67 candidate(s):
-  - low `test/functions/ORMExecuteQuery/Person.cfc` — declares getName()
-  - low `test/jira/Jira0713/Test.cfc` — declares getName()
-  - low `test/orm/transRollback/Person.cfc` — declares getName()
-  - low `test/orm/transSave/Person.cfc` — declares getName()
-  - low `test/orm/transSaveExCommit/Person.cfc` — declares getName()
-  - low `test/orm/transSaveFlush/Person.cfc` — declares getName()
-  - low `test/orm/transSavepoint/Person.cfc` — declares getName()
-  - low `test/tickets/LDEV0078/Test.cfc` — declares getName()
-  - … 59 more
 - `notexa.b.c → test/general/InlineComponent.cfc` — 4 finding(s), 2 candidate(s):
   - low `test/general/InlineComponent.cfc` — declares d()
   - low `test/general/subComponent/TestSubScript.cfc` — declares d()
@@ -984,16 +947,6 @@ Every finding below is still reported. A candidate is a liberal match offered fo
   - low `test/orm/transSavepoint/Person.cfc` — declares getName()
   - low `test/tickets/LDEV0078/Test.cfc` — declares getName()
   - … 59 more
-- `drivers[] → core/src/main/java/resource/context/admin/aidriver/Claude.cfc` — 1 finding(s), 48 candidate(s):
-  - low `core/src/main/java/resource/context/admin/aidriver/Claude.cfc` — declares getDescription()
-  - low `core/src/main/java/resource/context/admin/aidriver/Field.cfc` — declares getDescription()
-  - low `core/src/main/java/resource/context/admin/aidriver/Gemini.cfc` — declares getDescription()
-  - low `core/src/main/java/resource/context/admin/aidriver/Group.cfc` — declares getDescription()
-  - low `core/src/main/java/resource/context/admin/aidriver/OpenAI.cfc` — declares getDescription()
-  - low `core/src/main/java/resource/context/admin/cdriver/Field.cfc` — declares getDescription()
-  - low `core/src/main/java/resource/context/admin/cdriver/Group.cfc` — declares getDescription()
-  - low `core/src/main/java/resource/context/admin/cdriver/MemCache.cfc` — declares getDescription()
-  - … 40 more
 - `e → test/tickets/LDEV0078/Test.cfc` — 1 finding(s), 67 candidate(s):
   - low `test/tickets/LDEV0078/Test.cfc` — declares getName()
   - low `test/tickets/LDEV0423/Basket.cfc` — declares getName()
@@ -1109,36 +1062,6 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 - `local.result.filecontent → test/tickets/LDEV5074.cfc` — 1 finding(s), 2 candidate(s):
   - low `test/tickets/LDEV5074.cfc` — declares toString()
   - low `test/tickets/LDEV5074/Test.cfc` — declares toString()
-- `obj[] → test/tickets/LDEV1741/App1/model/Foo.cfc` — 1 finding(s), 40 candidate(s):
-  - low `test/tickets/LDEV1741/App1/model/Foo.cfc` — declares getLabel()
-  - low `test/tickets/LDEV1741/App2/model/Foo.cfc` — declares getLabel()
-  - low `test/tickets/LDEV1937/msSql.cfc` — declares getLabel()
-  - low `test/tickets/LDEV1937/mySql.cfc` — declares getLabel()
-  - low `test/tickets/LDEV1641/specs/CardProcessorType.cfc` — declares getLabel()
-  - low `test/tickets/LDEV1659/model/Foo.cfc` — declares getLabel()
-  - low `test/tickets/LDEV1984/App1/model/Foo.cfc` — declares getLabel()
-  - low `core/src/main/java/resource/context/admin/aidriver/Claude.cfc` — declares getLabel()
-  - … 32 more
-- `obj[] → test/tickets/LDEV1741/App2/model/Foo.cfc` — 1 finding(s), 40 candidate(s):
-  - low `test/tickets/LDEV1741/App2/model/Foo.cfc` — declares getLabel()
-  - low `test/tickets/LDEV1741/App1/model/Foo.cfc` — declares getLabel()
-  - low `test/tickets/LDEV1937/msSql.cfc` — declares getLabel()
-  - low `test/tickets/LDEV1937/mySql.cfc` — declares getLabel()
-  - low `test/tickets/LDEV1641/specs/CardProcessorType.cfc` — declares getLabel()
-  - low `test/tickets/LDEV1659/model/Foo.cfc` — declares getLabel()
-  - low `test/tickets/LDEV1984/App1/model/Foo.cfc` — declares getLabel()
-  - low `core/src/main/java/resource/context/admin/aidriver/Claude.cfc` — declares getLabel()
-  - … 32 more
-- `obj[] → test/tickets/LDEV1984/App1/model/Foo.cfc` — 1 finding(s), 40 candidate(s):
-  - low `test/tickets/LDEV1984/App1/model/Foo.cfc` — declares getLabel()
-  - low `test/tickets/LDEV1937/msSql.cfc` — declares getLabel()
-  - low `test/tickets/LDEV1937/mySql.cfc` — declares getLabel()
-  - low `test/tickets/LDEV1641/specs/CardProcessorType.cfc` — declares getLabel()
-  - low `test/tickets/LDEV1659/model/Foo.cfc` — declares getLabel()
-  - low `test/tickets/LDEV1741/App1/model/Foo.cfc` — declares getLabel()
-  - low `test/tickets/LDEV1741/App2/model/Foo.cfc` — declares getLabel()
-  - low `core/src/main/java/resource/context/admin/aidriver/Claude.cfc` — declares getLabel()
-  - … 32 more
 - `paramtypes[] → test/tickets/LDEV0078/Test.cfc` — 1 finding(s), 67 candidate(s):
   - low `test/tickets/LDEV0078/Test.cfc` — declares getName()
   - low `test/tickets/LDEV0423/Basket.cfc` — declares getName()
@@ -1689,6 +1612,7 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 | 1 | `cf_redden` | 0 | none |  | `test/tickets/LDEV1276/test.cfm:6` no qualifier, not in file |
 | 1 | `clearrect` | 0 | none |  | `test/functions/imageClearRect.cfc:22` method 'ClearRect' not found on builtin imageread |
 | 1 | `closure` | 0 | none |  | `test/jira/Jira2902/AbsAbs.cfc:25` no qualifier, not in file |
+| 1 | `command` | 0 | none |  | `test/_setupTestServices.cfc:338` method 'command' not found on builtin native.mongodb |
 | 1 | `container` | 4 | low | declares container; beside the calling file (4 candidates) | `test/tickets/LDEV0285/App4.cfc:6` no qualifier, not in file |
 | 1 | `copy` | 0 | none |  | `test/functions/imageCopy.cfc:22` method 'copy' not found on builtin imagenew |
 | 1 | `createid` | 1 | medium | declares createId | `core/src/main/cfml/context/admin/ext.applications.upload.cfm:159` no qualifier, not in file |

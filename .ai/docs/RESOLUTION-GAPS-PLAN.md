@@ -4017,3 +4017,41 @@ masa-c 3,484 → 3,483 (`kid=variables.kids[i]`, `kid.save`), the same
 seam's honest resolution. The five other corpora identical. Baseline
 directory `target/resolution/after-dbdriver/`; candidate lists re-cut with
 the same run (11,676 findings, 2,608 with a high-confidence candidate).
+
+## The Lucee MongoDB extension's shell API (slice 7)
+
+The lucee MongoDB test files' calls run on the extension's handles —
+`MongoDBConnect`'s database, the collection its `getCollection` (and its
+struct notation) holds, the cursor `find` chains `sort`/`limit` onto, the
+aggregation output, the write result the writes return, the ObjectId
+`MongoDBID` returns, the write concern — and read as no component ref. The
+public runtime interfaces are the extension's own documented API
+(`lucee/extension-mongodb` master's ReadMe), so the contracts are its
+surface: `nativetype` states the database, the collection, the cursor, the
+aggregation output, the write result, the ObjectId and the write concern,
+each method's result type the ReadMe spells (a query operation's documents
+native structs, a write's result object); a method the ReadMe states with
+an erased result stays dynamic (`authenticate`), and one it does not state
+(`db.command()`) is a finding as it was — the receiver typed now, so the
+reason names the interface. The extension's functions are served under the
+engine's identity (`EngineProducer` gates the two built-ins on `lucee`).
+
+One more keyed route came with the reconciliation: a keyed element read
+the parser filed as a receiver (`db['test'].findOne(…)`'s receiver is the
+read, spelled `db[]`) is the element the collection's interface states —
+`keyedReceiverElement`, answered only by what the collection proves, a
+dynamic guess no answer. The route resolves the corpus's keyed receivers
+against the element contracts their collections state: ContentBox's
+`contentObjects[x].setpublishedDate()` (the cborm getAll element), fw1's
+`answers[i]`, and the lucee orm test's `bookmark=bookmarks[1]` family of
+read-backs; a receiver whose collection proves only an erased element
+(`paramTypes[]` over a reflect surface) stays a finding.
+
+Measured against `after-dbdriver`: lucee 1,664 → 1,591 (73 removed, 0
+added) — the mongo surface plus the keyed receivers the reconciliation
+walked — cb-p 1,683 → 1,679 (6 removed, 2 added; the two are
+`entries[].getAuthorID`'s reason: the keyed read's element contract
+checked one hop further, the getter's own return-type finding) — fw-p 358
+→ 355 — and the other four corpora identical. Baseline directory
+`target/resolution/after-mongo/`; candidate lists re-cut with the same run
+(11,596 findings).
