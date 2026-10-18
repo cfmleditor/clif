@@ -1,7 +1,36 @@
 # Remaining resolver gaps: coverage and proposed fixes
 
-Updated 2026-10-04 through the current resolution/performance branch. Historical
-measurements below retain the commit or PR against which they were made.
+Updated 2026-10-04 through the current resolution/performance branch; status
+refreshed 2026-10-18 (see below). Historical measurements below retain the
+commit or PR against which they were made.
+
+## 2026-10-18 status refresh
+
+The code-to-code replay of the seven candidate-list scans (a binary at the
+lists' commit `6ebe727` against `main`, same checkouts and configs) clears
+**121 unresolved call sites with none added**; the presets canon of
+[RESOLUTION-GAPS.md](RESOLUTION-GAPS.md#measuring) measures **7,243** with
+presets and **16,428** without. The checkouts are git-pin-less snapshots, so
+older tables are not directly comparable to new ones.
+
+Families resolved since the baseline:
+
+- Mura's `MuraScope` chain receivers: masa-c's 52
+  `no component return type` chains are gone — PR #269's param-statement
+  fix stopped an untyped `param` from voiding the guarded shared-field
+  contracts that type `MuraScope`. TestBox's BaseTestCase `BaseReporter`
+  receivers resolved with the same fix.
+- Loop receivers over `$any` collections and Mura's zero-argument
+  `event()` (PR-244 follow-up): the patch-file loops (`oRule`, `thisPage`,
+  `thisSetting`) among them.
+- Missing-base suffixes (PR #268) and union return types recorded as
+  delivered (see "A return that is one of several components" below).
+
+Gap 3 (MuraScope and request/view propagation), priority 1, is reduced, not
+closed:
+typing now propagates through `MuraScope` chains, while masa-c still
+reports 2,846 variable-receiver entries whose component is unknown, so the
+priority's second half (request/view propagation) stands.
 
 ## Baseline and measurement boundaries
 

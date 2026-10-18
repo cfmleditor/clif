@@ -1824,3 +1824,29 @@ Candidate intersections/ranking, truncated-list promotion and caller-veto
 relaxation remain research-only. Primitive origin, argument/bridge compatibility,
 reassignment identity and original-versus-return-hop role remain open. See
 [the delivered policy assumptions](RESOLUTION-SPECULATIVE-CONNECTIONS.md#delivered-primitive-family-fallback-checkpoint-34).
+
+## Checkpoint 35: mass status refresh after #267–#270
+
+Cut on 2026-10-18 after merging #267, #268, #269 and #270. The seven
+candidate-list scans were re-measured on `main` (presets-on configs restored
+from [RESOLUTION-GAPS.md](RESOLUTION-GAPS.md#measuring), masa-c under
+`scripts/corpus/masacms.json`) and the lists under
+[candidate lists](resolution-candidates/README.md) re-cut from those
+JSONs. Totals: cb-p 1,683; cw-p 2,492 (vendor included); cx-p 1,616; fw-p 358;
+lucee 1,985; masa-c 3,484; tb-p 380; 11,998 findings, 2,613 with a
+high-confidence candidate. Because the checkout snapshots carry no git pins,
+those totals cannot be compared with earlier ones; the controlling comparison
+replays the same scans with a binary at the lists' commit (`6ebe727`) and with
+current `main`: 121 unresolved call sites resolved, none added, and 38 lines
+that still fail only changed reason. Attributions, each verified by replaying
+single commits: the PR-244 follow-up's `$any` collection loop elements and
+Mura zero-argument `event()` (44 of ContentBox's 46); PR #269's
+param-statement fix, whose un-voided guarded shared-field contracts restore
+MuraScope typing (all 52 masa-c MuraScope chains gone; TestBox's BaseReporter
+receivers likewise); PR #268's missing-base parse for the remainder. The
+presets canon of RESOLUTION-GAPS.md measures 7,243 / 16,428 with and without
+presets; the "Where the entries are" tables there were refreshed from the
+same JSONs. Quantities in this file before this checkpoint retain their date
+and commit and were not retroactively rewritten. Replay artifacts:
+`target/resolution/vintage-1012/` and `fresh-1018/` runs, the two binaries,
+and `delta-by-line.sh` for the per-scan counts.
