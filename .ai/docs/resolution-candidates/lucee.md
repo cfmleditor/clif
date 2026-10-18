@@ -6,7 +6,7 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 |---|---:|---:|---:|---:|---:|---:|
 | variable | 1510 | 48 | 62 | 260 | 1140 | 848 |
 | return-type | 31 | 0 | 3 | 9 | 19 | 18 |
-| method | 310 | 0 | 31 | 24 | 255 | 239 |
+| method | 277 | 0 | 30 | 23 | 224 | 208 |
 | object | 73 | 0 | 3 | 12 | 58 | 37 |
 
 ## Variable definitions — a receiver whose component is unknown
@@ -1672,7 +1672,6 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 | 4 | `getdialect` | 0 | none |  | `test/orm/testDialects/testH2/index.cfm:2` method 'getDialect' not found on builtin native.sessionfactory |
 | 4 | `getred` | 3 | low | declares getRed (3 candidates) | `test/tickets/LDEV0554.cfc:27` not found in extends chain |
 | 4 | `luceeaihas` | 0 | none |  | `core/src/main/cfml/context/debug/modern/error.cfm:5` no qualifier, not in file |
-| 4 | `round` | 0 | none |  | `test/tickets/LDEV1824.cfc:32` method 'round' not found on builtin native.numeric |
 | 4 | `tojson` | 0 | none |  | `test/_testFilter.cfc:108` no qualifier, not in file |
 | 3 | `cf_dollar` | 0 | none |  | `test/tickets/LDEV3689.cfc:68` not found in extends chain |
 | 3 | `clone` | 1 | medium | declares clone | `test/tickets/LDEV5353.cfc:17` method 'clone' not found on builtin native.array |
@@ -1699,16 +1698,13 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 | 2 | `getsql` | 0 | none |  | `test/tickets/LDEV3863.cfc:12` method 'getSql' not found on builtin queryexecute |
 | 2 | `getstatus` | 1 | medium | declares getStatus | `test/functions/FileOpen.cfc:11` method 'getStatus' not found on builtin fileopen |
 | 2 | `hascfsession` | 0 | none |  | `test/tickets/LDEV5292/cfml-session/testThreadCookies.cfm:20` method 'hasCFSession' not found on builtin native.lucee.pagecontext |
-| 2 | `len` | 0 | none |  | `test/functions/TrimWhitespace.cfc:11` method 'trimWhitespace' not found on builtin native.string (chain to 'len') |
 | 2 | `listitemtrim` | 0 | none |  | `test/functions/listitemtrim.cfc:12` method 'listItemTrim' not found on builtin native.string |
 | 2 | `luceeinquiryaisession` | 0 | none |  | `core/src/main/cfml/context/debug/modern/error.cfm:55` no qualifier, not in file |
 | 2 | `mixin` | 0 | none |  | `test/tickets/LDEV3473/test.cfm:7` method 'mixin' not found in User |
 | 2 | `notexisting` | 0 | none |  | `test/tickets/LDEV1201.cfc:70` not found in extends chain |
+| 2 | `round` | 0 | none |  | `test/tickets/LDEV332.cfc:69` method 'round' not found on builtin native.string |
 | 2 | `setdate` | 0 | none |  | `test/functions/SetDay.cfc:43` method 'setDate' not found on builtin native.date |
-| 2 | `sgn` | 0 | none |  | `test/functions/sgn.cfc:9` method 'sgn' not found on builtin native.numeric |
-| 2 | `sin` | 0 | none |  | `test/functions/sin.cfc:30` method 'sin' not found on builtin native.numeric |
 | 2 | `sp_xmltest_bug` | 0 | none |  | `test/datasource/Oracle.cfc:122` not found in extends chain |
-| 2 | `sqr` | 0 | none |  | `test/functions/sqr.cfc:7` method 'sqr' not found on builtin native.numeric |
 | 2 | `testfunctioninsidetagisland` | 0 | none |  | `test/tickets/LDEV3740.cfc:14` not found in extends chain |
 | 2 | `to_char` | 0 | none |  | `test/datasource/Oracle.cfc:127` not found in extends chain |
 | 2 | `tokey` | 0 | none |  | `test/tickets/LDEV3167.cfc:31` method 'tokey' not found on builtin native.array |
@@ -1719,27 +1715,12 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 | 2 | `writebase64` | 0 | none |  | `test/functions/imageReadbase64.cfc:22` method 'writeBase64' not found on builtin imageread |
 | 2 | `xmlelement` | 0 | none |  | `test/datasource/Oracle.cfc:127` not found in extends chain |
 | 1 | `abc` | 1 | medium | declares abc | `test/tickets/LDEV1487.cfc:11` not found in extends chain |
-| 1 | `abs` | 8 | low | declares abs (8 candidates) | `test/tickets/LDEV1824.cfc:10` method 'abs' not found on builtin native.numeric |
 | 1 | `accessimportinapp1` | 1 | medium | declares accessImportInApp1 | `test/tickets/LDEV3912.cfc:5` not found in extends chain |
-| 1 | `acos` | 0 | none |  | `test/tickets/LDEV1824.cfc:11` method 'aCos' not found on builtin native.numeric |
 | 1 | `arraynew[]` | 0 | none |  | `test/tickets/LDEV4370/LDEV4370.cfm:9` no qualifier, not in file |
-| 1 | `asin` | 0 | none |  | `test/tickets/LDEV1824.cfc:12` method 'asin' not found on builtin native.numeric |
-| 1 | `atn` | 0 | none |  | `test/tickets/LDEV1824.cfc:13` method 'atn' not found on builtin native.numeric |
 | 1 | `authority` | 0 | none |  | `test/tickets/LDEV6084.cfc:17` not found in extends chain |
-| 1 | `bitand` | 0 | none |  | `test/tickets/LDEV1824.cfc:14` method 'bitAnd' not found on builtin native.numeric |
-| 1 | `bitmaskclear` | 0 | none |  | `test/tickets/LDEV1824.cfc:15` method 'bitMaskClear' not found on builtin native.numeric |
-| 1 | `bitmaskread` | 0 | none |  | `test/tickets/LDEV1824.cfc:16` method 'bitMaskRead' not found on builtin native.numeric |
-| 1 | `bitmaskset` | 0 | none |  | `test/tickets/LDEV1824.cfc:17` method 'bitMaskset' not found on builtin native.numeric |
-| 1 | `bitnot` | 0 | none |  | `test/tickets/LDEV1824.cfc:18` method 'bitNot' not found on builtin native.numeric |
-| 1 | `bitor` | 0 | none |  | `test/tickets/LDEV1824.cfc:19` method 'bitOR' not found on builtin native.numeric |
-| 1 | `bitshln` | 0 | none |  | `test/tickets/LDEV1824.cfc:20` method 'bitSHLN' not found on builtin native.numeric |
-| 1 | `bitshrn` | 0 | none |  | `test/tickets/LDEV1824.cfc:37` method 'BitSHRN' not found on builtin native.numeric |
-| 1 | `bitxor` | 0 | none |  | `test/tickets/LDEV1824.cfc:21` method 'bitXor' not found on builtin native.numeric |
-| 1 | `booleanformat` | 0 | none |  | `test/tickets/LDEV4589/LDEV4589.cfm:6` method 'booleanFormat' not found on builtin native.numeric |
 | 1 | `bytagreference` | 0 | none |  | `test/tickets/LDEV3668.cfc:8` not found in extends chain |
 | 1 | `bytagvalue` | 0 | none |  | `test/tickets/LDEV3668.cfc:14` not found in extends chain |
 | 1 | `cast` | 0 | none |  | `test/tickets/LDEV4827.cfc:29` not found in extends chain |
-| 1 | `ceiling` | 0 | none |  | `test/tickets/LDEV1824.cfc:22` method 'ceiling' not found on builtin native.numeric |
 | 1 | `cf_anothertag` | 0 | none |  | `test/tickets/LDEV5836/test-customtags.cfm:17` no qualifier, not in file |
 | 1 | `cf_mytag` | 0 | none |  | `test/tickets/LDEV3722.cfc:8` not found in extends chain |
 | 1 | `cf_redden` | 0 | none |  | `test/tickets/LDEV1276/test.cfm:6` no qualifier, not in file |
@@ -1747,7 +1728,6 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 | 1 | `closure` | 0 | none |  | `test/jira/Jira2902/AbsAbs.cfc:25` no qualifier, not in file |
 | 1 | `container` | 4 | low | declares container; beside the calling file (4 candidates) | `test/tickets/LDEV0285/App4.cfc:6` no qualifier, not in file |
 | 1 | `copy` | 0 | none |  | `test/functions/imageCopy.cfc:22` method 'copy' not found on builtin imagenew |
-| 1 | `cos` | 0 | none |  | `test/tickets/LDEV1824.cfc:23` method 'cos' not found on builtin native.numeric |
 | 1 | `createid` | 1 | medium | declares createId | `core/src/main/cfml/context/admin/ext.applications.upload.cfm:159` no qualifier, not in file |
 | 1 | `current` | 0 | none |  | `test/tickets/LDEV5632.cfc:50` not found in extends chain |
 | 1 | `currentrow` | 0 | none |  | `test/functions/QueryCurrentRow.cfc:11` method 'currentRow' not found on builtin querynew |
@@ -1756,10 +1736,7 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 | 1 | `emoji_test` | 0 | none |  | `test/datasource/MySQL.cfc:73` not found in extends chain |
 | 1 | `entryset` | 0 | none |  | `test/tickets/LDEV0866.cfc:44` method 'entrySet' not found on builtin native.struct |
 | 1 | `firstdayofmonth` | 0 | none |  | `test/functions/FirstDayOfMonth.cfc:15` method 'firstDayOfMonth' not found on builtin native.date |
-| 1 | `fix` | 0 | none |  | `test/tickets/LDEV1824.cfc:25` method 'fix' not found on builtin native.numeric |
-| 1 | `floor` | 0 | none |  | `test/tickets/LDEV1824.cfc:26` method 'floor' not found on builtin native.numeric |
 | 1 | `foo` | 12 | low | declares foo; beside the calling file (12 candidates) | `test/tickets/LDEV0441.cfc:16` not found in extends chain |
-| 1 | `formatbasen` | 0 | none |  | `test/tickets/LDEV1824.cfc:27` method 'formatBaseN' not found on builtin native.numeric |
 | 1 | `getadminmode` | 0 | none |  | `test/components/Administrator.cfc:1681` method 'getAdminMode' not found on builtin native.lucee.config |
 | 1 | `getbase64string` | 0 | none |  | `test/tickets/LDEV5640.cfc:16` method 'getBase64String' not found on builtin imagenew |
 | 1 | `getcfid` | 0 | none |  | `test/general/ScopeStorage/call.cfm:7` method 'getCFID' not found on builtin native.lucee.pagecontext |
@@ -1786,13 +1763,10 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 | 1 | `invokestatic` | 0 | none |  | `test/tickets/_LDEV1706.cfc:23` not found in extends chain |
 | 1 | `isstring` | 0 | none |  | `test/tickets/LDEV6377_regression.cfm:82` no qualifier, not in file |
 | 1 | `keyset` | 0 | none |  | `test/tickets/LDEV0866.cfc:34` method 'keySet' not found on builtin native.struct |
+| 1 | `len` | 0 | none |  | `test/functions/TrimWhitespace.cfc:11` method 'trimWhitespace' not found on builtin native.string (chain to 'len') |
 | 1 | `listener[]` | 0 | none |  | `core/src/main/cfml/context/gateway/MailWatcher.cfc:56` no qualifier, not in file |
 | 1 | `ljklkju` | 0 | none |  | `test/general/Elvis.cfc:60` not found in extends chain |
 | 1 | `loadprovidersdata` | 0 | none |  | `core/src/main/cfml/context/admin/ext.applications.upload.cfm:140` no qualifier, not in file |
-| 1 | `log` | 1 | medium | declares log | `test/tickets/LDEV1824.cfc:28` method 'log' not found on builtin native.numeric |
-| 1 | `log10` | 0 | none |  | `test/tickets/LDEV1824.cfc:29` method 'log10' not found on builtin native.numeric |
-| 1 | `max` | 0 | none |  | `test/tickets/LDEV1824.cfc:30` method 'max' not found on builtin native.numeric |
-| 1 | `min` | 0 | none |  | `test/tickets/LDEV1824.cfc:31` method 'min' not found on builtin native.numeric |
 | 1 | `myfunc` | 1 | medium | declares myFunc | `test/tickets/LDEV1995/test.cfm:1` no qualifier, not in file |
 | 1 | `myfunc2` | 1 | medium | declares myFunc2 | `test/tickets/LDEV1995/test.cfm:1` no qualifier, not in file |
 | 1 | `nonexistentmethod` | 0 | none |  | `test/tickets/LDEV6055/Child.cfc:4` not found in parent component |
@@ -1820,7 +1794,6 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 | 1 | `slice` | 0 | none |  | `test/functions/QuerySlice.cfc:12` method 'slice' not found on builtin querynew |
 | 1 | `ss[]` | 0 | none |  | `test/functions/GetComponentStaticScope.cfc:31` not found in extends chain |
 | 1 | `susi` | 2 | low | declares susi (2 candidates) | `test/tickets/LDEV4826.cfc:54` not found in extends chain |
-| 1 | `tan` | 0 | none |  | `test/tickets/LDEV1824.cfc:36` method 'tan' not found on builtin native.numeric |
 | 1 | `testtagattr` | 0 | none |  | `test/tickets/LDEV4008.cfc:7` not found in extends chain |
 | 1 | `this[]` | 0 | none |  | `core/src/main/cfml/context/admin/plugin/Plugin.cfc:74` no qualifier, not in file |
 | 1 | `tobase64` | 0 | none |  | `test/functions/toBase64.cfc:7` method 'toBase64' not found on builtin native.string |
@@ -1868,15 +1841,6 @@ Every finding below is still reported. A candidate is a liberal match offered fo
   - low `test/functions/Decrypt.cfc:34` — declares valueEquals; beside the calling file
   - low `test/functions/DeleteClientVariable.cfc:44` — declares valueEquals; beside the calling file
   - low `test/functions/EncodeForCSS.cfc:35` — declares valueEquals; beside the calling file
-- `abs` — 1 finding(s), 8 candidate(s):
-  - low `test/general/abstract/Abs.cfc:2` — declares abs
-  - low `test/general/abstract/AbsAltSyntax1.cfc:2` — declares abs
-  - low `test/general/abstract/AbsAltSyntax2.cfc:2` — declares abs
-  - low `test/general/abstract/Final.cfc:3` — declares abs
-  - low `test/general/abstract/FinalAltSyntax1.cfc:3` — declares abs
-  - low `test/general/abstract/FinalAltSyntax2.cfc:3` — declares abs
-  - low `test/general/modifiers/Abs.cfc:2` — declares abs
-  - low `test/general/modifiers/Final.cfc:3` — declares abs
 - `container` — 1 finding(s), 4 candidate(s):
   - low `test/tickets/LDEV0285/App1.cfc:8` — declares container; beside the calling file
   - low `test/tickets/LDEV0285/App2.cfc:8` — declares container; beside the calling file

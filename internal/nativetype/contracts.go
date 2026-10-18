@@ -120,7 +120,11 @@ func contract(groups ...map[string]string) map[string]string {
 }
 
 var contracts = map[string]map[string]string{
-	"object": {}, "boolean": {}, "numeric": {}, "void": {},
+	"object": {}, "boolean": {}, "void": {},
+	// CFML member-function syntax on a numeric receiver: a.sgn(), y.abs(),
+	// a.aCos() — every entry is a generated-catalogue function taking a
+	// number first (booleanFormat/formatBaseN return strings).
+	"numeric":           contract(methods(Type("numeric"), "abs acos asin atn bitand bitmaskclear bitmaskread bitmaskset bitnot bitor bitshln bitshrn bitxor ceiling cos fix floor int len log log10 max min round sgn sin sqr tan"), methods(Type("string"), "booleanformat formatbasen")),
 	"string":            contract(methods(Type("string"), "trim strip stripleading striptrailing substring substr replace replaceall replacefirst tolowercase touppercase concat repeat intern tolist"), methods(Type("numeric"), "length len indexof lastindexof compareto comparetoignorecase codepointat"), methods(Type("boolean"), "isempty isblank contains equalsignorecase startswith endswith matches"), methods("$any", "split tochararray getbytes"), methods(Type("string"), "charat")),
 	"stringbuilder":     contract(methods(Type("stringbuilder"), "append insert delete deletecharat replace reverse"), methods(Type("numeric"), "length capacity indexof lastindexof"), methods(Type("string"), "substring charat"), methods(Type("void"), "setlength setcharat ensurecapacity trimtosize")),
 	"class":             contract(methods(Type("string"), "getname getsimplename getcanonicalname gettypename"), methods(Type("class"), "getcomponenttype getsuperclass forname asSubclass"), methods("$any", "getinterfaces getdeclaredmethods getmethods getdeclaredfields getfields getconstructors getdeclaredconstructors"), methods(Type("boolean"), "isarray isassignablefrom isinstance isinterface isprimitive isenum"), methods("$any", "newinstance cast")),
