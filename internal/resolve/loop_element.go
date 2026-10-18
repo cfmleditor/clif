@@ -438,7 +438,11 @@ func (r *Resolver) elementOf(expression string, header, start int, caller string
 	}
 
 	if scope == "arguments" {
-		return ""
+		// An argument's own value: typed as any receiver is — a default the
+		// body constructs, or what every caller passes it.
+		comp, _ := r.receiverComponentD(expression, conv.Uint32(header), caller, "", pr, baseDir, nil, lookupCtx{depth: depth + 1, leaf: leaf})
+
+		return comp
 	}
 
 	// The component's own property, read through the variable it fills.

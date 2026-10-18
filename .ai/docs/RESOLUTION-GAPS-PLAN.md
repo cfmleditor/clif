@@ -4096,3 +4096,46 @@ chains among them, each spot-checked against the element's own file — cw-p
 2,492 → 2,491 (a loop item over a bare call's built array) — the other
 five corpora identical. Baseline directory `target/resolution/after-build/`;
 candidate lists re-cut with the same run (11,435 findings).
+
+## The defaulted argument (slice 9)
+
+Mura's publisher guards its factory argument's absence and constructs it
+then, and the templates' keyed reads read as no component ref:
+
+```
+<cfargument name="keyFactory" type="any">
+<cfif not structKeyExists(arguments, "keyFactory")>
+	<cfset arguments.keyFactory=createObject("component","mura.publisherKeys").init(...)>
+</cfif>
+<cfset arguments.keyFactory.setMode("publish")>
+<cfset var keys=arguments.keyFactory>
+<cfset var value=keys.get(rstContent.contentID)>
+```
+
+The argument's own holder now types as its declared state says
+(`argumentHolderType`, extracted from the receiver's argument branch): the
+component the argument was typed to, the type it declares, the bean the
+body constructs when the caller passes none (`defaultedArgumentComponent`
+— the guard `structKeyExists(arguments, name)` and the assignment
+`arguments.name = createObject("component", literal)...`/`new X(...)` in
+the body's own text, the assignment searched only after the guard), or
+what every caller passes it — the pass-through typed at the argument's own
+branch now, so the gateways' chains (getToWorkSite's keyFactory takes what
+getToWork forwards, whose own argument is the default) bottom out at the
+body's construction. The argument's presence stops the lookup either way —
+an argument shadows what the outer scopes hold.
+
+Two more routes came with it: `assignedFromCall` reads an
+`arguments.x = ...` re-set the way it reads a prc/rc member assignment,
+and `elementOf`'s arguments-scope route types the argument's value as any
+receiver is instead of refusing.
+
+Measured against `after-mongo`: masa-c 3,483 → 3,173 (314 removed, 4
+added — the four are formBuilderManager's `$.checkSchema` reason, its
+receiver's display spelling), cb-p 1,679 → 1,678 (4 removed, 3 added — the
+qb `convertToBooleanType` rows' display spelling), cx-p 1,616 → 1,609 (11
+removed, 4 added — the injector/`renderdata` rows' display spelling; the
+FileRotator's `oAppender` rows resolved against the appender the callers
+pass), cw-p 2,492 → 2,491 — fw-p, lucee and tb-p identical. Baseline
+directory `target/resolution/after-defaulted/`; candidate lists re-cut
+with the same run (11,277 findings).

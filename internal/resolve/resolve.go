@@ -3425,6 +3425,57 @@ func (r *Resolver) keyedReceiverElement(variable string, line uint32, caller str
 	return elem
 }
 
+// argumentHolderType is the component an argument's own holder carries, as
+// its declared state says: the component the argument was typed to, the
+// type it declares, the bean the body constructs when the caller passes
+// none, or what every caller passes it. member marks an untyped argument
+// whose method is a member method (dynamic). The argument's presence stops
+// the lookup either way — an argument shadows what the outer scopes hold.
+func (r *Resolver) argumentHolderType(variable, name string, arg *parser.Argument, funcName string, pr *parser.ParseResult, caller string, tr *callTrace, ctx lookupCtx) (string, bool) {
+	if arg.Component != "" {
+		return arg.Component, false
+	}
+
+	if strings.Contains(arg.Type, ".") {
+		tr.addf("resolved %q via enclosing function argument", variable)
+
+		return arg.Type, false
+	}
+
+	// A bare type is read as a bare return type is: a component beside the
+	// declaring file. `required Duration otherDuration` was left untyped, so
+	// every call on the argument was unresolved.
+	if path := r.bareArgumentComponent(arg.Type, pr); path != "" {
+		tr.addf("resolved %q to %q via its declared type %q, a component beside the declaring file", variable, path, arg.Type)
+
+		return path, false
+	}
+
+	if parser.IsMemberMethod(funcName) {
+		return "$any", true
+	}
+
+	// A defaulted argument: the body guards its absence and constructs what
+	// it holds then — the construction is the argument's component.
+	if comp := r.defaultedArgumentComponent(name, pr, caller); comp != "" {
+		tr.addf("resolved %q to %q: the body constructs it when the caller passes none", variable, comp)
+
+		return comp, false
+	}
+
+	// An argument the caller passes on is typed by its own callers: Mura's
+	// gateways take what the manager forwards from its own.
+	if comp := r.argumentFromCallers("arguments."+name, caller, pr, ctx); comp != "" {
+		tr.addf("resolved %q to %q: what every caller of %s passes it", variable, comp, caller)
+
+		return comp, false
+	}
+
+	tr.addf("argument %q shadows component fields", name)
+
+	return "", false
+}
+
 // receiverComponentD is receiverComponent with a lookupCtx: the depth of
 // assignments read to type a variable, which bounds `x = y.f()` through
 // `y = z.g()`, and the subclass a handoff reads on behalf of.
@@ -3485,32 +3536,7 @@ func (r *Resolver) receiverComponentD(variable string, line uint32, caller, func
 
 	if comp == "" && argumentReceiver {
 		if arg := argumentOf(pr, caller, lookupVar); arg != nil {
-			if arg.Component != "" {
-				return arg.Component, false
-			}
-
-			if strings.Contains(arg.Type, ".") {
-				tr.addf("resolved %q via enclosing function argument", variable)
-
-				return arg.Type, false
-			}
-
-			// A bare type is read as a bare return type is: a component
-			// beside the declaring file. `required Duration otherDuration`
-			// was left untyped, so every call on the argument was unresolved.
-			if path := r.bareArgumentComponent(arg.Type, pr); path != "" {
-				tr.addf("resolved %q to %q via its declared type %q, a component beside the declaring file", variable, path, arg.Type)
-
-				return path, false
-			}
-
-			if parser.IsMemberMethod(funcName) {
-				return "$any", true
-			}
-
-			tr.addf("argument %q shadows component fields", lookupVar)
-
-			return "", false
+			return r.argumentHolderType(variable, lookupVar, arg, funcName, pr, caller, tr, ctx)
 		}
 	}
 
