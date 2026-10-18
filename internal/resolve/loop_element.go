@@ -525,6 +525,13 @@ func (r *Resolver) methodElement(comp, method, arguments, baseDir string) string
 		return elem
 	}
 
+	// The collection the function's field holds: the function returns the
+	// field, and the file's own assignments fill it — a local assigned an
+	// empty array, appended with values, assigned to the field.
+	if elem := r.builtFieldElement(fd); elem != "" {
+		return elem
+	}
+
 	return ""
 }
 

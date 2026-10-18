@@ -4,7 +4,7 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 
 | Category | Findings | high | medium | low | none | method defined nowhere |
 |---|---:|---:|---:|---:|---:|---:|
-| variable | 1867 | 375 | 296 | 605 | 591 | 403 |
+| variable | 1866 | 375 | 296 | 604 | 591 | 403 |
 | return-type | 133 | 14 | 39 | 65 | 15 | 15 |
 | method | 278 | 0 | 136 | 97 | 45 | 37 |
 | object | 214 | 0 | 103 | 2 | 109 | 3 |
@@ -86,7 +86,6 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 | 6 | `map → vendor/wheels/Global.cfc` | 13 | low | declares get() (13 candidates) | `vendor/wheels/tests/specs/mapper/MapperRobustnessSpec.cfc:148` variable 'map' has no component ref |
 | 6 | `methods[]` | 14 | none |  | `cli/lucli/services/deploy/lib/Mustache.cfc:75` variable 'methods[]' has no component ref |
 | 6 | `r.file` | 0 | none |  | `vendor/wheels/tests/specs/controller/miscellaneousSpec.cfc:105` variable 'r.file' has no component ref |
-| 5 | `acc → cli/lucli/services/deploy/config/Accessory.cfc` | 4 | low | declares env(), hosts(), name() (2 candidates) | `cli/lucli/services/deploy/cli/DeployAccessoryCli.cfc:77` variable 'acc' has no component ref |
 | 5 | `adapter → vendor/wheels/databaseAdapters/Abstract.cfc` | 8 | low | declares quoteTableName() (8 candidates) | `vendor/wheels/migrator/Base.cfc:121` variable 'adapter' has no component ref |
 | 5 | `arguments.role → cli/lucli/services/deploy/config/Role.cfc` | 2 | medium | declares cmd(); named like the receiver 'role' (2 candidates) | `cli/lucli/services/deploy/commands/AppCommands.cfc:28` variable 'arguments.role' has no component ref |
 | 5 | `arguments.runner` | 1 | none |  | `vendor/wheels/wheelstest/system/BaseSpec.cfc:1026` variable 'arguments.runner' has no component ref |
@@ -106,6 +105,7 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 | 5 | `t → vendor/wheels/migrator/TableDefinition.cfc` | 1 | medium | declares change() | `vendor/wheels/migrator/templates/change-table.cfc:20` variable 't' has no component ref |
 | 5 | `variables.page → vendor/wheels/interfaces/StorageDiskInterface.cfc` | 3 | low | declares url() (3 candidates) | `vendor/wheels/wheelstest/BrowserClient.cfc:671` variable 'variables.page' has no component ref |
 | 5 | `variables.semver → cli/lucli/services/SemVer.cfc` | 2 | low | declares satisfiesAll(), compare(); named like the receiver 'semver' (2 candidates) | `cli/lucli/services/packages/VersionResolver.cfc:57` variable 'variables.semver' has no component ref |
+| 4 | `acc → cli/lucli/services/deploy/config/Accessory.cfc` | 4 | low | declares env(), hosts(), name() (2 candidates) | `cli/lucli/services/deploy/cli/DeployAccessoryCli.cfc:77` variable 'acc' has no component ref |
 | 4 | `api → vendor/wheels/BuildInfo.cfc` | 6 | low | declares version() (6 candidates) | `vendor/wheels/tests/specs/mapperModernSpec.cfc:138` variable 'api' has no component ref |
 | 4 | `application.wheels.dispatch → vendor/wheels/Dispatch.cfc` | 2 | medium | declares $request(); named like the receiver 'dispatch' (2 candidates) | `cli/lucli/templates/app/public/index.cfm:5` variable 'application.wheels.dispatch' has no component ref |
 | 4 | `application.wirebox → vendor/wheels/Injector.cfc` | 3 | low | declares getInstance() (2 candidates) | `cli/src/commands/wheels/generate/app-wizard.cfc:76` variable 'application.wirebox' has no component ref |
@@ -580,9 +580,6 @@ Every finding below is still reported. A candidate is a liberal match offered fo
   - low `vendor/wheels/model/query/QueryBuilder.cfc` — declares get()
   - low `vendor/wheels/services/packages/HttpClient.cfc` — declares get()
   - … 5 more
-- `acc → cli/lucli/services/deploy/config/Accessory.cfc` — 5 finding(s), 2 candidate(s):
-  - low `cli/lucli/services/deploy/config/Accessory.cfc` — declares env(), hosts(), name()
-  - low `cli/lucli/services/deploy/config/Role.cfc` — declares env(), hosts(), name()
 - `adapter → vendor/wheels/databaseAdapters/Abstract.cfc` — 5 finding(s), 8 candidate(s):
   - low `vendor/wheels/databaseAdapters/Abstract.cfc` — declares quoteTableName()
   - low `vendor/wheels/databaseAdapters/H2/H2Migrator.cfc` — declares quoteTableName()
@@ -611,6 +608,9 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 - `variables.semver → cli/lucli/services/SemVer.cfc` — 5 finding(s), 2 candidate(s):
   - low `cli/lucli/services/SemVer.cfc` — declares satisfiesAll(), compare(); named like the receiver 'semver'
   - low `vendor/wheels/SemVer.cfc` — declares satisfiesAll(), compare(); named like the receiver 'semver'
+- `acc → cli/lucli/services/deploy/config/Accessory.cfc` — 4 finding(s), 2 candidate(s):
+  - low `cli/lucli/services/deploy/config/Accessory.cfc` — declares env(), hosts(), name()
+  - low `cli/lucli/services/deploy/config/Role.cfc` — declares env(), hosts(), name()
 - `api → vendor/wheels/BuildInfo.cfc` — 4 finding(s), 6 candidate(s):
   - low `vendor/wheels/BuildInfo.cfc` — declares version()
   - low `vendor/wheels/mapper/scoping.cfc` — declares version()

@@ -4055,3 +4055,44 @@ checked one hop further, the getter's own return-type finding) — fw-p 358
 → 355 — and the other four corpora identical. Baseline directory
 `target/resolution/after-mongo/`; candidate lists re-cut with the same run
 (11,596 findings).
+
+## The collection a function builds (slice 8)
+
+Mura's service getters return the array their own body builds, and the
+templates' keyed reads read as no component ref:
+
+```
+<cfset extendSets=application.classExtensionManager.getSubTypeByName(...).getExtendSets(...)>
+<cfset extendSetBean=extendSets[s]>
+<cfset attributesArray=extendSetBean.getAttributes()>
+<cfset attributeBean=attributesArray[a]>
+<cfset attributeValue=userBean.getvalue(attributeBean.getName(), 'useMuraDefault')>
+```
+
+The root chain was already proven (the startup template's assignment types
+`application.classExtensionManager`, and each hop's declared return
+follows). What was missing is the element contract of an array-returning
+function: `getExtendSets` starts `extendArray` empty, appends the beans its
+factory returns, and returns it. `builtCollectionElement` reads that build
+— the body starts a local empty (`arrayNew(1)` or an empty `[ ]`), appends
+values with `arrayAppend`, and every return at the function's own level
+names it, or a field assigned from it — and proves the appended values'
+common component as the element. Any return of something else, or an
+append whose value nobody proves, is an open world: the collection could
+hold anything, and the answer is withheld. The factory's own return —
+`createObject("component", literal).init(...)` through a local — types by
+the construction, and the lazy field getter's shape (`getAttributes`
+returns a field the file's own `loadAttributes` fills) is the same proof
+over the file's assignments of the name (`builtFieldElement`), the getter
+itself accepted as an append's target.
+
+The element's own lookups needed the file's line numbers: the function
+span's tokens count lines from the function's first line, and the appended
+value's assignments sit at the file's own.
+
+Measured against `after-mongo`: masa-c 3,483 → 3,323 (160 removed, 0
+added) — the extended-attributes templates' `extendSetBean`/`attributeBean`
+chains among them, each spot-checked against the element's own file — cw-p
+2,492 → 2,491 (a loop item over a bare call's built array) — the other
+five corpora identical. Baseline directory `target/resolution/after-build/`;
+candidate lists re-cut with the same run (11,435 findings).

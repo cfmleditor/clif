@@ -77,6 +77,27 @@ func TestTheCollectionAFunctionBuildsProvesItsElement(t *testing.T) {
 		<cfreturn "">
 	</cffunction>
 </cfcomponent>`,
+		// The lazy field getter: the function returns a field the file's own
+		// loader fills — a local assigned an empty array, appended with the
+		// constructions, assigned to the field.
+		"pkg/lazy.cfc": `<cfcomponent>
+	<cffunction name="getWidgets">
+		<cfif not isArray(variables.instance.widgets)>
+			<cfset loadWidgets()>
+		</cfif>
+		<cfreturn variables.instance.widgets />
+	</cffunction>
+
+	<cffunction name="loadWidgets">
+		<cfset variables.instance.widgets=arrayNew(1)/>
+		<cfset var w="">
+		<cfloop from="1" to="2" index="i">
+			<cfset w=createObject("component","pkg.widget").init()>
+			<cfset arrayAppend(variables.instance.widgets, w)/>
+		</cfloop>
+		<cfreturn this>
+	</cffunction>
+</cfcomponent>`,
 		"pkg/page.cfm": `<cfset service = new pkg.service()>
 <cfset sets = service.getBeans()>
 <cfset cached = service.getCachedBeans()>
@@ -84,7 +105,10 @@ func TestTheCollectionAFunctionBuildsProvesItsElement(t *testing.T) {
 <cfset b = sets[1]>
 <cfset x = b.getSiteID()>
 <cfset y = cached[1].getLabel()>
-<cfset z = b.getUndeclared()>`,
+<cfset z = b.getUndeclared()>
+<cfset lazy = new pkg.lazy()>
+<cfset ws = lazy.getWidgets()>
+<cfset lw = ws[1].getLabel()>`,
 	})
 
 	got := reasonsIn(t, dir, "pkg/page.cfm")
@@ -97,5 +121,6 @@ func TestTheCollectionAFunctionBuildsProvesItsElement(t *testing.T) {
 		"b.getSiteID":           "",
 		"b.getUndeclared":       "method 'getUndeclared' not found in pkg.widget",
 		"cached[1].getLabel":    "",
+		"ws[1].getLabel":        "",
 	})
 }
