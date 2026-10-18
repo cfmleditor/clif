@@ -392,6 +392,13 @@ func (r *Resolver) elementOf(expression string, header, start int, caller string
 
 	if scope == "" || scope == "local" {
 		if rhs, ok := r.localAssignmentIn(pr, name, start, header); ok {
+			// A registry read under a name no recipe spells: the container's
+			// name a list-loop item's concatenation makes, whose turns each
+			// name one of the template's own containers.
+			if comp := r.indirectRegistryPickup(rhs, header, pr); comp != "" {
+				return comp
+			}
+
 			return r.elementOf(rhs, header, start, caller, pr, baseDir, depth+1, leaf)
 		}
 
@@ -411,9 +418,28 @@ func (r *Resolver) elementOf(expression string, header, start int, caller string
 // methodElement is the element type of what method returns on comp.
 func (r *Resolver) methodElement(comp, method, arguments, baseDir string) string {
 	// A registry family's getter: the element its files' array literals
-	// prove, or untyped.
-	if _, members := familyParts(comp); len(members) > 0 {
-		return r.familyLoopElement(members, method)
+	// prove, or untyped. A multi-family receiver's element is the union of
+	// its families' elements — the receiver holds exactly one family — and
+	// it is an answer only when every family proves one.
+	if refs := familyRefs(comp); len(refs) > 0 {
+		var elements []string
+
+		for _, ref := range refs {
+			set := r.familyLoopElement(ref.members, method)
+			if set == "" {
+				return ""
+			}
+
+			for alt := range strings.SplitSeq(set, "|") {
+				if !slices.Contains(elements, alt) {
+					elements = append(elements, alt)
+				}
+			}
+		}
+
+		slices.Sort(elements)
+
+		return strings.Join(elements, "|")
 	}
 
 	if comp == "" || strings.HasPrefix(comp, "$") {

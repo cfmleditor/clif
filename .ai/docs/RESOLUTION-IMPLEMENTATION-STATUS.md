@@ -1872,3 +1872,42 @@ replay). The presets canon of RESOLUTION-GAPS.md is unaffected (its
 measurement modes replay unchanged binary-neutral scopes). Next on this
 family: the `field` loop contract over the registry consumers' getCustomFields
 calls (1,510 variable rows keep the entry on top).
+
+## Checkpoint 37: the logging admin's indirect registries
+
+The indirect-container seam opened as slice 4. `server.logging.cfm` turned
+out to fill both its registries through a same-file factory
+(`doSortedStruct`: the appends' array walked, each element stored in the
+struct returned) and to reuse one `names`/`arr` pair for both recipes, and
+its consumer reads the containers as `variables[_name&"s"]` under a
+`<cfloop list="appender,layout" item="_name">`. Three seams landed: the
+factory recipe is recognized out of the recipe file itself (`arrayAppend`
+shipments, the loop after the listing, the first factory call after the
+loop, and the factory body proving the shape it stores by); the consumer's
+concatenation pickup binds the list-loop item's literals to the template's
+own containers and names the receiver a comma-joined pair of family markers,
+every family that holds it answering a call on it; and a chain receiver the
+assignments cannot type is tried as the loop variable around the read.
+`constructorItemComponent` now keeps the construction's proven absolute
+path, so the element union no longer collapses the two families'
+same-spelled Field/Group helpers into one name.
+
+Measured against `after-field2`: lucee 1,749 → 1,727 (22 removed, 0 added)
+— `server.logging.create.cfm`'s 14 `driver` rows and
+`server.logging.list.cfm`'s 4 `appender` + 4 `layout` rows, every removal a
+receiver the families' own file declarations answer (the appender and layout
+bases declare `getClass`/`getLabel`/the bundle accessors in tag form; the
+keys and labels the pages hash and print are honest) — and the six other
+corpora byte-identical. Candidate lists re-cut with the same run: 11,740
+findings on the seven scans, 2,608 with a high-confidence candidate
+([summary](resolution-candidates/summary.md)). Baseline directory
+`target/resolution/after-slice4/`.
+
+Still open on this entry, in seam order: the 36 `field` element rows (the
+element's strict proof needs every family — the appender family's
+Datasource/Resource members prove their fields through
+`duplicate(variables.fields)` inside their own overridden getCustomFields,
+the member-own getter seam that also covers the 6 member-file rows), the 4
+`_driver` rows (the ternary's `variables[_name]`), the 3 factory internals
+(`arguments.l`/`arguments.r`/`el` in `doSortedStruct`), and after that the
+dbdriver struct-key element seam (19 rows).

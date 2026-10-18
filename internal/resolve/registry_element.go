@@ -431,6 +431,14 @@ func (r *Resolver) constructorItemComponent(member string, item []parser.Token) 
 				return "", false
 			}
 
+			// The construction's own directory proved the component: keep its
+			// file, not the spelling it went by. Two families' helpers are
+			// spelled the same — an appender's Field and a layout's Field —
+			// and the element union must not collapse them into one name.
+			if p := r.ComponentPath(comp, dir); p != "" {
+				comp = p
+			}
+
 			if first == "" {
 				first = comp
 			} else if !cfpath.SamePath(first, comp) {

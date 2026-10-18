@@ -3046,9 +3046,26 @@ func (r *Resolver) checkMethodOn(comp, softComp string, call *parser.CallSite, p
 	}
 
 	// A registry family: the receiver is any one of the package directory's
-	// components, so the method must be each member's own, or its base's.
-	if pkg, members := familyParts(comp); len(members) > 0 {
-		return r.checkFamilyMethod(pkg, members, call, pr, tr)
+	// components, so the method must be each member's own, or its base's. A
+	// receiver several families name — the container read through a
+	// list-loop item's concatenation — is answered by whichever one of them
+	// holds it, so a family that answers the call answers the receiver, and
+	// a call no family answers names the first family's lack.
+	if refs := familyRefs(comp); len(refs) > 0 {
+		reason := ""
+
+		for _, ref := range refs {
+			why := r.checkFamilyMethod(ref.pkg, ref.members, call, pr, tr)
+			if why == "" {
+				return why
+			}
+
+			if reason == "" {
+				reason = why
+			}
+		}
+
+		return reason
 	}
 
 	// Builtin return type — check method exists in-memory
