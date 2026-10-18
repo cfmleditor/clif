@@ -4,7 +4,7 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 
 | Category | Findings | high | medium | low | none | method defined nowhere |
 |---|---:|---:|---:|---:|---:|---:|
-| variable | 1304 | 42 | 62 | 252 | 948 | 846 |
+| variable | 1283 | 22 | 62 | 251 | 948 | 846 |
 | return-type | 31 | 0 | 3 | 9 | 19 | 18 |
 | method | 277 | 0 | 30 | 23 | 224 | 208 |
 | object | 73 | 0 | 3 | 12 | 58 | 37 |
@@ -20,7 +20,6 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 | 20 | `animals` | 0 | none |  | `test/functions/StructKeyTranslate.cfc:18` variable 'animals' has no component ref |
 | 20 | `merger → test/tickets/LDEV5758.cfc` | 1 | medium | declares merge() | `test/tickets/LDEV5758.cfc:15` variable 'merger' has no component ref |
 | 20 | `qry` | 0 | none |  | `test/functions/QueryColumnData.cfc:27` variable 'qry' has no component ref |
-| 19 | `field → core/src/main/java/resource/context/admin/dbdriver/types/Field.cfc` | 11 | high | declares getType(), getName(), getDefaultValue(), getDisplayName(), getRequired(), getDefaultValueIndex(), getDescription(); named like the receiver 'field' | `core/src/main/cfml/context/admin/services.datasource.create.cfm:532` variable 'field' has no component ref |
 | 17 | `mysql` | 0 | none |  | `test/jira/Jira3043.cfc:74` variable 'mySQL' has no component ref |
 | 16 | `result.filecontent` | 0 | none |  | `test/tags/ProcessingDirective.cfc:9` variable 'result.fileContent' has no component ref |
 | 14 | `docsfound` | 0 | none |  | `test/a_debug_build/_MongoDB.cfc:166` variable 'docsFound' has no component ref |
@@ -245,7 +244,6 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 | 1 | `attributes.b` | 0 | none |  | `test/tickets/LDEV5967.cfc:64` variable 'attributes.b' has no component ref |
 | 1 | `available` | 0 | none |  | `core/src/main/cfml/context/admin/ext.applications.detail.cfm:88` variable 'available' has no component ref |
 | 1 | `before → test/tickets/LDEV3963/test3963quoted.cfc` | 5 | low | declares get() (4 candidates) | `test/tickets/LDEV5941/testCommitNoMetadataBump.cfm:12` variable 'before' has no component ref |
-| 1 | `bookmark → test/orm/many2many/model/Bookmark.cfc` | 1 | high | declares getTags(); named like the receiver 'bookmark' | `test/orm/many2many/index.cfm:69` variable 'bookmark' has no component ref |
 | 1 | `bundle.description` | 0 | none |  | `core/src/main/cfml/context/admin/info.bundle.create.cfm:13` variable 'bundle.description' has no component ref |
 | 1 | `castedarrayint → test/tickets/LDEV5074.cfc` | 3 | low | declares toString() (2 candidates) | `test/tickets/LDEV5238.cfc:8` variable 'castedArrayInt' has no component ref |
 | 1 | `cfftp.returnvalue` | 0 | none |  | `test/_setupTestServices.cfc:372` variable 'cfftp.returnValue' has no component ref |
@@ -433,7 +431,6 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 | 1 | `struct2` | 0 | none |  | `test/tickets/_LDEV2681.cfc:21` variable 'struct2' has no component ref |
 | 1 | `struct2 → test/tickets/LDEV0270.cfc` | 2 | low | declares delete() (2 candidates) | `test/tickets/_LDEV2681.cfc:23` variable 'struct2' has no component ref |
 | 1 | `struct2.parent.children` | 0 | none |  | `test/tickets/LDEV2608.cfc:28` variable 'struct2.parent.children' has no component ref |
-| 1 | `t → test/orm/many2many/model/Bookmark.cfc` | 96 | low | declares getId() (96 candidates) | `test/orm/many2many/index.cfm:72` variable 't' has no component ref |
 | 1 | `t2 → test/tickets/LDEV0078/Test.cfc` | 67 | low | declares getName() (67 candidates) | `test/tickets/LDEV1831.cfc:25` variable 't2' has no component ref |
 | 1 | `tags` | 0 | none |  | `test/orm/many2many/index.cfm:71` variable 'tags' has no component ref |
 | 1 | `tb → test/tickets/LDEV5601.cfc` | 4 | medium | declares getVersion() | `test/run-tests.cfm:454` variable 'tb' has no component ref |
@@ -1485,16 +1482,6 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 - `struct2 → test/tickets/LDEV0270.cfc` — 1 finding(s), 2 candidate(s):
   - low `test/tickets/LDEV0270.cfc` — declares delete()
   - low `core/src/main/cfml/context/admin/plugin/Resource/Action.cfc` — declares delete()
-- `t → test/orm/many2many/model/Bookmark.cfc` — 1 finding(s), 96 candidate(s):
-  - low `test/orm/many2many/model/Bookmark.cfc` — declares getId()
-  - low `test/orm/many2many/model/Tag.cfc` — declares getId()
-  - low `test/orm/many2many/model/module.cfc` — declares getId()
-  - low `test/orm/many2many/model/moduleLang.cfc` — declares getId()
-  - low `test/orm/clearSession/Code.cfc` — declares getId()
-  - low `test/orm/events/Code.cfc` — declares getId()
-  - low `test/orm/many2one/Code.cfc` — declares getId()
-  - low `test/orm/many2one/Ref.cfc` — declares getId()
-  - … 88 more
 - `t2 → test/tickets/LDEV0078/Test.cfc` — 1 finding(s), 67 candidate(s):
   - low `test/tickets/LDEV0078/Test.cfc` — declares getName()
   - low `test/tickets/LDEV0423/Basket.cfc` — declares getName()

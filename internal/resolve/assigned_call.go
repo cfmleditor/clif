@@ -37,6 +37,38 @@ type lookupCtx struct {
 	call  *parser.CallSite
 }
 
+// assignedKeyedElement is the element an assignment of a keyed read proves:
+// `field = fields[idx]` is the element of the collection the read indexes,
+// whose contract elementOf answers — or "" when the read is not one.
+func (r *Resolver) assignedKeyedElement(variable, rhs string, line uint32, caller string, pr *parser.ParseResult, baseDir string, tr *callTrace, depth int, leaf string) string {
+	k := indexedReadRe.FindStringSubmatch(rhs)
+	if k == nil || isScopeWord(k[1]) {
+		return ""
+	}
+
+	comp := r.elementOf(rhs, int(line), 0, caller, pr, baseDir, depth+1, leaf)
+
+	if comp != "" {
+		tr.addf("resolved %q to %q: it is assigned the keyed element %q, whose collection's elements are %q", variable, rhs, rhs, comp)
+	}
+
+	return comp
+}
+
+// assignedFamily is the family an assignment of the receiver proves over a
+// parse-time dynamic guess: the construction of a registry listing read —
+// createObject("component", listing[key]) — is a member of the family the
+// recipes' guards serve. Only a family answers here; anything else leaves
+// the parse's guess standing.
+func (r *Resolver) assignedFamily(variable string, line uint32, caller string, pr *parser.ParseResult, baseDir string, ctx lookupCtx) string {
+	comp := r.assignedFromCall(variable, line, caller, pr, baseDir, nil, lookupCtx{depth: ctx.depth})
+	if strings.HasPrefix(comp, familyPrefix) {
+		return comp
+	}
+
+	return ""
+}
+
 func (r *Resolver) assignedFromCall(variable string, line uint32, caller string, pr *parser.ParseResult, baseDir string, tr *callTrace, ctx lookupCtx) string {
 	depth := ctx.depth
 	if pr == nil || depth >= maxAssignedDepth || variable == "" || strings.ContainsAny(variable, "[(") {
@@ -113,6 +145,13 @@ func (r *Resolver) assignedFromCall(variable string, line uint32, caller string,
 	// the loop's package holds. Before the call-chain typing below, which is
 	// the other thing a right-hand side can be.
 	if comp := r.registryElementRes(rhs, pr, tr); comp != "" {
+		return comp
+	}
+
+	// An element read under a key the assignment spells —
+	// `field = fields[idx]` — is the element of the collection the read
+	// indexes, whose contract elementOf answers.
+	if comp := r.assignedKeyedElement(variable, rhs, line, evalCaller, pr, baseDir, tr, depth, ctx.leaf); comp != "" {
 		return comp
 	}
 
@@ -218,9 +257,11 @@ func (r *Resolver) typeCallExpr(rhs string, line uint32, caller string, pr *pars
 
 	lookup := r.FuncLookup(baseDir)
 
-	// Each call in a chain is made on what the one before it returns.
+	// Each call in a chain is made on what the one before it returns. A
+	// registry family is a receiver the walk itself answers: the chain past
+	// it runs on the element the family proves, dynamic as it is.
 	for _, c := range calls {
-		if comp == "" || strings.HasPrefix(comp, "$") && !strings.HasPrefix(comp, "$builtin.") {
+		if comp == "" || strings.HasPrefix(comp, "$") && !strings.HasPrefix(comp, "$builtin.") && !strings.HasPrefix(comp, familyPrefix) {
 			return ""
 		}
 
@@ -231,7 +272,7 @@ func (r *Resolver) typeCallExpr(rhs string, line uint32, caller string, pr *pars
 		return comp
 	}
 
-	if strings.HasPrefix(comp, "$") && !strings.HasPrefix(comp, "$builtin.") {
+	if strings.HasPrefix(comp, "$") && !strings.HasPrefix(comp, "$builtin.") && !strings.HasPrefix(comp, familyPrefix) {
 		return ""
 	}
 
@@ -288,6 +329,15 @@ func (r *Resolver) typeBareCallExpr(method, args string, line uint32, caller str
 
 	def := r.bareFunc(method, pr, baseDir, caller)
 	if def == nil {
+		// A component registry recipe's listing read names the construction:
+		// createObject("component", drivernames[dbdriver]) — the recipes
+		// that walk the listing create exactly this per key and guard what
+		// they keep into their containers, so the construction is a member
+		// of the family their guards serve.
+		if comp := r.registryListingConstruction(method, args, pr); comp != "" {
+			return comp
+		}
+
 		return r.BuiltinReturnLookup(method)
 	}
 
@@ -321,6 +371,44 @@ func (r *Resolver) typeBareCallExpr(method, args string, line uint32, caller str
 }
 
 var identRe = regexp.MustCompile(`^[A-Za-z_]\w*$`)
+
+// registryListingConstruction is the family a component construction of a
+// registry listing read is a member of: createObject("component",
+// listing[key]) — the second argument the listing's element read, its
+// brackets not a chain. The construction of any other builtin answers
+// nothing here.
+func (r *Resolver) registryListingConstruction(method, args string, pr *parser.ParseResult) string {
+	if !strings.EqualFold(method, "createObject") {
+		return ""
+	}
+
+	pieces := producerSplit(producerTokens(args))
+	if len(pieces) != 2 {
+		return ""
+	}
+
+	if kind := strings.Trim(producerText(pieces[0]), "\"'"); !strings.EqualFold(strings.TrimSpace(kind), "component") {
+		return ""
+	}
+
+	path := strings.TrimSpace(producerText(pieces[1]))
+
+	m := listingReadRe.FindStringSubmatch(path)
+	if m == nil {
+		return ""
+	}
+
+	fact, ok := r.registryListingFamily(m[1], pr)
+	if !ok {
+		return ""
+	}
+
+	return familyComp(fact)
+}
+
+// listingReadRe is a registry listing's element read: the struct the
+// listing merges into, under a key. Group 1 is the listing's name.
+var listingReadRe = regexp.MustCompile(`^((?:variables\.)?[A-Za-z_]\w*)\s*\[`)
 
 // localDeclRe is a line declaring a local: `var x`, `local.x`.
 var localDeclRe = regexp.MustCompile(`(?i)(?:^|[^\w.])(?:var\s+[\w$]|local\.)`)

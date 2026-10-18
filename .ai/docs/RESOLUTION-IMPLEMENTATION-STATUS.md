@@ -1942,3 +1942,35 @@ on the seven scans, 2,608 with a high-confidence candidate
 
 Still open on this entry: 4 `_driver` rows, 3 factory internals, then the
 dbdriver struct-key element seam (19 rows).
+
+## Checkpoint 39: the dbdriver page's listing construction and keyed elements
+
+The dbdriver create page picks its driver straight from the recipe's
+listing struct (`createObject("component", drivernames[ dbdriver ])`, the
+listing spelled in the includer) and reads the getter's elements under a
+struct key (`<cfset field = fields[idx]>` inside a collection loop). The
+construction of a listing read is the recipes' own construction of their
+listing's keys, so the receiver is a member of the family the recipes'
+guards serve — the facts carry their listing's name
+(`registryListingFamily`). A parse-time $any ComponentRef is a weak claim:
+a family an assignment proves overwrites it (`familyOverGuess`), and only
+a family. And a keyed element read is the collection's element contract
+(`elementOf`'s keyed read, `assignedKeyedElement` for an assigned one),
+answered only by what the collection proves — a guard that keeps the view
+handoff's per-leaf walk honest (the base action's guess no longer
+short-circuits the leaves' contracts).
+
+Measured against `after-membercopy`: lucee 1,685 → 1,664 (21 removed, 0
+added) — the 19 dbdriver `field` rows (every one checked against
+`types/Field.cfc`'s own contract) plus the keyed read
+`bookmark=bookmarks[1]` over an entityLoad array (the orm many2many test)
+— and masa-c 3,484 → 3,483 (`kid=variables.kids[i]` then `kid.save`). The
+five other corpora byte-identical. Candidate lists re-cut with the same
+run: 11,676 findings on the seven scans, 2,608 with a high-confidence
+candidate ([summary](resolution-candidates/summary.md)). Baseline
+directory `target/resolution/after-dbdriver/`.
+
+Still open on the family stack: the logging leftovers (4 `_driver` rows,
+3 factory internals), then the held-back backlog (cbmessagebox 275, Mura
+event/bean, cfwheels variables seams, the 1,142 method-defined-nowhere
+rows).
