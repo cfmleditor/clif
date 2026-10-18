@@ -41,6 +41,10 @@ type lookupCtx struct {
 // `field = fields[idx]` is the element of the collection the read indexes,
 // whose contract elementOf answers — or "" when the read is not one.
 func (r *Resolver) assignedKeyedElement(variable, rhs string, line uint32, caller string, pr *parser.ParseResult, baseDir string, tr *callTrace, depth int, leaf string) string {
+	if !exactKeyedReadRe.MatchString(rhs) {
+		return ""
+	}
+
 	k := indexedReadRe.FindStringSubmatch(rhs)
 	if k == nil || isScopeWord(k[1]) {
 		return ""
@@ -54,6 +58,10 @@ func (r *Resolver) assignedKeyedElement(variable, rhs string, line uint32, calle
 
 	return comp
 }
+
+// exactKeyedReadRe is a whole keyed element read: the collection under one
+// key, no chain after it.
+var exactKeyedReadRe = regexp.MustCompile(`^(?:[A-Za-z_]\w*|(?:local|variables|this|arguments)\.[\w.]+)\s*\[[^\]]*\]$`)
 
 // assignedFamily is the family an assignment of the receiver proves over a
 // parse-time dynamic guess: the construction of a registry listing read —
@@ -150,7 +158,9 @@ func (r *Resolver) assignedFromCall(variable string, line uint32, caller string,
 
 	// An element read under a key the assignment spells —
 	// `field = fields[idx]` — is the element of the collection the read
-	// indexes, whose contract elementOf answers.
+	// indexes, whose contract elementOf answers. Only a read that is a
+	// keyed element and nothing else: a chain that starts at one runs on
+	// the element, and the chain's own hops answer for the read.
 	if comp := r.assignedKeyedElement(variable, rhs, line, evalCaller, pr, baseDir, tr, depth, ctx.leaf); comp != "" {
 		return comp
 	}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -3371,17 +3372,67 @@ func (r *Resolver) familyOverGuess(comp, variable string, line uint32, caller st
 	return family
 }
 
+// keyedReceiverStem is the collection a keyed element read the parser filed
+// as a receiver names — the parser spells the read as the receiver with its
+// key off (`db[]`) — or "" when the variable is not one.
+func keyedReceiverStem(variable string) (stem string) {
+	m := keyedReceiverRe.FindStringSubmatch(strings.TrimSpace(variable))
+	if m == nil {
+		return ""
+	}
+
+	return m[1]
+}
+
+var keyedReceiverRe = regexp.MustCompile(`^([A-Za-z_]\w*)\[\]$`)
+
+// speculativeReceiverOver is the guess a batch scan recorded for the
+// receiver, when the origin the lookup ran at proves nothing of its own —
+// ok reports there is one.
+func (r *Resolver) speculativeReceiverOver(variable, comp string, member bool, caller string, pr *parser.ParseResult) (string, bool) {
+	if comp != "" || member || pr == nil {
+		return "", false
+	}
+
+	key := SpeculativeReceiver{File: pr.URI.Path(), Caller: caller, Variable: strings.ToLower(variable)}
+
+	guess := r.SpeculativeReceivers[key]
+
+	return guess, guess != ""
+}
+
+// keyedReceiverElement is the element a keyed element read the parser filed
+// as a receiver holds: db['test'].findOne(…)'s receiver is the read, and the
+// element is the collection the read indexes' stated one. Only what the
+// collection's interface proves answers; a dynamic guess is no answer.
+func (r *Resolver) keyedReceiverElement(variable string, line uint32, caller string, pr *parser.ParseResult, baseDir string, tr *callTrace, ctx lookupCtx) (elem string) {
+	stem := keyedReceiverStem(variable)
+
+	if stem != "" {
+		elem = r.elementOf(stem, int(line), 0, caller, pr, baseDir, ctx.depth+1, ctx.leaf)
+
+		if elem != "" && strings.HasPrefix(elem, "$") && !strings.HasPrefix(elem, familyPrefix) {
+			tr.addf("%q's keyed element read %q names reads against a dynamic element — no answer of its own", variable, stem)
+
+			elem = ""
+		}
+
+		if elem != "" {
+			tr.addf("%q is the keyed element read %q names, whose collection's element is %q", variable, stem, elem)
+		}
+	}
+
+	return elem
+}
+
 // receiverComponentD is receiverComponent with a lookupCtx: the depth of
 // assignments read to type a variable, which bounds `x = y.f()` through
 // `y = z.g()`, and the subclass a handoff reads on behalf of.
 func (r *Resolver) receiverComponentD(variable string, line uint32, caller, funcName string, pr *parser.ParseResult, baseDir string, tr *callTrace, ctx lookupCtx) (comp string, member bool) {
 	defer func() {
-		if comp == "" && !member && pr != nil {
-			key := SpeculativeReceiver{File: pr.URI.Path(), Caller: caller, Variable: strings.ToLower(variable)}
-			if guess := r.SpeculativeReceivers[key]; guess != "" {
-				comp = guess
-				tr.addf("speculative receiver %q -> %q (origin unproven)", variable, guess)
-			}
+		if guess, ok := r.speculativeReceiverOver(variable, comp, member, caller, pr); ok {
+			comp = guess
+			tr.addf("speculative receiver %q -> %q (origin unproven)", variable, guess)
 		}
 	}()
 
@@ -3516,6 +3567,13 @@ func (r *Resolver) receiverComponentD(variable string, line uint32, caller, func
 				return "", true
 			}
 		}
+	}
+
+	// A keyed element read as a receiver — db['test'].findOne(…) — is the
+	// element the collection's interface states: the parser files the read
+	// as the receiver, its key spelled off.
+	if comp := r.keyedReceiverElement(variable, line, caller, pr, baseDir, tr, ctx); comp != "" {
+		return comp, false
 	}
 
 	if comp == "" {
