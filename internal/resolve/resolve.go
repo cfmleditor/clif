@@ -94,9 +94,7 @@ type Resolver struct {
 	typeGuardCache        spanCache[receiverTypeGuard] // exact builtin checks in current source
 	closureCache          spanCache[closureSpan]       // file URI → every function literal its current text holds (closuresOf)
 	registryCache         spanCache[[]registryFact]    // file URI → every registry recipe its current text holds (registriesOf)
-	registryTextMu        sync.Mutex
-	registryTextCache     map[string]registryText // includer path → its registry facts, with its text
-	pathCaches                                    // what InvalidatePaths clears
+	pathCaches                                         // what InvalidatePaths clears
 }
 
 // pathCaches are the answers a Resolver keeps that depend on files, paths and
@@ -138,6 +136,7 @@ type pathCaches struct {
 	lazyFiles         map[string]bool                     // file → it holds an isObject() guard at all
 	viewArgCache      map[string]map[string][]viewArgSite // module → view → its renders (viewArgSites)
 	handoffs          handoffIndex                        // handler actions by the view each renders (viewActions)
+	registryTexts     map[string]registryText             // includer path → its registry facts while its stamp holds (includeRegistries)
 }
 
 // returnCache holds ReturnComponentOf's answers. An answer reads the index and
@@ -3269,8 +3268,9 @@ func displayComponent(comp string) string {
 // Two of CanResolveCall's fallbacks are left out on purpose. A
 // componentResolver is tried against the variable name, but not against the
 // whole line, which exists for chained calls and would answer for whatever
-// else the line holds. And "$any" and "$builtin." are not components, so they
-// are reported as unknown.
+// else the line holds. And "$any", "$builtin." and a registry family (any one
+// of its members, whose marker would split on its "|" into bare member paths)
+// are not one component, so they are reported as unknown.
 func (r *Resolver) ComponentOf(variable string, line uint32, pr *parser.ParseResult, baseDir string) string {
 	caller := pr.FuncScopeAt(int(line)).Name
 
@@ -3280,7 +3280,7 @@ func (r *Resolver) ComponentOf(variable string, line uint32, pr *parser.ParseRes
 		comp, _, _ = parser.ResolveFromCallMatch(variable, r.Resolvers)
 	}
 
-	if comp == "$any" || strings.HasPrefix(comp, "$builtin.") {
+	if comp == "$any" || strings.HasPrefix(comp, "$builtin.") || strings.HasPrefix(comp, familyPrefix) {
 		return ""
 	}
 
@@ -3486,6 +3486,12 @@ func (r *Resolver) receiverComponentD(variable string, line uint32, caller, func
 	}
 
 	if name, scope, record := parser.MemberReceiverName(variable); record {
+		// A keyed element read whose key holds a dot — drivers[form.type] —
+		// reads as a member to the scope split, and is the read it spells.
+		if elem := r.keyedReceiverElement(variable, line, caller, pr, baseDir, tr, ctx); elem != "" {
+			return elem, false
+		}
+
 		return r.memberReceiver(variable, name, scope, line, caller, funcName, pr, baseDir, tr, ctx), false
 	}
 

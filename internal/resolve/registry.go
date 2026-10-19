@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
@@ -58,9 +59,10 @@ var (
 	// The header's attributes, quoted or bare.
 	loopAttrPairsRe = regexp.MustCompile(`(?i)\b(collection|struct|array|index|item|list)\s*=\s*(?:"([^"]*)"|'([^']*)'|([A-Za-z_][\w]*))`)
 
-	// Both polarities guard the listing key: equal to a name skips it out,
-	// unequal to one lets only the others construct. Both deny the literal.
-	skipCompareRe = regexp.MustCompile(`(?i)\b([A-Za-z_]\w*)\s*(?:===?|!==|!=|\bEQ\b|\bNEQ\b)\s*["']([^"']+)["']`)
+	// A compare of the listing key with a name. Group 2 is the operator:
+	// equal to a name and skipping keeps it out, as does unequal to one and
+	// constructing; registrySkips reads which.
+	skipCompareRe = regexp.MustCompile(`(?i)\b([A-Za-z_]\w*)\s*(===?|!==|!=|\bEQ\b|\bNEQ\b)\s*["']([^"']+)["']`)
 
 	// R[key] = createObject("component", V), written right on the store.
 	directStoreRe = regexp.MustCompile(`(?i)((?:variables\.)?[A-Za-z_]\w*)\s*\[[^\]]*\]\s*=\s*createObject\s*\(\s*["']\s*component\s*["']\s*,\s*([^)]*?)\s*\)`)
@@ -114,7 +116,10 @@ func (r *Resolver) registriesOf(pr *parser.ParseResult) []registryFact {
 // includeRegistries is the registry facts some includer of the template
 // holds: a recipe fills the struct in the template that declares it, and the
 // consumer it flows to reads its elements back where it is included. Cached
-// per includer path while its text is unchanged.
+// per includer path while its size and modification time are what they were
+// read at; an includer that never mentions the recipe's listing is
+// remembered with no facts, so most lookups end at the stat. The lock is
+// held only to read and write the cache, never across the file's I/O.
 func (r *Resolver) includeRegistries(file string) []registryFact {
 	g := r.includes()
 	if g == nil {
@@ -122,9 +127,6 @@ func (r *Resolver) includeRegistries(file string) []registryFact {
 	}
 
 	o := r.owner()
-
-	o.registryTextMu.Lock()
-	defer o.registryTextMu.Unlock()
 
 	var out []registryFact
 
@@ -135,32 +137,50 @@ func (r *Resolver) includeRegistries(file string) []registryFact {
 			continue
 		}
 
-		if hit, ok := o.registryTextCache[includer]; ok {
+		info, err := o.fs().Stat(includer)
+		if err != nil {
+			continue
+		}
+
+		o.mu.RLock()
+		hit, ok := o.registryTexts[pathKey(includer)]
+		o.mu.RUnlock()
+
+		if ok && hit.size == info.Size() && hit.modTime.Equal(info.ModTime()) {
 			out = append(out, hit.facts...)
 
 			continue
 		}
 
-		data, err := o.fs().ReadFile(includer)
+		text, err := o.readText(includer)
 		if err != nil {
 			continue
 		}
 
-		facts := r.findRegistries(string(data), includer)
-
-		if o.registryTextCache == nil {
-			o.registryTextCache = map[string]registryText{}
+		var facts []registryFact
+		if mentions(text, "ComponentListPackageAsStruct") {
+			facts = r.findRegistries(text, includer)
 		}
 
-		o.registryTextCache[includer] = registryText{content: string(data), facts: facts}
+		o.mu.Lock()
+		if o.registryTexts == nil {
+			o.registryTexts = map[string]registryText{}
+		}
+
+		o.registryTexts[pathKey(includer)] = registryText{size: info.Size(), modTime: info.ModTime(), facts: facts}
+		o.mu.Unlock()
+
 		out = append(out, facts...)
 	}
 
 	return out
 }
 
+// registryText is one includer's registry facts and the stamp of the text
+// they were read from.
 type registryText struct {
-	content string
+	size    int64
+	modTime time.Time
 	facts   []registryFact
 }
 
@@ -404,20 +424,23 @@ func braceEnd(content string, open int) (int, bool) {
 }
 
 // skipQuoted walks the quote at i forward to its close, answering that
-// closer's offset.
+// closer's offset. CFML escapes a quote by doubling it; a backslash is an
+// ordinary character.
 func skipQuoted(content string, i int) int {
 	quote := content[i]
 
 	for i++; i < len(content); i++ {
-		if content[i] == '\\' {
+		if content[i] != quote {
+			continue
+		}
+
+		if i+1 < len(content) && content[i+1] == quote {
 			i++
 
 			continue
 		}
 
-		if content[i] == quote {
-			return i
-		}
+		return i
 	}
 
 	return len(content) - 1
@@ -619,8 +642,10 @@ func assignedFromCreate(spanText, name, item string) bool {
 }
 
 // registrySkips is the names the key variable is guarded against in the
-// loop's span, in either spelling of the guard. Only a compare with the key
-// counts; the guards name the base class and the field/group helpers.
+// loop's span: equal to a name where the guard skips the turn, or unequal to
+// one where it constructs. Only a compare with the key counts; the guards
+// name the base class and the field/group helpers. A construction made only
+// when the key equals a name builds that member, which stays in.
 func registrySkips(spanText, index string) []string {
 	if index == "" {
 		return nil
@@ -628,17 +653,65 @@ func registrySkips(spanText, index string) []string {
 
 	var skips []string
 
-	for _, m := range skipCompareRe.FindAllStringSubmatch(spanText, -1) {
-		if !strings.EqualFold(m[1], index) {
+	for _, m := range skipCompareRe.FindAllStringSubmatchIndex(spanText, -1) {
+		if !strings.EqualFold(spanText[m[2]:m[3]], index) {
 			continue
 		}
 
-		if !slices.Contains(skips, m[2]) {
-			skips = append(skips, m[2])
+		op := strings.ToLower(spanText[m[4]:m[5]])
+		equal := op == "==" || op == "===" || op == "eq"
+
+		if equal != guardSkips(spanText[m[1]:]) {
+			continue
+		}
+
+		if name := spanText[m[6]:m[7]]; !slices.Contains(skips, name) {
+			skips = append(skips, name)
 		}
 	}
 
 	return skips
+}
+
+// guardSkips is whether the condition the rest of a compare finishes is
+// followed by a continue: the script if's closing parenthesis, or the
+// cfif's closing angle bracket, then `continue` or `<cfcontinue>`.
+func guardSkips(rest string) bool {
+	depth := 0
+
+	for i := 0; i < len(rest); i++ {
+		switch rest[i] {
+		case '(':
+			depth++
+		case ')':
+			depth--
+		case '>':
+			if depth > 0 {
+				continue
+			}
+		case '"', '\'':
+			i = skipQuoted(rest, i)
+
+			continue
+		default:
+			continue
+		}
+
+		if depth >= 0 && rest[i] != '>' {
+			continue
+		}
+
+		after := strings.TrimLeft(rest[i+1:], " \t\r\n{")
+
+		return hasPrefixFold(after, "continue") || hasPrefixFold(after, "<cfcontinue")
+	}
+
+	return false
+}
+
+// hasPrefixFold is strings.HasPrefix, ignoring case.
+func hasPrefixFold(s, prefix string) bool {
+	return len(s) >= len(prefix) && strings.EqualFold(s[:len(prefix)], prefix)
 }
 
 // registryMembers is the files of the package's directory, less the names
@@ -943,39 +1016,38 @@ func displayMember(member string) string {
 
 // registryElementRes is the component an element read of a registry answers:
 // `driver = drivers[trim(form.type)]` reads the struct the listing loop
-// filled, and each element of it is one of the family it stores. scoping
-// aside (a container may be written as variables.drivers), only the first
-// structural element read on the right-hand side is asked.
-var (
-	registryElementReadRe = regexp.MustCompile(`(?:^|[^\w.])((?:variables\.)?[A-Za-z_]\w*)\s*\[`)
-	scopeWordOf           = map[string]bool{"variables": true, "local": true, "arguments": true, "url": true, "form": true, "cgi": true, "cookie": true, "client": true, "application": true, "request": true, "session": true, "server": true, "this": true, "super": true}
-)
-
+// filled, and each element of it is one of the family it stores. Only a
+// right-hand side that is the element read and nothing else: a call on the
+// element, an argument, a nested read or a builtin over it holds something
+// else. A container may be written as variables.drivers.
 func (r *Resolver) registryElementRes(rhs string, pr *parser.ParseResult, tr *callTrace) string {
-	for _, m := range registryElementReadRe.FindAllStringSubmatch(rhs, -1) {
-		container := m[1]
-
-		if stem, ok := strings.CutPrefix(container, "variables."); ok {
-			container = stem
-		}
-
-		if strings.Contains(container, ".") || scopeWordOf[strings.ToLower(container)] {
-			continue
-		}
-
-		fact, ok := r.registryFamily(container, pr)
-		if !ok {
-			continue
-		}
-
-		comp := familyComp(fact)
-		tr.addf("%q is an element of %q, the registry the %q package's components were stored in — the family has %d components", container, fact.container, fact.pkg, len(fact.members))
-
-		return comp
+	rhs = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(rhs), ";"))
+	if !exactKeyedReadRe.MatchString(rhs) {
+		return ""
 	}
 
-	return ""
+	m := indexedReadRe.FindStringSubmatch(rhs)
+	if m == nil {
+		return ""
+	}
+
+	container := strings.TrimPrefix(strings.ToLower(m[1]), "variables.")
+	if strings.Contains(container, ".") || scopeWordOf[container] {
+		return ""
+	}
+
+	fact, ok := r.registryFamily(container, pr)
+	if !ok {
+		return ""
+	}
+
+	tr.addf("%q is an element of %q, the registry the %q package's components were stored in — the family has %d components", m[1], fact.container, fact.pkg, len(fact.members))
+
+	return familyComp(fact)
 }
+
+// scopeWordOf is the scope names, which name no registry.
+var scopeWordOf = map[string]bool{"variables": true, "local": true, "arguments": true, "url": true, "form": true, "cgi": true, "cookie": true, "client": true, "application": true, "request": true, "session": true, "server": true, "this": true, "super": true}
 
 // registryExprName is the plain variable name a collection expression is,
 // when it reads a registry: `drivers` or `variables.drivers`, no scope

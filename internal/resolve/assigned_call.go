@@ -185,7 +185,7 @@ func (r *Resolver) assignedFromCall(variable string, line uint32, caller string,
 			end = scope.End
 		}
 
-		if _, _, loop := enclosingLoop(r.loopsOf(pr)[strings.ToLower(name)], strings.ToLower(name), int(line), start, end); loop {
+		if _, loop := enclosingLoop(r.loopsOf(pr)[strings.ToLower(name)], strings.ToLower(name), int(line), start, end); loop {
 			return ""
 		}
 

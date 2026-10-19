@@ -52,12 +52,26 @@ func (r *Resolver) loopElement(call *parser.CallSite, pr *parser.ParseResult, ba
 		start, end, caller = scope.Start, scope.End, scope.Name
 	}
 
-	collection, header, ok := enclosingLoop(r.loopsOf(pr)[name], name, int(call.Line), start, end)
+	loop, ok := enclosingLoop(r.loopsOf(pr)[name], name, int(call.Line), start, end)
 	if !ok {
 		return ""
 	}
 
-	comp := r.elementOf(collection, header, start, caller, pr, baseDir, 0, "")
+	collection := loop.collection
+
+	// A script for-in over a struct binds its keys, which are strings: a
+	// registry is a struct of the family, and its key is none of them.
+	if loop.keys {
+		if container, ok := registryExprName(collection); ok {
+			if _, found := r.registryFamily(container, pr); found {
+				tr.addf("%q is a key of the registry %q, a string", call.Variable, collection)
+
+				return ""
+			}
+		}
+	}
+
+	comp := r.elementOf(collection, loop.header, start, caller, pr, baseDir, 0, "")
 	if comp != "" {
 		tr.addf("%q is the variable of a loop over %q, whose elements are %q", call.Variable, collection, comp)
 	}
@@ -88,12 +102,13 @@ func enclosingScope(pr *parser.ParseResult, line uint32) (parser.FuncScope, bool
 type loopSpan struct {
 	name, collection   string // the loop variable, lowercased without local., and what it iterates
 	header, start, end int
+	keys               bool // a script for-in, which binds a struct's keys and an array's elements
 }
 
 // enclosingLoop finds, among loops, the innermost one between lines start
 // and end (end < 0 for the rest of the file) that binds name and holds line in
-// its body, and returns the collection it iterates and the line of its header.
-func enclosingLoop(loops []loopSpan, name string, line, start, end int) (collection string, header int, ok bool) {
+// its body.
+func enclosingLoop(loops []loopSpan, name string, line, start, end int) (loopSpan, bool) {
 	var best *loopSpan
 
 	for i := range loops {
@@ -108,10 +123,10 @@ func enclosingLoop(loops []loopSpan, name string, line, start, end int) (collect
 	}
 
 	if best == nil {
-		return "", 0, false
+		return loopSpan{}, false
 	}
 
-	return best.collection, best.header, true
+	return *best, true
 }
 
 // loopsByName is a file's loops by the variable they bind.
@@ -233,6 +248,7 @@ func scriptLoops(tokens []parser.Token) []loopSpan {
 			header:     tokens[i].Line,
 			start:      tokens[closeParen+1].Line,
 			end:        tokens[closeBrace].Line,
+			keys:       true,
 		})
 	}
 
