@@ -1,6 +1,7 @@
 package resolve
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -122,5 +123,119 @@ func TestTheCollectionAFunctionBuildsProvesItsElement(t *testing.T) {
 		"b.getUndeclared":       "method 'getUndeclared' not found in pkg.widget",
 		"cached[1].getLabel":    "",
 		"ws[1].getLabel":        "",
+	})
+}
+
+// A write to the collection the analysis does not account for is an open
+// world: the built array or the getter's field may hold anything it wrote,
+// and the element is withheld. A setter assigning the field an argument, a
+// member append, an indexed write, arrayPrepend and arrayInsertAt each hand
+// the collection a value nobody proved, so a gadget method read off the
+// collection is not a finding against the widget the appends built. An
+// append through the getter — arrayAppend(getWidgets(), x) — is one more
+// proven value, and joins the element.
+func TestAnUnaccountedWriteWithholdsTheBuiltElement(t *testing.T) {
+	dir := t.TempDir()
+
+	field := func(write string) string {
+		return `<cfcomponent>
+	<cffunction name="getWidgets">
+		<cfif not isArray(variables.instance.widgets)>
+			<cfset loadWidgets()>
+		</cfif>
+		<cfreturn variables.instance.widgets />
+	</cffunction>
+
+	<cffunction name="loadWidgets">
+		<cfset variables.instance.widgets=arrayNew(1)/>
+		<cfset var w=createObject("component","pkg.widget").init()>
+		<cfset arrayAppend(variables.instance.widgets, w)/>
+		<cfreturn this>
+	</cffunction>
+
+	<cffunction name="other">
+		<cfargument name="widgets">
+		` + write + `
+	</cffunction>
+</cfcomponent>`
+	}
+
+	builder := func(write string) string {
+		return `<cfcomponent>
+	<cffunction name="getBeans" returntype="array">
+		<cfset var built=arrayNew(1)>
+		<cfset var w=createObject("component","pkg.widget").init()>
+		<cfset arrayAppend(built, w)>
+		` + write + `
+		<cfreturn built>
+	</cffunction>
+</cfcomponent>`
+	}
+
+	gadget := `createObject("component","pkg.gadget").init()`
+
+	writeFiles(t, dir, map[string]string{
+		"pkg/widget.cfc": `<cfcomponent>
+	<cffunction name="init"><cfreturn this></cffunction>
+	<cffunction name="getLabel"><cfreturn ""></cffunction>
+</cfcomponent>`,
+		"pkg/gadget.cfc": `<cfcomponent>
+	<cffunction name="init"><cfreturn this></cffunction>
+	<cffunction name="spin"><cfreturn ""></cffunction>
+</cfcomponent>`,
+		"pkg/setter.cfc":  field(`<cfset variables.instance.widgets=arguments.widgets>`),
+		"pkg/member.cfc":  field(`<cfset variables.instance.widgets.append(` + gadget + `)>`),
+		"pkg/indexed.cfc": field(`<cfset variables.instance.widgets[2]=` + gadget + `>`),
+		"pkg/viaget.cfc": field(`<cfset var g=` + gadget + `>
+		<cfset arrayAppend(getWidgets(), g)>`),
+		"pkg/bplain.cfc":   builder(""),
+		"pkg/bindex.cfc":   builder(`<cfset built[2]=` + gadget + `>`),
+		"pkg/bmember.cfc":  builder(`<cfset built.append(` + gadget + `)>`),
+		"pkg/bprepend.cfc": builder(`<cfset arrayPrepend(built, ` + gadget + `)>`),
+		"pkg/binsert.cfc":  builder(`<cfset arrayInsertAt(built, 1, ` + gadget + `)>`),
+		"pkg/page.cfm": `<cfset a = new pkg.setter()>
+<cfset as = a.getWidgets()>
+<cfset as[1].spin()>
+<cfset b = new pkg.member()>
+<cfset bs = b.getWidgets()>
+<cfset bs[1].spin()>
+<cfset c = new pkg.indexed()>
+<cfset cs = c.getWidgets()>
+<cfset cs[1].spin()>
+<cfset d = new pkg.viaget()>
+<cfset ds = d.getWidgets()>
+<cfset ds[1].spin()>
+<cfset ds[1].getLabel()>
+<cfset ds[1].nope()>
+<cfset p = new pkg.bplain()>
+<cfset ps = p.getBeans()>
+<cfset ps[1].spin()>
+<cfset e = new pkg.bindex()>
+<cfset es = e.getBeans()>
+<cfset es[2].spin()>
+<cfset f = new pkg.bmember()>
+<cfset fs = f.getBeans()>
+<cfset fs[2].spin()>
+<cfset g = new pkg.bprepend()>
+<cfset gs = g.getBeans()>
+<cfset gs[1].spin()>
+<cfset h = new pkg.binsert()>
+<cfset hs = h.getBeans()>
+<cfset hs[1].spin()>`,
+	})
+
+	got := reasonsIn(t, dir, "pkg/page.cfm")
+
+	for _, call := range []string{"as[1].spin", "bs[1].spin", "cs[1].spin", "es[2].spin", "fs[2].spin", "gs[1].spin", "hs[1].spin"} {
+		if r := got[call]; strings.Contains(r, "pkg.widget") {
+			t.Errorf("%s: %q; an unaccounted write withholds the widget element", call, r)
+		}
+	}
+
+	expectReasons(t, got, map[string]string{
+		"ps[1].spin":     "method 'spin' not found in pkg.widget",
+		"ds[1].spin":     "",
+		"ds[1].getLabel": "",
+		"ds[1].nope":     "method 'nope' not found in pkg.gadget|pkg.widget",
 	})
 }
