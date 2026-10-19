@@ -3352,7 +3352,7 @@ func (r *Resolver) inferredReceiver(variable string, line uint32, caller, funcNa
 // recipes' guards keep, and the guess the parse could not walk stays its
 // guess against anything else.
 func (r *Resolver) familyOverGuess(comp, variable string, line uint32, caller string, pr *parser.ParseResult, baseDir string, tr *callTrace, ctx lookupCtx) string {
-	if comp != "$any" {
+	if comp != "$any" || !r.registriesReach(pr) {
 		return comp
 	}
 
@@ -3364,6 +3364,27 @@ func (r *Resolver) familyOverGuess(comp, variable string, line uint32, caller st
 	tr.addf("%q's dynamic guess is overwritten by the family the construction's listing serves: %q", variable, family)
 
 	return family
+}
+
+// registriesReach reports whether a registry recipe can reach pr: its own
+// text holds one, or an includer's does. Only then can an assignment prove a
+// family, and the walk that looks for one is skipped everywhere else.
+func (r *Resolver) registriesReach(pr *parser.ParseResult) bool {
+	if pr == nil {
+		return false
+	}
+
+	// Asked for every call on a dynamic receiver: the recipe's word is
+	// looked for once per parse.
+	own, _ := pr.Memo("holdsRegistry", func() any {
+		return strings.Contains(pr.Content, "ComponentListPackageAsStruct")
+	}).(bool)
+
+	if own && len(r.registriesOf(pr)) > 0 {
+		return true
+	}
+
+	return pr.URI != "" && len(r.includeRegistries(cfpath.FromURI(string(pr.URI)))) > 0
 }
 
 // keyedReceiverStem is the collection a keyed element read the parser filed
@@ -3411,10 +3432,30 @@ func (r *Resolver) keyedReceiverElement(variable string, line uint32, caller str
 			elem = ""
 		}
 
+		if elem == "" {
+			elem = r.nativeElementOf(stem, line, caller, pr, baseDir, ctx)
+		}
+
 		if elem != "" {
 			tr.addf("%q is the keyed element read %q names, whose collection's element is %q", variable, stem, elem)
 		}
 	}
+
+	return elem
+}
+
+// nativeElementOf is the interface each struct-notation element of the
+// native handle a variable holds is, as the handle's contract states it: a
+// MongoDB database handle's db["coll"] is a collection. A variable holding
+// no native handle, or one whose contract states no element, answers "".
+func (r *Resolver) nativeElementOf(variable string, line uint32, caller string, pr *parser.ParseResult, baseDir string, ctx lookupCtx) string {
+	if ctx.depth >= maxAssignedDepth {
+		return ""
+	}
+
+	comp, _ := r.receiverComponentD(variable, line, caller, "", pr, baseDir, nil, lookupCtx{depth: ctx.depth + 1, leaf: ctx.leaf})
+
+	elem, _ := nativetype.Element(comp)
 
 	return elem
 }

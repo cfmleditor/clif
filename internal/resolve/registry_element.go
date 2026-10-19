@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/parser"
@@ -104,7 +105,7 @@ func (r *Resolver) memberArrayElements(member, method string) (string, bool) {
 			// literal holds. A non-literal anywhere else, or a copy of
 			// something the member's own file does not assign, leaves the
 			// element untyped.
-			src, dup := duplicatePlain(producerText(as.rhs))
+			src, dup := as.copyOf, as.copies
 			if !dup || !spanned || as.at < bodyStart || as.at >= bodyEnd ||
 				!strings.EqualFold(src, name) {
 				return "", false
@@ -267,6 +268,26 @@ func funcScopeText(pr *parser.ParseResult, fd *parser.FunctionDef) (string, bool
 // `fields` or `variables.fields` — or "". Script `return` and tag
 // `cfreturn` read the same here.
 func (r *Resolver) fdReturnsLocal(fd *parser.FunctionDef) string {
+	if fd == nil || !fd.URI.IsFile() {
+		return ""
+	}
+
+	pr := r.handlerParse(fd.URI.Path())
+	if pr == nil {
+		return ""
+	}
+
+	// Asked for every element read a member's getter types, so each
+	// function's answer is found once per parse.
+	held, _ := pr.Memo("returnsLocal\x00"+strconv.Itoa(int(fd.Line))+"\x00"+strings.ToLower(fd.Name), func() any {
+		return r.returnsLocalOf(fd)
+	}).(string)
+
+	return held
+}
+
+// returnsLocalOf is fdReturnsLocal's answer, read from fd's own scope.
+func (r *Resolver) returnsLocalOf(fd *parser.FunctionDef) string {
 	tokens, ok := r.fnScopeTokens(fd)
 	if !ok {
 		return ""
@@ -335,9 +356,12 @@ func localNameOf(tokens []parser.Token) string {
 
 // memberAssignment is one assignment of a name in a member's own file: the
 // file offset the assigned name's token sits at, and the value's tokens.
+// copyOf is the name a duplicate() value copies, when copies says it is one.
 type memberAssignment struct {
-	at  int
-	rhs []parser.Token
+	at     int
+	rhs    []parser.Token
+	copyOf string
+	copies bool
 }
 
 // memberAssignments is every assignment of name in the member's own file,
@@ -350,8 +374,18 @@ func (r *Resolver) memberAssignments(name, member string) ([]memberAssignment, b
 		return nil, false
 	}
 
-	tokens := significantTokens(pr.Content)
+	// Asked for every element read the member's getter types, so each
+	// name's assignments are found once per parse of the member.
+	found, _ := pr.Memo("memberAssignments\x00"+strings.ToLower(name), func() any {
+		return assignmentsOf(fileTokens(pr), name)
+	}).([]memberAssignment)
 
+	return found, len(found) > 0
+}
+
+// assignmentsOf is every assignment of name in the tokens, or nil when one
+// does not close.
+func assignmentsOf(tokens []parser.Token, name string) []memberAssignment {
 	var found []memberAssignment
 
 	for i := 0; i+1 < len(tokens); i++ {
@@ -366,18 +400,22 @@ func (r *Resolver) memberAssignments(name, member string) ([]memberAssignment, b
 		}
 
 		if stop > len(tokens) {
-			return nil, false
+			return nil
 		}
 
-		found = append(found, memberAssignment{at: tokens[i].Offset, rhs: tokens[i+2 : stop]})
+		as := memberAssignment{at: tokens[i].Offset, rhs: tokens[i+2 : stop]}
+
+		// A tag assignment's value runs past its tag, so its text is read
+		// here, once, rather than for every element read that asks.
+		if len(as.rhs) > 0 && as.rhs[0].Kind == parser.TokIdent && strings.EqualFold(as.rhs[0].Value, "duplicate") {
+			as.copyOf, as.copies = duplicatePlain(producerText(as.rhs))
+		}
+
+		found = append(found, as)
 		i = stop - 1
 	}
 
-	if len(found) == 0 {
-		return nil, false
-	}
-
-	return found, true
+	return found
 }
 
 // assignmentEnd is the index of the token that closes the grouping value an

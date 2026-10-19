@@ -428,7 +428,9 @@ func (r *Resolver) elementOf(expression string, header, start int, caller string
 				return comp
 			}
 
-			return ""
+			// A native handle's struct-notation element, as its contract
+			// states it: a MongoDB database handle's db["coll"].
+			return r.nativeElementOf(k[1], conv.Uint32(header), caller, pr, baseDir, lookupCtx{depth: depth, leaf: leaf})
 		}
 
 		return ""

@@ -96,3 +96,37 @@ func TestTheMongoExtensionShellAPITypesItsHandles(t *testing.T) {
 		"coll.getMissingShellMethod": "method 'getMissingShellMethod' not found on builtin native.mongodbcollection",
 	})
 }
+
+// The ReadMe's struct notation: a database handle's db["collection"] is the
+// collection getCollection names, read off the handle directly or through a
+// local assigned the element.
+func TestAMongoDatabaseHandlesKeyedElementIsItsCollection(t *testing.T) {
+	dir := t.TempDir()
+
+	r := &Resolver{}
+	r.NativeEngine = "lucee"
+
+	writeFiles(t, dir, map[string]string{
+		"core/src/main/java/resource/component/org/lucee/cfml/test/LuceeTestCase.cfc": `component {}`,
+		"core/src/main/cfml/context/admin/services.update.functions.cfm":              `<cfadmin action="x">`,
+		"core/src/main/cfml/test/mongo.cfc": `component {
+	function findDocs(uri) {
+		db = MongoDBConnect("mydb", uri);
+		echo(db["myColl"].findOne({}));
+		db["myColl"].nope();
+		c = db["myColl"];
+		echo(c.count());
+		c.missing();
+		return "";
+	}
+}`,
+	})
+
+	got := reasonsWith(t, r, dir, "core/src/main/cfml/test/mongo.cfc")
+	expectReasons(t, got, map[string]string{
+		"db[].findOne": "",
+		"db[].nope":    "method 'nope' not found on builtin native.mongodbcollection",
+		"c.count":      "",
+		"c.missing":    "method 'missing' not found on builtin native.mongodbcollection",
+	})
+}
