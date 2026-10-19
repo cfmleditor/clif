@@ -1641,8 +1641,16 @@ func (r *Resolver) walkHops(comp, softComp string, call *parser.CallSite, pr *pa
 		// A registry family is its members' set, which no single hop's
 		// declared return type can name: what it returns is an array of the
 		// element the members' own files prove, and the chain past the
-		// getter runs on that array, not on the family. Dynamic.
+		// getter runs on that array, not on the family. Dynamic, once the
+		// hop itself is every family's method.
 		if paths := familyPaths(comp); len(paths) > 0 {
+			hopCall := *call
+			hopCall.FuncName = hop
+
+			if why := r.checkFamiliesMethod(familyRefs(comp), &hopCall, pr, tr); why != "" {
+				return comp, softComp, why + " (chain to '" + funcName + "')", true
+			}
+
 			tr.addf("chain hop %q is on a registry family (%s) — the rest of the chain is dynamic", hop, displayFamilyMembers(paths))
 			tr.hit(TargetDynamic, "", nil)
 
