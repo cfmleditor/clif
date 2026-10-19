@@ -206,3 +206,29 @@ func TestAChainHopOnAFamilyIsChecked(t *testing.T) {
 		t.Errorf("driver.getCustomFieldz.len: %q, want the hop's missing-method reason", reason)
 	}
 }
+
+// A literal item is a construction only when the call is the whole item:
+// field("URL").setX(true) is what setX returns. And a literal the
+// assignment goes on to call a method of is that method's value:
+// [ group("E") ].map(f) is what map returns, not the literal's items.
+// Neither proves the element, so the loop variable stays untyped.
+func TestALiteralItemOrLiteralWithMoreIsNotItsConstruction(t *testing.T) {
+	for _, fields := range []string{
+		`variables.fields = [ field("URL").setX(true) ];`,
+		`variables.fields = [ field("URL") ].map(f);`,
+	} {
+		dir := t.TempDir()
+		page := familyFieldFiles(t, dir, fields, `<cfloop array="#driver.getCustomFields()#" index="f">
+	<cfoutput>#f.getName()#</cfoutput>
+</cfloop>`)
+
+		got := reasonsInCFM(t, dir, page)
+		if _, ok := got["f.getName"]; !ok {
+			t.Fatalf("%s: f.getName not recorded; got %v", fields, got)
+		}
+
+		if reason := got["f.getName"]; reason == "" {
+			t.Errorf("%s: f.getName accepted, want the element unproven", fields)
+		}
+	}
+}
