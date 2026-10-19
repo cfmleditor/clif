@@ -102,7 +102,7 @@ var (
 // registriesOf is the registry facts the template's own text holds, read for
 // every element read the template makes on one of its containers.
 func (r *Resolver) registriesOf(pr *parser.ParseResult) []registryFact {
-	if pr == nil || !strings.Contains(pr.Content, "ComponentListPackageAsStruct") {
+	if pr == nil || !mentions(pr.Content, "ComponentListPackageAsStruct") {
 		return nil
 	}
 
@@ -661,7 +661,7 @@ func registrySkips(spanText, index string) []string {
 		op := strings.ToLower(spanText[m[4]:m[5]])
 		equal := op == "==" || op == "===" || op == "eq"
 
-		if equal != guardSkips(spanText[m[1]:]) {
+		if equal != guardSkips(spanText[m[1]:], insideCFTag(spanText[:m[0]])) {
 			continue
 		}
 
@@ -673,10 +673,19 @@ func registrySkips(spanText, index string) []string {
 	return skips
 }
 
+// insideCFTag is whether the text before a compare leaves a <cf tag open,
+// so the compare is a cfif's condition rather than a script if's.
+func insideCFTag(before string) bool {
+	open := strings.LastIndex(strings.ToLower(before), "<cf")
+
+	return open >= 0 && open > strings.LastIndexByte(before, '>')
+}
+
 // guardSkips is whether the condition the rest of a compare finishes is
-// followed by a continue: the script if's closing parenthesis, or the
-// cfif's closing angle bracket, then `continue` or `<cfcontinue>`.
-func guardSkips(rest string) bool {
+// followed by a continue: the script if's closing parenthesis, or, in a
+// cfif (tag), its closing angle bracket, then `continue` or `<cfcontinue>`.
+// A script condition's > is a comparison.
+func guardSkips(rest string, tag bool) bool {
 	depth := 0
 
 	for i := 0; i < len(rest); i++ {
@@ -686,7 +695,7 @@ func guardSkips(rest string) bool {
 		case ')':
 			depth--
 		case '>':
-			if depth > 0 {
+			if !tag || depth > 0 {
 				continue
 			}
 		case '"', '\'':

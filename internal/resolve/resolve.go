@@ -1581,8 +1581,9 @@ func (r *Resolver) canResolveCall(call *parser.CallSite, pr *parser.ParseResult,
 	// A receiver built from an argument (`var item = arguments.iterator
 	// .next()`, `var result = arguments.filter`) is looked up again with
 	// inference allowed inside it: only here, for a call nothing else
-	// answered, so the cost is that of the calls left unresolved.
-	if comp == "" {
+	// answered, so the cost is that of the calls left unresolved. Without
+	// files to infer from it would only repeat the lookup.
+	if comp == "" && len(r.InferArgsFiles) > 0 {
 		if comp, _ = r.receiverComponentD(variable, call.Line, call.Caller, funcName, pr, baseDir, nil, lookupCtx{call: call, callers: true}); comp != "" {
 			tr.addf("resolved %q to %q: looked up again with what its arguments' callers pass", variable, comp)
 		}
@@ -3413,7 +3414,7 @@ func (r *Resolver) registriesReach(pr *parser.ParseResult) bool {
 	// Asked for every call on a dynamic receiver: the recipe's word is
 	// looked for once per parse.
 	own, _ := pr.Memo("holdsRegistry", func() any {
-		return strings.Contains(pr.Content, "ComponentListPackageAsStruct")
+		return mentions(pr.Content, "ComponentListPackageAsStruct")
 	}).(bool)
 
 	if own && len(r.registriesOf(pr)) > 0 {

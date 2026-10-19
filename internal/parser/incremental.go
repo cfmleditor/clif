@@ -253,10 +253,6 @@ func (pr *ParseResult) resetNameIndexes() {
 	pr.funcVarsMu.Lock()
 	pr.funcVarSets = nil
 	pr.funcVarsMu.Unlock()
-
-	pr.memoMu.Lock()
-	pr.memo = nil
-	pr.memoMu.Unlock()
 }
 
 func (pr *ParseResult) resetGlobalCaches() {
@@ -274,6 +270,12 @@ func (pr *ParseResult) resetGlobalCaches() {
 	pr.variablesVars = nil
 	pr.thisVars = nil
 	pr.mu.Unlock()
+
+	// Every edit comes through here, including one inside a function that
+	// moves no line, which resets no name index.
+	pr.memoMu.Lock()
+	pr.memo = nil
+	pr.memoMu.Unlock()
 }
 
 // posOffset converts an LSP line/character position to a byte offset.

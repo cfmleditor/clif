@@ -921,28 +921,39 @@ func paramStatement(tokens []parser.Token) (producerNode, bool) {
 }
 
 // paramAttributeTarget reads a param's attribute form — pairs of
-// `attribute="value"`, one of them name= — and gives the variable name=
-// names, with attrs true. `param name="x" default=""` defaults x; read as the
-// alias form `param x = value`, its target was the word name. A lone
-// `name = "x"` pair is the attribute form too, as an engine reads it. A
-// computed name gives "" with attrs true: the param's target is unknown.
+// `attribute=value`, one of them name= with a string — and gives the variable
+// name= names, with attrs true. `param name="x" default=0` defaults x; read as
+// the alias form `param x = value`, its target was the word name. A value
+// other than name='s may be any expression. A lone `name = "x"` pair is the
+// attribute form too, as an engine reads it. A computed name gives "" with
+// attrs true: the param's target is unknown.
 func paramAttributeTarget(tokens []parser.Token) (target string, attrs bool) {
+	if n := len(tokens); n > 0 && tokens[n-1].Kind == parser.TokSemicolon {
+		tokens = tokens[:n-1]
+	}
+
 	pairs, name := 0, -1
 
-	for i := 0; i+2 < len(tokens)+1; i += 3 {
-		if i+2 >= len(tokens) || tokens[i].Kind != parser.TokIdent || tokens[i+1].Kind != parser.TokEquals || tokens[i+2].Kind != parser.TokString {
-			if i < len(tokens) && (tokens[i].Kind != parser.TokSemicolon || i != len(tokens)-1) {
-				return "", false
-			}
+	for i := 0; i < len(tokens); {
+		if i+2 >= len(tokens) || tokens[i].Kind != parser.TokIdent || tokens[i+1].Kind != parser.TokEquals {
+			return "", false
+		}
 
-			break
+		end := attributeValueEnd(tokens, i+2)
+		if end < 0 {
+			return "", false
 		}
 
 		if strings.EqualFold(tokens[i].Value, "name") {
+			if end != i+3 || tokens[i+2].Kind != parser.TokString {
+				return "", false
+			}
+
 			name = i + 2
 		}
 
 		pairs++
+		i = end
 	}
 
 	if name < 0 || pairs == 1 && !strings.EqualFold(tokens[0].Value, "name") {
@@ -955,6 +966,37 @@ func paramAttributeTarget(tokens []parser.Token) (target string, attrs bool) {
 	}
 
 	return producerPath(producerTokens(value)), true
+}
+
+// attributeValueEnd is the index past the attribute value starting at from:
+// the next `ident =` at its own nesting level, or the end. -1 when the value
+// is empty or its brackets do not balance.
+func attributeValueEnd(tokens []parser.Token, from int) int {
+	depth := 0
+
+	for j := from; j < len(tokens); j++ {
+		switch tokens[j].Kind {
+		case parser.TokLParen, parser.TokLBracket, parser.TokLBrace:
+			depth++
+		case parser.TokRParen, parser.TokRBracket, parser.TokRBrace:
+			depth--
+			if depth < 0 {
+				return -1
+			}
+		case parser.TokIdent:
+			if depth == 0 && j > from && j+1 < len(tokens) && tokens[j+1].Kind == parser.TokEquals &&
+				(j+2 >= len(tokens) || tokens[j+2].Kind != parser.TokEquals) {
+				return j
+			}
+		default:
+		}
+	}
+
+	if depth != 0 || from >= len(tokens) {
+		return -1
+	}
+
+	return len(tokens)
 }
 
 func producerPath(tokens []parser.Token) string {

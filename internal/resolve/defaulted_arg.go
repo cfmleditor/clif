@@ -1,6 +1,7 @@
 package resolve
 
 import (
+	"fmt"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -31,12 +32,26 @@ func (r *Resolver) defaultedArgumentComponent(name string, pr *parser.ParseResul
 	// Asked for every call on an untyped argument, so each function's
 	// guarded arguments are found once, for all of its arguments: going
 	// through the body per call site tokenised it again each time, which was
-	// a fifth of a tassweb scan's CPU and 9GB of its allocation.
-	answers, _ := pr.Memo("defaulted\x00"+strconv.Itoa(int(fd.Line))+"\x00"+fd.Name, func() any {
+	// a fifth of a tassweb scan's CPU and 9GB of its allocation. The answer
+	// resolves paths, so it is this resolver's, for this index generation.
+	answers, _ := pr.Memo("defaulted\x00"+r.memoScope()+"\x00"+strconv.Itoa(int(fd.Line))+"\x00"+strings.ToLower(fd.Name), func() any {
 		return r.defaultedArguments(fd, pr)
 	}).(map[string]string)
 
 	return answers[strings.ToLower(name)]
+}
+
+// memoScope names the resolver and, outside a snapshot scan, the index
+// generation, for a parse memo whose answer resolves paths: the parse
+// outlives a component appearing on disk, and two resolvers can read it.
+func (r *Resolver) memoScope() string {
+	scope := fmt.Sprintf("%p", r)
+
+	if !r.SnapshotScan && r.Index != nil {
+		scope += "." + strconv.FormatUint(r.Index.Generation(), 10)
+	}
+
+	return scope
 }
 
 // defaultedArguments is defaultedFromGuard's answer for each of fd's
