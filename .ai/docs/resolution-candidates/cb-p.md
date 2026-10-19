@@ -5,7 +5,7 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 | Category | Findings | high | medium | low | none | method defined nowhere |
 |---|---:|---:|---:|---:|---:|---:|
 | variable | 1432 | 534 | 168 | 153 | 577 | 253 |
-| return-type | 111 | 11 | 38 | 19 | 43 | 29 |
+| return-type | 105 | 11 | 36 | 15 | 43 | 29 |
 | method | 74 | 1 | 0 | 5 | 68 | 28 |
 | object | 61 | 0 | 0 | 0 | 61 | 3 |
 
@@ -908,10 +908,9 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 | 17 | `method 'site' has no component return type → modules/contentbox/models/system/Site.cfc` | 5 | medium | declares getsiteID(); named like the receiver 'site' (5 candidates) | `modules/contentbox/models/system/CBHelper.cfc:222` method 'site' has no component return type (chain to 'getsiteID') |
 | 7 | `method 'getData' in coldbox.system.web.context.Response has no component return type` | 0 | none |  | `tests/specs/contentbox-api/AuthorsSpec.cfc:57` method 'getData' in coldbox.system.web.context.Response has no component return type (chain to 'each') |
 | 7 | `method 'getSite' has no component return type → modules/contentbox/models/system/Site.cfc` | 5 | medium | declares getSiteId(); named like the receiver 'Site' (5 candidates) | `modules/contentbox/widgets/Categories.cfc:45` method 'getSite' has no component return type (chain to 'getSiteId') |
-| 4 | `method 'getInstance' in coldbox.system.ioc.Injector has no component return type → modules/contentbox/models/system/SettingService.cfc` | 11 | low | declares importFromData() (11 candidates) | `modules/contentbox/models/system/SiteService.cfc:534` method 'getInstance' in coldbox.system.ioc.Injector has no component return type (chain to 'importFromData') |
+| 4 | `method 'getGrammar' in qb.models.Query.QueryBuilder has no component return type` | 0 | none |  | `modules/contentbox/migrations/2022_11_23_142439_v_6_0_0_Convert-Featured-cbfs.cfc:14` method 'getGrammar' in qb.models.Query.QueryBuilder has no component return type (chain to 'convertToBooleanType') |
 | 4 | `method 'site' in CBHelper@contentbox has no component return type → modules/contentbox/models/system/Site.cfc` | 1 | high | declares getMediaDisk(); named like the receiver 'site' | `modules/contentbox/modules/contentbox-admin/modules/contentbox-filebrowser/handlers/Editor.cfc:15` method 'site' in CBHelper@contentbox has no component return type (chain to 'getMediaDisk') |
 | 3 | `method 'getActiveContent' has no component return type → modules/contentbox/models/content/BaseContent.cfc` | 2 | low | declares getAuthorName() (2 candidates) | `modules/contentbox/models/content/BaseContent.cfc:1222` method 'getActiveContent' has no component return type (chain to 'getAuthorName') |
-| 3 | `method 'getGrammar' in QueryBuilder has no component return type` | 0 | none |  | `modules/contentbox/migrations/init/seed_permissions.cfc:187` method 'getGrammar' in QueryBuilder has no component return type (chain to 'convertToBooleanType') |
 | 2 | `method 'getActiveContent' in ContentStore\|Entry\|Page has no component return type → modules/contentbox/models/content/ContentVersion.cfc` | 1 | medium | declares getChangelog() | `modules/contentbox/modules/contentbox-admin/views/content/quickLook.cfm:108` method 'getActiveContent' in ContentStore\|Entry\|Page has no component return type (chain to 'getChangelog') |
 | 2 | `method 'getActiveContent' in contentbox.models.content.BaseContent\|contentbox.models.content.Entry\|contentbox.models.content.Page\|contentbox.models.conten…` | 8 | none |  | `modules/contentbox/modules/contentbox-admin/views/_components/editor/sidebar/InfoTable.cfm:56` method 'getActiveContent' in contentbox.models.content.BaseContent\|contentbox.models.content.Entry\|contentbox.models.content.Page\|contentbox.models.conten… |
 | 2 | `method 'getContentType' in ContentStore\|Entry\|Page has no component return type` | 0 | none |  | `modules/contentbox/modules/contentbox-admin/views/content/editorSelectorEntries.cfm:60` method 'getContentType' in ContentStore\|Entry\|Page has no component return type (chain to 'lcase') |
@@ -949,10 +948,7 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 | 1 | `method 'getCustomFields' in BaseContent has no component return type` | 0 | none |  | `modules/contentbox/models/content/ContentTemplateService.cfc:190` method 'getCustomFields' in BaseContent has no component return type (chain to 'each') |
 | 1 | `method 'getCustomFields' in contentbox.models.content.BaseContent\|contentbox.models.content.Entry\|contentbox.models.content.Page\|contentbox.models.content…` | 1 | none |  | `modules/contentbox/modules/contentbox-admin/views/_components/editor/CustomFieldsHelper.cfm:6` method 'getCustomFields' in contentbox.models.content.BaseContent\|contentbox.models.content.Entry\|contentbox.models.content.Page\|contentbox.models.content… |
 | 1 | `method 'getCustomFieldsAsStruct' has no component return type` | 0 | none |  | `modules/contentbox/models/content/BaseContent.cfc:1832` method 'getCustomFieldsAsStruct' has no component return type (chain to 'keyArray') |
-| 1 | `method 'getGrammar' in qb.models.Query.QueryBuilder has no component return type` | 0 | none |  | `modules/contentbox/migrations/2022_11_23_142439_v_6_0_0_Convert-Featured-cbfs.cfc:14` method 'getGrammar' in qb.models.Query.QueryBuilder has no component return type (chain to 'convertToBooleanType') |
 | 1 | `method 'getInstance' in coldbox.system.ioc.Injector has no component return type` | 0 | none |  | `modules/contentbox/models/content/BaseContent.cfc:615` method 'getInstance' in coldbox.system.ioc.Injector has no component return type (chain to 'each') |
-| 1 | `method 'getInstance' in coldbox.system.ioc.Injector has no component return type → modules/contentbox/models/security/SecurityRule.cfc` | 2 | medium | declares setMessage() | `modules/contentbox/models/security/SecurityValidator.cfc:90` method 'getInstance' in coldbox.system.ioc.Injector has no component return type (chain to 'setMessage') |
-| 1 | `method 'getInstance' in coldbox.system.ioc.Injector has no component return type → modules/contentbox/models/system/CBHelper.cfc` | 1 | medium | declares site() | `modules/contentbox/models/content/ContentTemplateService.cfc:142` method 'getInstance' in coldbox.system.ioc.Injector has no component return type (chain to 'site') |
 | 1 | `method 'getInterceptor' in coldbox.system.web.services.InterceptorService has no component return type → modules/contentbox-installer/ModuleConfig.cfc` | 63 | low | declares configure() (53 candidates) | `modules/contentbox-installer/models/InstallerService.cfc:73` method 'getInterceptor' in coldbox.system.web.services.InterceptorService has no component return type (chain to 'configure') |
 | 1 | `method 'getMenuItems' has no component return type` | 0 | none |  | `modules/contentbox/models/menu/Menu.cfc:207` method 'getMenuItems' has no component return type (chain to 'filter') |
 | 1 | `method 'getResults' in SearchResults@contentbox has no component return type` | 1 | none |  | `tests/specs/contentbox-web/contentbox/unit/search/DBSearchTest.cfc:42` method 'getResults' in SearchResults@contentbox has no component return type (chain to 'size') |
@@ -981,16 +977,6 @@ Every finding below is still reported. A candidate is a liberal match offered fo
   - low `modules/contentbox/models/content/Category.cfc` — declares getSiteId()
   - low `modules/contentbox/models/menu/Menu.cfc` — declares getSiteId()
   - low `modules/contentbox/models/system/Setting.cfc` — declares getSiteId()
-- `method 'getInstance' in coldbox.system.ioc.Injector has no component return type → modules/contentbox/models/system/SettingService.cfc` — 4 finding(s), 11 candidate(s):
-  - low `modules/contentbox/models/system/SettingService.cfc` — declares importFromData()
-  - low `modules/contentbox/models/system/SiteService.cfc` — declares importFromData()
-  - low `modules/contentbox/models/content/CategoryService.cfc` — declares importFromData()
-  - low `modules/contentbox/models/content/ContentService.cfc` — declares importFromData()
-  - low `modules/contentbox/models/content/ContentTemplateService.cfc` — declares importFromData()
-  - low `modules/contentbox/models/menu/MenuService.cfc` — declares importFromData()
-  - low `modules/contentbox/models/security/AuthorService.cfc` — declares importFromData()
-  - low `modules/contentbox/models/security/PermissionGroupService.cfc` — declares importFromData()
-  - … 3 more
 - `method 'getActiveContent' has no component return type → modules/contentbox/models/content/BaseContent.cfc` — 3 finding(s), 2 candidate(s):
   - low `modules/contentbox/models/content/BaseContent.cfc` — declares getAuthorName()
   - low `modules/contentbox/models/content/ContentVersion.cfc` — declares getAuthorName()

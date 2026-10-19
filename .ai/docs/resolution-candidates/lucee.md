@@ -4,7 +4,7 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 
 | Category | Findings | high | medium | low | none | method defined nowhere |
 |---|---:|---:|---:|---:|---:|---:|
-| variable | 1209 | 22 | 60 | 234 | 893 | 793 |
+| variable | 1200 | 22 | 60 | 234 | 884 | 784 |
 | return-type | 31 | 0 | 3 | 9 | 19 | 18 |
 | method | 278 | 0 | 30 | 23 | 225 | 209 |
 | object | 73 | 0 | 3 | 12 | 58 | 37 |
@@ -32,7 +32,6 @@ Every finding below is still reported. A candidate is a liberal match offered fo
 | 11 | `s` | 1 | none |  | `test/general/Resources.cfc:274` variable 's' has no component ref |
 | 9 | `application.objects.utils → core/src/main/cfml/context/doc/DocUtils.cfc` | 3 | low | declares getAllFunctions() (3 candidates) | `core/src/main/cfml/context/doc/categories.cfm:4` variable 'Application.objects.utils' has no component ref |
 | 9 | `b` | 0 | none |  | `test/functions/BooleanFormat.cfc:40` variable 'b' has no component ref |
-| 9 | `db[]` | 0 | none |  | `test/a_debug_build/_MongoDB.cfc:115` variable 'db[]' has no component ref |
 | 9 | `mail` | 0 | none |  | `test/tags/Mail2.cfc:47` variable 'mail' has no component ref |
 | 9 | `parts` | 2 | none |  | `test/tags/Mail2.cfc:206` variable 'parts' has no component ref |
 | 8 | `admin` | 0 | none |  | `core/src/main/cfml/context/admin/messaging.cfm:18` variable 'admin' has no component ref |
