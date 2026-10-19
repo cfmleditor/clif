@@ -437,12 +437,12 @@ func (r *Resolver) elementOf(expression string, header, start int, caller string
 		}
 	}
 
+	// A loop over an argument: what the argument holds is the collection,
+	// not an element of it, so its type says nothing about the loop
+	// variable. Typing the variable as the argument checked each element's
+	// calls against the collection's own component.
 	if scope == "arguments" {
-		// An argument's own value: typed as any receiver is — a default the
-		// body constructs, or what every caller passes it.
-		comp, _ := r.receiverComponentD(expression, conv.Uint32(header), caller, "", pr, baseDir, nil, lookupCtx{depth: depth + 1, leaf: leaf})
-
-		return comp
+		return ""
 	}
 
 	// The component's own property, read through the variable it fills.

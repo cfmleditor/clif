@@ -226,25 +226,41 @@ func duplicatePlain(text string) (string, bool) {
 // tag cffunction's — or ok=false. Unlike fnBody it does not need a brace to
 // open what a tag function's body has none of.
 func (r *Resolver) fnScopeTokens(fd *parser.FunctionDef) ([]parser.Token, bool) {
-	if fd == nil || !fd.URI.IsFile() {
+	text, ok := r.fnScopeText(fd)
+	if !ok {
 		return nil, false
+	}
+
+	return significantTokens(text), true
+}
+
+// fnScopeText is the source text of fd's own scope, which fnScopeTokens
+// tokenises: a caller that needs a word in it can look before paying for that.
+func (r *Resolver) fnScopeText(fd *parser.FunctionDef) (string, bool) {
+	if fd == nil || !fd.URI.IsFile() {
+		return "", false
 	}
 
 	pr := r.handlerParse(fd.URI.Path())
 	if pr == nil {
-		return nil, false
+		return "", false
 	}
 
+	return funcScopeText(pr, fd)
+}
+
+// funcScopeText is fd's own scope's text in pr, the parse that declares it.
+func funcScopeText(pr *parser.ParseResult, fd *parser.FunctionDef) (string, bool) {
 	scope := pr.FuncScopeAt(int(fd.Line))
 	if scope.Start == -1 || !strings.EqualFold(scope.Name, fd.Name) {
-		return nil, false
+		return "", false
 	}
 
 	if _, ok := lineOffset(pr.Content, scope.End); !ok {
-		return nil, false
+		return "", false
 	}
 
-	return significantTokens(sourceText(pr.Content, scope.Start, scope.End+1)), true
+	return sourceText(pr.Content, scope.Start, scope.End+1), true
 }
 
 // fdReturnsLocal is the one name every return at fd's own level gives —

@@ -253,6 +253,10 @@ func (pr *ParseResult) resetNameIndexes() {
 	pr.funcVarsMu.Lock()
 	pr.funcVarSets = nil
 	pr.funcVarsMu.Unlock()
+
+	pr.memoMu.Lock()
+	pr.memo = nil
+	pr.memoMu.Unlock()
 }
 
 func (pr *ParseResult) resetGlobalCaches() {

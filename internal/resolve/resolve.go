@@ -3428,10 +3428,10 @@ func (r *Resolver) keyedReceiverElement(variable string, line uint32, caller str
 // argumentHolderType is the component an argument's own holder carries, as
 // its declared state says: the component the argument was typed to, the
 // type it declares, the bean the body constructs when the caller passes
-// none, or what every caller passes it. member marks an untyped argument
+// none. member marks an untyped argument
 // whose method is a member method (dynamic). The argument's presence stops
 // the lookup either way — an argument shadows what the outer scopes hold.
-func (r *Resolver) argumentHolderType(variable, name string, arg *parser.Argument, funcName string, pr *parser.ParseResult, caller string, tr *callTrace, ctx lookupCtx) (string, bool) {
+func (r *Resolver) argumentHolderType(variable, name string, arg *parser.Argument, funcName string, pr *parser.ParseResult, caller string, tr *callTrace) (string, bool) {
 	if arg.Component != "" {
 		return arg.Component, false
 	}
@@ -3459,14 +3459,6 @@ func (r *Resolver) argumentHolderType(variable, name string, arg *parser.Argumen
 	// it holds then — the construction is the argument's component.
 	if comp := r.defaultedArgumentComponent(name, pr, caller); comp != "" {
 		tr.addf("resolved %q to %q: the body constructs it when the caller passes none", variable, comp)
-
-		return comp, false
-	}
-
-	// An argument the caller passes on is typed by its own callers: Mura's
-	// gateways take what the manager forwards from its own.
-	if comp := r.argumentFromCallers("arguments."+name, caller, pr, ctx); comp != "" {
-		tr.addf("resolved %q to %q: what every caller of %s passes it", variable, comp, caller)
 
 		return comp, false
 	}
@@ -3536,7 +3528,7 @@ func (r *Resolver) receiverComponentD(variable string, line uint32, caller, func
 
 	if comp == "" && argumentReceiver {
 		if arg := argumentOf(pr, caller, lookupVar); arg != nil {
-			return r.argumentHolderType(variable, lookupVar, arg, funcName, pr, caller, tr, ctx)
+			return r.argumentHolderType(variable, lookupVar, arg, funcName, pr, caller, tr)
 		}
 	}
 
