@@ -101,7 +101,7 @@ func (r *Resolver) collectionExpressionElement(receiver string, calls []chainCal
 	// The item holds what the collection's elements are, the way a direct
 	// assignment of one would.
 	if receiver != "" && (target == "" || target == self) {
-		if comp := r.loopElement(&parser.CallSite{Variable: receiver, Line: conv.Uint32(header)}, pr, baseDir, nil); comp != "" {
+		if comp := r.loopElementD(&parser.CallSite{Variable: receiver, Line: conv.Uint32(header)}, pr, baseDir, nil, depth+1); comp != "" {
 			return r.methodElement(comp, last.name, last.args, baseDir)
 		}
 	}

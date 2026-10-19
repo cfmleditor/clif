@@ -223,3 +223,36 @@ function fill(reg) {
 		"driver.getShortName": "variable 'driver' has no component ref",
 	})
 }
+
+// A loop whose collection is read off its own variable — the item the loop
+// binds is the receiver of the collection's call — gives no element: the
+// collection is a chain off the loop variable, whose element is what the
+// collection holds, and following that went round for ever. It overflowed
+// the stack, which no recover catches; the answer is no type.
+func TestALoopOverItsOwnVariableDoesNotRecurse(t *testing.T) {
+	dir := t.TempDir()
+
+	writeFiles(t, dir, map[string]string{
+		"tags.cfm":     `<cfloop array="#x.getItems()#" item="x"><cfoutput>#x.getName()#</cfoutput></cfloop>`,
+		"filtered.cfm": `<cfloop array="#x.getItems().filter(f)#" item="x"><cfoutput>#x.getName()#</cfoutput></cfloop>`,
+		"Script.cfc": `component {
+	function f() {
+		for ( row in row.getRows() ) {
+			row.getName();
+		}
+	}
+}`,
+	})
+
+	for _, page := range []string{"tags.cfm", "filtered.cfm"} {
+		got := reasonsInCFM(t, dir, page)
+		if reason := got["x.getName"]; reason == "" {
+			t.Errorf("%s: x.getName accepted, want it untyped", page)
+		}
+	}
+
+	got := reasonsIn(t, dir, "Script.cfc")
+	if reason := got["row.getName"]; reason == "" {
+		t.Errorf("row.getName accepted, want it untyped")
+	}
+}

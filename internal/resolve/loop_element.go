@@ -42,6 +42,14 @@ var (
 // loopElement is the component call's receiver holds as the variable of a loop
 // around the call, or "".
 func (r *Resolver) loopElement(call *parser.CallSite, pr *parser.ParseResult, baseDir string, tr *callTrace) string {
+	return r.loopElementD(call, pr, baseDir, tr, 0)
+}
+
+// loopElementD is loopElement reached depth hops into an element lookup. A
+// collection read off a loop variable asks for that variable's loop again,
+// and `<cfloop array="#x.getItems()#" item="x">` is its own loop: starting
+// the lookup afresh there went round until the stack overflowed.
+func (r *Resolver) loopElementD(call *parser.CallSite, pr *parser.ParseResult, baseDir string, tr *callTrace, depth int) string {
 	name := strings.TrimPrefix(strings.ToLower(call.Variable), "local.")
 	if name == "" || strings.ContainsAny(name, ".[") || pr == nil {
 		return ""
@@ -57,7 +65,7 @@ func (r *Resolver) loopElement(call *parser.CallSite, pr *parser.ParseResult, ba
 		return ""
 	}
 
-	comp := r.elementOf(collection, header, start, caller, pr, baseDir, 0, "")
+	comp := r.elementOf(collection, header, start, caller, pr, baseDir, depth, "")
 	if comp != "" {
 		tr.addf("%q is the variable of a loop over %q, whose elements are %q", call.Variable, collection, comp)
 	}
