@@ -3427,10 +3427,11 @@ func (r *Resolver) keyedReceiverElement(variable string, line uint32, caller str
 
 // argumentHolderType is the component an argument's own holder carries, as
 // its declared state says: the component the argument was typed to, the
-// type it declares, the bean the body constructs when the caller passes
-// none. member marks an untyped argument
-// whose method is a member method (dynamic). The argument's presence stops
-// the lookup either way — an argument shadows what the outer scopes hold.
+// type it declares, or the bean the body constructs when the caller passes
+// none. member marks an untyped argument whose method is a member method
+// (dynamic). The argument's presence stops the lookup either way: an
+// argument shadows what the outer scopes hold. What its callers pass is
+// asked last, by canResolveCall, not here.
 func (r *Resolver) argumentHolderType(variable, name string, arg *parser.Argument, funcName string, pr *parser.ParseResult, caller string, tr *callTrace) (string, bool) {
 	if arg.Component != "" {
 		return arg.Component, false

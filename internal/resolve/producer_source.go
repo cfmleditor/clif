@@ -791,29 +791,8 @@ func (p *producerScript) expressionStatement() producerNode {
 }
 
 func producerAssignment(tokens []parser.Token) producerNode {
-	if len(tokens) > 1 && strings.EqualFold(tokens[0].Value, "param") && tokens[1].Kind == parser.TokIdent {
-		// cfscript `param x = value;` is the tag form's statement alias: a
-		// default that only creates a variable the caller left absent. Reading
-		// it as an assignment made it an opaque write to the whole component's
-		// plan, and every guarded shared field lost its all-writes-agree
-		// contract behind one the statement can never write (TestBox's
-		// BaseReporter.getConsoleUtil went unresolved behind a `param url = {}`
-		// in an unrelated method).
-		at := -1
-
-		for i := 1; i < len(tokens); i++ {
-			if tokens[i].Kind == parser.TokEquals {
-				at = i
-
-				break
-			}
-		}
-
-		target := producerPath(tokens[1:max(2, at)])
-
-		if target != "" {
-			return producerNode{kind: "param", target: target}
-		}
+	if node, ok := paramStatement(tokens); ok {
+		return node
 	}
 
 	local := len(tokens) > 0 && strings.EqualFold(tokens[0].Value, "var")
@@ -903,6 +882,79 @@ func producerSharedSlot(path string) bool {
 	scope, name, ok := strings.Cut(path, ".")
 
 	return ok && name != "" && !strings.Contains(name, ".") && (scope == "this" || scope == "variables")
+}
+
+// paramStatement reads a cfscript param statement, in either form, as a
+// param node: what the variable it names is given when absent.
+func paramStatement(tokens []parser.Token) (producerNode, bool) {
+	if len(tokens) < 2 || !strings.EqualFold(tokens[0].Value, "param") || tokens[1].Kind != parser.TokIdent {
+		return producerNode{}, false
+	}
+
+	// cfscript `param x = value;` is the tag form's statement alias: a
+	// default that only creates a variable the caller left absent. Reading
+	// it as an assignment made it an opaque write to the whole component's
+	// plan, and every guarded shared field lost its all-writes-agree
+	// contract behind one the statement can never write (TestBox's
+	// BaseReporter.getConsoleUtil went unresolved behind a `param url = {}`
+	// in an unrelated method).
+	at := -1
+
+	for i := 1; i < len(tokens); i++ {
+		if tokens[i].Kind == parser.TokEquals {
+			at = i
+
+			break
+		}
+	}
+
+	target, attrs := paramAttributeTarget(tokens[1:])
+	if !attrs {
+		target = producerPath(tokens[1:max(2, at)])
+	}
+
+	if target != "" {
+		return producerNode{kind: "param", target: target}, true
+	}
+
+	return producerNode{}, false
+}
+
+// paramAttributeTarget reads a param's attribute form — pairs of
+// `attribute="value"`, one of them name= — and gives the variable name=
+// names, with attrs true. `param name="x" default=""` defaults x; read as the
+// alias form `param x = value`, its target was the word name. A lone
+// `name = "x"` pair is the attribute form too, as an engine reads it. A
+// computed name gives "" with attrs true: the param's target is unknown.
+func paramAttributeTarget(tokens []parser.Token) (target string, attrs bool) {
+	pairs, name := 0, -1
+
+	for i := 0; i+2 < len(tokens)+1; i += 3 {
+		if i+2 >= len(tokens) || tokens[i].Kind != parser.TokIdent || tokens[i+1].Kind != parser.TokEquals || tokens[i+2].Kind != parser.TokString {
+			if i < len(tokens) && (tokens[i].Kind != parser.TokSemicolon || i != len(tokens)-1) {
+				return "", false
+			}
+
+			break
+		}
+
+		if strings.EqualFold(tokens[i].Value, "name") {
+			name = i + 2
+		}
+
+		pairs++
+	}
+
+	if name < 0 || pairs == 1 && !strings.EqualFold(tokens[0].Value, "name") {
+		return "", false
+	}
+
+	value := strings.Trim(tokens[name].Value, `"'`)
+	if strings.Contains(value, "#") {
+		return "", true
+	}
+
+	return producerPath(producerTokens(value)), true
 }
 
 func producerPath(tokens []parser.Token) string {
