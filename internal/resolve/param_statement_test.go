@@ -58,6 +58,9 @@ func TestAParamStatementsAttributeFormNamesItsTarget(t *testing.T) {
 		"names another variable":       {`function prepare(){ param name="url.page" default="1"; }`, false},
 		"alias form on another target": {`function prepare(){ param name = 1; }`, false},
 		"alias form on the field":      {`function prepare(){ param variables.consoleUtils = ""; }`, true},
+		"a number default":             {`function prepare(){ param name="variables.consoleUtils" default=0; }`, true},
+		"a struct default":             {`function prepare(){ param name="variables.consoleUtils" default={}; }`, true},
+		"a call default before name":   {`function prepare(){ param default=now() name="variables.consoleUtils"; }`, true},
 	} {
 		t.Run(tc, func(t *testing.T) {
 			dir := t.TempDir()

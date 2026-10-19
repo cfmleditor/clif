@@ -606,3 +606,56 @@ func TestAnElementReadFallingBackToNullIsAFamilyMember(t *testing.T) {
 		t.Errorf("f.getNothing: %q; a string fallback is not the family", got["f.getNothing"])
 	}
 }
+
+// A recipe's listing call is a CFML function, whose name is case-insensitive:
+// the own-text test registriesReach makes looked for one spelling only.
+func TestARegistryRecipeIsFoundInAnySpelling(t *testing.T) {
+	for _, spelling := range []string{"ComponentListPackageAsStruct", "componentListPackageAsStruct"} {
+		t.Run(spelling, func(t *testing.T) {
+			dir := t.TempDir()
+			mailservers := "core/src/main/java/resource/context/admin/mailservers"
+			rel := "core/src/main/cfml/context/admin/services.mail.form.cfm"
+			content := `<cfscript>
+variables.drivers={};
+driverNames=` + spelling + `("lucee.admin.mailservers",driverNames);
+loop collection=driverNames index="name" item="componentPath" {
+	drivers[name]=createObject("component",componentPath);
+}
+</cfscript>`
+
+			writeFiles(t, dir, map[string]string{
+				"core/src/main/java/resource/component/org/lucee/cfml/test/LuceeTestCase.cfc": `component {}`,
+				"core/src/main/cfml/context/admin/services.update.functions.cfm":              `<cfadmin action="x">`,
+				mailservers + "/GMail.cfc": `component { function getShortName() { return ""; } }`,
+				rel:                        content,
+			})
+
+			r := &Resolver{FS: vfs.OS{}, WorkspaceFolders: []string{dir}, Index: index.New()}
+
+			if !r.registriesReach(parser.Parse(cfpath.ToURI(filepath.Join(dir, filepath.FromSlash(rel))), content)) {
+				t.Error("the recipe was not found")
+			}
+		})
+	}
+}
+
+// A script guard's condition may hold a > comparison: only a cfif's closing
+// bracket ends the condition there, and reading the > as one dropped the
+// guard, keeping the base it skips in the family.
+func TestARegistryGuardMayCompareWithGreaterThan(t *testing.T) {
+	for tc, c := range map[string]struct {
+		span string
+		want string
+	}{
+		"script":     {`loop collection=d index="name" item="p" { if (name == 'Base' || len(name) > 20) continue; r[name]=createObject("component",p); }`, "Base"},
+		"tag":        {`<cfloop collection="#d#" index="name" item="p"><cfif name EQ "Base"><cfcontinue></cfif></cfloop>`, "Base"},
+		"tag, no op": {`<cfloop collection="#d#" index="name" item="p"><cfif name EQ "Base"><cfset r[name]=createObject("component",p)></cfif></cfloop>`, ""},
+	} {
+		t.Run(tc, func(t *testing.T) {
+			got := strings.Join(registrySkips(c.span, "name"), ",")
+			if got != c.want {
+				t.Errorf("skips %q, want %q", got, c.want)
+			}
+		})
+	}
+}

@@ -134,7 +134,7 @@ type ParseResult struct {
 	callsBuckets int
 
 	// memoMu guards memo, answers a caller derived from this parse and keyed
-	// as it chose (see Memo). An edit clears it with the name indexes.
+	// as it chose (see Memo). Every edit clears it (resetGlobalCaches).
 	memoMu sync.Mutex
 	memo   map[string]any
 
