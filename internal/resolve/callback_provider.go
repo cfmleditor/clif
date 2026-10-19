@@ -122,7 +122,7 @@ func (r *Resolver) callbackParameterComponent(variable string, pr *parser.ParseR
 		component = pr.URI.Path()
 	} else {
 		if component == "" {
-			component, _ = r.receiverComponentD(provider.Variable, provider.Line, provider.Caller, provider.FuncName, pr, baseDir, nil, lookupCtx{depth: ctx.depth + 1, call: provider})
+			component, _ = r.receiverComponentD(provider.Variable, provider.Line, provider.Caller, provider.FuncName, pr, baseDir, nil, lookupCtx{depth: ctx.depth + 1, call: provider, callers: ctx.callers})
 		}
 
 		if component != "" {
@@ -177,7 +177,7 @@ func (r *Resolver) callbackParameterComponent(variable string, pr *parser.ParseR
 		}
 
 		if path := producerPath(piece); path != "" {
-			component, _ := r.receiverComponentD(path, provider.Line, provider.Caller, "", pr, baseDir, nil, lookupCtx{depth: ctx.depth + 1, call: provider})
+			component, _ := r.receiverComponentD(path, provider.Line, provider.Caller, "", pr, baseDir, nil, lookupCtx{depth: ctx.depth + 1, call: provider, callers: ctx.callers})
 			if component != "" {
 				arguments[key] = eval.concrete(component, baseDir)
 			}

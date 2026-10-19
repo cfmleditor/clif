@@ -1035,6 +1035,13 @@ func displayMember(member string) string {
 // else. A container may be written as variables.drivers.
 func (r *Resolver) registryElementRes(rhs string, pr *parser.ParseResult, tr *callTrace) string {
 	rhs = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(rhs), ";"))
+
+	// `drivers[k] ?: nullValue()` holds the element or nothing: the fallback
+	// adds no value of its own, so it is the read alone.
+	if m := nullFallbackRe.FindStringSubmatch(rhs); m != nil {
+		rhs = strings.TrimSpace(m[1])
+	}
+
 	if !exactKeyedReadRe.MatchString(rhs) {
 		return ""
 	}
@@ -1058,6 +1065,9 @@ func (r *Resolver) registryElementRes(rhs string, pr *parser.ParseResult, tr *ca
 
 	return familyComp(fact)
 }
+
+// nullFallbackRe is an expression with an Elvis fallback to null.
+var nullFallbackRe = regexp.MustCompile(`(?is)^(.+?)\s*\?:\s*(?:nullValue\s*\(\s*\)|javaCast\s*\(\s*["']null["']\s*,\s*["']{2}\s*\))$`)
 
 // scopeWordOf is the scope names, which name no registry.
 var scopeWordOf = map[string]bool{"variables": true, "local": true, "arguments": true, "url": true, "form": true, "cgi": true, "cookie": true, "client": true, "application": true, "request": true, "session": true, "server": true, "this": true, "super": true}

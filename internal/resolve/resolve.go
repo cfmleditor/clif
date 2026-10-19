@@ -1571,16 +1571,20 @@ func (r *Resolver) canResolveCall(call *parser.CallSite, pr *parser.ParseResult,
 	// was given the files to look through. After every other answer, so an
 	// inference never turns a call something else accepted into a finding.
 	if comp == "" {
-		if comp = r.argumentFromCallers(variable, call.Caller, pr, lookupCtx{}); comp != "" {
+		// callers: a caller passing on an argument of its own is typed by its
+		// own callers in turn (Mura's gateways take what the manager forwards).
+		if comp = r.argumentFromCallers(variable, call.Caller, pr, lookupCtx{callers: true}); comp != "" {
 			tr.addf("resolved %q to %q: what every caller of %s passes it", variable, comp, call.Caller)
 		}
 	}
 
-	// A local that only aliases an argument (`var result = arguments.filter`)
-	// is what that argument holds, inferred the same way and as late.
+	// A receiver built from an argument (`var item = arguments.iterator
+	// .next()`, `var result = arguments.filter`) is looked up again with
+	// inference allowed inside it: only here, for a call nothing else
+	// answered, so the cost is that of the calls left unresolved.
 	if comp == "" {
-		if comp = r.argumentAliasComponent(variable, call.Line, call.Caller, pr, baseDir, lookupCtx{}); comp != "" {
-			tr.addf("resolved %q to %q: the straight-line assignment it holds, typed from its callers", variable, comp)
+		if comp, _ = r.receiverComponentD(variable, call.Line, call.Caller, funcName, pr, baseDir, nil, lookupCtx{call: call, callers: true}); comp != "" {
+			tr.addf("resolved %q to %q: looked up again with what its arguments' callers pass", variable, comp)
 		}
 	}
 
@@ -3461,7 +3465,7 @@ func (r *Resolver) nativeElementOf(variable string, line uint32, caller string, 
 		return ""
 	}
 
-	comp, _ := r.receiverComponentD(variable, line, caller, "", pr, baseDir, nil, lookupCtx{depth: ctx.depth + 1, leaf: ctx.leaf})
+	comp, _ := r.receiverComponentD(variable, line, caller, "", pr, baseDir, nil, lookupCtx{depth: ctx.depth + 1, leaf: ctx.leaf, callers: ctx.callers})
 
 	elem, _ := nativetype.Element(comp)
 
@@ -3471,11 +3475,11 @@ func (r *Resolver) nativeElementOf(variable string, line uint32, caller string, 
 // argumentHolderType is the component an argument's own holder carries, as
 // its declared state says: the component the argument was typed to, the
 // type it declares, or the bean the body constructs when the caller passes
-// none. member marks an untyped argument whose method is a member method
-// (dynamic). The argument's presence stops the lookup either way: an
-// argument shadows what the outer scopes hold. What its callers pass is
-// asked last, by canResolveCall, not here.
-func (r *Resolver) argumentHolderType(variable, name string, arg *parser.Argument, funcName string, pr *parser.ParseResult, caller string, tr *callTrace) (string, bool) {
+// none, or with ctx.callers what every caller passes it. member marks an
+// untyped argument whose method is a member method (dynamic). The
+// argument's presence stops the lookup either way: an argument shadows what
+// the outer scopes hold.
+func (r *Resolver) argumentHolderType(variable, name string, arg *parser.Argument, funcName string, pr *parser.ParseResult, caller string, tr *callTrace, ctx lookupCtx) (string, bool) {
 	if arg.Component != "" {
 		return arg.Component, false
 	}
@@ -3505,6 +3509,16 @@ func (r *Resolver) argumentHolderType(variable, name string, arg *parser.Argumen
 		tr.addf("resolved %q to %q: the body constructs it when the caller passes none", variable, comp)
 
 		return comp, false
+	}
+
+	// What its callers pass, only when canResolveCall is asking again for
+	// a call nothing else answered (ctx.callers).
+	if ctx.callers {
+		if comp := r.argumentFromCallers("arguments."+name, caller, pr, ctx); comp != "" {
+			tr.addf("resolved %q to %q: what every caller of %s passes it", variable, comp, caller)
+
+			return comp, false
+		}
 	}
 
 	tr.addf("argument %q shadows component fields", name)
@@ -3578,7 +3592,7 @@ func (r *Resolver) receiverComponentD(variable string, line uint32, caller, func
 
 	if comp == "" && argumentReceiver {
 		if arg := argumentOf(pr, caller, lookupVar); arg != nil {
-			return r.argumentHolderType(variable, lookupVar, arg, funcName, pr, caller, tr)
+			return r.argumentHolderType(variable, lookupVar, arg, funcName, pr, caller, tr, ctx)
 		}
 	}
 

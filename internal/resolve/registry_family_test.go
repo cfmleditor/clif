@@ -586,3 +586,23 @@ loop collection=driverNames index="name" item="componentPath" {
 		t.Errorf("ComponentOf(driver) = %q, which ComponentPath reads as %q", comp, r.ComponentPath(comp, filepath.Dir(file)))
 	}
 }
+
+// An element read with an Elvis fallback to null holds the element or
+// nothing, so it is still the family: Lucee's logging admin writes
+// `appender = appenders[logs.appenderClass] ?: nullValue()`.
+func TestAnElementReadFallingBackToNullIsAFamilyMember(t *testing.T) {
+	got := mailFamilyFixture(t, `<cfset e = drivers[form.type] ?: nullValue()>
+<cfset e.getShortName()>
+<cfset e.getNothing()>
+<cfset f = drivers[form.type] ?: "">
+<cfset f.getNothing()>`)
+
+	expectReasons(t, got, map[string]string{
+		"e.getShortName": "",
+		"e.getNothing":   "method 'getNothing' not found in the lucee.admin.mailservers family — missing in GMail, Yahoo",
+	})
+
+	if strings.Contains(got["f.getNothing"], "family") {
+		t.Errorf("f.getNothing: %q; a string fallback is not the family", got["f.getNothing"])
+	}
+}

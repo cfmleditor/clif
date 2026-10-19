@@ -352,7 +352,9 @@ func (r *Resolver) argumentFromCallers(variable, caller string, pr *parser.Parse
 		return ""
 	}
 
-	key := pr.URI.Path() + "\x00" + strconv.Itoa(int(fd.Line)) + "\x00" + strings.ToLower(name) + "\x00" + strconv.Itoa(ctx.depth)
+	// ctx.callers is in the key: an answer worked out without inference for
+	// the arguments its callers pass on is not the answer with it.
+	key := pr.URI.Path() + "\x00" + strconv.Itoa(int(fd.Line)) + "\x00" + strings.ToLower(name) + "\x00" + strconv.Itoa(ctx.depth) + "\x00" + strconv.FormatBool(ctx.callers)
 
 	o.mu.RLock()
 	cached, ok := o.argCache[key]
@@ -571,7 +573,7 @@ func (r *Resolver) callIsTo(call *parser.CallSite, hpr *parser.ParseResult, path
 		return r.descendsFrom(path, file), true
 	}
 
-	comp, _ := r.receiverComponentD(call.Variable, call.Line, call.Caller, call.FuncName, hpr, dir, nil, lookupCtx{depth: ctx.depth + 1})
+	comp, _ := r.receiverComponentD(call.Variable, call.Line, call.Caller, call.FuncName, hpr, dir, nil, lookupCtx{depth: ctx.depth + 1, callers: ctx.callers})
 
 	// Then a componentResolver on the variable's name, as canResolveCall
 	// tries next: the mura preset's `$` is a MuraScope, and `$.dspObjects()`
@@ -741,7 +743,7 @@ func (r *Resolver) argumentExprComponentSource(expr []parser.Token, line uint32,
 		return ""
 	}
 
-	next := lookupCtx{depth: ctx.depth + 1}
+	next := lookupCtx{depth: ctx.depth + 1, callers: ctx.callers}
 
 	// `this` is the calling component, or any component extending it: Mura's
 	// contentRenderer hands itself to its utility, and a theme's renderer

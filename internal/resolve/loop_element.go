@@ -464,10 +464,15 @@ func (r *Resolver) elementOf(expression string, header, start int, caller string
 	}
 
 	// A loop over an argument: what the argument holds is the collection,
-	// not an element of it, so its type says nothing about the loop
+	// not an element of it, so its component says nothing about the loop
 	// variable. Typing the variable as the argument checked each element's
-	// calls against the collection's own component.
+	// calls against the collection's own component. A dynamic collection's
+	// elements are dynamic, though.
 	if scope == "arguments" {
+		if comp, _ := r.receiverComponentD(expression, conv.Uint32(header), caller, "", pr, baseDir, nil, lookupCtx{depth: depth + 1, leaf: leaf}); comp == "$any" {
+			return comp
+		}
+
 		return ""
 	}
 
