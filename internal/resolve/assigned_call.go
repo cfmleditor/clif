@@ -369,6 +369,12 @@ func (r *Resolver) typeBareCallExpr(method, args string, line uint32, caller str
 		return ret
 	}
 
+	// A factory call the configured bean rules name: the container's
+	// getBean( "content" ), whose construction the policy spells.
+	if comp, _, _ := parser.ResolveFromCallMatch(method+"("+args+")", r.Resolvers); comp != "" {
+		return comp
+	}
+
 	if name := strings.TrimSpace(args); identRe.MatchString(name) {
 		start := 0
 		if scope, ok := enclosingScope(pr, line); ok {

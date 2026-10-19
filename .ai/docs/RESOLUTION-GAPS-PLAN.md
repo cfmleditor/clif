@@ -4140,3 +4140,30 @@ FileRotator's `oAppender` rows resolved against the appender the callers
 pass), cw-p 2,492 → 2,491 — fw-p, lucee and tb-p identical. Baseline
 directory `target/resolution/after-defaulted/`; candidate lists re-cut
 with the same run (11,277 findings).
+
+## The bean the policy names, past the chain (slice 10)
+
+The admin templates take the scope from a construction and the bean from
+the container, and read as no component ref:
+
+```
+<cfset $=application.serviceFactory.getBean("MuraScope").init(session.siteID)>
+<cfset content=$.getBean("content").loadBy(contentID=rc.contentID)>
+<cfif not content.hasDrafts()>
+```
+
+The configured bean rules answer the factory call the chain's hop makes:
+`getBean("content")` matches the policy's own pattern, so a hop's return
+walks it — `hopCallReturn` in the check's hop walk, and the same rules in
+the lookup's call-hop form and the bare factory call — and the chain past
+it reads against the bean's own contracts. A hop the rules do not name
+keeps the expression's own return proof.
+
+Measured against `after-review`: masa-c 3,173 → 3,145 (30 removed, 2
+added — the two are the calendar loop's `calendars.next` reason: the
+receiver typed to the bean the chain's first hop names, the missing method
+reported against it), cb-p 1,678 → 1,672 (6 removed — the
+`getInstance().importFromData()` service chains), cx-p 1,609 → 1,608, cw-p
+2,491 → 2,491 — the rest identical. Baseline directory
+`target/resolution/after-beanchain/`; candidate lists re-cut with the same
+run (11,233 findings).

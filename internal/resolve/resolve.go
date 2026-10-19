@@ -1616,6 +1616,17 @@ func (r *Resolver) canResolveCall(call *parser.CallSite, pr *parser.ParseResult,
 	return r.checkMethodOn(comp, softComp, call, pr, baseDir, tr)
 }
 
+// hopCallReturn is what a hop's own call returns: the configured bean
+// rules' answer for a factory call (the container's getBean( "content" ),
+// whose construction the policy spells), or the expression's own.
+func (r *Resolver) hopCallReturn(fd *parser.FunctionDef, expression, baseDir, comp string) string {
+	if rc, _, _ := parser.ResolveFromCallMatch(expression, r.Resolvers); rc != "" {
+		return rc
+	}
+
+	return r.expressionReturn(fd, expression, baseDir, comp)
+}
+
 // walkHops follows call.Chain from comp through each hop's return type. It
 // reports the component the chain reaches, or done with the answer when a hop
 // settles the call itself.
@@ -1716,7 +1727,7 @@ func (r *Resolver) walkHops(comp, softComp string, call *parser.CallSite, pr *pa
 		}
 
 		if ret == "" && callHop {
-			ret = r.expressionReturn(fd, expression, baseDir, comp)
+			ret = r.hopCallReturn(fd, expression, baseDir, comp)
 		}
 
 		if soft {
@@ -2931,6 +2942,13 @@ func (r *Resolver) funcLookupUncached(baseDir string) func(component, funcName s
 
 		expression, callHop := parser.CallExpression(funcName)
 		if callHop {
+			// A factory call the configured bean rules name: the
+			// container's getBean( "content" ), whose construction the
+			// policy spells.
+			if comp, _, _ := parser.ResolveFromCallMatch(expression, r.Resolvers); comp != "" {
+				return comp
+			}
+
 			funcName = wheelsCallName(expression)
 		}
 
@@ -2952,6 +2970,12 @@ func (r *Resolver) funcLookupUncached(baseDir string) func(component, funcName s
 		}
 
 		if callHop {
+			// A factory call the configured bean rules name: the container's
+			// getBean( "x" ), whose construction the policy spells.
+			if comp, _, _ := parser.ResolveFromCallMatch(expression, r.Resolvers); comp != "" {
+				return comp
+			}
+
 			if ret := r.expressionReturn(fd, expression, baseDir, component); ret != "" {
 				return ret
 			}
