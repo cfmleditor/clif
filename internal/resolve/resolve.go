@@ -3417,10 +3417,30 @@ func (r *Resolver) keyedReceiverElement(variable string, line uint32, caller str
 			elem = ""
 		}
 
+		if elem == "" {
+			elem = r.nativeElementOf(stem, line, caller, pr, baseDir, ctx)
+		}
+
 		if elem != "" {
 			tr.addf("%q is the keyed element read %q names, whose collection's element is %q", variable, stem, elem)
 		}
 	}
+
+	return elem
+}
+
+// nativeElementOf is the interface each struct-notation element of the
+// native handle a variable holds is, as the handle's contract states it: a
+// MongoDB database handle's db["coll"] is a collection. A variable holding
+// no native handle, or one whose contract states no element, answers "".
+func (r *Resolver) nativeElementOf(variable string, line uint32, caller string, pr *parser.ParseResult, baseDir string, ctx lookupCtx) string {
+	if ctx.depth >= maxAssignedDepth {
+		return ""
+	}
+
+	comp, _ := r.receiverComponentD(variable, line, caller, "", pr, baseDir, nil, lookupCtx{depth: ctx.depth + 1, leaf: ctx.leaf})
+
+	elem, _ := nativetype.Element(comp)
 
 	return elem
 }
