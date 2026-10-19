@@ -639,3 +639,27 @@ function callers(){ use( new models.Repo().one() ); }
 		"arguments.item.fetch": "method 'fetch' not found in User",
 	})
 }
+
+// A local that only aliases an argument is what the argument holds:
+// `var it = arguments.item` then `it.fetch()` is checked against what every
+// caller passes. It is asked last, after every other rule, as the
+// argument's own inference is.
+func TestALocalAliasOfAnArgumentIsWhatItsCallersPass(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{
+		"models/User.cfc": `component { function save(){} }`,
+		"svc/Svc.cfc": `component {
+function use( required item ){
+	var it = arguments.item;
+	it.save();
+	it.fetch();
+}
+function callers(){ use( new models.User() ); }
+}`,
+	})
+
+	expectReasons(t, reasonsWith(t, &Resolver{InferArgsFiles: cfmlFilesIn(t, dir)}, dir, "svc/Svc.cfc"), map[string]string{
+		"it.save":  "",
+		"it.fetch": "method 'fetch' not found in User",
+	})
+}

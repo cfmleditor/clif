@@ -1576,6 +1576,14 @@ func (r *Resolver) canResolveCall(call *parser.CallSite, pr *parser.ParseResult,
 		}
 	}
 
+	// A local that only aliases an argument (`var result = arguments.filter`)
+	// is what that argument holds, inferred the same way and as late.
+	if comp == "" {
+		if comp = r.argumentAliasComponent(variable, call.Line, call.Caller, pr, baseDir, lookupCtx{}); comp != "" {
+			tr.addf("resolved %q to %q: the straight-line assignment it holds, typed from its callers", variable, comp)
+		}
+	}
+
 	if comp == "" {
 		if comp = r.initArgMember(variable, pr, lookupCtx{}); comp != "" {
 			tr.addf("resolved %q to %q: init stores its argument there, and every construction passes it that", variable, comp)
