@@ -1,6 +1,7 @@
 package resolve
 
 import (
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -238,4 +239,64 @@ func TestAnUnaccountedWriteWithholdsTheBuiltElement(t *testing.T) {
 		"ds[1].getLabel": "",
 		"ds[1].nope":     "method 'nope' not found in pkg.gadget|pkg.widget",
 	})
+}
+
+// Every keyed read of a getter's collection asks for the field's element,
+// and the file's own writes to the field are read once per parse: going
+// through the whole file per read made a component that reads its own
+// collection N times cost N whole-file tokenisations.
+func TestABuiltFieldIsReadOncePerParse(t *testing.T) {
+	allocs := func(n int) uint64 {
+		dir := t.TempDir()
+
+		var body strings.Builder
+		for range n {
+			body.WriteString("\t\t<cfset ws[1].getLabel()>\n")
+		}
+
+		writeFiles(t, dir, map[string]string{
+			"pkg/widget.cfc": `<cfcomponent>
+	<cffunction name="init"><cfreturn this></cffunction>
+	<cffunction name="getLabel"><cfreturn ""></cffunction>
+</cfcomponent>`,
+			"pkg/lazy.cfc": `<cfcomponent>
+	<cffunction name="getWidgets">
+		<cfif not isArray(variables.instance.widgets)>
+			<cfset loadWidgets()>
+		</cfif>
+		<cfreturn variables.instance.widgets />
+	</cffunction>
+
+	<cffunction name="loadWidgets">
+		<cfset variables.instance.widgets=arrayNew(1)/>
+		<cfset var w=createObject("component","pkg.widget").init()>
+		<cfset arrayAppend(variables.instance.widgets, w)/>
+	</cffunction>
+
+	<cffunction name="use">
+		<cfset var ws=getWidgets()>
+` + body.String() + `	</cffunction>
+</cfcomponent>`,
+		})
+
+		var before, after runtime.MemStats
+
+		runtime.GC()
+		runtime.ReadMemStats(&before)
+
+		got := reasonsIn(t, dir, "pkg/lazy.cfc")
+
+		runtime.ReadMemStats(&after)
+
+		if r := got["ws[1].getLabel"]; r != "" {
+			t.Fatalf("ws[1].getLabel: %q, want the widget element to resolve it", r)
+		}
+
+		return after.TotalAlloc - before.TotalAlloc
+	}
+
+	small, large := allocs(100), allocs(800)
+	if ratio := float64(large) / float64(small); ratio > 20 {
+		t.Errorf("allocation grew %.1fx for 8x the keyed reads of a built field (%d to %d bytes)", ratio, small, large)
+	}
 }
