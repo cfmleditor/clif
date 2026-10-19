@@ -80,7 +80,7 @@ func (r *Resolver) collectionCallbackElement(provider *parser.CallSite, closure 
 		return ""
 	}
 
-	component, _ := r.receiverComponentD(provider.Variable, provider.Line, provider.Caller, provider.FuncName, pr, baseDir, nil, lookupCtx{depth: ctx.depth + 1, call: provider})
+	component, _ := r.receiverComponentD(provider.Variable, provider.Line, provider.Caller, provider.FuncName, pr, baseDir, nil, lookupCtx{depth: ctx.depth + 1, call: provider, callers: ctx.callers})
 	if component == "" {
 		return ""
 	}

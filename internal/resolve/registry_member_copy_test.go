@@ -1,6 +1,7 @@
 package resolve
 
 import (
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -206,4 +207,67 @@ func TestAnUnprovablyCopiedGetterStaysUntyped(t *testing.T) {
 	expectReasons(t, got, map[string]string{
 		"field.getName": "variable 'field' has no component ref",
 	})
+}
+
+// Every read of the copy's item asks for the member's own assignments of
+// its fields, and they are found once per parse: going through the member's
+// whole file per read made a getter whose loop reads its item N times cost
+// N whole-file tokenisations.
+func TestAMembersAssignmentsAreFoundOncePerParse(t *testing.T) {
+	appender := "core/src/main/java/resource/context/admin/logging/appender"
+
+	allocs := func(n int) uint64 {
+		dir := t.TempDir()
+
+		var body strings.Builder
+		for range n {
+			body.WriteString("\t\t\t\t<cfset field.getName()>\n")
+		}
+
+		writeFiles(t, dir, map[string]string{
+			"core/src/main/java/resource/component/org/lucee/cfml/test/LuceeTestCase.cfc": `component {}`,
+			"core/src/main/cfml/context/admin/services.update.functions.cfm":              `<cfadmin action="x">`,
+
+			appender + "/Appender.cfc": `component {
+	fields=array();
+	private component function field() { return createObject("component","Field").init(); }
+	public array function getCustomFields() { return fields; }
+}`,
+			appender + "/Field.cfc": `component {
+	function getName() { return ""; }
+}`,
+			appender + "/Datasource.cfc": `<cfcomponent extends="Appender">
+	<cfset fields=array(field("DSN","dsn","",true,"."))>
+
+	<cffunction name="getCustomFields" returntype="array" output="false">
+		<cfif !isNull(form._name)>
+			<cfset var fields=duplicate(variables.fields)>
+			<cfloop array="#fields#" index="local.i" item="local.field">
+` + body.String() + `			</cfloop>
+		</cfif>
+		<cfreturn fields>
+	</cffunction>
+</cfcomponent>`,
+		})
+
+		var before, after runtime.MemStats
+
+		runtime.GC()
+		runtime.ReadMemStats(&before)
+
+		got := reasonsIn(t, dir, appender+"/Datasource.cfc")
+
+		runtime.ReadMemStats(&after)
+
+		if r := got["field.getName"]; r != "" {
+			t.Fatalf("field.getName: %q, want the copy's item typed", r)
+		}
+
+		return after.TotalAlloc - before.TotalAlloc
+	}
+
+	small, large := allocs(100), allocs(800)
+	if ratio := float64(large) / float64(small); ratio > 20 {
+		t.Errorf("allocation grew %.1fx for 8x the reads of a copied field's item (%d to %d bytes)", ratio, small, large)
+	}
 }

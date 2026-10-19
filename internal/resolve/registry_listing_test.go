@@ -1,6 +1,7 @@
 package resolve
 
 import (
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -121,5 +122,52 @@ loop collection=driverNames index="n" item="fn" {
 
 	if reason := got["field.getUndeclared"]; !strings.Contains(reason, "not found in ") {
 		t.Errorf("field.getUndeclared: %q, want the missing-method reason", reason)
+	}
+}
+
+// A receiver the parse guessed dynamic asks whether a registry family
+// overrides the guess, and only a file a recipe reaches can hold one: a
+// file and includers with no registry skip the assignment walk. The walk
+// reads cached assignment facts, so this pins the cost per call staying
+// constant rather than catching a quadratic; the gate saves about a sixth
+// of the allocation here.
+func TestADynamicGuessIsNotWalkedWithoutARegistry(t *testing.T) {
+	allocs := func(n int) uint64 {
+		dir := t.TempDir()
+
+		var body strings.Builder
+		for range n {
+			body.WriteString("\t\tsvc.go();\n")
+		}
+
+		writeFiles(t, dir, map[string]string{
+			"Svc.cfc": `component {
+	function init( name ) {
+		variables.svc = createObject( "component", "plugins.#name#.Service" );
+	}
+	function run() {
+` + body.String() + `	}
+}`,
+		})
+
+		var before, after runtime.MemStats
+
+		runtime.GC()
+		runtime.ReadMemStats(&before)
+
+		got := reasonsIn(t, dir, "Svc.cfc")
+
+		runtime.ReadMemStats(&after)
+
+		if r := got["svc.go"]; r != "" {
+			t.Fatalf("svc.go: %q, want the dynamic guess to accept it", r)
+		}
+
+		return after.TotalAlloc - before.TotalAlloc
+	}
+
+	small, large := allocs(100), allocs(800)
+	if ratio := float64(large) / float64(small); ratio > 20 {
+		t.Errorf("allocation grew %.1fx for 8x the calls on a dynamic receiver (%d to %d bytes)", ratio, small, large)
 	}
 }

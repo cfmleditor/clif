@@ -94,9 +94,7 @@ type Resolver struct {
 	typeGuardCache        spanCache[receiverTypeGuard] // exact builtin checks in current source
 	closureCache          spanCache[closureSpan]       // file URI → every function literal its current text holds (closuresOf)
 	registryCache         spanCache[[]registryFact]    // file URI → every registry recipe its current text holds (registriesOf)
-	registryTextMu        sync.Mutex
-	registryTextCache     map[string]registryText // includer path → its registry facts, with its text
-	pathCaches                                    // what InvalidatePaths clears
+	pathCaches                                         // what InvalidatePaths clears
 }
 
 // pathCaches are the answers a Resolver keeps that depend on files, paths and
@@ -138,6 +136,7 @@ type pathCaches struct {
 	lazyFiles         map[string]bool                     // file → it holds an isObject() guard at all
 	viewArgCache      map[string]map[string][]viewArgSite // module → view → its renders (viewArgSites)
 	handoffs          handoffIndex                        // handler actions by the view each renders (viewActions)
+	registryTexts     map[string]registryText             // includer path → its registry facts while its stamp holds (includeRegistries)
 }
 
 // returnCache holds ReturnComponentOf's answers. An answer reads the index and
@@ -1572,8 +1571,20 @@ func (r *Resolver) canResolveCall(call *parser.CallSite, pr *parser.ParseResult,
 	// was given the files to look through. After every other answer, so an
 	// inference never turns a call something else accepted into a finding.
 	if comp == "" {
-		if comp = r.argumentFromCallers(variable, call.Caller, pr, lookupCtx{}); comp != "" {
+		// callers: a caller passing on an argument of its own is typed by its
+		// own callers in turn (Mura's gateways take what the manager forwards).
+		if comp = r.argumentFromCallers(variable, call.Caller, pr, lookupCtx{callers: true}); comp != "" {
 			tr.addf("resolved %q to %q: what every caller of %s passes it", variable, comp, call.Caller)
+		}
+	}
+
+	// A receiver built from an argument (`var item = arguments.iterator
+	// .next()`, `var result = arguments.filter`) is looked up again with
+	// inference allowed inside it: only here, for a call nothing else
+	// answered, so the cost is that of the calls left unresolved.
+	if comp == "" {
+		if comp, _ = r.receiverComponentD(variable, call.Line, call.Caller, funcName, pr, baseDir, nil, lookupCtx{call: call, callers: true}); comp != "" {
+			tr.addf("resolved %q to %q: looked up again with what its arguments' callers pass", variable, comp)
 		}
 	}
 
@@ -1641,8 +1652,16 @@ func (r *Resolver) walkHops(comp, softComp string, call *parser.CallSite, pr *pa
 		// A registry family is its members' set, which no single hop's
 		// declared return type can name: what it returns is an array of the
 		// element the members' own files prove, and the chain past the
-		// getter runs on that array, not on the family. Dynamic.
+		// getter runs on that array, not on the family. Dynamic, once the
+		// hop itself is every family's method.
 		if paths := familyPaths(comp); len(paths) > 0 {
+			hopCall := *call
+			hopCall.FuncName = hop
+
+			if why := r.checkFamiliesMethod(familyRefs(comp), &hopCall, pr, tr); why != "" {
+				return comp, softComp, why + " (chain to '" + funcName + "')", true
+			}
+
 			tr.addf("chain hop %q is on a registry family (%s) — the rest of the chain is dynamic", hop, displayFamilyMembers(paths))
 			tr.hit(TargetDynamic, "", nil)
 
@@ -3049,24 +3068,10 @@ func (r *Resolver) checkMethodOn(comp, softComp string, call *parser.CallSite, p
 	// A registry family: the receiver is any one of the package directory's
 	// components, so the method must be each member's own, or its base's. A
 	// receiver several families name — the container read through a
-	// list-loop item's concatenation — is answered by whichever one of them
-	// holds it, so a family that answers the call answers the receiver, and
-	// a call no family answers names the first family's lack.
+	// list-loop item's concatenation — holds each of them on one of the
+	// loop's turns, so every family must answer the call.
 	if refs := familyRefs(comp); len(refs) > 0 {
-		reason := ""
-
-		for _, ref := range refs {
-			why := r.checkFamilyMethod(ref.pkg, ref.members, call, pr, tr)
-			if why == "" {
-				return why
-			}
-
-			if reason == "" {
-				reason = why
-			}
-		}
-
-		return reason
+		return r.checkFamiliesMethod(refs, call, pr, tr)
 	}
 
 	// Builtin return type — check method exists in-memory
@@ -3269,8 +3274,9 @@ func displayComponent(comp string) string {
 // Two of CanResolveCall's fallbacks are left out on purpose. A
 // componentResolver is tried against the variable name, but not against the
 // whole line, which exists for chained calls and would answer for whatever
-// else the line holds. And "$any" and "$builtin." are not components, so they
-// are reported as unknown.
+// else the line holds. And "$any", "$builtin." and a registry family (any one
+// of its members, whose marker would split on its "|" into bare member paths)
+// are not one component, so they are reported as unknown.
 func (r *Resolver) ComponentOf(variable string, line uint32, pr *parser.ParseResult, baseDir string) string {
 	caller := pr.FuncScopeAt(int(line)).Name
 
@@ -3280,7 +3286,7 @@ func (r *Resolver) ComponentOf(variable string, line uint32, pr *parser.ParseRes
 		comp, _, _ = parser.ResolveFromCallMatch(variable, r.Resolvers)
 	}
 
-	if comp == "$any" || strings.HasPrefix(comp, "$builtin.") {
+	if comp == "$any" || strings.HasPrefix(comp, "$builtin.") || strings.HasPrefix(comp, familyPrefix) {
 		return ""
 	}
 
@@ -3358,7 +3364,7 @@ func (r *Resolver) inferredReceiver(variable string, line uint32, caller, funcNa
 // recipes' guards keep, and the guess the parse could not walk stays its
 // guess against anything else.
 func (r *Resolver) familyOverGuess(comp, variable string, line uint32, caller string, pr *parser.ParseResult, baseDir string, tr *callTrace, ctx lookupCtx) string {
-	if comp != "$any" {
+	if comp != "$any" || !r.registriesReach(pr) {
 		return comp
 	}
 
@@ -3370,6 +3376,27 @@ func (r *Resolver) familyOverGuess(comp, variable string, line uint32, caller st
 	tr.addf("%q's dynamic guess is overwritten by the family the construction's listing serves: %q", variable, family)
 
 	return family
+}
+
+// registriesReach reports whether a registry recipe can reach pr: its own
+// text holds one, or an includer's does. Only then can an assignment prove a
+// family, and the walk that looks for one is skipped everywhere else.
+func (r *Resolver) registriesReach(pr *parser.ParseResult) bool {
+	if pr == nil {
+		return false
+	}
+
+	// Asked for every call on a dynamic receiver: the recipe's word is
+	// looked for once per parse.
+	own, _ := pr.Memo("holdsRegistry", func() any {
+		return strings.Contains(pr.Content, "ComponentListPackageAsStruct")
+	}).(bool)
+
+	if own && len(r.registriesOf(pr)) > 0 {
+		return true
+	}
+
+	return pr.URI != "" && len(r.includeRegistries(cfpath.FromURI(string(pr.URI)))) > 0
 }
 
 // keyedReceiverStem is the collection a keyed element read the parser filed
@@ -3417,6 +3444,10 @@ func (r *Resolver) keyedReceiverElement(variable string, line uint32, caller str
 			elem = ""
 		}
 
+		if elem == "" {
+			elem = r.nativeElementOf(stem, line, caller, pr, baseDir, ctx)
+		}
+
 		if elem != "" {
 			tr.addf("%q is the keyed element read %q names, whose collection's element is %q", variable, stem, elem)
 		}
@@ -3425,12 +3456,29 @@ func (r *Resolver) keyedReceiverElement(variable string, line uint32, caller str
 	return elem
 }
 
+// nativeElementOf is the interface each struct-notation element of the
+// native handle a variable holds is, as the handle's contract states it: a
+// MongoDB database handle's db["coll"] is a collection. A variable holding
+// no native handle, or one whose contract states no element, answers "".
+func (r *Resolver) nativeElementOf(variable string, line uint32, caller string, pr *parser.ParseResult, baseDir string, ctx lookupCtx) string {
+	if ctx.depth >= maxAssignedDepth {
+		return ""
+	}
+
+	comp, _ := r.receiverComponentD(variable, line, caller, "", pr, baseDir, nil, lookupCtx{depth: ctx.depth + 1, leaf: ctx.leaf, callers: ctx.callers})
+
+	elem, _ := nativetype.Element(comp)
+
+	return elem
+}
+
 // argumentHolderType is the component an argument's own holder carries, as
 // its declared state says: the component the argument was typed to, the
-// type it declares, the bean the body constructs when the caller passes
-// none, or what every caller passes it. member marks an untyped argument
-// whose method is a member method (dynamic). The argument's presence stops
-// the lookup either way — an argument shadows what the outer scopes hold.
+// type it declares, or the bean the body constructs when the caller passes
+// none, or with ctx.callers what every caller passes it. member marks an
+// untyped argument whose method is a member method (dynamic). The
+// argument's presence stops the lookup either way: an argument shadows what
+// the outer scopes hold.
 func (r *Resolver) argumentHolderType(variable, name string, arg *parser.Argument, funcName string, pr *parser.ParseResult, caller string, tr *callTrace, ctx lookupCtx) (string, bool) {
 	if arg.Component != "" {
 		return arg.Component, false
@@ -3463,12 +3511,14 @@ func (r *Resolver) argumentHolderType(variable, name string, arg *parser.Argumen
 		return comp, false
 	}
 
-	// An argument the caller passes on is typed by its own callers: Mura's
-	// gateways take what the manager forwards from its own.
-	if comp := r.argumentFromCallers("arguments."+name, caller, pr, ctx); comp != "" {
-		tr.addf("resolved %q to %q: what every caller of %s passes it", variable, comp, caller)
+	// What its callers pass, only when canResolveCall is asking again for
+	// a call nothing else answered (ctx.callers).
+	if ctx.callers {
+		if comp := r.argumentFromCallers("arguments."+name, caller, pr, ctx); comp != "" {
+			tr.addf("resolved %q to %q: what every caller of %s passes it", variable, comp, caller)
 
-		return comp, false
+			return comp, false
+		}
 	}
 
 	tr.addf("argument %q shadows component fields", name)
@@ -3494,6 +3544,12 @@ func (r *Resolver) receiverComponentD(variable string, line uint32, caller, func
 	}
 
 	if name, scope, record := parser.MemberReceiverName(variable); record {
+		// A keyed element read whose key holds a dot — drivers[form.type] —
+		// reads as a member to the scope split, and is the read it spells.
+		if elem := r.keyedReceiverElement(variable, line, caller, pr, baseDir, tr, ctx); elem != "" {
+			return elem, false
+		}
+
 		return r.memberReceiver(variable, name, scope, line, caller, funcName, pr, baseDir, tr, ctx), false
 	}
 

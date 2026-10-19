@@ -1,6 +1,7 @@
 package resolve
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -141,4 +142,93 @@ func TestALoopOverAnIncludedFamilyListLiteralTypesTheLoop(t *testing.T) {
 		"f.getName":              "",
 		"f.getLevel":             "",
 	})
+}
+
+// familyFieldFiles is a family whose members' custom fields are field()
+// and group() constructions, with fields the Claude member's own
+// assignment and page the consuming template.
+func familyFieldFiles(t *testing.T, dir, fields, page string) string {
+	t.Helper()
+
+	adminJava := "core/src/main/java/resource/context/admin"
+	ai := adminJava + "/aidriver"
+	cfmlAdmin := "core/src/main/cfml/context/admin"
+
+	writeFiles(t, dir, map[string]string{
+		"core/src/main/java/resource/component/org/lucee/cfml/test/LuceeTestCase.cfc": `component {}`,
+		cfmlAdmin + "/services.update.functions.cfm":                                  `<cfadmin action="x">`,
+		ai + "/AI.cfc": `component {
+	variables.fields=[];
+	private function field(string name) { return createObject("component","Field").init(arguments.name); }
+	private function group() { return createObject("component","Group").init(); }
+	public function getCustomFields() { return variables.fields; }
+}`,
+		ai + "/Field.cfc": `component {
+	function getName() { return ""; }
+	function setX() { return 1; }
+}`,
+		ai + "/Group.cfc": `component {
+	function getLevel() { return 2; }
+}`,
+		ai + "/Claude.cfc": `component extends="AI" {
+	` + fields + `
+	public string function getId() { return "claude"; }
+}`,
+		cfmlAdmin + "/services.ai.cfm": `<cfset driverNames=ComponentListPackageAsStruct("lucee.admin.aidriver",driverNames)>
+<cfset drivers={}>
+<cfloop collection="#driverNames#" index="n" item="fn">
+	<cfif n EQ "AI" or n EQ "Field" or n EQ "Group">
+		<cfcontinue>
+	</cfif>
+	<cfset drivers[n]=createObject('component',fn)>
+</cfloop>
+<cfset driver=drivers[n]>
+` + page,
+	})
+
+	return cfmlAdmin + "/services.ai.cfm"
+}
+
+// A chain hop on a family receiver is the family's method before the rest
+// of the chain is dynamic: a getter no member declares is a finding, not a
+// dynamic array.
+func TestAChainHopOnAFamilyIsChecked(t *testing.T) {
+	dir := t.TempDir()
+	page := familyFieldFiles(t, dir, `variables.fields = [ field("URL") ];`, `<cfset a = driver.getCustomFields().len()>
+<cfset b = driver.getCustomFieldz().len()>`)
+
+	got := reasonsInCFM(t, dir, page)
+	expectReasons(t, got, map[string]string{
+		"driver.getCustomFields.len": "",
+	})
+
+	if reason := got["driver.getCustomFieldz.len"]; !strings.Contains(reason, "method 'getCustomFieldz' not found in the lucee.admin.aidriver family") {
+		t.Errorf("driver.getCustomFieldz.len: %q, want the hop's missing-method reason", reason)
+	}
+}
+
+// A literal item is a construction only when the call is the whole item:
+// field("URL").setX(true) is what setX returns. And a literal the
+// assignment goes on to call a method of is that method's value:
+// [ group("E") ].map(f) is what map returns, not the literal's items.
+// Neither proves the element, so the loop variable stays untyped.
+func TestALiteralItemOrLiteralWithMoreIsNotItsConstruction(t *testing.T) {
+	for _, fields := range []string{
+		`variables.fields = [ field("URL").setX(true) ];`,
+		`variables.fields = [ field("URL") ].map(f);`,
+	} {
+		dir := t.TempDir()
+		page := familyFieldFiles(t, dir, fields, `<cfloop array="#driver.getCustomFields()#" index="f">
+	<cfoutput>#f.getName()#</cfoutput>
+</cfloop>`)
+
+		got := reasonsInCFM(t, dir, page)
+		if _, ok := got["f.getName"]; !ok {
+			t.Fatalf("%s: f.getName not recorded; got %v", fields, got)
+		}
+
+		if reason := got["f.getName"]; reason == "" {
+			t.Errorf("%s: f.getName accepted, want the element unproven", fields)
+		}
+	}
 }

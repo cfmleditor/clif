@@ -32,14 +32,140 @@ import (
 // so each _name's turn names one of the template's own registry
 // containers, and driver is a member of whichever turn's family. The two
 // turns' families the receiver cannot tell apart statically — the
-// receiver is a union of the families, and a call is answered when one of
-// them answers it, since exactly one holds the receiver.
+// receiver is a union of the families, and a call is answered when every
+// one of them answers it, since each holds the receiver on its own turn.
 //
 // The two families' helpers are kept apart by their directories: an
 // appender's fields and a layout's fields are different components spelled
 // the same, and the loop over the getter holds both, as lists of files.
 func TestAFactoryFilledRegistryTypesItsIndirectPickup(t *testing.T) {
 	dir := t.TempDir()
+	page := loggingAdminFiles(t, dir, `<cfloop list="appender,layout" item="_name">
+	<cfset drivers=variables[_name&"s"]>
+	<cfloop collection="#drivers#" index="driverClass" item="driver">
+		<cfset _n=driver.getCustomFields()>
+		<cfoutput>#driver.getClass()#</cfoutput>
+		<cfloop array="#driver.getCustomFields()#" index="field">
+			<cfoutput>#field.getName()#</cfoutput>
+			<cfoutput>#field.getLevel()#</cfoutput>
+			<cfoutput>#field.getUndeclared()#</cfoutput>
+		</cfloop>
+	</cfloop>
+</cfloop>`)
+
+	got := reasonsInCFM(t, dir, page)
+	expectReasons(t, got, map[string]string{
+		// getCustomFields is a base's own: both families declare it.
+		"driver.getCustomFields": "",
+		// The field loop's element is both families' helper sets: a method
+		// any helper of either family declares resolves; one no helper
+		// anywhere declares stays reported.
+		"field.getName":  "",
+		"field.getLevel": "",
+	})
+
+	if reason := got["driver.getClass"]; !strings.Contains(reason, "not found in the lucee.admin.logging.appender family") {
+		t.Errorf("driver.getClass: %q, want the first family's missing-method reason", reason)
+	}
+
+	if reason := got["field.getUndeclared"]; !strings.Contains(reason, "not found in ") {
+		t.Errorf("field.getUndeclared: %q, want the union's missing-method reason", reason)
+	}
+
+	if !strings.Contains(got["field.getUndeclared"], "Field|Group") {
+		t.Errorf("field.getUndeclared: %q, want the helper components named", got["field.getUndeclared"])
+	}
+}
+
+// The pickup is only for a bound list item: a `variables[v&"s"]` read whose
+// v no list loop binds names no container this template proves, and the
+// receiver reads as it did — no component ref.
+func TestAnUnboundNamePickupStaysUnresolved(t *testing.T) {
+	dir := t.TempDir()
+
+	adminJava := "core/src/main/java/resource/context/admin"
+	mailservers := adminJava + "/mailservers"
+	cfmlAdmin := "core/src/main/cfml/context/admin"
+
+	writeFiles(t, dir, map[string]string{
+		"core/src/main/java/resource/component/org/lucee/cfml/test/LuceeTestCase.cfc": `component {}`,
+		cfmlAdmin + "/services.update.functions.cfm":                                  `<cfadmin action="x">`,
+		mailservers + "/MailServer.cfc": `component {
+	function getShortName() { return ""; }
+}`,
+		mailservers + "/GMail.cfc": `component {
+	function getShortName() { return "gmail"; }
+}`,
+		// A recipe this template never reaches: the read's concatenation is
+		// not of a list-loop item, so the registry backs no receiver.
+		cfmlAdmin + "/services.other.form.cfm": `<cfscript>
+registrations={};
+registrations=ComponentListPackageAsStruct("lucee.admin.mailservers",registrations);
+registries={};
+loop collection=registrations index="n" item="fn" {
+	registries[n]=createObject("component",fn);
+}
+function fill(reg) {
+	sct={};
+	for (el in arguments.reg) {
+		sct[el.getShortName()]=el;
+	}
+	return sct;
+}
+</cfscript>
+<cfset registries=fill(registries)>
+<cfloop list="mailservers" item="_kind">
+	<cfset drivers=variables[_kind&"s"]>
+	<cfloop collection="#drivers#" index="driverClass" item="driver">
+		<cfoutput>#driver.getShortName()#</cfoutput>
+	</cfloop>
+</cfloop>`,
+	})
+
+	got := reasonsInCFM(t, dir, cfmlAdmin+"/services.other.form.cfm")
+	expectReasons(t, got, map[string]string{
+		"driver.getShortName": "variable 'driver' has no component ref",
+	})
+}
+
+// A loop whose collection is read off its own variable — the item the loop
+// binds is the receiver of the collection's call — gives no element: the
+// collection is a chain off the loop variable, whose element is what the
+// collection holds, and following that went round for ever. It overflowed
+// the stack, which no recover catches; the answer is no type.
+func TestALoopOverItsOwnVariableDoesNotRecurse(t *testing.T) {
+	dir := t.TempDir()
+
+	writeFiles(t, dir, map[string]string{
+		"tags.cfm":     `<cfloop array="#x.getItems()#" item="x"><cfoutput>#x.getName()#</cfoutput></cfloop>`,
+		"filtered.cfm": `<cfloop array="#x.getItems().filter(f)#" item="x"><cfoutput>#x.getName()#</cfoutput></cfloop>`,
+		"Script.cfc": `component {
+	function f() {
+		for ( row in row.getRows() ) {
+			row.getName();
+		}
+	}
+}`,
+	})
+
+	for _, page := range []string{"tags.cfm", "filtered.cfm"} {
+		got := reasonsInCFM(t, dir, page)
+		if reason := got["x.getName"]; reason == "" {
+			t.Errorf("%s: x.getName accepted, want it untyped", page)
+		}
+	}
+
+	got := reasonsIn(t, dir, "Script.cfc")
+	if reason := got["row.getName"]; reason == "" {
+		t.Errorf("row.getName accepted, want it untyped")
+	}
+}
+
+// loggingAdminFiles is the logging admin's two families and the template
+// whose factory fills their registries, with the consuming page create in
+// server.logging.create.cfm; it answers that page's path.
+func loggingAdminFiles(t *testing.T, dir, create string) string {
+	t.Helper()
 
 	adminJava := "core/src/main/java/resource/context/admin"
 	logging := adminJava + "/logging"
@@ -49,6 +175,7 @@ func TestAFactoryFilledRegistryTypesItsIndirectPickup(t *testing.T) {
 
 	appenderBase := `component {
 	fields=array();
+	public string function getAppenderOnly() { return ""; }
 	private component function field() { return createObject("component","Field").init(); }
 	private component function group() { return createObject("component","Group").init(); }
 	public array function getCustomFields() { return fields; }
@@ -135,91 +262,50 @@ func TestAFactoryFilledRegistryTypesItsIndirectPickup(t *testing.T) {
 <cfset layouts=doSortedStruct(arr)>
 <cfcase value="create"><cfinclude template="server.logging.create.cfm"/></cfcase>`,
 
-		cfmlAdmin + "/server.logging.create.cfm": `<cfloop list="appender,layout" item="_name">
+		cfmlAdmin + "/server.logging.create.cfm": create,
+	})
+
+	return cfmlAdmin + "/server.logging.create.cfm"
+}
+
+// Both turns of `<cfloop list="appender,layout">` run, so driver holds an
+// appender on one and a layout on the other: a method only one family
+// declares fails on the other family's turn, and is a finding.
+func TestAMethodEveryIndirectFamilyLacksIsReported(t *testing.T) {
+	dir := t.TempDir()
+	page := loggingAdminFiles(t, dir, `<cfloop list="appender,layout" item="_name">
 	<cfset drivers=variables[_name&"s"]>
 	<cfloop collection="#drivers#" index="driverClass" item="driver">
-		<cfset _n=driver.getCustomFields()>
-		<cfoutput>#driver.getClass()#</cfoutput>
-		<cfloop array="#driver.getCustomFields()#" index="field">
-			<cfoutput>#field.getName()#</cfoutput>
-			<cfoutput>#field.getLevel()#</cfoutput>
-			<cfoutput>#field.getUndeclared()#</cfoutput>
-		</cfloop>
+		<cfoutput>#driver.getAppenderOnly()#</cfoutput>
+		<cfoutput>#driver.getCustomFields()#</cfoutput>
 	</cfloop>
-</cfloop>`,
-	})
+</cfloop>`)
 
-	got := reasonsInCFM(t, dir, cfmlAdmin+"/server.logging.create.cfm")
+	got := reasonsInCFM(t, dir, page)
 	expectReasons(t, got, map[string]string{
-		// getCustomFields is a base's own: both families declare it.
 		"driver.getCustomFields": "",
-		// The field loop's element is both families' helper sets: a method
-		// any helper of either family declares resolves; one no helper
-		// anywhere declares stays reported.
-		"field.getName":  "",
-		"field.getLevel": "",
 	})
 
-	if reason := got["driver.getClass"]; !strings.Contains(reason, "not found in the lucee.admin.logging.appender family") {
-		t.Errorf("driver.getClass: %q, want the first family's missing-method reason", reason)
-	}
-
-	if reason := got["field.getUndeclared"]; !strings.Contains(reason, "not found in ") {
-		t.Errorf("field.getUndeclared: %q, want the union's missing-method reason", reason)
-	}
-
-	if !strings.Contains(got["field.getUndeclared"], "Field|Group") {
-		t.Errorf("field.getUndeclared: %q, want the helper components named", got["field.getUndeclared"])
+	if reason := got["driver.getAppenderOnly"]; !strings.Contains(reason, "not found in the logging.layout family") {
+		t.Errorf("driver.getAppenderOnly: %q, want the layout family's missing-method reason", reason)
 	}
 }
 
-// The pickup is only for a bound list item: a `variables[v&"s"]` read whose
-// v no list loop binds names no container this template proves, and the
-// receiver reads as it did — no component ref.
-func TestAnUnboundNamePickupStaysUnresolved(t *testing.T) {
+// A turn whose container is not one of the template's registries proves
+// nothing about the receiver on that turn, so the pickup proves nothing:
+// foos is an ordinary struct, and driver is not an appender when _n is foo.
+func TestAnIndirectPickupWithAnUnprovenTurnDeclines(t *testing.T) {
 	dir := t.TempDir()
-
-	adminJava := "core/src/main/java/resource/context/admin"
-	mailservers := adminJava + "/mailservers"
-	cfmlAdmin := "core/src/main/cfml/context/admin"
-
-	writeFiles(t, dir, map[string]string{
-		"core/src/main/java/resource/component/org/lucee/cfml/test/LuceeTestCase.cfc": `component {}`,
-		cfmlAdmin + "/services.update.functions.cfm":                                  `<cfadmin action="x">`,
-		mailservers + "/MailServer.cfc": `component {
-	function getShortName() { return ""; }
-}`,
-		mailservers + "/GMail.cfc": `component {
-	function getShortName() { return "gmail"; }
-}`,
-		// A recipe this template never reaches: the read's concatenation is
-		// not of a list-loop item, so the registry backs no receiver.
-		cfmlAdmin + "/services.other.form.cfm": `<cfscript>
-registrations={};
-registrations=ComponentListPackageAsStruct("lucee.admin.mailservers",registrations);
-registries={};
-loop collection=registrations index="n" item="fn" {
-	registries[n]=createObject("component",fn);
-}
-function fill(reg) {
-	sct={};
-	for (el in arguments.reg) {
-		sct[el.getShortName()]=el;
-	}
-	return sct;
-}
-</cfscript>
-<cfset registries=fill(registries)>
-<cfloop list="mailservers" item="_kind">
-	<cfset drivers=variables[_kind&"s"]>
+	page := loggingAdminFiles(t, dir, `<cfset foos={}>
+<cfloop list="appender,foo" item="_n">
+	<cfset drivers=variables[_n&"s"]>
 	<cfloop collection="#drivers#" index="driverClass" item="driver">
-		<cfoutput>#driver.getShortName()#</cfoutput>
+		<cfoutput>#driver.getAppenderOnly()#</cfoutput>
 	</cfloop>
-</cfloop>`,
-	})
+</cfloop>`)
 
-	got := reasonsInCFM(t, dir, cfmlAdmin+"/services.other.form.cfm")
+	got := reasonsInCFM(t, dir, page)
 	expectReasons(t, got, map[string]string{
-		"driver.getShortName": "variable 'driver' has no component ref",
+		"driver.getAppenderOnly": "variable 'driver' has no component ref",
 	})
 }

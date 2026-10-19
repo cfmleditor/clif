@@ -20,7 +20,8 @@ import (
 // item is then a member of whichever turn's family holds the receiver — and
 // the turns' families the receiver cannot be told apart statically, so it is
 // a comma-joined pair of family markers, and a call on it is answered when
-// one of them answers it, since exactly one holds the receiver.
+// every one of them answers it, since each holds the receiver on its turn.
+// A turn whose container is not one of the registries declines the pickup.
 
 // concatPickupRe is the read of the variables scope under a name an
 // identifier concatenated with a literal spells.
@@ -42,9 +43,11 @@ func (r *Resolver) indirectRegistryPickup(rhs string, line int, pr *parser.Parse
 	)
 
 	for _, literal := range listLoopItems(pr.Content, m[1], line) {
+		// A turn whose container is not a registry holds something this
+		// cannot prove on that turn, so the receiver is unproven.
 		fact, ok := r.registryFamily(strings.ToLower(literal+m[2]), pr)
 		if !ok {
-			continue
+			return ""
 		}
 
 		if registry == nil {

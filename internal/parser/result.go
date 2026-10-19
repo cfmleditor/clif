@@ -133,6 +133,11 @@ type ParseResult struct {
 	callsLen     int
 	callsBuckets int
 
+	// memoMu guards memo, answers a caller derived from this parse and keyed
+	// as it chose (see Memo). An edit clears it with the name indexes.
+	memoMu sync.Mutex
+	memo   map[string]any
+
 	// scopeAtMu guards scopeAt, FuncScopeAt's index over Scopes, and the
 	// Scopes it was built from.
 	scopeAtMu    sync.Mutex
@@ -2520,6 +2525,32 @@ func (pr *ParseResult) FuncDeclares(funcStart, funcEnd int, name string) bool {
 	_, ok := set.names[string(buf.lowerFold(name))]
 
 	return ok
+}
+
+// Memo is build()'s answer for key, computed once per version of this parse.
+// It is for a caller that derives something from the parse alone, asked
+// again for every call site in it: the answer lives and dies with the parse,
+// and an edit forgets it.
+func (pr *ParseResult) Memo(key string, build func() any) any {
+	pr.memoMu.Lock()
+	v, ok := pr.memo[key]
+	pr.memoMu.Unlock()
+
+	if ok {
+		return v
+	}
+
+	v = build()
+
+	pr.memoMu.Lock()
+	if pr.memo == nil {
+		pr.memo = map[string]any{}
+	}
+
+	pr.memo[key] = v
+	pr.memoMu.Unlock()
+
+	return v
 }
 
 // FuncScopeAt is FindFuncScopeAt(line, pr.Scopes), through an index of the

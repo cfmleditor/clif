@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/parser"
@@ -104,7 +105,7 @@ func (r *Resolver) memberArrayElements(member, method string) (string, bool) {
 			// literal holds. A non-literal anywhere else, or a copy of
 			// something the member's own file does not assign, leaves the
 			// element untyped.
-			src, dup := duplicatePlain(producerText(as.rhs))
+			src, dup := as.copyOf, as.copies
 			if !dup || !spanned || as.at < bodyStart || as.at >= bodyEnd ||
 				!strings.EqualFold(src, name) {
 				return "", false
@@ -226,31 +227,67 @@ func duplicatePlain(text string) (string, bool) {
 // tag cffunction's — or ok=false. Unlike fnBody it does not need a brace to
 // open what a tag function's body has none of.
 func (r *Resolver) fnScopeTokens(fd *parser.FunctionDef) ([]parser.Token, bool) {
-	if fd == nil || !fd.URI.IsFile() {
+	text, ok := r.fnScopeText(fd)
+	if !ok {
 		return nil, false
+	}
+
+	return significantTokens(text), true
+}
+
+// fnScopeText is the source text of fd's own scope, which fnScopeTokens
+// tokenises: a caller that needs a word in it can look before paying for that.
+func (r *Resolver) fnScopeText(fd *parser.FunctionDef) (string, bool) {
+	if fd == nil || !fd.URI.IsFile() {
+		return "", false
 	}
 
 	pr := r.handlerParse(fd.URI.Path())
 	if pr == nil {
-		return nil, false
+		return "", false
 	}
 
+	return funcScopeText(pr, fd)
+}
+
+// funcScopeText is fd's own scope's text in pr, the parse that declares it.
+func funcScopeText(pr *parser.ParseResult, fd *parser.FunctionDef) (string, bool) {
 	scope := pr.FuncScopeAt(int(fd.Line))
 	if scope.Start == -1 || !strings.EqualFold(scope.Name, fd.Name) {
-		return nil, false
+		return "", false
 	}
 
 	if _, ok := lineOffset(pr.Content, scope.End); !ok {
-		return nil, false
+		return "", false
 	}
 
-	return significantTokens(sourceText(pr.Content, scope.Start, scope.End+1)), true
+	return sourceText(pr.Content, scope.Start, scope.End+1), true
 }
 
 // fdReturnsLocal is the one name every return at fd's own level gives —
 // `fields` or `variables.fields` — or "". Script `return` and tag
 // `cfreturn` read the same here.
 func (r *Resolver) fdReturnsLocal(fd *parser.FunctionDef) string {
+	if fd == nil || !fd.URI.IsFile() {
+		return ""
+	}
+
+	pr := r.handlerParse(fd.URI.Path())
+	if pr == nil {
+		return ""
+	}
+
+	// Asked for every element read a member's getter types, so each
+	// function's answer is found once per parse.
+	held, _ := pr.Memo("returnsLocal\x00"+strconv.Itoa(int(fd.Line))+"\x00"+strings.ToLower(fd.Name), func() any {
+		return r.returnsLocalOf(fd)
+	}).(string)
+
+	return held
+}
+
+// returnsLocalOf is fdReturnsLocal's answer, read from fd's own scope.
+func (r *Resolver) returnsLocalOf(fd *parser.FunctionDef) string {
 	tokens, ok := r.fnScopeTokens(fd)
 	if !ok {
 		return ""
@@ -319,9 +356,12 @@ func localNameOf(tokens []parser.Token) string {
 
 // memberAssignment is one assignment of a name in a member's own file: the
 // file offset the assigned name's token sits at, and the value's tokens.
+// copyOf is the name a duplicate() value copies, when copies says it is one.
 type memberAssignment struct {
-	at  int
-	rhs []parser.Token
+	at     int
+	rhs    []parser.Token
+	copyOf string
+	copies bool
 }
 
 // memberAssignments is every assignment of name in the member's own file,
@@ -334,8 +374,18 @@ func (r *Resolver) memberAssignments(name, member string) ([]memberAssignment, b
 		return nil, false
 	}
 
-	tokens := significantTokens(pr.Content)
+	// Asked for every element read the member's getter types, so each
+	// name's assignments are found once per parse of the member.
+	found, _ := pr.Memo("memberAssignments\x00"+strings.ToLower(name), func() any {
+		return assignmentsOf(fileTokens(pr), name)
+	}).([]memberAssignment)
 
+	return found, len(found) > 0
+}
+
+// assignmentsOf is every assignment of name in the tokens, or nil when one
+// does not close.
+func assignmentsOf(tokens []parser.Token, name string) []memberAssignment {
 	var found []memberAssignment
 
 	for i := 0; i+1 < len(tokens); i++ {
@@ -350,45 +400,73 @@ func (r *Resolver) memberAssignments(name, member string) ([]memberAssignment, b
 		}
 
 		if stop > len(tokens) {
-			return nil, false
+			return nil
 		}
 
-		found = append(found, memberAssignment{at: tokens[i].Offset, rhs: tokens[i+2 : stop]})
+		as := memberAssignment{at: tokens[i].Offset, rhs: tokens[i+2 : stop]}
+
+		// A tag assignment's value runs past its tag, so its text is read
+		// here, once, rather than for every element read that asks.
+		if len(as.rhs) > 0 && as.rhs[0].Kind == parser.TokIdent && strings.EqualFold(as.rhs[0].Value, "duplicate") {
+			as.copyOf, as.copies = duplicatePlain(producerText(as.rhs))
+		}
+
+		found = append(found, as)
 		i = stop - 1
 	}
 
-	if len(found) == 0 {
-		return nil, false
-	}
-
-	return found, true
+	return found
 }
 
 // assignmentEnd is the index of the token that closes the grouping value an
-// assignment names — array( ... ) or [ ... ] — or, for another kind of value,
-// the token its statement ends at.
+// assignment names — array( ... ) or [ ... ] — or, for another kind of value
+// or a group the expression goes on past ([ a, b ].map(f)), the token its
+// statement ends at.
 func assignmentEnd(tokens []parser.Token, from int) int {
-	if from < len(tokens) {
-		switch tokens[from].Kind {
-		case parser.TokLParen:
-			if at := matchingParen(tokens, from); at > 0 {
-				return at
-			}
-		case parser.TokLBracket:
-			if at := matchingBracket(tokens, from); at > 0 {
-				return at
-			}
-		default:
-			if from+2 < len(tokens) && tokens[from].Kind == parser.TokIdent &&
-				strings.EqualFold(tokens[from].Value, "array") && tokens[from+1].Kind == parser.TokLParen {
-				if at := matchingParen(tokens, from+1); at > 0 {
-					return at
-				}
-			}
-		}
+	if at := groupEnd(tokens, from); at > 0 && !continuesPast(tokens, at) {
+		return at
 	}
 
 	return statementEnd(tokens, from, len(tokens))
+}
+
+// groupEnd is the index of the token closing the array( ... ), ( ... ) or
+// [ ... ] at from, or -1.
+func groupEnd(tokens []parser.Token, from int) int {
+	if from >= len(tokens) {
+		return -1
+	}
+
+	switch tokens[from].Kind {
+	case parser.TokLParen:
+		return matchingParen(tokens, from)
+	case parser.TokLBracket:
+		return matchingBracket(tokens, from)
+	default:
+		if from+2 < len(tokens) && tokens[from].Kind == parser.TokIdent &&
+			strings.EqualFold(tokens[from].Value, "array") && tokens[from+1].Kind == parser.TokLParen {
+			return matchingParen(tokens, from+1)
+		}
+	}
+
+	return -1
+}
+
+// continuesPast is whether the expression goes on after the token at: a
+// member, a call, an index or an operator applied to the group.
+func continuesPast(tokens []parser.Token, at int) bool {
+	if at+1 >= len(tokens) {
+		return false
+	}
+
+	switch tokens[at+1].Kind {
+	case parser.TokDot, parser.TokDoubleColon, parser.TokLParen, parser.TokLBracket,
+		parser.TokAmpersand, parser.TokPlus, parser.TokMinus, parser.TokStar,
+		parser.TokPercent, parser.TokCaret, parser.TokQuestion, parser.TokColon:
+		return true
+	default:
+		return false
+	}
 }
 
 // matchingParen is the index of the ) closing the ( at open.
@@ -479,7 +557,13 @@ func literalItems(rhs []parser.Token) ([][]parser.Token, bool) {
 				return nil, false
 			}
 
+			// The literal is the whole value: [ a, b ].map(f) is what map
+			// returns. A statement's own ; may follow it.
 			if depth == 0 {
+				if i+1 < len(rhs) && (i+2 < len(rhs) || rhs[i+1].Kind != parser.TokSemicolon) {
+					return nil, false
+				}
+
 				end = i
 			}
 		case parser.TokComma:
@@ -515,8 +599,10 @@ func literalItems(rhs []parser.Token) ([][]parser.Token, bool) {
 // createObject("component", literal), and the path resolves to one file
 // beside that function's own.
 func (r *Resolver) constructorItemComponent(member string, item []parser.Token) (string, bool) {
+	// The call must be the whole item: field("a").setX(true) is what setX
+	// returns.
 	if len(item) < 2 || item[0].Kind != parser.TokIdent ||
-		item[1].Kind != parser.TokLParen || item[len(item)-1].Kind != parser.TokRParen {
+		item[1].Kind != parser.TokLParen || matchingParen(item, 1) != len(item)-1 {
 		return "", false
 	}
 

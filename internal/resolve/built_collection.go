@@ -11,12 +11,13 @@ import (
 )
 
 // builtCollectionElement is the element of the collection a function builds:
-// the body starts a local empty — arrayNew(1) or an empty [ ] — appends
-// values to it with arrayAppend, and every return at the function's own
-// level names it, or a field assigned from it. The appended values' common
-// component is the array's element. Any return of something else, or an
-// append whose value nobody proves, is an open world: the collection could
-// hold anything, and the answer is withheld.
+// the body starts a local empty with arrayNew(1), appends values to it with
+// arrayAppend, and every return at the function's own level names it, or a
+// field assigned from it. The appended values' common component is the
+// array's element. Any return of something else, an append whose value
+// nobody proves, or another write to the local (built[2]=x, built.append(x),
+// arrayPrepend, a reassignment) is an open world: the collection could hold
+// anything, and the answer is withheld.
 //
 //	<cffunction name="getExtendSets" returntype="array">
 //		<cfset var extendArray=arrayNew(1)>
@@ -59,6 +60,10 @@ func (r *Resolver) builtCollectionElement(fd *parser.FunctionDef) string {
 
 	values, ok := builtAppends(tokens, built)
 	if !ok || len(values) == 0 {
+		return ""
+	}
+
+	if !writesAccounted(tokens, built, "") {
 		return ""
 	}
 
@@ -267,7 +272,10 @@ func assignsExactly(tokens []parser.Token, name string) bool {
 // every return at the getter's own level names one field, and the file's own
 // assignments fill it — a local assigned an empty array, appended with
 // values whose common component is the element. The field may also be
-// appended through the getter itself (arrayAppend(getAttributes(), a)).
+// appended through the getter itself (arrayAppend(getAttributes(), a)). Any
+// other write to the field, or through the getter — a setter's assignment,
+// a member append, an indexed write — is an open world, and the answer is
+// withheld.
 //
 //	<cffunction name="getAttributes">
 //		<cfif not isArray(variables.instance.attributes)>
@@ -299,14 +307,8 @@ func (r *Resolver) builtFieldElement(fd *parser.FunctionDef) string {
 		return ""
 	}
 
-	all := significantTokens(pr.Content)
-
-	if !fieldBuiltByFile(all, field) {
-		return ""
-	}
-
-	values, ok := fieldAppends(all, field, fd.Name)
-	if !ok || len(values) == 0 {
+	values := builtFieldAppends(pr, field, fd.Name)
+	if len(values) == 0 {
 		return ""
 	}
 
@@ -426,6 +428,35 @@ func dottedNameBefore(tokens []parser.Token, i int) string {
 	return name
 }
 
+// builtFieldAppends is fieldAppends' values for the field the getter
+// returns, when the file builds the field and accounts for every write to
+// it, or nil. It reads the parse alone and is asked for every keyed read of
+// the getter's collection, so it is found once per parse.
+func builtFieldAppends(pr *parser.ParseResult, field, getter string) []appendValue {
+	values, _ := pr.Memo("builtField\x00"+strings.ToLower(field)+"\x00"+strings.ToLower(getter), func() any {
+		all := fileTokens(pr)
+
+		if !fieldBuiltByFile(all, field) || !writesAccounted(all, field, getter) {
+			return []appendValue(nil)
+		}
+
+		values, _ := fieldAppends(all, field, getter)
+
+		return values
+	}).([]appendValue)
+
+	return values
+}
+
+// fileTokens is significantTokens of the whole file, once per parse.
+func fileTokens(pr *parser.ParseResult) []parser.Token {
+	tokens, _ := pr.Memo("significantTokens", func() any {
+		return significantTokens(pr.Content)
+	}).([]parser.Token)
+
+	return tokens
+}
+
 // fieldBuiltByFile reports whether the file assigns the field an empty
 // array — arrayNew(1) or an empty [ ] — the collection the appends fill.
 func fieldBuiltByFile(tokens []parser.Token, field string) bool {
@@ -464,19 +495,189 @@ func fieldAppends(tokens []parser.Token, field, getter string) ([]appendValue, b
 		}
 
 		args, ok := callArgs(tokens, i+1)
-		if !ok || len(args) != 2 || len(args[1]) == 0 {
+		if !ok {
+			return nil, false
+		}
+
+		if !strings.EqualFold(dottedLocalName(args[0]), field) && (len(args[0]) != 3 || !isGetterCall(args[0], 0, getter)) {
 			continue
 		}
 
-		switch name := dottedLocalName(args[0]); {
-		case strings.EqualFold(name, field):
-		case strings.EqualFold(name, getter) && len(args[0]) == 2: // getter()
-		default:
-			continue
+		// An append writesAccounted lets through must be one counted here.
+		if len(args) != 2 || len(args[1]) == 0 {
+			return nil, false
 		}
 
 		values = append(values, appendValue{tokens: args[1], line: conv.Uint32(args[1][0].Line)})
 	}
 
 	return values, len(values) > 0
+}
+
+// isGetterCall reports whether the tokens at i call the getter with no
+// arguments: getWidgets().
+func isGetterCall(tokens []parser.Token, i int, getter string) bool {
+	return getter != "" && i+2 < len(tokens) && tokens[i].Kind == parser.TokIdent &&
+		strings.EqualFold(tokens[i].Value, getter) && tokens[i+1].Kind == parser.TokLParen &&
+		tokens[i+2].Kind == parser.TokRParen
+}
+
+// writesAccounted reports whether every reference to the collection — the
+// name, a dotted field with or without its variables scope, or a call of the
+// getter that returns it — reads it, appends to it with arrayAppend, or
+// assigns it an empty array or a string reset. Any other write (an
+// assignment of another value, an indexed write, a member call that may
+// mutate it, passing it to a function that may) is a value nobody proved.
+func writesAccounted(tokens []parser.Token, name, getter string) bool {
+	for i := range tokens {
+		if tokens[i].Kind != parser.TokIdent || i > 0 && tokens[i-1].Kind == parser.TokDot {
+			continue
+		}
+
+		viaGetter := isGetterCall(tokens, i, getter)
+
+		end := i + 3
+		if !viaGetter {
+			end = referenceEnd(tokens, i, name)
+		}
+
+		if end < 0 {
+			continue
+		}
+
+		if !referenceAccounted(tokens, i, end, viaGetter) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// referenceEnd is the index past the dotted name at i when it spells name,
+// a leading variables scope ignored on both, or -1.
+func referenceEnd(tokens []parser.Token, i int, name string) int {
+	want := strings.TrimPrefix(strings.ToLower(name), "variables.")
+
+	var b strings.Builder
+
+	for j := i; j < len(tokens) && tokens[j].Kind == parser.TokIdent; j += 2 {
+		if j > i {
+			b.WriteByte('.')
+		}
+
+		b.WriteString(strings.ToLower(tokens[j].Value))
+
+		if strings.TrimPrefix(b.String(), "variables.") == want && b.String() != "variables" {
+			return j + 1
+		}
+
+		if j+1 >= len(tokens) || tokens[j+1].Kind != parser.TokDot {
+			break
+		}
+	}
+
+	return -1
+}
+
+// referenceAccounted reports whether the reference spanning tokens[start:end]
+// is a read, an arrayAppend's target, or an accounted assignment.
+func referenceAccounted(tokens []parser.Token, start, end int, viaGetter bool) bool {
+	if end >= len(tokens) {
+		return true
+	}
+
+	assigns := func(at int) bool {
+		return at < len(tokens) && tokens[at].Kind == parser.TokEquals &&
+			(at+1 >= len(tokens) || tokens[at+1].Kind != parser.TokEquals) &&
+			(start == 0 || tokens[start-1].Kind != parser.TokEquals)
+	}
+
+	switch next := tokens[end]; {
+	case assigns(end):
+		return !viaGetter && emptyOrReset(tokens[end+1:])
+	case next.Kind == parser.TokLBracket:
+		last := matchingBracket(tokens, end)
+
+		return last > 0 && !assigns(last+1)
+	case next.Kind == parser.TokDot:
+		if end+2 < len(tokens) && tokens[end+1].Kind == parser.TokIdent && tokens[end+2].Kind == parser.TokLParen {
+			return readOnlyMembers[strings.ToLower(tokens[end+1].Value)]
+		}
+
+		return true
+	}
+
+	if start == 0 || tokens[start-1].Kind != parser.TokLParen && tokens[start-1].Kind != parser.TokComma ||
+		tokens[end].Kind != parser.TokRParen && tokens[end].Kind != parser.TokComma {
+		return true
+	}
+
+	// An argument: arrayAppend's target is the counted append, and a
+	// function that only reads its argument leaves the collection alone.
+	call := enclosingCall(tokens, start)
+
+	return strings.EqualFold(call, "arrayAppend") || readOnlyFunctions[strings.ToLower(call)]
+}
+
+// emptyOrReset reports whether an assignment's value is an empty array —
+// arrayNew(…) or [ ] — or a string literal, which holds no element.
+func emptyOrReset(rhs []parser.Token) bool {
+	if len(rhs) >= 2 && rhs[0].Kind == parser.TokIdent && strings.EqualFold(rhs[0].Value, "arrayNew") && rhs[1].Kind == parser.TokLParen {
+		return true
+	}
+
+	if len(rhs) >= 2 && rhs[0].Kind == parser.TokLBracket && rhs[1].Kind == parser.TokRBracket {
+		return true
+	}
+
+	return len(rhs) >= 1 && rhs[0].Kind == parser.TokString &&
+		(len(rhs) == 1 || rhs[1].Kind == parser.TokSemicolon || rhs[1].Kind == parser.TokSlash || rhs[1].Kind == parser.TokGT)
+}
+
+// enclosingCall is the name of the call whose argument list holds the token
+// at i, or "".
+func enclosingCall(tokens []parser.Token, i int) string {
+	depth := 0
+
+	for j := i - 1; j >= 0; j-- {
+		switch tokens[j].Kind {
+		case parser.TokRParen, parser.TokRBracket, parser.TokRBrace:
+			depth++
+		case parser.TokLBracket, parser.TokLBrace:
+			if depth == 0 {
+				return ""
+			}
+
+			depth--
+		case parser.TokLParen:
+			if depth == 0 {
+				if j > 0 && tokens[j-1].Kind == parser.TokIdent {
+					return tokens[j-1].Value
+				}
+
+				return ""
+			}
+
+			depth--
+		default:
+		}
+	}
+
+	return ""
+}
+
+// readOnlyFunctions are the global functions that read an array argument
+// and leave it as it was.
+var readOnlyFunctions = map[string]bool{
+	"isarray": true, "arraylen": true, "len": true, "arrayisempty": true, "arrayisdefined": true,
+	"arraycontains": true, "arraycontainsnocase": true, "arrayfind": true, "arrayfindnocase": true,
+	"arrayfindall": true, "arraytolist": true, "isnull": true, "isempty": true, "serializejson": true,
+	"duplicate": true, "arrayslice": true,
+}
+
+// readOnlyMembers are the array member functions that leave it as it was.
+var readOnlyMembers = map[string]bool{
+	"len": true, "isempty": true, "isdefined": true, "tolist": true, "find": true, "findnocase": true,
+	"findall": true, "contains": true, "containsnocase": true, "slice": true, "each": true, "map": true,
+	"filter": true, "reduce": true, "some": true, "every": true, "first": true, "last": true,
 }

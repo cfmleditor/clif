@@ -35,6 +35,11 @@ type lookupCtx struct {
 	depth int
 	leaf  string
 	call  *parser.CallSite
+	// callers lets an untyped argument be typed by what its callers pass,
+	// inside the lookup. It is set only when canResolveCall asks again for
+	// a call nothing else answered: asked for every receiver, inference was
+	// most of a tassweb scan's CPU.
+	callers bool
 }
 
 // assignedKeyedElement is the element an assignment of a keyed read proves:
@@ -69,7 +74,7 @@ var exactKeyedReadRe = regexp.MustCompile(`^(?:[A-Za-z_]\w*|(?:local|variables|t
 // recipes' guards serve. Only a family answers here; anything else leaves
 // the parse's guess standing.
 func (r *Resolver) assignedFamily(variable string, line uint32, caller string, pr *parser.ParseResult, baseDir string, ctx lookupCtx) string {
-	comp := r.assignedFromCall(variable, line, caller, pr, baseDir, nil, lookupCtx{depth: ctx.depth})
+	comp := r.assignedFromCall(variable, line, caller, pr, baseDir, nil, lookupCtx{depth: ctx.depth, callers: ctx.callers})
 	if strings.HasPrefix(comp, familyPrefix) {
 		return comp
 	}
@@ -185,7 +190,7 @@ func (r *Resolver) assignedFromCall(variable string, line uint32, caller string,
 			end = scope.End
 		}
 
-		if _, _, loop := enclosingLoop(r.loopsOf(pr)[strings.ToLower(name)], strings.ToLower(name), int(line), start, end); loop {
+		if _, loop := enclosingLoop(r.loopsOf(pr)[strings.ToLower(name)], strings.ToLower(name), int(line), start, end); loop {
 			return ""
 		}
 
@@ -198,7 +203,7 @@ func (r *Resolver) assignedFromCall(variable string, line uint32, caller string,
 	// typed as that name is at the line (Masa's form builder reads the
 	// resource bundle factory a startup template assigns).
 	if aliasRe.MatchString(rhs) && !strings.EqualFold(rhs, variable) && !strings.EqualFold(rhs, name) {
-		comp, _ := r.receiverComponentD(rhs, evalLine, evalCaller, "", pr, baseDir, nil, lookupCtx{depth: depth + 1, leaf: ctx.leaf})
+		comp, _ := r.receiverComponentD(rhs, evalLine, evalCaller, "", pr, baseDir, nil, lookupCtx{depth: depth + 1, leaf: ctx.leaf, callers: ctx.callers})
 		if comp != "" && !strings.HasPrefix(comp, "$") && !strings.HasPrefix(comp, "$builtin.") {
 			tr.addf("resolved %q to %q: it is assigned %s", variable, comp, rhs)
 
@@ -260,7 +265,7 @@ func (r *Resolver) typeCallExpr(rhs string, line uint32, caller string, pr *pars
 		comp = r.typeBareCallExpr(calls[0].name, calls[0].args, line, caller, pr, baseDir)
 		calls = calls[1:]
 	} else {
-		comp, _ = r.receiverComponentD(receiver, line, caller, calls[0].name, pr, baseDir, nil, lookupCtx{depth: ctx.depth + 1, leaf: ctx.leaf})
+		comp, _ = r.receiverComponentD(receiver, line, caller, calls[0].name, pr, baseDir, nil, lookupCtx{depth: ctx.depth + 1, leaf: ctx.leaf, callers: ctx.callers})
 		if comp == "" {
 			// A receiver only a configured resolver names (a preset's
 			// application.wo), as ComponentOf reads it.

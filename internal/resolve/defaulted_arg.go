@@ -3,6 +3,7 @@ package resolve
 import (
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/parser"
@@ -25,12 +26,49 @@ func (r *Resolver) defaultedArgumentComponent(name string, pr *parser.ParseResul
 		return ""
 	}
 
-	tokens, ok := r.fnScopeTokens(&pr.Funcs[fi])
-	if !ok {
-		return ""
+	fd := &pr.Funcs[fi]
+
+	// Asked for every call on an untyped argument, so each function's
+	// guarded arguments are found once, for all of its arguments: going
+	// through the body per call site tokenised it again each time, which was
+	// a fifth of a tassweb scan's CPU and 9GB of its allocation.
+	answers, _ := pr.Memo("defaulted\x00"+strconv.Itoa(int(fd.Line))+"\x00"+fd.Name, func() any {
+		return r.defaultedArguments(fd, pr)
+	}).(map[string]string)
+
+	return answers[strings.ToLower(name)]
+}
+
+// defaultedArguments is defaultedFromGuard's answer for each of fd's
+// arguments the body guards, by lowercased name.
+func (r *Resolver) defaultedArguments(fd *parser.FunctionDef, pr *parser.ParseResult) map[string]string {
+	out := map[string]string{}
+
+	// Most functions guard no argument: look for the guard's words before
+	// tokenising the body. It is read from pr, the parse at hand; going by
+	// the file's path reparsed it whole.
+	text, ok := funcScopeText(pr, fd)
+	if !ok || parser.IndexFoldFrom(text, "structKeyExists", 0) < 0 {
+		return out
 	}
 
-	return r.defaultedFromGuard(tokens, name, pr)
+	var tokens []parser.Token
+
+	for _, a := range fd.Arguments {
+		if !quotesName(text, a.Name) {
+			continue
+		}
+
+		if tokens == nil {
+			tokens = significantTokens(text)
+		}
+
+		if comp := r.defaultedFromGuard(tokens, a.Name, pr); comp != "" {
+			out[strings.ToLower(a.Name)] = comp
+		}
+	}
+
+	return out
 }
 
 // defaultedFromGuard is the construction the guard on name's absence makes:
@@ -127,4 +165,10 @@ func forwardedArgsName(tokens []parser.Token, i int) (string, bool) {
 	}
 
 	return "", false
+}
+
+// quotesName reports whether text holds name as a string literal, as the
+// guard's structKeyExists( arguments, "name" ) must.
+func quotesName(text, name string) bool {
+	return parser.IndexFoldFrom(text, `"`+name+`"`, 0) >= 0 || parser.IndexFoldFrom(text, "'"+name+"'", 0) >= 0
 }

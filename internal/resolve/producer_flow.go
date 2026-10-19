@@ -768,6 +768,13 @@ func (e *producerEvaluation) sharedFieldContract(path string, allowPrimitive boo
 				valid = false
 			}
 
+			// A param on the field writes its default whenever the field is
+			// absent, and the default is not read here: the writes cannot be
+			// shown to agree.
+			if node.kind == "param" && normalizeProducerPath(node.target) == path {
+				valid = false
+			}
+
 			if node.kind == "set" {
 				target := normalizeProducerPath(node.target)
 				if target == "variables" || target == "this" {
