@@ -617,3 +617,25 @@ func TestShareCallerIndexBuildsOneForEveryResolver(t *testing.T) {
 		}
 	}
 }
+
+// A caller passing `new Repo().one()` passes what one() returns, not a
+// Repo: the construction is only the receiver of the call that follows it.
+// The argument was typed as Repo, so its calls were checked against Repo.
+func TestAnArgumentPassedAsACallOnAConstructionIsWhatTheCallReturns(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{
+		"models/User.cfc": `component { function save(){} }`,
+		"models/Repo.cfc": `component { models.User function one(){ return new models.User(); } function fetch(){} }`,
+		"svc/Svc.cfc": `component {
+function use( required item ){ arguments.item.save(); arguments.item.fetch(); }
+function callers(){ use( new models.Repo().one() ); }
+}`,
+	})
+
+	got := reasonsWith(t, &Resolver{InferArgsFiles: cfmlFilesIn(t, dir)}, dir, "svc/Svc.cfc")
+
+	expectReasons(t, got, map[string]string{
+		"arguments.item.save":  "",
+		"arguments.item.fetch": "method 'fetch' not found in User",
+	})
+}
