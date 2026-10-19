@@ -818,6 +818,19 @@ func familyPaths(comp string) []string {
 	return paths
 }
 
+// checkFamiliesMethod is checkFamilyMethod for a receiver each of refs'
+// families holds on some turn: the call must be every family's, and the
+// first family lacking it names the finding.
+func (r *Resolver) checkFamiliesMethod(refs []familyRef, call *parser.CallSite, pr *parser.ParseResult, tr *callTrace) string {
+	for _, ref := range refs {
+		if why := r.checkFamilyMethod(ref.pkg, ref.members, call, pr, tr); why != "" {
+			return why
+		}
+	}
+
+	return ""
+}
+
 func (r *Resolver) checkFamilyMethod(pkg string, members []string, call *parser.CallSite, pr *parser.ParseResult, tr *callTrace) string {
 	funcName := call.FuncName
 
