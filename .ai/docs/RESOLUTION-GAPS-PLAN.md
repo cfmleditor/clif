@@ -3895,7 +3895,8 @@ loop. The consumers read the container under a name no recipe spells:
 list="appender,layout">`, so each turn's concatenation names one of the
 template's own containers, and the families the turns name cannot be told
 apart statically — the receiver is a comma-joined pair of family markers,
-answered by whichever family holds it, since exactly one does. And a chain
+and a call on it must be every family's, since both turns run (a turn whose
+container is not a registry declines the pickup). And a chain
 receiver the assignment graph cannot type is now also tried as the variable
 of the loop around the read, the way a direct assignment of one element
 would be. `constructorItemComponent` keeps the absolute path the construction

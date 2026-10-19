@@ -1641,8 +1641,16 @@ func (r *Resolver) walkHops(comp, softComp string, call *parser.CallSite, pr *pa
 		// A registry family is its members' set, which no single hop's
 		// declared return type can name: what it returns is an array of the
 		// element the members' own files prove, and the chain past the
-		// getter runs on that array, not on the family. Dynamic.
+		// getter runs on that array, not on the family. Dynamic, once the
+		// hop itself is every family's method.
 		if paths := familyPaths(comp); len(paths) > 0 {
+			hopCall := *call
+			hopCall.FuncName = hop
+
+			if why := r.checkFamiliesMethod(familyRefs(comp), &hopCall, pr, tr); why != "" {
+				return comp, softComp, why + " (chain to '" + funcName + "')", true
+			}
+
 			tr.addf("chain hop %q is on a registry family (%s) — the rest of the chain is dynamic", hop, displayFamilyMembers(paths))
 			tr.hit(TargetDynamic, "", nil)
 
@@ -3049,24 +3057,10 @@ func (r *Resolver) checkMethodOn(comp, softComp string, call *parser.CallSite, p
 	// A registry family: the receiver is any one of the package directory's
 	// components, so the method must be each member's own, or its base's. A
 	// receiver several families name — the container read through a
-	// list-loop item's concatenation — is answered by whichever one of them
-	// holds it, so a family that answers the call answers the receiver, and
-	// a call no family answers names the first family's lack.
+	// list-loop item's concatenation — holds each of them on one of the
+	// loop's turns, so every family must answer the call.
 	if refs := familyRefs(comp); len(refs) > 0 {
-		reason := ""
-
-		for _, ref := range refs {
-			why := r.checkFamilyMethod(ref.pkg, ref.members, call, pr, tr)
-			if why == "" {
-				return why
-			}
-
-			if reason == "" {
-				reason = why
-			}
-		}
-
-		return reason
+		return r.checkFamiliesMethod(refs, call, pr, tr)
 	}
 
 	// Builtin return type — check method exists in-memory
