@@ -1,6 +1,7 @@
 package codemap
 
 import (
+	"cmp"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -925,6 +926,29 @@ func newCollector(m *Map) *collector {
 	}
 }
 
+// compareNodes is a total order over the fields a placeholder can differ in,
+// so choosing between two of them never falls back on arrival order.
+func compareNodes(a, b *Node) int {
+	return cmp.Or(
+		cmp.Compare(a.Name, b.Name),
+		cmp.Compare(a.Kind, b.Kind),
+		cmp.Compare(a.File, b.File),
+		cmp.Compare(a.Line, b.Line),
+		cmp.Compare(a.Access, b.Access),
+		cmp.Compare(a.Component, b.Component),
+		cmp.Compare(boolInt(a.Entry), boolInt(b.Entry)),
+		cmp.Compare(boolInt(a.Abstract), boolInt(b.Abstract)),
+	)
+}
+
+func boolInt(b bool) int {
+	if b {
+		return 1
+	}
+
+	return 0
+}
+
 func (c *collector) merge(r *FileGraph) {
 	for i := range r.Nodes {
 		n := &r.Nodes[i]
@@ -944,11 +968,13 @@ func (c *collector) merge(r *FileGraph) {
 			continue
 		}
 
-		// Two placeholders for one id (an external node is keyed by its
-		// lowercased label, so `expandPath` and `Expandpath` are one) keep the
-		// same spelling whichever file was merged first: files finish in no
-		// fixed order, and the first to arrive named the node in the report.
-		if ok && n.Name >= existing.Name {
+		// Two placeholders for one id keep the same node whichever file was
+		// merged first: files finish in no fixed order, and the first to arrive
+		// used to name the node in the report. An external node is keyed by its
+		// lowercased label, so `expandPath` and `ExpandPath` are one node; which
+		// spelling it carries is arbitrary but fixed (the smallest, byte for
+		// byte), because no source of the two is more right than the other.
+		if ok && compareNodes(n, &existing) >= 0 {
 			continue
 		}
 
