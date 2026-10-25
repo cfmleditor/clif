@@ -1665,3 +1665,127 @@ func producerNeedsSpecialization(method *producerMethod, fd *parser.FunctionDef)
 
 	return producerSensitive(method.body) || fd.ReturnComponent != "$any" && !strings.HasPrefix(fd.ReturnComponent, "$builtin.")
 }
+
+// branchUnionCallReturn is the union the parse built for fd's return, for a
+// call of it that evaluating the body could not decide: Mura's
+// feedBean.getIterator() gets a beanIterator or a contentIterator on its
+// countOnly argument and on the feed's own state, which no call shows.
+//
+// The union names every branch reaching the body's only return
+// (branchUnionReturn), so it holds whichever the call takes. It is offered
+// only when every argument the call passes is a literal: the call is then
+// known in full and what decides the branch is something else. A call passing
+// a value it does not spell may be one evaluation would decide, so the union
+// would be a guess at a branch it could have named.
+func (r *Resolver) branchUnionCallReturn(fd *parser.FunctionDef, expression string) string {
+	if fd == nil || !literalArguments(expression) || !branchUnionReturn(r.producerFor(fd), fd) {
+		return ""
+	}
+
+	alternatives := strings.Split(fd.ReturnComponent, "|")
+	for i, alt := range alternatives {
+		if p := r.besideDeclaring(fd, alt); p != "" {
+			alternatives[i] = p
+		}
+	}
+
+	slices.Sort(alternatives)
+
+	return strings.Join(slices.Compact(alternatives), "|")
+}
+
+// literalArguments reports whether the call expression passes nothing but
+// literals: strings without interpolation, numbers and booleans, by name or
+// by position.
+func literalArguments(expression string) bool {
+	tokens := significantTokens(expression)
+
+	open := slices.IndexFunc(tokens, func(t parser.Token) bool { return t.Kind == parser.TokLParen })
+	if open < 0 {
+		return false
+	}
+
+	end := producerGroupEnd(tokens, open, parser.TokLParen, parser.TokRParen)
+	if end < 0 || end != len(tokens)-1 {
+		return false
+	}
+
+	if end == open+1 {
+		return true
+	}
+
+	for _, piece := range producerSplit(tokens[open+1 : end]) {
+		if len(piece) == 3 && piece[0].Kind == parser.TokIdent && piece[1].Kind == parser.TokEquals {
+			piece = piece[2:]
+		}
+
+		if len(piece) != 1 || !literalToken(piece[0]) {
+			return false
+		}
+	}
+
+	return true
+}
+
+func literalToken(t parser.Token) bool {
+	switch t.Kind {
+	case parser.TokString:
+		return !strings.Contains(t.Value, "#")
+	case parser.TokNumber:
+		return true
+	case parser.TokIdent:
+		return strings.EqualFold(t.Value, "true") || strings.EqualFold(t.Value, "false")
+	default:
+		return false
+	}
+}
+
+// branchUnionReturn reports whether fd's inferred return is a union of
+// components the parse built from the branches reaching the body's only
+// return, which the plan reads whole, of a local the body declares: then the
+// union names every component the return can be. A second return, or a
+// statement the plan could not read, could return something the union does
+// not hold; so could a field, which code outside the function writes too.
+func branchUnionReturn(method *producerMethod, fd *parser.FunctionDef) bool {
+	if method == nil || !strings.Contains(fd.ReturnComponent, "|") {
+		return false
+	}
+
+	for alt := range strings.SplitSeq(fd.ReturnComponent, "|") {
+		if alt == "" || strings.HasPrefix(alt, "$") {
+			return false
+		}
+	}
+
+	var (
+		returned []string
+		locals   = map[string]bool{}
+	)
+
+	var walk func([]producerNode) bool
+
+	walk = func(nodes []producerNode) bool {
+		for i := range nodes {
+			node := &nodes[i]
+
+			switch node.kind {
+			case "unsafe":
+				return false
+			case "return":
+				returned = append(returned, strings.ToLower(strings.TrimPrefix(strings.ToLower(strings.TrimSpace(node.expression)), "local.")))
+			case "set":
+				if name, ok := strings.CutPrefix(strings.ToLower(node.target), "local."); ok {
+					locals[name] = true
+				}
+			}
+
+			if !walk(node.body) || !walk(node.alternative) {
+				return false
+			}
+		}
+
+		return true
+	}
+
+	return walk(method.body) && len(returned) == 1 && locals[returned[0]]
+}

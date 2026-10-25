@@ -1373,7 +1373,23 @@ alternative (`a|b` receivers), every one of which must return a component. It is
 the last step of `receiverComponent`, bounded by `receiverComponentD`. It exists
 because the parse types an assignment from its own file's refs, and an abstract
 handler's `variables.ormService` is held only by subclasses.
-`TestAVariableAssignedFromASubclassHeldReceiverIsTyped`.
+`TestAVariableAssignedFromASubclassHeldReceiverIsTyped`. **The assignment runs on to the
+next line while a parenthesis is open and while that line starts with `.`**
+(`joinAssignmentLine`, shared by the table in `source_facts.go` and the line walk in
+`loop_element.go`, which `TestTheAssignmentTableAnswersAsTheLineWalkDid` holds alike): a
+chain written a call to a line was read to its first line and typed as the head, which on
+MasaCMS was a feedBean whose `onMissingMethod` accepted every call on the iterator.
+`TestAChainOverSeveralLinesIsReadWhole`.
+
+**A branch union holds for a call passing only literals** (`branchUnionCallReturn`,
+`producer_source.go`): a body that branches on an argument is evaluated per call, and when
+that cannot decide (feedBean.getIterator() also tests the feed's own state), the parse's
+union of the branches reaching the body's only return stands, if that return is a local the
+body declares. A call passing a value it does not spell gets nothing, as before, since
+evaluation might have named one branch; a field, or a second return, may hold something the
+union does not. `TestABranchUnionReturnHoldsWhateverTheCallTakes`, beside
+`TestLiteralSwitchProducer` and `TestGuardedLazyFieldsFailClosed`, which pin the cases it
+must not answer.
 
 **A base handler's computed view name and key are read per subclass.**
 `moduleActions` expands `view( "#variables.handler#/x" )` for each leaf subclass
@@ -1626,6 +1642,15 @@ against all of them; which one ran is not in the source.
   when the include is inside a function. Every site must type it; their union is the answer.
   It is the last step of `inferredReceiver`, cached per template, name and include generation.
   `TestATemplateReadsWhatItsIncluderHoldsAtTheInclude`.
+- **A Mura display object reads what `dspObject_include` passes it** (`muraObjectArg`,
+  `internal/resolve/mura_object_args.go`, before `includerHeld`): the renderer includes the
+  template inside the function, so `arguments.X`, and a bare X the template never sets, are
+  the call's named argument, typed where the call is made (`renderedValueD`, the `viewArgs`
+  machinery). A computed `theFile` names every template its literal parts allow. Every call
+  passing X must type it; one omitting it says nothing about `arguments.X` but declines a bare
+  X; an `argumentCollection` declines; a call naming its file only by position is passed over
+  unless it passes X. Batch only (the caller index finds the calls). The value's lookup counts
+  the depth, which bounds templates handing a name on. `TestAMuraDisplayObjectReadsWhatItsIncludeIsPassed`.
 - A writer that indexes from a parse result calls `Index.SetIncludes` beside `SetThisVars`;
   `IndexFile` sets them itself. The `unresolved` command records a template's includes without
   indexing its functions, since a page that includes a helper can call what the helper declares.
