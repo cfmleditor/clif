@@ -60,10 +60,16 @@ templates.
 
 ## Candidate implementation order
 
-1. Empty-ref sharpening: treat an empty ComponentRef as a weak claim
-   (like $any) — `assignedFamily`-style, family-gated or
-   resolution-proven-gated. Unblocks the self-contained admin views
-   (~200 rows), possibly corpus-wide.
+1. ~~Empty-ref sharpening~~. Measured 2026-10-25, the premise does not
+   hold: `receiverComponentD` already passes over an empty ref and reaches
+   `assignedFromCall`. The admin views broke one hop later, at
+   `contentBean.loadBy()`, which returns `contentManager.read()`'s
+   cache-or-DAO bean and declares nothing. Done instead as a Mura rule,
+   `resolve/mura_loadby.go`: a Mura bean's `loadBy()` returns the receiver
+   (beanORM's only for `returnFormat` "self" or none). masa-c 3,145 →
+   2,476 (679 removed, 10 added: 5 calls one hop past a newly typed
+   variable, and 5 `oauthclient.generateToken().getToken()` that `$any`
+   used to accept); the other six scans unchanged entry for entry.
 2. `dspObject_include` recognition: the `$.`/`variables.$` receiver +
    the `theFile` literal → the file (workspace suffix match, like the
    view handoff) + the named args typed by the view-args machinery
