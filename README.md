@@ -125,7 +125,7 @@ carries its own `go` directive, and the build refuses to start when that is
 older than `go.mod`'s:
 
 ```
-go: module . listed in go.work file requires go >= 1.27.2, but go.work lists go 1.26.8
+go: module . listed in go.work file requires go >= 1.27.3, but go.work lists go 1.26.8
 ```
 
 Match it to the version in `go.mod` whenever that is bumped:
@@ -149,7 +149,7 @@ it is behind:
 
 ```sh
 go version -m $(command -v gopls) | head -1
-GOTOOLCHAIN=go1.27.2 go install golang.org/x/tools/gopls@latest
+GOTOOLCHAIN=go1.27.3 go install golang.org/x/tools/gopls@latest
 ```
 
 Editors that manage their own copy need pointing at the rebuilt one, or their
