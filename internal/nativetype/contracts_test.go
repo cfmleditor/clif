@@ -45,6 +45,12 @@ func TestNativeContractsPreserveDifferentResultTypes(t *testing.T) {
 		{"string", "reduce", "$any"},
 		{"string", "deserializeJSON", "$any"},
 		{"string", "listReduce", "$any"},
+		{"mongodbcollection", "stats", Type("struct")},
+		{"mongodbcollection", "storageSize", Type("numeric")},
+		{"mongodbcollection", "totalIndexSize", Type("numeric")},
+		{"mongodbcollection", "getIndexInfo", Type("array")},
+		{"mongodbcollection", "rename", Type("void")},
+		{"mongodbcollection", "createSearchIndex", Type("string")},
 	} {
 		got, ok := Method(Type(tc.family), tc.method)
 		if !ok || got != tc.result {
@@ -53,6 +59,7 @@ func TestNativeContractsPreserveDifferentResultTypes(t *testing.T) {
 	}
 
 	for _, tc := range []struct{ family, method string }{
+		{"mongodbcollection", "mapReduce"},
 		{"object", "clone"},
 		{"map", "clone"},
 		{"object", "finalize"},

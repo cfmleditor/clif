@@ -553,7 +553,11 @@ the *formatter*, not the parser.
   `var x = new A(); x = new B(); return x;` returns a B, in either syntax. A
   pending call assigning it between that ref and the return defers the answer
   to the pass after calls are typed (`assignedBetween`), and calls left untyped
-  are looked at again while returns keep settling (`maxReturnRounds`).
+  are looked at again while returns keep settling or the last pass typed a call
+  (`maxReturnRounds`): calls are typed in file order, so one on a receiver
+  assigned further down (Lucee's MongoDB tests connect `db` in a later function)
+  waited for a return to settle that never would.
+  `TestAReturnWaitsForAReceiverTypedLaterInTheFile`.
   `hasRefFor` skips a pending call only for a ref on its own line, and a call on
   a value is never the file's function of that name (`callsOwnFunction`).
   `TestReturnTypeIsTheAssignmentReachingTheReturn`.

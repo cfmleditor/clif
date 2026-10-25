@@ -202,9 +202,14 @@ var contracts = map[string]map[string]string{
 	// the collection its getCollection (and its struct notation) holds, the
 	// cursor find chains sort/limit onto, the aggregation output, the
 	// write result the writes return, the ObjectId MongoDBID returns and
-	// the write concern the collection reads back.
+	// the write concern the collection reads back. The collection also has
+	// the methods DBCollectionImpl dispatches (lucee/extension-mongodb at
+	// a146e45) that the ReadMe leaves out: the stats and sizes, rename, index
+	// info, bulk writes and the search indexes. mapReduce is dispatched only
+	// to throw (removed in the 5.x driver), so it is left out and a call to it
+	// stays reported.
 	"mongodb":                contract(methods(Type("mongodbcollection"), "getcollection"), methods(Type("mongodb"), "getsiblingdb getsisterdb"), methods(Type("string"), "getname"), methods(Type("numeric"), "size"), methods(Type("boolean"), "containskey"), methods(Type("void"), "clear"), methods("$any", "authenticate")),
-	"mongodbcollection":      contract(methods(Type("mongocursor"), "find"), methods(Type("mongo.writeresult"), "insert insertmany save update remove"), methods(Type("mongoaggregationoutput"), "aggregate"), methods(Type("struct"), "findone findandmodify findandremove"), methods(Type("array"), "distinct getindexes"), methods(Type("mongowriteconcern"), "getwriteconcern"), methods(Type("numeric"), "count"), methods(Type("void"), "drop"), methods("$any", "createindex dropindex dropindexes setwriteconcern")),
+	"mongodbcollection":      contract(methods(Type("mongocursor"), "find"), methods(Type("mongo.writeresult"), "insert insertmany save update remove"), methods(Type("mongoaggregationoutput"), "aggregate"), methods(Type("struct"), "findone findandmodify findandremove stats getstats bulkwrite"), methods(Type("array"), "distinct getindexes getindexinfo createsearchindexes listsearchindexes"), methods(Type("mongowriteconcern"), "getwriteconcern"), methods(Type("numeric"), "count datasize storagesize totalindexsize"), methods(Type("string"), "createsearchindex"), methods(Type("void"), "drop rename renamecollection dropsearchindex updatesearchindex"), methods("$any", "createindex ensureindex dropindex dropindexes setwriteconcern")),
 	"mongocursor":            contract(methods(Type("mongocursor"), "sort limit"), methods(Type("boolean"), "hasnext"), methods(Type("struct"), "next"), methods(Type("numeric"), "size count"), methods(Type("void"), "close remove")),
 	"mongoaggregationoutput": contract(methods(Type("boolean"), "hasnext"), methods(Type("struct"), "next results"), methods(Type("mongoaggregationoutput"), "batchsize"), methods(Type("numeric"), "getbatchsize"), methods(Type("void"), "close")),
 	"mongo.writeresult":      contract(methods(Type("numeric"), "getn size"), methods(Type("boolean"), "isok isupdateofexisting containskey"), methods(Type("string"), "geterror"), methods(Type("set"), "keyset"), methods(Type("collection"), "duplicate"), methods(Type("void"), "clear"), methods("$any", "get remove set setel call callwithnamedvalues")),

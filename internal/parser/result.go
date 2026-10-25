@@ -1178,16 +1178,21 @@ func (pr *ParseResult) resolvePendingCalls(calls []pendingCall) {
 	defer func() { pr.refIdx = nil }()
 
 	funcReturns := pr.funcReturns()
-	untyped := pr.typePendingCalls(calls, funcReturns, nil)
+	untyped, typed := pr.typePendingCalls(calls, funcReturns, nil)
 
 	// Later passes: resolve ReturnComponent for functions whose return var was
 	// just added by calls, and look again at the calls left untyped, which
 	// may assign what such a function returns or call a method on a variable
 	// typed by one. A function whose return waited for a call to type its
 	// variable settles here, and `variables.binder = buildBinder()` had been
-	// left untyped because the call was looked at first.
+	// left untyped because the call was looked at first. A pass that typed a
+	// call earns another look as a settled return does: the calls are typed
+	// in file order, so a receiver assigned further down the file
+	// (`db = MongoDBConnect( … )` in a later function) had no type when a call
+	// on it above was looked at.
 	for range maxReturnRounds {
-		if pr.settleReturnVars(returnPendings, nil) == 0 || len(untyped) == 0 {
+		settled := pr.settleReturnVars(returnPendings, nil)
+		if settled == 0 && typed == 0 || len(untyped) == 0 {
 			return
 		}
 
@@ -1201,19 +1206,18 @@ func (pr *ParseResult) resolvePendingCalls(calls []pendingCall) {
 			}
 		}
 
-		if len(still) == len(untyped) {
-			return
-		}
-
+		typed = len(untyped) - len(still)
 		untyped = still
 	}
+
+	pr.settleReturnVars(returnPendings, nil)
 }
 
 // typePendingCalls files a ref for each assignment in calls whose call says
-// what it returns, and reports the ones nothing typed. A member set is kept
+// what it returns, and reports the ones nothing typed and how many it typed. A member set is kept
 // for applyMemberBindings instead. globals are the file's refs a receiver is
 // looked up in, nil for pr's own; see baseVarComponent.
-func (pr *ParseResult) typePendingCalls(calls []pendingCall, funcReturns map[string]string, globals []ComponentRef) (untyped []int) {
+func (pr *ParseResult) typePendingCalls(calls []pendingCall, funcReturns map[string]string, globals []ComponentRef) (untyped []int, typed int) {
 	for j := range calls {
 		c := &calls[j]
 
@@ -1232,12 +1236,14 @@ func (pr *ParseResult) typePendingCalls(calls []pendingCall, funcReturns map[str
 			continue
 		}
 
-		if !pr.addPendingRef(c, pr.pendingComponent(c, funcReturns, globals)) {
+		if pr.addPendingRef(c, pr.pendingComponent(c, funcReturns, globals)) {
+			typed++
+		} else {
 			untyped = append(untyped, j)
 		}
 	}
 
-	return untyped
+	return untyped, typed
 }
 
 // maxReturnRounds bounds how many times resolvePendingCalls goes back for the
