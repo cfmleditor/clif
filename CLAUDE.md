@@ -1862,7 +1862,12 @@ module the workspace lacks is dynamic (`uninstalledModule`). **`injectedComponen
 `lastResortPath`; a cborm `VirtualEntityService` bound by `super.init( entityName = … )`
 returns its entity from `new`/`get`/`getOrFail`/`findWhere`. `resolve/wheels.go`: a Wheels
 model's finders return the receiver, and `hasMany`/`belongsTo`/`hasOne` generate typed
-methods. `resolve/wheels_controller_paths.go`: `controller( "name" )` is the class
+methods. `resolve/mura_loadby.go`: a Mura bean's `loadBy()` (a chain reaching
+`mura.bean.bean`) returns the receiver, as Mura documents and no return can show; where
+the bean's `loadBy` takes a `returnFormat` (beanORM's) only a call naming `"self"` or
+none, so `receiverReturn` takes a `CallHop` and `funcLookupUncached` passes it one
+(159 of the 669 masa-c findings it removed). `TestAMuraBeansLoadByReturnsTheBean`.
+`resolve/wheels_controller_paths.go`: `controller( "name" )` is the class
 Global's `$createControllerClass` (checked against its pinned body) instantiates —
 `<path>/<name>.cfc`, else the last path's `Controller.cfc` — under the literal
 `controllerPath` the nearest directory above the caller writes (a test runner's), else

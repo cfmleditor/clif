@@ -2981,6 +2981,10 @@ func (r *Resolver) funcLookupUncached(baseDir string) func(component, funcName s
 			}
 		}
 
+		if callHop {
+			funcName = parser.CallHop(expression)
+		}
+
 		return r.receiverReturn(r.ComponentPath(component, baseDir), funcName)
 	}
 }

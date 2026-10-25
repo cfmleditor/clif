@@ -28,12 +28,19 @@ var wheelsFinders = map[string]bool{
 // isWheelsModel reports whether the component at path extends wheels.Model,
 // its own copy or the bundled one.
 func (r *Resolver) isWheelsModel(path string) bool {
+	return r.extendsReaches(path, "wheels.Model", "/wheels/model.cfc")
+}
+
+// extendsReaches reports whether the component at path is, or extends, the
+// component base names or one whose path ends in suffix (lowercase, with
+// forward slashes).
+func (r *Resolver) extendsReaches(path, base, suffix string) bool {
 	seen := map[string]bool{}
 
 	for depth := 0; path != "" && !seen[path] && depth < 8; depth++ {
 		seen[path] = true
 
-		if strings.HasSuffix(strings.ToLower(filepath.ToSlash(path)), "/wheels/model.cfc") {
+		if strings.HasSuffix(strings.ToLower(filepath.ToSlash(path)), suffix) {
 			return true
 		}
 
@@ -42,7 +49,7 @@ func (r *Resolver) isWheelsModel(path string) bool {
 			return false
 		}
 
-		if strings.EqualFold(ext, "wheels.Model") {
+		if strings.EqualFold(ext, base) {
 			return true
 		}
 
@@ -54,7 +61,8 @@ func (r *Resolver) isWheelsModel(path string) bool {
 
 // receiverReturn is what a call to method on the component at path returns
 // when the method's declaration does not say: the entity a cborm service is
-// bound to, or the Wheels model a finder is called on.
+// bound to, the Wheels model a finder is called on, or the Mura bean loadBy()
+// is called on. method may be a CallHop, which carries the call's arguments.
 func (r *Resolver) receiverReturn(path, method string) string {
 	if path == "" {
 		return ""
@@ -64,11 +72,15 @@ func (r *Resolver) receiverReturn(path, method string) string {
 		return e
 	}
 
+	if expression, hop := parser.CallExpression(method); hop {
+		return r.muraLoadBy(path, expression)
+	}
+
 	if wheelsFinders[strings.ToLower(method)] && r.isWheelsModel(path) {
 		return path
 	}
 
-	return ""
+	return r.muraLoadBy(path, method)
 }
 
 // associationRe is a Wheels association in a model's config():
