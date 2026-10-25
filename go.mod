@@ -1,6 +1,6 @@
 module github.com/cfmleditor/clif
 
-go 1.27.2
+go 1.27.3
 
 require (
 	github.com/cfmleditor/tree-sitter-cfml v0.26.43
