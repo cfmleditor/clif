@@ -101,44 +101,46 @@ type Resolver struct {
 // the index: InvalidatePaths starts them all again at once by resetting this
 // struct, so a cache added here cannot be left out of the reset.
 type pathCaches struct {
-	appRootCache      map[string]string                   // dir → Application.cfc root
-	slugCache         map[string]string                   // dir → its box.json slug, "" for none
-	resolveCache      map[string]string                   // component+"\t"+baseDir → file path
-	includeCache      map[string]string                   // include path+"\t"+including directory → template
-	interfaceCache    map[string]bool                     // component file → whether it declares an interface
-	dirCache          *cfpath.DirCache                    // directory listings behind those resolutions
-	incGraph          *includeGraph                       // the index's cfincludes, rebuilt when they change
-	implicitCache     map[string]string                   // path → ImplicitExtends(path)
-	helpers           *helperSet                          // application helper templates, per set of config files
-	wb                *wireboxWorkspace                   // what ModuleConfig.cfc and config/WireBox.cfc say about ids, per set of files
-	fw1Scopes         map[string]fw1Scope                 // nearest application's source-defined injection scope
-	startupCache      map[string][]startupAssign          // app root → its startup templates' shared-scope assignments
-	sourceInfos       map[string]sourceInfo               // source-checked method bodies; refreshed when bytes change
-	ctlPathCache      map[string]controllerPaths          // dir → its files' writes of Wheels' controllerPath
-	includerCache     map[string]string                   // template, name, depth and include generation → includerHeld's answer
-	returnCache       returnCache                         // ReturnComponentOf answers, for one index generation
-	funcCache         funcCache                           // lookupFunc answers, for one index generation
-	funcMu            sync.RWMutex                        // guards funcCache alone; see lookupFunc
-	funcLookups       sync.Map                            // funcLookupKey → FuncLookup's answer, in a batch scan
-	computedIncludes  map[string]computedIncludeFile      // file → its computed includes (computedIncludesOf)
-	callerIdx         *callerIndex                        // name → files calling it, built once for argumentFromCallers
-	callerBuild       sync.Mutex                          // held while callerIdx is built; see buildCallerIndexOnce
-	argCache          map[string]string                   // an argument → what its callers pass (argumentFromCallers)
-	requestWriterIdx  map[string][]string                 // request key → files writing it (requestWriters)
-	handlerCache      map[string]*parser.ParseResult      // handler path → its parse (handlerParse)
-	fw1ActionCache    map[string][]fw1Action              // controllers dir + section.item → its actions (fw1Actions)
-	boundEntityCache  map[string]string                   // service path → the entity it binds (boundEntity)
-	wrapperHosts      map[string][]string                 // template path → Wheels wrapper hosts (wheelsTemplateHosts)
-	wrapperCalls      map[string][]wrapperCall            // caller path + wrapper → its wrapper calls (wheelsWrapperCalls)
-	extraIncludeHosts map[string][]includeHost            // template path → includes the graph cannot see (frameworkIncludeHosts)
-	muraEventFiles    map[string]bool                     // file → Mura calls it with an event (handsMuraEvent)
-	lazyGetters       map[string]string                   // file and function → what its lazy getter returns (lazyGetterReturn)
-	lazyFiles         map[string]bool                     // file → it holds an isObject() guard at all
-	viewArgCache      map[string]map[string][]viewArgSite // module → view → its renders (viewArgSites)
-	muraSites         []muraObjectSite                    // the workspace's dspObject_include calls (muraObjectSites)
-	muraSitesBuilt    bool                                // muraSites has been read
-	handoffs          handoffIndex                        // handler actions by the view each renders (viewActions)
-	registryTexts     map[string]registryText             // includer path → its registry facts while its stamp holds (includeRegistries)
+	appRootCache        map[string]string                   // dir → Application.cfc root
+	slugCache           map[string]string                   // dir → its box.json slug, "" for none
+	resolveCache        map[string]string                   // component+"\t"+baseDir → file path
+	includeCache        map[string]string                   // include path+"\t"+including directory → template
+	interfaceCache      map[string]bool                     // component file → whether it declares an interface
+	dirCache            *cfpath.DirCache                    // directory listings behind those resolutions
+	incGraph            *includeGraph                       // the index's cfincludes, rebuilt when they change
+	implicitCache       map[string]string                   // path → ImplicitExtends(path)
+	helpers             *helperSet                          // application helper templates, per set of config files
+	wb                  *wireboxWorkspace                   // what ModuleConfig.cfc and config/WireBox.cfc say about ids, per set of files
+	fw1Scopes           map[string]fw1Scope                 // nearest application's source-defined injection scope
+	startupCache        map[string][]startupAssign          // app root → its startup templates' shared-scope assignments
+	sourceInfos         map[string]sourceInfo               // source-checked method bodies; refreshed when bytes change
+	ctlPathCache        map[string]controllerPaths          // dir → its files' writes of Wheels' controllerPath
+	includerCache       map[string]string                   // template, name, depth and include generation → includerHeld's answer
+	returnCache         returnCache                         // ReturnComponentOf answers, for one index generation
+	funcCache           funcCache                           // lookupFunc answers, for one index generation
+	funcMu              sync.RWMutex                        // guards funcCache alone; see lookupFunc
+	funcLookups         sync.Map                            // funcLookupKey → FuncLookup's answer, in a batch scan
+	computedIncludes    map[string]computedIncludeFile      // file → its computed includes (computedIncludesOf)
+	callerIdx           *callerIndex                        // name → files calling it, built once for argumentFromCallers
+	callerBuild         sync.Mutex                          // held while callerIdx is built; see buildCallerIndexOnce
+	argCache            map[string]string                   // an argument → what its callers pass (argumentFromCallers)
+	requestWriterIdx    map[string][]string                 // request key → files writing it (requestWriters)
+	handlerCache        map[string]*parser.ParseResult      // handler path → its parse (handlerParse)
+	fw1ActionCache      map[string][]fw1Action              // controllers dir + section.item → its actions (fw1Actions)
+	boundEntityCache    map[string]string                   // service path → the entity it binds (boundEntity)
+	wrapperHosts        map[string][]string                 // template path → Wheels wrapper hosts (wheelsTemplateHosts)
+	wrapperCalls        map[string][]wrapperCall            // caller path + wrapper → its wrapper calls (wheelsWrapperCalls)
+	extraIncludeHosts   map[string][]includeHost            // template path → includes the graph cannot see (frameworkIncludeHosts)
+	muraEventFiles      map[string]bool                     // file → Mura calls it with an event (handsMuraEvent)
+	lazyGetters         map[string]string                   // file and function → what its lazy getter returns (lazyGetterReturn)
+	lazyFiles           map[string]bool                     // file → it holds an isObject() guard at all
+	viewArgCache        map[string]map[string][]viewArgSite // module → view → its renders (viewArgSites)
+	muraSites           []muraObjectSite                    // the workspace's dspObject_include calls (muraObjectSites)
+	muraSitesBuilt      bool                                // muraSites has been read
+	interceptSiteList   []interceptSite                     // the workspace's announces (interceptSites)
+	interceptSitesBuilt bool                                // interceptSiteList has been read
+	handoffs            handoffIndex                        // handler actions by the view each renders (viewActions)
+	registryTexts       map[string]registryText             // includer path → its registry facts while its stamp holds (includeRegistries)
 }
 
 // returnCache holds ReturnComponentOf's answers. An answer reads the index and
