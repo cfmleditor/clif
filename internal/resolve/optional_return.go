@@ -15,7 +15,11 @@ func (r *Resolver) expressionReturn(fd *parser.FunctionDef, expression, baseDir,
 		return ret
 	}
 
-	return r.wheelsFactoryReturnFor(fd, expression, baseDir, component)
+	if ret := r.wheelsFactoryReturnFor(fd, expression, baseDir, component); ret != "" {
+		return ret
+	}
+
+	return r.branchUnionCallReturn(fd, expression)
 }
 
 // Keep conditional returns out of the unconditional method contract. Only a

@@ -135,6 +135,8 @@ type pathCaches struct {
 	lazyGetters       map[string]string                   // file and function → what its lazy getter returns (lazyGetterReturn)
 	lazyFiles         map[string]bool                     // file → it holds an isObject() guard at all
 	viewArgCache      map[string]map[string][]viewArgSite // module → view → its renders (viewArgSites)
+	muraSites         []muraObjectSite                    // the workspace's dspObject_include calls (muraObjectSites)
+	muraSitesBuilt    bool                                // muraSites has been read
 	handoffs          handoffIndex                        // handler actions by the view each renders (viewActions)
 	registryTexts     map[string]registryText             // includer path → its registry facts while its stamp holds (includeRegistries)
 }
@@ -3381,6 +3383,10 @@ func (r *Resolver) inferredReceiver(variable string, line uint32, caller, funcNa
 	}
 
 	if comp := r.assignedFromCall(variable, line, caller, pr, baseDir, tr, ctx); comp != "" {
+		return comp
+	}
+
+	if comp := r.muraObjectArg(variable, pr, tr, ctx); comp != "" {
 		return comp
 	}
 

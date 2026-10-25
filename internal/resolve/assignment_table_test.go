@@ -11,7 +11,8 @@ import (
 // line walk (localAssignmentAt), which walked from the call to the top of the
 // file for every receiver and was 7% of a tassweb scan's CPU. The two must
 // answer alike: the same line, the same joined right-hand side, the same
-// refusal of one whose parentheses do not balance within the bound.
+// refusal of one whose parentheses do not balance within the bound, and the
+// same chain written a call to a line.
 func TestTheAssignmentTableAnswersAsTheLineWalkDid(t *testing.T) {
 	content := `<cfset svc = createObject("component", "a.Svc")>
 <cffunction name="f">
@@ -23,6 +24,11 @@ func TestTheAssignmentTableAnswersAsTheLineWalkDid(t *testing.T) {
 	<cfset VARIABLES.z = svc.make()>
 	<cfset w = svc.open(
 	<cfset x.run()>
+	<cfset it = svc
+		.load()
+		.iterate()>
+	var chained = svc.load( 1 )
+		.iterate();
 </cffunction>`
 	pr := parser.ParseWithOptions("file:///w/a.cfm", content, &parser.ParseOptions{})
 	r := &Resolver{}
@@ -41,6 +47,8 @@ func TestTheAssignmentTableAnswersAsTheLineWalkDid(t *testing.T) {
 		{"missing", 0, 10},
 		{"x", 0, 100},
 		{"x", 5, 9},
+		{"it", 0, 15},
+		{"chained", 0, 15},
 	} {
 		wantRHS, wantLine, wantOK := localAssignmentAt(content, tc.name, tc.start, tc.header)
 		gotRHS, gotLine, gotOK := r.localAssignmentAt(pr, tc.name, tc.start, tc.header)

@@ -70,10 +70,21 @@ templates.
    2,476 (679 removed, 10 added: 5 calls one hop past a newly typed
    variable, and 5 `oauthclient.generateToken().getToken()` that `$any`
    used to accept); the other six scans unchanged entry for entry.
-2. `dspObject_include` recognition: the `$.`/`variables.$` receiver +
-   the `theFile` literal → the file (workspace suffix match, like the
-   view handoff) + the named args typed by the view-args machinery
-   (`renderedValue`). The computed-layout case needs the cfparam default
-   first.
+2. ~~`dspObject_include` recognition~~. Done 2026-10-25,
+   `resolve/mura_object_args.go`. The computed layout needed no cfparam
+   default: a computed `theFile` names every template its literal parts
+   allow. Two roots had to be typed first. A chain written a call per line
+   was read to its first line (collection/index.cfm's iterator was the
+   feedBean); and feedBean.getIterator() returns
+   `getBean("beanIterator")` or `getBean("contentIterator")` on state no
+   call shows, which the resolver withheld until a branch union was let
+   stand for a call passing only literals. masa-c 2,476 → 2,463: 12
+   findings in the collection templates resolve; 2 contentDAO calls
+   resolve with their chain read whole; calendar/index.cfm's 2 "not
+   found in contentManager", typed from a chain's first line, are now
+   untyped instead; and dsp_tab_categories' `cats.next`, accepted through
+   the same mistake, is now reported. ContentBox 1,672 → 1,670; the other
+   five unchanged. The 128 `arguments.item` rows (`arguments.iterator.next()`)
+   now wait only on step 3.
 3. The iterator element: contentIterator's `packageRecord` build
    (getBean locator + hopReturns' CallHop argument evaluation).

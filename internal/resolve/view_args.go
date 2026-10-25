@@ -99,6 +99,13 @@ func (r *Resolver) viewArgs(variable string, pr *parser.ParseResult, tr *callTra
 
 // renderedValue types value, passed at the render site s.
 func (r *Resolver) renderedValue(value []parser.Token, s viewArgSite) string {
+	return r.renderedValueD(value, s, lookupCtx{})
+}
+
+// renderedValueD is renderedValue reading on from the lookup ctx, so a value
+// that is itself a passed name (a template handing on what it was handed) is
+// bounded by the depth every such lookup counts.
+func (r *Resolver) renderedValueD(value []parser.Token, s viewArgSite, ctx lookupCtx) string {
 	hpr := r.handlerParse(s.file)
 	if hpr == nil {
 		return ""
@@ -113,9 +120,9 @@ func (r *Resolver) renderedValue(value []parser.Token, s viewArgSite) string {
 
 	value = withoutNullFallback(value)
 
-	comp := r.argumentExprComponent(value, conv.Uint32(s.line), caller, hpr, dir, lookupCtx{})
+	comp := r.argumentExprComponent(value, conv.Uint32(s.line), caller, hpr, dir, ctx)
 	if comp == "" && len(value) == 1 && value[0].Kind == parser.TokIdent {
-		comp = r.loopElement(&parser.CallSite{Variable: value[0].Value, Line: conv.Uint32(s.line), Caller: caller}, hpr, dir, nil)
+		comp = r.loopElementD(&parser.CallSite{Variable: value[0].Value, Line: conv.Uint32(s.line), Caller: caller}, hpr, dir, nil, ctx.depth)
 	}
 
 	if strings.HasPrefix(comp, "$") {

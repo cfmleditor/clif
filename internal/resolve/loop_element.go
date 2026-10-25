@@ -643,16 +643,21 @@ func localAssignmentAt(content, name string, start, header int) (string, int, bo
 		}
 
 		rhs := trimAssignmentRHS(value)
+		_, tag := assignmentPrefix(trimAssignmentSpace(line), "<cfset")
 
-		for j := i + 1; strings.Count(rhs, "(") > strings.Count(rhs, ")") && j < end && j <= i+maxAssignmentLines; j++ {
+		for j := i + 1; j < end && j <= i+maxAssignmentLines; j++ {
 			following := region[min(next, len(region)):]
 			if k := strings.IndexByte(following, '\n'); k >= 0 {
 				following = following[:k]
 			}
 
+			joined, more := joinAssignmentLine(rhs, following, tag)
+			if !more {
+				break
+			}
+
 			next += len(following) + 1
-			rhs += " " + strings.TrimSpace(strings.TrimSuffix(strings.TrimSuffix(strings.TrimSpace(following), ";"), "/"))
-			rhs = strings.TrimSpace(rhs)
+			rhs = joined
 		}
 
 		if strings.Count(rhs, "(") != strings.Count(rhs, ")") {
