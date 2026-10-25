@@ -101,8 +101,15 @@ func (r *Resolver) localAssignmentAt(pr *parser.ParseResult, name string, start,
 		}
 
 		rhs := trimAssignmentRHS(a.rhs)
-		for j := a.line + 1; strings.Count(rhs, "(") > strings.Count(rhs, ")") && j < min(header, len(starts)) && j <= a.line+maxAssignmentLines; j++ {
-			rhs = strings.TrimSpace(rhs + " " + trimAssignmentRHS(sourceLine(pr.Content, starts, j)))
+		_, tag := assignmentPrefix(trimAssignmentSpace(sourceLine(pr.Content, starts, a.line)), "<cfset")
+
+		for j := a.line + 1; j < min(header, len(starts)) && j <= a.line+maxAssignmentLines; j++ {
+			joined, more := joinAssignmentLine(rhs, sourceLine(pr.Content, starts, j), tag)
+			if !more {
+				break
+			}
+
+			rhs = joined
 		}
 
 		if strings.Count(rhs, "(") != strings.Count(rhs, ")") {
@@ -121,6 +128,29 @@ func (r *Resolver) localAssignmentIn(pr *parser.ParseResult, name string, start,
 	rhs, _, ok := r.localAssignmentAt(pr, name, start, header)
 
 	return rhs, ok
+}
+
+// joinAssignmentLine is rhs with the statement's next line added, when the
+// statement runs on to it: while a parenthesis is open, and while the line
+// carries the chain on. `x = $.getBean( "feed" )` over a line each for
+// `.loadBy( … )` and `.getIterator()` is the iterator, not the bean its first
+// line names. In a <cfset> the chain's last line holds the tag's end, which
+// is left off as the first line's is.
+func joinAssignmentLine(rhs, line string, tag bool) (string, bool) {
+	next := trimAssignmentRHS(line)
+
+	switch {
+	case strings.Count(rhs, "(") > strings.Count(rhs, ")"):
+		return strings.TrimSpace(rhs + " " + next), true
+	case strings.HasPrefix(next, ".") && !strings.HasPrefix(next, ".."):
+		if tag {
+			next = trimAssignmentRHS(strings.TrimSuffix(next, ">"))
+		}
+
+		return rhs + next, true
+	default:
+		return rhs, false
+	}
 }
 
 func trimAssignmentRHS(text string) string {
