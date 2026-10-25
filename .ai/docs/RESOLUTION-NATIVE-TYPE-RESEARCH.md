@@ -89,6 +89,32 @@ Source examples establish promising families:
   element contracts, not a guessed CFC declaring iterator.
 - Wheels base.cfc: conn.createStatement()/prepareStatement(), executeQuery(),
   rs.next() and close(). These are JDBC interfaces with producer dependencies.
+  Traced 2026-10-25 and left blocked: 208 findings, all in the CLI's
+  `db/dump.cfc` (81), `db/create.cfc` (53), `base.cfc` (37) and
+  `db/drop.cfc` (37). Every connection is made the same way: a loop over
+  `local.dbConfig.driverClasses`, arrays of literal driver class names
+  (`com.mysql.cj.jdbc.Driver`, `org.mariadb.jdbc.Driver`, …) that another
+  function builds and returns as a struct field, runs
+  `local.driver = createObject( "java", local.driverClass )`, and then
+  `local.conn = local.driver.connect( local.url, local.props )`. A Java
+  class named by a variable is `$any`, so connect() has no contract to be
+  checked against, and nothing after it is typed. Three pieces would be
+  needed, and only the first is small:
+  1. a `java.sql.Driver` contract (connect → connection, acceptsURL →
+     boolean), beside the connection/statement/resultset ones;
+  2. proof that `local.driverClass` only ever holds driver class names,
+     which means following string arrays through a field of a struct
+     another function returns; nothing does that;
+  3. for `dump.cfc`, the `connection` key of the struct
+     `getDatabaseConnection()` returns. `CollectionValues` types a returned
+     struct's values only when every value is one component, and this one
+     also holds strings, so it would need values typed per key.
+  `arguments.conn` in `checkDatabaseExists` and its siblings follows from
+  (1) and (2), since every caller passes `local.conn`. Typing any Java
+  object called as `connect( url, props )` as a driver would close it, and
+  is a guess. The contract alone would type
+  `createObject( "java", "<literal driver class>" )`, which this corpus
+  never writes.
 - ColdBox DateTimeHelper: Java time chains through toInstant, atZone and
   toLocalDateTime. The fluent result types are central to downstream checks.
 - Lucee LDEV0866: structNew("linked") calling keySet/entrySet/iterator, guarded

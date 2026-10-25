@@ -86,5 +86,18 @@ templates.
    the same mistake, is now reported. ContentBox 1,672 → 1,670; the other
    five unchanged. The 128 `arguments.item` rows (`arguments.iterator.next()`)
    now wait only on step 3.
-3. The iterator element: contentIterator's `packageRecord` build
-   (getBean locator + hopReturns' CallHop argument evaluation).
+3. ~~The iterator element~~. Measured 2026-10-25 and left untyped on
+   purpose. `arguments.item = arguments.iterator.next()` needs `next()` on
+   both alternatives the collection templates are handed
+   (`beanIterator|contentIterator`). contentIterator's returns
+   contentNavBean. beanIterator's returns `getBean(variables.entityName)`:
+   the entity is instance state, `"bean"` by default and whatever a
+   builder's `setEntityName()` sets, and nothing ties an iterator to the
+   code that built it, so that alternative has no type and neither has
+   the union. Two further costs, had it been typed: the lookup is four
+   assignments deep (item, then the iterator through list → default →
+   collection/index.cfm) against `maxAssignedDepth` 3, and raising it to
+   5 took ContentBox's scan from 1.47s to 2.36s while changing no masa-c
+   row. Treating beanIterator's element as `$any` would accept all 128
+   rows without checking one; not done. The rows (dsp_content_list 68,
+   dsp_meta_list 60) stay reported.
