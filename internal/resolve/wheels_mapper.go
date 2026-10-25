@@ -264,6 +264,8 @@ type sourceDerived struct {
 	requestWrites map[string]int
 	startupOnce   sync.Once
 	startup       []parser.StartupVariableAssignment
+	fieldsOnce    sync.Once
+	fields        variablesReferences
 }
 
 // requestWriteCounts is how many statements in the source write each request
@@ -276,6 +278,18 @@ func (s *sourceInfo) requestWriteCounts() map[string]int {
 	s.derived.requestOnce.Do(func() { s.derived.requestWrites = requestWriteCounts(s.content) })
 
 	return s.derived.requestWrites
+}
+
+// variablesReferences is how the source refers to its variables scope,
+// counted once per source (countVariablesReferences).
+func (s *sourceInfo) variablesReferences() variablesReferences {
+	if s.derived == nil {
+		return countVariablesReferences(allTokens(s.content))
+	}
+
+	s.derived.fieldsOnce.Do(func() { s.derived.fields = countVariablesReferences(allTokens(s.content)) })
+
+	return s.derived.fields
 }
 
 // startupAssignments is the source's component-body variable assignments,

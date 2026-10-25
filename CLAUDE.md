@@ -1391,6 +1391,18 @@ union does not. `TestABranchUnionReturnHoldsWhateverTheCallTakes`, beside
 `TestLiteralSwitchProducer` and `TestGuardedLazyFieldsFailClosed`, which pin the cases it
 must not answer.
 
+**A guarded field is the one component every write gives it** (`sharedFieldContract`,
+`producer_flow.go`): `if ( isNull( variables.x ) ) variables.x = new X(); return variables.x;`.
+Two extensions. The `structKeyExists` guard and a keyed read take a key the call makes
+literal (`structKeyCondition`, `literalKey`), so the cfwheels CLI's
+`getService( "helpers" )` over `variables.services[ name ]` is what
+`variables.services.helpers` is written. And a statement the plans cannot read no longer
+voids the proof on its own (`fieldTextProved`): when every reference in the file's text to
+the variable holding the field is in a statement a plan read, and the variables scope is
+never used whole (`structDelete( variables, "x" )` touches x alone), the unread statement
+cannot touch it. A large component always has one, and lost every guarded field to it.
+`TestAKeyedLazyCacheReturnsWhatItsKeyBuilds`, `TestAGuardedFieldIsProvedFromTheText`.
+
 **A base handler's computed view name and key are read per subclass.**
 `moduleActions` expands `view( "#variables.handler#/x" )` for each leaf subclass
 under the handler, with the literal the leaf (or a component between) assigns, and

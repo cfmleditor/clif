@@ -610,7 +610,7 @@ func (e *producerEvaluation) condition(expression string, env producerEnvironmen
 // handles is found: most conditions are none of them, and copying first was a
 // third of the producer's environment copies.
 func (e *producerEvaluation) specialCondition(tokens []parser.Token, env producerEnvironment, negate bool) (yes, no producerEnvironment, choice int, ok bool) {
-	if path, matched := e.structKeyCondition(tokens); matched {
+	if path, matched := e.structKeyCondition(tokens, env); matched {
 		yes, no = maps.Clone(env), maps.Clone(env)
 
 		value, known := env[path]
@@ -707,19 +707,55 @@ func (e *producerEvaluation) unaryGuardCondition(tokens []parser.Token, name str
 	return normalizeProducerPath(path), true
 }
 
-func (e *producerEvaluation) structKeyCondition(tokens []parser.Token) (string, bool) {
-	if len(tokens) != 6 || !strings.EqualFold(tokens[0].Value, "structKeyExists") || tokens[1].Kind != parser.TokLParen || tokens[3].Kind != parser.TokComma || tokens[4].Kind != parser.TokString || tokens[5].Kind != parser.TokRParen || e.resolver.ResolveFunc(e.methodOwner(), "structKeyExists", e.baseDir) != nil {
+// structKeyCondition is the field `structKeyExists( scope, key )` tests: a
+// literal key, or one the call makes literal, as getService( "helpers" )
+// does for `structKeyExists( variables.services, name )` in a keyed cache.
+func (e *producerEvaluation) structKeyCondition(tokens []parser.Token, env producerEnvironment) (string, bool) {
+	if len(tokens) < 6 || !strings.EqualFold(tokens[0].Value, "structKeyExists") || tokens[1].Kind != parser.TokLParen || tokens[len(tokens)-1].Kind != parser.TokRParen || e.resolver.ResolveFunc(e.methodOwner(), "structKeyExists", e.baseDir) != nil {
 		return "", false
 	}
 
-	scope := producerPath(tokens[2:3])
+	parts := producerSplit(tokens[2 : len(tokens)-1])
+	if len(parts) != 2 {
+		return "", false
+	}
 
-	name := strings.ToLower(strings.Trim(tokens[4].Value, "\"'"))
-	if scope == "" || name == "" || strings.Contains(name, ".") {
+	scope := producerPath(parts[0])
+
+	name, ok := e.literalKey(parts[1], env)
+	if scope == "" || !ok {
 		return "", false
 	}
 
 	return normalizeProducerPath(scope + "." + name), true
+}
+
+// literalKey is the key tokens name, lowercased: a string literal, or a value
+// the environment holds as a known literal. A key that could not be a field
+// name on its own is not one.
+func (e *producerEvaluation) literalKey(tokens []parser.Token, env producerEnvironment) (string, bool) {
+	var name string
+
+	switch {
+	case len(tokens) == 1 && tokens[0].Kind == parser.TokString:
+		name = strings.Trim(tokens[0].Value, "\"'")
+	case len(tokens) > 0 && tokens[0].Kind == parser.TokIdent:
+		value := e.expression(producerText(tokens), env)
+		if !value.literalKnown {
+			return "", false
+		}
+
+		name = value.literal
+	default:
+		return "", false
+	}
+
+	name = strings.ToLower(name)
+	if name == "" || strings.ContainsAny(name, ".#[]() \t") {
+		return "", false
+	}
+
+	return name, true
 }
 
 // sharedFieldContract returns the one component assigned to a guarded shared
@@ -738,6 +774,10 @@ func (e *producerEvaluation) sharedFieldContract(path string, allowPrimitive boo
 	valid := true
 	request := strings.HasPrefix(path, "request.")
 	writes := 0
+
+	// A statement the plan could not read may write the field, unless the
+	// file's text shows it cannot (fieldTextProved).
+	unread := false
 	write := func(expression string) {
 		value := e.expression(expression, producerEnvironment{})
 		switch {
@@ -765,7 +805,7 @@ func (e *producerEvaluation) sharedFieldContract(path string, allowPrimitive boo
 			node := &nodes[i]
 			// A request field's writes are counted in the text instead.
 			if node.kind == "unsafe" && !request && producerMayTouchField(node.expression, path) {
-				valid = false
+				unread = true
 			}
 
 			// A param on the field writes its default whenever the field is
@@ -814,6 +854,10 @@ func (e *producerEvaluation) sharedFieldContract(path string, allowPrimitive boo
 		}
 	}
 
+	if unread && !e.fieldTextProved(&source, methods, path) {
+		valid = false
+	}
+
 	// Every write of a request field in the file's text must be one the
 	// plan read: a statement it could not read may hold another.
 	if request && source.requestWriteCounts()[strings.TrimPrefix(path, "request.")] != writes {
@@ -825,6 +869,54 @@ func (e *producerEvaluation) sharedFieldContract(path string, allowPrimitive boo
 	}
 
 	return e.concrete(component, e.baseDir)
+}
+
+// fieldTextProved reports whether the file's text shows that no statement the
+// plans could not read touches the variables field path: every reference to
+// the variable holding it (variablesRoot) is in a statement a plan read, or a
+// component-body assignment, and the scope is never used whole. A large
+// component always holds a statement the plans cannot read, and the
+// cfwheels CLI's 8,000-line Module.cfc lost every guarded field to one.
+func (e *producerEvaluation) fieldTextProved(source *sourceInfo, methods map[string]*producerMethod, path string) bool {
+	root := variablesRoot(path)
+	if root == "" {
+		return false
+	}
+
+	read := 0
+	planned := map[string]bool{}
+
+	var visit func([]producerNode)
+
+	visit = func(nodes []producerNode) {
+		for i := range nodes {
+			node := &nodes[i]
+			if node.kind != "unsafe" {
+				read += variablesRootReferences(producerTokens(node.target+" "+node.expression), root)
+
+				if node.kind == "set" {
+					planned[producerStatementKey(node.target, node.expression)] = true
+				}
+			}
+
+			visit(node.body)
+			visit(node.alternative)
+		}
+	}
+
+	for _, method := range methods {
+		visit(method.body)
+	}
+
+	// A component-body assignment is in the text once, and in a plan too
+	// when an init() holds it.
+	for _, assignment := range source.startupAssignments(e.fd.URI) {
+		if !planned[producerStatementKey(assignment.Variable, assignment.Expression)] {
+			read += variablesRootReferences(producerTokens(assignment.Variable+" = "+assignment.Expression), root)
+		}
+	}
+
+	return source.variablesReferences().proves(root, read)
 }
 
 // guardedField reports whether path is a field whose writes the component
@@ -1094,6 +1186,14 @@ func (e *producerEvaluation) recordElement(tokens []parser.Token, env producerEn
 		key := e.expression(producerText(tokens[i+1:len(tokens)-1]), env)
 		if path == "" || !key.literalKnown {
 			return producerUnknown()
+		}
+
+		// A field the plan wrote, or a guard proved, under this key:
+		// `return variables.services[ name ]` after a keyed cache's build.
+		if name, ok := e.literalKey(tokens[i+1:len(tokens)-1], env); ok {
+			if field, known := env[normalizeProducerPath(path+"."+name)]; known {
+				return field
+			}
 		}
 
 		value := e.read(path, env)
@@ -1758,4 +1858,127 @@ func (e *producerEvaluation) createObjectResult(tokens []parser.Token, open, end
 	}
 
 	return producerUnknown()
+}
+
+// variablesRoot is the variable a variables-scope field path is held in:
+// services for variables.services.helpers. "" for any other path.
+func variablesRoot(path string) string {
+	rest, ok := strings.CutPrefix(path, "variables.")
+	if !ok || rest == "" {
+		return ""
+	}
+
+	root, _, _ := strings.Cut(rest, ".")
+
+	return root
+}
+
+// variablesReferences is how a source's text refers to its variables scope:
+// how many tokens refer to each variable in it (variablesRootReferences), and
+// whether the scope is ever read in a way that hides which variable:
+// indexed with brackets, passed or assigned whole.
+type variablesReferences struct {
+	roots   map[string]int
+	escapes bool
+}
+
+// proves reports whether read references to root, counted in the statements
+// a plan read, are all the text holds, in a source whose scope never escapes:
+// then no statement the plan could not read touches root.
+func (v variablesReferences) proves(root string, read int) bool {
+	return !v.escapes && read > 0 && v.roots[strings.ToLower(root)] == read
+}
+
+func countVariablesReferences(tokens []parser.Token) variablesReferences {
+	v := variablesReferences{roots: map[string]int{}}
+
+	for i := range tokens {
+		t := tokens[i]
+		if t.Kind != parser.TokIdent {
+			continue
+		}
+
+		if strings.EqualFold(t.Value, "variables") && (i+1 >= len(tokens) || tokens[i+1].Kind != parser.TokDot) {
+			if key, ok := scopeKeyArgument(tokens, i); ok {
+				v.roots[key]++
+			} else {
+				v.escapes = true
+			}
+		}
+
+		if variablesReference(tokens, i) {
+			v.roots[strings.ToLower(t.Value)]++
+		}
+	}
+
+	return v
+}
+
+// variablesRootReferences is how many tokens refer to the variable root.
+func variablesRootReferences(tokens []parser.Token, root string) int {
+	if root == "" {
+		return 0
+	}
+
+	n := 0
+
+	for i := range tokens {
+		if strings.EqualFold(tokens[i].Value, root) && variablesReference(tokens, i) {
+			n++
+		}
+	}
+
+	return n
+}
+
+// variablesReference reports whether the identifier at tokens[i] names a
+// variable of the variables scope: `variables.name`, or a bare name, but not
+// a member of something else (`x.name`) or a component path (`new name.X`).
+func variablesReference(tokens []parser.Token, i int) bool {
+	if tokens[i].Kind != parser.TokIdent || strings.EqualFold(tokens[i].Value, "variables") {
+		return false
+	}
+
+	if i == 0 {
+		return true
+	}
+
+	prev := tokens[i-1]
+
+	switch {
+	case prev.Kind == parser.TokIdent && strings.EqualFold(prev.Value, "new"):
+		return false
+	case prev.Kind == parser.TokDot:
+		return i >= 2 && tokens[i-2].Kind == parser.TokIdent && strings.EqualFold(tokens[i-2].Value, "variables") && (i < 3 || tokens[i-3].Kind != parser.TokDot)
+	default:
+		return true
+	}
+}
+
+// producerStatementKey is an assignment's identity across a plan and the
+// startup assignments: its target and its expression, spacing aside.
+func producerStatementKey(target, expression string) string {
+	return normalizeProducerPath(target) + "=" + strings.ToLower(strings.Join(strings.Fields(producerText(producerTokens(expression))), ""))
+}
+
+// scopeKeyArgument is the key a whole-scope call names at tokens[i]:
+// `structDelete( variables, "x" )`, `structKeyExists( variables, "x" )`, which
+// touch that key alone, lowercased. A reference to the key's variable, then.
+func scopeKeyArgument(tokens []parser.Token, i int) (string, bool) {
+	if i < 2 || i+3 >= len(tokens) || tokens[i-1].Kind != parser.TokLParen || tokens[i+1].Kind != parser.TokComma || tokens[i+2].Kind != parser.TokString || tokens[i+3].Kind != parser.TokRParen {
+		return "", false
+	}
+
+	switch strings.ToLower(tokens[i-2].Value) {
+	case "structdelete", "structkeyexists":
+	default:
+		return "", false
+	}
+
+	key := strings.ToLower(strings.Trim(tokens[i+2].Value, `"'`))
+	if key == "" || strings.ContainsAny(key, "#.") {
+		return "", false
+	}
+
+	return key, true
 }
