@@ -1651,6 +1651,17 @@ against all of them; which one ran is not in the source.
   X; an `argumentCollection` declines; a call naming its file only by position is passed over
   unless it passes X. Batch only (the caller index finds the calls). The value's lookup counts
   the depth, which bounds templates handing a name on. `TestAMuraDisplayObjectReadsWhatItsIncludeIsPassed`.
+- **A ColdBox interceptor reads what the announce passes it** (`interceptData`,
+  `internal/resolve/coldbox_intercept_data.go`, in `memberReceiver` after `viewArgs`): in a
+  method `point( event, data )` (or `interceptData`) that does not assign its data itself,
+  `arguments.data.KEY` and a bare `data.KEY` are the KEY of the struct literal each
+  `announce`, `announceInterception` or `processState` call naming that point passes, typed
+  where the call is made (`renderedValueD`); a local assigned from one follows through the
+  alias step. A computed state (`"cbadmin_post#variables.entity#Save"`) names every point its
+  literal parts allow. Every call passing KEY must type it; one passing no data or omitting KEY
+  says nothing; data that is not a struct literal declines, and so does KEY passed under a state
+  not spelled at all. Batch only. On ContentBox it typed 76 findings in the notification,
+  cache-cleanup and renderer interceptors (1,670 → 1,598). `TestAnInterceptorReadsWhatItsAnnounceIsPassed`.
 - A writer that indexes from a parse result calls `Index.SetIncludes` beside `SetThisVars`;
   `IndexFile` sets them itself. The `unresolved` command records a template's includes without
   indexing its functions, since a page that includes a helper can call what the helper declares.

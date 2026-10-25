@@ -33,6 +33,11 @@ func (r *Resolver) memberReceiver(variable, name string, scope parser.RefScope, 
 		comp = r.viewArgs(variable, pr, tr)
 	}
 
+	// An interceptor's data is what the calls announcing it pass.
+	if comp == "" {
+		comp = r.interceptData(variable, caller, pr, tr, ctx)
+	}
+
 	if comp == "" {
 		comp = r.includerHeld(variable, pr, tr, ctx)
 	}
