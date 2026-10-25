@@ -348,3 +348,46 @@ caller still blocks the 65-entry cohort. The heterogeneous feed return is also
 withheld. See checkpoint 30 of RESOLUTION-IMPLEMENTATION-STATUS.md for the complete
 per-entry, coverage and validation audit; earlier research-only figures above
 remain historical. No broader return/state or native API rule was implemented.
+
+## Traced and left blocked (25 October 2026)
+
+Each group below was traced to its root and left reported on purpose: the fix
+would need a guess, or a guard that protects other cases. Counts are from the
+scans of that date. The Mura iterator element and cfwheels' JDBC chain are in
+[MURA-TEMPLATE-PARAMS-RESEARCH.md](MURA-TEMPLATE-PARAMS-RESEARCH.md) step 3 and
+[RESOLUTION-NATIVE-TYPE-RESEARCH.md](RESOLUTION-NATIVE-TYPE-RESEARCH.md).
+
+- **cfwheels `ssh` (49) and `variables.sshPool` (23)**, in the deploy CLI.
+  `ssh` is a callback parameter: `variables.sshPool.onEach( hosts,
+  function( ssh, host ) { ssh.run( … ) } )`. Two blocks, either enough:
+  - `DeployMainCli.init( any sshPool = "" )` defaults the pool to a string,
+    so the pool has no component type, and a caller omitting it hands in "".
+  - Even typed, the callback runs where nothing can follow it. The real
+    `SshPool.onEach` stores the closure in an `SshPoolTask` and submits it to
+    a Java executor through `createDynamicProxy`; the task's `call()` invokes
+    `callback( pool.getConnection( host ), host )`. The callback rule
+    (`callbackParameterComponent`) reads an invocation in the provider's own
+    straight-line body, and treats escapes and dispatch inside loops as
+    unknown, which also covers `FakeSshPool.onEach`'s `for` loop. Following a
+    closure through object storage and a Java executor is not something the
+    resolver models.
+- **cfwheels `variables.helpers` (55)**, in the CLI's service classes
+  (`Admin`, `Templates`, …). `init( helpers )` stores the argument, and both
+  constructors now type it (`getService( "helpers" )` since the keyed lazy
+  cache rule, `new Helpers()` in the specs). The constructor scan
+  (`inferInitArgument`) still declines: it treats any quoted string ending in
+  the class name as a possible construction by name it cannot read, and
+  `Admin.cfc` holds `"/app/controllers/admin"`. Exempting switch labels,
+  comments and keys passed to the file's own functions was tried; each
+  further exemption weakens the guard against factory construction
+  (`getInstance( "Admin" )`, including through a variable), so it was left
+  as it is.
+- **Mura `arguments.feedBean` in feedGateway.cfc (111).** `getFeed( feedBean )`
+  has two callers in feedManager.cfc: `getFeed()`, which types, and
+  `getFeedIterator()`, which hands on its own `arguments.feedBean` and is
+  called nowhere in the corpus. Every caller must type the argument, and
+  skipping a caller nothing calls by name would break
+  `TestACallerPlacedByTheParseIsACaller`: a framework or plugin may call a
+  public method by convention.
+- **Mura `entity` (100)**, beanFactory.cfc and apiUtility.cfc.
+  `entity = getBean( arguments.entityname )`: the bean is named at run time.
