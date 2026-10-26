@@ -45,6 +45,8 @@ func TestNativeContractsPreserveDifferentResultTypes(t *testing.T) {
 		{"string", "reduce", "$any"},
 		{"string", "deserializeJSON", "$any"},
 		{"string", "listReduce", "$any"},
+		{"struct", "containsValue", Type("boolean")},
+		{"struct", "keySet", Type("set")},
 		{"mongodbcollection", "stats", Type("struct")},
 		{"mongodbcollection", "storageSize", Type("numeric")},
 		{"mongodbcollection", "totalIndexSize", Type("numeric")},

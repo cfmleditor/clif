@@ -137,6 +137,7 @@ type pathCaches struct {
 	viewArgCache        map[string]map[string][]viewArgSite // module → view → its renders (viewArgSites)
 	muraSites           []muraObjectSite                    // the workspace's dspObject_include calls (muraObjectSites)
 	muraSitesBuilt      bool                                // muraSites has been read
+	collectionFields    map[string]string                   // file, field and index generation → emptyCollectionField's kind
 	tagSites            map[string][]customTagSite          // custom tag name → the tags calling it (customTagSites)
 	tagTemplates        map[string]int                      // custom tag name → how many templates answer to it
 	interceptSiteList   []interceptSite                     // the workspace's announces (interceptSites)
@@ -3379,6 +3380,10 @@ func (r *Resolver) receiverComponent(variable string, line uint32, caller, funcN
 // assigned from.
 func (r *Resolver) inferredReceiver(variable string, line uint32, caller, funcName string, pr *parser.ParseResult, baseDir string, tr *callTrace, ctx lookupCtx) string {
 	if comp := r.builderMember(variable, line, caller, funcName, pr, baseDir, tr, ctx); comp != "" {
+		return comp
+	}
+
+	if comp := r.emptyCollectionField(variable, line, caller, funcName, pr, tr); comp != "" {
 		return comp
 	}
 

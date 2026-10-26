@@ -97,6 +97,15 @@ func Method(component, method string) (string, bool) {
 		}
 	}
 
+	// A CFML struct is a java.util.Map on both engines, so it answers the
+	// Map methods its own contract does not list: ColdBox's MockProvider asks
+	// a struct `containsValue()`.
+	if name == "struct" {
+		if ret, ok := contracts["map"][m]; ok {
+			return ret, true
+		}
+	}
+
 	return "", false
 }
 
