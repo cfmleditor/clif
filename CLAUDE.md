@@ -1678,6 +1678,17 @@ against all of them; which one ran is not in the source.
   says nothing; data that is not a struct literal declines, and so does KEY passed under a state
   not spelled at all. Batch only. On ContentBox it typed 76 findings in the notification,
   cache-cleanup and renderer interceptors (1,670 → 1,598). `TestAnInterceptorReadsWhatItsAnnounceIsPassed`.
+- **A custom tag reads what the tags calling it pass** (`customTagAttribute`,
+  `internal/resolve/custom_tag_attributes.go`, in `memberReceiver` before `includerHeld`): a
+  `.cfm`'s `attributes.X` is the X of every `<cf_name …>` and `<cfmodule template="…/name.cfm">`
+  in the workspace, given as one `#expr#` and typed where the call is made (`renderedValueD`);
+  a tag handing an attribute on to another tag passes what it holds. Which file a tag name runs
+  is a runtime fact (customTagPaths), so a name two `.cfm`s answer to is not claimed. Text, an
+  `attributeCollection`, or a tag setting the attribute itself leaves it untyped; an omitting
+  call says nothing, and a `cfparam` default is not a set. Batch only. On MasaCMS it moves one
+  finding: `fileselector`'s fourth caller passes `extendAttribute.renderAttribute()`'s own
+  `arguments.bean`, whose callers are on an untyped loop element.
+  `TestACustomTagReadsWhatItsCallsPass`.
 - A writer that indexes from a parse result calls `Index.SetIncludes` beside `SetThisVars`;
   `IndexFile` sets them itself. The `unresolved` command records a template's includes without
   indexing its functions, since a page that includes a helper can call what the helper declares.
