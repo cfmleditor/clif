@@ -137,6 +137,8 @@ type pathCaches struct {
 	viewArgCache        map[string]map[string][]viewArgSite // module → view → its renders (viewArgSites)
 	muraSites           []muraObjectSite                    // the workspace's dspObject_include calls (muraObjectSites)
 	muraSitesBuilt      bool                                // muraSites has been read
+	tagSites            map[string][]customTagSite          // custom tag name → the tags calling it (customTagSites)
+	tagTemplates        map[string]int                      // custom tag name → how many templates answer to it
 	interceptSiteList   []interceptSite                     // the workspace's announces (interceptSites)
 	interceptSitesBuilt bool                                // interceptSiteList has been read
 	handoffs            handoffIndex                        // handler actions by the view each renders (viewActions)

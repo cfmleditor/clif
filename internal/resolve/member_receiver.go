@@ -38,6 +38,11 @@ func (r *Resolver) memberReceiver(variable, name string, scope parser.RefScope, 
 		comp = r.interceptData(variable, caller, pr, tr, ctx)
 	}
 
+	// A custom tag's attributes are what the tags calling it pass.
+	if comp == "" {
+		comp = r.customTagAttribute(variable, pr, tr, ctx)
+	}
+
 	if comp == "" {
 		comp = r.includerHeld(variable, pr, tr, ctx)
 	}
