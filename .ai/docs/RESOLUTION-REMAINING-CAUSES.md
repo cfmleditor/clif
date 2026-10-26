@@ -391,3 +391,27 @@ scans of that date. The Mura iterator element and cfwheels' JDBC chain are in
   public method by convention.
 - **Mura `entity` (100)**, beanFactory.cfc and apiUtility.cfc.
   `entity = getBean( arguments.entityname )`: the bean is named at run time.
+- **Mura event values (164)**, "method … in mura.servletEvent|mura.event has
+  no component return type", mostly in standardEventsHandler.cfc and
+  contentRenderer.cfc: chains on `event.getValue( "contentBean" )` (140 of
+  the getValue calls name that key), `event.getSite()` and
+  `event.getHandler()`. A servletEvent's getValue reads the request scope,
+  which `servletEvent.init()` fills with `structAppend( request, url, "no" )`
+  and the same for form, so any URL or form parameter can be an event value;
+  contentServer.cfc also writes event values under a computed key
+  (`event.setValue( currentParam, … )`). Typing a key from its known writers
+  would assume no unseen one. `getSite()` returns
+  `settingsManager.getSite()`, which reads `variables.sites[ siteid ]`, a
+  cache filled under computed keys.
+- **cfwheels missing components (158)**, "component … does not exist", in
+  two shapes, both a matter of project configuration rather than a rule:
+  - `modules.wheels.services.deploy.…` and the like (about 90) in the CLI
+    under `cli/lucli`, which names its own components as LuCLI's installed
+    `wheels` module. Nothing in the source says `cli/lucli` is
+    `modules/wheels`: a build step installs it there. A `mappings` entry in
+    `.clif.json` would resolve them.
+  - `wheels.middleware.RateLimiter` (40) in `tools/article-tests`, which does
+    exist at `vendor/wheels/middleware/RateLimiter.cfc`. The mapping is
+    `public/Application.cfc`'s `this.mappings["/wheels"]`, and
+    `tools/article-tests` is outside `public/`, so no Application.cfc
+    governs it; which mappings its harness runs under is not in the source.
