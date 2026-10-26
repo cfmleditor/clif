@@ -1449,6 +1449,16 @@ It runs only in batch scans and can cost more for common names in large corpora.
 `TestArgumentInferenceBeyondFormerLimits` cover unrelated owners, former limits,
 constructors and an unknown value after the former site cutoff.
 
+**`argumentCollection = <a local struct>` passes what its key was written**
+(`localCollectionArgument`, `local_collection_args.go`, from `callArgumentAt`): Mura builds
+`var sArgs = structNew()` a key at a time and hands it to its publisher. The struct must be
+declared in the caller (`structNew()`, `{}` or a literal), and every reference to it up to the
+call must write a key (`sArgs.Key = v`, `sArgs[ "Key" ] = v`) or read one; anything else
+(passing it on, `structDelete`, replacing it) leaves the argument untyped, as does a key
+written twice or a written name the caller assigns again before the call. A struct that never
+holds the key does not pass it. MasaCMS 2,465 → 2,400.
+`TestAnArgumentPassedInALocalStructIsTypedByItsKey`.
+
 Literal array-returning `entityLoad` forms use indexed persistent-entity metadata
 for loop element types: a literal entity name, optionally a filter struct and an
 explicit `false` unique flag. Shadowed calls, dynamic names, scalar-ID overloads,

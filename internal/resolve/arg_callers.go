@@ -667,6 +667,7 @@ func callArgumentAt(tokens []parser.Token, i, pos int, argName string) (expr []p
 	positional := 0
 	forwards := false
 	unknownCollection := false
+	collection := ""
 
 	for _, piece := range producerSplit(tokens[i+2 : end]) {
 		if len(piece) > 2 && piece[0].Kind == parser.TokIdent && (piece[1].Kind == parser.TokEquals || piece[1].Kind == parser.TokColon) {
@@ -675,9 +676,12 @@ func callArgumentAt(tokens []parser.Token, i, pos int, argName string) (expr []p
 			}
 
 			if strings.EqualFold(piece[0].Value, "argumentCollection") {
-				if len(piece) == 3 && strings.EqualFold(piece[2].Value, "arguments") {
+				switch {
+				case len(piece) == 3 && strings.EqualFold(piece[2].Value, "arguments"):
 					forwards = true
-				} else {
+				case len(piece) == 3 && piece[2].Kind == parser.TokIdent:
+					collection = piece[2].Value
+				default:
 					unknownCollection = true
 				}
 			}
@@ -698,6 +702,16 @@ func callArgumentAt(tokens []parser.Token, i, pos int, argName string) (expr []p
 	// arguments.name holds is the argument.
 	if unknownCollection {
 		return nil, true
+	}
+
+	// A struct the caller built a key at a time: what the key was written.
+	if collection != "" {
+		expr, passed, ok := localCollectionArgument(tokens, i, collection, argName)
+		if !ok {
+			return nil, true
+		}
+
+		return expr, passed
 	}
 
 	if forwards {
