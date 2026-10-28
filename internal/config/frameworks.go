@@ -220,6 +220,10 @@ var frameworkPresets = map[string]frameworkPreset{
 		resolvers: slices.Concat(
 			[]Resolver{
 				variableResolver(commandboxSystem+"util.PrintBuffer", "print"),
+				// What ModuleService injects into a module's ModuleConfig.cfc.
+				// Not its wirebox: the name is ColdBox's injector as often, in
+				// a project of both.
+				variableResolver(commandboxSystem+"wirebox.system.ioc.config.Binder", "binder"),
 			},
 			returnResolver(commandboxSystem+"util.CommandDSL", "command"),
 			returnResolver(commandboxSystem+"util.PrintBuffer", "getPrint"),
