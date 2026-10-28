@@ -122,6 +122,7 @@ func TestEveryPresetResolverMatchesItsOwnNames(t *testing.T) {
 		{"testbox", "variables.assert", "testbox.system.Assertion"},
 		{"testbox", "getMockBox()", "testbox.system.MockBox"},
 		{"commandbox", "print", "commandbox.system.util.PrintBuffer"},
+		{"commandbox", "binder", "commandbox.system.wirebox.system.ioc.config.Binder"},
 		{"commandbox", "command()", "commandbox.system.util.CommandDSL"},
 		{"commandbox", "task()", ""}, // a ColdBox scheduler's task() is not CommandBox's
 		{"commandbox", `getInstance( "DetailOutputService@wheels-cli" )`, "DetailOutputService@wheels-cli"},

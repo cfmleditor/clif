@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/cfmleditor/clif/internal/frameworkapi"
+	"github.com/cfmleditor/clif/internal/parser"
 )
 
 // TestAWireBoxIDIsWhatItsModuleRegisters: ColdBox registers a module's models
@@ -170,5 +171,35 @@ func TestAModuleCopyInTheCallersApplicationAnswers(t *testing.T) {
 	expectReasons(t, reasonsWith(t, &Resolver{}, dir, "news/handlers/General.cfc"), map[string]string{
 		"clientStorage.deleteVar": "",
 		"clientStorage.blogOnly":  "method 'blogOnly' not found in ClientStorage@cbstorages",
+	})
+}
+
+// TestACommandBoxModuleConfigsBinderIsWireBoxs: CommandBox's ModuleService
+// injects binder (shell.getWireBox().getBinder()) into every module's
+// ModuleConfig.cfc, and the commandbox preset types it, so cfwheels' CLI
+// mapping its services needs no CommandBox checkout: the stubs hold the
+// WireBox CommandBox bundles.
+func TestACommandBoxModuleConfigsBinderIsWireBoxs(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{
+		"ModuleConfig.cfc": `component {
+	function onLoad() {
+		binder.map( "TemplateService@cli" ).to( "#moduleMapping#.models.TemplateService" );
+		binder.notAMethod();
+	}
+}`,
+	})
+
+	r := &Resolver{
+		Stubs: frameworkapi.For([]string{"commandbox"}),
+		Resolvers: []parser.Resolver{
+			// config's variableResolver, as the commandbox preset builds it.
+			{Match: `^(?:variables\.|arguments\.)?(?:binder)$`, Resolve: "commandbox.system.wirebox.system.ioc.config.Binder", Prefix: "binder|variables.binder|arguments.binder", Anchored: true, DynamicIfMissing: true, NameOnly: true},
+		},
+	}
+	expectReasons(t, reasonsWith(t, r, dir, "ModuleConfig.cfc"), map[string]string{
+		"binder.map":        "",
+		"binder.map.to":     "",
+		"binder.notAMethod": "method 'notAMethod' not found in commandbox.system.wirebox.system.ioc.config.Binder",
 	})
 }

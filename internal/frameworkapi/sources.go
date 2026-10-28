@@ -54,6 +54,9 @@ var Sources = []Source{
 		// `inject="FileSystem"` or `inject="ServerService"` is one of them.
 		"commandbox.system.services.*",
 		"commandbox.system.util.*",
+		// What ModuleService injects into every module's ModuleConfig.cfc as
+		// binder: shell.getWireBox().getBinder().
+		"commandbox.system.wirebox.system.ioc.config.Binder",
 	}},
 	{"cfmigrations", "https://github.com/coldbox-modules/qb", "8eaab747f0402e0a182c1d9775e82cc3615c21e1", "qb", "", nil},
 	{"contentbox", "https://github.com/Ortus-Solutions/ContentBox", "312f1823ad4450cbe573f47f106a9b99f1934f2e", "contentbox", "modules/contentbox", nil},
