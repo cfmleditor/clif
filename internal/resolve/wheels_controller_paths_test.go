@@ -40,9 +40,9 @@ func wheelsControllerFiles() map[string]string {
  var a = application.wo.controller("dummy", {x = 1});
  a.base(); a.missing();
  var b = application.wo.controller(name = "Posts");
- b.testOnly();
+ b.testOnly(); b.appOnly();
  var c = application.wo.controller(runtimeName);
- c.base();
+ c.base(); c.testOnly();
  application.wo.controller("Posts").testOnly();
  } }`,
 		"site/Page.cfc": `component { function run(){
@@ -77,10 +77,14 @@ func TestAWheelsControllerIsTheClassItsPathHolds(t *testing.T) {
 	writeFiles(t, dir, wheelsControllerFiles())
 
 	expectReasons(t, reasonsWith(t, wheelsControllerResolver(), dir, "wheels/tests/specs/ControllerSpec.cfc"), map[string]string{
-		"a.base":                             "",
-		"a.missing":                          "method 'missing' not found in Controller",
-		"b.testOnly":                         "",
-		"c.base":                             "variable 'c' has no component ref",
+		"a.base":     "",
+		"a.missing":  "method 'missing' not found in Controller",
+		"b.testOnly": "",
+		"b.appOnly":  "method 'appOnly' not found in Posts",
+		// A computed name names no class: c is dynamic, as controller()
+		// declares no component, and not the path's Controller.cfc.
+		"c.base":                             "",
+		"c.testOnly":                         "",
 		"application.wo.controller.testOnly": "",
 	})
 
@@ -92,7 +96,9 @@ func TestAWheelsControllerIsTheClassItsPathHolds(t *testing.T) {
 	// A computed write of controllerPath beside the spec withholds the type,
 	// even beside a literal one.
 	expectReasons(t, reasonsWith(t, wheelsControllerResolver(), dir, "wheels/tests/restored/RestoreSpec.cfc"), map[string]string{
-		"r.testOnly": "variable 'r' has no component ref",
+		// Withheld, r is dynamic; typed by the default path, it would be the
+		// application's Posts, which has no testOnly().
+		"r.testOnly": "",
 	})
 }
 
@@ -105,7 +111,9 @@ func TestAWheelsControllerNeedsThePinnedClassLookup(t *testing.T) {
 	writeFiles(t, dir, files)
 
 	expectReasons(t, reasonsWith(t, wheelsControllerResolver(), dir, "wheels/tests/specs/ControllerSpec.cfc"), map[string]string{
-		"b.testOnly": "variable 'b' has no component ref",
+		// Withheld, b is dynamic; read by the rule, it would be the test
+		// Posts, which has no appOnly().
+		"b.appOnly": "",
 	})
 }
 

@@ -1388,7 +1388,13 @@ alternative (`a|b` receivers), every one of which must return a component. It is
 the last step of `receiverComponent`, bounded by `receiverComponentD`. It exists
 because the parse types an assignment from its own file's refs, and an abstract
 handler's `variables.ormService` is held only by subclasses.
-`TestAVariableAssignedFromASubclassHeldReceiverIsTyped`. **The assignment runs on to the
+`TestAVariableAssignedFromASubclassHeldReceiverIsTyped`. **A method that exists on every
+alternative and returns no component makes the variable `$any`** (`untypedOnEvery`), which is
+what the parse's `walkChainRest` makes it when it can see the receiver: the two cannot
+disagree about one assignment. Only the last call of the right-hand side, and a method one
+alternative lacks, or a component one alternative returns, is still no answer.
+`TestAVariableAssignedAnUntypedReturnIsDynamic`; 259 findings over the corpus, 195 of them
+MasaCMS's `event.getValue(…)`. **The assignment runs on to the
 next line while a parenthesis is open and while that line starts with `.`**
 (`joinAssignmentLine`, shared by the table in `source_facts.go` and the line walk in
 `loop_element.go`, which `TestTheAssignmentTableAnswersAsTheLineWalkDid` holds alike): a
