@@ -126,6 +126,7 @@ type optionalBlockState struct {
 	GlobalFunctionResolution bool
 	DocBlock                 config.ResolvedDocBlock
 	KnownIssues              []config.KnownIssues
+	Check                    config.ResolvedCheck
 }
 
 func (s *Server) optionalBlocks() optionalBlockState {
@@ -141,6 +142,7 @@ func (s *Server) optionalBlocks() optionalBlockState {
 		GlobalFunctionResolution: s.GlobalFunctionResolution,
 		DocBlock:                 s.DocBlock,
 		KnownIssues:              s.KnownIssues,
+		Check:                    s.Check,
 	}
 }
 
@@ -182,6 +184,12 @@ func (s *Server) restoreUnmentionedBlocks(merged *config.JSON, prev *optionalBlo
 
 	if merged.DocBlock == nil {
 		s.DocBlock = prev.DocBlock
+	}
+
+	// Only clif check reads it, but a session's copy of the config should not
+	// lose it to a config that leaves it out.
+	if merged.Check == nil {
+		s.Check = prev.Check
 	}
 
 	if merged.Completions == nil {

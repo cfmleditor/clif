@@ -149,6 +149,9 @@ func (c *Config) CodeMap() config.CodeMap { return c.Resolved().CodeMap }
 // the directory the config file is in.
 func (c *Config) KnownIssues() []config.KnownIssues { return c.Resolved().KnownIssues }
 
+// ResolvedCheck returns what `clif check` runs, with its defaults applied.
+func (c *Config) ResolvedCheck() config.ResolvedCheck { return c.Resolved().Check }
+
 // ResolvedFeatures returns the feature switches with their defaults applied.
 func (c *Config) ResolvedFeatures() config.ResolvedFeatures { return c.Resolved().Features }
 

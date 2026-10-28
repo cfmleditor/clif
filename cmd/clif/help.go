@@ -32,6 +32,7 @@ func subcommands() map[string]subcommand {
 		"unresolved":      {cmdUnresolved, unresolvedUsage},
 		"unresolved-diff": {cmdUnresolvedDiff, unresolvedDiffUsage},
 		"cflint":          {cmdCFLint, cflintUsage},
+		"check":           {cmdCheck, checkUsage},
 		"suppressions":    {cmdSuppressions, suppressionsUsage},
 		"hook":            {cmdHook, hookUsage},
 		"explain":         {cmdExplain, explainUsage},

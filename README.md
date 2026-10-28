@@ -842,6 +842,7 @@ The same settings can also be supplied by your editor as LSP `initializationOpti
 | `docBlock` | No | What `/**` expands to: `gap` (default `true`) puts a blank ` *` line between the hint and the tags, and `extra` is a list of `{ "name", "default", "types" }` tags added to every block (`types` limits them to `component`, `interface`, `function` or `property`). Inside a doc block, `@` completes the attributes of the tag being documented and a function's argument names. |
 | `references` | No | `textDocument/references` support, off by default. See below. |
 | `features` | No | Per-capability switches. `documentHighlight`, `watchedFiles` and `rangeFormatting` default to `true`; `folding` and `typeDefinition` default to `false` and are opt-in. See below. |
+| `check` | No | What `clif check` runs in CI and what fails it. See [Checks for CI](#checks-for-ci). |
 | `debug` | No | Enable debug logging (`zap.NewDevelopment`). Outputs verbose logs to stderr. |
 
 ### Mappings
@@ -1625,6 +1626,56 @@ file with all of them. A publish replaces everything a server has sent for a
 file, so before the store, saving a file wiped its parse errors and a scan wiped
 its lint results. Closing a file clears its CFLint and parse diagnostics and its
 `open`-scope known issues, and keeps its `workspace`-scope ones.
+
+### Checks for CI
+
+`clif check` runs the checks a project chooses and fails the build when one
+finds more than it allows. With no configuration it runs CFLint, exactly as
+`clif cflint` does (the pinned CFLint, `.cflintrc`, `linting.minSeverity`):
+
+```sh
+clif check .                                        # CFLint
+clif check --checks cflint,unresolved,format .      # choose on the command line
+clif check --format github .                        # GitHub Actions annotations
+clif check --format json . > check.json             # one document for other tools
+```
+
+The checks are `cflint`, `unresolved` (calls clif cannot resolve, as
+`clif unresolved` reports them), `scan` (files the grammar cannot parse) and
+`format` (files `clif format -w` would change; a file the formatter refuses is
+listed and not counted). They run in the order named. Each prints its
+findings, then a summary line:
+
+```
+page.cfm:12:5: [cflint MISSING_VAR] Variable x is not declared with a var statement.
+cflint      FAIL   1 findings in 240 files
+format      pass   0 findings in 240 files
+check failed
+```
+
+The `check` block says what runs and what fails it, every key optional:
+
+```json
+"check": {
+  "checks": ["cflint", "unresolved", "format"],
+  "cflint": { "minSeverity": "WARNING" },
+  "unresolved": { "maxFindings": 25 },
+  "format": { "maxFindings": 0 }
+}
+```
+
+| Key | Default | |
+|---|---|---|
+| `checks` | `["cflint"]` | The checks to run. `--checks` replaces it. |
+| `<check>.maxFindings` | `0` | How many findings the check may have and still pass. |
+| `<check>.baseline` | the generated reports | `cflint` and `unresolved`: a known-issues file, relative to the config, whose entries are not counted. Without one, the reports the config's `knownIssues` entries generate for that check (what `clif cflint --write` and `clif unresolved --write` keep current) are the baseline, so committing them gates CI on new findings only. `"none"`, or `--no-baseline`, counts everything. A finding matches an entry by file and message, not line. |
+| `cflint.minSeverity` | `linting.minSeverity` | The least severe CFLint level counted. `--min-severity` replaces it. |
+
+A child config's block merges into its parent's key by key, so a child naming
+only a threshold keeps the parent's checks. Exit status is 0 when every check
+passes, 1 when one found more than it allows, and 2 when one could not run
+(CFLint unavailable, a `.cflintrc` CFLint cannot parse, a baseline that does
+not exist) or the command was used wrongly.
 
 ### References
 

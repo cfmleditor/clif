@@ -99,7 +99,9 @@ type JSON struct {
 	References    *References  `json:"references"`
 	Features      *Features    `json:"features"`
 	DocBlock      *DocBlock    `json:"docBlock"`
-	Debug         bool         `json:"debug"`
+	// Check is what `clif check` runs and what fails it. See check.go.
+	Check *Check `json:"check"`
+	Debug bool   `json:"debug"`
 }
 
 // KnownIssuesConfig is the knownIssues block: the scope and severity its
@@ -695,6 +697,7 @@ type Resolved struct {
 	FunctionSnippets         bool
 	GlobalFunctionResolution bool
 	DocBlock                 ResolvedDocBlock
+	Check                    ResolvedCheck
 }
 
 // ResolvedFormatting holds formatting settings with defaults applied.
@@ -796,6 +799,7 @@ func Resolve(cfg *JSON, dir string) *Resolved {
 
 	r.Features = ResolveFeatures(cfg.Features)
 	r.DocBlock = ResolveDocBlock(cfg.DocBlock)
+	r.Check = ResolveCheck(cfg.Check, dir)
 
 	comp := ResolveCompletions(cfg.Completions)
 	r.TagSnippets = comp.TagSnippets
@@ -1027,6 +1031,7 @@ func Merge(base, over *JSON) *JSON {
 	out.Formatting = mergeFormatting(base.Formatting, over.Formatting)
 
 	out.Linting = mergeLinting(base.Linting, over.Linting)
+	out.Check = mergeCheck(base.Check, over.Check)
 
 	out.Completions = mergeCompletions(base.Completions, over.Completions)
 	out.DocBlock = mergeDocBlock(base.DocBlock, over.DocBlock)
