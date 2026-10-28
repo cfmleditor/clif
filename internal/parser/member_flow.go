@@ -34,16 +34,19 @@ func (pr *ParseResult) memberDependencySource(expression string) (string, []stri
 
 	before, _, _ := strings.Cut(root, "(")
 
-	receiver, _, ok := strings.CutLast(strings.TrimSpace(before), ".")
+	raw, _, ok := strings.CutLast(strings.TrimSpace(before), ".")
 	if !ok {
 		return "", nil
 	}
 
+	// A chain written a call to a line puts a line break before the dot, and
+	// a receiver keeping it named no member: ColdBox's results.ehBean.
+	receiver := strings.Join(strings.Fields(raw), "")
 	if _, _, record := MemberReceiverName(receiver); !record {
 		return "", nil
 	}
 
-	return receiver, append([]string{CallHop(root[len(receiver)+1:])}, methods...)
+	return receiver, append([]string{CallHop(strings.TrimSpace(root[len(raw)+1:]))}, methods...)
 }
 
 // A concrete write grounds a dependency cycle. Every producer and method
