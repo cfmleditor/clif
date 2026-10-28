@@ -237,3 +237,35 @@ func TestALineBreakEndsAStatement(t *testing.T) {
 		}
 	}
 }
+
+// A member written from a chain on another member, a call to a line, is typed
+// as the one-line chain is: the receiver once kept the line break before the
+// first dot and named no member. ColdBox's _runEvent writes results.ehBean
+// this way, over a placeholder its struct literal seeds.
+func TestAMemberWrittenFromAChainOverLinesIsTyped(t *testing.T) {
+	for name, write := range map[string]string{
+		"one line":         `results.b = services.svc.make( x ).setIt( y );`,
+		"a call to a line": "results.b = services.svc\n\t.make( x )\n\t.setIt( y );",
+	} {
+		t.Run(name, func(t *testing.T) {
+			source := "component {\n function init() {\n variables.services = {}\n services.svc = new models.Svc( this )\n }\n" +
+				" function run( x, y ) {\n var results = { \"data\" : javacast( \"null\", \"\" ), \"b\" : \"\" };\n" + write + "\n results.b.work();\n }\n}"
+			pr := ParseWithOptions(testURI, source, &ParseOptions{ExtractCalls: true, FuncLookup: func(_, method string) string {
+				return map[string]string{"make": "models.Bean", "setit": "models.Bean"}[strings.ToLower(method)]
+			}})
+
+			s := pr.Scopes[1]
+			for _, ref := range pr.FuncComponentRefsAt(s.Start, s.End, uint32(s.End)) {
+				if ref.Variable == "results.b" {
+					if ref.Component != "models.Bean" {
+						t.Errorf("results.b = %q, want models.Bean", ref.Component)
+					}
+
+					return
+				}
+			}
+
+			t.Fatal("results.b has no ref")
+		})
+	}
+}
