@@ -1488,6 +1488,16 @@ its producer's homogeneous element contract; it does not establish types after
 arbitrary runtime mutations or escapes. See `collection_callbacks.go` and
 `TestLoadedEntityCollectionsTypeLoopsAndEachCallbacks`.
 
+**A field only ever written an empty collection is that collection** (`emptyCollectionField`,
+`native_field.go`, after `builderMember` in `inferredReceiver`): ColdBox's `variables.executors = {}`
+in init() and keys written later is a struct, which a struct literal typed only in a
+pseudo-constructor. Every direct write across the component, the classes above it and those below
+it must be the same empty collection (`{}`, `[:]`, `structNew()`, `[]`, `arrayNew(1)`); a file of the
+family with includes, or one indexing the variables scope by a computed key, declines. A struct key
+may hold a closure, so a call of a method no struct has is not answered. A struct also takes the
+`java.util.Map` methods (`nativetype.Method`), which Lucee's `keySet`/`entrySet` tests call. Cached
+per file, name and index generation. `TestAFieldOnlyEverAnEmptyCollectionIsThatCollection`.
+
 **A struct default is set aside for a method a struct lacks** (`nativeDefaultOverwritten`):
 `StructNew()` and `{}` type a variable as `native.struct`, and tassweb sets
 `VARIABLES._parent = StructNew()` in every component's pseudo-constructor before
