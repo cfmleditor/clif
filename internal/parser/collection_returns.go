@@ -981,8 +981,10 @@ func newExpressionEndsFrom(src string, toks []Token) *expressionEnds {
 	offsets := make([]int, 0, n)
 	depths := make([]int, 0, n)
 	terminal := make([]bool, 0, n)
+	newline := make([]bool, 0, n)
 
 	depth, lo, hi := 0, 0, 0
+	prev := Token{Kind: TokEOF}
 
 	for _, t := range toks {
 		if t.Kind == TokEOF {
@@ -992,6 +994,8 @@ func newExpressionEndsFrom(src string, toks []Token) *expressionEnds {
 		offsets = append(offsets, t.Offset)
 		depths = append(depths, depth)
 		terminal = append(terminal, t.Kind == TokSemicolon || t.Kind == TokRBrace)
+		newline = append(newline, newlineEndsStatement(src, prev, t))
+		prev = t
 
 		switch t.Kind {
 		case TokLParen, TokLBracket, TokLBrace:
@@ -1006,11 +1010,14 @@ func newExpressionEndsFrom(src string, toks []Token) *expressionEnds {
 
 	// Backwards: the nearest terminator at or after each token, at its depth.
 	// next is indexed by depth less the lowest depth reached, -1 for none.
+	// A line break ends an expression only after its first token, as it does
+	// for scriptReturnExpression, so it is kept apart and taken from past i.
 	ends := make([]int, len(offsets))
 	next := make([]int, hi-lo+1)
+	nextLine := make([]int, hi-lo+1)
 
 	for i := range next {
-		next[i] = -1
+		next[i], nextLine[i] = -1, -1
 	}
 
 	for i := len(offsets) - 1; i >= 0; i-- {
@@ -1020,11 +1027,19 @@ func newExpressionEndsFrom(src string, toks []Token) *expressionEnds {
 		}
 
 		end := next[d]
+		if l := nextLine[d]; l >= 0 && (end < 0 || l < end) {
+			end = l
+		}
+
 		if end < 0 {
 			end = len(src)
 		}
 
 		ends[i] = end
+
+		if newline[i] {
+			nextLine[d] = offsets[i]
+		}
 	}
 
 	return &expressionEnds{src: src, offsets: offsets, ends: ends}
@@ -1379,4 +1394,38 @@ func isLocalName(locals map[string]bool, function, base string) bool {
 	}
 
 	return locals[string(b)]
+}
+
+// newlineEndsStatement reports whether t, the token after prev, starts a new
+// statement because a line ends between them: CFScript does not need the
+// ";", and ColdBox and cfwheels leave it out throughout, so
+// `services.h = new H( this )` ran on to the next `;` or `}` and its value
+// was the rest of the function. It is the folding scan's rule: the line's
+// last token could end an expression and the next line starts with a word
+// that is not an operator. A line ending on an operator, an open bracket or
+// a comma, or a line starting with one, continues the statement.
+func newlineEndsStatement(src string, prev, t Token) bool {
+	if t.Kind != TokIdent || classify(t.Value)&wordOperator != 0 {
+		return false
+	}
+
+	switch prev.Kind {
+	case TokIdent:
+		if classify(prev.Value)&(wordOperator|wordLeading) != 0 {
+			return false
+		}
+	case TokString, TokNumber, TokRParen, TokRBracket, TokRBrace:
+	default:
+		return false
+	}
+
+	if prev.Offset >= t.Offset || t.Offset > len(src) {
+		return false
+	}
+
+	between := src[prev.Offset:t.Offset]
+
+	nl := strings.LastIndexByte(between, '\n')
+
+	return nl >= 0 && strings.TrimSpace(between[nl+1:]) == ""
 }

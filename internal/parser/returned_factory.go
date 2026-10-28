@@ -8,12 +8,15 @@ func scriptReturnExpression(scanner *Scanner) string {
 	sc := *scanner
 	start := sc.PeekSkipComments().Offset
 	depth := 0
+	prev := Token{Kind: TokEOF}
 
 	for {
 		t := sc.NextSkipComments()
-		if t.Kind == TokEOF || depth == 0 && (t.Kind == TokSemicolon || t.Kind == TokRBrace) {
+		if t.Kind == TokEOF || depth == 0 && (t.Kind == TokSemicolon || t.Kind == TokRBrace || newlineEndsStatement(sc.src, prev, t)) {
 			return strings.TrimSpace(sc.src[start:t.Offset])
 		}
+
+		prev = t
 
 		switch t.Kind {
 		case TokLParen, TokLBracket, TokLBrace:

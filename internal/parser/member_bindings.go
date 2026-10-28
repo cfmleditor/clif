@@ -46,6 +46,7 @@ func (pr *ParseResult) applyMemberBindings(hasBindings bool) {
 	nodes := map[string]*collectionNode{}
 	identities := map[string]collectionWrite{}
 	dependencies := map[string][]memberDependency{}
+	writtenIn := map[string]map[string]bool{}
 
 	for i, w := range writes {
 		if w.element {
@@ -57,6 +58,12 @@ func (pr *ParseResult) applyMemberBindings(hasBindings bool) {
 		}
 
 		identity := targets[i]
+
+		if writtenIn[identity] == nil {
+			writtenIn[identity] = map[string]bool{}
+		}
+
+		writtenIn[identity][w.function] = true
 
 		n := nodes[identity]
 		if n == nil {
@@ -95,7 +102,7 @@ func (pr *ParseResult) applyMemberBindings(hasBindings bool) {
 		if w.target == "" && w.unknown {
 			if !withheld[w.function] {
 				withheld[w.function] = true
-				withholdForClosure(nodes, w.function)
+				withholdForClosure(nodes, writtenIn, w.function)
 			}
 
 			continue
@@ -256,15 +263,18 @@ func memberDescendants(nodes map[string]*collectionNode) map[string][]*collectio
 
 // withholdForClosure invalidates the members a closure written in function
 // could write: that function's own, which its parameters may shadow, and the
-// component's, which it reaches as any function does. Another function's
-// locals and arguments are out of its reach. A closure outside any function
-// withholds every member. It used to withhold every member in the file, so
-// one closure in a ColdBox handler untyped `prc.x = svc.get()` in every
-// other action.
-func withholdForClosure(nodes map[string]*collectionNode, function string) {
+// component's members the function's text writes, since a write in the
+// closure is read as the function's. A component member the function never
+// writes is out of the closure's reach too: its text holds no write to it.
+// Another function's locals and arguments are out of its reach. A closure
+// outside any function withholds every member. It used to withhold every
+// member in the file, so one closure in a ColdBox handler untyped
+// `prc.x = svc.get()` in every other action, and one in ColdBox's
+// Controller untyped every `services.x = new X()` its init() writes.
+func withholdForClosure(nodes map[string]*collectionNode, writtenIn map[string]map[string]bool, function string) {
 	for identity, n := range nodes {
 		owner, _, local := strings.Cut(identity, "\t")
-		if function == "" || !local || owner == function {
+		if function == "" || local && owner == function || !local && writtenIn[identity][function] {
 			n.invalid = true
 		}
 	}
@@ -372,8 +382,10 @@ func concreteMemberRef(refs []ComponentRef, name string) bool {
 
 func (pr *ParseResult) memberValueSource(expression, function string, locals map[string]bool) ReturnSource {
 	// The legacy scalar-chain parser strips a receiver's last dot segment.
-	// Do not let a record read acquire the type of an unrelated scalar.
-	if before, _, ok := strings.Cut(expression, "("); ok {
+	// Do not let a record read acquire the type of an unrelated scalar. A
+	// `new a.b.C( … )` has no receiver: its dots spell a component path, and
+	// read as one, any path three segments deep was taken for a record.
+	if before, _, ok := strings.Cut(expression, "("); ok && !isNewExpression(before) {
 		if receiver, _, ok := strings.CutLast(strings.TrimSpace(before), "."); ok {
 			if _, _, record := MemberReceiverName(receiver); record {
 				root, _ := factoryReturnChain(expression)
@@ -418,4 +430,11 @@ func (pr *ParseResult) memberValueSource(expression, function string, locals map
 	}
 
 	return ReturnSource{Component: pr.settledComponent(ref)}
+}
+
+// isNewExpression reports whether text starts with the keyword `new`.
+func isNewExpression(text string) bool {
+	word, _, _ := strings.Cut(strings.TrimSpace(text), " ")
+
+	return strings.EqualFold(word, "new")
 }

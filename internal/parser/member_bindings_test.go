@@ -122,6 +122,9 @@ func TestAClosureWithholdsOnlyTheMembersItCanWrite(t *testing.T) {
 		{"arrow in another function", "rc.$", `rc.$=new models.Scope();`, `arguments.items.each((i) => i.x);`, "models.Scope"},
 		{"closure in the same function", "rc.$", `rc.$=new models.Scope();arguments.items.each(function(rc){ rc.$ = 1; });`, ``, ""},
 		{"component member, closure elsewhere", "variables.svc.$", `variables.svc.$=new models.Scope();`, `arguments.items.each(function(i){ variables.svc.$ = i; });`, ""},
+		// ColdBox's Controller: init() writes its services, and a closure in
+		// another function writes none of them.
+		{"component member, closure elsewhere writing others", "variables.svc.$", `variables.svc.$=new models.Scope();`, `arguments.items.each(function(i){ i.x = 1; });`, "models.Scope"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			source := "component {\n function run(rc,items) {\n" + tc.run + "\n" + tc.member + ".work();\n }\n function other(items) {\n" + tc.other + "\n }\n}"
@@ -177,6 +180,60 @@ func TestMemberRefsAreInSourceOrder(t *testing.T) {
 
 		if strings.Join(got, " ") != strings.Join(want, " ") {
 			t.Fatalf("member refs %v, want them in source order %v", got, want)
+		}
+	}
+}
+
+// TestAComponentFillsAStructFieldWithoutSemicolons: ColdBox's Controller
+// writes its services one key a line with no ";":
+//
+//	variables.services = structNew( "ordered" )
+//	services.handlerService = new coldbox.system.web.services.HandlerService( this )
+//	return this
+//
+// A write's value ran on to the next ";" or "}", the rest of the function,
+// and a component path three segments deep read as a call on the record
+// before its last dot. Each left the member untyped.
+func TestAComponentFillsAStructFieldWithoutSemicolons(t *testing.T) {
+	for _, tc := range []struct{ name, source string }{
+		{"no semicolons", "component {\n function init() {\n variables.services = structNew()\n services.h = new svc.H( this )\n return this\n }\n}"},
+		{"a deep component path", "component {\n function init() {\n variables.services = {};\n services.h = new a.b.c.svc.H( this );\n return this;\n }\n}"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pr := ParseWithOptions(testURI, tc.source, &ParseOptions{ExtractCalls: true})
+
+			for _, ref := range pr.ComponentRefs {
+				if ref.Variable == "services.h" {
+					if !strings.HasSuffix(ref.Component, "svc.H") {
+						t.Errorf("services.h = %q, want svc.H", ref.Component)
+					}
+
+					return
+				}
+			}
+
+			t.Fatalf("services.h not recorded: %+v", pr.ComponentRefs)
+		})
+	}
+}
+
+// TestALineBreakEndsAStatement: in CFScript without ";" a line ends the
+// statement when it ends on something that can end an expression and the
+// next starts with a word that is not an operator. A line ending on an
+// operator, or one starting with one or with a ".", continues it.
+func TestALineBreakEndsAStatement(t *testing.T) {
+	for _, tc := range []struct{ src, want string }{
+		{"x = new A( this )\nreturn this", "new A( this )"},
+		{"x = a &\n b\nreturn x", "a &\n b"},
+		{"x = a\n & b\nreturn x", "a\n & b"},
+		{"x = a\n and b\nreturn x", "a\n and b"},
+		{"x = svc\n .get()\n .set( 1 )\nreturn x", "svc\n .get()\n .set( 1 )"},
+		{"x = f(\n a,\n b\n)\nreturn x", "f(\n a,\n b\n)"},
+		{"x = \"a\nb\" & c\nreturn x", "\"a\nb\" & c"},
+	} {
+		ends := newExpressionEnds(tc.src)
+		if got := ends.from(strings.Index(tc.src, "=") + 2); got != tc.want {
+			t.Errorf("%q: got %q, want %q", tc.src, got, tc.want)
 		}
 	}
 }
