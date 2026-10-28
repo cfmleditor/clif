@@ -415,3 +415,13 @@ scans of that date. The Mura iterator element and cfwheels' JDBC chain are in
     `public/Application.cfc`'s `this.mappings["/wheels"]`, and
     `tools/article-tests` is outside `public/`, so no Application.cfc
     governs it; which mappings its harness runs under is not in the source.
+- **TestBox `getStringName` (41)**, "no qualifier, not in file", all in
+  `system/Expectation.cfc`'s failure messages. The function is declared only
+  in `Assertion.cfc`; Expectation keeps an Assertion as `variables.assert`
+  and calls the bare name. Expectation's `onMissingMethod` does not catch an
+  unscoped call, so these read as genuine: they would throw on the path that
+  builds a failure message. Left reported.
+- **Lucee `writeln`/`typeof` (38)**, "no qualifier, not in file", all in
+  `test/tickets/LDEV6377_regression.cfm`, a standalone script nothing
+  includes. Neither is a CFML function (they are JavaScript habits). Genuine;
+  left reported.
