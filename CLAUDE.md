@@ -612,6 +612,16 @@ the *formatter*, not the parser.
   call on a variable called `mod`, which cfwheels' CLI specs hold their module in. `isKeyword`
   turned every token loop away from it and the call was recorded bare. The rule is in each place
   a keyword is refused before a receiver is read; `TestAnOperatorWordCanNameAReceiver`.
+- **A line break ends a statement where CFScript lets it** (`newlineEndsStatement`): when the
+  line's last token could end an expression and the next line starts with a word that is not an
+  operator, the folding scan's rule. A collection write's value (`expressionEnds`) and a
+  `return` expression (`scriptReturnExpression`, which `TestExpressionEndsMatchScriptReturnExpression`
+  holds alike) ran on to the next `;` or `}`, so in ColdBox's semicolon-less Controller
+  `services.handlerService = new HandlerService( this )` had the rest of `init()` as its value.
+  Two more things kept those members untyped: a `new a.b.c.X()` path was read as a call on the
+  record `new a.b.c` (`isNewExpression`), and any closure anywhere withheld every component member
+  (`withholdForClosure` now withholds only those its enclosing function writes).
+  `TestAComponentFillsAStructFieldWithoutSemicolons`, `TestALineBreakEndsAStatement`.
 - **`import models.User;` qualifies a later bare `new User()`.** `import
   models.*;` does not: which component a bare name then means is a question
   about what is on disk, and the parser has no filesystem.
