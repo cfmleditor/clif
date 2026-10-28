@@ -45,12 +45,19 @@ type muraObjectSite struct {
 	opaque bool
 }
 
+// maxHandOffDepth bounds a display object's arguments a level past an
+// assignment's: typing `arguments.item = arguments.iterator.next()` costs a
+// level before the iterator is asked about, and MasaCMS's content list is
+// handed its iterator through two layouts, which ran the shared bound out one
+// template short of the collection that builds it.
+const maxHandOffDepth = maxAssignedDepth + 1
+
 var muraObjectStartRe = regexp.MustCompile(`(?i)\bdspObject_include\s*\(`)
 
 // muraObjectArg is the component variable holds in the display-object
 // template pr, as the dspObject_include calls naming it pass it, or "".
 func (r *Resolver) muraObjectArg(variable string, pr *parser.ParseResult, tr *callTrace, ctx lookupCtx) string {
-	if pr == nil || !pr.URI.IsFile() || ctx.depth >= maxAssignedDepth || len(r.owner().InferArgsFiles) == 0 {
+	if pr == nil || !pr.URI.IsFile() || ctx.depth >= maxHandOffDepth || len(r.owner().InferArgsFiles) == 0 {
 		return ""
 	}
 

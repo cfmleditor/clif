@@ -1710,7 +1710,10 @@ against all of them; which one ran is not in the source.
   passing X must type it; one omitting it says nothing about `arguments.X` but declines a bare
   X; an `argumentCollection` declines; a call naming its file only by position is passed over
   unless it passes X. Batch only (the caller index finds the calls). The value's lookup counts
-  the depth, which bounds templates handing a name on. `TestAMuraDisplayObjectReadsWhatItsIncludeIsPassed`.
+  the depth, which bounds templates handing a name on; the bound is a level past an assignment's
+  (`maxHandOffDepth`), since typing `arguments.item = arguments.iterator.next()` spends one before the
+  hand-offs start. `TestAMuraDisplayObjectReadsWhatItsIncludeIsPassed`,
+  `TestADisplayObjectHandedOnTwiceTypesAnAssignmentFromIt`.
 - **A ColdBox interceptor reads what the announce passes it** (`interceptData`,
   `internal/resolve/coldbox_intercept_data.go`, in `memberReceiver` after `viewArgs`): in a
   method `point( event, data )` (or `interceptData`) that does not assign its data itself,

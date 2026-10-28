@@ -64,3 +64,37 @@ func TestAMuraDisplayObjectReadsWhatItsIncludeIsPassed(t *testing.T) {
 		"arguments.iterator.hasNext": "variable 'arguments.iterator' has no component ref",
 	})
 }
+
+// TestADisplayObjectHandedOnTwiceTypesAnAssignmentFromIt: MasaCMS's content
+// list sets `arguments.item = arguments.iterator.next()`, and the iterator
+// reaches it from the collection through two layout templates. Typing the
+// assignment costs a level, each hand-off another, and the lookup's bound ran
+// out one template short of the collection: 68 findings on the list's items.
+// The hand-off is bounded a level further than an assignment.
+func TestADisplayObjectHandedOnTwiceTypesAnAssignmentFromIt(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{
+		"mura/content/contentRenderer.cfc": `<cfcomponent>
+<cffunction name="dspObject_Include" output="false">
+	<cfargument name="theFile" type="string" />
+	<cfinclude template="#arguments.theFile#" />
+</cffunction>
+</cfcomponent>`,
+		"models/Item.cfc":     `component { function itemOnly() {} }`,
+		"models/Iterator.cfc": `component { function hasNext() {} models.Item function next() {} }`,
+		"modules/collection/index.cfm": `<cfset variables.iterator = new models.Iterator()>
+<cfoutput>#$.dspObject_include( theFile = 'collection/layouts/default/index.cfm', iterator = variables.iterator )#</cfoutput>`,
+		"modules/collection/layouts/default/index.cfm": `<cfoutput>#$.dspObject_include( theFile = 'collection/layouts/list/index.cfm', iterator = arguments.iterator )#</cfoutput>`,
+		"modules/collection/layouts/list/index.cfm":    `<cfoutput>#$.dspObject_include( theFile = 'collection/includes/dsp_list.cfm', iterator = arguments.iterator )#</cfoutput>`,
+		"modules/collection/includes/dsp_list.cfm": `<cfloop condition="arguments.iterator.hasNext()">
+<cfset arguments.item = arguments.iterator.next()>
+<cfset arguments.item.itemOnly()>
+<cfset arguments.item.nope()>
+</cfloop>`,
+	})
+
+	expectReasons(t, reasonsWith(t, &Resolver{InferArgsFiles: cfmlFilesIn(t, dir)}, dir, "modules/collection/includes/dsp_list.cfm"), map[string]string{
+		"arguments.item.itemOnly": "",
+		"arguments.item.nope":     "method 'nope' not found in models.Item",
+	})
+}
