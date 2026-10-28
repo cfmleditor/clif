@@ -93,6 +93,7 @@ Commands:
   format            Format CFML files (stdout or in-place with -w)
   unresolved        Scan for unresolved component/method calls
   cflint            Run CFLint over files, a project, or what is staged or changed
+  check             Run the configured checks (CFLint by default) and fail on findings, for CI
   suppressions      Count CFLint suppressions by rule, and fail if they rise
   hook              Install and run a git pre-commit hook that runs CFLint
   refs              Find references to a component or function
@@ -427,23 +428,7 @@ func formatOptionsFor(configRoot string, allowNonWhitespace bool) func(path stri
 // set. A file is only ever rewritten after Format returned successfully, so a
 // refused format leaves the original untouched.
 func formatOneFile(path string, opts *formatter.Options, write bool, links symlinkRule) error {
-	content, err := vfs.ReadRegular(path)
-	if err != nil {
-		return err
-	}
-
-	tree := language.Parse(language.CFML, content, nil)
-	defer tree.Close()
-
-	// Refuse a file the grammar could not parse, exactly as the LSP handler
-	// does. Formatting an incomplete CST is how a grammar gap turns into
-	// deleted source, and the whitespaceOnly guard does not catch every shape
-	// of that (see .ai/docs/FORMATTER-ISSUES.md).
-	if err := formatter.ParseError(tree, content); err != nil {
-		return err
-	}
-
-	out, err := formatter.Format(content, tree, opts)
+	content, out, err := formatFile(path, opts)
 	if err != nil {
 		return err
 	}
@@ -468,6 +453,34 @@ func formatOneFile(path string, opts *formatter.Options, write bool, links symli
 	fmt.Fprintf(os.Stderr, "formatted %s\n", path)
 
 	return nil
+}
+
+// formatFile reads path and formats it, returning what was read and what the
+// formatter made of it. clif format writes or prints the result; clif check
+// compares the two.
+func formatFile(path string, opts *formatter.Options) (content, out []byte, err error) {
+	content, err = vfs.ReadRegular(path)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	tree := language.Parse(language.CFML, content, nil)
+	defer tree.Close()
+
+	// Refuse a file the grammar could not parse, exactly as the LSP handler
+	// does. Formatting an incomplete CST is how a grammar gap turns into
+	// deleted source, and the whitespaceOnly guard does not catch every shape
+	// of that (see .ai/docs/FORMATTER-ISSUES.md).
+	if err := formatter.ParseError(tree, content); err != nil {
+		return nil, nil, err
+	}
+
+	out, err = formatter.Format(content, tree, opts)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return content, out, nil
 }
 
 // writeFileInPlace replaces path's contents with out, preserving the file's

@@ -106,6 +106,7 @@ The binary is an LSP server by default; `os.Args[1]` selects a subcommand
 | `scan` | `scan <file-or-dir> [...]` — report parse errors |
 | `format` | `format [-w] [--allow-non-whitespace] [--root <dir>] [--follow-symlinks] <file> [...]` — format to stdout, or in place with `-w`. Reads `formatting` from each file's governing `.clif.json`, or from `--root`'s |
 | `unresolved` | `unresolved [--json] [--verbose] [--global-defs] <dir> [...]` — batch scan for unresolvable component/method calls |
+| `check` | `check [--checks cflint,unresolved,scan,format] [--format text\|json\|github] [--min-severity <l>] [--no-baseline] <path> [...]` — run the checks the `check` config block names (CFLint by default) and exit 1 when one finds more than its `maxFindings`, 2 when one cannot run. Each check reuses its subcommand's code (`cflint.Runner`, `scanUnresolved`, `parseErrors`, `formatFile`); cflint and unresolved default to the known-issues reports the config generates as baselines (`cmd/clif/check.go`, `config.ResolvedCheck`) |
 | `refs` | `refs [--mermaid] <component-or-function> <dir> [...]` — find references |
 | `deps` | `deps [--mermaid] <dir-or-file> [...]` — transitive dependency graph, built through `deps.Build` so the CLI and `clif.exportDeps` answer alike |
 | `graph` | `graph [--level function\|call\|file\|package] [--format text\|json\|jsonl\|dot\|mermaid\|html] [--db <file>] [--out <f>] [--live\|--detached\|--from <id>] [--under <p>] <dir> [...]` — whole-project code map |
@@ -1553,6 +1554,7 @@ the user-facing view and all `formatting` defaults.
 | `formatting` | Formatter options |
 | `linting.enabled` | Enable CFLint diagnostics |
 | `linting.minSeverity` | Least severe CFLint level reported, on CFLint's own scale (`FATAL`…`COSMETIC`); unset reports everything. See below |
+| `check` | What `clif check` runs (`checks`, default `["cflint"]`) and, per check, `maxFindings`, `baseline` and (cflint) `minSeverity`. Merged key by key (`mergeCheck`); `config.ResolveCheck` |
 | `references.enabled` | Answer `textDocument/references` (off by default; see the LSP surface above) |
 | `features` | Per-capability switches: `documentHighlight`, `watchedFiles`, `rangeFormatting` default **on** (opt-outs, for when one misbehaves); `folding` defaults **off** (opt-in; see `.ai/docs/FOLDING-PLAN.md` §5 on switching it); `typeDefinition` defaults **off** (opt-in while new). See below |
 | `completions` | `tagSnippets`, `functionSnippets`, `globalFunctionResolution` |

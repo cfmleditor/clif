@@ -50,37 +50,11 @@ func cmdScan(args []string) {
 			continue
 		}
 
-		if cfpath.IsBinary(content) {
-			continue
+		for _, e := range parseErrors(f, content) {
+			fmt.Println(e.String())
+
+			totalErrors++
 		}
-
-		// Determine initial grammar by extension (matching zed-cfml config)
-		ext := strings.ToLower(filepath.Ext(f))
-
-		var grammar language.Grammar
-		if ext == ".cfs" {
-			grammar = language.CFScript
-		} else {
-			grammar = language.CFML
-		}
-
-		tree := language.Parse(grammar, content, nil)
-		if tree == nil {
-			continue
-		}
-
-		label := "cfml"
-		if grammar == language.CFScript {
-			label = "cfscript"
-		}
-
-		if tree.RootNode().HasError() {
-			totalErrors += printErrors(f, label, tree.RootNode(), content)
-		}
-
-		// Scan injection languages based on injections.scm rules
-		totalErrors += scanInjections(f, tree, content)
-		tree.Close()
 	}
 
 	if totalErrors == 0 {
@@ -88,15 +62,56 @@ func cmdScan(args []string) {
 	}
 }
 
-// printErrors reports every error node under n and returns how many it found,
-// so the caller can tell "clean" from "reported problems" — the count it kept
-// was never incremented, so `scan` printed each error and then finished with
-// "No parse errors found in N files.".
-func printErrors(file string, lang string, n *sitter.Node, src []byte) int {
-	return printErrorNodes(file, lang, n, src)
+// scanError is one place the grammar could not parse.
+type scanError struct {
+	file    string
+	lang    string // cfml, cfscript, or an injected language
+	message string // "missing X" or `parse error near "..."`
+	line    int    // 1-based
+	col     int    // 1-based
 }
 
-func printErrorNodes(file string, lang string, n *sitter.Node, src []byte) int {
+func (e *scanError) String() string {
+	return fmt.Sprintf("%s:%d:%d: [%s] %s", e.file, e.line, e.col, e.lang, e.message)
+}
+
+// parseErrors parses content with the grammar its extension calls for, and
+// the languages injected into it, and returns every error node, in document
+// order. A binary file has none. clif scan prints them; clif check counts them.
+func parseErrors(file string, content []byte) []scanError {
+	if cfpath.IsBinary(content) {
+		return nil
+	}
+
+	// Determine initial grammar by extension (matching zed-cfml config)
+	grammar, label := language.CFML, "cfml"
+	if strings.EqualFold(filepath.Ext(file), ".cfs") {
+		grammar, label = language.CFScript, "cfscript"
+	}
+
+	tree := language.Parse(grammar, content, nil)
+	if tree == nil {
+		return nil
+	}
+
+	defer tree.Close()
+
+	var out []scanError
+
+	if tree.RootNode().HasError() {
+		out = collectErrorNodes(out, file, label, tree.RootNode(), content, 0)
+	}
+
+	// Scan injection languages based on injections.scm rules
+	return scanInjections(out, file, tree, content)
+}
+
+// collectErrorNodes appends every error or missing node under n, stopping at
+// the first in each branch, with lines offset by lineOffset for an injected
+// language parsed on its own. The count it returns is what tells clif scan
+// "clean" from "reported problems": the one it once kept was never
+// incremented, so it printed each error and then "No parse errors found".
+func collectErrorNodes(out []scanError, file, lang string, n *sitter.Node, src []byte, lineOffset uint) []scanError {
 	if n.IsError() || n.IsMissing() {
 		pos := n.StartPosition()
 
@@ -107,26 +122,28 @@ func printErrorNodes(file string, lang string, n *sitter.Node, src []byte) int {
 
 		snippet = strings.ReplaceAll(snippet, "\n", "\\n")
 
+		msg := fmt.Sprintf("parse error near %q", snippet)
 		if n.IsMissing() {
-			fmt.Printf("%s:%d:%d: [%s] missing %s\n", file, pos.Row+1, pos.Column+1, lang, n.Kind())
-		} else {
-			fmt.Printf("%s:%d:%d: [%s] parse error near %q\n", file, pos.Row+1, pos.Column+1, lang, snippet)
+			msg = "missing " + n.Kind()
 		}
 
-		return 1
+		return append(out, scanError{
+			file:    file,
+			lang:    lang,
+			message: msg,
+			line:    int(pos.Row+lineOffset) + 1,
+			col:     int(pos.Column) + 1,
+		})
 	}
 
-	count := 0
 	for i := range n.ChildCount() {
-		count += printErrorNodes(file, lang, n.Child(i), src)
+		out = collectErrorNodes(out, file, lang, n.Child(i), src, lineOffset)
 	}
 
-	return count
+	return out
 }
 
-func scanInjections(file string, tree *sitter.Tree, src []byte) int {
-	count := 0
-
+func scanInjections(out []scanError, file string, tree *sitter.Tree, src []byte) []scanError {
 	for _, inj := range language.FindInjections(tree, src) {
 		grammar := language.GrammarForLanguage(inj.Language)
 		if grammar < 0 {
@@ -138,49 +155,12 @@ func scanInjections(file string, tree *sitter.Tree, src []byte) int {
 		injTree := language.Parse(grammar, content, nil)
 		if injTree != nil {
 			if injTree.RootNode().HasError() {
-				count += printErrorsOffset(file, inj.Language, injTree.RootNode(), content, inj.Node.StartPosition().Row)
+				out = collectErrorNodes(out, file, inj.Language, injTree.RootNode(), content, inj.Node.StartPosition().Row)
 			}
 
 			injTree.Close()
 		}
 	}
 
-	return count
-}
-
-func printErrorsOffset(file string, lang string, n *sitter.Node, src []byte, lineOffset uint) int {
-	count := 0
-
-	var walk func(*sitter.Node)
-
-	walk = func(n *sitter.Node) {
-		if n.IsError() || n.IsMissing() {
-			pos := n.StartPosition()
-
-			snippet := string(src[n.StartByte():n.EndByte()])
-			if len(snippet) > 50 {
-				snippet = snippet[:50] + "..."
-			}
-
-			snippet = strings.ReplaceAll(snippet, "\n", "\\n")
-
-			if n.IsMissing() {
-				fmt.Printf("%s:%d:%d: [%s] missing %s\n", file, pos.Row+lineOffset+1, pos.Column+1, lang, n.Kind())
-			} else {
-				fmt.Printf("%s:%d:%d: [%s] parse error near %q\n", file, pos.Row+lineOffset+1, pos.Column+1, lang, snippet)
-			}
-
-			count++
-
-			return
-		}
-
-		for i := range n.ChildCount() {
-			walk(n.Child(i))
-		}
-	}
-
-	walk(n)
-
-	return count
+	return out
 }
