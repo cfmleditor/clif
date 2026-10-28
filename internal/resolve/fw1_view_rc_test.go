@@ -180,6 +180,7 @@ func TestAnAssignedChainIsTypedHopByHop(t *testing.T) {
 	function lost( rc ){
 		var u = variables.svc.getSite( rc.id ).untyped();
 		u.siteOnly();
+		u.call();
 	}
 }`,
 	})
@@ -187,7 +188,10 @@ func TestAnAssignedChainIsTypedHopByHop(t *testing.T) {
 	expectReasons(t, reasonsIn(t, dir, "controllers/c.cfc"), map[string]string{
 		"api.call":     "",
 		"api.siteOnly": "method 'siteOnly' not found in model.Api",
-		"u.siteOnly":   "variable 'u' has no component ref",
+		// untyped() declares no component, so u is dynamic, as the parse
+		// leaves it when it sees the receiver: not a Site, and not an Api.
+		"u.siteOnly": "",
+		"u.call":     "",
 	})
 }
 

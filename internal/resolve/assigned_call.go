@@ -278,12 +278,20 @@ func (r *Resolver) typeCallExpr(rhs string, line uint32, caller string, pr *pars
 	// Each call in a chain is made on what the one before it returns. A
 	// registry family is a receiver the walk itself answers: the chain past
 	// it runs on the element the family proves, dynamic as it is.
-	for _, c := range calls {
+	for i, c := range calls {
 		if comp == "" || strings.HasPrefix(comp, "$") && !strings.HasPrefix(comp, "$builtin.") && !strings.HasPrefix(comp, familyPrefix) {
 			return ""
 		}
 
-		comp = hopReturns(lookup, comp, c, dynamic)
+		next := hopReturns(lookup, comp, c, dynamic)
+		if next == "" && dynamic && i == len(calls)-1 && r.untypedOnEvery(lookup, comp, c.name, baseDir) {
+			// The parse types `x = svc.get()` as dynamic when it sees svc
+			// and get declares no component; read here, the same assignment
+			// must not say less.
+			return "$any"
+		}
+
+		comp = next
 	}
 
 	if dynamic && comp == "$any" {
@@ -295,6 +303,28 @@ func (r *Resolver) typeCallExpr(rhs string, line uint32, caller string, pr *pars
 	}
 
 	return comp
+}
+
+// untypedOnEvery reports whether every alternative of comp declares method
+// and none of them returns a component: a value the method hands back, which
+// is dynamic to whatever calls on it. One alternative lacking the method, or
+// returning a component the others do not, is no answer.
+func (r *Resolver) untypedOnEvery(lookup func(string, string) string, comp, method, baseDir string) bool {
+	if strings.HasPrefix(comp, "$") {
+		return false
+	}
+
+	for alt := range strings.SplitSeq(comp, "|") {
+		if r.ResolveFunc(alt, method, baseDir) == nil {
+			return false
+		}
+
+		if ret := lookup(alt, method); ret != "" && ret != "$any" {
+			return false
+		}
+	}
+
+	return true
 }
 
 // hopReturns is what method c returns on each alternative of comp, or "" when

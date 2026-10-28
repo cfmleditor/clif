@@ -155,3 +155,34 @@ func TestAWrapperReturnsWhatItsHelperReturns(t *testing.T) {
 		"paragraph.anything": "",
 	})
 }
+
+// TestAVariableAssignedAnUntypedReturnIsDynamic: `o = variables.svc.get( 1 )`
+// on a receiver only the lookup types, calling a method that declares no
+// component, is dynamic, as the parse makes it when it sees the receiver
+// (walkChainRest). MasaCMS's `var comment = event.getValue( "commentBean" )`
+// in a handler was "has no component ref" on every call. A method one
+// alternative lacks, or one returning a component the other does not, is no
+// answer.
+func TestAVariableAssignedAnUntypedReturnIsDynamic(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{
+		"models/Item.cfc":  `component { function itemOnly(){} }`,
+		"svc/AService.cfc": `component { function get( id ){} function onlyA(){} }`,
+		"svc/BService.cfc": `component { function get( id ){} }`,
+		"handlers/base.cfc": `component {
+function run(){
+	var o = variables.svc.get( 1 );
+	o.anything();
+	var m = variables.svc.onlyA();
+	m.anything();
+}
+}`,
+		"handlers/a.cfc": `component extends="base" { function init(){ variables.svc = new svc.AService(); return this; } }`,
+		"handlers/b.cfc": `component extends="base" { function init(){ variables.svc = new svc.BService(); return this; } }`,
+	})
+
+	expectReasons(t, reasonsWith(t, &Resolver{}, dir, "handlers/base.cfc"), map[string]string{
+		"o.anything": "",
+		"m.anything": "variable 'm' has no component ref",
+	})
+}
