@@ -1,29 +1,23 @@
 package resolve
 
 import (
+	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
 )
 
-// onlyFileWritesRequest reports whether, among every file a batch scan
-// reads, file is the only one that writes request.<name>: by assignment,
-// through a bracketed key, structInsert or cfparam. Outside a batch scan the
-// workspace's files are not all known, and nothing is claimed.
-func (r *Resolver) onlyFileWritesRequest(name, file string) bool {
-	o := r.owner()
-	if len(o.InferArgsFiles) == 0 {
+// requestWrittenBy reports whether the file at file is among the files
+// writing request key name, in a batch scan that knows every file. The other
+// writers must agree (otherRequestWritersAgree).
+func (r *Resolver) requestWrittenBy(name, file string) bool {
+	if len(r.owner().InferArgsFiles) == 0 {
 		return false
 	}
 
-	for _, writer := range r.requestWriters()[strings.ToLower(name)] {
-		if !cfpath.SamePath(writer, file) {
-			return false
-		}
-	}
-
-	return true
+	return slices.ContainsFunc(r.requestWriters()[strings.ToLower(name)], func(writer string) bool { return cfpath.SamePath(writer, file) })
 }
 
 // requestWriters is, for every request key some file writes, the files that
@@ -49,7 +43,7 @@ func (r *Resolver) requestWriters() map[string][]string {
 			continue
 		}
 
-		for _, key := range requestWriteKeys(text) {
+		for _, key := range requestWriteKeys(withoutComments(text)) {
 			writers[key] = append(writers[key], path)
 		}
 	}
@@ -226,4 +220,79 @@ func skipSpace(s string, i int) int {
 
 func isWordByte(c byte) bool {
 	return c == '_' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9'
+}
+
+// withoutComments is content with every byte outside the scanner's tokens
+// blanked, newlines kept: comments of all three forms go, and strings stay
+// whole. A write in a comment writes nothing, and FW/1's Application.cfc
+// keeps two commented-out alternatives beside the write it makes.
+func withoutComments(content string) string {
+	if !strings.Contains(content, "//") && !strings.Contains(content, "/*") && !strings.Contains(content, "<!---") {
+		return content
+	}
+
+	b := []byte(content)
+	keep := make([]bool, len(b))
+
+	for _, t := range allTokens(content) {
+		for i := t.Offset; i < t.Offset+len(t.Value) && i < len(keep); i++ {
+			keep[i] = true
+		}
+	}
+
+	for i := range b {
+		if !keep[i] && b[i] != '\n' {
+			b[i] = ' '
+		}
+	}
+
+	return string(b)
+}
+
+// otherApplication reports whether file and writer are the Application.cfc
+// of two different applications, neither extending the other: a request runs
+// one of them, and the other's code never runs in it.
+func (r *Resolver) otherApplication(file, writer string) bool {
+	if !strings.EqualFold(filepath.Base(file), "Application.cfc") || !strings.EqualFold(filepath.Base(writer), "Application.cfc") || cfpath.SamePath(filepath.Dir(file), filepath.Dir(writer)) {
+		return false
+	}
+
+	return !r.extendsFile(file, writer) && !r.extendsFile(writer, file)
+}
+
+// extendsFile reports whether the component at from extends the one at
+// target, directly or through its chain. A chain that cannot be followed to
+// its end is taken to reach it.
+func (r *Resolver) extendsFile(from, target string) bool {
+	seen := map[string]bool{}
+
+	for path, depth := from, 0; depth < 16; depth++ {
+		if seen[pathKey(path)] {
+			return false
+		}
+
+		seen[pathKey(path)] = true
+
+		ext, ok := r.extendsOf(path, cfpath.ToURI(path))
+		if !ok {
+			return true
+		}
+
+		if ext == "" {
+			return false
+		}
+
+		next := r.ComponentPath(ext, filepath.Dir(path))
+		if next == "" {
+			return true
+		}
+
+		if cfpath.SamePath(next, target) {
+			return true
+		}
+
+		path = next
+	}
+
+	return true
 }

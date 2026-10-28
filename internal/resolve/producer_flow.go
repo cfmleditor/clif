@@ -11,6 +11,7 @@ import (
 	"github.com/cfmleditor/clif/internal/docs"
 	"github.com/cfmleditor/clif/internal/nativetype"
 	"github.com/cfmleditor/clif/internal/parser"
+	cfpath "github.com/cfmleditor/clif/internal/path"
 )
 
 // Values retain object identity separately from primitive, absent and unknown
@@ -868,6 +869,15 @@ func (e *producerEvaluation) sharedFieldContract(path string, allowPrimitive boo
 		return producerUnknown()
 	}
 
+	if request {
+		others, read := e.requestWriterComponents(path)
+		want := e.resolver.ComponentPath(component, e.baseDir)
+
+		if !read || want == "" || slices.ContainsFunc(others, func(f string) bool { return !cfpath.SamePath(f, want) }) {
+			return producerUnknown()
+		}
+	}
+
 	return e.concrete(component, e.baseDir)
 }
 
@@ -920,8 +930,9 @@ func (e *producerEvaluation) fieldTextProved(source *sourceInfo, methods map[str
 }
 
 // guardedField reports whether path is a field whose writes the component
-// holds: its own variables or this scope, or a request-scope key no other
-// file in a batch scan writes. Mura's getCurrentUser() creates
+// holds: its own variables or this scope, or a request-scope key this file
+// writes in a batch scan, where every other writer that can share its request
+// must agree (requestWriterComponents). Mura's getCurrentUser() creates
 // request.currentUser when it is absent and nothing else ever sets it.
 func (e *producerEvaluation) guardedField(path string) bool {
 	if strings.HasPrefix(path, "variables.") || strings.HasPrefix(path, "this.") {
@@ -930,7 +941,87 @@ func (e *producerEvaluation) guardedField(path string) bool {
 
 	name, ok := strings.CutPrefix(path, "request.")
 
-	return ok && name != "" && !strings.Contains(name, ".") && e.resolver.onlyFileWritesRequest(name, e.fd.URI.Path())
+	return ok && name != "" && !strings.Contains(name, ".") && e.resolver.requestWrittenBy(name, e.fd.URI.Path())
+}
+
+// requestWriterComponents is what every other file that can write the request
+// key path in the same request stores in it, as component files, or ok false
+// when one cannot be read: a file's writes in the text, outside comments, must
+// be the writes its plans hold, each a value that is one component. A request
+// runs its own application's Application.cfc, so another application's
+// Application.cfc writes another request, unless one of the two extends the
+// other. FW/1's five example applications each create
+// request._framework_one in their own Application.cfc.
+func (e *producerEvaluation) requestWriterComponents(path string) (files []string, ok bool) {
+	name := strings.TrimPrefix(path, "request.")
+	file := e.fd.URI.Path()
+
+	for _, writer := range e.resolver.requestWriters()[name] {
+		if cfpath.SamePath(writer, file) || e.resolver.otherApplication(file, writer) {
+			continue
+		}
+
+		stored, read := e.writerComponents(writer, path)
+		if !read {
+			return nil, false
+		}
+
+		for _, file := range stored {
+			if !slices.ContainsFunc(files, func(f string) bool { return cfpath.SamePath(f, file) }) {
+				files = append(files, file)
+			}
+		}
+	}
+
+	return files, true
+}
+
+// writerComponents is the component files the file at writer stores in the
+// request key path, or read false when a write there is not one its plans
+// read as one component.
+func (e *producerEvaluation) writerComponents(writer, path string) (files []string, read bool) {
+	source := e.resolver.sourceInfo(writer)
+	other := producerEvaluation{resolver: e.resolver, fd: &parser.FunctionDef{URI: cfpath.ToURI(writer)}, baseDir: filepath.Dir(writer), depth: e.depth + 1, budget: e.budget}
+	read = true
+	writes := 0
+
+	var visit func([]producerNode)
+
+	visit = func(nodes []producerNode) {
+		for i := range nodes {
+			node := &nodes[i]
+
+			switch {
+			case node.kind == "unsafe" && producerMayTouchField(node.expression, path),
+				node.kind == "param" && normalizeProducerPath(node.target) == path:
+				read = false
+			case node.kind == "set" && normalizeProducerPath(node.target) == path:
+				writes++
+
+				value := other.expression(node.expression, producerEnvironment{})
+
+				file := ""
+				if !value.unknown && len(value.components) == 1 {
+					file = e.resolver.ComponentPath(value.components[0], other.baseDir)
+				}
+
+				if file == "" {
+					read = false
+				} else if !slices.ContainsFunc(files, func(f string) bool { return cfpath.SamePath(f, file) }) {
+					files = append(files, file)
+				}
+			}
+
+			visit(node.body)
+			visit(node.alternative)
+		}
+	}
+
+	for _, method := range source.producers.all() {
+		visit(method.body)
+	}
+
+	return files, read && writes > 0 && source.requestWriteCounts()[strings.TrimPrefix(path, "request.")] == writes
 }
 
 // Unsupported plans cannot supply an all-writes-agree proof. A scope or field

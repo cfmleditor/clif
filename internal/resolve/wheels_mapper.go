@@ -272,10 +272,10 @@ type sourceDerived struct {
 // key (requestWriteKeys' forms), counted once per source.
 func (s *sourceInfo) requestWriteCounts() map[string]int {
 	if s.derived == nil {
-		return requestWriteCounts(s.content)
+		return requestWriteCounts(withoutComments(s.content))
 	}
 
-	s.derived.requestOnce.Do(func() { s.derived.requestWrites = requestWriteCounts(s.content) })
+	s.derived.requestOnce.Do(func() { s.derived.requestWrites = requestWriteCounts(withoutComments(s.content)) })
 
 	return s.derived.requestWrites
 }

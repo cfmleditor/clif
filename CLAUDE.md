@@ -1416,7 +1416,13 @@ voids the proof on its own (`fieldTextProved`): when every reference in the file
 the variable holding the field is in a statement a plan read, and the variables scope is
 never used whole (`structDelete( variables, "x" )` touches x alone), the unread statement
 cannot touch it. A large component always has one, and lost every guarded field to it.
-`TestAKeyedLazyCacheReturnsWhatItsKeyBuilds`, `TestAGuardedFieldIsProvedFromTheText`.
+`TestAKeyedLazyCacheReturnsWhatItsKeyBuilds`, `TestAGuardedFieldIsProvedFromTheText`. A **request**
+key is a guarded field when the file writes it and every other file that can write it in
+the same request writes it as the same component, each write a statement its plans read
+(`requestWriterComponents`): writes are counted outside comments (`withoutComments`), and
+another application's `Application.cfc`, neither extending the other, writes another
+request (`otherApplication`). FW/1's five example applications each create
+`request._framework_one` in their own `Application.cfc`. `TestALazyRequestFieldIsWhatItsApplicationStores`.
 
 **A base handler's computed view name and key are read per subclass.**
 `moduleActions` expands `view( "#variables.handler#/x" )` for each leaf subclass

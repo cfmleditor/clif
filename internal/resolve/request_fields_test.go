@@ -92,3 +92,74 @@ func TestRequestWriteCountsMatchTheRegexItReplaced(t *testing.T) {
 		}
 	}
 }
+
+// TestALazyRequestFieldIsWhatItsApplicationStores: FW/1's Application.cfc
+// creates request._framework_one in _get_framework_one() and returns it, and
+// each of the corpus's five applications writes it in its own Application.cfc,
+// one as its own subclass, so no file was the only writer and every call on
+// what it returned was reported. A request runs its own application's
+// Application.cfc, so another application's writes, in an Application.cfc
+// neither extending the other, are not this request's. Every other writer must
+// store the same component in statements its plan reads; a write inside a
+// comment writes nothing.
+func TestALazyRequestFieldIsWhatItsApplicationStores(t *testing.T) {
+	app := func(construct string) string {
+		return `component {
+	function _get() {
+		if ( !structKeyExists( request, "_fw" ) ) {
+			// request._fw = new lib.Other();
+			request._fw = ` + construct + `;
+		}
+		return request._fw;
+	}
+}`
+	}
+
+	files := map[string]string{
+		"lib/Framework.cfc":   `component { function run() {} }`,
+		"lib/Other.cfc":       `component {}`,
+		"one/Application.cfc": app("new lib.Framework()"),
+		"two/Application.cfc": app("new lib.Other()"),
+		"one/Helper.cfc":      app("new lib.Framework( { trace = true } )"),
+		"lib/MyApp.cfc":       `component { /* request._fw = new lib.Other(); */ }`,
+	}
+
+	returns := func(files map[string]string) string {
+		dir := t.TempDir()
+		writeFiles(t, dir, files)
+
+		r := &Resolver{FS: vfs.OS{}, Index: index.New(), WorkspaceFolders: []string{dir}, InferArgsFiles: cfmlFilesIn(t, dir)}
+
+		return r.ReturnComponentOf(r.ResolveFunc(filepath.Join(dir, "one", "Application.cfc"), "_get", dir))
+	}
+
+	if got := returns(files); filepath.Base(got) != "Framework.cfc" {
+		t.Errorf("another application's write beside one that agrees: %q, want Framework.cfc", got)
+	}
+
+	files["one/Helper.cfc"] = app("new lib.Other()")
+	if got := returns(files); got != "" {
+		t.Errorf("a writer in the application storing something else: %q, want nothing", got)
+	}
+
+	files["one/Helper.cfc"] = app("new lib.Framework()")
+	files["two/Application.cfc"] = strings.Replace(app("new lib.Other()"), "component {", `component extends="one.Application" {`, 1)
+
+	if got := returns(files); got != "" {
+		t.Errorf("an application extending this one, storing something else: %q, want nothing", got)
+	}
+
+	files["two/Application.cfc"] = app("new lib.Other()")
+	files["three/App.cfc"] = app("makeFramework()")
+
+	if got := returns(files); got != "" {
+		t.Errorf("a writer storing an untyped value: %q, want nothing", got)
+	}
+
+	delete(files, "three/App.cfc")
+
+	files["page.cfm"] = `<cfset request._fw = new lib.Framework()>`
+	if got := returns(files); got != "" {
+		t.Errorf("a writer no plan reads: %q, want nothing", got)
+	}
+}
