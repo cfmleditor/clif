@@ -122,20 +122,25 @@ func (pr *ParseResult) collectionKeys(writes []collectionWrite) (map[string]bool
 	locals := map[string]bool{}
 
 	scopeKeys := map[int]string{}
-	for _, scope := range pr.Scopes {
-		scopeKeys[scope.Start] = funcKey(scope.Start, scope.End)
+	for i := range pr.Scopes {
+		scopeKeys[pr.Scopes[i].Start] = pr.scopeKey(i)
 	}
 
 	for i := range pr.Funcs {
 		f := &pr.Funcs[i]
 		for _, a := range f.Arguments {
-			locals[scopeKeys[int(f.Line)]+"\t"+strings.ToLower(a.Name)] = true
+			locals[concatLower(scopeKeys[int(f.Line)], "\t", a.Name)] = true
 		}
 	}
 
 	for _, w := range writes {
 		if w.local && w.function != "" {
-			locals[w.function+"\t"+strings.TrimPrefix(strings.ToLower(w.target), "local.")] = true
+			target := w.target
+			if hasPrefixFold(target, "local.") {
+				target = target[len("local."):]
+			}
+
+			locals[concatLower(w.function, "\t", target)] = true
 		}
 	}
 
@@ -144,49 +149,51 @@ func (pr *ParseResult) collectionKeys(writes []collectionWrite) (map[string]bool
 	return locals, scopeKeys, func(root, function string) string {
 		switch {
 		case hasPrefixFold(root, "variables.") || hasPrefixFold(root, "this."):
-			return concatLower("", root)
+			return concatLower("", "", root)
 		case hasPrefixFold(root, "local."):
-			return concatLower(function+"\t", root[len("local."):])
+			return concatLower(function, "\t", root[len("local."):])
 		case hasPrefixFold(root, "arguments."):
-			return concatLower(function+"\t", root[len("arguments."):])
+			return concatLower(function, "\t", root[len("arguments."):])
 		}
 
 		base, _, _ := strings.Cut(root, ".")
 		if isLocalName(locals, function, base) {
-			return concatLower(function+"\t", root)
+			return concatLower(function, "\t", root)
 		}
 
-		return concatLower("variables.", root)
+		return concatLower("variables.", "", root)
 	}
 }
 
-// concatLower is prefix + strings.ToLower(s) in one allocation, and prefix
-// itself when s is empty; s alone, uncopied, when prefix is empty and s has
-// nothing to lower.
-func concatLower(prefix, s string) string {
+// concatLower is a + b + strings.ToLower(s) in one allocation, and a + b
+// when s is empty; s alone, uncopied, when a and b are empty and s has
+// nothing to lower. b is the separator a key puts after its function, which
+// joined to the function first was an allocation of its own for every key.
+func concatLower(a, b, s string) string {
 	upper := false
 
 	for i := range len(s) {
 		c := s[i]
 		if c >= utf8.RuneSelf {
-			return prefix + strings.ToLower(s)
+			return a + b + strings.ToLower(s)
 		}
 
 		upper = upper || c >= 'A' && c <= 'Z'
 	}
 
 	if !upper {
-		if prefix == "" {
+		if a == "" && b == "" {
 			return s
 		}
 
-		return prefix + s
+		return a + b + s
 	}
 
-	var b strings.Builder
+	var buf strings.Builder
 
-	b.Grow(len(prefix) + len(s))
-	b.WriteString(prefix)
+	buf.Grow(len(a) + len(b) + len(s))
+	buf.WriteString(a)
+	buf.WriteString(b)
 
 	for i := range len(s) {
 		c := s[i]
@@ -194,10 +201,10 @@ func concatLower(prefix, s string) string {
 			c += 'a' - 'A'
 		}
 
-		b.WriteByte(c)
+		buf.WriteByte(c)
 	}
 
-	return b.String()
+	return buf.String()
 }
 
 func (pr *ParseResult) applyCollectionReturns(calls []pendingCall) {
@@ -262,11 +269,24 @@ func (pr *ParseResult) applyCollectionReturns(calls []pendingCall) {
 	}
 
 	settleCollections(nodes)
-	pr.markCollectionEscapes(key, nodes)
+
+	// An escape only vetoes a whole-struct contract, so the escape scan, which
+	// reads every script region again, runs only when some function would
+	// have one without it. It was a third of a script component's parse, for
+	// an answer most files never have.
+	escapes := false
 
 	for i := range pr.Funcs {
 		f := &pr.Funcs[i]
 		f.CollectionValues = wholeStructValues(f, returns[keys[int(f.Line)]], keys[int(f.Line)], key, nodes)
+
+		if f.CollectionValues != nil && !escapes {
+			escapes = true
+
+			pr.markCollectionEscapes(key, nodes)
+			f.CollectionValues = wholeStructValues(f, returns[keys[int(f.Line)]], keys[int(f.Line)], key, nodes)
+		}
+
 		pr.applyCollectionFunction(f, returns[keys[int(f.Line)]], keys[int(f.Line)], key, nodes)
 	}
 }
@@ -309,7 +329,7 @@ func invalidateClosureCollections(writes []collectionWrite, scopes []FuncScope, 
 // Walking each node's static ancestors avoids comparing every write to every
 // node. Dynamic writes into a scope invalidate any field in that scope.
 func invalidateCollectionParents(writes []collectionWrite, targets []string, nodes map[string]*collectionNode) {
-	parents := map[string]bool{}
+	parents := make(map[string]bool, len(writes))
 
 	for i := range writes {
 		w := &writes[i]
@@ -328,7 +348,9 @@ func invalidateCollectionParents(writes []collectionWrite, targets []string, nod
 	}
 
 	for k, n := range nodes {
-		if function, _, ok := strings.Cut(k, "\t"); ok && parents[function+"\t"] {
+		// k[:tab+1] is the function's key and its tab, spelled without
+		// concatenating one for every node.
+		if tab := strings.IndexByte(k, '\t'); tab >= 0 && parents[k[:tab+1]] {
 			n.invalid = true
 		}
 
@@ -603,6 +625,27 @@ type writesMemo struct {
 	// lowercased: both passes ask about the same expressions.
 	sources   map[sourceKey]sourceRead
 	funcNames map[string]bool
+	// scopeKeys is funcKey of each of pr.Scopes (scopeKey).
+	scopeKeys []string
+}
+
+// scopeKey is funcKey for pr.Scopes[i], built once for the passes sharing
+// writesMemo: every collection write asks for its function's key, and
+// formatting one is an allocation each time.
+func (pr *ParseResult) scopeKey(i int) string {
+	m := pr.writesMemo
+	if m == nil {
+		return funcKey(pr.Scopes[i].Start, pr.Scopes[i].End)
+	}
+
+	if m.scopeKeys == nil {
+		m.scopeKeys = make([]string, len(pr.Scopes))
+		for j := range pr.Scopes {
+			m.scopeKeys[j] = funcKey(pr.Scopes[j].Start, pr.Scopes[j].End)
+		}
+	}
+
+	return m.scopeKeys[i]
 }
 
 type sourceKey struct {
@@ -782,7 +825,7 @@ func (pr *ParseResult) collectWrites(cache *expressionWriteCache) []collectionWr
 
 		idx := sort.Search(len(pr.Scopes), func(i int) bool { return pr.Scopes[i].Start > line }) - 1
 		if idx >= 0 && line <= pr.Scopes[idx].End {
-			return funcKey(pr.Scopes[idx].Start, pr.Scopes[idx].End)
+			return pr.scopeKey(idx)
 		}
 
 		return ""
@@ -826,6 +869,8 @@ type expressionWrite struct {
 
 // placeWrites places writes read from an expression starting at offset.
 func placeWrites(scanned []expressionWrite, offset int, functionAt func(int) string, writes []collectionWrite) []collectionWrite {
+	writes = slices.Grow(writes, len(scanned))
+
 	for i := range scanned {
 		e := &scanned[i]
 
@@ -853,18 +898,14 @@ func scanExpressionWrites(expression string) []expressionWrite {
 // scanExpressionWritesFrom is scanExpressionWrites reading sc, a scanner over
 // expression, and toks, its tokens when sc replays them.
 func scanExpressionWritesFrom(sc *Scanner, expression string, toks []Token) []expressionWrite {
-	var writes []expressionWrite
+	writes := newExpressionWrites(toks)
 
 	// pooled is the token list borrowed from tokenPool, if one was.
 	var pooled *[]Token
 
-	defer func() {
-		if pooled != nil {
-			tokenPool.Put(pooled)
-		}
-	}()
-
 	var ends *expressionEnds
+
+	defer func() { releaseWriteScratch(pooled, ends) }()
 
 	previous := TokEOF
 
@@ -887,6 +928,14 @@ func scanExpressionWritesFrom(sc *Scanner, expression string, toks []Token) []ex
 		}
 
 		if t.Kind != TokIdent || before == TokDot || before == TokDoubleColon {
+			continue
+		}
+
+		// Every write below reads on from the name to a ".", a "[", a "(",
+		// or an operator; only "var" is followed by another name. Testing the
+		// token after it, which the scanner caches for the next step anyway,
+		// spares most names the two scanner copies and the path read.
+		if !mayStartWrite(sc.PeekSkipComments().Kind) && !identEq(t.Value, "var") {
 			continue
 		}
 
@@ -946,13 +995,58 @@ func scanExpressionWritesFrom(sc *Scanner, expression string, toks []Token) []ex
 				toks = *pooled
 			}
 
-			ends = newExpressionEndsFrom(expression, toks)
+			ends, _ = expressionEndsPool.Get().(*expressionEnds)
+			ends.fill(expression, toks)
 		}
 
 		writes = append(writes, expressionWrite{write: collectionWrite{target: root, expression: ends.from(cursor.PeekSkipComments().Offset), element: element, local: local || hasPrefixFold(root, "local.")}, at: t.Offset, placed: true})
 	}
 
 	return writes
+}
+
+// releaseWriteScratch gives back what scanExpressionWritesFrom borrowed.
+func releaseWriteScratch(pooled *[]Token, ends *expressionEnds) {
+	if pooled != nil {
+		tokenPool.Put(pooled)
+	}
+
+	if ends != nil {
+		ends.src = ""
+		expressionEndsPool.Put(ends)
+	}
+}
+
+// newExpressionWrites is the list scanExpressionWritesFrom fills, sized from
+// toks when it has them: a script region holds hundreds of writes, nearly all
+// at an "=", and growing the list by doubling was the largest allocation of a
+// parse.
+func newExpressionWrites(toks []Token) []expressionWrite {
+	if toks == nil {
+		return nil
+	}
+
+	n := 0
+
+	for i := range toks {
+		if toks[i].Kind == TokEquals {
+			n++
+		}
+	}
+
+	return make([]expressionWrite, 0, n)
+}
+
+// mayStartWrite reports whether a name followed by a token of kind k could
+// begin a write scanExpressionWritesFrom records.
+func mayStartWrite(k TokenKind) bool {
+	switch k {
+	case TokDot, TokLBracket, TokLParen, TokEquals,
+		TokPlus, TokMinus, TokStar, TokSlash, TokAmpersand, TokPercent, TokCaret:
+		return true
+	default:
+		return false
+	}
 }
 
 // expressionEnds answers scriptReturnExpression for every token of one
@@ -965,7 +1059,18 @@ type expressionEnds struct {
 	src     string
 	offsets []int // each token's offset
 	ends    []int // where the expression starting at that token ends
+
+	// Scratch for fill, kept so a pooled value reuses it.
+	depths            []int
+	terminal, newline []bool
+	next, nextLine    []int
 }
+
+// expressionEndsPool holds expressionEnds for scanExpressionWritesFrom, which
+// builds one per script region and keeps none of it: what it keeps is text
+// from the source. Five slices sized by the region's tokens were a tenth of
+// what a script component's parse allocated.
+var expressionEndsPool = sync.Pool{New: func() any { return &expressionEnds{} }}
 
 func newExpressionEnds(src string) *expressionEnds {
 	return newExpressionEndsFrom(src, tokenize(src))
@@ -973,15 +1078,23 @@ func newExpressionEnds(src string) *expressionEnds {
 
 // newExpressionEndsFrom is newExpressionEnds from src's tokens.
 func newExpressionEndsFrom(src string, toks []Token) *expressionEnds {
+	e := &expressionEnds{}
+	e.fill(src, toks)
+
+	return e
+}
+
+// fill makes e answer for src, whose tokens are toks, reusing e's slices.
+func (e *expressionEnds) fill(src string, toks []Token) {
 	// Sized from the tokens, and the nearest terminator per depth kept in a
 	// slice rather than a map: built for every assignment a <cfset> holds,
 	// four growing slices and a map apiece were most of what collecting a
 	// file's collection writes allocated.
 	n := len(toks)
-	offsets := make([]int, 0, n)
-	depths := make([]int, 0, n)
-	terminal := make([]bool, 0, n)
-	newline := make([]bool, 0, n)
+	offsets := slices.Grow(e.offsets[:0], n)
+	depths := slices.Grow(e.depths[:0], n)
+	terminal := slices.Grow(e.terminal[:0], n)
+	newline := slices.Grow(e.newline[:0], n)
 
 	depth, lo, hi := 0, 0, 0
 	prev := Token{Kind: TokEOF}
@@ -1012,9 +1125,9 @@ func newExpressionEndsFrom(src string, toks []Token) *expressionEnds {
 	// next is indexed by depth less the lowest depth reached, -1 for none.
 	// A line break ends an expression only after its first token, as it does
 	// for scriptReturnExpression, so it is kept apart and taken from past i.
-	ends := make([]int, len(offsets))
-	next := make([]int, hi-lo+1)
-	nextLine := make([]int, hi-lo+1)
+	ends := slices.Grow(e.ends[:0], len(offsets))[:len(offsets)]
+	next := slices.Grow(e.next[:0], hi-lo+1)[:hi-lo+1]
+	nextLine := slices.Grow(e.nextLine[:0], hi-lo+1)[:hi-lo+1]
 
 	for i := range next {
 		next[i], nextLine[i] = -1, -1
@@ -1042,7 +1155,8 @@ func newExpressionEndsFrom(src string, toks []Token) *expressionEnds {
 		}
 	}
 
-	return &expressionEnds{src: src, offsets: offsets, ends: ends}
+	e.src, e.offsets, e.ends = src, offsets, ends
+	e.depths, e.terminal, e.newline, e.next, e.nextLine = depths, terminal, newline, next, nextLine
 }
 
 // from is scriptReturnExpression for a scanner whose next token starts at
@@ -1378,7 +1492,7 @@ func isLocalName(locals map[string]bool, function, base string) bool {
 	var buf [128]byte
 
 	if len(function)+1+len(base) > len(buf) {
-		return locals[concatLower(function+"\t", base)]
+		return locals[concatLower(function, "\t", base)]
 	}
 
 	b := append(buf[:0], function...)
@@ -1387,7 +1501,7 @@ func isLocalName(locals map[string]bool, function, base string) bool {
 	for i := range len(base) {
 		c := base[i]
 		if c >= utf8.RuneSelf {
-			return locals[concatLower(function+"\t", base)]
+			return locals[concatLower(function, "\t", base)]
 		}
 
 		b = append(b, toLowerByte(c))
