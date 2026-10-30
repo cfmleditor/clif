@@ -70,6 +70,18 @@ func (r *Resolver) muraObjectArg(variable string, pr *parser.ParseResult, tr *ca
 		return ""
 	}
 
+	file := cfpath.FromURI(string(pr.URI))
+	slashed := filepath.ToSlash(file)
+
+	// Only a call that may include this template can answer, so the text
+	// tests below wait for one. They read the whole template with three
+	// regular expressions for every untyped name it reads, and in a workspace
+	// with no dspObject_include at all (anything but Mura) that was most of a
+	// scan: 72% of Preside's.
+	if !r.muraObjectMayInclude(slashed) {
+		return ""
+	}
+
 	// A template that sets the name reads its own value. A name it passes
 	// on to a display object of its own (`iterator = iterator`) is not one
 	// it sets.
@@ -77,9 +89,6 @@ func (r *Resolver) muraObjectArg(variable string, pr *parser.ParseResult, tr *ca
 	if setsName(own, "arguments."+name) || !scoped && setsName(own, name) {
 		return ""
 	}
-
-	file := cfpath.FromURI(string(pr.URI))
-	slashed := filepath.ToSlash(file)
 
 	var (
 		comps  []string
@@ -134,6 +143,15 @@ func (r *Resolver) muraObjectArg(variable string, pr *parser.ParseResult, tr *ca
 	tr.addf("%q is what the %d dspObject_include call(s) naming this template pass it: %q", variable, passed, answer)
 
 	return answer
+}
+
+// muraObjectMayInclude reports whether any dspObject_include call could name
+// the template at slashed: one whose theFile pattern matches it, or one that
+// does not spell its file.
+func (r *Resolver) muraObjectMayInclude(slashed string) bool {
+	return slices.ContainsFunc(r.muraObjectSites(), func(s muraObjectSite) bool {
+		return s.target == nil || s.target.MatchString(slashed)
+	})
 }
 
 // muraIncludeDeclares reports whether a dspObject_Include in the index
