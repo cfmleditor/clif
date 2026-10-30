@@ -82,11 +82,7 @@ func (r *Resolver) muraObjectArg(variable string, pr *parser.ParseResult, tr *ca
 		return ""
 	}
 
-	// A template that sets the name reads its own value. A name it passes
-	// on to a display object of its own (`iterator = iterator`) is not one
-	// it sets.
-	own := withoutMuraObjectArgs(pr.Content)
-	if setsName(own, "arguments."+name) || !scoped && setsName(own, name) {
+	if r.muraTemplateSets(file, pr.Content, name, scoped) {
 		return ""
 	}
 
@@ -143,6 +139,43 @@ func (r *Resolver) muraObjectArg(variable string, pr *parser.ParseResult, tr *ca
 	tr.addf("%q is what the %d dspObject_include call(s) naming this template pass it: %q", variable, passed, answer)
 
 	return answer
+}
+
+type muraSetsKey struct {
+	file, name string
+	scoped     bool
+}
+
+// muraTemplateSets reports whether the template at file, holding content,
+// sets name itself, which makes the value it reads its own. A name it passes
+// on to a display object of its own (`iterator = iterator`) is not one it
+// sets. Remembered per template and name: muraObjectArg asks for every call
+// on the name, and the answer reads the whole template with three regular
+// expressions, which was over a third of a scan of MasaCMS.
+func (r *Resolver) muraTemplateSets(file, content, name string, scoped bool) bool {
+	o := r.owner()
+	key := muraSetsKey{file: pathKey(file), name: strings.ToLower(name), scoped: scoped}
+
+	o.mu.RLock()
+	sets, seen := o.muraSets[key]
+	o.mu.RUnlock()
+
+	if seen {
+		return sets
+	}
+
+	own := withoutMuraObjectArgs(content)
+	sets = setsName(own, "arguments."+name) || !scoped && setsName(own, name)
+
+	o.mu.Lock()
+	if o.muraSets == nil {
+		o.muraSets = map[muraSetsKey]bool{}
+	}
+
+	o.muraSets[key] = sets
+	o.mu.Unlock()
+
+	return sets
 }
 
 // muraObjectMayInclude reports whether any dspObject_include call could name
