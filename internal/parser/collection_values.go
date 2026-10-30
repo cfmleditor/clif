@@ -282,7 +282,7 @@ func (pr *ParseResult) collectionFunctionAt(offset int) string {
 
 	i := sort.Search(len(pr.Scopes), func(i int) bool { return pr.Scopes[i].Start > line }) - 1
 	if i >= 0 && line <= pr.Scopes[i].End {
-		return funcKey(pr.Scopes[i].Start, pr.Scopes[i].End)
+		return pr.scopeKey(i)
 	}
 
 	return ""
