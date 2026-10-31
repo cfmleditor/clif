@@ -174,7 +174,7 @@ down to a standalone source and run through `clif scan` again, as above; none of
 against RustCFML or an engine, so "invalid source" below means the source is plainly malformed, not
 that an engine rejects it.
 
-**Three new grammar gaps, not yet filed** (A and B below, C after the table).
+**Three new grammar gaps, fixed on an unreleased branch** (A and B below, C after the table). See "Fixed" at the end of this section.
 
 *A. `<!--` inside a CFML comment* (3 errors: `admin/adminInterface/postScene.cfm:17`,
 `sceneDetail.cfm:34`, `common/cfc/Renderer.cfc:196`). Fails; the same comment with `("</")` alone
@@ -230,6 +230,22 @@ the string's tag-shaped text is what matters (`"<!--x"` and `"<a"` alone are fin
 This is `replaceNoCase( s, "<!--<attachScript", "<script", "all" )` in Galaxie's script-protection
 helpers. Neutralising gap A's comment in `Renderer.cfc` left the line 3061 errors in place, so
 C is independent of A.
+
+### Fixed on `tree-sitter-cfml` branch `ccr-b65f0ac3-psafqh` (unreleased, v0.26.43 base)
+
+All three are scanner-only (`common/scanner.h`), so the parse table is unchanged.
+
+- **A**: `scan_comment` counted a two-dash `<!--` as a nested CFML comment. A CFML comment now nests on `<!---` and closes on `--->` only. (Closing on `-->` alone had to go too: MuraCMS's `core/modules/v1/feed/index.cfm` writes an HTML comment inside a CFML comment, which balanced only because the opener was counted. The first version of the fix broke that file; the corpus scan caught it.)
+- **B**: `scan_raw_text` and `scan_html_text` ended a script or style element at the first `</script` / `</style`. They now require the whole name followed by whitespace, `/` or `>`.
+- **C**: in a state that accepts nothing but the comment (the inside of a string), `<!--<` was taken for an IE conditional comment. A two-dash opener there is now text; `<!---` still tokenises, as the engine strips it.
+
+Verified in `tree-sitter-cfml`: four new corpus tests and three probes, each of which fails with `scanner.h` reverted; `npm test`, `probe`, `check:keywords` and `lint` pass; the 17,176-file corpus scan is identical per file (235 error lines in 96 files) and `treediff` reports no tree-shape change in 15,793 files that parsed before.
+
+Verified here with the local grammar through a `-modfile` replace (`go.mod` untouched): `clif scan` on Galaxie goes from 15 errors to 8; `go test -short ./cmd/... ./internal/...` passes; the formatter corpus moves 405 -> 410 clean and 11 -> 6 grammar-refused, and the five files that changed verdict (`postScene.cfm`, `sceneDetail.cfm`, `Renderer.cfc`, `StringUtils.cfc`, `blogJsContent.cfm`) are the five that were refused for A, B and C. Nothing here changes `internal/parser`: `gapcheck` already agreed with the grammar on these files.
+
+To take it: release `tree-sitter-cfml`, then `make update-grammar`. Until then clif still reports the 15.
+
+What remains is the 8: 2 for #119 (not fixed), and 6 invalid source (6 of the table's rows; `blogContentCss.cfm` reports a second error at line 59 under the new `scan.js`, a knock-on of the same `<style>`).
 
 ## Shrank poorly: twelve files still to reduce
 
