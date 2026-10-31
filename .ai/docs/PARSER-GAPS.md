@@ -671,3 +671,30 @@ Three causes, none of them a wrong answer about code that runs:
 Re-run `make gapcheck CORPUS=…` after anything here; it is 6 seconds, and the
 `expectedDifferences` list in `internal/tsoracle` fails on a difference that is
 neither recorded nor fixed.
+
+## A tag whose expression starts on the next line (Galaxie Blog)
+
+`tagBody`, which cuts a tag's expression out of `<cfif …>`, `<cfelseif …>` and `<cfreturn …>`, looked for a space after the
+tag name. A condition written under the tag follows a newline or a tab, so `<cfif\n\tf( a )>` had no body and recorded no
+call, and `<cfif\n\t( f( a ) and g( b ) )>` was cut at the space before `and`, losing `f`. What it did find was filed on
+the tag's line, not its own: MuraCMS's `contentManager.cfc` and `feedGateway.cfc` reported such calls 2 to 3 lines early.
+It cuts at the first whitespace byte now, and `bodyLine` adds the newlines before the body.
+`TestAMultiLineTagConditionKeepsItsCallsAndTheirLines` fails without it on four of its seven cases.
+
+Against the previous build, per entry: MuraCMS 3 findings moved to their true lines and 1 call that was lost
+(`arguments.feedBean.isAggregateQuery()` in a multi-line `<cfelseif>`) is reported; Galaxie, ContentBox, Slatwall,
+Preside, cfwheels and Lucee are unchanged. (Galaxie's `reFindNoCase` and `left` in that shape are built-ins, so they
+were never findings; `make gapcheck` saw them as a line disagreement, 6 entries, now 0.)
+
+The JSON report's `line` is 0-based and the text report's is 1-based, as `internal/unresolved/diff.go` notes.
+
+**Still differing on Galaxie** (`make gapcheck CORPUS=<checkout>`, parser-only, 267 of 273): 262 are
+`<cfinvoke … method="x">`, which the parser records as a call and the grammar sees as a tag, the way it treats
+`createObject`. Five are not: `replaceNoCase` in `Renderer.cfc:3060` and `StringUtils.cfc:19`, which the pinned grammar
+cannot parse (tree-sitter-cfml#174, fixed upstream, unreleased), and `formatMoney`, `left` and `trim` in the
+`<cfreturn "… #…# …">` at `TestUtility.cfc:285`, which the grammar does see when that line is cut out of the file
+and parsed alone; why it misses them in place was not found.
+
+**Open: a call in a string inside `<cfif>`, `<cfelseif>` or `<cfreturn>` is recorded twice**
+(`<cfreturn "a #f(1)# b">`, `<cfif x eq "#f(1)#">`): the expression scan and the `#…#` span scan both record it. `<cfset>`
+avoids it by subtracting what is already recorded, which the notes say is wrong for a span. Not fixed.
