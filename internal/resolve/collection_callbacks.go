@@ -1,6 +1,7 @@
 package resolve
 
 import (
+	"regexp"
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/nativetype"
@@ -29,6 +30,47 @@ func (r *Resolver) loadedEntityElement(arguments, baseDir string) string {
 	}
 
 	return r.withSubclasses(r.nearestEntity(strings.Trim(pieces[0][0].Value, "\"'"), baseDir))
+}
+
+// hqlEntityRe is a literal HQL query that returns the entities it selects from:
+// `FROM Booking WHERE …`, or `SELECT b FROM Booking b …`. A projection
+// (`SELECT b.name`), a join, which returns tuples, and a second entity in the
+// FROM list are not matched.
+var hqlEntityRe = regexp.MustCompile(`(?is)^\s*(?:select\s+(\w+)\s+)?from\s+([A-Za-z_][\w.]*)(?:\s+(?:as\s+)?(\w+))?(\s|$)`)
+
+// queriedEntityElement is the entity a literal ormExecuteQuery() returns an array
+// of. Only the one-argument form and the one with a struct or array of
+// parameters are admitted: a boolean second or third argument asks for a single
+// entity (`unique`), and a computed query names nothing. Indexed ORM metadata is
+// required, as for entityLoad.
+func (r *Resolver) queriedEntityElement(arguments, baseDir string) string {
+	pieces := producerSplit(producerTokens(arguments))
+	if len(pieces) < 1 || len(pieces) > 2 || len(pieces[0]) != 1 || pieces[0][0].Kind != parser.TokString || strings.Contains(pieces[0][0].Value, "#") {
+		return ""
+	}
+
+	if len(pieces) == 2 {
+		params := pieces[1]
+		if len(params) < 2 || params[0].Kind != parser.TokLBrace && params[0].Kind != parser.TokLBracket {
+			return ""
+		}
+	}
+
+	match := hqlEntityRe.FindStringSubmatch(strings.Trim(pieces[0][0].Value, "\"'"))
+	if match == nil {
+		return ""
+	}
+
+	// `select x from Entity y` returns the entity only when x is its alias.
+	if match[1] != "" && !strings.EqualFold(match[1], match[3]) {
+		return ""
+	}
+
+	if strings.Contains(strings.ToLower(pieces[0][0].Value), " join ") || strings.Contains(strings.Split(strings.ToLower(pieces[0][0].Value), " where ")[0], ",") {
+		return ""
+	}
+
+	return r.withSubclasses(r.nearestEntity(match[2], baseDir))
 }
 
 // Collection callbacks have different invocation layouts: array item/index/array,

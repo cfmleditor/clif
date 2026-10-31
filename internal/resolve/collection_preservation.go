@@ -70,6 +70,10 @@ func (r *Resolver) collectionExpressionElement(receiver string, calls []chainCal
 			return r.loadedEntityElement(last.args, baseDir)
 		}
 
+		if strings.EqualFold(last.name, "ormExecuteQuery") {
+			return r.queriedEntityElement(last.args, baseDir)
+		}
+
 		if globalPreservesArrayElements(last.name) {
 			pieces := producerSplit(producerTokens(last.args))
 			if len(pieces) > 0 {

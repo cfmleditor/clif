@@ -66,7 +66,7 @@ func (f *Formatter) formatElement(n *sitter.Node) {
 	// Self-closing HTML tag, void element, or element with no recognizable structure: emit verbatim
 	if startTag == nil || (endTag == nil && len(bodyNodes) == 0) || f.isVoidElement(startTag) {
 		f.nl()
-		f.writeText(strings.TrimSpace(f.text(n)))
+		f.writeText(trimSpace(f.text(n)))
 
 		return
 	}
@@ -75,14 +75,14 @@ func (f *Formatter) formatElement(n *sitter.Node) {
 	if f.isTightElement(startTag, endTag, bodyNodes) {
 		f.nl()
 		f.writeIndent()
-		f.write(strings.TrimSpace(f.text(startTag)))
+		f.write(trimSpace(f.text(startTag)))
 
 		for _, c := range bodyNodes {
 			f.write(f.text(c))
 		}
 
 		if endTag != nil {
-			f.write(strings.TrimSpace(f.text(endTag)))
+			f.write(trimSpace(f.text(endTag)))
 		}
 
 		f.write("\n")
@@ -93,7 +93,7 @@ func (f *Formatter) formatElement(n *sitter.Node) {
 	// Emit start tag
 	f.nl()
 	f.writeIndent()
-	f.write(strings.TrimSpace(f.text(startTag)))
+	f.write(trimSpace(f.text(startTag)))
 	f.write("\n")
 
 	// Indent and format body children
@@ -113,7 +113,7 @@ func (f *Formatter) formatElement(n *sitter.Node) {
 	if endTag != nil {
 		f.nl()
 		f.writeIndent()
-		f.write(strings.TrimSpace(f.text(endTag)))
+		f.write(trimSpace(f.text(endTag)))
 		f.write("\n")
 	}
 }
@@ -206,14 +206,14 @@ func (f *Formatter) allSingleLine(nodes []*sitter.Node) bool {
 	var combined strings.Builder
 
 	for _, n := range nodes {
-		if strings.TrimSpace(f.text(n)) == "" {
+		if trimSpace(f.text(n)) == "" {
 			continue
 		}
 
 		combined.WriteString(f.text(n))
 	}
 
-	trimmed := strings.TrimSpace(combined.String())
+	trimmed := trimSpace(combined.String())
 	if trimmed == "" {
 		return false
 	}
@@ -234,7 +234,7 @@ func (f *Formatter) formatInlineRun(nodes []*sitter.Node) {
 		combined.WriteString(f.text(n))
 	}
 
-	trimmed := strings.TrimSpace(combined.String())
+	trimmed := trimSpace(combined.String())
 	if trimmed == "" {
 		return
 	}
@@ -288,7 +288,7 @@ func (f *Formatter) formatTextRun(nodes []*sitter.Node) {
 		combined.WriteString(f.text(n))
 	}
 
-	trimmed := strings.TrimSpace(combined.String())
+	trimmed := trimSpace(combined.String())
 	if trimmed == "" {
 		return
 	}
@@ -522,7 +522,7 @@ func (f *Formatter) formatRawTextElement(n *sitter.Node) {
 	if startTag == nil {
 		f.nl()
 		f.writeIndent()
-		f.write(strings.TrimSpace(f.text(n)))
+		f.write(trimSpace(f.text(n)))
 		f.write("\n")
 
 		return
@@ -535,18 +535,18 @@ func (f *Formatter) formatRawTextElement(n *sitter.Node) {
 
 	f.nl()
 	f.writeIndent()
-	f.write(strings.TrimSpace(f.text(startTag)))
+	f.write(trimSpace(f.text(startTag)))
 
 	// A non-empty body goes on its own lines; an empty one keeps
 	// <script ...></script> on a single line.
-	if strings.TrimSpace(raw.String()) != "" {
+	if trimSpace(raw.String()) != "" {
 		f.write("\n")
 		f.write(reindentRawText(raw.String(), f.opts.indent(f.level+1)))
 		f.writeIndent()
 	}
 
 	if endTag != nil {
-		f.write(strings.TrimSpace(f.text(endTag)))
+		f.write(trimSpace(f.text(endTag)))
 	}
 
 	f.write("\n")
@@ -560,11 +560,11 @@ func reindentRawText(raw, indent string) string {
 	lines := strings.Split(raw, "\n")
 
 	// Drop leading and trailing blank lines.
-	for len(lines) > 0 && strings.TrimSpace(lines[0]) == "" {
+	for len(lines) > 0 && trimSpace(lines[0]) == "" {
 		lines = lines[1:]
 	}
 
-	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+	for len(lines) > 0 && trimSpace(lines[len(lines)-1]) == "" {
 		lines = lines[:len(lines)-1]
 	}
 
@@ -573,7 +573,7 @@ func reindentRawText(raw, indent string) string {
 	var b strings.Builder
 
 	for _, line := range lines {
-		if strings.TrimSpace(line) == "" {
+		if trimSpace(line) == "" {
 			b.WriteString("\n")
 
 			continue
@@ -594,7 +594,7 @@ func commonLeadingWhitespace(lines []string) string {
 	first := true
 
 	for _, line := range lines {
-		if strings.TrimSpace(line) == "" {
+		if trimSpace(line) == "" {
 			continue
 		}
 

@@ -1482,3 +1482,88 @@ chains now reported one hop later (`$.event()` is typed, so the chain breaks at
 of "not found on native.struct". Indexed coverage is unchanged (8,151 files).
 Artifacts: `target/resolution/pr244-app-fixes/`.
 
+
+## Galaxie Blog: added to the public corpus
+
+[GregoryAlexander77/Galaxie-Blog](https://github.com/GregoryAlexander77/Galaxie-Blog), commit
+`d40017bad22de6e8a1b2fc77580c8257f72ce429` (2026-10-29). A CFML blog engine on Adobe
+ColdFusion/Lucee with ORM entities (`entityNew`/`entityLoad`), tag- and script-syntax components, no
+framework and no `.clif.json`; scan it as checked out (`clif` assumes nothing). 417 CFML files
+(128 `.cfc`, 289 `.cfm`).
+
+Baseline, first run (clif at `a976352`):
+
+| Check | Result |
+|---|---|
+| `make corpus CORPUS=<checkout>` | 417 files: 405 clean, 11 grammar-refused, 1 guard-rejected; no panic, unstable or malformed |
+| `make gapcheck CORPUS=<checkout>` | passes (a corpus run only reports); `createObject`, `entityLoad`, `entityLoadByPK` and `entityNew` are the expected `ComponentRef`-vs-call differences. Calls the parser extracts that the grammar does not see are led by `convertHqlQuery2JsonStruct` (33) and `getContentOutputData` (15); not yet looked into |
+| `clif scan` | 15 grammar parse errors (admin themeSettings.cfm, Renderer.cfc, StringUtils.cfc, importBlogCfc.cfm, blogJsContent.cfm and others) |
+| `clif unresolved` | **3,752** unresolved, 5,687 resolved, 417 files scanned: 3,601 variable, 132 method, 18 return type, 1 object |
+
+Reproduce: `make resolution-report CORPUS="gx=<checkout>" RUNS=target/resolution/galaxie LISTS=`.
+The lists in `resolution-candidates/` are not rewritten, so the other seven reports stay as they were.
+
+**Fixed (it was a bug): the result depended on how the path was spelled.** `clif unresolved .` from inside the checkout
+reports 3,881 (5,558 resolved); `clif unresolved /abs/path/to/checkout`, from there or from `/`,
+reports 3,752 (5,687 resolved). Keyed by file, line, function and reason, 140 findings appear only
+with `.` and 11 only with the absolute path (the 140: `getConfigBean` chains 50, locals `s`/`e`/
+`compare` 65, in `common/` and `org/`). One scan should not change with how its root is named, so
+the report uses the absolute path, as `scripts/resolution-report.sh` passes it, until the cause
+is found. Not investigated further.
+
+### Galaxie Blog after PRs #314-#316 (869db96)
+
+Same checkout, same absolute-path scan, compared per entry with the baseline above:
+`unresolved` **3,752 -> 1,578** (2,174 removed, 0 added; 7,861 resolved). Every removed entry was
+`variable '_' has no component ref` on an `application.` call (`application.Udf.isLoggedIn`,
+`application.blog.flushGalaxieCache`, ...), which is #315 (a tag-syntax shared-scope assignment
+types its variable) reaching a tag-heavy codebase. `make corpus` with the baseline: no file changed
+verdict (405 clean, 11 grammar-refused, 1 guard-rejected). `gapcheck` passes.
+`go test -short ./cmd/... ./internal/...` passes.
+
+The path-spelling difference remains: `clif unresolved .` reports 1,707 (7,732 resolved), the absolute
+path 1,578, the same 129-finding gap as before.
+
+**Cause and fix of the path-spelling difference.** `scanUnresolved` built the index from the roots as typed
+(`cfpath.CollectCFML(fsys, args)`, so `.` gave relative paths) while the files to report came from `scanTargets`,
+which makes them absolute. A file's own functions were therefore not found in the index under the name the scan asked
+with: `s = zoned( … ); s.toLocalDate()` read "variable 's' has no component ref" for `.` and resolved with the absolute
+path, 129 calls on Galaxie. Any relative spelling did it (`.`, `./`, `galaxie` from its parent, `..` from a
+subdirectory), whatever the working directory. `scanUnresolved` now makes its arguments absolute first
+(`absolutePaths`); `TestUnresolvedDoesNotDependOnHowTheRootIsSpelled` fails without it. `refs`, `deps` and `graph`
+gave the same answer for both spellings on Galaxie. The recorded corpus numbers are unchanged, since
+`scripts/resolution-report.sh` always passed absolute paths.
+
+### Galaxie Blog: a dynamic value an includer holds (`includerHeld`)
+
+The largest group left in Galaxie's report, 498 of 1,578, was `variable 'HtmlUtilsObj' has no component ref`:
+`includes/windows/adminInterface.cfm` makes the object with `<cfobject component="#application.htmlUtilsComponentPath#"
+name="HtmlUtilsObj">`, the path being a runtime value set in `Application.cfc`, and includes every admin page, which call
+`HtmlUtilsObj.getKendoClass(…)`. Where the object is made it is `$any` (an unmapped `#…#` path) and calls on it are
+accepted. In the pages it includes, `includerHeld` took the `$any` answer for "could not type it" and withheld
+(`strings.HasPrefix(comp, "$")`). A site that holds `$any` now answers `$any`, and it swallows the other sites'
+components as it does in a union of branches; a site that holds nothing, or a built-in or native value, still
+withholds, so the old behaviour stays for those. `TestATemplateReadsADynamicValueItsIncluderHolds` fails without it.
+
+Per entry against the previous build: Galaxie 1,578 -> 1,081 (497 removed, none added); MuraCMS, ContentBox, Slatwall,
+Preside and cfwheels (scanned from the `tree-sitter-cfml` corpus checkouts, no project configs) identical.
+
+What is left there is mostly `application.blog` (100: 90 inside `org/camden/blog/blog.cfc` itself, reading the
+component through the application scope it was stored in; `Application.cfc:633` assigns it from
+`createObject("component", "#application.blogComponentPath#").init(blogname)`), `e` (98, in `Bookings.cfc` and
+`Events.cfc`) and `html` (63, in `WebForms.cfc` and `Events.cfc`). Why those stay untyped has not been investigated.
+Mapping the component paths with `expressionMappings` does not help the included pages and makes `application.blog`
+worse (100 -> 172, since it then types and exposes missing methods), so it is not a substitute for this.
+
+### Galaxie Blog: a literal HQL query is an array of its entity
+
+`found = ormExecuteQuery( "FROM Booking WHERE BookingId = :id", { id = … } )` and then `e = found[1]`, or a loop over
+`ormExecuteQuery( "FROM Post" )`, is Galaxie's ORM idiom (121 calls); the entity's accessors read as "no component ref".
+`queriedEntityElement` (`collection_callbacks.go`) gives such a query the element type `entityLoad` of the same name
+has, through the same `elementOf` path. It admits a literal query with no `#`, one argument or one plus a struct or
+array of parameters, `FROM Entity [alias] …`, or `SELECT alias FROM Entity alias …`, and requires the entity in the
+ORM metadata. A projection (`SELECT i.name`), a join (tuples), a second entity in the FROM list, a boolean argument
+(`unique`) and a computed query name nothing. `TestALiteralHQLQueryTypesTheEntitiesItReturns` fails without it.
+
+Per entry against the previous build: Galaxie 1,081 -> 879 (202 removed, none added); Slatwall 7,592 -> 7,542 (50
+removed, none added); MuraCMS, ContentBox, Preside and cfwheels identical.
