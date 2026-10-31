@@ -231,3 +231,37 @@ func TestSharedScopeAssignmentsKeepTheirScope(t *testing.T) {
 		}
 	}
 }
+
+// TestTagSharedScopeAssignmentTypesItsVariable: `<cfset application.svc = new
+// Svc()>` declared the name and dropped the component, where the script form
+// types it, so a call on application.svc in tag syntax had no edge (#307).
+func TestTagSharedScopeAssignmentTypesItsVariable(t *testing.T) {
+	sources := map[string]string{
+		"tag": "<cfcomponent>\n<cffunction name=\"f\">\n" +
+			"<cfset application.svcA = new shared.Svc()>\n<cfset request.svcR = new shared.Svc()>\n" +
+			"<cfset url.page = new shared.Svc()>\n</cffunction>\n</cfcomponent>\n",
+		"script": "component {\nfunction f() {\n" +
+			"application.svcA = new shared.Svc();\nrequest.svcR = new shared.Svc();\n" +
+			"url.page = new shared.Svc();\n}\n}\n",
+	}
+
+	for form, src := range sources {
+		pr := Parse("file:///x/C.cfc", src)
+		refs := slices.Clone(pr.ComponentRefs)
+
+		for _, sc := range pr.Scopes {
+			refs = append(refs, pr.FuncComponentRefs(sc.Start, sc.End)...)
+		}
+
+		got := map[string]string{}
+		for _, r := range refs {
+			got[strings.ToLower(r.Variable)] = r.Component
+		}
+
+		for _, name := range []string{"svca", "svcr"} {
+			if got[name] != "shared.Svc" {
+				t.Errorf("%s: %s typed %q, want shared.Svc (refs %+v)", form, name, got[name], refs)
+			}
+		}
+	}
+}
