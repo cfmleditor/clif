@@ -2414,6 +2414,14 @@ bracket indexes, +5.1% for stepping over spans and +5% for the quote-aware tag
 end, none of them a regression on its own, and how `tagEndIndex`'s two-count
 fast path was shown to take the whole thing back to about +4%.
 
+**A parse is held to an allocation budget, because a count can gate a build
+and a time cannot.** `TestParseStaysWithinItsAllocationBudget` parses the
+benchmark fixtures and fails over a quarter above the count each budget was set
+at. bcac43a took a script component from 442 allocations to 3,713 and a sixfold
+slower parse, and nothing failed for two weeks: the benchmarks that showed it
+gate nothing. Raise a budget in the commit that needs it, saying why; lower it
+after a large saving. It skips under `-race`, where `sync.Pool` drops items.
+
 **A cost that scales with the document wants a scaling test, not a timing one.**
 Every defect behind the three-second go-to-definition was invisible to the tests
 that existed, because all of them returned the right answer. `routepkg.Scan`
