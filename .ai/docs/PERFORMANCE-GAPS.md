@@ -1,7 +1,7 @@
 # Performance gaps: costs identified and not acted on
 
 Costs found while profiling the per-keystroke and batch-analysis paths. Sections
-2, 3, 6, 7 and 8 are done and record their measurements. Section 4 is settled as not
+2, 3, 6, 7, 8 and 17 are done and record their measurements. Section 4 is settled as not
 worth doing without a real-workspace profile; the remaining follow-ups are
 called out in sections 3, 5, 7 and 8.
 
@@ -764,3 +764,56 @@ behind `<cfset>` typing misses often (2.5s); and the eleven configs each
 walk the same twelve application folders and parse their
 `Application.cfc` files for their DI policies (about 1.7s), which a cache
 keyed by workspace folders could share.
+
+## 17. Regressions since v0.5 found by bisecting, and what is left (30 October)
+
+Measured against 42fbd1f (30 September) by building each first-parent merge
+and benchmarking `Parse_ScriptCFC`; its allocation count is deterministic, so
+it bisects without noise. Times are medians of builds run alternately.
+
+**Fixed.**
+
+| change | what it was | effect |
+|---|---|---|
+| #309 | the collection-returns pass (bcac43a) re-read every script region for escapes, whose answer only vetoes a whole-struct contract | `Parse_ScriptCFC` 571µs → 377µs (89µs on 30 Sep), 2,142 → 1,313 allocations |
+| #310 | `muraObjectArg` ran three whole-template regular expressions per untyped name before asking whether any `dspObject_include` could include the template, in every workspace | Preside 13.9s → 1.8s, ContentBox 1.46 → 0.55s, MasaCMS 3.5 → 1.6s; **tassweb 24s → 5.7s** (10–12s on 30 Sep) |
+| #311 | nothing failed when a parse got six times slower | `TestParseStaysWithinItsAllocationBudget` |
+| #312 | `LoadAppMappingsWithInitial` walked every ancestor of each application, twice, opening the same marker files | Lucee: mapping discovery 1.7s → 0.28s of CPU, system time 2.1s → 0.8s |
+
+Unresolved output is byte-identical before and after each fix.
+
+**Peak memory: measured, not changed.** tassweb peaks at 1.15 GB against
+0.33 GB on 30 September. The live heap reaches about 575 MB mid-scan (137 MB
+then) and is 50 MB at the end, so it is working state, not a leak. A heap
+profile at the peak (a temporary hook writing `pprof.WriteHeapProfile` on
+each new post-GC maximum) shows no single holder: file text in the metadata
+cache 151 MB (its budget is 128 MB), parses in flight 148 MB, the resolver's
+per-file caches (`allTokens` 34 MB, producer plans 25 MB, `sourceInfo`
+28 MB, caller index 21 MB) and the index (`CompactDefs` 18 MB). Two levers,
+both rejected:
+- A smaller content cache *raises* peak RSS (32 MB budget: 1.31 GB; none:
+  1.27 GB) and costs 0.3–0.6s, because the files are read again into
+  garbage.
+- GC settings: `GOGC=50` is 0.89 GB for +8% time, `GOGC=25` 0.78 GB for
+  +35%; `GOMEMLIMIT=600MiB` gives 0.70 GB and triples the time. A batch
+  default could reasonably be `GOGC=50`; nothing measured says it must be.
+
+**Tag parse: +60% since 30 September, spread over features.** `Parse_TagCFC`
+84µs → 131µs. The difference is several correctness features at 5–8% each:
+output-context tracking (`trackOutput`), the tag-end index (`tagEnds`), the
+member-binding check (`hasMemberBinding`), `<cfreturn>` handling, and a wider
+`findTagFuncScopesIdx`. No one of them is worth a change on its own.
+
+**Recording collection writes during the main parse: deferred.** It is what
+would close most of the remaining 4x on `Parse_ScriptCFC`, where the second
+write scan and the passes reading it are about 60% of the parse. On tassweb
+those passes are 9% of the scan (`applyMemberBindings` 7.7%, of which the
+write scan is 2.4% and `walkChainRest` cross-file lookups most of the rest).
+The scan would have to reproduce `scanExpressionWritesFrom`'s answers from
+inside both parsers, including the closure markers and the `<cfset>` cache.
+
+**Measuring on this machine.** On macOS 27 each GC's `startTheWorld` calls
+`kevent` through `netpoll`, about 1 ms a time, so an allocation-heavy
+benchmark's wall time is mostly GC count. Compare allocation counts, or run
+with `GOGC=4000` (then first-touch page faults inflate `memclr` instead);
+`GOMAXPROCS=1` makes the CPU profile attribute it.
