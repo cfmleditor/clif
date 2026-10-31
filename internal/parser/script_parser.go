@@ -46,6 +46,10 @@ type scriptParser struct {
 	pendingCalls        []pendingCall   // unresolved varName = funcCall(...) assignments
 	flow                *flowBlocks     // the blocks a function body opens; nil outside a full parse
 
+	// instantiations is a pointer, made on the first: a slice header here
+	// moved the struct up a size class, for a record most parses never fill.
+	instantiations *[]Instantiation
+
 	// The flags sit together: spread between the wider fields above, each
 	// was padded to eight bytes, and the struct fell into a larger size class.
 	accessors    bool
@@ -58,8 +62,9 @@ type scriptParser struct {
 	refThis      bool  // the assignment being parsed is through `this.` — see ComponentRef.This
 	chainDepth   uint8 // chained assignments being parsed; see maxChainedAssignments
 
-	// Two four-byte fields share the eight bytes after the flags.
-	argNesting int32  // recursion depth of skipParenBody's scan, bounded by maxArgNesting
+	// argNesting fits beside the flags and returnLine after it, in the eight
+	// bytes after the pointers.
+	argNesting int16  // recursion depth of skipParenBody's scan, bounded by maxArgNesting
 	returnLine uint32 // the line of the return returnVar came from
 }
 
@@ -427,6 +432,12 @@ func (p *scriptParser) recordBareCallAndChain(tok Token) (alone string) {
 	}
 
 	callExpr := resolverCallExpr(tok.Value, firstArg, positional)
+
+	// createObject( "component", "x" ) outside an assignment builds x as
+	// much as one inside does (readCreateObjectComponent).
+	if len(positional) == 2 && identEq(tok.Value, "createObject") && identEq(positional[0], "component") {
+		p.addInstantiation(positional[1], tok)
+	}
 
 	// hop is funcName as a Chain entry: the call with its arguments, which
 	// resolution reads an argument-sensitive return from.
@@ -2818,8 +2829,46 @@ func (p *scriptParser) returnCall(tok Token) (bare bool, call string) {
 	return false, call
 }
 
-// readNewComponent reads the component path after "new" keyword.
+// readNewComponent reads the component path after "new" keyword, and
+// records the instantiation.
 func (p *scriptParser) readNewComponent() string {
+	at := p.sc.PeekSkipComments()
+	comp := p.readNewComponentPath()
+	p.addInstantiation(comp, at)
+
+	return comp
+}
+
+// addInstantiation records that comp is built by the construction starting
+// at tok. Gated as a call is (addCall): only a parse that extracts calls
+// wants it. A look ahead that rewinds and walks the same text again records
+// the same token, which is kept once.
+func (p *scriptParser) addInstantiation(comp string, tok Token) {
+	if !p.extractCalls || comp == "" || strings.HasPrefix(comp, "$") {
+		return
+	}
+
+	in := Instantiation{Component: comp, Line: conv.Uint32(p.baseLine + tok.Line), at: tok.Offset}
+	if p.instantiations == nil {
+		p.instantiations = &[]Instantiation{}
+	}
+
+	if !slices.Contains(*p.instantiations, in) {
+		*p.instantiations = append(*p.instantiations, in)
+	}
+}
+
+// instantiationsFound is what addInstantiation recorded.
+func (p *scriptParser) instantiationsFound() []Instantiation {
+	if p.instantiations == nil {
+		return nil
+	}
+
+	return *p.instantiations
+}
+
+// readNewComponentPath reads the component path after "new" keyword.
+func (p *scriptParser) readNewComponentPath() string {
 	tok := p.sc.NextSkipComments()
 	if tok.Kind == TokString {
 		return unquote(tok.Value)
@@ -2984,6 +3033,15 @@ func (p *scriptParser) readDottedPath(tok Token) string {
 // or resolves createObject("java","class") via configured resolvers. Scanner is left at the
 // closing ) so the caller can consume it and scan for chained calls.
 func (p *scriptParser) readCreateObjectComponent() string {
+	at := p.sc.PeekSkipComments()
+	comp := p.readCreateObjectPath()
+	p.addInstantiation(comp, at)
+
+	return comp
+}
+
+// readCreateObjectPath reads what createObject's arguments name.
+func (p *scriptParser) readCreateObjectPath() string {
 	if p.sc.NextSkipComments().Kind != TokLParen {
 		return ""
 	}
@@ -4895,21 +4953,10 @@ func (p *scriptParser) scanNestedCall(tok Token) {
 // skipInstantiation consumes the component path of a `new` expression and its
 // constructor arguments, whose own contents are still scanned for calls.
 func (p *scriptParser) skipInstantiation() {
-	// The path: an identifier, then any number of `.ident` hops. A quoted path
-	// (`new "a.b.C"()`) is a single string token instead.
-	if p.sc.PeekSkipComments().Kind == TokString {
-		p.sc.NextSkipComments()
-	} else {
-		for p.sc.PeekSkipComments().Kind == TokIdent {
-			p.sc.NextSkipComments()
-
-			if p.sc.PeekSkipComments().Kind != TokDot {
-				break
-			}
-
-			p.sc.NextSkipComments() // consume .
-		}
-	}
+	// The path is read as every other `new` reads it, which records the
+	// instantiation: one in an argument list or a literal was the one kind
+	// the code map never drew.
+	p.readNewComponent()
 
 	if p.sc.PeekSkipComments().Kind == TokLParen {
 		p.skipParens()

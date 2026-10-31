@@ -9,18 +9,19 @@ import (
 
 // tagParser extracts definitions from CFML tag-based source.
 type tagParser struct {
-	src           string
-	fileURI       string
-	funcs         []FunctionDef
-	vars          []VarDef
-	componentRefs []ComponentRef
-	funcRefs      map[string][]ComponentRef // keyed by "start:end"
-	funcLinks     map[string][]DocumentLink // keyed by "start:end"
-	funcCalls     map[string][]CallSite     // keyed by "start:end"
-	links         []DocumentLink            // global scope links
-	calls         []CallSite                // global scope call sites
-	scopes        []FuncScope
-	pendingCalls  []pendingCall
+	src            string
+	fileURI        string
+	funcs          []FunctionDef
+	vars           []VarDef
+	componentRefs  []ComponentRef
+	funcRefs       map[string][]ComponentRef // keyed by "start:end"
+	funcLinks      map[string][]DocumentLink // keyed by "start:end"
+	funcCalls      map[string][]CallSite     // keyed by "start:end"
+	links          []DocumentLink            // global scope links
+	calls          []CallSite                // global scope call sites
+	instantiations []Instantiation           // what its expressions' sub-parses found built
+	scopes         []FuncScope
+	pendingCalls   []pendingCall
 	// pendingByName indexes pendingCalls by lowercased varName, for
 	// assignedSince; pendingNamed is how many it has indexed.
 	pendingByName map[string][]int
@@ -2654,6 +2655,14 @@ func (p *tagParser) mergeExpressionCalls(expr string, line int, topUp bool, offs
 		sub.resolverSet = p.resolverSet
 		sub.extractCalls = true
 		sub.parse()
+	}
+
+	// A construction is written in an expression, so the sub-parse that reads
+	// the expression is what finds it.
+	for _, in := range sub.instantiationsFound() {
+		if !slices.Contains(p.instantiations, in) {
+			p.instantiations = append(p.instantiations, in)
+		}
 	}
 
 	key := func(call *CallSite) exprCallKey {
