@@ -166,6 +166,71 @@ A `<cfif>` that spans only whole *attributes* — `<a <cfif x>href="a"<cfelse>hr
 — parses. It is putting the `>` on the branch side that fails, in both HTML and
 `<cf…>` tags.
 
+## Galaxie Blog: 15 parse errors, in 11 files
+
+[Galaxie-Blog](https://github.com/GregoryAlexander77/Galaxie-Blog) `d40017b` (417 files) is refused
+at 15 places by `clif scan`, against `tree-sitter-cfml` v0.26.43 (this repo's pin). Each was cut
+down to a standalone source and run through `clif scan` again, as above; none of this was checked
+against RustCFML or an engine, so "invalid source" below means the source is plainly malformed, not
+that an engine rejects it.
+
+**Three new grammar gaps, not yet filed** (A and B below, C after the table).
+
+*A. `<!--` inside a CFML comment* (3 errors: `admin/adminInterface/postScene.cfm:17`,
+`sceneDetail.cfm:34`, `common/cfc/Renderer.cfc:196`). Fails; the same comment with `("</")` alone
+parses:
+
+```cfml
+<!--- a ("<!--") b --->
+<cfset x = 1>
+```
+
+*B. `</script` followed by anything in a `<script>` body* (1 error: `includes/templates/blogJsContent.cfm:2018`,
+the string `'</script'` at line 2139). The grammar ends the element at the first `</script`. HTML
+ends it only when those letters are followed by whitespace, `/` or `>`:
+
+```cfml
+<script>
+var s = '</scripty';
+</script>
+```
+
+`'</script'` in a comment (`// a '</script' b`) fails the same way.
+
+**Already filed as [#119](https://github.com/cfmleditor/tree-sitter-cfml/issues/119)** (a start
+tag or element whose structure is split across `<cfif>` branches; 2 errors):
+
+- `includes/templates/blogContentCss.cfm:58`: `<cfif not standAlone><style><cfelse>…`, the `<style>`
+  opened in one branch only. Repro: `<cfif a><style><cfelse><cfcontent type="text/css" /></cfif>`.
+- `galaxiePlayer.cfm:219` (reported on the `<cfif>` after `</style>`): an attribute quote opened
+  inside a `<cfif>` and closed after it, `<video <cfif a>poster="<cfoutput>#u#</cfoutput></cfif>" id="p">`.
+  Without the `poster=` line the file's other `<cfif>`s inside the `<video>` tag parse.
+
+**Invalid source, nothing to file** (6 errors):
+
+| Where | What |
+|---|---|
+| `Application.cfc:430`, `:440` | `<cfset … / >`: a space between `/` and `>` |
+| `common/db/importBlogCfc.cfm:454` | `<cfparam name"x" …>`: no `=` |
+| `common/db/importBlogCfc.cfm:941` | `</cftry>` with no `<cftry>` before it (the only open tag is at 1069) |
+| `admin/adminInterface/themeSettings.cfm:2919` | `<input …` never closed with `>` |
+| `includes/postContent/entry/webp.cfm:118` | `</p` with no `>` |
+
+**The third new gap**, the last 3 errors (3 + 1 + 2 + 6 + 3 = 15) (`common/cfc/Renderer.cfc:3061`, 2 errors, and
+`common/cfc/StringUtils.cfc:20`):
+
+*C. A string holding `<!--<` followed anywhere later by a comment.* The comment can be CFML or HTML;
+the string's tag-shaped text is what matters (`"<!--x"` and `"<a"` alone are fine):
+
+```cfml
+<cfset s = "<!--<a">
+<!--- c --->
+```
+
+This is `replaceNoCase( s, "<!--<attachScript", "<script", "all" )` in Galaxie's script-protection
+helpers. Neutralising gap A's comment in `Renderer.cfc` left the line 3061 errors in place, so
+C is independent of A.
+
 ## Shrank poorly: twelve files still to reduce
 
 These reproduce, but `make shrink` could not isolate a small fragment — the
