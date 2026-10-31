@@ -444,8 +444,15 @@ func scanFile(opts *Options, root, file, fingerprint string) *FileGraph {
 		return res
 	}
 
-	sum := sha256.Sum256(data)
-	hash := hex.EncodeToString(sum[:])
+	// The key holds the path as well as the content: what a file's graph says is
+	// a function of where it is (its node ids, and every path resolved from its
+	// directory), so two byte-identical files are two entries. Keyed on content
+	// alone, the second served the first's graph and dropped out of the map.
+	h := sha256.New()
+	h.Write([]byte(file))
+	h.Write([]byte{0})
+	h.Write(data)
+	hash := hex.EncodeToString(h.Sum(nil))
 
 	if opts.Cache != nil {
 		if cached, ok := opts.Cache.Load(fingerprint, hash); ok {
