@@ -260,8 +260,9 @@ never offered to the scanner);
 [#177](https://github.com/cfmleditor/tree-sitter-cfml/issues/177) (a literal `<` before a hash expression,
 `<span><#c#</span>`, is read as an unclosed dynamic tag; MuraCMS's setup form; reduced, not fixed);
 [#175](https://github.com/cfmleditor/tree-sitter-cfml/issues/175) tracks the corpus scan's remaining errors, and
-every one of its five largest clusters is now accounted for: one real gap (#176, fixed), one more (#177), two already
-filed (#75, BoxLang's `static foo = …` is out of scope), the rest malformed source or raw JavaScript in a `.cfm`.
+every one of its five largest clusters is now accounted for: one real gap (#176, fixed), one more (#177), one that is
+the existing #75 (`(s)=>return s`), BoxLang's `static foo = …` (out of scope, not filed), and the rest malformed
+source or raw JavaScript in a `.cfm`.
 One open question there: two files end with an unclosed `<cfscript>`, which Lucee's own test suite includes; whether
 an engine accepts that has not been checked. clif#317 is the path-spelling difference in
 `unresolved`, clif#318 the grammar bump.
