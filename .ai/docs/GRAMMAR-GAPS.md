@@ -254,7 +254,8 @@ What remains is the 8: 2 are #119 (`blogContentCss.cfm`, `galaxiePlayer.cfm`; no
 [#174](https://github.com/cfmleditor/tree-sitter-cfml/issues/174) (C), fixed on the branch above;
 [#119](https://github.com/cfmleditor/tree-sitter-cfml/issues/119) (Galaxie's two shapes added as a comment);
 [#176](https://github.com/cfmleditor/tree-sitter-cfml/issues/176) (a tag comment after `cflock(…){ }`, found
-reducing the corpus; not fixed, with notes on what was ruled out);
+reducing the corpus; fixed on the same branch: the tag statement demanded a `;` after its block, so the comment was
+never offered to the scanner);
 [#75](https://github.com/cfmleditor/tree-sitter-cfml/issues/75) (`(s)=>return s` added as a comment);
 [#175](https://github.com/cfmleditor/tree-sitter-cfml/issues/175) tracks what the corpus scan still reports and has
 not been reduced (the `<cfoutput>` cluster and Lucee's `form.cfm`). clif#317 is the path-spelling difference in
