@@ -695,6 +695,15 @@ cannot parse (tree-sitter-cfml#174, fixed upstream, unreleased), and `formatMone
 `<cfreturn "… #…# …">` at `TestUtility.cfc:285`, which the grammar does see when that line is cut out of the file
 and parsed alone; why it misses them in place was not found.
 
-**Open: a call in a string inside `<cfif>`, `<cfelseif>` or `<cfreturn>` is recorded twice**
-(`<cfreturn "a #f(1)# b">`, `<cfif x eq "#f(1)#">`): the expression scan and the `#…#` span scan both record it. `<cfset>`
-avoids it by subtracting what is already recorded, which the notes say is wrong for a span. Not fixed.
+**A call in a string inside `<cfif>`, `<cfelseif>` or `<cfreturn>` was recorded twice** (clif#320):
+`<cfreturn "a #f(1)# b">`, `<cfif x eq "#f(1)#">`. The span scan over the whole tag records the call before the
+handler runs, and the handler's expression scan found it again. `<cfset>` already subtracted what was recorded; these
+three did not, and the notes here say doing it for a span is wrong because `#f("a")# #f("b")#` is two calls. That holds
+for subtracting by name and line. `scanConditionCalls` subtracts by source span (`exprSubtract`, beside `exprTopUp`,
+without `<cfset>`'s member-assignment handling), so two calls of one name keep their own spans and both stay.
+`TestACallInAStringInATagConditionIsRecordedOnce` fails without it on seven of nine cases; the controls (two spans on one
+line, a call beside a span of the same name, two calls in a condition) pass either way.
+
+Per entry against the build before: MuraCMS 2,288 -> 2,280 (8 duplicates, no other change); Slatwall 7,542 -> 7,533
+(9 duplicates, and one "N inherited calls not checked" count that counted two of them: 9 -> 7); Galaxie, ContentBox,
+Preside, cfwheels, Lucee and ColdBox unchanged.

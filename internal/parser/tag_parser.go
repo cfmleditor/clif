@@ -702,7 +702,7 @@ func (p *tagParser) dispatchCFTag(ch byte, tag string, idx, tagEnd, line int) {
 			// recorded nothing while the same test in script syntax
 			// recorded the call.
 			body := tagBody(tag)
-			p.scanExpressionCalls(body, bodyLine(tag, body, line), idx+strings.Index(tag, body))
+			p.scanConditionCalls(body, bodyLine(tag, body, line), idx+strings.Index(tag, body))
 		}
 	case 'e':
 		// 'e' is admitted for this one tag, the way 'l' is for <cfloop>.
@@ -711,7 +711,7 @@ func (p *tagParser) dispatchCFTag(ch byte, tag string, idx, tagEnd, line int) {
 		// half of every if/else chain in tag syntax has no calls in it.
 		if hasCFTagPrefix(tag, "<cfelseif") {
 			body := tagBody(tag)
-			p.scanExpressionCalls(body, bodyLine(tag, body, line), idx+strings.Index(tag, body))
+			p.scanConditionCalls(body, bodyLine(tag, body, line), idx+strings.Index(tag, body))
 		}
 	case 'r':
 		if hasCFTagPrefix(tag, "<cfreturn") {
@@ -1181,7 +1181,7 @@ func (p *tagParser) parseCFSet(tag string, line, offset int) {
 		}
 	}
 
-	p.mergeExpressionCalls(inner, line, true, origin, before)
+	p.mergeExpressionCalls(inner, line, exprTopUp, origin, before)
 }
 
 // setAssign handles the assignment a <cfset> holds, whose calls
@@ -1394,7 +1394,7 @@ func (p *tagParser) parseCFReturn(tag string, line int, offsets ...int) {
 	// so the scan happens before every early exit below. `<cfreturn
 	// svc.value()>` used to record nothing.
 	if len(offsets) > 0 {
-		p.scanExpressionCalls(inner, bodyLine(tag, inner, line), offsets[0]+strings.Index(tag, inner))
+		p.scanConditionCalls(inner, bodyLine(tag, inner, line), offsets[0]+strings.Index(tag, inner))
 	} else {
 		p.scanExpressionCalls(inner, bodyLine(tag, inner, line))
 	}
@@ -2570,8 +2570,40 @@ func (p *tagParser) scanInterpolatedText(text string, offset int) {
 // sub-parse also produces belong to whatever the tag handler already recorded
 // for them, and taking them here would record each one twice.
 func (p *tagParser) scanExpressionCalls(expr string, line int, offsets ...int) {
-	p.mergeExpressionCalls(expr, line, false, offsets...)
+	p.mergeExpressionCalls(expr, line, exprPlain, offsets...)
 }
+
+// scanConditionCalls is scanExpressionCalls for a tag whose expression can hold
+// a string with a `#…#` span in it (`<cfif x eq "#f( 1 )#">`, `<cfreturn "a #f( 1 )#">`).
+// The span scan over the whole tag has recorded that call before the tag's
+// handler runs, and the expression scan would record it again. Calls the
+// expression finds that are already recorded at the same source span are
+// dropped; a call with no match is kept, so `#f( "a" )# #f( "b" )#` stays two.
+func (p *tagParser) scanConditionCalls(expr string, line, origin int) {
+	p.mergeExpressionCalls(expr, line, exprSubtract, origin, p.bucketLen())
+}
+
+// bucketLen is how many calls the bucket the tag parser is filling holds.
+func (p *tagParser) bucketLen() int {
+	if p.inFunc != "" {
+		return len(p.funcCalls[p.inFunc])
+	}
+
+	return len(p.calls)
+}
+
+// exprMode says what mergeExpressionCalls does with calls recorded already.
+type exprMode uint8
+
+const (
+	// exprPlain records every call the expression holds.
+	exprPlain exprMode = iota
+	// exprTopUp is <cfset>'s: the string paths ran first and carry the refs, so
+	// what they recorded is subtracted, and member assignments are kept.
+	exprTopUp
+	// exprSubtract subtracts what is recorded but keeps no member assignments.
+	exprSubtract
+)
 
 // Only <cfset> needs this. A #...# span and a <cfif> condition have nothing
 // recorded before them, and deduping there is actively wrong: two
@@ -2622,12 +2654,13 @@ func takeCounted(have map[exprCallKey]int, k exprCallKey) bool {
 	return true
 }
 
-func (p *tagParser) mergeExpressionCalls(expr string, line int, topUp bool, offsets ...int) {
+func (p *tagParser) mergeExpressionCalls(expr string, line int, mode exprMode, offsets ...int) {
 	if !p.extractCalls {
 		return
 	}
 
-	memberSets := topUp && hasMemberSetShape(expr)
+	topUp := mode != exprPlain
+	memberSets := mode == exprTopUp && hasMemberSetShape(expr)
 	calls := strings.IndexByte(expr, '(') >= 0
 
 	if !calls {
