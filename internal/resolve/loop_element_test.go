@@ -143,3 +143,48 @@ func TestALoopOverADynamicReceiversResultIsDynamic(t *testing.T) {
 		"thisPage.getContentID": "",
 	})
 }
+
+// A literal HQL query that selects an entity returns an array of that entity,
+// as entityLoad of the same name does. Galaxie Blog loads a booking with
+// `ormExecuteQuery( "FROM Booking WHERE BookingId = :id", { id = … } )` and
+// reads `found[1]`, and a loop over `ormExecuteQuery( "FROM Post" )`.
+func TestALiteralHQLQueryTypesTheEntitiesItReturns(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{
+		"models/Item.cfc":  `component persistent="true" entityname="QueriedItem" { function ready(){} }`,
+		"models/Plain.cfc": `component { function ready(){} }`,
+		"Use.cfc": `component { function run(){
+   for(var row in ormExecuteQuery("FROM QueriedItem WHERE id = :id", {id=1})){ row.ready(); row.missing(); }
+   for(var aliased in ormExecuteQuery("SELECT i FROM QueriedItem i ORDER BY i.id")){ aliased.ready(); }
+   for(var plain in ormExecuteQuery("FROM QueriedItem")){ plain.ready(); }
+   for(var projected in ormExecuteQuery("SELECT i.name FROM QueriedItem i")){ projected.ready(); }
+   for(var joined in ormExecuteQuery("FROM QueriedItem i JOIN i.parent p")){ joined.ready(); }
+   for(var unique in ormExecuteQuery("FROM QueriedItem", {}, true)){ unique.ready(); }
+   for(var computed in ormExecuteQuery("FROM QueriedItem WHERE id = #id#")){ computed.ready(); }
+   for(var unregistered in ormExecuteQuery("FROM NotRegistered")){ unregistered.ready(); }
+   for(var notEntity in ormExecuteQuery("FROM Plain")){ notEntity.ready(); }
+  } }`,
+		"Tag.cfc": `<cfcomponent>
+<cffunction name="load">
+	<cfset var found = []>
+	<cfset var e = "">
+	<cfif cond>
+		<cfset found = ormExecuteQuery("FROM QueriedItem WHERE id = :id", { id = 1 })>
+	</cfif>
+	<cfset e = found[1]>
+	<cfset e.ready()>
+	<cfset e.missing()>
+</cffunction>
+</cfcomponent>`,
+	})
+	expectReasons(t, reasonsWith(t, &Resolver{}, dir, "Tag.cfc"), map[string]string{
+		"e.ready": "", "e.missing": "method 'missing' not found in Item",
+	})
+	expectReasons(t, reasonsWith(t, &Resolver{}, dir, "Use.cfc"), map[string]string{
+		"row.ready": "", "row.missing": "method 'missing' not found in Item",
+		"aliased.ready": "", "plain.ready": "",
+		"projected.ready": "variable 'projected' has no component ref", "joined.ready": "variable 'joined' has no component ref",
+		"unique.ready": "variable 'unique' has no component ref", "computed.ready": "variable 'computed' has no component ref",
+		"unregistered.ready": "variable 'unregistered' has no component ref", "notEntity.ready": "variable 'notEntity' has no component ref",
+	})
+}

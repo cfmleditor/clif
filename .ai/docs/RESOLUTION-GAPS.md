@@ -1554,3 +1554,16 @@ component through the application scope it was stored in; `Application.cfc:633` 
 `Events.cfc`) and `html` (63, in `WebForms.cfc` and `Events.cfc`). Why those stay untyped has not been investigated.
 Mapping the component paths with `expressionMappings` does not help the included pages and makes `application.blog`
 worse (100 -> 172, since it then types and exposes missing methods), so it is not a substitute for this.
+
+### Galaxie Blog: a literal HQL query is an array of its entity
+
+`found = ormExecuteQuery( "FROM Booking WHERE BookingId = :id", { id = … } )` and then `e = found[1]`, or a loop over
+`ormExecuteQuery( "FROM Post" )`, is Galaxie's ORM idiom (121 calls); the entity's accessors read as "no component ref".
+`queriedEntityElement` (`collection_callbacks.go`) gives such a query the element type `entityLoad` of the same name
+has, through the same `elementOf` path. It admits a literal query with no `#`, one argument or one plus a struct or
+array of parameters, `FROM Entity [alias] …`, or `SELECT alias FROM Entity alias …`, and requires the entity in the
+ORM metadata. A projection (`SELECT i.name`), a join (tuples), a second entity in the FROM list, a boolean argument
+(`unique`) and a computed query name nothing. `TestALiteralHQLQueryTypesTheEntitiesItReturns` fails without it.
+
+Per entry against the previous build: Galaxie 1,081 -> 879 (202 removed, none added); Slatwall 7,592 -> 7,542 (50
+removed, none added); MuraCMS, ContentBox, Preside and cfwheels identical.
