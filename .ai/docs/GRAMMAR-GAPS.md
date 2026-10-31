@@ -301,3 +301,17 @@ dependencies, about 35 seconds — that mirrors `crates/cfml-vm/src/lib.rs`'s
 parse pipeline, and run it over the same file list. It parses the whole corpus
 in under a second, so the comparison is cheap enough to repeat whenever the
 grammar is bumped.
+
+### Taken: tree-sitter-cfml v0.26.44
+
+The pin moved from v0.26.43 to v0.26.44, which carries the four fixes above (cfmleditor/tree-sitter-cfml#172, #173,
+#174, #176; released as v0.26.44, `6ea9e53`). `injections.scm` is identical at the new tag.
+
+Measured against the old pin on the same `main`:
+
+- `clif scan` on Galaxie Blog: **15 parse errors -> 8** (the remaining 8 are #119 and malformed source, above).
+- The formatter corpus (17,567 files: the `tree-sitter-cfml` corpus and Galaxie), per file with `make corpus BASELINE=`:
+  **seven files change verdict, all refused -> clean, none the other way**: Galaxie's `postScene.cfm`, `sceneDetail.cfm`,
+  `Renderer.cfc`, `StringUtils.cfc` and `blogJsContent.cfm`, plus Lucee's `test/functions/DirectoryCreate.cfc` and
+  RustCFML's `bench/ws/probe.cfm` (#176). Galaxie: 406 -> 411 clean.
+- `go test -short ./cmd/... ./internal/...` and `golangci-lint` pass.
