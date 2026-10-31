@@ -156,20 +156,7 @@ func (r *Resolver) assignedFromCall(variable string, line uint32, caller string,
 		return ""
 	}
 
-	// An element of a registry a component registry recipe fills: the struct
-	// the listing loop stores components in, whose elements are the family
-	// the loop's package holds. Before the call-chain typing below, which is
-	// the other thing a right-hand side can be.
-	if comp := r.registryElementRes(rhs, pr, tr); comp != "" {
-		return comp
-	}
-
-	// An element read under a key the assignment spells —
-	// `field = fields[idx]` — is the element of the collection the read
-	// indexes, whose contract elementOf answers. Only a read that is a
-	// keyed element and nothing else: a chain that starts at one runs on
-	// the element, and the chain's own hops answer for the read.
-	if comp := r.assignedKeyedElement(variable, rhs, line, evalCaller, pr, baseDir, tr, depth, ctx.leaf); comp != "" {
+	if comp := r.assignedShape(variable, rhs, line, evalLine, evalCaller, pr, baseDir, tr, ctx); comp != "" {
 		return comp
 	}
 
@@ -243,6 +230,35 @@ func (r *Resolver) assignedFromCall(variable string, line uint32, caller string,
 	}
 
 	return answer
+}
+
+// assignedShape is what a right-hand side of one of three shapes holds: a
+// conditional, the union of its branches; an element of a registry a
+// component registry recipe fills; or an element read under a key the
+// assignment spells. "" when it is none of them, or holds nothing known.
+func (r *Resolver) assignedShape(variable, rhs string, line, evalLine uint32, evalCaller string, pr *parser.ParseResult, baseDir string, tr *callTrace, ctx lookupCtx) string {
+	// `x = cond ? a : b`. Without an answer the rules below may still read
+	// it: an element read that falls back to null is the registry's.
+	if branches, ok := ternaryBranches(rhs); ok {
+		if comp := r.assignedTernary(variable, branches, evalLine, evalCaller, pr, baseDir, tr, ctx); comp != "" {
+			return comp
+		}
+	}
+
+	// An element of a registry a component registry recipe fills: the struct
+	// the listing loop stores components in, whose elements are the family
+	// the loop's package holds. Before the call-chain typing, which is the
+	// other thing a right-hand side can be.
+	if comp := r.registryElementRes(rhs, pr, tr); comp != "" {
+		return comp
+	}
+
+	// An element read under a key the assignment spells —
+	// `field = fields[idx]` — is the element of the collection the read
+	// indexes, whose contract elementOf answers. Only a read that is a
+	// keyed element and nothing else: a chain that starts at one runs on
+	// the element, and the chain's own hops answer for the read.
+	return r.assignedKeyedElement(variable, rhs, line, evalCaller, pr, baseDir, tr, ctx.depth, ctx.leaf)
 }
 
 // typeCallExpr is the component(s) the single call rhs (`receiver.method( … )`)

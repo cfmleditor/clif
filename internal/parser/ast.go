@@ -279,6 +279,17 @@ type DocumentLink struct {
 	End   uint32 // character offset of path end
 }
 
+// Instantiation is a component the source builds: `new X()` or
+// createObject("component", "X"), wherever it is written. It is what the code
+// map's instantiates edge comes from; a ComponentRef says what a variable
+// holds, which a call's return or a resolver may decide as well.
+type Instantiation struct {
+	Component string
+	Line      uint32
+
+	at int // where it is written, relative to the parse that found it: two on one line differ
+}
+
 // CallSite represents a location where a function is called.
 type CallSite struct {
 	FuncName  string // the function being called

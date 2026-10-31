@@ -35,6 +35,7 @@ type ParseResult struct {
 	Delegates           []Delegate                              // WireBox delegations the component declares
 	Links               []DocumentLink                          // file path references extracted during shallow scan
 	Calls               []CallSite                              // function call sites (when FindCalls is set)
+	Instantiations      []Instantiation                         // components built, with calls extracted; a fresh parse's lines
 	log                 Logger                                  // optional logger for timing and errors
 	Resolvers           []Resolver                              // optional component resolvers for RHS matching
 	resolverSet         *ResolverSet                            // pre-grouped resolvers for fast matching
@@ -631,6 +632,8 @@ func (pr *ParseResult) mergeScriptRegion(r *Region, tagScopes []FuncScope, open 
 		pr.funcCallsMap = appendKeyed(pr.funcCallsMap, k, calls)
 	}
 
+	pr.Instantiations = append(pr.Instantiations, sp.instantiationsFound()...)
+
 	pr.dropCallsIndex()
 
 	if sp.extends != "" {
@@ -766,25 +769,7 @@ func (pr *ParseResult) mergeTagRegion(r *Region, tagScopes []FuncScope, open *op
 		}
 	}
 
-	// Merge calls from tag parser
-	if r.StartLine > 0 {
-		for i := range tp.calls {
-			tp.calls[i].Line += conv.Uint32(r.StartLine)
-		}
-	}
-
-	pr.Calls = append(pr.Calls, tp.calls...)
-	for k, calls := range tp.funcCalls {
-		if r.StartLine > 0 {
-			k = shiftFuncKey(k, r.StartLine)
-
-			for i := range calls {
-				calls[i].Line += conv.Uint32(r.StartLine)
-			}
-		}
-
-		pr.funcCallsMap = appendKeyed(pr.funcCallsMap, k, calls)
-	}
+	pr.mergeTagCalls(tp, r.StartLine)
 
 	pr.dropCallsIndex()
 
@@ -801,6 +786,35 @@ func (pr *ParseResult) mergeTagRegion(r *Region, tagScopes []FuncScope, open *op
 	}
 
 	return tp.pendingCalls
+}
+
+// mergeTagCalls takes the calls and instantiations a tag region's parser
+// recorded, its lines moved from the region's to the file's.
+func (pr *ParseResult) mergeTagCalls(tp *tagParser, startLine int) {
+	if startLine > 0 {
+		for i := range tp.calls {
+			tp.calls[i].Line += conv.Uint32(startLine)
+		}
+	}
+
+	pr.Calls = append(pr.Calls, tp.calls...)
+
+	for _, in := range tp.instantiations {
+		in.Line += conv.Uint32(startLine)
+		pr.Instantiations = append(pr.Instantiations, in)
+	}
+
+	for k, calls := range tp.funcCalls {
+		if startLine > 0 {
+			k = shiftFuncKey(k, startLine)
+
+			for i := range calls {
+				calls[i].Line += conv.Uint32(startLine)
+			}
+		}
+
+		pr.funcCallsMap = appendKeyed(pr.funcCallsMap, k, calls)
+	}
 }
 
 // enclosingTagScope is the tag function a region starting at startLine opens
@@ -1124,6 +1138,18 @@ func (pr *ParseResult) applyExpressionMappings() {
 
 		pr.funcCallsMap[k] = calls
 	}
+
+	// A path built at run time builds whatever the program picks; the map
+	// draws no edge to it.
+	kept := pr.Instantiations[:0]
+
+	for _, in := range pr.Instantiations {
+		if in.Component = pr.replaceExpressions(in.Component); in.Component != "$any" {
+			kept = append(kept, in)
+		}
+	}
+
+	pr.Instantiations = kept
 }
 
 // ExpressionMappingOrder returns the keys of an expressionMappings block in the

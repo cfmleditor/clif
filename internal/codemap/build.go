@@ -555,24 +555,50 @@ func (res *FileGraph) addExtends(cfg *FileConfig, pr *parser.ParseResult, rel, b
 	res.Edges = append(res.Edges, Edge{From: FileID(rel), To: to, Kind: EdgeExtends, Count: 1})
 }
 
+// addRefs draws an instantiates edge for every component a component-level
+// variable is given (an injected property among them, which is how a WireBox
+// service holds its dependencies) and for every component the file builds.
+//
+// The refs alone were not enough: `var s = new Svc()` and an inline `new
+// Svc().handle()` are not component-level, and drew no edge (#308). A
+// construction already drawn through its ref, on the same line, is not
+// counted twice.
 func (res *FileGraph) addRefs(cfg *FileConfig, pr *parser.ParseResult, rel, baseDir, root string) {
-	for i := range pr.ComponentRefs {
-		ref := &pr.ComponentRefs[i]
-		if ref.Component == "" || ref.Component == "$any" {
-			continue
-		}
+	type site struct {
+		line uint32
+		comp string
+	}
 
-		to, ok := res.targetFile(cfg, ref.Component, baseDir, root)
+	built := make(map[site]bool, len(pr.Instantiations))
+	for i := range pr.Instantiations {
+		built[site{pr.Instantiations[i].Line, strings.ToLower(pr.Instantiations[i].Component)}] = true
+	}
+
+	edge := func(component string, line uint32) {
+		to, ok := res.targetFile(cfg, component, baseDir, root)
 		if !ok {
-			continue
+			return
 		}
 
 		res.Edges = append(res.Edges, Edge{
-			From:  res.callerID(pr, rel, ref.Line),
+			From:  res.callerID(pr, rel, line),
 			To:    to,
 			Kind:  EdgeInstantiates,
 			Count: 1,
 		})
+	}
+
+	for i := range pr.ComponentRefs {
+		ref := &pr.ComponentRefs[i]
+		if ref.Component == "" || ref.Component == "$any" || built[site{ref.Line, strings.ToLower(ref.Component)}] {
+			continue
+		}
+
+		edge(ref.Component, ref.Line)
+	}
+
+	for i := range pr.Instantiations {
+		edge(pr.Instantiations[i].Component, pr.Instantiations[i].Line)
 	}
 }
 
