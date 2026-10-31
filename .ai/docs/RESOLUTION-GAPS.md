@@ -1548,7 +1548,9 @@ withholds, so the old behaviour stays for those. `TestATemplateReadsADynamicValu
 Per entry against the previous build: Galaxie 1,578 -> 1,081 (497 removed, none added); MuraCMS, ContentBox, Slatwall,
 Preside and cfwheels (scanned from the `tree-sitter-cfml` corpus checkouts, no project configs) identical.
 
-What is left there is mostly `application.blog` (100, the same `#application.blogComponentPath#` idiom through
-`createObject`, a different path), `e` (98) and `html` (63). Mapping the component paths with `expressionMappings`
-does not help the included pages and makes `application.blog` worse (100 -> 172, since it then types and exposes
-missing methods), so it is not a substitute for this.
+What is left there is mostly `application.blog` (100: 90 inside `org/camden/blog/blog.cfc` itself, reading the
+component through the application scope it was stored in; `Application.cfc:633` assigns it from
+`createObject("component", "#application.blogComponentPath#").init(blogname)`), `e` (98, in `Bookings.cfc` and
+`Events.cfc`) and `html` (63, in `WebForms.cfc` and `Events.cfc`). Why those stay untyped has not been investigated.
+Mapping the component paths with `expressionMappings` does not help the included pages and makes `application.blog`
+worse (100 -> 172, since it then types and exposes missing methods), so it is not a substitute for this.
