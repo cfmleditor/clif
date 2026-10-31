@@ -315,3 +315,22 @@ Measured against the old pin on the same `main`:
   `Renderer.cfc`, `StringUtils.cfc` and `blogJsContent.cfm`, plus Lucee's `test/functions/DirectoryCreate.cfc` and
   RustCFML's `bench/ws/probe.cfm` (#176). Galaxie: 406 -> 411 clean.
 - `go test -short ./cmd/... ./internal/...` and `golangci-lint` pass.
+
+### Decision: #119 and #177 stay unsupported
+
+The 8 parse errors left on Galaxie Blog after tree-sitter-cfml v0.26.44 are, by decision, not going to be fixed in
+the grammar for now:
+
+- **2 are the #119 class**, a tag whose structure is split across `<cfif>` branches
+  (`includes/templates/blogContentCss.cfm`: an element opened in one branch; `galaxiePlayer.cfm`: an attribute quote
+  that spans a `</cfif>`). The grammar repo measured a fix and reverted it, because every rule shape that makes the
+  construct parse breaks the spelling that parses today, and recorded the shapes as probes (`fail` on purpose) and in
+  its `LIMITATIONS.md` (cfmleditor/tree-sitter-cfml#180).
+- **#177**, a literal `<` before a hash expression (`<span><#context#/index.cfm/[siteid]?</span>`, MuraCMS's
+  `core/setup/inc/_form.cfm`), was reduced but needs start-tag-name scanning restructured for one corpus file, and is
+  recorded the same way. It does not occur in Galaxie.
+- **6 are malformed source**, listed in the table above.
+
+Both issues stay open so the question can be reopened. In clif the consequence is the same as for any file the grammar
+refuses: `clif scan` reports it and the formatter declines the file, and the file's calls are still read by the
+line-scanning parser (`internal/parser`), which does not use the grammar.
