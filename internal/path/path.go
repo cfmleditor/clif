@@ -21,7 +21,35 @@ var DefaultFS vfs.FS = vfs.OS{}
 var (
 	appMappingsCache   = make(map[string]map[string]string)
 	appMappingsCacheMu sync.RWMutex
+
+	// probeReads is what probeRead has read, by path.
+	probeReads sync.Map
 )
+
+type probeResult struct {
+	text string
+	err  error
+}
+
+// probeRead is DefaultFS.ReadFile, remembered until
+// InvalidateAppMappingsCache, as the mappings read through it are. Working
+// out an application's mappings walks every directory above it and reads a
+// dozen framework marker files in each, twice (bootstrapMappings, directly
+// and for the parent lookup), and the applications of one workspace share
+// those directories: 30% of a batch scan of Lucee's 379 applications was
+// opening the same missing files again.
+func probeRead(path string) ([]byte, error) {
+	if held, ok := probeReads.Load(path); ok {
+		r, _ := held.(probeResult)
+
+		return []byte(r.text), r.err
+	}
+
+	data, err := DefaultFS.ReadFile(path)
+	probeReads.Store(path, probeResult{text: string(data), err: err})
+
+	return data, err
+}
 
 // ParseApplicationMappings delegates to parser.ParseApplicationMappings.
 func ParseApplicationMappings(content string, appDir string) map[string]string {
@@ -76,9 +104,9 @@ func LoadAppMappingsWithInitial(appDir string, initial map[string]string) map[st
 
 	appMappingsCacheMu.RUnlock()
 
-	m := bootstrapMappings(appDir, initial, DefaultFS.ReadFile)
+	m := bootstrapMappings(appDir, initial, probeRead)
 
-	app := ApplicationMappingSources(filepath.Join(appDir, "Application.cfc"), initial, DefaultFS.ReadFile)
+	app := ApplicationMappingSources(filepath.Join(appDir, "Application.cfc"), initial, probeRead)
 	for _, name := range []string{"Application.cfc", "Application.cfm"} {
 		file := filepath.Join(appDir, name)
 		if _, err := DefaultFS.Stat(file); err != nil {
@@ -86,7 +114,7 @@ func LoadAppMappingsWithInitial(appDir string, initial map[string]string) map[st
 		}
 
 		if name != "Application.cfc" {
-			app = ApplicationMappingSources(file, initial, DefaultFS.ReadFile)
+			app = ApplicationMappingSources(file, initial, probeRead)
 		}
 
 		maps.Copy(m, app)
@@ -157,6 +185,7 @@ func InvalidateAppMappingsCache() {
 	appMappingsCacheMu.Lock()
 	appMappingsCache = make(map[string]map[string]string)
 	appMappingsCacheMu.Unlock()
+	probeReads.Clear()
 }
 
 // ParseAppBeanPaths delegates to parser.ParseAppBeanPaths.
