@@ -1510,3 +1510,16 @@ with `.` and 11 only with the absolute path (the 140: `getConfigBean` chains 50,
 `compare` 65, in `common/` and `org/`). One scan should not change with how its root is named, so
 the report uses the absolute path, as `scripts/resolution-report.sh` passes it, until the cause
 is found. Not investigated further.
+
+### Galaxie Blog after PRs #314-#316 (869db96)
+
+Same checkout, same absolute-path scan, compared per entry with the baseline above:
+`unresolved` **3,752 -> 1,578** (2,174 removed, 0 added; 7,861 resolved). Every removed entry was
+`variable '_' has no component ref` on an `application.` call (`application.Udf.isLoggedIn`,
+`application.blog.flushGalaxieCache`, ...), which is #315 (a tag-syntax shared-scope assignment
+types its variable) reaching a tag-heavy codebase. `make corpus` with the baseline: no file changed
+verdict (405 clean, 11 grammar-refused, 1 guard-rejected). `gapcheck` passes.
+`go test -short ./cmd/... ./internal/...` passes.
+
+The path-spelling difference remains: `clif unresolved .` reports 1,707 (7,732 resolved), the absolute
+path 1,578, the same 129-finding gap as before.
