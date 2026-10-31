@@ -134,7 +134,8 @@ func (r *Resolver) localAssignmentIn(pr *parser.ParseResult, name string, start,
 // statement runs on to it: while a parenthesis is open, and while the line
 // carries the chain on. `x = $.getBean( "feed" )` over a line each for
 // `.loadBy( … )` and `.getIterator()` is the iterator, not the bean its first
-// line names. In a <cfset> the chain's last line holds the tag's end, which
+// line names. A conditional runs on while a line ends or starts with its
+// `?` or `:`. In a <cfset> the chain's last line holds the tag's end, which
 // is left off as the first line's is.
 func joinAssignmentLine(rhs, line string, tag bool) (string, bool) {
 	next := trimAssignmentRHS(line)
@@ -142,6 +143,14 @@ func joinAssignmentLine(rhs, line string, tag bool) (string, bool) {
 	switch {
 	case strings.Count(rhs, "(") > strings.Count(rhs, ")"):
 		return strings.TrimSpace(rhs + " " + next), true
+	case strings.HasSuffix(rhs, "?") || strings.HasSuffix(rhs, ":") && !strings.HasSuffix(rhs, "::") ||
+		strings.HasPrefix(next, "?") || strings.HasPrefix(next, ":") && !strings.HasPrefix(next, "::"):
+		// A conditional written a branch to a line.
+		if tag {
+			next = trimAssignmentRHS(strings.TrimSuffix(next, ">"))
+		}
+
+		return rhs + " " + next, true
 	case strings.HasPrefix(next, ".") && !strings.HasPrefix(next, ".."):
 		if tag {
 			next = trimAssignmentRHS(strings.TrimSuffix(next, ">"))

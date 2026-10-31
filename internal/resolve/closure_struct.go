@@ -327,7 +327,6 @@ const (
 // else. A ternary is the weaker of its two branches.
 func returnKind(tokens []parser.Token, from, end int, pr *parser.ParseResult) retKindT {
 	stop := from
-	question, colon := -1, -1
 
 	for depth := 0; stop < end; stop++ {
 		switch tokens[stop].Kind {
@@ -335,14 +334,6 @@ func returnKind(tokens []parser.Token, from, end int, pr *parser.ParseResult) re
 			depth++
 		case parser.TokRParen, parser.TokRBrace, parser.TokRBracket:
 			depth--
-		case parser.TokQuestion:
-			if depth == 0 && question < 0 {
-				question = stop
-			}
-		case parser.TokColon:
-			if depth == 0 && question >= 0 && colon < 0 {
-				colon = stop
-			}
 		default:
 		}
 
@@ -355,8 +346,8 @@ func returnKind(tokens []parser.Token, from, end int, pr *parser.ParseResult) re
 		}
 	}
 
-	if question >= 0 && colon > question {
-		a, b := headKind(tokens, question+1, pr), headKind(tokens, colon+1, pr)
+	if question, colon := conditionalAt(tokens[from:stop]); question >= 0 && colon > question {
+		a, b := headKind(tokens, from+question+1, pr), headKind(tokens, from+colon+1, pr)
 		if a == retOther || b == retOther {
 			return retOther
 		}

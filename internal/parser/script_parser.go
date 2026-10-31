@@ -2648,6 +2648,12 @@ func (p *scriptParser) checkReturnComponent() {
 		return
 	}
 
+	// `return flag ? new A() : new B()` returns one or the other, not flag.
+	if comp := p.conditionalReturn(); comp != "" && len(p.funcs) > 0 {
+		f := &p.funcs[len(p.funcs)-1]
+		f.ReturnComponent = unionReturn(f.ReturnComponent, comp)
+	}
+
 	var comp string
 
 	var buf foldScratch
@@ -2724,6 +2730,111 @@ func (p *scriptParser) checkReturnComponent() {
 		f := &p.funcs[len(p.funcs)-1]
 		f.ReturnComponent = unionReturn(f.ReturnComponent, comp)
 	}
+}
+
+// conditionalReturn is what a returned `cond ? a : b` holds when each branch
+// is a construction (`new X( … )` or `createObject( "component", "X" )`):
+// their union, as the flow join writes it. "" for anything else, a branch of
+// any other kind included, since it may hold anything. The scanner does not
+// move; the statement's own walk still records the calls and constructions.
+func (p *scriptParser) conditionalReturn() string {
+	expr := scriptReturnExpression(p.sc)
+	if strings.IndexByte(expr, '?') < 0 {
+		return ""
+	}
+
+	var tokens []Token
+
+	for sc := NewScanner(expr); ; {
+		t := sc.NextSkipComments()
+		if t.Kind == TokEOF {
+			break
+		}
+
+		tokens = append(tokens, t)
+	}
+
+	q, colon, depth := -1, -1, 0
+
+	for i, t := range tokens {
+		switch t.Kind {
+		case TokLParen, TokLBracket, TokLBrace:
+			depth++
+		case TokRParen, TokRBracket, TokRBrace:
+			depth--
+		case TokQuestion:
+			if depth == 0 && q < 0 {
+				q = i
+			} else if depth == 0 {
+				// A nested conditional: not read here.
+				return ""
+			}
+		case TokColon:
+			if depth == 0 && q >= 0 && colon < 0 {
+				colon = i
+			}
+		default:
+		}
+	}
+
+	if q <= 0 || colon <= q+1 {
+		return ""
+	}
+
+	a := p.constructionOf(expr[tokens[q].Offset+1 : tokens[colon].Offset])
+
+	b := p.constructionOf(expr[tokens[colon].Offset+1:])
+	if a == "" || b == "" {
+		return ""
+	}
+
+	return unionComponents(a, b)
+}
+
+// constructionOf is the component text builds when it is exactly one
+// construction, or "". Nothing is recorded: the branch is read on a scanner
+// of its own, whose offsets are not the file's.
+func (p *scriptParser) constructionOf(text string) string {
+	outer := p.sc
+
+	defer func() { p.sc = outer }()
+
+	p.sc = NewScanner(strings.TrimSpace(text))
+
+	var comp string
+
+	switch head := p.sc.NextSkipComments(); {
+	case identEq(head.Value, "new"):
+		comp = p.readNewComponentPath()
+		if p.sc.NextSkipComments().Kind != TokLParen {
+			return ""
+		}
+
+		for depth := 1; depth > 0; {
+			switch p.sc.NextSkipComments().Kind {
+			case TokLParen:
+				depth++
+			case TokRParen:
+				depth--
+			case TokEOF:
+				return ""
+			default:
+			}
+		}
+	case identEq(head.Value, "createObject"):
+		comp = p.readCreateObjectPath()
+		if p.sc.NextSkipComments().Kind != TokRParen {
+			return ""
+		}
+	default:
+		return ""
+	}
+
+	if p.sc.NextSkipComments().Kind != TokEOF || comp == "" || strings.HasPrefix(comp, "$") {
+		return ""
+	}
+
+	return comp
 }
 
 // atStatementEnd reports whether the next token ends a statement.
@@ -2842,13 +2953,21 @@ func (p *scriptParser) readNewComponent() string {
 // addInstantiation records that comp is built by the construction starting
 // at tok. Gated as a call is (addCall): only a parse that extracts calls
 // wants it. A look ahead that rewinds and walks the same text again records
-// the same token, which is kept once.
+// the same token, which is kept once. The token's offset is the file's where
+// the parse knows its origin: an interpolation's scanner, and every <cfset>
+// a tag file hands over, count from zero, and two constructions on one line
+// were the same entry.
 func (p *scriptParser) addInstantiation(comp string, tok Token) {
 	if !p.extractCalls || comp == "" || strings.HasPrefix(comp, "$") {
 		return
 	}
 
-	in := Instantiation{Component: comp, Line: conv.Uint32(p.baseLine + tok.Line), at: tok.Offset}
+	at := tok.Offset
+	if p.baseOffset >= 0 {
+		at += p.baseOffset
+	}
+
+	in := Instantiation{Component: comp, Line: conv.Uint32(p.baseLine + tok.Line), at: at}
 	if p.instantiations == nil {
 		p.instantiations = &[]Instantiation{}
 	}

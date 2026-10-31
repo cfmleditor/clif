@@ -25,6 +25,30 @@ function twoComponents( flag ) {
 	c3.search();
 	c3.neither();
 }
+function selfScoped() {
+	variables.c6 = isNull( variables.c6 ) ? new shared.Svc() : variables.c6;
+	c6.onlySvc();
+}
+function selfUnscoped() {
+	variables.c7 = isNull( c7 ) ? new shared.Svc() : c7;
+	variables.c7.onlySvc();
+}
+function nullFallback( flag ) {
+	var c8 = flag ? new shared.Svc() : javacast( "null", "" );
+	c8.onlySvc();
+}
+function overLines( flag ) {
+	var c9 = flag
+		? new shared.Svc()
+		: new shared.Fake();
+	c9.neither();
+}
+function reassignedAfter( flag ) {
+	var a = new shared.Svc();
+	var c10 = flag ? a : new shared.Fake();
+	a = new shared.Fake();
+	c10.onlySvc();
+}
 function nested( a, b ) {
 	var c4 = a ? new shared.Svc() : b ? createObject( "component", "shared.Svc" ) : new shared.Svc();
 	c4.search();
@@ -39,11 +63,16 @@ function nested( a, b ) {
 	})
 
 	expectReasons(t, reasonsWith(t, &Resolver{}, dir, "Client.cfc"), map[string]string{
-		"variables.c1.search": "",
-		"c2.search":           "variable 'c2' has no component ref",
-		"c3.search":           "",
-		"c3.neither":          "method 'neither' not found in shared.Fake|shared.Svc",
-		"c4.search":           "",
+		"variables.c1.search":  "",
+		"c2.search":            "variable 'c2' has no component ref",
+		"c3.search":            "",
+		"c3.neither":           "method 'neither' not found in shared.Fake|shared.Svc",
+		"c4.search":            "",
+		"c6.onlySvc":           "",
+		"variables.c7.onlySvc": "",
+		"c8.onlySvc":           "",
+		"c9.neither":           "method 'neither' not found in shared.Fake|shared.Svc",
+		"c10.onlySvc":          "",
 	})
 
 	expectReasons(t, reasonsWith(t, &Resolver{}, dir, "Tags.cfc"), map[string]string{
@@ -53,14 +82,15 @@ function nested( a, b ) {
 
 func TestTernaryBranches(t *testing.T) {
 	for rhs, want := range map[string][]string{
-		"c ? a : b":              {"a", "b"},
-		"a ?: b":                 {"a", "b"},
-		"f( x ? 1 : 2 ) ? a : b": {"a", "b"},
-		"c ? ( d ? a : b ) : e":  {"a", "b", "e"},
-		"c ? { k: 1 } : b":       {"{ k: 1 }", "b"},
-		"svc.get( c ? 1 : 2 )":   nil,
-		"new X()":                nil,
-		"c ? a":                  nil,
+		"c ? a : b":                       {"a", "b"},
+		"a ?: b":                          {"a", "b"},
+		"f( x ? 1 : 2 ) ? a : b":          {"a", "b"},
+		"c ? ( d ? a : b ) : e":           {"a", "b", "e"},
+		"c ? { k: 1 } : b":                {"{ k: 1 }", "b"},
+		"svc.get( c ? 1 : 2 )":            nil,
+		"new X()":                         nil,
+		"c ? a":                           nil,
+		"a ?: javacast( \"null\", \"\" )": {"a", "javacast( \"null\", \"\" )"},
 	} {
 		got, ok := ternaryBranches(rhs)
 		if ok != (want != nil) || len(got) != len(want) {

@@ -2,6 +2,7 @@ package resolve
 
 import (
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -29,40 +30,24 @@ const maxTernaryBranches = 8
 // conditional in either taken apart in turn. ok is false when rhs is not a
 // conditional at its top level.
 func ternaryBranches(rhs string) ([]string, bool) {
-	tokens := significantTokens(rhs)
-
-	q := -1
-	depth := 0
-
-	for i, t := range tokens {
-		switch t.Kind {
-		case parser.TokLParen, parser.TokLBracket, parser.TokLBrace:
-			depth++
-		case parser.TokRParen, parser.TokRBracket, parser.TokRBrace:
-			depth--
-		case parser.TokQuestion:
-			if depth == 0 && q < 0 {
-				q = i
-			}
-		default:
-		}
+	// Nearly every right-hand side asked about holds no `?` at all.
+	if strings.IndexByte(rhs, '?') < 0 {
+		return nil, false
 	}
 
-	if q <= 0 || q+1 >= len(tokens) {
+	tokens := significantTokens(rhs)
+
+	q, colon := conditionalAt(tokens)
+	if q <= 0 || colon < 0 {
 		return nil, false
 	}
 
 	var a, b string
 
-	if tokens[q+1].Kind == parser.TokColon && tokens[q+1].Offset == tokens[q].Offset+1 {
+	if colon == q+1 {
 		// `a ?: b`: a when it is defined, b otherwise.
-		a, b = rhs[:tokens[q].Offset], rhs[tokens[q+1].Offset+1:]
+		a, b = rhs[:tokens[q].Offset], rhs[tokens[colon].Offset+1:]
 	} else {
-		colon := ternaryColon(tokens, q)
-		if colon < 0 {
-			return nil, false
-		}
-
 		a, b = rhs[tokens[q].Offset+1:tokens[colon].Offset], rhs[tokens[colon].Offset+1:]
 	}
 
@@ -86,6 +71,39 @@ func ternaryBranches(rhs string) ([]string, bool) {
 	}
 
 	return out, true
+}
+
+// conditionalAt finds the top-level conditional in tokens: q is its `?` and
+// colon the `:` that closes it, which is q+1 for `a ?: b`. Either is -1 when
+// tokens hold no complete conditional at depth 0. It is the one reading of
+// `?`, `:` and `?:` the resolver's rules share.
+func conditionalAt(tokens []parser.Token) (q, colon int) {
+	q = -1
+	depth := 0
+
+	for i, t := range tokens {
+		switch t.Kind {
+		case parser.TokLParen, parser.TokLBracket, parser.TokLBrace:
+			depth++
+		case parser.TokRParen, parser.TokRBracket, parser.TokRBrace:
+			depth--
+		case parser.TokQuestion:
+			if depth == 0 && q < 0 {
+				q = i
+			}
+		default:
+		}
+	}
+
+	if q < 0 || q+1 >= len(tokens) {
+		return q, -1
+	}
+
+	if tokens[q+1].Kind == parser.TokColon {
+		return q, q + 1
+	}
+
+	return q, ternaryColon(tokens, q)
 }
 
 // ternaryColon is the index of the `:` closing the `?` at q, stepping over
@@ -121,6 +139,24 @@ func ternaryColon(tokens []parser.Token, q int) int {
 	return -1
 }
 
+// nullCastRe is `javacast( "null", … )`, the null a conditional falls back to
+// (`prc.x = rc.x ?: javacast( "null", "" )`).
+var nullCastRe = regexp.MustCompile(`(?i)^javacast\s*\(\s*["']null["']`)
+
+// sameVariable reports whether branch names variable, either spelling with
+// or without the variables scope.
+func sameVariable(branch, variable string) bool {
+	strip := func(s string) string {
+		if len(s) > 10 && strings.EqualFold(s[:10], "variables.") {
+			return s[10:]
+		}
+
+		return s
+	}
+
+	return strings.EqualFold(strip(branch), strip(variable))
+}
+
 // unwrapParens is s without parentheses enclosing the whole of it.
 func unwrapParens(s string) string {
 	for strings.HasPrefix(s, "(") && closingParen(s) == len(s)-1 {
@@ -138,7 +174,14 @@ func (r *Resolver) assignedTernary(variable string, branches []string, line uint
 	dynamic := false
 
 	for _, branch := range branches {
-		comp := r.ternaryBranch(variable, branch, line, caller, pr, baseDir, ctx)
+		// A null holds no component, and a branch naming the variable keeps
+		// what it already held (`x = isNull( x ) ? new X() : x`): neither
+		// says what the assignment sets it to.
+		if nullCastRe.MatchString(branch) || sameVariable(branch, variable) {
+			continue
+		}
+
+		comp := r.ternaryBranch(branch, line, caller, pr, baseDir, ctx)
 
 		switch {
 		case comp == "$any":
@@ -148,6 +191,10 @@ func (r *Resolver) assignedTernary(variable string, branches []string, line uint
 		default:
 			comps = append(comps, strings.Split(comp, "|")...)
 		}
+	}
+
+	if len(comps) == 0 && !dynamic {
+		return ""
 	}
 
 	comps = r.distinctComponents(comps, baseDir)
@@ -166,7 +213,7 @@ func (r *Resolver) assignedTernary(variable string, branches []string, line uint
 
 // ternaryBranch is what one branch of a conditional holds: a construction,
 // a name typed as any receiver is at line, or a chain of calls.
-func (r *Resolver) ternaryBranch(variable, branch string, line uint32, caller string, pr *parser.ParseResult, baseDir string, ctx lookupCtx) string {
+func (r *Resolver) ternaryBranch(branch string, line uint32, caller string, pr *parser.ParseResult, baseDir string, ctx lookupCtx) string {
 	for _, re := range [...]interface{ FindStringSubmatch(string) []string }{createdComponent, newComponent} {
 		if m := re.FindStringSubmatch(branch); m != nil {
 			return r.createdThenCalled(r.staticPath(m[1]), branch, baseDir)
@@ -174,10 +221,6 @@ func (r *Resolver) ternaryBranch(variable, branch string, line uint32, caller st
 	}
 
 	if identRe.MatchString(branch) || aliasRe.MatchString(branch) {
-		if strings.EqualFold(branch, variable) {
-			return ""
-		}
-
 		comp, _ := r.receiverComponentD(branch, line, caller, "", pr, baseDir, nil, lookupCtx{depth: ctx.depth + 1, leaf: ctx.leaf, callers: ctx.callers})
 
 		return comp
