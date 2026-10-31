@@ -695,6 +695,24 @@ cannot parse (tree-sitter-cfml#174, fixed upstream, unreleased), and `formatMone
 `<cfreturn "… #…# …">` at `TestUtility.cfc:285`, which the grammar does see when that line is cut out of the file
 and parsed alone; why it misses them in place was not found.
 
-**Open: a call in a string inside `<cfif>`, `<cfelseif>` or `<cfreturn>` is recorded twice**
-(`<cfreturn "a #f(1)# b">`, `<cfif x eq "#f(1)#">`): the expression scan and the `#…#` span scan both record it. `<cfset>`
-avoids it by subtracting what is already recorded, which the notes say is wrong for a span. Not fixed.
+**A call in a string inside `<cfif>`, `<cfelseif>` or `<cfreturn>` was recorded twice** (clif#320):
+`<cfreturn "a #f(1)# b">`, `<cfif x eq "#f(1)#">`. Two scans read the same text: the span scan over every handled tag
+(`scanInterpolatedText`, which exists for attributes such as `<cfloop array="#svc.list()#">`), and the handler's own
+parse of the tag's expression, which reads `#…#` in a string and outside one alike. These three tags have no attributes:
+after the name, the tag *is* the expression. `holdsOnlyAnExpression` skips the span scan for them, so each call is read
+once. The first fix recorded both and subtracted the duplicates by source span (as `<cfset>` does); it was dropped for
+reading once because it needs no bookkeeping, and the recorded calls are identical (below). A subtraction by name and
+line would be wrong here, as the notes above say: `#f("a")# #f("b")#` is two calls.
+
+`scanTagExpression` passes the expression's offset and the bucket length, which asks for each call's line to be taken from
+its source span: a chain written over lines (`new X(\n…\n).hop()`) is on the line of `.hop`, not of the tag.
+
+`TestACallInAStringInATagConditionIsRecordedOnce` fails without the skip on seven of nine cases (the controls, two spans on
+one line, a call beside a span of the same name and two calls in a condition, are in it and pass either way), and the
+"a chain written over lines" case of `TestAMultiLineTagConditionKeepsItsCallsAndTheirLines` fails without the span-based
+lines.
+
+Checked on every call each parse records (line, name, source span, receiver, caller) over Galaxie, MuraCMS, Slatwall,
+ContentBox and Preside (190,635 calls in 4,457 files): the once-only version and the subtraction version are identical,
+file by file. Against the build before: MuraCMS loses 199 recorded calls in 47 files, Slatwall 15 in 7, Galaxie 3 in 1
+(each a duplicate, resolved or not; the `unresolved` report shows only the unresolved ones: MuraCMS 8, Slatwall 9).

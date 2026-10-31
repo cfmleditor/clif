@@ -38,6 +38,7 @@ func TestAMultiLineTagConditionKeepsItsCallsAndTheirLines(t *testing.T) {
 		{"under a cfelseif", "<cfif x>a<cfelseif\n\tf( a )>b</cfif>", []call{{"f", 1}}},
 		{"under a cfreturn", "<cffunction name=\"m\">\n<cfreturn\n\tf( a )>\n</cffunction>", []call{{"f", 2}}},
 		{"a condition spanning lines", "<cfif f( a ) and\n\tg( b )>x</cfif>", []call{{"f", 0}, {"g", 1}}},
+		{"a chain written over lines", "<cffunction name=\"m\">\n<cfreturn new X(\n\t1\n).hop()>\n</cffunction>", []call{{"hop", 3}}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			pr := ParseWithOptions(testURI, c.src, &ParseOptions{ExtractCalls: true})
