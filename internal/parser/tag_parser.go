@@ -702,7 +702,7 @@ func (p *tagParser) dispatchCFTag(ch byte, tag string, idx, tagEnd, line int) {
 			// recorded nothing while the same test in script syntax
 			// recorded the call.
 			body := tagBody(tag)
-			p.scanExpressionCalls(body, line, idx+strings.Index(tag, body))
+			p.scanExpressionCalls(body, bodyLine(tag, body, line), idx+strings.Index(tag, body))
 		}
 	case 'e':
 		// 'e' is admitted for this one tag, the way 'l' is for <cfloop>.
@@ -711,7 +711,7 @@ func (p *tagParser) dispatchCFTag(ch byte, tag string, idx, tagEnd, line int) {
 		// half of every if/else chain in tag syntax has no calls in it.
 		if hasCFTagPrefix(tag, "<cfelseif") {
 			body := tagBody(tag)
-			p.scanExpressionCalls(body, line, idx+strings.Index(tag, body))
+			p.scanExpressionCalls(body, bodyLine(tag, body, line), idx+strings.Index(tag, body))
 		}
 	case 'r':
 		if hasCFTagPrefix(tag, "<cfreturn") {
@@ -1394,9 +1394,9 @@ func (p *tagParser) parseCFReturn(tag string, line int, offsets ...int) {
 	// so the scan happens before every early exit below. `<cfreturn
 	// svc.value()>` used to record nothing.
 	if len(offsets) > 0 {
-		p.scanExpressionCalls(inner, line, offsets[0]+strings.Index(tag, inner))
+		p.scanExpressionCalls(inner, bodyLine(tag, inner, line), offsets[0]+strings.Index(tag, inner))
 	} else {
-		p.scanExpressionCalls(inner, line)
+		p.scanExpressionCalls(inner, bodyLine(tag, inner, line))
 	}
 
 	if p.inFunc == "" {
@@ -2856,16 +2856,37 @@ func (p *tagParser) callsOnLine(line uint32) []CallSite {
 func tagBody(tag string) string {
 	inner := tag
 
-	if i := strings.IndexByte(inner, ' '); i >= 0 {
-		inner = inner[i+1:]
-	} else {
+	// The first whitespace byte of any kind ends the tag name: a condition
+	// written on the line after `<cfif` follows a newline or a tab. Looking
+	// for a space alone found no body at all in `<cfif\n\tf( a )>`, and cut
+	// `<cfif\n\t( f( a ) and g( b ) )>` at the space before `and`.
+	i := 0
+	for i < len(inner) && !isWhitespace(inner[i]) {
+		i++
+	}
+
+	if i == len(inner) {
 		return ""
 	}
+
+	inner = inner[i+1:]
 
 	inner = strings.TrimSuffix(inner, ">")
 	inner = strings.TrimSuffix(inner, "/")
 
 	return strings.TrimSpace(inner)
+}
+
+// bodyLine is the line a tag's body starts on: the tag's own line plus the
+// newlines before the body, which tagBody trims. A condition written under
+// `<cfif` is on the next line, and its calls were reported on the tag's.
+func bodyLine(tag, body string, line int) int {
+	i := strings.Index(tag, body)
+	if i < 0 || body == "" {
+		return line
+	}
+
+	return line + strings.Count(tag[:i], "\n")
 }
 
 // trailingCalls returns the names of the method calls chained after the first
