@@ -1533,3 +1533,22 @@ subdirectory), whatever the working directory. `scanUnresolved` now makes its ar
 (`absolutePaths`); `TestUnresolvedDoesNotDependOnHowTheRootIsSpelled` fails without it. `refs`, `deps` and `graph`
 gave the same answer for both spellings on Galaxie. The recorded corpus numbers are unchanged, since
 `scripts/resolution-report.sh` always passed absolute paths.
+
+### Galaxie Blog: a dynamic value an includer holds (`includerHeld`)
+
+The largest group left in Galaxie's report, 498 of 1,578, was `variable 'HtmlUtilsObj' has no component ref`:
+`includes/windows/adminInterface.cfm` makes the object with `<cfobject component="#application.htmlUtilsComponentPath#"
+name="HtmlUtilsObj">`, the path being a runtime value set in `Application.cfc`, and includes every admin page, which call
+`HtmlUtilsObj.getKendoClass(…)`. Where the object is made it is `$any` (an unmapped `#…#` path) and calls on it are
+accepted. In the pages it includes, `includerHeld` took the `$any` answer for "could not type it" and withheld
+(`strings.HasPrefix(comp, "$")`). A site that holds `$any` now answers `$any`, and it swallows the other sites'
+components as it does in a union of branches; a site that holds nothing, or a built-in or native value, still
+withholds, so the old behaviour stays for those. `TestATemplateReadsADynamicValueItsIncluderHolds` fails without it.
+
+Per entry against the previous build: Galaxie 1,578 -> 1,081 (497 removed, none added); MuraCMS, ContentBox, Slatwall,
+Preside and cfwheels (scanned from the `tree-sitter-cfml` corpus checkouts, no project configs) identical.
+
+What is left there is mostly `application.blog` (100, the same `#application.blogComponentPath#` idiom through
+`createObject`, a different path), `e` (98) and `html` (63). Mapping the component paths with `expressionMappings`
+does not help the included pages and makes `application.blog` worse (100 -> 172, since it then types and exposes
+missing methods), so it is not a substitute for this.

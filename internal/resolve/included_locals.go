@@ -99,8 +99,9 @@ func (r *Resolver) includerHeldUncached(variable, file string, g *includeGraph, 
 	}
 
 	var (
-		comps []string
-		sites int
+		comps   []string
+		sites   int
+		dynamic bool
 	)
 
 	for _, k := range includers {
@@ -127,14 +128,8 @@ func (r *Resolver) includerHeldUncached(variable, file string, g *includeGraph, 
 			caller := hpr.FuncScopeAt(int(line)).Name
 
 			comp, _ := r.receiverComponentD(variable, line, caller, "", hpr, dir, nil, lookupCtx{depth: ctx.depth + 1, callers: ctx.callers})
-			if comp == "" || strings.HasPrefix(comp, "$") {
+			if !heldAt(comp, dir, r, &comps, &dynamic) {
 				return ""
-			}
-
-			for alt := range strings.SplitSeq(r.pathsOf(comp, dir), "|") {
-				if !containsFold(comps, alt) {
-					comps = append(comps, alt)
-				}
 			}
 		}
 	}
@@ -152,14 +147,8 @@ func (r *Resolver) includerHeldUncached(variable, file string, g *includeGraph, 
 		caller := hpr.FuncScopeAt(h.line).Name
 
 		comp, _ := r.receiverComponentD(variable, line, caller, "", hpr, filepath.Dir(h.path), nil, lookupCtx{depth: ctx.depth + 1, callers: ctx.callers})
-		if comp == "" || strings.HasPrefix(comp, "$") {
+		if !heldAt(comp, filepath.Dir(h.path), r, &comps, &dynamic) {
 			return ""
-		}
-
-		for alt := range strings.SplitSeq(r.pathsOf(comp, filepath.Dir(h.path)), "|") {
-			if !containsFold(comps, alt) {
-				comps = append(comps, alt)
-			}
 		}
 	}
 
@@ -167,9 +156,41 @@ func (r *Resolver) includerHeldUncached(variable, file string, g *includeGraph, 
 		return ""
 	}
 
+	// An includer that holds the name as `$any` (a component created from a
+	// runtime path, `<cfobject component="#application.htmlUtilsPath#">`) has
+	// not failed to type it: the value is dynamic, and the template reads a
+	// dynamic value. `$any` swallows the other alternatives, as it does in a
+	// union of branches.
+	if dynamic {
+		return "$any"
+	}
+
 	slices.Sort(comps)
 
 	return strings.Join(comps, "|")
+}
+
+// heldAt adds what an include site's includer holds to comps, or to dynamic
+// when it holds `$any`, and reports whether the site answered at all. A site
+// that holds nothing typed, or a built-in or native value, does not.
+func heldAt(comp, dir string, r *Resolver, comps *[]string, dynamic *bool) bool {
+	if comp == "$any" {
+		*dynamic = true
+
+		return true
+	}
+
+	if comp == "" || strings.HasPrefix(comp, "$") {
+		return false
+	}
+
+	for alt := range strings.SplitSeq(r.pathsOf(comp, dir), "|") {
+		if !containsFold(*comps, alt) {
+			*comps = append(*comps, alt)
+		}
+	}
+
+	return true
 }
 
 // setsName reports whether content assigns or declares name anywhere: an

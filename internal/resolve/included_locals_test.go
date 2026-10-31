@@ -178,3 +178,44 @@ func TestAReceiversGuessedTypeIsNotAReturnType(t *testing.T) {
 		"r.getMuraScope.createHREF": "method 'getMuraScope' in Renderer has no component return type (chain to 'createHREF')",
 	})
 }
+
+// A component created from a runtime path is `$any` where it is made
+// (`<cfobject component="#application.htmlUtilsPath#" name="Html">`), and calls
+// on it are accepted there. The template that includer includes read the same
+// name as "no component ref", because `includerHeld` took any `$` answer for
+// "could not type it": 498 of Galaxie Blog's 1,578 findings. A dynamic value is
+// an answer. A site that cannot type the name at all still withholds.
+func TestATemplateReadsADynamicValueItsIncluderHolds(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{
+		"Util.cfc": `component { function setTable(){} }`,
+		"dyn/outer.cfm": `<cfobject component="#application.utilPath#" name="html">
+<cfinclude template="page.cfm">`,
+		"dyn/page.cfm":   `<cfscript>html.setTable(); html.anything();</cfscript>`,
+		"mixed/a.cfm":    `<cfobject component="#application.utilPath#" name="html"><cfinclude template="page.cfm">`,
+		"mixed/b.cfm":    `<cfset html = new Util()><cfinclude template="page.cfm">`,
+		"mixed/page.cfm": `<cfscript>html.setTable(); html.anything();</cfscript>`,
+		"loose/a.cfm":    `<cfobject component="#application.utilPath#" name="html"><cfinclude template="page.cfm">`,
+		"loose/b.cfm":    `<cffunction name="f"><cfargument name="html"><cfinclude template="page.cfm"></cffunction>`,
+		"loose/page.cfm": `<cfscript>html.setTable();</cfscript>`,
+	})
+
+	// Every includer holds it dynamically: calls are accepted.
+	expectReasons(t, templateReasons(t, dir, "dyn/page.cfm"), map[string]string{
+		"html.setTable": "",
+		"html.anything": "",
+	})
+
+	// One includer holds a typed component, the other a dynamic one: dynamic
+	// swallows the typed alternative, as it does in a union of branches.
+	expectReasons(t, templateReasons(t, dir, "mixed/page.cfm"), map[string]string{
+		"html.setTable": "",
+		"html.anything": "",
+	})
+
+	// An includer that cannot type the name leaves it untyped, whatever the
+	// other holds.
+	expectReasons(t, templateReasons(t, dir, "loose/page.cfm"), map[string]string{
+		"html.setTable": "variable 'html' has no component ref",
+	})
+}
