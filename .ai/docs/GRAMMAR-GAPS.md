@@ -171,8 +171,8 @@ A `<cfif>` that spans only whole *attributes* — `<a <cfif x>href="a"<cfelse>hr
 [Galaxie-Blog](https://github.com/GregoryAlexander77/Galaxie-Blog) `d40017b` (417 files) is refused
 at 15 places by `clif scan`, against `tree-sitter-cfml` v0.26.43 (this repo's pin). Each was cut
 down to a standalone source and run through `clif scan` again, as above; none of this was checked
-against RustCFML or an engine, so "invalid source" below means the source is plainly malformed, not
-that an engine rejects it.
+against RustCFML or an engine, so where a file is called malformed below, that is a reading of the source; whether
+an engine accepts it was not checked (see the section on the last six errors).
 
 **Three new grammar gaps, fixed on an unreleased branch** (A and B below, C after the table). See "Fixed" at the end of this section.
 
@@ -206,15 +206,20 @@ tag or element whose structure is split across `<cfif>` branches; 2 errors):
   inside a `<cfif>` and closed after it, `<video <cfif a>poster="<cfoutput>#u#</cfoutput></cfif>" id="p">`.
   Without the `poster=` line the file's other `<cfif>`s inside the `<video>` tag parse.
 
-**Invalid source, nothing to file** (6 errors):
+**The last 6 errors, and what they are** (6 errors). Called "malformed source" in an earlier version of this file;
+that was too strong. Whether an engine accepts each was not checked, and the right reading differs by row:
 
-| Where | What |
-|---|---|
-| `Application.cfc:430`, `:440` | `<cfset … / >`: a space between `/` and `>` |
-| `common/db/importBlogCfc.cfm:454` | `<cfparam name"x" …>`: no `=` |
-| `common/db/importBlogCfc.cfm:941` | `</cftry>` with no `<cftry>` before it (the only open tag is at 1069) |
-| `admin/adminInterface/themeSettings.cfm:2919` | `<input …` never closed with `>` |
-| `includes/postContent/entry/webp.cfm:118` | `</p` with no `>` |
+| Where | What | Reading |
+|---|---|---|
+| `Application.cfc:430`, `:440` | `<cfset … / >`: a space between `/` and `>` | **Probably valid to an engine.** Live code in the file compiled on every request of a working application. The grammar accepts `/ >` on an HTML tag (`<br / >`) but not on a CF tag: filed as tree-sitter-cfml#181, unverified on Lucee or Adobe ColdFusion |
+| `admin/adminInterface/themeSettings.cfm:2919` | `<input …` never closed with `>` | **Malformed HTML inside valid CFML.** An engine outputs non-CF tags as text, so it runs; the grammar models HTML structure, so refusing it is by design |
+| `includes/postContent/entry/webp.cfm:118` | `</p` with no `>` | The same |
+| `common/db/importBlogCfc.cfm:454` | `<cfparam name"x" …>`: no `=` | A CF tag syntax error. Probably rejected by an engine (not checked) |
+| `common/db/importBlogCfc.cfm:941` | `</cftry>` with no `<cftry>` before it (the only open tag is at 1069) | The same. Both are in a one-off import utility that may never be compiled in normal use |
+
+A pull request to the Galaxie Blog project fixes the four it can without guessing (the `/ >`, the unclosed `<input`, the
+`</p` and the missing `=`); the stray `</cftry>` is put to the maintainer as a question, because adding a `<cftry>` and
+removing the `<cfcatch>`/`</cftry>` behave differently.
 
 **The third new gap**, the last 3 errors (3 + 1 + 2 + 6 + 3 = 15) (`common/cfc/Renderer.cfc:3061`, 2 errors, and
 `common/cfc/StringUtils.cfc:20`):
@@ -245,7 +250,7 @@ Verified here with the local grammar through a `-modfile` replace (`go.mod` unto
 
 To take it: release `tree-sitter-cfml`, then `make update-grammar`. Until then clif still reports the 15.
 
-What remains is the 8: 2 are #119 (`blogContentCss.cfm`, `galaxiePlayer.cfm`; not fixed) and 6 are invalid source (the table above).
+What remains is the 8: 2 are #119 (`blogContentCss.cfm`, `galaxiePlayer.cfm`; not fixed) and 6 are the rows of the table above (two probably valid to an engine, two malformed HTML in valid CFML, two CF tag errors in an import utility).
 
 ### Tickets
 
@@ -309,9 +314,29 @@ The pin moved from v0.26.43 to v0.26.44, which carries the four fixes above (cfm
 
 Measured against the old pin on the same `main`:
 
-- `clif scan` on Galaxie Blog: **15 parse errors -> 8** (the remaining 8 are #119 and malformed source, above).
+- `clif scan` on Galaxie Blog: **15 parse errors -> 8** (the remaining 8 are the #119 class and the six in the table above).
 - The formatter corpus (17,567 files: the `tree-sitter-cfml` corpus and Galaxie), per file with `make corpus BASELINE=`:
   **seven files change verdict, all refused -> clean, none the other way**: Galaxie's `postScene.cfm`, `sceneDetail.cfm`,
   `Renderer.cfc`, `StringUtils.cfc` and `blogJsContent.cfm`, plus Lucee's `test/functions/DirectoryCreate.cfc` and
   RustCFML's `bench/ws/probe.cfm` (#176). Galaxie: 406 -> 411 clean.
 - `go test -short ./cmd/... ./internal/...` and `golangci-lint` pass.
+
+### Decision: #119 and #177 stay unsupported
+
+The 8 parse errors left on Galaxie Blog after tree-sitter-cfml v0.26.44 are, by decision, not going to be fixed in
+the grammar for now:
+
+- **2 are the #119 class**, a tag whose structure is split across `<cfif>` branches
+  (`includes/templates/blogContentCss.cfm`: an element opened in one branch; `galaxiePlayer.cfm`: an attribute quote
+  that spans a `</cfif>`). The grammar repo measured a fix and reverted it, because every rule shape that makes the
+  construct parse breaks the spelling that parses today, and recorded the shapes as probes (`fail` on purpose) and in
+  its `LIMITATIONS.md` (cfmleditor/tree-sitter-cfml#180).
+- **#177**, a literal `<` before a hash expression (`<span><#context#/index.cfm/[siteid]?</span>`, MuraCMS's
+  `core/setup/inc/_form.cfm`), was reduced but needs start-tag-name scanning restructured for one corpus file, and is
+  recorded the same way. It does not occur in Galaxie.
+- **6 are in the table above**, of which only the two CF-tag errors are likely to be invalid to an engine; `/ >` is
+  filed as cfmleditor/tree-sitter-cfml#181 for someone to check on Lucee.
+
+Both issues stay open so the question can be reopened. In clif the consequence is the same as for any file the grammar
+refuses: `clif scan` reports it and the formatter declines the file, and the file's calls are still read by the
+line-scanning parser (`internal/parser`), which does not use the grammar.
