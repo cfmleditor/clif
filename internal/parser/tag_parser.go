@@ -9,18 +9,19 @@ import (
 
 // tagParser extracts definitions from CFML tag-based source.
 type tagParser struct {
-	src           string
-	fileURI       string
-	funcs         []FunctionDef
-	vars          []VarDef
-	componentRefs []ComponentRef
-	funcRefs      map[string][]ComponentRef // keyed by "start:end"
-	funcLinks     map[string][]DocumentLink // keyed by "start:end"
-	funcCalls     map[string][]CallSite     // keyed by "start:end"
-	links         []DocumentLink            // global scope links
-	calls         []CallSite                // global scope call sites
-	scopes        []FuncScope
-	pendingCalls  []pendingCall
+	src            string
+	fileURI        string
+	funcs          []FunctionDef
+	vars           []VarDef
+	componentRefs  []ComponentRef
+	funcRefs       map[string][]ComponentRef // keyed by "start:end"
+	funcLinks      map[string][]DocumentLink // keyed by "start:end"
+	funcCalls      map[string][]CallSite     // keyed by "start:end"
+	links          []DocumentLink            // global scope links
+	calls          []CallSite                // global scope call sites
+	instantiations []Instantiation           // what its expressions' sub-parses found built
+	scopes         []FuncScope
+	pendingCalls   []pendingCall
 	// pendingByName indexes pendingCalls by lowercased varName, for
 	// assignedSince; pendingNamed is how many it has indexed.
 	pendingByName map[string][]int
@@ -1077,14 +1078,35 @@ func (p *tagParser) parseReadOnlyScopeSet(inner string, line int) bool {
 		return false
 	}
 
-	name, _ := splitAssign(inner[dot+1:])
+	name, rhs := splitAssign(inner[dot+1:])
 	if name == "" {
 		return false
 	}
 
 	p.vars = append(p.vars, VarDef{Name: name, Scope: scope, Line: conv.Uint32(line)})
 
+	// The shared scopes hold components as well as data, and the script parser
+	// follows their right-hand side (sharedScopeOf): `<cfset application.svc =
+	// new Svc()>` left the tag form untyped, so a call on application.svc in the
+	// same function had no edge where the script form had one.
+	if isSharedScope(scope) && rhs != "" {
+		p.forceGlobal = true
+		p.checkSetRHSStr(rhs, name, line)
+		p.forceGlobal = false
+	}
+
 	return true
+}
+
+// isSharedScope reports whether scope is one of the four the script parser
+// dispatches to parseScopedVar with a scope of their own (sharedScopeOf).
+func isSharedScope(scope Scope) bool {
+	switch scope {
+	case ScopeRequest, ScopeSession, ScopeApplication, ScopeServer:
+		return true
+	default:
+		return false
+	}
 }
 
 // parseScopedAttrVar records the variable a tag attribute declares —
@@ -1233,8 +1255,8 @@ func (p *tagParser) setAssign(inner string, line int) {
 		}
 	case p.parseReadOnlyScopeSet(inner, line):
 		// Handled: an assignment into url./application./request./session./etc.
-		// These carry no component type, so there is no RHS to follow — the
-		// point is only that the name was declared here.
+		// The four shared scopes follow their right-hand side as variables. does;
+		// the others hold request data and only declare the name.
 	default:
 		name, rhs := splitAssign(inner)
 		if name != "" && (!isKeyword(name) || operatorWordIsNameStr(inner, name)) {
@@ -2654,6 +2676,14 @@ func (p *tagParser) mergeExpressionCalls(expr string, line int, topUp bool, offs
 		sub.resolverSet = p.resolverSet
 		sub.extractCalls = true
 		sub.parse()
+	}
+
+	// A construction is written in an expression, so the sub-parse that reads
+	// the expression is what finds it.
+	for _, in := range sub.instantiationsFound() {
+		if !slices.Contains(p.instantiations, in) {
+			p.instantiations = append(p.instantiations, in)
+		}
 	}
 
 	key := func(call *CallSite) exprCallKey {
