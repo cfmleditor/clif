@@ -257,8 +257,13 @@ What remains is the 8: 2 are #119 (`blogContentCss.cfm`, `galaxiePlayer.cfm`; no
 reducing the corpus; fixed on the same branch: the tag statement demanded a `;` after its block, so the comment was
 never offered to the scanner);
 [#75](https://github.com/cfmleditor/tree-sitter-cfml/issues/75) (`(s)=>return s` added as a comment);
-[#175](https://github.com/cfmleditor/tree-sitter-cfml/issues/175) tracks what the corpus scan still reports and has
-not been reduced (the `<cfoutput>` cluster and Lucee's `form.cfm`). clif#317 is the path-spelling difference in
+[#177](https://github.com/cfmleditor/tree-sitter-cfml/issues/177) (a literal `<` before a hash expression,
+`<span><#c#</span>`, is read as an unclosed dynamic tag; MuraCMS's setup form; reduced, not fixed);
+[#175](https://github.com/cfmleditor/tree-sitter-cfml/issues/175) tracks the corpus scan's remaining errors, and
+every one of its five largest clusters is now accounted for: one real gap (#176, fixed), one more (#177), two already
+filed (#75, BoxLang's `static foo = …` is out of scope), the rest malformed source or raw JavaScript in a `.cfm`.
+One open question there: two files end with an unclosed `<cfscript>`, which Lucee's own test suite includes; whether
+an engine accepts that has not been checked. clif#317 is the path-spelling difference in
 `unresolved`, clif#318 the grammar bump.
 
 ## Shrank poorly: twelve files still to reduce
