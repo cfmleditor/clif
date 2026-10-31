@@ -158,7 +158,7 @@ func (f *Formatter) writeInterveningComments(n *sitter.Node, from, to uint) bool
 
 		f.scriptWrite("\n")
 		f.writeIndent()
-		f.scriptWrite(strings.TrimSpace(f.text(c)))
+		f.scriptWrite(trimSpace(f.text(c)))
 
 		wrote = true
 	}
@@ -272,7 +272,7 @@ func (f *Formatter) keptLineComments(n *sitter.Node, rendered string) bool {
 			rest = rest[:nl]
 		}
 
-		if strings.TrimSpace(rest) != "" {
+		if trimSpace(rest) != "" {
 			return false
 		}
 	}
@@ -290,7 +290,7 @@ func (f *Formatter) lineComments(n *sitter.Node) []string {
 	var out []string
 
 	if f.isLineCommentNode(n) {
-		return append(out, strings.TrimSpace(f.text(n)))
+		return append(out, trimSpace(f.text(n)))
 	}
 
 	for i := range n.ChildCount() {
@@ -333,7 +333,7 @@ func (f *Formatter) isLineCommentNode(n *sitter.Node) bool {
 		return false
 	}
 
-	return strings.HasPrefix(strings.TrimSpace(f.text(n)), "//")
+	return strings.HasPrefix(trimSpace(f.text(n)), "//")
 }
 
 // parenExpr renders an expression wrapped in parens, avoiding double-wrapping
@@ -442,7 +442,7 @@ func (f *Formatter) scriptChildren(n *sitter.Node, leadEmitted bool) {
 		// as multi-line and insert a blank line between every pair.
 		prevWasMultiLine = false
 		if f.out.Len() > outBefore {
-			prevWasMultiLine = bytes.Contains(bytes.TrimSpace(f.out.Bytes()[outBefore:]), []byte{'\n'})
+			prevWasMultiLine = bytes.Contains(trimSpaceBytes(f.out.Bytes()[outBefore:]), []byte{'\n'})
 		}
 
 		prevWasNamed = true
@@ -1143,7 +1143,7 @@ func (f *Formatter) exprParenthesized(n *sitter.Node) string {
 
 		switch c.Kind() {
 		case "comment", "block_comment", "cf_comment":
-			text := strings.TrimSpace(f.text(c))
+			text := trimSpace(f.text(c))
 			sb.WriteString(text)
 
 			// A "//" comment runs to end of line, so without a break it
@@ -1212,7 +1212,7 @@ func (f *Formatter) delimitedComments(n *sitter.Node) string {
 		switch c.Kind() {
 		case "cf_comment", "block_comment":
 			sb.WriteString(" ")
-			sb.WriteString(strings.TrimSpace(f.text(c)))
+			sb.WriteString(trimSpace(f.text(c)))
 		case "comment":
 			// The document grammar gives a `/* … */` inside a <cfset> this
 			// kind rather than block_comment, so matching on kind alone
@@ -1221,7 +1221,7 @@ func (f *Formatter) delimitedComments(n *sitter.Node) string {
 			// one is a child of the tag rather than of the assignment. The
 			// text is what distinguishes the two forms; a "//" still cannot be
 			// re-emitted inline and is left to the guard.
-			if text := strings.TrimSpace(f.text(c)); !strings.HasPrefix(text, "//") {
+			if text := trimSpace(f.text(c)); !strings.HasPrefix(text, "//") {
 				sb.WriteString(" ")
 				sb.WriteString(text)
 			}
@@ -1290,7 +1290,7 @@ func (f *Formatter) gapOperator(_ *sitter.Node, left, right *sitter.Node) string
 		return ""
 	}
 
-	gap := strings.TrimSpace(string(f.src[left.EndByte():right.StartByte()]))
+	gap := trimSpace(string(f.src[left.EndByte():right.StartByte()]))
 
 	return gap
 }
@@ -1695,7 +1695,7 @@ func joinSignatureAttrs(attrs []string, indent string) string {
 // isLineCommentText reports whether s is a `//` comment, which runs to the end
 // of the line it is written on and so cannot have anything placed after it.
 func isLineCommentText(s string) bool {
-	return strings.HasPrefix(strings.TrimSpace(s), "//")
+	return strings.HasPrefix(trimSpace(s), "//")
 }
 
 // lastArgument returns the index of the final non-comment entry, or -1 when
@@ -1726,7 +1726,7 @@ func (f *Formatter) commentsBetween(n *sitter.Node, from, to uint) []string {
 			continue
 		}
 
-		out = append(out, strings.TrimSpace(f.text(c)))
+		out = append(out, trimSpace(f.text(c)))
 	}
 
 	return out
@@ -1767,14 +1767,14 @@ func (f *Formatter) collectionItems(n *sitter.Node) (items []collectionItem, has
 		case "comment":
 			hasLineComment = true
 
-			items = append(items, collectionItem{text: strings.TrimSpace(f.text(c)), isComment: true})
+			items = append(items, collectionItem{text: trimSpace(f.text(c)), isComment: true})
 		case "block_comment", "cf_comment":
 			// A CFML comment reaches here from a tag-context struct literal
 			// (`<cfset x = { ... }>`). Left in the default branch it counted as
 			// an element and was given a trailing comma. Both forms are
 			// delimited, so unlike "//" they do not force the literal
 			// multi-line.
-			items = append(items, collectionItem{text: strings.TrimSpace(f.text(c)), isComment: true})
+			items = append(items, collectionItem{text: trimSpace(f.text(c)), isComment: true})
 		default:
 			items = append(items, collectionItem{text: f.expr(c)})
 		}
@@ -3034,7 +3034,7 @@ func (f *Formatter) scriptFunction(n *sitter.Node) {
 //
 //	property [type] name [= default];
 func (f *Formatter) scriptProperty(n *sitter.Node) {
-	f.iLine(strings.TrimSpace(f.text(n)))
+	f.iLine(trimSpace(f.text(n)))
 	f.scriptWrite("\n")
 }
 
@@ -3106,7 +3106,7 @@ func (f *Formatter) scriptVarDecl(n *sitter.Node) {
 		d := n.NamedChild(i)
 
 		if isCommentKind(d.Kind()) {
-			comments = append(comments, strings.TrimSpace(f.text(d)))
+			comments = append(comments, trimSpace(f.text(d)))
 
 			continue
 		}
@@ -3150,7 +3150,7 @@ func (f *Formatter) statementComments(n *sitter.Node) (*sitter.Node, []string) {
 
 		switch {
 		case isCommentKind(c.Kind()):
-			comments = append(comments, strings.TrimSpace(f.text(c)))
+			comments = append(comments, trimSpace(f.text(c)))
 		case inner == nil:
 			inner = c
 		}
@@ -3214,7 +3214,7 @@ func (f *Formatter) scriptThrow(n *sitter.Node) {
 		for i := range n.NamedChildCount() {
 			c := n.NamedChild(i)
 			if c.Kind() == "parameter_attribute" {
-				attrs = append(attrs, strings.TrimSpace(f.text(c)))
+				attrs = append(attrs, trimSpace(f.text(c)))
 			}
 		}
 
@@ -3646,7 +3646,7 @@ func (f *Formatter) scriptBodyOrStatement(body *sitter.Node) {
 		f.scriptBlock(body)
 	default:
 		f.scriptWrite(" ")
-		f.scriptWrite(strings.TrimSpace(f.text(body)))
+		f.scriptWrite(trimSpace(f.text(body)))
 	}
 }
 
@@ -3742,10 +3742,10 @@ func (f *Formatter) scriptTagStatement(n *sitter.Node) {
 		}
 	}
 
-	f.iLine(strings.TrimSpace(string(f.src[n.StartByte():body.StartByte()])))
+	f.iLine(trimSpace(string(f.src[n.StartByte():body.StartByte()])))
 	f.scriptBlock(body)
 
-	if tail := strings.TrimSpace(string(f.src[body.EndByte():n.EndByte()])); tail != "" {
+	if tail := trimSpace(string(f.src[body.EndByte():n.EndByte()])); tail != "" {
 		f.scriptWrite(tail)
 	}
 
@@ -3754,13 +3754,13 @@ func (f *Formatter) scriptTagStatement(n *sitter.Node) {
 
 // scriptPassthru re-emits a node's text re-indented (last-resort fallback).
 func (f *Formatter) scriptPassthru(n *sitter.Node) {
-	f.iLine(strings.TrimSpace(f.text(n)))
+	f.iLine(trimSpace(f.text(n)))
 	f.scriptWrite("\n")
 }
 
 // scriptRaw re-emits an unknown node line-by-line with indentation applied.
 func (f *Formatter) scriptRaw(n *sitter.Node) {
-	raw := strings.TrimSpace(f.text(n))
+	raw := trimSpace(f.text(n))
 	if raw == "" {
 		return
 	}
@@ -3769,7 +3769,7 @@ func (f *Formatter) scriptRaw(n *sitter.Node) {
 	prevBlank := false
 
 	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
+		trimmed := trimSpace(line)
 		if trimmed == "" {
 			if !prevBlank {
 				f.scriptWrite("\n")

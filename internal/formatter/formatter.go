@@ -1554,10 +1554,10 @@ func (f *Formatter) walkAttrs(n *sitter.Node, attrs *[]cfAttr, hdrEnd int) {
 					if f.opts.DoubleQuoteAttributes {
 						attr.value = f.normaliseAttrValue(f.text(gc))
 					} else {
-						attr.value = strings.TrimSpace(f.text(gc))
+						attr.value = trimSpace(f.text(gc))
 					}
 				case "cf_attribute_value":
-					val := strings.TrimSpace(f.text(gc))
+					val := trimSpace(f.text(gc))
 					if f.opts.DoubleQuoteAttributes {
 						attr.value = `"` + val + `"`
 					} else {
@@ -1580,7 +1580,7 @@ func (f *Formatter) walkAttrs(n *sitter.Node, attrs *[]cfAttr, hdrEnd int) {
 // applied when the value carries no double quote of its own; otherwise the
 // original delimiters are kept as-is.
 func (f *Formatter) normaliseAttrValue(v string) string {
-	v = strings.TrimSpace(v)
+	v = trimSpace(v)
 	if len(v) >= 2 {
 		q := v[0]
 		if (q == '"' || q == '\'') && v[len(v)-1] == q {
@@ -1841,7 +1841,7 @@ func (f *Formatter) rendersOnOneLine(emit func()) bool {
 // same format then stripped, flipping the answer on the next pass. Files
 // oscillated between the two forms forever.
 func (f *Formatter) isWhitespaceNode(n *sitter.Node) bool {
-	return strings.TrimSpace(f.text(n)) == ""
+	return trimSpace(f.text(n)) == ""
 }
 
 func (f *Formatter) formatChildren(n *sitter.Node) {
@@ -1961,7 +1961,7 @@ func (f *Formatter) firstBodyChildIsArg(n *sitter.Node) bool {
 			continue
 		}
 
-		if strings.TrimSpace(f.text(c)) == "" {
+		if trimSpace(f.text(c)) == "" {
 			continue
 		}
 
@@ -2119,7 +2119,7 @@ func (f *Formatter) hasCFBodyContent(n *sitter.Node) bool {
 		case "cf_start_tag", "cf_end_tag", "implicit_cf_end_tag":
 			continue
 		default:
-			if strings.TrimSpace(f.text(c)) != "" {
+			if trimSpace(f.text(c)) != "" {
 				return true
 			}
 		}
@@ -2489,7 +2489,7 @@ func (f *Formatter) normalizeCond(raw string) string {
 	var parts []string
 
 	for _, l := range lines {
-		trimmed := strings.TrimSpace(l)
+		trimmed := trimSpace(l)
 		if trimmed != "" {
 			parts = append(parts, trimmed)
 		}
@@ -2845,7 +2845,7 @@ func (f *Formatter) formatCFSelfClosingTag(n *sitter.Node) {
 		f.write("\n")
 
 		for i, l := range lines[1:] {
-			if strings.TrimSpace(l) == "" {
+			if trimSpace(l) == "" {
 				f.write("\n")
 
 				continue
@@ -3002,12 +3002,12 @@ func (f *Formatter) formatComponentContent(n *sitter.Node) {
 func (f *Formatter) formatText(n *sitter.Node) {
 	raw := f.text(n)
 	// Suppress whitespace-only text nodes (spacing between tags is managed by the formatter).
-	if strings.TrimSpace(raw) == "" {
+	if trimSpace(raw) == "" {
 		return
 	}
 	// Collapse all whitespace to single spaces (HTML whitespace rules) — unless
 	// the text holds a `//` comment, whose line break is load-bearing.
-	f.writeText(strings.TrimSpace(raw))
+	f.writeText(trimSpace(raw))
 }
 
 // formatDoctype emits a <!DOCTYPE ...> or <?xml ...?> declaration verbatim on its
@@ -3027,7 +3027,7 @@ func (f *Formatter) formatText(n *sitter.Node) {
 // neither declaration has internal structure worth reformatting, and an XML
 // declaration is specified down to its spacing.
 func (f *Formatter) formatDoctype(n *sitter.Node) {
-	raw := strings.TrimSpace(f.text(n))
+	raw := trimSpace(f.text(n))
 	if raw == "" {
 		return
 	}
@@ -3038,7 +3038,7 @@ func (f *Formatter) formatDoctype(n *sitter.Node) {
 }
 
 func (f *Formatter) formatComment(n *sitter.Node) {
-	raw := f.normalizeCFComment(strings.TrimSpace(f.text(n)))
+	raw := f.normalizeCFComment(trimSpace(f.text(n)))
 	if raw == "" {
 		return
 	}
@@ -3062,11 +3062,11 @@ func (f *Formatter) normalizeCFComment(raw string) string {
 		lines[i] = strings.TrimRight(line, " \t")
 	}
 
-	for len(lines) > 0 && strings.TrimSpace(lines[0]) == "" {
+	for len(lines) > 0 && trimSpace(lines[0]) == "" {
 		lines = lines[1:]
 	}
 
-	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+	for len(lines) > 0 && trimSpace(lines[len(lines)-1]) == "" {
 		lines = lines[:len(lines)-1]
 	}
 
@@ -3075,13 +3075,13 @@ func (f *Formatter) normalizeCFComment(raw string) string {
 	}
 
 	if len(lines) == 1 {
-		return "<!--- " + strings.TrimSpace(lines[0]) + " --->"
+		return "<!--- " + trimSpace(lines[0]) + " --->"
 	}
 	// Multi-line: strip common leading whitespace
 	minIndent := -1
 
 	for _, line := range lines {
-		if strings.TrimSpace(line) == "" {
+		if trimSpace(line) == "" {
 			continue
 		}
 
@@ -3106,7 +3106,7 @@ func (f *Formatter) normalizeCFComment(raw string) string {
 	sb.WriteString("<!---\n")
 
 	for _, line := range lines {
-		if strings.TrimSpace(line) == "" {
+		if trimSpace(line) == "" {
 			sb.WriteString("\n")
 		} else {
 			sb.WriteString(baseIndent)
@@ -3120,4 +3120,21 @@ func (f *Formatter) normalizeCFComment(raw string) string {
 	sb.WriteString("--->")
 
 	return sb.String()
+}
+
+// asciiSpace is the whitespace the formatter may trim from the edge of a piece
+// of source. `strings.TrimSpace` also strips Unicode spaces, and U+00A0 is one
+// of them: a no-break space at the end of a text run or after a comment is
+// content, it renders, and the formatter dropped it (the whitespace-only guard
+// then refused the whole file: Galaxie Blog's Udf.cfc).
+const asciiSpace = " \t\n\v\f\r"
+
+// trimSpace is strings.TrimSpace for ASCII whitespace only.
+func trimSpace(s string) string {
+	return strings.Trim(s, asciiSpace)
+}
+
+// trimSpaceBytes is bytes.TrimSpace for ASCII whitespace only.
+func trimSpaceBytes(b []byte) []byte {
+	return bytes.Trim(b, asciiSpace)
 }

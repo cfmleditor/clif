@@ -58,7 +58,7 @@ func (f *Formatter) formatCFQuery(n *sitter.Node) {
 				f.formatQueryContent(c, querySrc)
 			} else {
 				// Emit verbatim, trimmed
-				trimmed := strings.TrimSpace(string(querySrc))
+				trimmed := trimSpace(string(querySrc))
 				if trimmed != "" {
 					f.writeIndent()
 					f.write(trimmed + "\n")
@@ -173,14 +173,14 @@ func (f *Formatter) formatQueryNode(n *sitter.Node, first *bool) {
 		}
 
 		f.writeIndent()
-		f.write(strings.TrimSpace(f.text(n)))
+		f.write(trimSpace(f.text(n)))
 		f.write("\n")
 
 		*first = true
 
 	default:
 		// Other nodes: emit text inline
-		text := strings.TrimSpace(f.text(n))
+		text := trimSpace(f.text(n))
 		if text != "" {
 			if *first {
 				f.writeIndent()
@@ -245,7 +245,7 @@ func (f *Formatter) formatQueryKeyword(n *sitter.Node, first *bool) {
 
 		if upper == "JOIN" {
 			if prev := n.PrevSibling(); prev != nil {
-				prevText := strings.ToUpper(strings.TrimSpace(f.text(prev)))
+				prevText := strings.ToUpper(trimSpace(f.text(prev)))
 				prevIsJoinMod = sqlJoinModifiers[prevText]
 			}
 		}
@@ -272,7 +272,7 @@ func (f *Formatter) formatQueryKeyword(n *sitter.Node, first *bool) {
 		prevIsJoinMod := false
 
 		if prev := n.PrevSibling(); prev != nil {
-			prevText := strings.ToUpper(strings.TrimSpace(f.text(prev)))
+			prevText := strings.ToUpper(trimSpace(f.text(prev)))
 			prevIsJoinMod = sqlJoinModifiers[prevText]
 		}
 
@@ -324,7 +324,7 @@ func (f *Formatter) formatQueryIdentifier(n *sitter.Node, first *bool) {
 
 		if upper == "JOIN" {
 			if prev := n.PrevSibling(); prev != nil {
-				prevText := strings.ToUpper(strings.TrimSpace(f.text(prev)))
+				prevText := strings.ToUpper(trimSpace(f.text(prev)))
 				prevIsJoinMod = sqlJoinModifiers[prevText]
 			}
 		}
@@ -359,7 +359,7 @@ func (f *Formatter) formatQueryIdentifier(n *sitter.Node, first *bool) {
 		prevIsJoinMod := false
 
 		if prev := n.PrevSibling(); prev != nil {
-			prevText := strings.ToUpper(strings.TrimSpace(f.text(prev)))
+			prevText := strings.ToUpper(trimSpace(f.text(prev)))
 			prevIsJoinMod = sqlJoinModifiers[prevText]
 		}
 
@@ -610,7 +610,7 @@ func (f *Formatter) formatQueryCFIf(n *sitter.Node) {
 		if kind == ">" && phase == 1 {
 			f.writeIndent()
 			f.write("<" + f.openTagNameOf("cfif", n) + " ")
-			cond = f.normalizeCond(strings.TrimSpace(cond))
+			cond = f.normalizeCond(trimSpace(cond))
 			f.write(cond + ">\n")
 
 			f.level++
@@ -664,7 +664,7 @@ func (f *Formatter) formatQueryCFIf(n *sitter.Node) {
 // on the same source line as surrounding tokens (e.g. table name
 // constructed via FROM <cfif>name_a<cfelse>name_b</cfif> alias).
 func (f *Formatter) formatQueryCFIfInline(n *sitter.Node) {
-	src := strings.TrimSpace(string(f.src[n.StartByte():n.EndByte()]))
+	src := trimSpace(string(f.src[n.StartByte():n.EndByte()]))
 	f.write(src)
 }
 
@@ -715,9 +715,9 @@ func (f *Formatter) formatQueryCFIfAlt(n *sitter.Node) {
 
 			cond += condSb709.String()
 
-			cond = strings.TrimSpace(cond)
+			cond = trimSpace(cond)
 			if strings.HasPrefix(strings.ToLower(cond), "elseif") {
-				cond = strings.TrimSpace(cond[6:])
+				cond = trimSpace(cond[6:])
 			}
 
 			f.writeIndent()
@@ -838,7 +838,7 @@ func (f *Formatter) parenInlineLen(n *sitter.Node) int {
 				inlineLen++ // space
 			}
 
-			inlineLen += len(strings.TrimSpace(f.text(c)))
+			inlineLen += len(trimSpace(f.text(c)))
 		}
 	}
 
@@ -1076,7 +1076,7 @@ func (f *Formatter) formatQueryNodeInline(n *sitter.Node) {
 		first := true
 		f.formatQueryParenthesized(n, &first)
 	default:
-		f.write(strings.TrimSpace(f.text(n)))
+		f.write(trimSpace(f.text(n)))
 	}
 }
 
@@ -1103,7 +1103,7 @@ func (f *Formatter) emitQueryExtrasAndRight(n *sitter.Node, right *sitter.Node, 
 
 			f.level++
 			f.writeIndent()
-			f.write(f.normalizeCFComment(strings.TrimSpace(f.text(c))))
+			f.write(f.normalizeCFComment(trimSpace(f.text(c))))
 			f.write("\n")
 
 			f.level--
