@@ -245,7 +245,7 @@ Verified here with the local grammar through a `-modfile` replace (`go.mod` unto
 
 To take it: release `tree-sitter-cfml`, then `make update-grammar`. Until then clif still reports the 15.
 
-What remains is the 8: 2 for #119 (not fixed), and 6 invalid source (6 of the table's rows; `blogContentCss.cfm` reports a second error at line 59 under the new `scan.js`, a knock-on of the same `<style>`).
+What remains is the 8: 2 are #119 (`blogContentCss.cfm`, `galaxiePlayer.cfm`; not fixed) and 6 are invalid source (the table above).
 
 ## Shrank poorly: twelve files still to reduce
 
