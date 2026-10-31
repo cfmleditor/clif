@@ -713,6 +713,6 @@ one line, a call beside a span of the same name and two calls in a condition, ar
 lines.
 
 Checked on every call each parse records (line, name, source span, receiver, caller) over Galaxie, MuraCMS, Slatwall,
-ContentBox and Preside (22,000 calls in 4,457 files): the once-only version and the subtraction version are identical,
+ContentBox and Preside (190,635 calls in 4,457 files): the once-only version and the subtraction version are identical,
 file by file. Against the build before: MuraCMS loses 199 recorded calls in 47 files, Slatwall 15 in 7, Galaxie 3 in 1
 (each a duplicate, resolved or not; the `unresolved` report shows only the unresolved ones: MuraCMS 8, Slatwall 9).
