@@ -247,6 +247,19 @@ To take it: release `tree-sitter-cfml`, then `make update-grammar`. Until then c
 
 What remains is the 8: 2 are #119 (`blogContentCss.cfm`, `galaxiePlayer.cfm`; not fixed) and 6 are invalid source (the table above).
 
+### Tickets
+
+[tree-sitter-cfml#172](https://github.com/cfmleditor/tree-sitter-cfml/issues/172) (gap A),
+[#173](https://github.com/cfmleditor/tree-sitter-cfml/issues/173) (B) and
+[#174](https://github.com/cfmleditor/tree-sitter-cfml/issues/174) (C), fixed on the branch above;
+[#119](https://github.com/cfmleditor/tree-sitter-cfml/issues/119) (Galaxie's two shapes added as a comment);
+[#176](https://github.com/cfmleditor/tree-sitter-cfml/issues/176) (a tag comment after `cflock(…){ }`, found
+reducing the corpus; not fixed, with notes on what was ruled out);
+[#75](https://github.com/cfmleditor/tree-sitter-cfml/issues/75) (`(s)=>return s` added as a comment);
+[#175](https://github.com/cfmleditor/tree-sitter-cfml/issues/175) tracks what the corpus scan still reports and has
+not been reduced (the `<cfoutput>` cluster and Lucee's `form.cfm`). clif#317 is the path-spelling difference in
+`unresolved`, clif#318 the grammar bump.
+
 ## Shrank poorly: twelve files still to reduce
 
 These reproduce, but `make shrink` could not isolate a small fragment — the
