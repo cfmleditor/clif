@@ -1482,3 +1482,31 @@ chains now reported one hop later (`$.event()` is typed, so the chain breaks at
 of "not found on native.struct". Indexed coverage is unchanged (8,151 files).
 Artifacts: `target/resolution/pr244-app-fixes/`.
 
+
+## Galaxie Blog: added to the public corpus
+
+[GregoryAlexander77/Galaxie-Blog](https://github.com/GregoryAlexander77/Galaxie-Blog), commit
+`d40017bad22de6e8a1b2fc77580c8257f72ce429` (2026-10-29). A CFML blog engine on Adobe
+ColdFusion/Lucee with ORM entities (`entityNew`/`entityLoad`), tag- and script-syntax components, no
+framework and no `.clif.json`; scan it as checked out (`clif` assumes nothing). 417 CFML files
+(128 `.cfc`, 289 `.cfm`).
+
+Baseline, first run (clif at `a976352`):
+
+| Check | Result |
+|---|---|
+| `make corpus CORPUS=<checkout>` | 417 files: 405 clean, 11 grammar-refused, 1 guard-rejected; no panic, unstable or malformed |
+| `make gapcheck CORPUS=<checkout>` | passes (a corpus run only reports); `createObject`, `entityLoad`, `entityLoadByPK` and `entityNew` are the expected `ComponentRef`-vs-call differences. Calls the parser extracts that the grammar does not see are led by `convertHqlQuery2JsonStruct` (33) and `getContentOutputData` (15); not yet looked into |
+| `clif scan` | 15 grammar parse errors (admin themeSettings.cfm, Renderer.cfc, StringUtils.cfc, importBlogCfc.cfm, blogJsContent.cfm and others) |
+| `clif unresolved` | **3,752** unresolved, 5,687 resolved, 417 files scanned: 3,601 variable, 132 method, 18 return type, 1 object |
+
+Reproduce: `make resolution-report CORPUS="gx=<checkout>" RUNS=target/resolution/galaxie LISTS=`.
+The lists in `resolution-candidates/` are not rewritten, so the other seven reports stay as they were.
+
+**Open: the result depends on how the path is spelled.** `clif unresolved .` from inside the checkout
+reports 3,881 (5,558 resolved); `clif unresolved /abs/path/to/checkout`, from there or from `/`,
+reports 3,752 (5,687 resolved). Keyed by file, line, function and reason, 140 findings appear only
+with `.` and 11 only with the absolute path (the 140: `getConfigBean` chains 50, locals `s`/`e`/
+`compare` 65, in `common/` and `org/`). One scan should not change with how its root is named, so
+the report uses the absolute path, as `scripts/resolution-report.sh` passes it, until the cause
+is found. Not investigated further.
