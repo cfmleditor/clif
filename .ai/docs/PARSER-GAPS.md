@@ -688,12 +688,16 @@ were never findings; `make gapcheck` saw them as a line disagreement, 6 entries,
 
 The JSON report's `line` is 0-based and the text report's is 1-based, as `internal/unresolved/diff.go` notes.
 
-**Still differing on Galaxie** (`make gapcheck CORPUS=<checkout>`, parser-only, 267 of 273): 262 are
-`<cfinvoke … method="x">`, which the parser records as a call and the grammar sees as a tag, the way it treats
-`createObject`. Five are not: `replaceNoCase` in `Renderer.cfc:3060` and `StringUtils.cfc:19`, which the pinned grammar
-cannot parse (tree-sitter-cfml#174, fixed upstream, unreleased), and `formatMoney`, `left` and `trim` in the
-`<cfreturn "… #…# …">` at `TestUtility.cfc:285`, which the grammar does see when that line is cut out of the file
-and parsed alone; why it misses them in place was not found.
+**Still differing on Galaxie** (`make gapcheck CORPUS=<checkout>`, parser-only): with the merged grammar and the parser
+after the next section's fix, 262 entries, every one a `<cfinvoke … method="x">`, which the parser records as a call and
+the grammar sees as a tag, the way it treats `createObject`. Nothing else. Against the *pinned* grammar (v0.26.43) there
+are two more, `replaceNoCase` in `Renderer.cfc:3060` and `StringUtils.cfc:19`, files that grammar cannot parse
+(tree-sitter-cfml#174, fixed upstream, unreleased).
+
+An earlier version of this note listed three more, `formatMoney`, `left` and `trim` in the `<cfreturn "… #…# …">` at
+`TestUtility.cfc:285`, and said the grammar saw them when the line was parsed alone but not in the file. That was the
+wrong reading: the grammar was right and the parser recorded each of those calls twice. The comparison counts calls as a
+multiset, so the second copy showed as parser-only. They went away with the fix below; they are not a grammar gap.
 
 **A call in a string inside `<cfif>`, `<cfelseif>` or `<cfreturn>` was recorded twice** (clif#320):
 `<cfreturn "a #f(1)# b">`, `<cfif x eq "#f(1)#">`. Two scans read the same text: the span scan over every handled tag
