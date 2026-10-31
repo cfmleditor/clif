@@ -233,10 +233,20 @@ func buildGraph(f *graphFlags) (*codemap.Map, error) {
 	// per config (27% of its CPU in system calls).
 	fsys := vfs.CacheMetadata(vfs.OS{})
 
-	root, err := filepath.Abs(f.paths[0])
-	if err != nil {
-		return nil, fmt.Errorf("resolving %s: %w", f.paths[0], err)
+	// Every path is made absolute before anything reads it. Without a config the
+	// paths as typed are the scan roots, and `graph .` indexed every file under a
+	// relative URI: each resolved call then named a target relPath turned into
+	// `../../../x.cfc`, a node the map does not have, and the edge was dropped.
+	for i, p := range f.paths {
+		abs, err := filepath.Abs(p)
+		if err != nil {
+			return nil, fmt.Errorf("resolving %s: %w", p, err)
+		}
+
+		f.paths[i] = abs
 	}
+
+	root := f.paths[0]
 
 	if info, err := os.Stat(root); err == nil && !info.IsDir() {
 		root = filepath.Dir(root)
@@ -277,6 +287,7 @@ func buildGraph(f *graphFlags) (*codemap.Map, error) {
 	var (
 		db    *store.Store
 		cache *store.Cache
+		err   error
 	)
 
 	if f.db != "" {
