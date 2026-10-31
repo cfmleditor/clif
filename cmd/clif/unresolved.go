@@ -255,6 +255,14 @@ func writeOpenWorldJSON(out io.Writer, rep *unresolved.Report) error {
 func scanUnresolved(args []string, fl *unresolvedFlags) (unresolved.Report, *daemon.Config, string) {
 	fsys := vfs.OS{}
 
+	// The index and the report must name a file alike: the files to scan are
+	// absolute (scanTargets), so the index is built from absolute paths too.
+	// With `.` it was built from relative ones, a file's own functions were
+	// not found under the name the scan asked with, and 129 more calls on
+	// Galaxie Blog were reported unresolved than with the same root spelled
+	// out.
+	args = absolutePaths(args)
+
 	// Find .clif.json config based on the first file/dir argument
 	searchDir, _ := filepath.Abs(args[0])
 	if info, err := os.Stat(searchDir); err == nil && !info.IsDir() {
@@ -446,6 +454,22 @@ func presetHint(cfg *daemon.Config, searchDir string) string {
 	return fmt.Sprintf("box.json names %s, which have framework presets: add `\"frameworks\": [\"%s\"]` to %s\n"+
 		"so the values those frameworks hand your code are typed rather than reported.",
 		strings.Join(suggest, ", "), strings.Join(all, `", "`), where)
+}
+
+// absolutePaths is args with each made absolute, left as given when that fails.
+func absolutePaths(args []string) []string {
+	abs := make([]string, len(args))
+
+	for i, a := range args {
+		p, err := filepath.Abs(a)
+		if err != nil {
+			p = a
+		}
+
+		abs[i] = p
+	}
+
+	return abs
 }
 
 // scanTargets is the files a report covers, as absolute paths; nil covers

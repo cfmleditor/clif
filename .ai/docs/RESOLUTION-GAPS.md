@@ -1503,7 +1503,7 @@ Baseline, first run (clif at `a976352`):
 Reproduce: `make resolution-report CORPUS="gx=<checkout>" RUNS=target/resolution/galaxie LISTS=`.
 The lists in `resolution-candidates/` are not rewritten, so the other seven reports stay as they were.
 
-**Open: the result depends on how the path is spelled.** `clif unresolved .` from inside the checkout
+**Fixed (it was a bug): the result depended on how the path was spelled.** `clif unresolved .` from inside the checkout
 reports 3,881 (5,558 resolved); `clif unresolved /abs/path/to/checkout`, from there or from `/`,
 reports 3,752 (5,687 resolved). Keyed by file, line, function and reason, 140 findings appear only
 with `.` and 11 only with the absolute path (the 140: `getConfigBean` chains 50, locals `s`/`e`/
@@ -1523,3 +1523,13 @@ verdict (405 clean, 11 grammar-refused, 1 guard-rejected). `gapcheck` passes.
 
 The path-spelling difference remains: `clif unresolved .` reports 1,707 (7,732 resolved), the absolute
 path 1,578, the same 129-finding gap as before.
+
+**Cause and fix of the path-spelling difference.** `scanUnresolved` built the index from the roots as typed
+(`cfpath.CollectCFML(fsys, args)`, so `.` gave relative paths) while the files to report came from `scanTargets`,
+which makes them absolute. A file's own functions were therefore not found in the index under the name the scan asked
+with: `s = zoned( … ); s.toLocalDate()` read "variable 's' has no component ref" for `.` and resolved with the absolute
+path, 129 calls on Galaxie. Any relative spelling did it (`.`, `./`, `galaxie` from its parent, `..` from a
+subdirectory), whatever the working directory. `scanUnresolved` now makes its arguments absolute first
+(`absolutePaths`); `TestUnresolvedDoesNotDependOnHowTheRootIsSpelled` fails without it. `refs`, `deps` and `graph`
+gave the same answer for both spellings on Galaxie. The recorded corpus numbers are unchanged, since
+`scripts/resolution-report.sh` always passed absolute paths.
