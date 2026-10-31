@@ -696,14 +696,23 @@ cannot parse (tree-sitter-cfml#174, fixed upstream, unreleased), and `formatMone
 and parsed alone; why it misses them in place was not found.
 
 **A call in a string inside `<cfif>`, `<cfelseif>` or `<cfreturn>` was recorded twice** (clif#320):
-`<cfreturn "a #f(1)# b">`, `<cfif x eq "#f(1)#">`. The span scan over the whole tag records the call before the
-handler runs, and the handler's expression scan found it again. `<cfset>` already subtracted what was recorded; these
-three did not, and the notes here say doing it for a span is wrong because `#f("a")# #f("b")#` is two calls. That holds
-for subtracting by name and line. `scanConditionCalls` subtracts by source span (`exprSubtract`, beside `exprTopUp`,
-without `<cfset>`'s member-assignment handling), so two calls of one name keep their own spans and both stay.
-`TestACallInAStringInATagConditionIsRecordedOnce` fails without it on seven of nine cases; the controls (two spans on one
-line, a call beside a span of the same name, two calls in a condition) pass either way.
+`<cfreturn "a #f(1)# b">`, `<cfif x eq "#f(1)#">`. Two scans read the same text: the span scan over every handled tag
+(`scanInterpolatedText`, which exists for attributes such as `<cfloop array="#svc.list()#">`), and the handler's own
+parse of the tag's expression, which reads `#…#` in a string and outside one alike. These three tags have no attributes:
+after the name, the tag *is* the expression. `holdsOnlyAnExpression` skips the span scan for them, so each call is read
+once. The first fix recorded both and subtracted the duplicates by source span (as `<cfset>` does); it was dropped for
+reading once because it needs no bookkeeping, and the recorded calls are identical (below). A subtraction by name and
+line would be wrong here, as the notes above say: `#f("a")# #f("b")#` is two calls.
 
-Per entry against the build before: MuraCMS 2,288 -> 2,280 (8 duplicates, no other change); Slatwall 7,542 -> 7,533
-(9 duplicates, and one "N inherited calls not checked" count that counted two of them: 9 -> 7); Galaxie, ContentBox,
-Preside, cfwheels, Lucee and ColdBox unchanged.
+`scanTagExpression` passes the expression's offset and the bucket length, which asks for each call's line to be taken from
+its source span: a chain written over lines (`new X(\n…\n).hop()`) is on the line of `.hop`, not of the tag.
+
+`TestACallInAStringInATagConditionIsRecordedOnce` fails without the skip on seven of nine cases (the controls, two spans on
+one line, a call beside a span of the same name and two calls in a condition, are in it and pass either way), and the
+"a chain written over lines" case of `TestAMultiLineTagConditionKeepsItsCallsAndTheirLines` fails without the span-based
+lines.
+
+Checked on every call each parse records (line, name, source span, receiver, caller) over Galaxie, MuraCMS, Slatwall,
+ContentBox and Preside (22,000 calls in 4,457 files): the once-only version and the subtraction version are identical,
+file by file. Against the build before: MuraCMS loses 199 recorded calls in 47 files, Slatwall 15 in 7, Galaxie 3 in 1
+(each a duplicate, resolved or not; the `unresolved` report shows only the unresolved ones: MuraCMS 8, Slatwall 9).
