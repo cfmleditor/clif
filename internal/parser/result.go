@@ -2283,6 +2283,13 @@ func (pr *ParseResult) propertyFieldComponents() map[string]string {
 	return fieldComponents
 }
 
+// PresideObject is what Preside's presidecms:object:x DSL injects: the
+// object x, decorated by PresideObjectDecorator with the data API its
+// onMissingMethod hands to the PresideObjectService. The decorator stands
+// for it, as the resolver's answer for getObject() does; without Preside's
+// source a call on it is dynamic (IsSoftComponent).
+const PresideObject = "preside.system.services.presideObjects.PresideObjectDecorator"
+
 // injectedComponent is the component a WireBox injection names, when no
 // beanPaths entry or propertyResolver said.
 //
@@ -2313,8 +2320,24 @@ func injectedComponent(inject string) string {
 		id = id[len(p):]
 	}
 
+	// So does Preside's delayedInjector:x (config/WireBox.cfc maps the DSL):
+	// it injects a DelayedInjector, whose onMissingMethod hands every call
+	// to the instance x names once it is first used. Only a model id: what
+	// a DSL name like `coldbox` is depends on the application (Preside runs
+	// its own controller), so it is left to the resolvers, as it was.
+	if p := "delayedInjector:"; len(id) > len(p) && strings.EqualFold(id[:len(p)], p) {
+		id = id[len(p):]
+		if dslComponent(id) != "" || strings.Contains(id, ":") {
+			return ""
+		}
+	}
+
 	if c := dslComponent(id); c != "" {
 		return c
+	}
+
+	if p := "presidecms:object:"; len(id) > len(p) && strings.EqualFold(id[:len(p)], p) {
+		return PresideObject
 	}
 
 	for _, prefix := range []string{"id:", "model:"} {
@@ -2395,6 +2418,10 @@ var coldboxModels = map[string]string{
 // isInjectedFrameworkComponent reports whether comp is one of
 // InjectedFrameworkComponents.
 func isInjectedFrameworkComponent(comp string) bool {
+	if strings.EqualFold(comp, PresideObject) {
+		return true
+	}
+
 	if len(comp) <= len(coldboxSystem) || !strings.EqualFold(comp[:len(coldboxSystem)], coldboxSystem) {
 		return false
 	}

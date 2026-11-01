@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/cfmleditor/clif/internal/parser"
 )
 
 func TestAssumedFrameworksRequireOneProjectContext(t *testing.T) {
@@ -167,7 +169,7 @@ func TestAssumedCommandBoxContextRequiresHostEvidence(t *testing.T) {
 // handler (2,911 findings) and, once ColdBox's preset typed it, a ColdBox
 // RequestContext lacking Preside's buildAdminLink(). With the checkout
 // recognised, the ColdBox preset is assumed and `event` is Preside's
-// decorator, ahead of the preset's own.
+// decorator, and the controller Preside's own, ahead of the preset's.
 func TestAPresideCheckoutIsColdBoxWithPresidesRequestContext(t *testing.T) {
 	root := t.TempDir()
 	files := map[string]string{
@@ -203,9 +205,66 @@ func TestAPresideCheckoutIsColdBoxWithPresidesRequestContext(t *testing.T) {
 		t.Errorf("event resolves to %q first, want %q", event, presideRequestContext)
 	}
 
+	// Preside's own controller, which adds handlerExists() and the viewlet
+	// API, ahead of ColdBox's for the same names.
+	for _, name := range []string{"coldbox", "controller", "getController"} {
+		var first string
+
+		for _, res := range r.ComponentResolvers {
+			if strings.Contains(res.Prefix, name) && strings.Contains(res.Match, name) {
+				first = res.Resolve
+
+				break
+			}
+		}
+
+		if first != presideController {
+			t.Errorf("%s resolves to %q first, want %q", name, first, presideController)
+		}
+	}
+
+	// Preside's own id factories build what getInstance( id ) does.
+	for _, call := range []string{`getSingleton( "auditService" )`, `getModel( "auditService" )`} {
+		if got := parser.ResolveFromCall(call, ParserResolvers(r.ComponentResolvers)); got != "auditService" {
+			t.Errorf("%s resolves to %q, want auditService", call, got)
+		}
+	}
+
 	delete(files, filepath.Join(root, "system", "services", "PresideSuperClass.cfc"))
 
 	if got := Assumed([]string{root}, read); len(got.Frameworks) != 0 {
 		t.Errorf("without Preside's markers: frameworks = %v", got.Frameworks)
+	}
+}
+
+// TestACommandBoxCheckoutIsCommandBox: CommandBox's own source maps
+// /commandbox to src/cfml from its tests, and its commands and services write
+// to `print` and build what `getInstance( "X" )` names. Nothing recognised
+// the checkout, so the commandbox preset was not assumed there and `print`
+// alone was 888 findings.
+func TestACommandBoxCheckoutIsCommandBox(t *testing.T) {
+	root := t.TempDir()
+	files := map[string]string{
+		filepath.Join(root, "tests", "Application.cfc"):                 `component { this.mappings[ '/commandbox' ] = '../src/cfml'; }`,
+		filepath.Join(root, "src", "cfml", "system", "BaseCommand.cfc"): `component {}`,
+		filepath.Join(root, "src", "cfml", "system", "Shell.cfc"):       `component {}`,
+	}
+
+	read := func(p string) ([]byte, error) {
+		if s, ok := files[p]; ok {
+			return []byte(s), nil
+		}
+
+		return nil, os.ErrNotExist
+	}
+
+	if r := Assumed([]string{filepath.Join(root, "src", "cfml", "system")}, read); !slices.Equal(r.Frameworks, []string{"commandbox"}) {
+		t.Fatalf("frameworks = %v, want [commandbox]", r.Frameworks)
+	}
+
+	delete(files, filepath.Join(root, "src", "cfml", "system", "Shell.cfc"))
+
+	if got := Assumed([]string{root}, read); len(got.Frameworks) != 0 {
+		t.Errorf("without CommandBox's markers: frameworks = %v", got.Frameworks)
 	}
 }

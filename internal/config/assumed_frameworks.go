@@ -32,6 +32,12 @@ type assumption struct {
 // ColdBox's RequestContext.
 const presideRequestContext = "preside.system.coldboxModifications.RequestContextDecorator"
 
+// presideController is the ColdBox controller Preside runs: its Bootstrap
+// creates preside.system.coldboxModifications.Controller, which extends
+// ColdBox's and adds what Preside's services call on it (handlerExists(),
+// viewletExists(), renderViewlet()).
+const presideController = "preside.system.coldboxModifications.Controller"
+
 func assumedFrameworks(roots []string, read func(string) ([]byte, error), directories ...func(string) ([]fs.DirEntry, error)) assumption {
 	owners := map[string]bool{}
 	preside, slatwall := false, false
@@ -57,6 +63,11 @@ func assumedFrameworks(roots []string, read func(string) ([]byte, error), direct
 			case "mura":
 				owner = filepath.Dir(filepath.Dir(target))
 				presets["mura"] = true
+			case "commandbox":
+				// CommandBox's own source: its commands, tasks and services
+				// are written against the preset's print buffer and WireBox ids.
+				owner = filepath.Dir(filepath.Dir(target))
+				presets["commandbox"] = true
 			default:
 				continue
 			}
@@ -114,8 +125,14 @@ func Assumed(roots []string, read func(string) ([]byte, error), directories ...f
 	r.Frameworks = a.frameworks
 
 	if a.preside {
-		// Ahead of the ColdBox preset's own `event`, which it replaces.
-		r.ComponentResolvers = append(r.ComponentResolvers, variableResolver(presideRequestContext, "event"))
+		// Ahead of the ColdBox preset's own `event` and controller, which
+		// they replace.
+		r.ComponentResolvers = append(r.ComponentResolvers, variableResolver(presideRequestContext, "event"), variableResolver(presideController, "controller", "cbController", "coldbox"))
+		r.ComponentResolvers = append(r.ComponentResolvers, returnResolver(presideController, "getController")...)
+		// Preside's helpers build a model with getSingleton( id ), what
+		// getInstance( id ) builds. Its request context's getModel( id ) is
+		// the ColdBox preset's.
+		r.ComponentResolvers = append(r.ComponentResolvers, idResolver("getSingleton"))
 	}
 
 	if a.slatwall {

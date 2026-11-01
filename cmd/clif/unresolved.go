@@ -543,6 +543,10 @@ func perFileResolver(cfg *daemon.Config) func(base *resolve.Resolver, file strin
 			if cfg != nil && cfg.Path != "" {
 				set.use(cfg.Path, codemap.FileConfig{Resolver: base})
 			}
+
+			if cfg == nil {
+				set.assumeApps(base.WorkspaceFolders)
+			}
 		}
 
 		r := set.For(file).Resolver

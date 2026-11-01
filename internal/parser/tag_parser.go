@@ -1621,13 +1621,14 @@ func (p *tagParser) checkSetRHSStr(rhs, varName string, line int) {
 				Variable: varName, Component: comp, ChainRest: trailingCalls(rhs),
 				URI: uriFromString(p.fileURI), Line: conv.Uint32(line),
 			})
-		} else if len(p.resolvers) > 0 {
-			if comp := p.resolveCall(rhs); comp != "" {
-				p.addRef(&ComponentRef{
-					Variable: varName, Component: comp, ChainRest: trailingCalls(rhs),
-					URI: uriFromString(p.fileURI), Line: conv.Uint32(line),
-				})
-			}
+		} else if comp := p.resolveCall(rhs); comp != "" {
+			// Not only when resolvers are configured: with none, resolveCall
+			// still answers through dynamicCall, which makes an unstubbed Java
+			// object dynamic, as the script parser always has.
+			p.addRef(&ComponentRef{
+				Variable: varName, Component: comp, ChainRest: trailingCalls(rhs),
+				URI: uriFromString(p.fileURI), Line: conv.Uint32(line),
+			})
 		}
 
 	case hasPrefixFold(rhs, "entitynew("):

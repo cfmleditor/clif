@@ -181,6 +181,20 @@ func dynamicCall(expr string) string {
 	return ""
 }
 
+// mockCall is what dynamicCall makes of expr when its last call makes a
+// MockBox mock, or "".
+func mockCall(expr string) string {
+	name, _ := finalCall(expr)
+
+	var buf foldScratch
+	switch string(buf.lowerFold(name)) {
+	case "createmock", "createemptymock", "preparemock", "createstub":
+		return dynamicCall(expr)
+	}
+
+	return ""
+}
+
 // docReturn is the dotted component a doc comment's @return names, or "".
 // A bare word is far more often a type than a component, and is left out.
 func docReturn(comment string) string {
@@ -2658,6 +2672,15 @@ func (p *scriptParser) checkReturnComponent() {
 	if comp := conditionalConstructions(expr, p.resolveCall, p.applyImport); comp != "" && len(p.funcs) > 0 {
 		f := p.currentFunc()
 		f.ReturnComponent = unionReturn(f.ReturnComponent, comp)
+	}
+
+	// A returned mock is the mock the same call assigned would be
+	// (dynamicCall). MockBox declares no return for createMock, so a chain
+	// ending in one, `return getMockBox().createMock( object=new X() )`,
+	// said nothing, where `var x = …` of the same call is dynamic.
+	if mock := mockCall(expr); mock != "" && len(p.funcs) > 0 {
+		f := p.currentFunc()
+		f.ReturnComponent = unionReturn(f.ReturnComponent, mock)
 	}
 
 	peek := p.sc.PeekSkipComments()

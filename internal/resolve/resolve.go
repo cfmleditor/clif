@@ -126,6 +126,8 @@ type pathCaches struct {
 	callerBuild         sync.Mutex                          // held while callerIdx is built; see buildCallerIndexOnce
 	argCache            map[string]string                   // an argument → what its callers pass (argumentFromCallers)
 	requestWriterIdx    map[string][]string                 // request key → files writing it (requestWriters)
+	ownedKeys           map[string]string                   // file and function → what its owned-key factory returns (ownedKeyReturn)
+	keyPrefixes         map[string]string                   // literal key prefix → what every factory spelling it stores, "" when they differ (prefixComponent)
 	handlerCache        map[string]*parser.ParseResult      // handler path → its parse (handlerParse)
 	fw1ActionCache      map[string][]fw1Action              // controllers dir + section.item → its actions (fw1Actions)
 	fw1IncluderCache    map[string]map[string][]string      // application dir → view → the views rendering it (fw1Includers)
@@ -975,6 +977,10 @@ func (r *Resolver) lookupFuncUncached(cfcPath, funcName string, depth int) *pars
 	}
 
 	if d := r.presideSuperClassFunc(chain, funcName, depth); d != nil {
+		return d
+	}
+
+	if d := r.legacyColdBoxFunc(chain, funcName, depth); d != nil {
 		return d
 	}
 
@@ -2294,8 +2300,21 @@ func (r *Resolver) bareFunc(name string, pr *parser.ParseResult, baseDir string,
 		}
 	}
 
+	// The same order a call standing alone is looked up in (canResolveCall):
+	// a chain headed by $getPresideObject() or a handler's getModel() found
+	// nothing where the call alone resolved.
+	if def, _ := r.virtualBaseFunc(pr, name); def != nil {
+		return def
+	}
+
 	if def := r.delegatedFunc(pr.Delegates, baseDir, name, 0); def != nil {
 		return def
+	}
+
+	if pr.URI.IsFile() && strings.HasPrefix(name, "$") {
+		if def := r.presideSuperClassFunc(r.extendsChainOf(pr.URI.Path()), name, 0); def != nil {
+			return def
+		}
 	}
 
 	if def, _ := r.findThroughIncludes(pr, name); def != nil {
@@ -2743,6 +2762,14 @@ func (r *Resolver) getterReturn(fd *parser.FunctionDef) string {
 		return ret
 	}
 
+	if ret := r.ownedKeyReturn(fd); ret != "" {
+		return ret
+	}
+
+	if ret := r.presideObjectReturn(fd); ret != "" {
+		return ret
+	}
+
 	if ret := r.forwardedFieldReturn(fd); ret != "" {
 		if p := r.ComponentPath(ret, filepath.Dir(fd.URI.Path())); p != "" {
 			return p
@@ -2826,6 +2853,11 @@ func (r *Resolver) returnComponentOf(fd *parser.FunctionDef, depth int, budget *
 	}
 
 	switch {
+	case strings.Contains(fd.ReturnComponent, "#"):
+		// `return new "builders.#name#.Builder"()`: a runtime path no
+		// expressionMappings entry covered is dynamic, as it is assigned to
+		// a variable (parser replaceExpressions).
+		return "$any"
 	case fd.ReturnComponent != "" && fd.ReturnComponent != "$any":
 		// `return new Expectation( … )` names the component beside the
 		// declaring file, as a bare return type does; read from the caller's
@@ -2865,7 +2897,11 @@ func (r *Resolver) returnComponentOf(fd *parser.FunctionDef, depth int, budget *
 		return ret
 	}
 
-	return r.docReturnComponent(fd)
+	if ret := r.docReturnComponent(fd); ret != "" {
+		return ret
+	}
+
+	return r.aboveDeclaring(fd, fd.ReturnType)
 }
 
 // docReturnComponent is the component fd's doc comment says it returns, when
@@ -2985,15 +3021,21 @@ func (r *Resolver) FuncLookup(baseDir string) func(component, funcName string) s
 		return lookup
 	}
 
-	// In a batch scan the answer is a function of the directory, the component
-	// and the name alone (see funcCache for why it holds for the whole scan),
-	// and the files of one directory ask the same questions: each parse
-	// memoised only its own, which left 2.3s of tassweb's scan in lookups
-	// another file beside it had already made.
+	// In a batch scan the answer is a function of the caller's application,
+	// the directory, the component and the name alone (see funcCache for why
+	// it holds for the whole scan), and the files of one directory ask the
+	// same questions: each parse memoised only its own, which left 2.3s of
+	// tassweb's scan in lookups another file beside it had already made. The
+	// cache is the owner's, shared by every caller-context view, and a view
+	// keeps its own application's mappings whatever directory it is asked
+	// from, so the application is part of the key: without it, whichever
+	// view asked first answered for all of them, and a test suite's
+	// `/root` mapping came and went with the scan's goroutine order.
 	cache := &r.owner().funcLookups
+	app := r.forCaller(baseDir).callerApplication
 
 	return func(component, funcName string) string {
-		key := funcLookupKey{dir: baseDir, component: component, name: funcName}
+		key := funcLookupKey{app: app, dir: baseDir, component: component, name: funcName}
 		if answer, ok := cache.Load(key); ok {
 			s, _ := answer.(string)
 
@@ -3008,7 +3050,7 @@ func (r *Resolver) FuncLookup(baseDir string) func(component, funcName string) s
 }
 
 // funcLookupKey is one FuncLookup question in a batch scan.
-type funcLookupKey struct{ dir, component, name string }
+type funcLookupKey struct{ app, dir, component, name string }
 
 func (r *Resolver) funcLookupUncached(baseDir string) func(component, funcName string) string {
 	r = r.forCaller(baseDir)
@@ -3108,6 +3150,57 @@ func (r *Resolver) besideDeclaring(fd *parser.FunctionDef, t string) string {
 	}
 
 	return cfpath.ResolvePathCached(t, filepath.Dir(file), nil, r.dirs())
+}
+
+// aboveDeclaring is the file a bare component name t names in the nearest
+// directory above the file that declares fd, within the workspace folder
+// holding it, or "". CFML looks a bare name up in the component's own
+// directory (besideDeclaring) and then from the application's root, and a
+// library's helpers name its main component that way: spreadsheet-cfml's
+// helpers/base.cfc declares `Spreadsheet function library()` with
+// Spreadsheet.cfc one level up, and the 188 calls chained on library() were
+// "no component return type". It is the last answer returnComponentOf tries.
+func (r *Resolver) aboveDeclaring(fd *parser.FunctionDef, t string) string {
+	t = strings.TrimSpace(t)
+	if t == "" || r.FS == nil || cfmlTypes[strings.ToLower(t)] || strings.ContainsAny(t, "/\\[]<> $#:.") || filepath.IsAbs(t) {
+		return ""
+	}
+
+	file := cfpath.FromURI(string(fd.URI))
+	if file == "" {
+		return ""
+	}
+
+	dir := filepath.Dir(file)
+
+	folder := r.workspaceFolderOf(dir)
+	if folder == "" || dir == folder {
+		return ""
+	}
+
+	for d := filepath.Dir(dir); ; d = filepath.Dir(d) {
+		if p := cfpath.ResolvePathCached(t, d, nil, r.dirs()); p != "" {
+			return p
+		}
+
+		if d == folder || filepath.Dir(d) == d {
+			return ""
+		}
+	}
+}
+
+// workspaceFolderOf is the longest workspace folder dir lies in, or "".
+func (r *Resolver) workspaceFolderOf(dir string) string {
+	best := ""
+
+	for _, folder := range r.WorkspaceFolders {
+		folder = filepath.Clean(folder)
+		if (dir == folder || strings.HasPrefix(dir, folder+string(filepath.Separator))) && len(folder) > len(best) {
+			best = folder
+		}
+	}
+
+	return best
 }
 
 // bareArgumentComponent is the component a bare argument type names beside

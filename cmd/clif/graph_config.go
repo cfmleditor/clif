@@ -47,6 +47,26 @@ type configSet struct {
 	byPath   map[string]codemap.FileConfig // config file path → built environment
 	fallback codemap.FileConfig
 	seen     map[string]string // config path → content hash, for the fingerprint
+
+	// apps: a directory no config governs is read under its nearest ColdBox
+	// application's or module's conventions (config.AssumedApp), set when the
+	// scan has no config and its project assumes no framework as a whole.
+	apps bool
+}
+
+// assumeApps reads each directory no config governs under the conventions of
+// the ColdBox application or module it is in, when the project read as a whole
+// (folders) assumes no framework. One that does keeps its own: Preside's and
+// ContentBox's checkouts have ColdBox applications and modules of their own
+// inside, and their project-wide reading is the more specific.
+func (cs *configSet) assumeApps(folders []string) {
+	if len(config.AssumedFrameworks(folders, cs.fsys.ReadFile, cs.fsys.ReadDir)) > 0 {
+		return
+	}
+
+	cs.mu.Lock()
+	cs.apps = true
+	cs.mu.Unlock()
 }
 
 func newConfigSet(fsys vfs.FS, shared *index.Index, fallback *codemap.FileConfig) *configSet {
@@ -103,7 +123,7 @@ func (cs *configSet) For(file string) codemap.FileConfig {
 func (cs *configSet) build(dir string) codemap.FileConfig {
 	found, _ := daemon.FindConfig(dir)
 	if found == nil {
-		return cs.fallback
+		return cs.appConfig(dir)
 	}
 
 	cs.mu.RLock()
@@ -134,6 +154,59 @@ func (cs *configSet) build(dir string) codemap.FileConfig {
 	cs.mu.Lock()
 	cs.byPath[found.Path] = cfg
 	cs.seen[found.Path] = hash
+	cs.mu.Unlock()
+
+	return cfg
+}
+
+// appConfig is the environment for a directory no config governs: under
+// assumeApps, the nearest ColdBox application's or module's, one per root and
+// shared by every directory beneath it; otherwise the fallback.
+func (cs *configSet) appConfig(dir string) codemap.FileConfig {
+	cs.mu.RLock()
+	apps := cs.apps
+	cs.mu.RUnlock()
+
+	if !apps {
+		return cs.fallback
+	}
+
+	assumed, root := config.AssumedApp(dir, cs.fsys.ReadFile, cs.fsys.ReadDir)
+	if assumed == nil {
+		return cs.fallback
+	}
+
+	key := "assumed:" + root
+
+	cs.mu.RLock()
+	cfg, ok := cs.byPath[key]
+	cs.mu.RUnlock()
+
+	if ok {
+		return cfg
+	}
+
+	var folders []string
+	if cs.fallback.Resolver != nil {
+		folders = cs.fallback.Resolver.WorkspaceFolders
+	}
+
+	bs := resolve.SettingsFromConfig(assumed, folders)
+	if cs.fallback.Resolver != nil {
+		bs.NativeEngine = cs.fallback.Resolver.NativeEngine
+	}
+
+	cfg = codemap.FileConfig{Resolver: resolve.NewBatchResolver(cs.fsys, cs.shared, &bs)}
+
+	cs.mu.Lock()
+	if existing, ok := cs.byPath[key]; ok {
+		cfg = existing
+	} else {
+		cs.byPath[key] = cfg
+		// What the root is read as goes into the fingerprint, so a cached
+		// edge set does not outlive a change to the conventions it was read under.
+		cs.seen[key] = strings.Join(assumed.Frameworks, ",")
+	}
 	cs.mu.Unlock()
 
 	return cfg
