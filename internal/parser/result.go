@@ -1361,12 +1361,14 @@ func (pr *ParseResult) pendingCallComponent(c *pendingCall, funcReturns map[stri
 	// x = inherited(): a method the file does not declare is its base's,
 	// which FuncLookup reaches from the file itself. ContentBox's
 	// services write `var c = newCriteria()`, a method of cborm's
-	// BaseORMService, and c was untyped.
-	if comp == "" && c.baseVar == "" && pr.FuncLookup != nil && pr.URI.IsFile() {
+	// BaseORMService, and c was untyped. `this.inherited()` and
+	// `variables.inherited()` are the same call on the same object.
+	selfCall := c.baseVar == "" || strings.EqualFold(c.baseVar, "this") || strings.EqualFold(c.baseVar, "variables")
+	if comp == "" && selfCall && pr.FuncLookup != nil && pr.URI.IsFile() {
 		comp = pr.FuncLookup(pr.URI.Path(), c.funcName)
 	}
 
-	if comp == "" && c.baseVar == "" && c.expression != "" && pr.FuncLookup != nil && pr.URI.IsFile() {
+	if comp == "" && selfCall && c.expression != "" && pr.FuncLookup != nil && pr.URI.IsFile() {
 		comp = pr.FuncLookup(pr.URI.Path(), CallHop(c.expression))
 	}
 

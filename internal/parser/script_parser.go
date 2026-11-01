@@ -704,6 +704,10 @@ func (p *scriptParser) skipParensResolving(callExpr string) (comp, hop string, o
 // funcName is the first hop as a chain entry: a bare name, or a CallHop when
 // the caller read its arguments before consuming them.
 func (p *scriptParser) recordChainContinuation(baseVar, funcName, baseComp string, line int) (consumed []string) {
+	// A chain on `this.f()` is on a call onMissingMethod can answer, which
+	// a chain on a bare f() is not: each hop says so (CallSite.This).
+	viaThis := identEq(baseVar, "this") && baseComp == ""
+
 	// A chain on a call made directly on a scope carries the receiver
 	// scopeReceiver gives that call: none for this component's own scopes,
 	// and a dynamic one, all the way down, for the rest.
@@ -715,13 +719,13 @@ func (p *scriptParser) recordChainContinuation(baseVar, funcName, baseComp strin
 		}
 	}
 
-	return p.recordChainContinuationFrom(baseVar, nil, funcName, baseComp, line)
+	return p.recordChainContinuationFrom(baseVar, nil, funcName, baseComp, line, viaThis)
 }
 
 // recordChainContinuationFrom is recordChainContinuation for a chain that
 // already has hops before funcName: prior is carried at the front of every
 // hop's Chain.
-func (p *scriptParser) recordChainContinuationFrom(baseVar string, prior []string, funcName, baseComp string, _ int) (consumed []string) {
+func (p *scriptParser) recordChainContinuationFrom(baseVar string, prior []string, funcName, baseComp string, _ int, viaThis bool) (consumed []string) {
 	caller := ""
 	if p.inFunc != "" && len(p.funcs) > 0 {
 		caller = p.currentFunc().Name
@@ -774,7 +778,7 @@ func (p *scriptParser) recordChainContinuationFrom(baseVar string, prior []strin
 			call = CallSite{
 				FuncName: funcName, Variable: baseVar, Component: baseComp,
 				Chain: chainSoFar(chainHops), Line: conv.Uint32(p.baseLine + methTok.Line),
-				Caller: caller, Resolved: baseComp != "",
+				Caller: caller, Resolved: baseComp != "", This: viaThis,
 			}
 			// Each hop has its own lexical origin. Capture it while the
 			// scanner still points at this hop's argument list, then retain
@@ -1007,7 +1011,7 @@ func (p *scriptParser) recordScopedMemberCall(scopeTok, nameTok Token) {
 	// receiver stays dynamic all the way down, as a literal receiver's chain
 	// already does.
 	if call.Component == "" {
-		p.recordChainContinuation("", hop, comp, scopeTok.Line)
+		p.recordChainContinuation(scopeTok.Value, hop, comp, scopeTok.Line)
 
 		return
 	}
@@ -5390,7 +5394,7 @@ func (p *scriptParser) continueExtendedChain(recv, first string, ext []string, l
 		Line: conv.Uint32(p.baseLine + line), Caller: caller,
 	})
 
-	return p.recordChainContinuationFrom(recv, []string{first}, method, "", line)
+	return p.recordChainContinuationFrom(recv, []string{first}, method, "", line, false)
 }
 
 // receiverOf is the receiver of the last call in a dotted chain: "a.b" for

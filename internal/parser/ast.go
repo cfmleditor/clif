@@ -298,7 +298,7 @@ type CallSite struct {
 	Line      uint32
 	Resolved  bool // true if qualified (obj.func), false if bare call
 	HasSpan   bool
-	This      bool   // written `this.f()`, which is recorded as the bare f(); see onScope
+	This      bool   // written `this.f()`, which is recorded as the bare f(), or a hop chained on one; see onScope
 	Caller    string // enclosing function name (empty if global)
 	Text      string // the trimmed line text
 	// StartByte identifies the called method token, EndByte the byte after
@@ -485,7 +485,13 @@ func matchPropertyPattern(value, pattern, resolve string) string {
 		return ""
 	}
 
+	// An empty capture names nothing: `$1DAO` is a DAO property named for
+	// its entity, and a property called just DAO is not one called "".
 	captured := value[len(prefix) : len(value)-len(suffix)]
+	if captured == "" {
+		return ""
+	}
+
 	resolved := strings.ReplaceAll(resolve, "$1", captured)
 	resolved = strings.TrimSuffix(resolved, ".cfc")
 	resolved = strings.ReplaceAll(resolved, "/", ".")

@@ -186,3 +186,33 @@ function run(){
 		"m.anything": "variable 'm' has no component ref",
 	})
 }
+
+// TestAnElementOfACallsCollectionIsTheCollectionsElement: Slatwall's views
+// write `<cfset local.orderDelivery = rc.order.getOrderDeliveries()[ i ]>`,
+// an element of the one-to-many relationship the getter returns. A keyed read
+// was typed only when the collection was a variable, so every call on the
+// element was reported. A getter whose elements are unknown still says nothing.
+func TestAnElementOfACallsCollectionIsTheCollectionsElement(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{
+		"Order.cfc": `component persistent="true" entityname="TOrder" {
+	property name="deliveries" fieldtype="one-to-many" cfc="Delivery" singularname="delivery";
+	function getNotes() {}
+}`,
+		"Delivery.cfc": `component persistent="true" entityname="TDelivery" { function getItems() {} }`,
+		"page.cfm": `<cfset local.order = new Order()>
+<cfloop from="1" to="2" index="i">
+	<cfset local.d = local.order.getDeliveries()[i]>
+	<cfset local.d.getItems()>
+	<cfset local.d.nowhere()>
+	<cfset local.n = local.order.getNotes()[i]>
+	<cfset local.n.anything()>
+</cfloop>`,
+	})
+
+	expectReasons(t, reasonsInCFM(t, dir, "page.cfm"), map[string]string{
+		"local.d.getItems": "",
+		"local.d.nowhere":  "method 'nowhere' not found in Delivery",
+		"local.n.anything": "variable 'local.n' has no component ref",
+	})
+}

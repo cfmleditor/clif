@@ -128,6 +128,7 @@ type pathCaches struct {
 	requestWriterIdx    map[string][]string                 // request key → files writing it (requestWriters)
 	handlerCache        map[string]*parser.ParseResult      // handler path → its parse (handlerParse)
 	fw1ActionCache      map[string][]fw1Action              // controllers dir + section.item → its actions (fw1Actions)
+	fw1IncluderCache    map[string]map[string][]string      // application dir → view → the views rendering it (fw1Includers)
 	boundEntityCache    map[string]string                   // service path → the entity it binds (boundEntity)
 	wrapperHosts        map[string][]string                 // template path → Wheels wrapper hosts (wheelsTemplateHosts)
 	wrapperCalls        map[string][]wrapperCall            // caller path + wrapper → its wrapper calls (wheelsWrapperCalls)
@@ -1732,6 +1733,13 @@ func (r *Resolver) walkHops(comp, softComp string, call *parser.CallSite, pr *pa
 		}
 
 		if fd == nil {
+			if e := r.slatwallGatewayReturn(r.ComponentPath(comp, baseDir), hop, baseDir); e != "" {
+				tr.addf("chain hop %q is answered by Slatwall's BaseService onMissingMethod, which returns %q", hop, e)
+				comp = e
+
+				continue
+			}
+
 			return comp, softComp, r.missingChainHop(comp, softComp, hop, funcName, pr, baseDir, tr), true
 		}
 
@@ -2176,6 +2184,18 @@ func (r *Resolver) resolveBareChain(call *parser.CallSite, pr *parser.ParseResul
 	tr.addf("chained on a call to %q — looking it up as an unqualified call", first)
 
 	def := r.bareFunc(first, pr, baseDir, call.Caller)
+	if def == nil && call.This && pr.URI.IsFile() {
+		if e := r.slatwallGatewayReturn(pr.URI.Path(), call.Chain[0], baseDir); e != "" {
+			tr.addf("this.%s() is answered by Slatwall's BaseService onMissingMethod, which returns %q", first, e)
+
+			rest := *call
+			rest.Chain = call.Chain[1:]
+			rest.Component = e
+
+			return r.canResolveCall(&rest, pr, baseDir, tr)
+		}
+	}
+
 	if def == nil {
 		if answer, ok := r.unboundChainHop(first, expression, call, pr, baseDir, tr); ok {
 			return answer
@@ -3006,7 +3026,7 @@ func (r *Resolver) funcLookupUncached(baseDir string) func(component, funcName s
 
 		fd := r.ResolveFunc(component, funcName, baseDir)
 		if fd == nil {
-			return ""
+			return r.slatwallGatewayReturn(r.ComponentPath(component, baseDir), funcName, baseDir)
 		}
 
 		if ret := r.ReturnComponentOf(fd); ret != "" {

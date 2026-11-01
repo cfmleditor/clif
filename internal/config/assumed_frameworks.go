@@ -13,9 +13,16 @@ import (
 // project owners with different deployment contexts acquire no global presets.
 // These are documented runtime conventions, not inferred variable declarations.
 func AssumedFrameworks(roots []string, read func(string) ([]byte, error), directories ...func(string) ([]fs.DirEntry, error)) []string {
-	names, _ := assumedFrameworks(roots, read, directories...)
+	return assumedFrameworks(roots, read, directories...).frameworks
+}
 
-	return names
+// assumption is what a recognised project is read as: its presets, and the
+// project rules no preset holds.
+type assumption struct {
+	frameworks []string
+	preside    bool
+	// slatwall is set when the project is Slatwall's own checkout.
+	slatwall bool
 }
 
 // presideRequestContext is what Preside hands every handler, view and
@@ -25,9 +32,9 @@ func AssumedFrameworks(roots []string, read func(string) ([]byte, error), direct
 // ColdBox's RequestContext.
 const presideRequestContext = "preside.system.coldboxModifications.RequestContextDecorator"
 
-func assumedFrameworks(roots []string, read func(string) ([]byte, error), directories ...func(string) ([]fs.DirEntry, error)) ([]string, bool) {
+func assumedFrameworks(roots []string, read func(string) ([]byte, error), directories ...func(string) ([]fs.DirEntry, error)) assumption {
 	owners := map[string]bool{}
-	preside := false
+	preside, slatwall := false, false
 	presets := map[string]bool{}
 
 	for _, root := range roots {
@@ -57,6 +64,18 @@ func assumedFrameworks(roots []string, read func(string) ([]byte, error), direct
 			owners[owner] = true
 		}
 
+		// A Mura plugin runs inside Mura, which hands it the Mura scope.
+		if plugin, ok := cfpath.NearestMuraPlugin(root, read); ok {
+			owners[plugin.Root] = true
+			presets["mura"] = true
+			if isSlatwall(plugin, read) {
+				// Slatwall's Application.cfc is an FW/1 application (its own
+				// copy, org/fw1/framework.cfc), whose views call buildURL()
+				// and view() on it.
+				slatwall, presets["fw1"] = true, true
+			}
+		}
+
 		if public := cfpath.AssumedWheelsRoot(root, read); public != "" {
 			owners[filepath.Dir(public)] = true
 			presets["wheels"] = true
@@ -64,7 +83,7 @@ func assumedFrameworks(roots []string, read func(string) ([]byte, error), direct
 	}
 
 	if len(owners) != 1 {
-		return nil, false
+		return assumption{}
 	}
 
 	if len(directories) > 0 && directories[0] != nil {
@@ -82,7 +101,7 @@ func assumedFrameworks(roots []string, read func(string) ([]byte, error), direct
 
 	slices.Sort(out)
 
-	return out, preside
+	return assumption{frameworks: out, preside: preside, slatwall: slatwall}
 }
 
 // Assumed is the configuration a project with no config file is read as: the
@@ -91,12 +110,17 @@ func assumedFrameworks(roots []string, read func(string) ([]byte, error), direct
 // by hand.
 func Assumed(roots []string, read func(string) ([]byte, error), directories ...func(string) ([]fs.DirEntry, error)) *Resolved {
 	r := Resolve(&JSON{}, "")
-	frameworks, preside := assumedFrameworks(roots, read, directories...)
-	r.Frameworks = frameworks
+	a := assumedFrameworks(roots, read, directories...)
+	r.Frameworks = a.frameworks
 
-	if preside {
+	if a.preside {
 		// Ahead of the ColdBox preset's own `event`, which it replaces.
 		r.ComponentResolvers = append(r.ComponentResolvers, variableResolver(presideRequestContext, "event"))
+	}
+
+	if a.slatwall {
+		r.ComponentResolvers = append(r.ComponentResolvers, slatwallResolvers()...)
+		r.PropertyResolvers = append(r.PropertyResolvers, slatwallPropertyResolvers()...)
 	}
 
 	r.ComponentResolvers = append(r.ComponentResolvers, FrameworkResolvers(r.Frameworks)...)
