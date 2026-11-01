@@ -83,8 +83,10 @@ type Resolver struct {
 	CallerInferenceLimits config.CallerInferenceLimits
 	stubFS                vfs.FS
 	mu                    sync.RWMutex
-	exprKeys              []string          // ExpressionMappings' keys in the order they apply
-	beanPathsCache        map[string]string // merged application/configured bean roots
+	exprKeys              []string // ExpressionMappings' keys in the order they apply
+	resolverSetOnce       sync.Once
+	resolverSet           *parser.ResolverSet // Resolvers, indexed once, with the memo every parse shares (parseResolverSet)
+	beanPathsCache        map[string]string   // merged application/configured bean roots
 	diOnce                sync.Once
 	diPolicies            []diPolicy // source-backed DI/1 injection contracts
 	discoveringDI         bool       // private policy discovery never re-enters injection lookup

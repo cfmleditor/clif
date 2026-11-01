@@ -94,12 +94,16 @@ func subclassFuncComponents(defs []*parser.FunctionDef) string {
 // return a component; `$any` from one makes the answer `$any`, as a branch
 // union does.
 func (r *Resolver) abstractOverridesReturn(fd *parser.FunctionDef, depth int, budget *int) string {
-	if fd == nil || !fd.URI.IsFile() || !r.abstractBody(fd) {
+	if fd == nil || !fd.URI.IsFile() {
 		return ""
 	}
 
+	// The overrides first: they come from a cached walk of the index, and
+	// most methods have none, while abstractBody makes the method's plan. It
+	// was asked of every method whose return was looked up, and the plans it
+	// made for methods nothing overrides were 160MB of a tassweb scan's heap.
 	defs := r.subclassFuncs(fd.URI.Path(), fd.Name)
-	if len(defs) == 0 {
+	if len(defs) == 0 || !r.abstractBody(fd) {
 		return ""
 	}
 

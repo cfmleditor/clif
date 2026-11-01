@@ -241,6 +241,7 @@ func (r *Resolver) ParseFile(file, content string, spec ParseSpec) *parser.Parse
 	po := &parser.ParseOptions{
 		Logger:                   spec.Logger,
 		Resolvers:                r.Resolvers,
+		ResolverSet:              r.parseResolverSet(),
 		ExpressionMappings:       r.ExpressionMappings,
 		ServicePropertyResolvers: r.ServicePropertyResolvers,
 		PropertyResolvers:        r.PropertyResolvers,
@@ -269,6 +270,17 @@ func (r *Resolver) ParseFile(file, content string, spec ParseSpec) *parser.Parse
 	}
 
 	return pr
+}
+
+// parseResolverSet is Resolvers as every parse matches them, built once and
+// shared with the resolver's views: what each expression resolves to is the
+// same in every file, and each parse used to build a set of its own and match
+// the expressions it met afresh.
+func (r *Resolver) parseResolverSet() *parser.ResolverSet {
+	o := r.owner()
+	o.resolverSetOnce.Do(func() { o.resolverSet = parser.BuildResolverSet(o.Resolvers) })
+
+	return o.resolverSet
 }
 
 // IndexForBatch indexes one file the way every batch run must: a template only

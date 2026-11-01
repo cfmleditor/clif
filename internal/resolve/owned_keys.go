@@ -453,7 +453,9 @@ func tagFunctionBodies(content string) map[string]string {
 	out := map[string]string{}
 
 	for _, loc := range tagFunctionRe.FindAllStringSubmatchIndex(lower, -1) {
-		name := lower[loc[2]:loc[3]]
+		// A clone: a slice of lower would keep the whole lowercased copy of
+		// the file alive for as long as the map, 60MB over tassweb.
+		name := strings.Clone(lower[loc[2]:loc[3]])
 		if _, seen := out[name]; seen {
 			continue
 		}
