@@ -121,6 +121,20 @@ func LookupBuiltinReturnComponent(funcName string) string {
 	return ""
 }
 
+// memberType is the value type whose recorded members a builtin's value has:
+// a native value's own, and a query for the functions that build one.
+func memberType(funcName string) string {
+	if typ, ok := strings.CutPrefix(funcName, "native."); ok {
+		return typ
+	}
+
+	if strings.EqualFold(funcName, "querynew") || strings.EqualFold(funcName, "queryexecute") {
+		return "query"
+	}
+
+	return ""
+}
+
 // LookupBuiltinMethod returns true if the given function returns an object
 // that has the specified method.
 func LookupBuiltinMethod(funcName, method string) bool {
@@ -129,8 +143,10 @@ func LookupBuiltinMethod(funcName, method string) bool {
 	}
 
 	// A CFML member function of the native value: `s.reFindNoCase( … )`.
-	if typ, ok := strings.CutPrefix(funcName, "native."); ok && IsMemberFunction(typ, method) {
-		return true
+	if typ := memberType(funcName); typ != "" {
+		if _, ok := IsMemberOf(typ, method); ok {
+			return true
+		}
 	}
 
 	obj := builtinReturnObjects[strings.ToLower(funcName)]
@@ -148,6 +164,18 @@ func LookupBuiltinMethod(funcName, method string) bool {
 func LookupBuiltinMethodReturn(component, method string) (string, bool) {
 	if ret, ok := nativetype.Method(component, method); ok {
 		return ret, true
+	}
+
+	// A recorded member returns what its function does, so a call chained on
+	// it is still checked: `s.lcase().buildAdminLink()`.
+	if typ := memberType(strings.TrimPrefix(component, "$builtin.")); typ != "" {
+		if ret, ok := IsMemberOf(typ, method); ok {
+			if ret == "" {
+				return "$any", true
+			}
+
+			return nativetype.Type(ret), true
+		}
 	}
 
 	if name, ok := strings.CutPrefix(component, "$builtin."); ok && LookupBuiltinMethod(name, method) {

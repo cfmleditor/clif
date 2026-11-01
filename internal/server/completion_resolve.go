@@ -71,6 +71,12 @@ func clientDefers(caps protocol.ClientCapabilities) completionDefer {
 type deferredItems struct {
 	once  [4]sync.Once
 	items [4][]protocol.CompletionItem
+
+	// labelIsNoKey: an item's label never names its entry, so its data
+	// always carries the entry, even when the two are spelled alike. A
+	// member named as its function is (booleanFormat) is still a member,
+	// which resolve recognises by its data.
+	labelIsNoKey bool
 }
 
 // key names the docs entry item i of the full list came from, or "" for an
@@ -97,7 +103,7 @@ func (v *deferredItems) get(d completionDefer, full func() []protocol.Completion
 					it.Detail.Clear()
 				}
 
-				if k != it.Label {
+				if k != it.Label || v.labelIsNoKey {
 					it.Data = protocol.LSPAny(mustMarshal(k))
 				}
 			}
@@ -113,7 +119,7 @@ func (v *deferredItems) get(d completionDefer, full func() []protocol.Completion
 
 var (
 	deferredBuiltins deferredItems
-	deferredMembers  deferredItems
+	deferredMembers  = deferredItems{labelIsNoKey: true}
 )
 
 // builtinFuncItems is getBuiltinFuncItems in the shape this session's client

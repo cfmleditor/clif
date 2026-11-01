@@ -3918,9 +3918,13 @@ func nativeDefaultOverwritten(component, method string) bool {
 		return false
 	}
 
-	// The same check the method-exists step makes, so a default is set aside
-	// exactly when keeping it would report the call.
-	return !docs.LookupBuiltinMethod(strings.TrimPrefix(component, "$builtin."), method)
+	// The struct's own contract, not the members the doc sources record for
+	// any struct: a component replacing the default may well declare an
+	// update(), find() or toJson() of its own, and keeping the struct for one
+	// would accept the call without checking the component.
+	_, ok := nativetype.Method(component, method)
+
+	return !ok
 }
 
 // fileLevelRef is the file-level ref for name that is in force at line.

@@ -299,25 +299,32 @@ func TestAllMemberFunctions(t *testing.T) {
 }
 
 // TestMemberFunctionsComeFromTheDocSources: a function the sources record a
-// member form for is a method of its type, so `s.reFindNoCase( … )` on a
-// string is not reported, while a method no source gives the type still is.
+// member form for is a method of its type, returning what its function does,
+// so `s.reFindNoCase( … )` on a string is not reported, while a method no
+// source gives the type still is.
 func TestMemberFunctionsComeFromTheDocSources(t *testing.T) {
 	for _, c := range []struct {
-		typ, method string
-		want        bool
+		typ, method, ret string
+		want             bool
 	}{
-		{"string", "reFindNoCase", true},
-		{"string", "listRest", true},
-		{"String", "TRIMWHITESPACE", true},
-		{"date", "second", true},
-		{"datetime", "dateFormat", true},
-		{"string", "toJson", true},
-		{"void", "toJson", false},
-		{"string", "buildAdminLink", false},
-		{"array", "reFindNoCase", false},
+		{"string", "reFindNoCase", "", true},
+		{"string", "listRest", "string", true},
+		{"String", "TRIMWHITESPACE", "string", true},
+		{"string", "lCase", "string", true},
+		{"string", "len", "numeric", true},
+		{"string", "listToArray", "array", true},
+		{"date", "second", "numeric", true},
+		{"datetime", "dateFormat", "string", true},
+		{"string", "toJson", "string", true},
+		{"void", "toJson", "", false},
+		{"connection", "toJson", "", false},
+		{"resultset", "numberFormat", "", false},
+		{"string", "buildAdminLink", "", false},
+		{"array", "reFindNoCase", "", false},
 	} {
-		if got := IsMemberFunction(c.typ, c.method); got != c.want {
-			t.Errorf("IsMemberFunction(%q, %q) = %v, want %v", c.typ, c.method, got, c.want)
+		ret, ok := IsMemberOf(c.typ, c.method)
+		if ok != c.want || ret != c.ret {
+			t.Errorf("IsMemberOf(%q, %q) = %q, %v; want %q, %v", c.typ, c.method, ret, ok, c.ret, c.want)
 		}
 	}
 
@@ -325,7 +332,37 @@ func TestMemberFunctionsComeFromTheDocSources(t *testing.T) {
 		t.Error("a string's reFindNoCase is not a builtin method")
 	}
 
-	if ret, ok := LookupBuiltinMethodReturn("$builtin.native.string", "reFind"); !ok || ret != "$any" {
-		t.Errorf("a string's reFind returns %q, %v; want a dynamic value", ret, ok)
+	if !LookupBuiltinMethod("queryexecute", "renameColumn") {
+		t.Error("the query queryExecute builds has no renameColumn")
+	}
+
+	for _, c := range []struct{ component, method, want string }{
+		{"$builtin.native.string", "reFind", "$any"},
+		{"$builtin.native.string", "lCase", "$builtin.native.string"},
+		{"$builtin.native.string", "listToArray", "$builtin.native.array"},
+		{"$builtin.native.array", "append", "$builtin.native.boolean"},
+	} {
+		if ret, ok := LookupBuiltinMethodReturn(c.component, c.method); !ok || ret != c.want {
+			t.Errorf("%s.%s returns %q, %v; want %q", c.component, c.method, ret, ok, c.want)
+		}
+	}
+
+	// Completion offers what the checker accepts.
+	found := false
+
+	for _, mf := range MemberFunctionsForType("string") {
+		found = found || strings.EqualFold(mf.Name, "reFindNoCase")
+	}
+
+	if !found {
+		t.Error("completion has no string reFindNoCase")
+	}
+}
+
+// TestIsMemberOfDoesNotAllocate: the lookup runs on every native method check
+// the contracts miss, and a mixed-case name lowercased per call allocated.
+func TestIsMemberOfDoesNotAllocate(t *testing.T) {
+	if n := testing.AllocsPerRun(100, func() { _, _ = IsMemberOf("String", "reFindNoCase") }); n != 0 {
+		t.Errorf("IsMemberOf allocates %v times per call", n)
 	}
 }

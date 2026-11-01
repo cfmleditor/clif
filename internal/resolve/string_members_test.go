@@ -15,6 +15,7 @@ function run() {
 	s.reFindNoCase( "^java" );
 	s.listRest();
 	s.buildAdminLink();
+	s.lCase().buildAdminLink();
 }
 }`,
 	})
@@ -23,5 +24,7 @@ function run() {
 		"s.reFindNoCase":   "",
 		"s.listRest":       "",
 		"s.buildAdminLink": "method 'buildAdminLink' not found on builtin native.string",
+		// lCase returns a string, so what is chained on it is still checked.
+		"s.lCase.buildAdminLink": "method 'buildAdminLink' not found on builtin native.string",
 	})
 }
