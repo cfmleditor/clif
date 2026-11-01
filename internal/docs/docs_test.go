@@ -297,3 +297,35 @@ func TestAllMemberFunctions(t *testing.T) {
 		t.Error("expected AllMemberFunctions to include at least the array member functions")
 	}
 }
+
+// TestMemberFunctionsComeFromTheDocSources: a function the sources record a
+// member form for is a method of its type, so `s.reFindNoCase( … )` on a
+// string is not reported, while a method no source gives the type still is.
+func TestMemberFunctionsComeFromTheDocSources(t *testing.T) {
+	for _, c := range []struct {
+		typ, method string
+		want        bool
+	}{
+		{"string", "reFindNoCase", true},
+		{"string", "listRest", true},
+		{"String", "TRIMWHITESPACE", true},
+		{"date", "second", true},
+		{"datetime", "dateFormat", true},
+		{"string", "toJson", true},
+		{"void", "toJson", false},
+		{"string", "buildAdminLink", false},
+		{"array", "reFindNoCase", false},
+	} {
+		if got := IsMemberFunction(c.typ, c.method); got != c.want {
+			t.Errorf("IsMemberFunction(%q, %q) = %v, want %v", c.typ, c.method, got, c.want)
+		}
+	}
+
+	if !LookupBuiltinMethod("native.string", "reFindNoCase") {
+		t.Error("a string's reFindNoCase is not a builtin method")
+	}
+
+	if ret, ok := LookupBuiltinMethodReturn("$builtin.native.string", "reFind"); !ok || ret != "$any" {
+		t.Errorf("a string's reFind returns %q, %v; want a dynamic value", ret, ok)
+	}
+}

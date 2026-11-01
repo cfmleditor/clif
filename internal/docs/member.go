@@ -15,8 +15,51 @@ var typePrefixes = []string{
 
 var memberFuncs map[string][]MemberFunction // type -> member functions
 
+// Member is a function's member-function form as the doc sources record it
+// (`member_details`): Name called on a value of Type is Function.
+type Member struct {
+	Type     string // the doc sources' type name, lowercased: "string", "datetime", "any"
+	Name     string // e.g. "reFindNoCase"
+	Function string // e.g. "rEFindNoCase"
+}
+
+// members maps a type to its member functions' lowercased names.
+var members map[string]map[string]bool
+
 func init() {
 	buildMemberFuncs()
+	buildMembers()
+}
+
+func buildMembers() {
+	members = map[string]map[string]bool{}
+
+	for _, m := range builtinMembers() {
+		if members[m.Type] == nil {
+			members[m.Type] = map[string]bool{}
+		}
+
+		members[m.Type][strings.ToLower(m.Name)] = true
+	}
+}
+
+// IsMemberFunction reports whether the doc sources record method as a member
+// function of a value of type typ, a native type's name ("string", "date"),
+// or of any value. Lucee's `"abc".reFindNoCase( "b" )` is one; cfdocs records
+// few, so the hand-kept contracts in internal/nativetype stay the first answer.
+func IsMemberFunction(typ, method string) bool {
+	typ, method = strings.ToLower(typ), strings.ToLower(method)
+
+	switch typ {
+	case "void":
+		// Nothing is called on the result of a function returning nothing.
+		return false
+	case "date":
+		// The sources call a date a datetime.
+		typ = "datetime"
+	}
+
+	return members[typ][method] || members["any"][method]
 }
 
 func buildMemberFuncs() {

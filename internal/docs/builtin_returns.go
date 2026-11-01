@@ -128,6 +128,11 @@ func LookupBuiltinMethod(funcName, method string) bool {
 		return true
 	}
 
+	// A CFML member function of the native value: `s.reFindNoCase( … )`.
+	if typ, ok := strings.CutPrefix(funcName, "native."); ok && IsMemberFunction(typ, method) {
+		return true
+	}
+
 	obj := builtinReturnObjects[strings.ToLower(funcName)]
 	if obj == nil {
 		return false

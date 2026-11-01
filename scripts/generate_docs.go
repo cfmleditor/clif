@@ -42,6 +42,12 @@ type Entry struct {
 	Returns     string  `json:"returns"`
 	Type        string  `json:"type"`
 	Params      []Param `json:"params"`
+	// MemberDetails is the member-function form a source records for a
+	// function: `"abc".reFindNoCase( … )` is rEFindNoCase on a string.
+	MemberDetails *struct {
+		Name string `json:"name"`
+		Type string `json:"type"`
+	} `json:"member_details"`
 }
 
 func main() {
@@ -118,6 +124,24 @@ func main() {
 		} else {
 			fmt.Fprintln(out, "},")
 		}
+	}
+
+	fmt.Fprintln(out, "\t}")
+	fmt.Fprintln(out, "}")
+
+	// The member functions, in a list of their own so a source that records
+	// none leaves the entries above as they were.
+	fmt.Fprintln(out, "")
+	fmt.Fprintln(out, "func builtinMembers() []Member {")
+	fmt.Fprintln(out, "\treturn []Member{")
+
+	for _, e := range entries {
+		if e.Type != "function" || e.MemberDetails == nil || e.MemberDetails.Name == "" || e.MemberDetails.Type == "" {
+			continue
+		}
+
+		fmt.Fprintf(out, "\t\t{Type: %s, Name: %s, Function: %s},\n",
+			goStr(strings.ToLower(e.MemberDetails.Type)), goStr(e.MemberDetails.Name), goStr(e.Name))
 	}
 
 	fmt.Fprintln(out, "\t}")
