@@ -1,7 +1,10 @@
 package path
 
 import (
+	"maps"
 	"path/filepath"
+	"slices"
+	"strings"
 
 	"github.com/cfmleditor/clif/internal/parser"
 )
@@ -26,6 +29,17 @@ func AssumedProjectMappings(dir string, read func(string) ([]byte, error)) map[s
 			if admin := assumedLuceeAdmin(dir, read); admin != "" {
 				seen["admin"] = true
 				out["admin"] = admin
+			}
+		}
+
+		// A Mura plugin's checkout: the mappings Mura's plugin manager writes
+		// for it, from its plugin/config.xml. The nearest plugin owns a name.
+		if plugin, ok := AssumedMuraPlugin(dir, read); ok {
+			for _, name := range slices.Sorted(maps.Keys(plugin.Mappings)) {
+				if key := strings.ToLower(name); !seen[key] {
+					seen[key] = true
+					out[name] = plugin.Mappings[name]
+				}
 			}
 		}
 

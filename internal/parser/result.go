@@ -1361,12 +1361,14 @@ func (pr *ParseResult) pendingCallComponent(c *pendingCall, funcReturns map[stri
 	// x = inherited(): a method the file does not declare is its base's,
 	// which FuncLookup reaches from the file itself. ContentBox's
 	// services write `var c = newCriteria()`, a method of cborm's
-	// BaseORMService, and c was untyped.
-	if comp == "" && c.baseVar == "" && pr.FuncLookup != nil && pr.URI.IsFile() {
+	// BaseORMService, and c was untyped. `this.inherited()` and
+	// `variables.inherited()` are the same call on the same object.
+	selfCall := c.baseVar == "" || strings.EqualFold(c.baseVar, "this") || strings.EqualFold(c.baseVar, "variables")
+	if comp == "" && selfCall && pr.FuncLookup != nil && pr.URI.IsFile() {
 		comp = pr.FuncLookup(pr.URI.Path(), c.funcName)
 	}
 
-	if comp == "" && c.baseVar == "" && c.expression != "" && pr.FuncLookup != nil && pr.URI.IsFile() {
+	if comp == "" && selfCall && c.expression != "" && pr.FuncLookup != nil && pr.URI.IsFile() {
 		comp = pr.FuncLookup(pr.URI.Path(), CallHop(c.expression))
 	}
 
@@ -2059,6 +2061,8 @@ func (pr *ParseResult) generatePropertyAccessors() {
 			}
 
 			pr.Funcs = append(pr.Funcs, getterDef)
+		} else if pr.Persistent {
+			pr.overriddenRelationshipGetter(getter, &prop)
 		}
 
 		setter := "set" + strings.ToLower(prop.name)
@@ -2101,6 +2105,31 @@ func (pr *ParseResult) generatePropertyAccessors() {
 			}
 		} else if getterIdx >= 0 && (prop.typeName == "" || strings.EqualFold(prop.typeName, "any")) {
 			pr.Funcs[getterIdx].ReturnComponent = fieldComponents[strings.ToLower(prop.name)]
+		}
+	}
+}
+
+// overriddenRelationshipGetter gives an entity's own getter for a
+// relationship collection the element the generated one would have had: it
+// stands in for the accessor, so it returns the relationship's collection.
+// Slatwall's Product declares `array function getSkus( sorted = false )`,
+// which hands back the skus or a sorted copy of them. Only a getter whose
+// declared type is the collection's (array, or none) is read so.
+func (pr *ParseResult) overriddenRelationshipGetter(getter string, prop *propertyDef) {
+	elem := prop.collectionEntity()
+	if elem == "" {
+		return
+	}
+
+	for i := range pr.Funcs {
+		f := &pr.Funcs[i]
+		if f.Generated || f.ElementComponent != "" || !strings.EqualFold(f.Name, getter) {
+			continue
+		}
+
+		switch strings.ToLower(f.ReturnType) {
+		case "", "any", "array":
+			f.ElementComponent = elem
 		}
 	}
 }

@@ -226,3 +226,57 @@ func TestAComponentVariableIsWhatAnotherFunctionAssignedIt(t *testing.T) {
 		"variables.svc.run":                "",
 	})
 }
+
+// TestAnFW1SubsystemViewsRcFollowsSetViewHandOffsAndPartials: Slatwall's
+// admin subsystem renders its views three ways the convention did not read.
+// An action names a view with its subsystem, `setView( action =
+// "admin:product.form" )`; an action fills rc by handing it to another,
+// `detail( rc )`; and a view renders a partial with the same rc,
+// `#view( "admin:product/tabs/settings" )#`. A view named under another
+// subsystem is not this one.
+func TestAnFW1SubsystemViewsRcFollowsSetViewHandOffsAndPartials(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{
+		"framework/one.cfc": `component { function view(){} }`,
+		"model/Product.cfc": `component { function getName(){} }`,
+		"admin/controllers/product.cfc": `component {
+	function create( rc ){
+		rc.product = new model.Product();
+		getFW().setView( action = "admin:product.form" );
+	}
+	function detail( rc ){ rc.product = new model.Product(); }
+	function show( rc ){ detail( rc ); rc.edit = true; }
+	function elsewhere( rc ){
+		rc.product = new model.Product();
+		getFW().setView( "frontend:product.other" );
+	}
+}`,
+		"admin/views/product/form.cfm":          `<cfoutput>#rc.product.getName()# #view( "admin:product/tabs/settings" )#</cfoutput>`,
+		"admin/views/product/show.cfm":          `<cfoutput>#rc.product.getName()#</cfoutput>`,
+		"admin/views/product/tabs/settings.cfm": `<cfoutput>#rc.product.getName()# #rc.product.nope()#</cfoutput>`,
+		"admin/views/product/other.cfm":         `<cfoutput>#rc.product.getName()#</cfoutput>`,
+	})
+
+	views := func(path string) string {
+		if strings.Contains(filepath.ToSlash(path), "/views/") {
+			return "framework.one"
+		}
+
+		return ""
+	}
+
+	for page, want := range map[string]map[string]string{
+		"admin/views/product/form.cfm": {"rc.product.getName": ""},
+		"admin/views/product/show.cfm": {"rc.product.getName": ""},
+		"admin/views/product/tabs/settings.cfm": {
+			"rc.product.getName": "",
+			"rc.product.nope":    "method 'nope' not found in Product",
+		},
+	} {
+		expectReasons(t, reasonsWith(t, &Resolver{ImplicitExtends: views}, dir, page), want)
+	}
+
+	if got := reasonsWith(t, &Resolver{ImplicitExtends: views}, dir, "admin/views/product/other.cfm")["rc.product.getName"]; got == "" {
+		t.Errorf("other.cfm: typed by an action rendering another subsystem's view")
+	}
+}

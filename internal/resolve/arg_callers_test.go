@@ -663,3 +663,31 @@ function callers(){ use( new models.User() ); }
 		"it.fetch": "method 'fetch' not found in User",
 	})
 }
+
+// TestACallerChainedOnAGetterIsACallerOfTheMethod: Slatwall's controllers
+// call their services as `getOrderService().addOrderItem( order = … )`. The
+// call has no variable, so inference took it for a call of the caller's own
+// addOrderItem and passed over it: with it the only caller, the argument
+// stayed untyped. The chain is typed as an assignment of it would be.
+func TestACallerChainedOnAGetterIsACallerOfTheMethod(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{
+		"models/Order.cfc": `component { function getTotal(){} }`,
+		"svc/OrderService.cfc": `component {
+function addOrderItem( required order ){ arguments.order.getTotal(); arguments.order.nope(); }
+}`,
+		"ctl/Cart.cfc": `component {
+svc.OrderService function getOrderService(){ return new svc.OrderService(); }
+function add(){ getOrderService().addOrderItem( order = new models.Order() ); }
+}`,
+	})
+
+	got := reasonsWith(t, &Resolver{InferArgsFiles: cfmlFilesIn(t, dir)}, dir, "svc/OrderService.cfc")
+	if got["arguments.order.getTotal"] != "" {
+		t.Errorf("arguments.order.getTotal: %q, want it resolved", got["arguments.order.getTotal"])
+	}
+
+	if !strings.Contains(got["arguments.order.nope"], "method 'nope' not found in") {
+		t.Errorf("arguments.order.nope: %q, want it checked against Order", got["arguments.order.nope"])
+	}
+}
