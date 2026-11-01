@@ -38,3 +38,26 @@ func TestAPresideServiceHasPresideSuperClassMethods(t *testing.T) {
 		"$getPresideObject": "no qualifier, not in file",
 	})
 }
+
+// TestAPresideServiceHasPresideSuperClassFields: the methods virtual
+// inheritance gives a presideService component read PresideSuperClass's
+// fields, and the service reads them too: `$helpers.isTrue( x )`, which
+// PresideSuperClass sets to the helper class it is handed. A component
+// without presideService does not have them.
+func TestAPresideServiceHasPresideSuperClassFields(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{
+		"system/services/PresideSuperClass.cfc":  `component { function init() { this.$helpers = new PresideHelperClass(); } }`,
+		"system/services/PresideHelperClass.cfc": `component { function isTrue( v ) {} }`,
+		"system/services/Audit.cfc":              "/**\n * @presideservice true\n */\ncomponent { function f() { $helpers.isTrue( 1 ); $helpers.nope(); } }",
+		"system/services/Plain.cfc":              `component { function f() { $helpers.isTrue( 1 ); } }`,
+	})
+
+	expectReasons(t, reasonsWith(t, &Resolver{}, dir, "system/services/Audit.cfc"), map[string]string{
+		"$helpers.isTrue": "",
+		"$helpers.nope":   "method 'nope' not found in PresideHelperClass",
+	})
+	expectReasons(t, reasonsWith(t, &Resolver{}, dir, "system/services/Plain.cfc"), map[string]string{
+		"$helpers.isTrue": "variable '$helpers' has no component ref",
+	})
+}
