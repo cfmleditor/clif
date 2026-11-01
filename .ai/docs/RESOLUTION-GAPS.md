@@ -1567,3 +1567,25 @@ ORM metadata. A projection (`SELECT i.name`), a join (tuples), a second entity i
 
 Per entry against the previous build: Galaxie 1,081 -> 879 (202 removed, none added); Slatwall 7,592 -> 7,542 (50
 removed, none added); MuraCMS, ContentBox, Preside and cfwheels identical.
+
+### Galaxie Blog: an Application file that names no application (`applicationRefs`)
+
+`application.blog` was the largest named group left on Galaxie (100 findings, 90 in `org/camden/blog/blog.cfc`):
+`<cfinvoke component="#application.blog#" …>` read as "no component ref", although the root `Application.cfc` sets it
+(`createObject( "component", "#application.blogComponentPath#" ).init( blogname )`, so `$any`). `applicationRefs`
+took the nearest directory with an `Application.cfc` or `.cfm` and read only that: `org/camden/blog/` has an
+`Application.cfm` that aborts a request for its ini file, `tags/` a bare `<cfabort>`. Neither starts an application,
+so the `application` scope in those directories is the one above, where the variable is set.
+
+When the nearest files hold no ref for the name and name no application (`this.name =`, `<cfapplication name=…>`,
+`cfapplication( name = … )`), the walk now goes on to the next Application files up, up to eight; a file that names
+one is its own application and ends it (Galaxie's `cache/Application.cfc`, `org/captcha/application.cfm`).
+`TestAnApplicationFileThatNamesNoApplicationDoesNotEndTheLookup` fails without it on the guard-file cases and keeps the
+named cases untyped.
+
+Per entry against the build before: Galaxie 879 -> 746 (133 removed, none added: `application.blog` 100,
+`application.BlogDbObj` 10, `application.Udf` 10, `application.webForms` 6, `application.events` 3 and four results
+typed from them); MuraCMS, ContentBox, Slatwall, Preside, cfwheels, Lucee and ColdBox identical.
+
+What is left on Galaxie after this (746): `html` 63, `e` 45, `o` 42, `owner` 27, `entity` 25, `order` 24,
+`arguments.entity` 22 and a long tail, not yet investigated.

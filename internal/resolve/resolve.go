@@ -102,6 +102,7 @@ type Resolver struct {
 // struct, so a cache added here cannot be left out of the reset.
 type pathCaches struct {
 	appRootCache        map[string]string                   // dir → Application.cfc root
+	appNameCache        map[string]bool                     // dir → an Application file there names an application
 	slugCache           map[string]string                   // dir → its box.json slug, "" for none
 	resolveCache        map[string]string                   // component+"\t"+baseDir → file path
 	includeCache        map[string]string                   // include path+"\t"+including directory → template
@@ -3943,14 +3944,57 @@ type appRef struct {
 	file string
 }
 
+// maxApplicationHops bounds how many Application files above the nearest one
+// applicationRefs will look through.
+const maxApplicationHops = 8
+
+// applicationNameRe finds the line that names an application, in either syntax:
+// `this.name = …` in a component, `<cfapplication name="…">` or
+// `cfapplication( name = "…" )`.
+var applicationNameRe = regexp.MustCompile(`(?i)\bthis\.name\s*=|<cfapplication\b[^>]*\bname\s*=|\bcfapplication\s*\([^)]*\bname\s*=`)
+
 // applicationRefs is the first ref for name in the governing Application.cfc
 // and then Application.cfm, for each that has one.
+//
+// The governing files are the nearest ones above baseDir. A guard file that
+// names no application does not start one, so the application scope in a
+// directory it guards is the one above: Galaxie Blog's org/camden/blog has an
+// Application.cfm that only aborts a request for its ini file, and tags/ has a
+// bare <cfabort>, while the root Application.cfc is where application.blog is
+// set. When the nearest files hold no ref and name no application, the walk
+// goes on to the next ones up; a file that names one (this.name,
+// <cfapplication name>) is its own application and ends it.
 func (r *Resolver) applicationRefs(baseDir, name string) []appRef {
-	appDir := r.FindApplicationRoot(baseDir)
-	if appDir == "" {
-		return nil
+	dir := baseDir
+
+	for range maxApplicationHops {
+		appDir := r.FindApplicationRoot(dir)
+		if appDir == "" {
+			return nil
+		}
+
+		if out := r.applicationRefsIn(appDir, name); len(out) > 0 {
+			return out
+		}
+
+		if r.namesApplication(appDir) {
+			return nil
+		}
+
+		parent := filepath.Dir(appDir)
+		if parent == appDir {
+			return nil
+		}
+
+		dir = parent
 	}
 
+	return nil
+}
+
+// applicationRefsIn is the first ref for name in appDir's Application.cfc and
+// Application.cfm, for each that has one.
+func (r *Resolver) applicationRefsIn(appDir, name string) []appRef {
 	var out []appRef
 
 	for _, appName := range []string{"Application.cfc", "Application.cfm"} {
@@ -3965,6 +4009,37 @@ func (r *Resolver) applicationRefs(baseDir, name string) []appRef {
 	}
 
 	return out
+}
+
+// namesApplication reports whether an Application file in appDir names an
+// application. Cached per directory: it reads the files.
+func (r *Resolver) namesApplication(appDir string) bool {
+	r.mu.RLock()
+	v, ok := r.appNameCache[appDir]
+	r.mu.RUnlock()
+
+	if ok {
+		return v
+	}
+
+	for _, appName := range []string{"Application.cfc", "Application.cfm"} {
+		text, err := r.readText(filepath.Join(appDir, appName))
+		if err == nil && applicationNameRe.MatchString(text) {
+			v = true
+
+			break
+		}
+	}
+
+	r.mu.Lock()
+	if r.appNameCache == nil {
+		r.appNameCache = make(map[string]bool)
+	}
+
+	r.appNameCache[appDir] = v
+	r.mu.Unlock()
+
+	return v
 }
 
 // declaresArgument reports whether any function called caller declares an
