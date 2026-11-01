@@ -12,10 +12,11 @@ import (
 // many applications run. Where a project's ColdBox is not in the workspace
 // (the chain reaches ColdBox only through the stubs), which version it runs
 // is unknown, so a method ColdBox removed is still taken as the method it
-// was an alias of. setNextEvent() was relocate() under its ColdBox 3 to 5
-// name; Preside, whose ColdBox is an external not in its checkout, calls it
-// 412 times from its handlers. A ColdBox checkout in the workspace is read
-// as it is, and a call it lacks is still reported.
+// was an alias of. setNextEvent() was relocate() and getModel() getInstance()
+// under their ColdBox 3 to 5 names; Preside, whose ColdBox is an external not
+// in its checkout, calls setNextEvent 412 times from its handlers. A ColdBox
+// checkout in the workspace is read as it is, and a call it lacks is still
+// reported.
 
 // coldboxRemovedAliases maps a removed ColdBox method, lowercased, to the
 // method it was an alias of, for the stubbed classes that declared it.
@@ -24,6 +25,7 @@ var coldboxRemovedAliases = map[string]struct {
 	classes []string
 }{
 	"setnextevent": {target: "relocate", classes: []string{"system/FrameworkSupertype.cfc", "system/web/Controller.cfc"}},
+	"getmodel":     {target: "getInstance", classes: []string{"system/FrameworkSupertype.cfc"}},
 }
 
 // legacyColdBoxFunc is the method a removed ColdBox method name stood for,

@@ -68,7 +68,7 @@ func TestPresideHelpersReachTheFilesColdBoxMixesThemInto(t *testing.T) {
 	writeFiles(t, dir, map[string]string{
 		"system/services/PresideSuperClass.cfc":   `component { function $helper() {} }`,
 		"system/helpers/presideProxies.cfm":       `<cffunction name="translateResource" access="public" returntype="any" output="false"><cfreturn "" /></cffunction>`,
-		"system/helpers/sitetree/pageHelpers.cfm": `<cfscript>function pageHelp() { return 1; }</cfscript>`,
+		"system/helpers/sitetree/pageHelpers.cfm": `<cfscript>function pageHelp() { return translateResource( "y" ); }</cfscript>`,
 		"system/handlers/Main.cfc":                `component { function index() { translateResource( "x" ); pageHelp(); } }`,
 		"system/views/main/index.cfm":             `<cfoutput>#translateResource( "x" )# #nope()#</cfoutput>`,
 		"system/services/Svc.cfc":                 `component { function f() { translateResource( "x" ); } }`,
@@ -92,6 +92,10 @@ func TestPresideHelpersReachTheFilesColdBoxMixesThemInto(t *testing.T) {
 	})
 	expectReasons(t, reasonsWith(t, &Resolver{HelperScope: scope}, dir, "system/services/Svc.cfc"), map[string]string{
 		"translateResource": "no qualifier, not in file",
+	})
+	// A helper is mixed in beside the others and calls them.
+	expectReasons(t, reasonsWith(t, &Resolver{HelperScope: scope}, dir, "system/helpers/sitetree/pageHelpers.cfm"), map[string]string{
+		"translateResource": "",
 	})
 	expectReasons(t, reasonsWith(t, &Resolver{HelperScope: scope}, dir, "other/handlers/Main.cfc"), map[string]string{
 		"orphanHelp": "no qualifier, not in file",

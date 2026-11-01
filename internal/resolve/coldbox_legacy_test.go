@@ -13,13 +13,14 @@ import (
 func TestARemovedColdBoxMethodIsItsAliasWhenColdBoxIsStubbed(t *testing.T) {
 	dir := t.TempDir()
 	writeFiles(t, dir, map[string]string{
-		"handlers/Pages.cfc": `component extends="coldbox.system.EventHandler" { function index( event ) { setNextEvent( "main" ); relocate( "main" ); nope(); } }`,
+		"handlers/Pages.cfc": `component extends="coldbox.system.EventHandler" { function index( event ) { setNextEvent( "main" ); relocate( "main" ); getModel( "x" ); nope(); } }`,
 	})
 
 	r := &Resolver{}
 	expectReasons(t, reasonsWith(t, r, dir, "handlers/Pages.cfc"), map[string]string{
 		"setNextEvent": "",
 		"relocate":     "",
+		"getModel":     "",
 		"nope":         "not found in extends chain",
 	})
 
