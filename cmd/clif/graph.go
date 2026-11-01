@@ -272,6 +272,10 @@ func buildGraph(f *graphFlags) (*codemap.Map, error) {
 	configs := newConfigSet(fsys, shared, &fallback)
 	seedRootConfig(fsys, configs, root, &fallback)
 
+	if found, _ := daemon.FindConfig(root); found == nil && fallback.Resolver != nil {
+		configs.assumeApps(fallback.Resolver.WorkspaceFolders)
+	}
+
 	if !f.oneConfig {
 		configs.preload(scanRoots)
 
