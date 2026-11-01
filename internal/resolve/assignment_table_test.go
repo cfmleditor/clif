@@ -72,6 +72,8 @@ func TestANamedArgumentOnItsOwnLineIsNotAnAssignment(t *testing.T) {
 			, private = true
 		);
 		var later = "y";
+		// a comment ending in a comma,
+		var after = "z";
 	}
 }`
 	pr := parser.ParseWithOptions("file:///w/a.cfc", content, &parser.ParseOptions{})
@@ -83,8 +85,8 @@ func TestANamedArgumentOnItsOwnLineIsNotAnAssignment(t *testing.T) {
 		}
 	}
 
-	for _, name := range []string{"rendered", "later"} {
-		if _, _, ok := r.localAssignmentAt(pr, name, 0, 9); !ok {
+	for _, name := range []string{"rendered", "later", "after"} {
+		if _, _, ok := r.localAssignmentAt(pr, name, 0, 11); !ok {
 			t.Errorf("%s: assignment not found", name)
 		}
 	}

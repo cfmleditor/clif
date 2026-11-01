@@ -39,7 +39,8 @@ func scanSourceFacts(content string) lexicalSourceFacts {
 			}
 		}
 
-		if strings.TrimLeft(text, " \t") != "" {
+		// A comment line is not code: `// Turn code block into array,`.
+		if code := strings.TrimLeft(text, " \t"); code != "" && !strings.HasPrefix(code, "//") && !strings.HasPrefix(code, "/*") && !strings.HasPrefix(code, "*") && !strings.HasPrefix(code, "<!---") {
 			prevEnd = text[len(text)-1]
 		}
 	}
