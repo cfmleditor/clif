@@ -152,7 +152,7 @@ func TestMocksAndUnstubbedJavaAreDynamic(t *testing.T) {
 	refs := pr.FuncComponentRefs(pr.Scopes[0].Start, pr.Scopes[0].End)
 
 	for name, want := range map[string]string{
-		"a": MockPrefix + "models.User", "b": "$any", "c": "$any", "d": "$any", "e": "$any",
+		"a": MockPrefix + "models.User", "b": "$any", "c": MockPrefix + "models.User", "d": "$any", "e": "$any",
 		"g": "models.User", "h": "",
 	} {
 		got := ""

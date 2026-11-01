@@ -158,6 +158,11 @@ func (e *producerEvaluation) call(fd *parser.FunctionDef, receiver string, argum
 
 	*e.budget--
 
+	// A method declared only to throw runs one of the overrides below it.
+	if ret := e.resolver.abstractOverridesReturn(fd, e.depth+1, e.budget); ret != "" {
+		return abstractReturnValue(ret)
+	}
+
 	method := e.resolver.producerFor(fd)
 
 	forwarding := false
@@ -200,19 +205,7 @@ func (e *producerEvaluation) call(fd *parser.FunctionDef, receiver string, argum
 	switch returnType {
 	case "", "any", "object", "component":
 	default:
-		if cfmlTypes[strings.ToLower(fd.ReturnType)] {
-			return producerValue{primitive: true}
-		}
-
-		if ret := e.resolver.ReturnComponentOf(fd); ret != "" {
-			if self := e.resolver.selfTyped(receiver, e.baseDir, fd, ret); self != "" {
-				ret = self
-			}
-
-			return e.concrete(ret, filepath.Dir(fd.URI.Path()))
-		}
-
-		return producerUnknown()
+		return e.declaredReturnValue(fd, receiver)
 	}
 
 	// Existing concrete/declared contracts take priority unless the source
@@ -252,6 +245,34 @@ func (e *producerEvaluation) call(fd *parser.FunctionDef, receiver string, argum
 	local.depth++
 
 	return local.executeBoundCall(fd, method, arguments, specific, forwarding)
+}
+
+// declaredReturnValue is what a call to fd returns by its declared return
+// type, which names a CFML type or a component.
+func (e *producerEvaluation) declaredReturnValue(fd *parser.FunctionDef, receiver string) producerValue {
+	if cfmlTypes[strings.ToLower(fd.ReturnType)] {
+		return producerValue{primitive: true}
+	}
+
+	if ret := e.resolver.ReturnComponentOf(fd); ret != "" {
+		if self := e.resolver.selfTyped(receiver, e.baseDir, fd, ret); self != "" {
+			ret = self
+		}
+
+		return e.concrete(ret, filepath.Dir(fd.URI.Path()))
+	}
+
+	return producerUnknown()
+}
+
+// abstractReturnValue is the value abstractOverridesReturn's answer stands
+// for: its alternatives, or nothing known for $any.
+func abstractReturnValue(ret string) producerValue {
+	if ret == "$any" {
+		return producerUnknown()
+	}
+
+	return producerValue{components: strings.Split(ret, "|")}
 }
 
 func (e *producerEvaluation) executeBoundCall(fd *parser.FunctionDef, method *producerMethod, arguments map[string]producerValue, specific, forwarding bool) producerValue {
@@ -1234,7 +1255,7 @@ func (e *producerEvaluation) expression(expression string, env producerEnvironme
 
 	position := endRoot + 1
 	for position < len(tokens) {
-		if value.component() == "" || position+2 >= len(tokens) || tokens[position].Kind != parser.TokDot || tokens[position+1].Kind != parser.TokIdent || tokens[position+2].Kind != parser.TokLParen {
+		if position+2 >= len(tokens) || tokens[position].Kind != parser.TokDot || tokens[position+1].Kind != parser.TokIdent || tokens[position+2].Kind != parser.TokLParen {
 			return producerUnknown()
 		}
 
@@ -1245,14 +1266,23 @@ func (e *producerEvaluation) expression(expression string, env producerEnvironme
 			return producerUnknown()
 		}
 
-		if !strings.EqualFold(method, "init") {
+		// A mock is the class it names whatever made it, so the receiver
+		// need not be known: getMockBox() is a spec's, from TestBox.
+		mock, isMock := e.mock(tokens[position+1 : end+1])
+
+		switch {
+		case isMock:
+			value = mock
+		case value.component() == "":
+			return producerUnknown()
+		case !strings.EqualFold(method, "init"):
 			args, known := e.arguments(tokens[position+3:end], env)
 			if !known {
 				return producerUnknown()
 			}
 
 			value = e.methodResult(value, method, args)
-		} else if value.instance != nil {
+		case value.instance != nil:
 			value.instance.valid = false
 		}
 
@@ -1632,6 +1662,10 @@ func (e *producerEvaluation) rootCall(tokens []parser.Token, open, end int, befo
 		}
 	}
 
+	if mock, ok := e.mock(tokens[open-1 : end+1]); ok {
+		return mock
+	}
+
 	if strings.EqualFold(before, "createObject") && e.resolver.ResolveFunc(e.methodOwner(), "createObject", e.baseDir) == nil {
 		return e.createObjectResult(tokens, open, end, env)
 	}
@@ -1689,6 +1723,32 @@ func (e *producerEvaluation) rootCall(tokens []parser.Token, open, end int, befo
 	}
 
 	return e.call(e.resolver.ResolveFunc(target, method, e.baseDir), target, args, true, instance)
+}
+
+// mock is the value a MockBox call makes (createMock( "X" ) on whatever holds
+// the MockBox): the class, as the parser types it (parser.MockCall). A mock of
+// a class that does not resolve is unknown.
+func (e *producerEvaluation) mock(call []parser.Token) (producerValue, bool) {
+	if len(call) < 2 {
+		return producerValue{}, false
+	}
+
+	made := parser.MockCall(call[0].Value + producerText(call[1:]))
+	if made == "" {
+		return producerValue{}, false
+	}
+
+	class, ok := strings.CutPrefix(made, parser.MockPrefix)
+	if !ok {
+		return producerUnknown(), true
+	}
+
+	path := e.resolver.ComponentPath(class, e.baseDir)
+	if path == "" {
+		return producerUnknown(), true
+	}
+
+	return producerValue{components: []string{path}}, true
 }
 
 func (e *producerEvaluation) bindArguments(fd *parser.FunctionDef, method *producerMethod, arguments map[string]producerValue, specific bool) producerEnvironment {

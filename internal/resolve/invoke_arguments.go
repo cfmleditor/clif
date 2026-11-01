@@ -1,9 +1,11 @@
 package resolve
 
 import (
+	"regexp"
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/parser"
+	cfpath "github.com/cfmleditor/clif/internal/path"
 )
 
 // Source-owned invoke calls use ordinary caller inference, even when the
@@ -13,9 +15,12 @@ func (r *Resolver) builtinInvoke(call *parser.CallSite, pr *parser.ParseResult, 
 }
 
 // invokeArgument admits positional and named builtin forms with a literal
-// method selector. Unknown selectors are outside the caller index's coverage.
-// Unknown targets/bags for a matching selector block inference rather than
-// borrowing a known caller's argument. Local functions named invoke are ordinary
+// method selector, or one computed around a literal start that may name the
+// function (invokeSelects); a selector with no literal start is outside the
+// caller index's coverage.
+// An unknown target blocks inference rather than borrowing a known caller's
+// argument, unless only fd's own class family declares the name
+// (declaredInFamilyOnly); an unknown bag always does. Local functions named invoke are ordinary
 // calls and cannot establish builtin dispatch.
 func (r *Resolver) invokeArgument(call *parser.CallSite, pr *parser.ParseResult, fd *parser.FunctionDef, pos int, name, dir string, ctx lookupCtx) (expr []parser.Token, passed, ours, known bool) {
 	if r.bareFunc("invoke", pr, dir, call.Caller) != nil {
@@ -48,9 +53,15 @@ func (r *Resolver) invokeArgument(call *parser.CallSite, pr *parser.ParseResult,
 	}
 
 	method := strings.Trim(parts[1][0].Value, `"'`)
-	if strings.Contains(method, "#") || !strings.EqualFold(method, fd.Name) {
+	if !invokeSelects(method, fd.Name) {
 		return nil, false, false, true
 	}
+
+	// A computed selector may name many methods, so one on a target that
+	// cannot be placed is passed over, as before selectors were read: it would
+	// otherwise withhold inference for every method its literal start allows.
+	computed := strings.Contains(method, "#")
+	method = fd.Name
 
 	target := r.argumentExprComponent(parts[0], call.Line, call.Caller, pr, dir, ctx)
 	if len(parts[0]) == 1 && parts[0][0].Kind == parser.TokString {
@@ -64,11 +75,10 @@ func (r *Resolver) invokeArgument(call *parser.CallSite, pr *parser.ParseResult,
 		}
 	}
 
-	if target == "" {
-		return nil, false, false, false
-	}
-
-	if !r.componentCallIs(target, method, fd, dir) {
+	switch {
+	case target == "" && !r.declaredInFamilyOnly(fd):
+		return nil, false, false, computed
+	case target != "" && !r.componentCallIs(target, method, fd, dir):
 		return nil, false, false, true
 	}
 
@@ -77,6 +87,73 @@ func (r *Resolver) invokeArgument(call *parser.CallSite, pr *parser.ParseResult,
 	}
 
 	return invokeBagArgument(parts[2], pos, name)
+}
+
+// declaredInFamilyOnly reports whether every component in the workspace that
+// declares a method of fd's name is in one class tree: the one under the
+// topmost component fd's file extends (or is) that declares it. An invoke
+// selecting that name on a target of no known type then calls it on that
+// tree, whatever the target is, so what it passes is evidence for fd: qb's
+// Blueprint hands its grammar, built by WireBox from a setting, every
+// compileX() it runs, and each grammar overrides some of BaseGrammar's.
+func (r *Resolver) declaredInFamilyOnly(fd *parser.FunctionDef) bool {
+	if r.Index == nil || !fd.URI.IsFile() {
+		return false
+	}
+
+	defs := r.Index.Lookup(fd.Name)
+	root := fd.URI.Path()
+
+	for _, def := range defs {
+		if def.URI.IsFile() && r.descendsFrom(root, def.URI.Path()) {
+			root = def.URI.Path()
+		}
+	}
+
+	for _, def := range defs {
+		if !def.URI.IsFile() {
+			return false
+		}
+
+		path := def.URI.Path()
+		if !cfpath.SamePath(path, root) && !r.descendsFrom(path, root) {
+			return false
+		}
+	}
+
+	return len(defs) > 0
+}
+
+// invokeSelects reports whether an invoke's method selector may name the
+// function: it is the function's name, or a name computed around literal
+// parts the name holds in that order (`compile#command.getType()#` may be
+// compileCreate). Such an invoke may call other methods as well; what matters
+// is what it passes when it calls this one.
+func invokeSelects(selector, name string) bool {
+	if !strings.Contains(selector, "#") {
+		return strings.EqualFold(selector, name)
+	}
+
+	pieces := strings.Split(selector, "#")
+	if len(pieces)%2 == 0 || strings.Contains(selector, "##") || pieces[0] == "" {
+		return false
+	}
+
+	var pattern strings.Builder
+
+	pattern.WriteString("(?i)^")
+
+	for i, piece := range pieces {
+		if i%2 == 1 {
+			pattern.WriteString(".+")
+		} else {
+			pattern.WriteString(regexp.QuoteMeta(piece))
+		}
+	}
+
+	pattern.WriteString("$")
+
+	return compiledPattern(pattern.String()).MatchString(name)
 }
 
 // Argument aliases follow the builtin signature. A duplicate semantic slot,
