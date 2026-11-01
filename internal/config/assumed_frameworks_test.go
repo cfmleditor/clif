@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/cfmleditor/clif/internal/parser"
 )
 
 func TestAssumedFrameworksRequireOneProjectContext(t *testing.T) {
@@ -218,6 +220,13 @@ func TestAPresideCheckoutIsColdBoxWithPresidesRequestContext(t *testing.T) {
 
 		if first != presideController {
 			t.Errorf("%s resolves to %q first, want %q", name, first, presideController)
+		}
+	}
+
+	// Preside's own id factories build what getInstance( id ) does.
+	for _, call := range []string{`getSingleton( "auditService" )`, `getModel( "auditService" )`} {
+		if got := parser.ResolveFromCall(call, ParserResolvers(r.ComponentResolvers)); got != "auditService" {
+			t.Errorf("%s resolves to %q, want auditService", call, got)
 		}
 	}
 

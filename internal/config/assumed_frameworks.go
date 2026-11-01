@@ -105,6 +105,10 @@ func Assumed(roots []string, read func(string) ([]byte, error), directories ...f
 		// they replace.
 		r.ComponentResolvers = append(r.ComponentResolvers, variableResolver(presideRequestContext, "event"), variableResolver(presideController, "controller", "cbController", "coldbox"))
 		r.ComponentResolvers = append(r.ComponentResolvers, returnResolver(presideController, "getController")...)
+		// Preside's own WireBox factories: getSingleton( id ) in its helpers
+		// and getModel( id ) on its request context build what getInstance( id )
+		// does.
+		r.ComponentResolvers = append(r.ComponentResolvers, idResolver("getSingleton"), idResolver("getModel"))
 	}
 
 	r.ComponentResolvers = append(r.ComponentResolvers, FrameworkResolvers(r.Frameworks)...)
