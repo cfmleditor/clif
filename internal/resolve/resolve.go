@@ -2823,6 +2823,11 @@ func (r *Resolver) returnComponentOf(fd *parser.FunctionDef, depth int, budget *
 	}
 
 	switch {
+	case strings.Contains(fd.ReturnComponent, "#"):
+		// `return new "builders.#name#.Builder"()`: a runtime path no
+		// expressionMappings entry covered is dynamic, as it is assigned to
+		// a variable (parser replaceExpressions).
+		return "$any"
 	case fd.ReturnComponent != "" && fd.ReturnComponent != "$any":
 		// `return new Expectation( … )` names the component beside the
 		// declaring file, as a bare return type does; read from the caller's
