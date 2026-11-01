@@ -16,7 +16,11 @@ import (
 // the rest without a word about their type. So rc.X in such a view is what the
 // item action assigns arguments.rc.X by its end, or, when it assigns nothing,
 // what before() does; a controller action that calls setView("section.item")
-// renders the view too, and every action must agree.
+// renders the view too, and every action must agree. An action that hands its
+// rc to another (`detail( rc )`) leaves what that one assigns, and a view no
+// action renders, a partial, holds the rc of every view rendering it with
+// view( "section/sub/item" ). A subsystem's setView( "admin:section.item" )
+// names the views under admin/.
 //
 // The convention applies only where a framework preset gives views a base
 // (ImplicitExtends), which is how the fw1 preset says views run inside the

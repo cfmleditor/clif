@@ -30,7 +30,7 @@ func (r *Resolver) collectionExpressionElement(receiver string, calls []chainCal
 	// does. Each hop's return must be a proven component: an erased one
 	// leaves the element unprovable.
 	if receiver != "" && len(calls) > 1 {
-		comp, _ := r.receiverComponentD(receiver, conv.Uint32(header), caller, last.name, pr, baseDir, nil, lookupCtx{leaf: leaf})
+		comp := r.collectionReceiver(receiver, header, caller, last.name, pr, baseDir, leaf)
 
 		lookup := r.FuncLookup(baseDir)
 
@@ -84,7 +84,7 @@ func (r *Resolver) collectionExpressionElement(receiver string, calls []chainCal
 
 	target := self
 	if receiver != "" && !strings.EqualFold(receiver, "this") && !strings.EqualFold(receiver, "variables") {
-		target, _ = r.receiverComponentD(receiver, conv.Uint32(header), caller, last.name, pr, baseDir, nil, lookupCtx{leaf: leaf})
+		target = r.collectionReceiver(receiver, header, caller, last.name, pr, baseDir, leaf)
 
 		// A receiver the call itself is accepted on as dynamic hands back a
 		// dynamic collection: ContentBox's 1.0.4 patch loops over
@@ -292,4 +292,22 @@ func callbackCollectionExpression(provider *parser.CallSite) string {
 	}
 
 	return collectionExpression(provider.Variable, calls)
+}
+
+// collectionReceiver is what the receiver of a collection expression holds,
+// as a call on it would find it: its own lookup, then a componentResolver
+// matching its name (Slatwall's $.slatwall), which canResolveCall tries next.
+// A resolver that does not follow the call names nothing here.
+func (r *Resolver) collectionReceiver(receiver string, header int, caller, method string, pr *parser.ParseResult, baseDir, leaf string) string {
+	comp, _ := r.receiverComponentD(receiver, conv.Uint32(header), caller, method, pr, baseDir, nil, lookupCtx{leaf: leaf})
+	if comp != "" {
+		return comp
+	}
+
+	comp, noFollow, _ := r.matchResolver(receiver, nil, nil)
+	if noFollow {
+		return ""
+	}
+
+	return comp
 }

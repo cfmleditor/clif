@@ -66,8 +66,8 @@ func assumedFrameworks(roots []string, read func(string) ([]byte, error), direct
 
 		// A Mura plugin runs inside Mura, which hands it the Mura scope.
 		if plugin, ok := cfpath.NearestMuraPlugin(root, read); ok {
-			owners[plugin.Root] = true
-			presets["mura"] = true
+			owners[plugin.Root], presets["mura"] = true, true
+
 			if isSlatwall(plugin, read) {
 				// Slatwall's Application.cfc is an FW/1 application (its own
 				// copy, org/fw1/framework.cfc), whose views call buildURL()

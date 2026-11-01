@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/cfmleditor/clif/internal/parser"
+	"github.com/cfmleditor/clif/internal/vfs"
 )
 
 // TestAVariableAssignedFromASubclassHeldReceiverIsTyped: an abstract handler
@@ -214,5 +215,45 @@ func TestAnElementOfACallsCollectionIsTheCollectionsElement(t *testing.T) {
 		"local.d.getItems": "",
 		"local.d.nowhere":  "method 'nowhere' not found in Delivery",
 		"local.n.anything": "variable 'local.n' has no component ref",
+	})
+}
+
+// TestALoopOverAnOverriddenRelationshipGetterOrAResolvedScope: Slatwall's
+// Product declares its own `array function getSkus( sorted = false )` over
+// the generated getter, which had the relationship's element and the
+// override had none; and its views loop over `$.slatwall.cart(
+// ).getOrderItems()`, whose receiver only a componentResolver names and
+// whose hop, written with a space, only a resolver for `cart()` types. Each
+// left the loop variable untyped.
+func TestALoopOverAnOverriddenRelationshipGetterOrAResolvedScope(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{
+		"Order.cfc": `component persistent="true" entityname="TOrder" {
+	property name="deliveries" fieldtype="one-to-many" cfc="Delivery" singularname="delivery";
+	array function getDeliveries( boolean sorted = false ) { return variables.deliveries; }
+	string function getNotes() { return ""; }
+}`,
+		"Delivery.cfc": `component persistent="true" entityname="TDelivery" { function getItems() {} }`,
+		"Shop.cfc":     `component { function cart( property ) {} }`,
+		"page.cfm": `<cfset local.order = new Order()>
+<cfloop array="#local.order.getDeliveries( true )#" index="local.d">
+	<cfset local.d.getItems()>
+	<cfset local.d.nowhere()>
+</cfloop>
+<cfloop array="#$.shop.cart( ).getDeliveries()#" index="local.e">
+	<cfset local.e.getItems()>
+</cfloop>`,
+	})
+
+	r := &Resolver{Resolvers: []parser.Resolver{
+		{Match: "$.shop", Resolve: "Shop", Prefix: "$.shop"},
+		{Match: "cart()", Resolve: "Order", Prefix: "cart"},
+	}}
+	r.FS, r.WorkspaceFolders = vfs.OS{}, []string{dir}
+
+	expectReasons(t, reasonsInCFMWith(t, r, dir, "page.cfm"), map[string]string{
+		"local.d.getItems": "",
+		"local.d.nowhere":  "method 'nowhere' not found in Delivery",
+		"local.e.getItems": "",
 	})
 }

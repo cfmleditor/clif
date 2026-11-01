@@ -1923,6 +1923,21 @@ project could have written by hand. Three rules hold them together, each with a 
   bases (`virtualBases`): a view's Renderer and a Wheels class stand only
   for a missing extends. Preside's admin handlers extend an AdminHandler that
   extends nothing (8,344 to 8,162). `TestAHandlerGetsEventHandlerWhateverItExtends`.
+- **A Mura plugin's checkout has the mappings Mura's plugin manager writes**
+  (`cfpath.AssumedMuraPlugin`, from `plugin/config.xml(.cfm)`): its `<package>`
+  maps to the plugin's directory and each `<mapping name directory>` to a
+  directory inside it, and the Mura preset is assumed. Slatwall's own checkout
+  (`config.isSlatwall`) also assumes FW/1 and types what its Application.cfc
+  stores (`$.slatwall`, `getFW()`, `getService( "x" )`, the SlatwallScope's
+  `cart()` family) and its ColdSpring-autowired `xService`/`xDAO` properties
+  (`config/slatwall.go`). Its BaseService answers `this.newX()`, `getX()`,
+  `getXByY()`, `saveX()` and `getXSmartList()` through onMissingMethod with
+  the entity `SlatwallX` (`resolve.slatwallGatewayReturn`). A chain on
+  `this.f()` carries `CallSite.This`, since only that one reaches
+  onMissingMethod. Slatwall went from 7,533 findings to 3,187.
+  `TestAMuraPluginCheckoutHasTheMappingsMuraGivesIt`,
+  `TestASlatwallCheckoutIsAMuraPluginOnFW1WithItsStoredValues`,
+  `TestSlatwallServicesReturnTheEntityTheirMissingMethodNames`.
 - **Two presets can claim one name.** CommandBox's `task()` and a ColdBox scheduler's
   `task()` return different things, so CommandBox's preset leaves `task()` alone.
   `TestEveryPresetResolverMatchesItsOwnNames` lists such a case beside each preset's own.

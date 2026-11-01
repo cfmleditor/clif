@@ -1723,19 +1723,9 @@ func (r *Resolver) walkHops(comp, softComp string, call *parser.CallSite, pr *pa
 
 		fd := r.ResolveFunc(comp, hop, baseDir)
 
-		// A decoration returns the mock it is called on, so the chain goes on
-		// from the same component: model.$( "getCache", c ).getFoo() is
-		// checked against model's class.
-		if fd == nil && mockDecoration(hop) {
-			tr.addf("chain hop %q is a method MockBox adds to a mock, and returns the mock — %q", hop, comp)
-
-			continue
-		}
-
 		if fd == nil {
-			if e := r.slatwallGatewayReturn(r.ComponentPath(comp, baseDir), hop, baseDir); e != "" {
-				tr.addf("chain hop %q is answered by Slatwall's BaseService onMissingMethod, which returns %q", hop, e)
-				comp = e
+			if next := r.undeclaredHopReturn(comp, hop, baseDir, tr); next != "" {
+				comp = next
 
 				continue
 			}
@@ -1775,6 +1765,26 @@ func (r *Resolver) walkHops(comp, softComp string, call *parser.CallSite, pr *pa
 	}
 
 	return comp, softComp, "", false
+}
+
+// undeclaredHopReturn is what a chain hop comp does not declare returns when
+// something still says, or "". A decoration returns the mock it is called
+// on, so the chain goes on from the same component: model.$( "getCache", c
+// ).getFoo() is checked against model's class. Slatwall's BaseService
+// answers this.newProduct() and its family with an entity.
+func (r *Resolver) undeclaredHopReturn(comp, hop, baseDir string, tr *callTrace) string {
+	if mockDecoration(hop) {
+		tr.addf("chain hop %q is a method MockBox adds to a mock, and returns the mock — %q", hop, comp)
+
+		return comp
+	}
+
+	e := r.slatwallGatewayReturn(r.ComponentPath(comp, baseDir), hop, baseDir)
+	if e != "" {
+		tr.addf("chain hop %q is answered by Slatwall's BaseService onMissingMethod, which returns %q", hop, e)
+	}
+
+	return e
 }
 
 // untypedHop decides a chain hop whose function declares no component: what

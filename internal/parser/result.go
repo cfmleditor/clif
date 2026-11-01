@@ -2061,6 +2061,8 @@ func (pr *ParseResult) generatePropertyAccessors() {
 			}
 
 			pr.Funcs = append(pr.Funcs, getterDef)
+		} else if pr.Persistent {
+			pr.overriddenRelationshipGetter(getter, &prop)
 		}
 
 		setter := "set" + strings.ToLower(prop.name)
@@ -2103,6 +2105,31 @@ func (pr *ParseResult) generatePropertyAccessors() {
 			}
 		} else if getterIdx >= 0 && (prop.typeName == "" || strings.EqualFold(prop.typeName, "any")) {
 			pr.Funcs[getterIdx].ReturnComponent = fieldComponents[strings.ToLower(prop.name)]
+		}
+	}
+}
+
+// overriddenRelationshipGetter gives an entity's own getter for a
+// relationship collection the element the generated one would have had: it
+// stands in for the accessor, so it returns the relationship's collection.
+// Slatwall's Product declares `array function getSkus( sorted = false )`,
+// which hands back the skus or a sorted copy of them. Only a getter whose
+// declared type is the collection's (array, or none) is read so.
+func (pr *ParseResult) overriddenRelationshipGetter(getter string, prop *propertyDef) {
+	elem := prop.collectionEntity()
+	if elem == "" {
+		return
+	}
+
+	for i := range pr.Funcs {
+		f := &pr.Funcs[i]
+		if f.Generated || f.ElementComponent != "" || !strings.EqualFold(f.Name, getter) {
+			continue
+		}
+
+		switch strings.ToLower(f.ReturnType) {
+		case "", "any", "array":
+			f.ElementComponent = elem
 		}
 	}
 }

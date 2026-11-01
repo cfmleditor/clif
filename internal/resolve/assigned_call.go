@@ -380,7 +380,9 @@ func hopReturns(lookup func(string, string) string, comp string, c chainCall, dy
 		if ret == "" {
 			// What some methods return depends on what they are handed
 			// (Wheels' controller( "name" )); the parse asks the same way.
-			ret = lookup(alt, parser.CallHop(c.name+"("+c.args+")"))
+			// The call is spelled as a resolver matches it: `cart( )` is
+			// `cart()`.
+			ret = lookup(alt, parser.CallHop(c.name+"("+strings.TrimSpace(c.args)+")"))
 		}
 
 		if dynamic && ret == "$any" {
