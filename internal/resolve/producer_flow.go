@@ -230,8 +230,13 @@ func (e *producerEvaluation) call(fd *parser.FunctionDef, receiver string, argum
 	}
 
 	// A factory caching under a key only it writes returns the same
-	// component whatever it is passed (ownedKeyReturn).
+	// component whatever it is passed (ownedKeyReturn), and so does
+	// Preside's getObject() (presideObjectReturn).
 	if ret := e.resolver.ownedKeyReturn(fd); ret != "" {
+		return e.concrete(ret, filepath.Dir(fd.URI.Path()))
+	}
+
+	if ret := e.resolver.presideObjectReturn(fd); ret != "" {
 		return e.concrete(ret, filepath.Dir(fd.URI.Path()))
 	}
 

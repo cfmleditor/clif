@@ -2270,8 +2270,21 @@ func (r *Resolver) bareFunc(name string, pr *parser.ParseResult, baseDir string,
 		}
 	}
 
+	// The same order a call standing alone is looked up in (canResolveCall):
+	// a chain headed by $getPresideObject() or a handler's getModel() found
+	// nothing where the call alone resolved.
+	if def, _ := r.virtualBaseFunc(pr, name); def != nil {
+		return def
+	}
+
 	if def := r.delegatedFunc(pr.Delegates, baseDir, name, 0); def != nil {
 		return def
+	}
+
+	if pr.URI.IsFile() && strings.HasPrefix(name, "$") {
+		if def := r.presideSuperClassFunc(r.extendsChainOf(pr.URI.Path()), name, 0); def != nil {
+			return def
+		}
 	}
 
 	if def, _ := r.findThroughIncludes(pr, name); def != nil {
@@ -2720,6 +2733,10 @@ func (r *Resolver) getterReturn(fd *parser.FunctionDef) string {
 	}
 
 	if ret := r.ownedKeyReturn(fd); ret != "" {
+		return ret
+	}
+
+	if ret := r.presideObjectReturn(fd); ret != "" {
 		return ret
 	}
 
