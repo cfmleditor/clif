@@ -979,6 +979,10 @@ func (r *Resolver) lookupFuncUncached(cfcPath, funcName string, depth int) *pars
 		return d
 	}
 
+	if d := r.legacyColdBoxFunc(chain, funcName, depth); d != nil {
+		return d
+	}
+
 	// A Wheels association's methods: `hasMany( "comments" )` in config()
 	// gives the model comments(), commentCount(), newComment() and the rest.
 	if len(chain) > 0 && r.isWheelsModel(chain[0]) {
