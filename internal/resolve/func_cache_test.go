@@ -61,3 +61,50 @@ func TestABatchScanKeepsItsLookups(t *testing.T) {
 		t.Error("a batch scan asked again after an index write")
 	}
 }
+
+// A batch scan's FuncLookup cache is the owner's, shared by every
+// caller-context view, and each view resolves with its own application's
+// mappings. A library with no Application.cfc does not have a test suite's
+// `/root` mapping, so the answer it gives from the suite's directory must not
+// be the one the suite's own view is then served: which asked first was the
+// scan's goroutine order, and spreadsheet-cfml's chainable calls came and went
+// with it.
+func TestFuncLookupAnswersDoNotLeakBetweenApplications(t *testing.T) {
+	dir := t.TempDir()
+	lib := filepath.Join(dir, "lib")
+	app := filepath.Join(dir, "test")
+	specs := filepath.Join(app, "specs")
+
+	files := map[string]string{
+		filepath.Join(lib, "Lib.cfc"):         `component accessors="true" { property name="x"; }`,
+		filepath.Join(app, "Application.cfc"): `component { this.mappings[ "/root" ] = getDirectoryFromPath( getCurrentTemplatePath() ) & "../lib/"; }`,
+		filepath.Join(specs, "spec.cfm"):      `<cfset s = 1>`,
+	}
+
+	for path, src := range files {
+		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+			t.Fatal(err)
+		}
+
+		if err := os.WriteFile(path, []byte(src), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	want := filepath.Join(lib, "Lib.cfc")
+
+	for _, libraryFirst := range []bool{false, true} {
+		idx := index.New()
+		idx.IndexFile(cfpath.ToURI(want), files[want])
+
+		r := &Resolver{FS: vfs.OS{}, Index: idx, SnapshotScan: true, WorkspaceFolders: []string{dir}}
+
+		if libraryFirst {
+			r.forCaller(lib).FuncLookup(specs)("root.Lib", "setX")
+		}
+
+		if got := r.FuncLookup(specs)("root.Lib", "setX"); !cfpath.SamePath(got, want) {
+			t.Errorf("library view asked first = %v: setX() from the suite returns %q, want %q", libraryFirst, got, want)
+		}
+	}
+}

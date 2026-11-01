@@ -2959,15 +2959,21 @@ func (r *Resolver) FuncLookup(baseDir string) func(component, funcName string) s
 		return lookup
 	}
 
-	// In a batch scan the answer is a function of the directory, the component
-	// and the name alone (see funcCache for why it holds for the whole scan),
-	// and the files of one directory ask the same questions: each parse
-	// memoised only its own, which left 2.3s of tassweb's scan in lookups
-	// another file beside it had already made.
+	// In a batch scan the answer is a function of the caller's application,
+	// the directory, the component and the name alone (see funcCache for why
+	// it holds for the whole scan), and the files of one directory ask the
+	// same questions: each parse memoised only its own, which left 2.3s of
+	// tassweb's scan in lookups another file beside it had already made. The
+	// cache is the owner's, shared by every caller-context view, and a view
+	// keeps its own application's mappings whatever directory it is asked
+	// from, so the application is part of the key: without it, whichever
+	// view asked first answered for all of them, and a test suite's
+	// `/root` mapping came and went with the scan's goroutine order.
 	cache := &r.owner().funcLookups
+	app := r.forCaller(baseDir).callerApplication
 
 	return func(component, funcName string) string {
-		key := funcLookupKey{dir: baseDir, component: component, name: funcName}
+		key := funcLookupKey{app: app, dir: baseDir, component: component, name: funcName}
 		if answer, ok := cache.Load(key); ok {
 			s, _ := answer.(string)
 
@@ -2982,7 +2988,7 @@ func (r *Resolver) FuncLookup(baseDir string) func(component, funcName string) s
 }
 
 // funcLookupKey is one FuncLookup question in a batch scan.
-type funcLookupKey struct{ dir, component, name string }
+type funcLookupKey struct{ app, dir, component, name string }
 
 func (r *Resolver) funcLookupUncached(baseDir string) func(component, funcName string) string {
 	r = r.forCaller(baseDir)
