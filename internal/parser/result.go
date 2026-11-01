@@ -1390,8 +1390,13 @@ func (pr *ParseResult) pendingCallComponent(c *pendingCall, funcReturns map[stri
 	}
 
 	// A mock made through the MockBox a spec holds,
-	// getMockBox().createEmptyMock(…), is as dynamic as one made directly.
-	if comp == "" {
+	// getMockBox().createMock(…), is what one made directly is: the class
+	// its argument names, whatever the receiver's method is declared to
+	// return. A chain going on from it is walked on that class, as qb's specs
+	// build their builder with createMock( "qb.models.Query.QueryBuilder" ).init( grammar ).
+	if mock, rest, ok := chainedMock(c.rest); ok {
+		comp, c.rest = mock, rest
+	} else if comp == "" {
 		last := c.funcName
 		if len(c.rest) > 0 {
 			last = callHopName(c.rest[len(c.rest)-1])
@@ -1411,6 +1416,31 @@ func (pr *ParseResult) pendingCallComponent(c *pendingCall, funcReturns map[stri
 	}
 
 	return comp
+}
+
+// chainedMock finds the last hop of a chain that makes a MockBox mock and
+// returns what it makes with the hops after it, which are made on the mock.
+// A mock of a class no argument names is dynamic, and so is everything
+// chained on it.
+func chainedMock(rest []string) (mock string, after []string, ok bool) {
+	for i, hop := range slices.Backward(rest) {
+		expression, isCall := CallExpression(hop)
+		if !isCall {
+			expression = hop + "()"
+		}
+
+		if mock = dynamicCall(expression); mock == "" {
+			continue
+		}
+
+		if mock == "$any" || i == len(rest)-1 {
+			return mock, nil, true
+		}
+
+		return mock, rest[i+1:], true
+	}
+
+	return "", nil, false
 }
 
 // A callable argument is source-owned, even when its name matches a builtin.

@@ -1,7 +1,6 @@
 package resolve
 
 import (
-	"path/filepath"
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/parser"
@@ -277,76 +276,6 @@ func callbackParameterStableDepth(content string, from, to int, name string, dep
 	return true
 }
 
-func callbackInvocationComponent(eval *producerEvaluation, nodes []producerNode, env producerEnvironment, callback string, parameter int) string {
-	aliases := map[string]bool{callback: true, strings.TrimPrefix(callback, "arguments."): true}
-	answer := ""
-	eval.wanted = map[string]bool{}
-
-	for i := range nodes {
-		node := &nodes[i]
-		switch node.kind {
-		case "noop":
-		case "set":
-			target := normalizeProducerPath(node.target)
-
-			if !callbackAliasAssignment(node, aliases) {
-				return ""
-			}
-
-			eval.wanted[target] = true
-			if !eval.assign(node, env) {
-				return ""
-			}
-		case "effect", "return":
-			tokens := producerTokens(node.expression)
-			open := -1
-
-			for i, t := range tokens {
-				if t.Kind == parser.TokLParen {
-					open = i
-
-					break
-				}
-			}
-
-			isCallback := open >= 0 && aliases[normalizeProducerPath(producerPath(tokens[:open]))]
-			if isCallback {
-				if producerGroupEnd(tokens, open, parser.TokLParen, parser.TokRParen) != len(tokens)-1 {
-					return ""
-				}
-
-				pieces := producerSplit(tokens[open+1 : len(tokens)-1])
-				if parameter >= len(pieces) {
-					return ""
-				}
-
-				value := eval.expression(producerText(pieces[parameter]), env).component()
-				if value == "" || answer != "" && !strings.EqualFold(answer, value) {
-					return ""
-				}
-
-				answer = value
-			} else if node.kind == "effect" || callbackReferenceIn(tokens, aliases) {
-				return ""
-			}
-
-			if node.kind == "return" {
-				return answer
-			}
-		default:
-			return ""
-		}
-	}
-	// Keep a source-relative result tied to the provider's actual declaration.
-	if answer != "" {
-		if path := eval.resolver.ComponentPath(answer, filepath.Dir(eval.fd.URI.Path())); path != "" {
-			return path
-		}
-	}
-
-	return answer
-}
-
 func callbackReferenceIn(tokens []parser.Token, aliases map[string]bool) bool {
 	for i, token := range tokens {
 		if token.Kind != parser.TokIdent || i > 0 && tokens[i-1].Kind == parser.TokDot {
@@ -364,35 +293,4 @@ func callbackReferenceIn(tokens []parser.Token, aliases map[string]bool) bool {
 	}
 
 	return false
-}
-
-func callbackAliasAssignment(node *producerNode, aliases map[string]bool) bool {
-	target := normalizeProducerPath(node.target)
-
-	path := normalizeProducerPath(producerPath(producerTokens(node.expression)))
-	if !aliases[path] && callbackReferenceIn(producerTokens(node.expression), aliases) {
-		return false
-	}
-
-	if aliases[path] {
-		if strings.HasPrefix(target, "variables.") || strings.HasPrefix(target, "this.") {
-			return false
-		}
-
-		aliases[target] = true
-
-		aliases[strings.TrimPrefix(target, "local.")] = true
-		if after, ok := strings.CutPrefix(target, "arguments."); ok {
-			aliases[after] = true
-		}
-	} else {
-		delete(aliases, target)
-		delete(aliases, strings.TrimPrefix(target, "local."))
-
-		if after, ok := strings.CutPrefix(target, "arguments."); ok {
-			delete(aliases, after)
-		}
-	}
-
-	return true
 }

@@ -1381,6 +1381,18 @@ since the others' answer would be a guess. `this.x` and other scopes are not
 asked. The walk costs a scan of the index's extends map per untyped receiver and
 is capped at 16 components. `TestABaseComponentsVariableIsWhatItsSubclassesHold`.
 
+**A base component calls what its subclasses declare** (`subclass_overrides.go`), the
+method side of the rule above. A bare or `this.` call the file and its chain do not
+answer is accepted (as `TargetDynamic`) when **every** leaf subclass under the file
+declares the method, itself or through a component between it and the file: qb's
+AbstractQueryBuilderSpec calls each grammar spec's `selectAllColumns()`. And a method
+the file declares **only to throw** (`abstractBody`: its plan is nothing but `throw`)
+returns what every leaf's override returns, as `a|b` alternatives
+(`abstractOverridesReturn`, first in `returnComponentOf` and in the producer's `call`):
+`getBuilder()` throws "Must be implemented in a subclass" and each spec returns a
+QueryBuilder. One leaf without the method, or without a component return, gives nothing.
+`TestAnAbstractBaseCallsWhatEverySubclassDeclares`.
+
 **A variable the parse left untyped is read from its last assignment at lookup**
 (`assignedFromCall`, `assigned_call.go`): `x = receiver.method( … )` or
 `prc.x = …` on one line, the receiver typed as any is, the method's return per
@@ -1446,6 +1458,43 @@ it, from the argument's tokens (a multi-line call reads), and one that cannot be
 placed or typed leaves it untyped. It is the **last** step of `canResolveCall`:
 inside `receiverComponent` it ran before the dynamic rules and turned accepted
 calls into findings. `TestAnUntypedArgumentHoldsWhatEveryCallerPasses`.
+
+**A computed `invoke` selector is a call to every method its literal parts allow**
+(`invokeSelects`): `invoke( getGrammar(), "compile#command.getType()#", { blueprint: this } )`
+calls compileCreate, compileDrop and the rest, and was read as calling none of them. The
+caller index records the literal start of such a string (`computedCallerKey`), and a
+selector with no literal start is still not read. **An untyped invoke target** still
+withholds inference, unless every workspace declaration of the method lies in one class
+tree, under the topmost component fd's file extends that declares it
+(`declaredInFamilyOnly`): then whatever the target is, a call to that name lands in that
+tree with that bag. qb's grammar is built by WireBox from a setting. Sibling overrides
+(two grammars) are in the tree; an unrelated component declaring the name is not.
+`TestAComputedInvokeSelectorPassesItsArguments`,
+`TestAnInvokeOnAnUntypedTargetReachesTheOnlyFamilyDeclaringTheMethod`.
+
+**A bare argument type names the one component of that name** (`namedType`,
+`uniqueComponentNamed`): beside the declaring file first, else the only `.cfc` in the
+workspace with that file name (none or several: untyped), since the engine checks a
+component argument by name. qb's grammars declare `required QueryBuilder query` for a
+file in another directory. A generated getter stored from an init argument reads a bare
+type the same way (`initArgDeclared`). A bare **return** type is still read beside the
+declaring file only (`TestABareReturnTypeNamesTheComponentBesideIt`).
+`TestABareArgumentTypeNamesTheOnlyComponentOfThatName`,
+`TestAGeneratedGetterIsWhatInitStoresFromATypedArgument`.
+
+**A callback parameter is what every path through its provider invokes it with**
+(`callbackParameterComponent`, `callback_walk.go`): `testCase( function( builder ) { … } )`
+types `builder` from the argument testCase passes `callback( builder )`. The provider's
+plan is walked path by path, an invocation inside an if, try or loop counting with the
+value on that path, and the names holding the callback are tracked per path: reassigning
+one drops it there, and a guard proving a name holds no function (`isNull( x )` true,
+`isClosure( x )` and `isCustomFunction( x )` both false) drops it on that branch
+(`narrowCallbackAliases`), which is what QueryBuilder's union() and with() rely on. A
+callback handed whole to a method of a known component (`union( arguments.input, true )`,
+`with( argumentCollection = arguments )`) is followed there, up to
+`maxCallbackForwards`. Every invocation must agree; storing it, passing it to code that
+cannot be followed, invoking it inside a larger expression or condition gives nothing.
+`TestACallbackParameterIsWhatEveryPathInvokesItWith`.
 
 Chained-call continuation records capture each hop's byte origin before consuming
 its arguments; emission still follows nested argument calls. The hop's line is
@@ -2052,7 +2101,11 @@ line is read); a method declared to return its own class, called on a subclass, 
 subclass (`selfTyped`, which only widens what is accepted). A call on an interface that lacks
 the method is dynamic, since an implementation has more. DI/1 (`path/beans.go`,
 `ParseAppBeanPaths`): default folders `model,controllers`, aliases name+singular(folder).
-MockBox: `createMock( "cls" )` is `parser.MockPrefix`+cls, checked against cls. The parser
+MockBox: `createMock( "cls" )` is `parser.MockPrefix`+cls, checked against cls, made directly
+or on whatever holds the MockBox (`getMockBox().createMock( "cls" ).init( … )`): the parser
+(`chainedMock`), the producer interpreter (`producerEvaluation.mock`) and the hop walk
+(`mockHop`) all read the class through `parser.MockCall`, and hops after it are walked on
+the class. The chained form used to lose its argument and become `$any`. The parser
 side: a `@return` doc is kept (`FunctionDef.DocReturn`, used only where it names a file);
 generated setters return their component and getters what the property holds;
 **`return x.m()` is not `return x`** (`returnsCallOn`: it is `$any` when x is, nothing

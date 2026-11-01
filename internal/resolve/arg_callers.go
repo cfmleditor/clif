@@ -112,8 +112,31 @@ func callerNames(content string) map[string]bool {
 		}
 	}
 
+	// So is the literal start of a quoted name computed after it,
+	// as computedCallerKey: qb's Blueprint runs
+	// invoke( getGrammar(), "compile#command.getType()#", … ), which names no
+	// compileCreate for either scan above to see.
+	for i := range len(content) {
+		if content[i] != '#' {
+			continue
+		}
+
+		start := i
+		for start > 0 && callerWord(content[start-1]) {
+			start--
+		}
+
+		if start < i && start > 0 && (content[start-1] == '"' || content[start-1] == '\'') {
+			addCallerName(seen, computedCallerKey(content[start:i]))
+		}
+	}
+
 	return seen
 }
+
+// computedCallerKey is the caller-index key for prefix starting a quoted
+// string that goes on with an interpolation.
+func computedCallerKey(prefix string) string { return "#" + prefix }
 
 // quotedCallerKey is the caller-index key for name ending a quoted string.
 func quotedCallerKey(name string) string { return "\"" + name }
@@ -384,6 +407,11 @@ func (r *Resolver) inferArgument(fd *parser.FunctionDef, pos int, file string, c
 
 	files := r.callerFiles(fd.Name)
 	files = append(files, r.callerFiles(quotedCallerKey(fd.Name))...)
+
+	for n := 1; n <= len(fd.Name); n++ {
+		files = append(files, r.callerFiles(computedCallerKey(fd.Name[:n]))...)
+	}
+
 	slices.Sort(files)
 
 	files = slices.Compact(files)

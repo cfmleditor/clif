@@ -15,6 +15,11 @@ type producerNode struct {
 	kind               string
 	target, expression string
 	body, alternative  []producerNode
+
+	// header is a loop's header (its parenthesised clause, or its tag's
+	// attributes), which nothing evaluates. It is kept so a reader looking
+	// for a name in the plan sees one written there (callbackWalk).
+	header string
 }
 
 type producerMethod struct {
@@ -460,7 +465,7 @@ func (p *producerScript) statement() producerNode {
 			return producerNode{kind: "unsafe"}
 		}
 
-		return producerNode{kind: "loop", target: target, body: body}
+		return producerNode{kind: "loop", target: target, body: body, header: producerText(header)}
 	case "try":
 		if p.position >= len(p.tokens) {
 			p.failed = true
@@ -1319,7 +1324,7 @@ func (p *producerTagParser) block() []producerNode {
 				target, _ = producerAttr(tag.body, "item")
 			}
 
-			nodes = append(nodes, producerNode{kind: "loop", target: strings.ToLower(target), body: body})
+			nodes = append(nodes, producerNode{kind: "loop", target: strings.ToLower(target), body: body, header: tag.body})
 		case "cftry":
 			body := p.block()
 

@@ -129,6 +129,7 @@ type pathCaches struct {
 	ownedKeys           map[string]string                   // file and function → what its owned-key factory returns (ownedKeyReturn)
 	keyPrefixes         map[string]string                   // literal key prefix → what every factory spelling it stores, "" when they differ (prefixComponent)
 	handlerCache        map[string]*parser.ParseResult      // handler path → its parse (handlerParse)
+	uniqueNames         *uniqueNameCache                    // bare component name → its only file (uniqueComponentNamed)
 	fw1ActionCache      map[string][]fw1Action              // controllers dir + section.item → its actions (fw1Actions)
 	fw1IncluderCache    map[string]map[string][]string      // application dir → view → the views rendering it (fw1Includers)
 	boundEntityCache    map[string]string                   // service path → the entity it binds (boundEntity)
@@ -1648,6 +1649,36 @@ func (r *Resolver) hopCallReturn(fd *parser.FunctionDef, expression, baseDir, co
 	return r.expressionReturn(fd, expression, baseDir, comp)
 }
 
+// mockHop is what a chain holds at a hop as far as MockBox is concerned. A hop
+// that makes a mock makes one of the class it names, whatever it is called on
+// (getMockBox().createMock( "X" ).init()), and made reports it: the hop is
+// done. A decoration that reports on a mock ($callLog()) leaves the rest of the
+// chain dynamic. A mock reaching a hop is its class, or dynamic where that
+// names none.
+func (r *Resolver) mockHop(comp, hop, expression string, callHop bool, baseDir string, tr *callTrace) (string, bool) {
+	if mock := parser.MockCall(expression); callHop && mock != "" {
+		tr.addf("chain hop %q makes a MockBox mock: %q", hop, mock)
+
+		return mock, true
+	}
+
+	if parser.IsMockReport(hop) {
+		tr.addf("chain hop %q reports on a MockBox mock and does not return it", hop)
+
+		return "$any", false
+	}
+
+	if cls, ok := strings.CutPrefix(comp, parser.MockPrefix); ok {
+		if r.ComponentPath(cls, baseDir) == "" {
+			return "$any", false
+		}
+
+		return cls, false
+	}
+
+	return comp, false
+}
+
 // walkHops follows call.Chain from comp through each hop's return type. It
 // reports the component the chain reaches, or done with the answer when a hop
 // settles the call itself.
@@ -1662,12 +1693,9 @@ func (r *Resolver) walkHops(comp, softComp string, call *parser.CallSite, pr *pa
 			hop = parser.CallHopName(hop)
 		}
 
-		// A mock of a class is the class, or dynamic where it names none.
-		if cls, ok := strings.CutPrefix(comp, parser.MockPrefix); ok {
-			comp = cls
-			if r.ComponentPath(cls, baseDir) == "" {
-				comp = "$any"
-			}
+		var made bool
+		if comp, made = r.mockHop(comp, hop, expression, callHop, baseDir, tr); made {
+			continue
 		}
 
 		// A hop that returned "$any" makes the rest of the chain dynamic.
@@ -2160,6 +2188,12 @@ func (r *Resolver) resolveBareCall(call *parser.CallSite, pr *parser.ParseResult
 		return ""
 	}
 
+	if comps := r.subclassesDeclare(pr, funcName, tr); comps != "" {
+		tr.hit(TargetDynamic, comps, nil)
+
+		return ""
+	}
+
 	if r.fileExtends(pr) != "" {
 		if base, implied := r.fileMissingBase(pr, baseDir); base != "" {
 			if implied {
@@ -2360,6 +2394,12 @@ func (r *Resolver) resolveThisCall(funcName string, pr *parser.ParseResult, base
 	if def, via := r.findThroughIncludes(pr, funcName); def != nil {
 		tr.hit(TargetInclude, "", def)
 		tr.addf("found %q through cfinclude, in %s", funcName, via)
+
+		return ""
+	}
+
+	if comps := r.subclassesDeclare(pr, funcName, tr); comps != "" {
+		tr.hit(TargetDynamic, comps, nil)
 
 		return ""
 	}
@@ -2786,6 +2826,10 @@ func (r *Resolver) returnComponentOf(fd *parser.FunctionDef, depth int, budget *
 		return ""
 	}
 
+	if ret := r.abstractOverridesReturn(fd, depth, budget); ret != "" {
+		return ret
+	}
+
 	if native := r.declaredCollectionReturn(fd); native != "" {
 		return native
 	}
@@ -3136,6 +3180,78 @@ func (r *Resolver) bareReturnComponent(fd *parser.FunctionDef) string {
 	return r.besideDeclaring(fd, t)
 }
 
+// namedType is the component a bare argument type t, declared by fd's file,
+// stands for: the file beside it, or else the one component of that name in
+// the workspace. The engine checks a component argument by the component's name,
+// so qb's grammars declare `required QueryBuilder query` for a
+// QueryBuilder.cfc in another directory. A bare return type is still read
+// beside the declaring file only (TestABareReturnTypeNamesTheComponentBesideIt).
+func (r *Resolver) namedType(fd *parser.FunctionDef, t string) string {
+	if p := r.besideDeclaring(fd, t); p != "" {
+		return p
+	}
+
+	t = strings.TrimSpace(t)
+	if t == "" || strings.ContainsAny(t, "/\\[]<> $#:.") {
+		return ""
+	}
+
+	return r.uniqueComponentNamed(t)
+}
+
+// uniqueNameCache holds uniqueComponentNamed's answers for one index
+// generation.
+type uniqueNameCache struct {
+	names map[string]string
+	gen   uint64
+	mu    sync.Mutex
+}
+
+// uniqueComponentNamed is the one component in the workspace whose file is
+// named name, or "" when there is none or more than one: a name two files
+// answer to is not settled by which is nearer.
+func (r *Resolver) uniqueComponentNamed(name string) string {
+	if r.Index == nil {
+		return ""
+	}
+
+	r.mu.Lock()
+	if r.uniqueNames == nil {
+		r.uniqueNames = &uniqueNameCache{}
+	}
+
+	c := r.uniqueNames
+	r.mu.Unlock()
+
+	gen := r.Index.Generation()
+	key := strings.ToLower(name)
+
+	c.mu.Lock()
+	if c.gen != gen || c.names == nil {
+		c.names, c.gen = map[string]string{}, gen
+	}
+
+	answer, ok := c.names[key]
+	c.mu.Unlock()
+
+	if ok {
+		return answer
+	}
+
+	files := slices.DeleteFunc(r.Index.FindFilesByBasename(name), frameworkapi.IsStub)
+	if len(files) == 1 {
+		answer = files[0]
+	}
+
+	c.mu.Lock()
+	if c.gen == gen {
+		c.names[key] = answer
+	}
+	c.mu.Unlock()
+
+	return answer
+}
+
 // besideDeclaring is the file a bare component name t names beside the file
 // that declares fd, or "".
 func (r *Resolver) besideDeclaring(fd *parser.FunctionDef, t string) string {
@@ -3203,15 +3319,15 @@ func (r *Resolver) workspaceFolderOf(dir string) string {
 	return best
 }
 
-// bareArgumentComponent is the component a bare argument type names beside
-// the declaring file, as a bare return type is read (besideDeclaring). A CFML
-// type name, and a word naming no file there, is not one.
+// bareArgumentComponent is the component a bare argument type names, as a
+// bare return type is read (namedType). A CFML type name, and a word naming
+// no component, is not one.
 func (r *Resolver) bareArgumentComponent(t string, pr *parser.ParseResult) string {
 	if t == "" || cfmlTypes[strings.ToLower(t)] {
 		return ""
 	}
 
-	return r.besideDeclaring(&parser.FunctionDef{URI: pr.URI}, t)
+	return r.namedType(&parser.FunctionDef{URI: pr.URI}, t)
 }
 
 // checkMethodOn is canResolveCall's last step: whether the component the
@@ -3697,11 +3813,11 @@ func (r *Resolver) argumentHolderType(variable, name string, arg *parser.Argumen
 		return arg.Type, false
 	}
 
-	// A bare type is read as a bare return type is: a component beside the
-	// declaring file. `required Duration otherDuration` was left untyped, so
-	// every call on the argument was unresolved.
+	// A bare type is read as a bare return type is (namedType).
+	// `required Duration otherDuration` was left untyped, so every call on
+	// the argument was unresolved.
 	if path := r.bareArgumentComponent(arg.Type, pr); path != "" {
-		tr.addf("resolved %q to %q via its declared type %q, a component beside the declaring file", variable, path, arg.Type)
+		tr.addf("resolved %q to %q via its declared type %q", variable, path, arg.Type)
 
 		return path, false
 	}

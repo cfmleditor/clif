@@ -181,9 +181,10 @@ func dynamicCall(expr string) string {
 	return ""
 }
 
-// mockCall is what dynamicCall makes of expr when its last call makes a
-// MockBox mock, or "".
-func mockCall(expr string) string {
+// MockCall is what a call expression makes when it is a MockBox mock: the
+// mocked class behind MockPrefix, "$any" for a mock of no class it names, or
+// "" for any other call.
+func MockCall(expr string) string {
 	name, _ := finalCall(expr)
 
 	var buf foldScratch
@@ -269,6 +270,22 @@ var mockDecorations = map[string]bool{
 	"$calllog": true, "$count": true, "$times": true, "$never": true,
 	"$verifycallcount": true, "$atleast": true, "$once": true, "$atmost": true,
 	"$debug": true, "$reset": true,
+}
+
+// mockReports are the decorations that report on a mock rather than return
+// it: $callLog() is a struct of calls by method name, $count() a number.
+var mockReports = map[string]bool{
+	"$getproperty": true, "$calllog": true, "$count": true, "$times": true, "$never": true,
+	"$verifycallcount": true, "$atleast": true, "$once": true, "$atmost": true, "$debug": true,
+}
+
+// IsMockReport reports whether name is a decoration that returns something
+// other than the mock, so a chain going on from it is on a value no
+// component describes: `mock.$callLog().deleteVar.len()`.
+func IsMockReport(name string) bool {
+	var buf foldScratch
+
+	return mockReports[string(buf.lowerFold(name))]
 }
 
 // IsMockDecoration reports whether name is a method MockBox adds to a mock.
@@ -2678,7 +2695,7 @@ func (p *scriptParser) checkReturnComponent() {
 	// (dynamicCall). MockBox declares no return for createMock, so a chain
 	// ending in one, `return getMockBox().createMock( object=new X() )`,
 	// said nothing, where `var x = …` of the same call is dynamic.
-	if mock := mockCall(expr); mock != "" && len(p.funcs) > 0 {
+	if mock := MockCall(expr); mock != "" && len(p.funcs) > 0 {
 		f := p.currentFunc()
 		f.ReturnComponent = unionReturn(f.ReturnComponent, mock)
 	}

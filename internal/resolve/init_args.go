@@ -266,11 +266,27 @@ func (r *Resolver) initArgType(pr *parser.ParseResult, param string, ctx lookupC
 		return ""
 	}
 
-	if arg := argumentOf(pr, "init", param); arg != nil && strings.Contains(arg.Type, ".") {
-		return arg.Type
+	if t := r.initArgDeclared(pr, param); t != "" {
+		return t
 	}
 
 	return r.argumentFromCallers("arguments."+param, "init", pr, ctx)
+}
+
+// initArgDeclared is the component init's argument param declares: a dotted
+// type, or a bare name read as namedType reads one. Blueprint's init takes
+// `required SchemaBuilder schemaBuilder`.
+func (r *Resolver) initArgDeclared(pr *parser.ParseResult, param string) string {
+	arg := argumentOf(pr, "init", param)
+	if param == "" || arg == nil {
+		return ""
+	}
+
+	if strings.Contains(arg.Type, ".") {
+		return arg.Type
+	}
+
+	return r.bareArgumentComponent(arg.Type, pr)
 }
 
 // hasWrittenFunc reports whether pr's source declares a function called name,
