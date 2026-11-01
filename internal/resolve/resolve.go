@@ -2835,7 +2835,11 @@ func (r *Resolver) returnComponentOf(fd *parser.FunctionDef, depth int, budget *
 		return ret
 	}
 
-	return r.docReturnComponent(fd)
+	if ret := r.docReturnComponent(fd); ret != "" {
+		return ret
+	}
+
+	return r.aboveDeclaring(fd, fd.ReturnType)
 }
 
 // docReturnComponent is the component fd's doc comment says it returns, when
@@ -3078,6 +3082,57 @@ func (r *Resolver) besideDeclaring(fd *parser.FunctionDef, t string) string {
 	}
 
 	return cfpath.ResolvePathCached(t, filepath.Dir(file), nil, r.dirs())
+}
+
+// aboveDeclaring is the file a bare component name t names in the nearest
+// directory above the file that declares fd, within the workspace folder
+// holding it, or "". CFML looks a bare name up in the component's own
+// directory (besideDeclaring) and then from the application's root, and a
+// library's helpers name its main component that way: spreadsheet-cfml's
+// helpers/base.cfc declares `Spreadsheet function library()` with
+// Spreadsheet.cfc one level up, and the 188 calls chained on library() were
+// "no component return type". It is the last answer returnComponentOf tries.
+func (r *Resolver) aboveDeclaring(fd *parser.FunctionDef, t string) string {
+	t = strings.TrimSpace(t)
+	if t == "" || r.FS == nil || cfmlTypes[strings.ToLower(t)] || strings.ContainsAny(t, "/\\[]<> $#:.") || filepath.IsAbs(t) {
+		return ""
+	}
+
+	file := cfpath.FromURI(string(fd.URI))
+	if file == "" {
+		return ""
+	}
+
+	dir := filepath.Dir(file)
+
+	folder := r.workspaceFolderOf(dir)
+	if folder == "" || dir == folder {
+		return ""
+	}
+
+	for d := filepath.Dir(dir); ; d = filepath.Dir(d) {
+		if p := cfpath.ResolvePathCached(t, d, nil, r.dirs()); p != "" {
+			return p
+		}
+
+		if d == folder || filepath.Dir(d) == d {
+			return ""
+		}
+	}
+}
+
+// workspaceFolderOf is the longest workspace folder dir lies in, or "".
+func (r *Resolver) workspaceFolderOf(dir string) string {
+	best := ""
+
+	for _, folder := range r.WorkspaceFolders {
+		folder = filepath.Clean(folder)
+		if (dir == folder || strings.HasPrefix(dir, folder+string(filepath.Separator))) && len(folder) > len(best) {
+			best = folder
+		}
+	}
+
+	return best
 }
 
 // bareArgumentComponent is the component a bare argument type names beside
