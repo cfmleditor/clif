@@ -45,6 +45,9 @@ func AssumedProjectMappings(dir string, read func(string) ([]byte, error)) map[s
 			// CommandBox's own checkout: its tests map /commandbox to src/cfml,
 			// where commandbox.system.* lives.
 			{"commandbox", "tests/Application.cfc", "src/cfml", []string{"src/cfml/system/BaseCommand.cfc", "src/cfml/system/Shell.cfc"}},
+			// The WireBox, LogBox and CacheBox it ships under system/wirebox,
+			// which its own source names wirebox.system.*.
+			{"wirebox", "tests/Application.cfc", "src/cfml/system/wirebox", []string{"src/cfml/system/BaseCommand.cfc", "src/cfml/system/wirebox/system/ioc/Injector.cfc"}},
 		} {
 			if seen[profile.namespace] {
 				continue
