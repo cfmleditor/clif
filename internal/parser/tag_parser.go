@@ -1429,28 +1429,15 @@ func (p *tagParser) parseCFReturn(tag string, line, idx int) {
 
 	returned := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(inner), "/"))
 
-	// Check for direct new/createObject. A whole construction is read as a
-	// branch of a conditional is (constructionIn: Lucee's java: and cfml:
-	// prefixes, a non-component createObject through the resolvers); the
-	// prefix readers still answer a construction a chain or an operator
-	// follows, as they always have.
+	// Check for direct new/createObject, read as a branch of a conditional
+	// is (constructionHead: Lucee's java: and cfml: prefixes, a
+	// non-component createObject through the resolvers). A component the
+	// source names is the return whatever follows, as it always has been
+	// (`new X().init()`); a Java object's chained calls return other things.
 	switch {
-	case hasPrefixFold(inner, "new "):
-		comp := constructionIn(returned, p.resolveCall, nil)
-		if comp == "" {
-			comp = extractComponentPath(inner[4:])
-		}
-
-		if comp != "" {
-			f.ReturnComponent = unionReturn(f.ReturnComponent, comp)
-		}
-	case hasPrefixFold(inner, "createobject("):
-		comp := constructionIn(returned, p.resolveCall, nil)
-		if comp == "" {
-			comp = extractCreateObjectArg(inner[13:])
-		}
-
-		if comp != "" {
+	case hasPrefixFold(inner, "new "), hasPrefixFold(inner, "createobject("):
+		comp, sc, named := constructionHead(returned, p.resolveCall, nil)
+		if comp != "" && (named || sc.NextSkipComments().Kind == TokEOF) {
 			f.ReturnComponent = unionReturn(f.ReturnComponent, comp)
 		}
 	case strings.EqualFold(returned, "this"):

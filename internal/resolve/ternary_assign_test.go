@@ -1,6 +1,7 @@
 package resolve
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/cfmleditor/clif/internal/parser"
@@ -162,6 +163,12 @@ func TestACommentIsNotAConditional(t *testing.T) {
 		}
 	}
 
+	// In a <cfset> line `//` starts no comment: the markup after the tag is
+	// not cut at a URL's `//` into something ending in `:`.
+	if _, got := joinAssignmentLine(`svc.get()> <!-- see http://wiki -->`, "x = 1", true); got {
+		t.Error("a tag line was joined after a URL in the markup after it")
+	}
+
 	// A chain or an open call joins its next line after the comment, not
 	// into it.
 	for rhs, want := range map[string]string{
@@ -183,12 +190,12 @@ func TestWithoutLineCommentStepsOverStrings(t *testing.T) {
 		`"http://x" // c`:      `"http://x" `,
 		`"say ""//"" ok" // c`: `"say ""//"" ok" `,
 		`"#fmt("a//b")#" // c`: `"#fmt("a//b")#" `,
-		`a /* it's */ // c`:    `a /* it's */ `,
+		`a /* it's */ // c`:    `a`,
 		`"## //" // c`:         `"## //" `,
 		`'#f( "x" )#' // c`:    `'#f( "x" )#' `,
 		`"# Report" // ready?`: `"# Report" `,
 	} {
-		if got := withoutLineComment(s); got != want {
+		if got := withoutTrailingComment(s, false); got != strings.TrimSpace(want) {
 			t.Errorf("%s: %q, want %q", s, got, want)
 		}
 	}

@@ -660,7 +660,7 @@ func localAssignmentAt(content, name string, start, header int) (string, int, bo
 			rhs = joined
 		}
 
-		rhs = trimAssignmentRHS(withoutLineComment(rhs))
+		rhs = withoutTrailingComment(rhs, tag)
 		if strings.Count(rhs, "(") != strings.Count(rhs, ")") {
 			return "", 0, false
 		}

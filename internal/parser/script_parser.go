@@ -3421,7 +3421,13 @@ func (p *scriptParser) skipNestedFunction(tok Token, _ int) {
 
 	p.skipFunctionAttrs()
 
+	// The calls written in its body are its own: a receiver among its
+	// arguments is typed from its signature, which is read by caller.
+	prevBodyFunc := p.bodyFunc
+	p.bodyFunc = len(p.funcs)
 	endLine := p.scanNestedFunctionBody(argNames(args))
+	p.bodyFunc = prevBodyFunc
+
 	p.scopes = append(p.scopes, FuncScope{Name: nameTok.Value, Start: funcLine, End: p.baseLine + endLine})
 }
 

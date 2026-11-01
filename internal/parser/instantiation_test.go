@@ -112,7 +112,7 @@ func TestEveryReturnArmTypesItsOwnFunction(t *testing.T) {
 	src := `component {
 function viaVar() { function h1() {} var x = new models.A(); return x; }
 function viaNew() { function h2() {} return new models.A(); }
-function viaCall() { function h3() {} svc.save(); return createObject( "component", "models.A" ); }
+function viaCall() { function h3( models.Svc a ) { a.go(); } svc.save(); return createObject( "component", "models.A" ); }
 }`
 	pr := ParseWithOptions("file:///x/F.cfc", src, &ParseOptions{ExtractCalls: true})
 
@@ -123,6 +123,12 @@ function viaCall() { function h3() {} svc.save(); return createObject( "componen
 	for _, c := range pr.AllCalls() {
 		if c.FuncName == "save" && c.Caller != "viaCall" {
 			t.Errorf("save() has caller %q, want viaCall", c.Caller)
+		}
+
+		// A call in the nested function's own body is its own, so its
+		// arguments type the receiver.
+		if c.FuncName == "go" && c.Caller != "h3" {
+			t.Errorf("go() has caller %q, want h3", c.Caller)
 		}
 	}
 }
@@ -152,9 +158,11 @@ function s( flag ) { return ( flag ? new models.A() : new models.B() ); }
 	tag := `<cfcomponent>
 <cffunction name="t"><cfargument name="flag"><cfreturn ( arguments.flag ? new models.A() : new models.B() )></cffunction>
 <cffunction name="p"><cfreturn new cfml:models.A()></cffunction>
+<cffunction name="c"><cfreturn new cfml:models.A().init()></cffunction>
+<cffunction name="d"><cfreturn createObject( "component", variables.path )></cffunction>
 </cfcomponent>`
 	checkReturns(t, ParseWithOptions("file:///x/T.cfc", tag, &ParseOptions{ExtractCalls: true}),
-		map[string]string{"t": "models.A|models.B", "p": "models.A"})
+		map[string]string{"t": "models.A|models.B", "p": "models.A", "c": "models.A", "d": "$any"})
 }
 
 // TestConstructionInReadsWhatNewNames: the branch reader agrees with

@@ -139,60 +139,70 @@ func closingToken(tokens []Token, i int) int {
 // constructionIn is the component text builds when it is exactly one
 // construction with literal arguments naming it, or "".
 func constructionIn(text string, resolve, applyImport func(string) string) string {
-	sc := NewScanner(strings.TrimSpace(text))
+	comp, sc, _ := constructionHead(text, resolve, applyImport)
+	if comp == "" || strings.HasPrefix(comp, "$") || sc.NextSkipComments().Kind != TokEOF {
+		return ""
+	}
+
+	return comp
+}
+
+// constructionHead is the component the construction text starts with
+// builds, and the scanner past it: `new X( … )`, or createObject, whose
+// computed path is "$any" as readCreateObjectPath reads it. "" when text does
+// not start with one. What follows (a chain, an operator) is the caller's.
+// named is false when the component came from the resolvers (a Java class),
+// whose chained calls return other things.
+func constructionHead(text string, resolve, applyImport func(string) string) (comp string, sc *Scanner, named bool) {
+	sc = NewScanner(strings.TrimSpace(text))
 
 	if applyImport == nil {
 		applyImport = func(s string) string { return s }
 	}
 
-	var comp string
-
 	switch head := sc.NextSkipComments(); {
 	case identEq(head.Value, "new"):
+		peek := sc.PeekSkipComments()
+
 		comp = newPathIn(sc, resolve, applyImport)
-		if sc.NextSkipComments().Kind != TokLParen {
-			return ""
+		if comp == "" || sc.NextSkipComments().Kind != TokLParen || skipToClose(sc, TokLParen, TokRParen).Kind != TokRParen {
+			return "", sc, false
 		}
 
-		for depth := 1; depth > 0; {
-			switch sc.NextSkipComments().Kind {
-			case TokLParen:
-				depth++
-			case TokRParen:
-				depth--
-			case TokEOF:
-				return ""
-			default:
-			}
-		}
+		return comp, sc, !identEq(peek.Value, "java")
 	case identEq(head.Value, "createObject"):
-		var args [2]string
-
-		for i, want := range [...]TokenKind{TokLParen, TokString, TokComma, TokString, TokRParen} {
-			t := sc.NextSkipComments()
-			if t.Kind != want {
-				return ""
-			}
-
-			if want == TokString {
-				args[i/2] = unquote(t.Value)
-			}
+		if sc.NextSkipComments().Kind != TokLParen {
+			return "", sc, false
 		}
 
-		if identEq(args[0], "component") {
-			comp = args[1]
-		} else {
-			comp = resolve("createObject(\"" + args[0] + "\",\"" + args[1] + "\")")
+		kind, comma := sc.NextSkipComments(), sc.NextSkipComments()
+		if kind.Kind != TokString || comma.Kind != TokComma {
+			return "", sc, false
 		}
+
+		component := identEq(unquote(kind.Value), "component")
+
+		path := sc.NextSkipComments()
+		if path.Kind != TokString || sc.PeekSkipComments().Kind != TokRParen {
+			// A path computed at run time names whichever component the
+			// program picks.
+			if component && path.Kind != TokEOF && path.Kind != TokRParen {
+				return "$any", sc, true
+			}
+
+			return "", sc, false
+		}
+
+		sc.NextSkipComments()
+
+		if component {
+			return unquote(path.Value), sc, true
+		}
+
+		return resolve("createObject(\"" + unquote(kind.Value) + "\",\"" + unquote(path.Value) + "\")"), sc, false
 	default:
-		return ""
+		return "", sc, false
 	}
-
-	if sc.NextSkipComments().Kind != TokEOF || comp == "" || strings.HasPrefix(comp, "$") {
-		return ""
-	}
-
-	return comp
 }
 
 // newPathIn reads the path after `new`, as readNewComponentPath does, without
