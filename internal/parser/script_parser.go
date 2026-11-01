@@ -35,6 +35,7 @@ type scriptParser struct {
 	fileURI             string
 	baseLine            int
 	baseOffset          int // -1 for synthetic expressions without a source origin
+	bodyFunc            int // 1 + the index in funcs of the function whose body is parsed; 0 for none
 	resolvers           []Resolver
 	resolverSet         *ResolverSet
 	imports             map[string]string // last segment (lowercased) → full dot-path, from `import`
@@ -409,7 +410,7 @@ func (p *scriptParser) asCFScript() *scriptParser {
 func (p *scriptParser) recordBareCallAndChain(tok Token) (alone string) {
 	caller := ""
 	if p.inFunc != "" && len(p.funcs) > 0 {
-		caller = p.funcs[len(p.funcs)-1].Name
+		caller = p.currentFunc().Name
 	}
 
 	p.addCall(&CallSite{
@@ -590,7 +591,7 @@ func (c *CallSite) onScope(word string) {
 func (p *scriptParser) recordCallFromChain(fullChain string, line int) {
 	caller := ""
 	if p.inFunc != "" && len(p.funcs) > 0 {
-		caller = p.funcs[len(p.funcs)-1].Name
+		caller = p.currentFunc().Name
 	}
 
 	recv, method, ok := strings.CutLast(fullChain, ".")
@@ -723,7 +724,7 @@ func (p *scriptParser) recordChainContinuation(baseVar, funcName, baseComp strin
 func (p *scriptParser) recordChainContinuationFrom(baseVar string, prior []string, funcName, baseComp string, _ int) (consumed []string) {
 	caller := ""
 	if p.inFunc != "" && len(p.funcs) > 0 {
-		caller = p.funcs[len(p.funcs)-1].Name
+		caller = p.currentFunc().Name
 	}
 
 	chainHops := slices.Clone(prior)
@@ -975,7 +976,7 @@ func (p *scriptParser) checkVarRHS(varName string, line int) {
 func (p *scriptParser) recordScopedMemberCall(scopeTok, nameTok Token) {
 	caller := ""
 	if p.inFunc != "" && len(p.funcs) > 0 {
-		caller = p.funcs[len(p.funcs)-1].Name
+		caller = p.currentFunc().Name
 	}
 
 	call := CallSite{
@@ -1825,7 +1826,7 @@ func (p *scriptParser) recordStaticCall(component string, startTok Token) {
 
 	caller := ""
 	if p.inFunc != "" && len(p.funcs) > 0 {
-		caller = p.funcs[len(p.funcs)-1].Name
+		caller = p.currentFunc().Name
 	}
 
 	call := CallSite{
@@ -2097,7 +2098,7 @@ func isLiteralReceiver(k TokenKind) bool {
 func (p *scriptParser) recordLiteralMemberCall(recv Token) {
 	caller := ""
 	if p.inFunc != "" && len(p.funcs) > 0 {
-		caller = p.funcs[len(p.funcs)-1].Name
+		caller = p.currentFunc().Name
 	}
 
 	for p.sc.PeekSkipComments().Kind == TokDot {
@@ -2268,6 +2269,8 @@ func (p *scriptParser) parseBody(funcLine int, args []Argument) int {
 	prevInFunc := p.inFunc
 	prevLocalVarSet := p.localVarSet
 	prevReturnVar, prevReturnLine := p.returnVar, p.returnLine
+	prevBodyFunc := p.bodyFunc
+	p.bodyFunc = len(p.funcs)
 
 	// Use a placeholder funcKey; we'll remap after finding the real end
 	tempKey := funcKey(funcLine, funcLine)
@@ -2301,6 +2304,7 @@ func (p *scriptParser) parseBody(funcLine int, args []Argument) int {
 			p.inFunc = prevInFunc
 			p.localVarSet = prevLocalVarSet
 			p.returnVar, p.returnLine = prevReturnVar, prevReturnLine
+			p.bodyFunc = prevBodyFunc
 
 			if p.flow != nil {
 				p.flow.dropBraceless()
@@ -2358,13 +2362,14 @@ func (p *scriptParser) parseBody(funcLine int, args []Argument) int {
 
 	// Resolve ReturnComponent on the current function
 	if len(p.funcs) > 0 {
-		p.settleReturnComponent(&p.funcs[len(p.funcs)-1])
+		p.settleReturnComponent(p.currentFunc())
 	}
 
 	// Exit function scope
 	p.inFunc = prevInFunc
 	p.localVarSet = prevLocalVarSet
 	p.returnVar, p.returnLine = prevReturnVar, prevReturnLine
+	p.bodyFunc = prevBodyFunc
 
 	return endLine
 }
@@ -2637,10 +2642,18 @@ func (p *scriptParser) handleBodyToken(tok Token, depth int, afterLT bool) {
 
 // checkReturnComponent checks if a return statement returns a component expression or variable.
 func (p *scriptParser) checkReturnComponent() {
+	expr := scriptReturnExpression(p.sc)
 	if p.inFunc != "" {
 		p.pendingCalls = append(p.pendingCalls, pendingCall{
-			varName: scriptReturnExpression(p.sc), funcKey: p.inFunc, returnExpr: true,
+			varName: expr, funcKey: p.inFunc, returnExpr: true,
 		})
+	}
+
+	// `return flag ? new A() : new B()` returns one or the other, not flag,
+	// and so does `return ( flag ? … )`, which starts with no name.
+	if comp := conditionalConstructions(expr, p.resolveCall, p.applyImport); comp != "" && len(p.funcs) > 0 {
+		f := p.currentFunc()
+		f.ReturnComponent = unionReturn(f.ReturnComponent, comp)
 	}
 
 	peek := p.sc.PeekSkipComments()
@@ -2705,7 +2718,7 @@ func (p *scriptParser) checkReturnComponent() {
 		// what a componentResolver says getInstance( "X" ) is.
 		if call != "" && p.atStatementEnd() {
 			if comp := p.resolveCall(call); comp != "" && len(p.funcs) > 0 {
-				f := &p.funcs[len(p.funcs)-1]
+				f := p.currentFunc()
 				f.ReturnComponent = unionReturn(f.ReturnComponent, comp)
 			}
 		}
@@ -2721,9 +2734,21 @@ func (p *scriptParser) checkReturnComponent() {
 	}
 
 	if comp != "" && len(p.funcs) > 0 {
-		f := &p.funcs[len(p.funcs)-1]
+		f := p.currentFunc()
 		f.ReturnComponent = unionReturn(f.ReturnComponent, comp)
 	}
+}
+
+// currentFunc is the function whose body is being parsed. It is not always
+// the last one declared: a named function nested in the body is filed after
+// it. Without a body entered (a script island in a tag function) it is the
+// last. Callers check p.funcs is not empty.
+func (p *scriptParser) currentFunc() *FunctionDef {
+	if p.bodyFunc > 0 && p.bodyFunc <= len(p.funcs) {
+		return &p.funcs[p.bodyFunc-1]
+	}
+
+	return &p.funcs[len(p.funcs)-1]
 }
 
 // atStatementEnd reports whether the next token ends a statement.
@@ -2842,13 +2867,21 @@ func (p *scriptParser) readNewComponent() string {
 // addInstantiation records that comp is built by the construction starting
 // at tok. Gated as a call is (addCall): only a parse that extracts calls
 // wants it. A look ahead that rewinds and walks the same text again records
-// the same token, which is kept once.
+// the same token, which is kept once. The token's offset is the file's where
+// the parse knows its origin: an interpolation's scanner, and every <cfset>
+// a tag file hands over, count from zero, and two constructions on one line
+// were the same entry.
 func (p *scriptParser) addInstantiation(comp string, tok Token) {
 	if !p.extractCalls || comp == "" || strings.HasPrefix(comp, "$") {
 		return
 	}
 
-	in := Instantiation{Component: comp, Line: conv.Uint32(p.baseLine + tok.Line), at: tok.Offset}
+	at := tok.Offset
+	if p.baseOffset >= 0 {
+		at += p.baseOffset
+	}
+
+	in := Instantiation{Component: comp, Line: conv.Uint32(p.baseLine + tok.Line), at: at}
 	if p.instantiations == nil {
 		p.instantiations = &[]Instantiation{}
 	}
@@ -3388,7 +3421,13 @@ func (p *scriptParser) skipNestedFunction(tok Token, _ int) {
 
 	p.skipFunctionAttrs()
 
+	// The calls written in its body are its own: a receiver among its
+	// arguments is typed from its signature, which is read by caller.
+	prevBodyFunc := p.bodyFunc
+	p.bodyFunc = len(p.funcs)
 	endLine := p.scanNestedFunctionBody(argNames(args))
+	p.bodyFunc = prevBodyFunc
+
 	p.scopes = append(p.scopes, FuncScope{Name: nameTok.Value, Start: funcLine, End: p.baseLine + endLine})
 }
 
@@ -4027,7 +4066,7 @@ chainWalk:
 
 	caller := ""
 	if p.inFunc != "" && len(p.funcs) > 0 {
-		caller = p.funcs[len(p.funcs)-1].Name
+		caller = p.currentFunc().Name
 	}
 
 	call := CallSite{
@@ -4112,7 +4151,7 @@ func (p *scriptParser) parseCreateObjectRef(varName string, line int) {
 func (p *scriptParser) scanChainedCalls(component string, line int) []string {
 	caller := ""
 	if p.inFunc != "" && len(p.funcs) > 0 {
-		caller = p.funcs[len(p.funcs)-1].Name
+		caller = p.currentFunc().Name
 	}
 
 	// hops is what the caller's ref walks; chain is the same hops as the
@@ -5327,7 +5366,7 @@ func rewindEntry[T any](m map[string][]T, key string, n int, had bool) {
 func (p *scriptParser) continueExtendedChain(recv, first string, ext []string, line int) []string {
 	caller := ""
 	if p.inFunc != "" && len(p.funcs) > 0 {
-		caller = p.funcs[len(p.funcs)-1].Name
+		caller = p.currentFunc().Name
 	}
 
 	if len(ext) == 0 {

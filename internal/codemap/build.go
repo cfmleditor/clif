@@ -181,6 +181,12 @@ var cfcLifecycle = map[string]bool{
 	"oncfcrequest": true, "ondeactivate": true,
 }
 
+// builderVersion is part of every cache fingerprint. Raise it with any change
+// to what a file's graph holds (the parse, the resolver, addRefs, addCalls):
+// a cached FileGraph is keyed on the source and its environment, so without
+// it a --db cache serves the edges the previous build drew.
+const builderVersion = 1
+
 // Build makes a whole-project map.
 //
 // Two passes, for the reason `unresolved` makes two: resolving a call needs every
@@ -356,6 +362,7 @@ func indexPass(opts *Options) string {
 	fp := sha256.New()
 
 	// hash.Hash.Write never returns an error, so neither can a Fprintf to one.
+	_, _ = fmt.Fprintf(fp, "builder\x00%d\n", builderVersion)
 	_, _ = fmt.Fprintf(fp, "config\x00%s\n", opts.ConfigExtra)
 
 	if opts.InferArgs {

@@ -112,6 +112,7 @@ func (r *Resolver) localAssignmentAt(pr *parser.ParseResult, name string, start,
 			rhs = joined
 		}
 
+		rhs = withoutTrailingComment(rhs, tag)
 		if strings.Count(rhs, "(") != strings.Count(rhs, ")") {
 			return "", 0, false
 		}
@@ -134,23 +135,47 @@ func (r *Resolver) localAssignmentIn(pr *parser.ParseResult, name string, start,
 // statement runs on to it: while a parenthesis is open, and while the line
 // carries the chain on. `x = $.getBean( "feed" )` over a line each for
 // `.loadBy( … )` and `.getIterator()` is the iterator, not the bean its first
-// line names. In a <cfset> the chain's last line holds the tag's end, which
+// line names. A conditional runs on while a line ends or starts with its
+// `?` or `:`. In a <cfset> the chain's last line holds the tag's end, which
 // is left off as the first line's is.
 func joinAssignmentLine(rhs, line string, tag bool) (string, bool) {
 	next := trimAssignmentRHS(line)
 
+	// A trailing comment is not code: its `?` is not a conditional's, and
+	// joined after it, the next line would be read as comment too.
+	code := withoutTrailingComment(rhs, tag)
+
 	switch {
-	case strings.Count(rhs, "(") > strings.Count(rhs, ")"):
-		return strings.TrimSpace(rhs + " " + next), true
+	case strings.Count(code, "(") > strings.Count(code, ")"):
+		return strings.TrimSpace(code + " " + next), true
+	case strings.HasSuffix(code, "?") || strings.HasSuffix(code, ":") && !strings.HasSuffix(code, "::") ||
+		strings.HasPrefix(next, "?") || strings.HasPrefix(next, ":") && !strings.HasPrefix(next, "::"):
+		// A conditional written a branch to a line.
+		if tag {
+			next = trimAssignmentRHS(strings.TrimSuffix(next, ">"))
+		}
+
+		return code + " " + next, true
 	case strings.HasPrefix(next, ".") && !strings.HasPrefix(next, ".."):
 		if tag {
 			next = trimAssignmentRHS(strings.TrimSuffix(next, ">"))
 		}
 
-		return rhs + next, true
+		return code + next, true
 	default:
 		return rhs, false
 	}
+}
+
+// withoutTrailingComment is rhs without the comment that ends its line. In a
+// <cfset> line `//` starts no comment, and the text after the tag (markup, a
+// URL) is not cut at it.
+func withoutTrailingComment(rhs string, tag bool) string {
+	if tag {
+		return rhs
+	}
+
+	return trimAssignmentRHS(parser.WithoutTrailingComment(rhs))
 }
 
 func trimAssignmentRHS(text string) string {

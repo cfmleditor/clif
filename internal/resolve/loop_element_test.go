@@ -159,6 +159,8 @@ func TestALiteralHQLQueryTypesTheEntitiesItReturns(t *testing.T) {
    for(var plain in ormExecuteQuery("FROM QueriedItem")){ plain.ready(); }
    for(var projected in ormExecuteQuery("SELECT i.name FROM QueriedItem i")){ projected.ready(); }
    for(var joined in ormExecuteQuery("FROM QueriedItem i JOIN i.parent p")){ joined.ready(); }
+   for(var lineJoined in ormExecuteQuery("FROM QueriedItem i
+	JOIN i.parent p")){ lineJoined.ready(); }
    for(var unique in ormExecuteQuery("FROM QueriedItem", {}, true)){ unique.ready(); }
    for(var computed in ormExecuteQuery("FROM QueriedItem WHERE id = #id#")){ computed.ready(); }
    for(var unregistered in ormExecuteQuery("FROM NotRegistered")){ unregistered.ready(); }
@@ -184,7 +186,8 @@ func TestALiteralHQLQueryTypesTheEntitiesItReturns(t *testing.T) {
 		"row.ready": "", "row.missing": "method 'missing' not found in Item",
 		"aliased.ready": "", "plain.ready": "",
 		"projected.ready": "variable 'projected' has no component ref", "joined.ready": "variable 'joined' has no component ref",
-		"unique.ready": "variable 'unique' has no component ref", "computed.ready": "variable 'computed' has no component ref",
+		"lineJoined.ready": "variable 'lineJoined' has no component ref",
+		"unique.ready":     "variable 'unique' has no component ref", "computed.ready": "variable 'computed' has no component ref",
 		"unregistered.ready": "variable 'unregistered' has no component ref", "notEntity.ready": "variable 'notEntity' has no component ref",
 	})
 }

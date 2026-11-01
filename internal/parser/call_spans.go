@@ -158,7 +158,7 @@ func expressionCallOriginDepth(call *CallSite, text string, offset, line int, co
 // holding thousands of calls does not count from the start for each.
 func expressionWrappedCallOrigin(call *CallSite, text string, offset, line int, wrapped, correctLine bool, lines *lineCounter) {
 	if wrapped && call.HasSpan {
-		prefix := len("function " + memberSetWrapper + "(){")
+		prefix := len(memberSetPrefix)
 		if int(call.StartByte) >= prefix && int(call.EndByte) <= prefix+len(text) {
 			call.StartByte = conv.Uint32(offset + int(call.StartByte) - prefix)
 			call.EndByte = conv.Uint32(offset + int(call.EndByte) - prefix)

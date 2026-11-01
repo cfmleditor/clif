@@ -156,7 +156,15 @@ func (r *Resolver) assignedFromCall(variable string, line uint32, caller string,
 		return ""
 	}
 
-	if comp := r.assignedShape(variable, rhs, line, evalLine, evalCaller, pr, baseDir, tr, ctx); comp != "" {
+	// A conditional's branches are read where the assignment is made, so a
+	// name one of them gives and the function reassigns after it is read
+	// before that.
+	shapeLine := evalLine
+	if at >= 0 {
+		shapeLine = conv.Uint32(at)
+	}
+
+	if comp := r.assignedShape(variable, rhs, line, shapeLine, evalCaller, pr, baseDir, tr, ctx); comp != "" {
 		return comp
 	}
 

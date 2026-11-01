@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 
@@ -84,5 +85,19 @@ func TestIdenticalFilesAtTwoPathsAreBothInACachedMap(t *testing.T) {
 		if want := []string{"appA/auth/callback.cfm", "appB/auth/callback.cfm"}; !slices.Equal(got, want) {
 			t.Fatalf("run %d: file nodes %v, want %v", run, got, want)
 		}
+	}
+}
+
+// TestTheFingerprintCarriesTheBuilderVersion: a cached graph is keyed on the
+// source, so a builder change that alters what a file's graph holds must move
+// the fingerprint or the old edges are served.
+func TestTheFingerprintCarriesTheBuilderVersion(t *testing.T) {
+	src, err := os.ReadFile("build.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !strings.Contains(string(src), `fmt.Fprintf(fp, "builder\x00%d\n", builderVersion)`) {
+		t.Error("the fingerprint does not include builderVersion")
 	}
 }

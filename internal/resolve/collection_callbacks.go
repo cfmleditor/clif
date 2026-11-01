@@ -66,12 +66,19 @@ func (r *Resolver) queriedEntityElement(arguments, baseDir string) string {
 		return ""
 	}
 
-	if strings.Contains(strings.ToLower(pieces[0][0].Value), " join ") || strings.Contains(strings.Split(strings.ToLower(pieces[0][0].Value), " where ")[0], ",") {
+	if hqlJoinRe.MatchString(pieces[0][0].Value) || strings.Contains(hqlWhereRe.Split(pieces[0][0].Value, 2)[0], ",") {
 		return ""
 	}
 
 	return r.withSubclasses(r.nearestEntity(match[2], baseDir))
 }
+
+// hqlJoinRe and hqlWhereRe find a query's keywords whatever whitespace, a
+// line break included, surrounds them.
+var (
+	hqlJoinRe  = regexp.MustCompile(`(?i)\bjoin\b`)
+	hqlWhereRe = regexp.MustCompile(`(?i)\bwhere\b`)
+)
 
 // Collection callbacks have different invocation layouts: array item/index/array,
 // struct key/value/struct, and query row/index/query. Never infer a value type

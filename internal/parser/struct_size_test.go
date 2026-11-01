@@ -25,8 +25,10 @@ func TestParserStructsKeepTheirSize(t *testing.T) {
 		// each, and fill the existing 384-byte allocation class: the next
 		// word moves it to 416. The source-origin offset now adds that word,
 		// and the chained-assignment depth a byte past the bools, padded to
-		// another word, still inside the 416-byte class.
-		{"scriptParser", unsafe.Sizeof(scriptParser{}), 400},
+		// another word, still inside the 416-byte class. The index of the
+		// function whose body is parsed (bodyFunc) is one more, and the
+		// last that fits in it.
+		{"scriptParser", unsafe.Sizeof(scriptParser{}), 408},
 	}
 
 	for _, c := range cases {
