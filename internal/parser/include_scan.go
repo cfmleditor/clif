@@ -139,8 +139,10 @@ func includeScriptAt(s string) (start, end int, ok bool) {
 }
 
 // includePathAt is the path an include names at j: a literal one
-// (quotedPath), or one whose file name alone is computed, which
-// computedNameGlob reads as a glob. It is `([^"'#]+|(?:[^"'#*\\/][^"'#*\\]*/)?#[^"'#/]+#\.cfm)`
+// (quotedPath), one whose file name alone is computed, which
+// computedNameGlob reads as a glob, or one custom tag attribute
+// (AttributeInclude). It is
+// `([^"'#]+|(?:[^"'#*\\/][^"'#*\\]*/)?#[^"'#/]+#\.cfm|[^"'#*\\/][^"'#*\\]*/#[^"'#/]+#|#attributes\.\w+#)`
 // between quotes.
 func includePathAt(s string, j int) (start, end int, ok bool) {
 	if start, end, ok = quotedPath(s, j); ok {
@@ -160,11 +162,27 @@ func includePathAt(s string, j int) (start, end int, ok bool) {
 		return 0, 0, false
 	}
 
-	if _, ok := computedNameGlob(s[j+1 : k]); !ok {
+	if !isComputedPath(s[j+1 : k]) {
 		return 0, 0, false
 	}
 
 	return j + 1, k, true
+}
+
+// isComputedPath reports whether p is a computed path an include may name:
+// computedNameGlob's, listedNameGlob's or AttributeInclude's.
+func isComputedPath(p string) bool {
+	if _, ok := computedNameGlob(p); ok {
+		return true
+	}
+
+	if _, _, ok := listedNameGlob(p); ok {
+		return true
+	}
+
+	_, ok := AttributeInclude(p)
+
+	return ok
 }
 
 // directoryTagEnd reads `^(?is)<cfdirectory\b[^>]*>` and returns the offset

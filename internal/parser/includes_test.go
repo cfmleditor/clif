@@ -44,3 +44,34 @@ func TestExtractIncludesAfterAComment(t *testing.T) {
 		t.Errorf("got %q", got)
 	}
 }
+
+// TestAComputedIncludeOfAListedNameOrATagAttribute: a suite that lists its
+// spec directory and includes each name, `specs/#file#`, includes every
+// template there, and only beside a non-recursive listing of that directory
+// for templates; a custom tag's `#attributes.file#` is reported in one
+// spelling for the resolver to read from the tag's callers.
+func TestAComputedIncludeOfAListedNameOrATagAttribute(t *testing.T) {
+	const listing = `var specs = DirectoryList( ExpandPath( "specs" ), false, "name", "*.cfm" );`
+
+	for _, tc := range []struct {
+		name, source string
+		want         []string
+	}{
+		{"listed", listing + ` include "specs/#file#";`, []string{"specs/*.cfm"}},
+		{"listed with a slash", `DirectoryList( "./specs/", false, "name", "*.cfm" ); include "./specs/#file#";`, []string{"./specs/*.cfm"}},
+		{"not listed", `include "specs/#file#";`, nil},
+		{"another directory listed", listing + ` include "other/#file#";`, nil},
+		{"recursive", `DirectoryList( ExpandPath( "specs" ), true, "name", "*.cfm" ); include "specs/#file#";`, nil},
+		{"any file listed", `DirectoryList( ExpandPath( "specs" ), false, "name" ); include "specs/#file#";`, nil},
+		{"no directory", listing + ` include "#file#";`, nil},
+		{"tag attribute", `<cfinclude template="#attributes.File#">`, []string{"#attributes.file#"}},
+		{"tag attribute path", `<cfinclude template="#attributes.a.b#">`, nil},
+		{"tag attribute with a directory", `<cfinclude template="x/#attributes.file#">`, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := ExtractIncludes(tc.source); !slices.Equal(got, tc.want) {
+				t.Fatalf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
