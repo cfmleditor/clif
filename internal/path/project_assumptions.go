@@ -42,6 +42,12 @@ func AssumedProjectMappings(dir string, read func(string) ([]byte, error)) map[s
 			// Preside's own checkout: its test suite maps /preside to the root,
 			// as the Bootstrap every Preside application extends does.
 			{"preside", "tests/Application.cfc", "", []string{"system/Bootstrap.cfc", "system/services/PresideSuperClass.cfc"}},
+			// CommandBox's own checkout: its tests map /commandbox to src/cfml,
+			// where commandbox.system.* lives.
+			{"commandbox", "tests/Application.cfc", "src/cfml", []string{"src/cfml/system/BaseCommand.cfc", "src/cfml/system/Shell.cfc"}},
+			// The WireBox, LogBox and CacheBox it ships under system/wirebox,
+			// which its own source names wirebox.system.*.
+			{"wirebox", "tests/Application.cfc", "src/cfml/system/wirebox", []string{"src/cfml/system/BaseCommand.cfc", "src/cfml/system/wirebox/system/ioc/Injector.cfc"}},
 		} {
 			if seen[profile.namespace] {
 				continue
