@@ -2702,6 +2702,28 @@ func (r *Resolver) ReturnComponentOf(fd *parser.FunctionDef) string {
 	return component
 }
 
+// getterReturn is what a getter of a field returns: a shared-scope field the
+// startup files type, a lazily built one, or one its constructor is handed.
+func (r *Resolver) getterReturn(fd *parser.FunctionDef) string {
+	if ret := r.sharedGetterReturn(fd); ret != "" {
+		return ret
+	}
+
+	if ret := r.lazyGetterReturn(fd); ret != "" {
+		return ret
+	}
+
+	if ret := r.forwardedFieldReturn(fd); ret != "" {
+		if p := r.ComponentPath(ret, filepath.Dir(fd.URI.Path())); p != "" {
+			return p
+		}
+
+		return ret
+	}
+
+	return ""
+}
+
 func (r *Resolver) returnComponentOf(fd *parser.FunctionDef, depth int, budget *int) string {
 	if depth > 8 {
 		return ""
@@ -2725,11 +2747,7 @@ func (r *Resolver) returnComponentOf(fd *parser.FunctionDef, depth int, budget *
 			return ""
 		}
 
-		if ret := r.sharedGetterReturn(fd); ret != "" {
-			return ret
-		}
-
-		if ret := r.lazyGetterReturn(fd); ret != "" {
+		if ret := r.getterReturn(fd); ret != "" {
 			return ret
 		}
 

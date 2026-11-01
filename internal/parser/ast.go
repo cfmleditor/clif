@@ -1122,6 +1122,10 @@ func isComponentType(t string) bool {
 	return true
 }
 
+// IsComponentType reports whether a declared type names a component rather
+// than a CFML type: isComponentType, for the resolver.
+func IsComponentType(t string) bool { return isComponentType(t) }
+
 // FormatHover returns a markdown-formatted hover string for the function definition.
 func (def *FunctionDef) FormatHover() string {
 	var b strings.Builder
