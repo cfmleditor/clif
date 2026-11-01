@@ -126,6 +126,8 @@ type pathCaches struct {
 	callerBuild         sync.Mutex                          // held while callerIdx is built; see buildCallerIndexOnce
 	argCache            map[string]string                   // an argument → what its callers pass (argumentFromCallers)
 	requestWriterIdx    map[string][]string                 // request key → files writing it (requestWriters)
+	ownedKeys           map[string]string                   // file and function → what its owned-key factory returns (ownedKeyReturn)
+	keyPrefixes         map[string]string                   // literal key prefix → what every factory spelling it stores, "" when they differ (prefixComponent)
 	handlerCache        map[string]*parser.ParseResult      // handler path → its parse (handlerParse)
 	fw1ActionCache      map[string][]fw1Action              // controllers dir + section.item → its actions (fw1Actions)
 	boundEntityCache    map[string]string                   // service path → the entity it binds (boundEntity)
@@ -2710,6 +2712,10 @@ func (r *Resolver) getterReturn(fd *parser.FunctionDef) string {
 	}
 
 	if ret := r.lazyGetterReturn(fd); ret != "" {
+		return ret
+	}
+
+	if ret := r.ownedKeyReturn(fd); ret != "" {
 		return ret
 	}
 

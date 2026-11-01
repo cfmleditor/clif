@@ -229,6 +229,12 @@ func (e *producerEvaluation) call(fd *parser.FunctionDef, receiver string, argum
 		}
 	}
 
+	// A factory caching under a key only it writes returns the same
+	// component whatever it is passed (ownedKeyReturn).
+	if ret := e.resolver.ownedKeyReturn(fd); ret != "" {
+		return e.concrete(ret, filepath.Dir(fd.URI.Path()))
+	}
+
 	if method == nil || producerAugmentsReturn(method.body) && !e.resolver.producerScalarSelfSetter(method, fd, receiver) {
 		return producerUnknown()
 	}
