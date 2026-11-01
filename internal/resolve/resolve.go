@@ -3876,9 +3876,13 @@ func funcRefAfterDefault(ref *parser.ComponentRef, pr *parser.ParseResult, line 
 		return ref
 	}
 
-	tr.setAside(variable, ref, method)
+	if alt := funcScopedRefFor(pr, line, name, scope, method, call); alt != nil || !structMember(ref, method) {
+		tr.setAside(variable, ref, method)
 
-	return funcScopedRefFor(pr, line, name, scope, method, call)
+		return alt
+	}
+
+	return ref
 }
 
 // fileRefAfterDefault is fileLevelRef, passing over a struct default the
@@ -3889,9 +3893,22 @@ func fileRefAfterDefault(pr *parser.ParseResult, line uint32, variable, name str
 		return best
 	}
 
-	tr.setAside(variable, best, method)
+	if alt := fileLevelRefFor(pr, line, name, scope, method); alt != nil || !structMember(best, method) {
+		tr.setAside(variable, best, method)
 
-	return fileLevelRefFor(pr, line, name, scope, method)
+		return alt
+	}
+
+	return best
+}
+
+// structMember reports whether method is a member function the doc sources
+// record for the struct ref holds. A default nothing later replaces still
+// holds that struct, so Lucee's `myNumb = StructNew(); myNumb.sort()` keeps
+// it; with a later ref the contract alone decides (nativeDefaultOverwritten),
+// since a component's own sort() is likelier than a struct's.
+func structMember(ref *parser.ComponentRef, method string) bool {
+	return docs.LookupBuiltinMethod(strings.TrimPrefix(ref.Component, "$builtin."), method)
 }
 
 // setAside records a struct default passed over for a method it lacks.
@@ -3918,9 +3935,13 @@ func nativeDefaultOverwritten(component, method string) bool {
 		return false
 	}
 
-	// The same check the method-exists step makes, so a default is set aside
-	// exactly when keeping it would report the call.
-	return !docs.LookupBuiltinMethod(strings.TrimPrefix(component, "$builtin."), method)
+	// The struct's own contract, not the members the doc sources record for
+	// any struct: a component replacing the default may well declare an
+	// update(), find() or toJson() of its own, and keeping the struct for one
+	// would accept the call without checking the component.
+	_, ok := nativetype.Method(component, method)
+
+	return !ok
 }
 
 // fileLevelRef is the file-level ref for name that is in force at line.

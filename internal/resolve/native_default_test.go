@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cfmleditor/clif/internal/nativetype"
 	"github.com/cfmleditor/clif/internal/parser"
 )
 
@@ -60,4 +61,49 @@ func TestANativeDefaultDoesNotOutrankWhatReplacesIt(t *testing.T) {
 			t.Errorf("%s was checked against the StructNew() default: %s", call, reason)
 		}
 	}
+}
+
+// TestAStructDefaultIsSetAsideByItsOwnContract: the doc sources record more
+// struct members than the struct's contract lists (keyTranslate), and a
+// component replacing a StructNew() default may declare a method by one of
+// those names. The default is kept only for the contract's methods, so such a
+// call is checked on the component.
+func TestAStructDefaultIsSetAsideByItsOwnContract(t *testing.T) {
+	for method, want := range map[string]bool{
+		"keyTranslate": true,
+		"getService":   true,
+		"keyExists":    false,
+		"toJson":       false,
+	} {
+		if got := nativeDefaultOverwritten(nativetype.Type("struct"), method); got != want {
+			t.Errorf("nativeDefaultOverwritten(struct, %q) = %v, want %v", method, got, want)
+		}
+	}
+}
+
+// TestAStructDefaultNothingReplacesKeepsItsMembers: with no later assignment,
+// the StructNew() default is what the variable holds, so a struct member the
+// doc sources record (sort, keyTranslate) is its method. Lucee's structsort
+// test calls `myNumb.sort()` on one.
+func TestAStructDefaultNothingReplacesKeepsItsMembers(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{
+		"Use.cfc": `component {
+function run() {
+	variables.myNumb = StructNew();
+	myNumb.sort( "numeric" );
+	myNumb.buildAdminLink();
+}
+}`,
+	})
+
+	r := &Resolver{}
+	got := reasonsWithOptions(t, r, dir, "Use.cfc", func(file string, o *parser.ParseOptions) {
+		o.BuiltinReturnLookup = r.BuiltinReturnLookupFor(file)
+	})
+
+	expectReasons(t, got, map[string]string{
+		"myNumb.sort":           "",
+		"myNumb.buildAdminLink": "variable 'myNumb' has no component ref",
+	})
 }
