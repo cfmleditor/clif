@@ -1688,6 +1688,16 @@ against all of them; which one ran is not in the source.
   `<!--- --->` comments. Not `ExtractLinks`: `<cfmodule template>` runs in a scope of its own.
   It runs on every indexed file, so it finds the keyword and matches only there — two
   whole-file case-insensitive regexes took tassweb's index pass from 1.5s to 5.5s.
+- **Two computed paths are read as well.** `specs/#file#`, a whole name computed in a written
+  directory, is that directory's `*.cfm` (`listedNameGlob`), but only beside a non-recursive
+  `directoryList` of the same directory filtered to `*.cfm` (`listsTemplates`): spreadsheet-cfml's
+  `test/suite.cfc` includes each spec it lists that way. `#attributes.file#` in a custom tag is
+  reported in that one spelling (`parser.AttributeInclude`), and the graph reads its targets from
+  the tag's callers: each literal value a `<cf_name>` or `<cfmodule>` passes, resolved as an include
+  in the tag (`attributeIncludeTargets`, over `customTagSites`, so batch only). The graph records
+  whether it read the callers (`includeGraph.tagCalls`) and is rebuilt when `InferArgsFiles` is
+  set after it was built. RustCFML's runner calls `<cf_runtest file="…">` 600 times.
+  `TestASuiteIncludingEveryListedSpecSeesTheSuite`, `TestATemplateACustomTagIncludesByAttributeSeesTheTag`.
 - The index holds each file's raw include paths and an `includeGen` counter; the resolver
   resolves them (file dir, `Application.cfc` root, mappings by first segment, workspace
   folders) into a forward and reverse graph and rebuilds it only when the counter moves.

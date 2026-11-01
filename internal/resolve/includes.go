@@ -15,8 +15,13 @@ import (
 // both directions. Keys and values are pathKey spellings; paths holds each
 // key's real spelling, since the filesystem and the index need that one.
 type includeGraph struct {
-	gen   uint64
-	fwd   map[string][]string // includer -> files it includes
+	gen uint64
+	fwd map[string][]string // includer -> files it includes
+
+	// tagCalls says whether the graph read custom tags' callers, see
+	// attributeIncludeTargets.
+	tagCalls bool
+
 	rev   map[string][]string // included file -> files that include it
 	paths map[string]string
 
@@ -118,6 +123,10 @@ func (r *Resolver) includePathUncached(raw, baseDir string) string {
 // for a directory listing's glob (parser.directoryIncludes, `sub/*.cfm`) every
 // template in that directory beside fromFile, in name order.
 func (r *Resolver) includeTargets(raw, fromFile string) []string {
+	if attr, ok := parser.AttributeInclude(raw); ok {
+		return r.attributeIncludeTargets(attr, fromFile)
+	}
+
 	dir, pattern, glob := strings.Cut(raw, "/*")
 	if !glob {
 		if target := r.IncludePath(raw, fromFile); target != "" {
@@ -164,7 +173,11 @@ func (r *Resolver) includes() *includeGraph {
 	g := r.incGraph
 	r.mu.RUnlock()
 
-	if g != nil && g.gen == gen {
+	// A custom tag's `#attributes.file#` include is read from the tag's
+	// callers, which only a batch scan lists, so a graph built before the
+	// list was set is built again once it is.
+	tagCalls := len(r.owner().InferArgsFiles) > 0
+	if g != nil && g.gen == gen && g.tagCalls == tagCalls {
 		return g
 	}
 
@@ -180,11 +193,12 @@ func (r *Resolver) includes() *includeGraph {
 	})
 
 	g = &includeGraph{
-		gen:    gen,
-		fwd:    make(map[string][]string, len(entries)),
-		rev:    make(map[string][]string),
-		paths:  make(map[string]string),
-		scopes: make(map[string][]string),
+		gen:      gen,
+		tagCalls: tagCalls,
+		fwd:      make(map[string][]string, len(entries)),
+		rev:      make(map[string][]string),
+		paths:    make(map[string]string),
+		scopes:   make(map[string][]string),
 	}
 
 	for _, e := range entries {

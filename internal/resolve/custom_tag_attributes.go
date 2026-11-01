@@ -220,3 +220,43 @@ func quotedTagEnd(content string, from int) int {
 
 	return -1
 }
+
+// attributeIncludeTargets is what `<cfinclude template="#attributes.name#">`
+// in the custom tag tagFile includes: the template each call of the tag
+// passes as name, written as a literal and resolved as a cfinclude in the tag
+// is. RustCFML's test runner calls `<cf_runtest file="core/test_x.cfm">` six
+// hundred times, and runtest.cfm includes its harness and then the file, so
+// each test calls the harness's assert() bare. A call passing the attribute
+// computed, or an attributeCollection, names nothing it can be read from, and
+// a tag name two templates answer to is not claimed, as customTagAttribute
+// does not. The calls are found in the batch file list, so this runs in a
+// batch scan only.
+func (r *Resolver) attributeIncludeTargets(name, tagFile string) []string {
+	if len(r.owner().InferArgsFiles) == 0 || !strings.EqualFold(filepath.Ext(tagFile), ".cfm") {
+		return nil
+	}
+
+	tag := strings.ToLower(strings.TrimSuffix(filepath.Base(tagFile), filepath.Ext(tagFile)))
+
+	sites, templates := r.customTagSites()
+	if templates[tag] != 1 {
+		return nil
+	}
+
+	var out []string
+
+	for i := range sites[tag] {
+		raw, passed := sites[tag][i].attrs[name]
+		if !passed || strings.Contains(raw, "#") {
+			continue
+		}
+
+		if target := r.IncludePath(raw, tagFile); target != "" && !slices.Contains(out, target) {
+			out = append(out, target)
+		}
+	}
+
+	slices.Sort(out)
+
+	return out
+}
