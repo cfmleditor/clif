@@ -25,6 +25,12 @@ func AssumedFrameworks(roots []string, read func(string) ([]byte, error), direct
 // ColdBox's RequestContext.
 const presideRequestContext = "preside.system.coldboxModifications.RequestContextDecorator"
 
+// presideController is the ColdBox controller Preside runs: its Bootstrap
+// creates preside.system.coldboxModifications.Controller, which extends
+// ColdBox's and adds what Preside's services call on it (handlerExists(),
+// viewletExists(), renderViewlet()).
+const presideController = "preside.system.coldboxModifications.Controller"
+
 func assumedFrameworks(roots []string, read func(string) ([]byte, error), directories ...func(string) ([]fs.DirEntry, error)) ([]string, bool) {
 	owners := map[string]bool{}
 	preside := false
@@ -95,8 +101,10 @@ func Assumed(roots []string, read func(string) ([]byte, error), directories ...f
 	r.Frameworks = frameworks
 
 	if preside {
-		// Ahead of the ColdBox preset's own `event`, which it replaces.
-		r.ComponentResolvers = append(r.ComponentResolvers, variableResolver(presideRequestContext, "event"))
+		// Ahead of the ColdBox preset's own `event` and controller, which
+		// they replace.
+		r.ComponentResolvers = append(r.ComponentResolvers, variableResolver(presideRequestContext, "event"), variableResolver(presideController, "controller", "cbController", "coldbox"))
+		r.ComponentResolvers = append(r.ComponentResolvers, returnResolver(presideController, "getController")...)
 	}
 
 	r.ComponentResolvers = append(r.ComponentResolvers, FrameworkResolvers(r.Frameworks)...)

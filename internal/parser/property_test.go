@@ -372,7 +372,8 @@ func TestNormalizeBeanKey(t *testing.T) {
 // say otherwise, a WireBox id names the component whose file carries it, so
 // `property name="svc" inject="id:settingService@contentbox"` types svc. Over
 // the six-project corpus that was 3,600 calls reported as "no component ref".
-// A provider stands in for what it provides. The DSL's namespaces name the
+// A provider stands in for what it provides, and so does the proxy Preside's
+// delayedInjector DSL injects, for a model id. The DSL's namespaces name the
 // frameworks' own objects, by their ColdBox paths, and so do the models
 // ColdBox registers as `Name@coldbox` — a file-name search for Renderer would
 // find whatever the workspace calls that. Everything else in the DSL is not a
@@ -398,6 +399,9 @@ func TestAnInjectionNamesItsComponent(t *testing.T) {
 		"logbox:logger:{this}":           cb + "logging.Logger",
 		"cachebox:template":              cb + "cache.providers.CacheBoxColdBoxProvider",
 		"provider:cachebox":              cb + "cache.CacheFactory",
+		"delayedInjector:UserService":    "UserService",
+		"delayedInjector:coldbox":        "",
+		"delayedInjector:coldbox:flash":  "",
 		"coldbox:setting:appName":        "",
 		"coldbox:moduleSettings:cborm":   "",
 		"coldbox:interceptor:x@global":   "",

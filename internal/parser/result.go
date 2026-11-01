@@ -2284,6 +2284,18 @@ func injectedComponent(inject string) string {
 		id = id[len(p):]
 	}
 
+	// So does Preside's delayedInjector:x (config/WireBox.cfc maps the DSL):
+	// it injects a DelayedInjector, whose onMissingMethod hands every call
+	// to the instance x names once it is first used. Only a model id: what
+	// a DSL name like `coldbox` is depends on the application (Preside runs
+	// its own controller), so it is left to the resolvers, as it was.
+	if p := "delayedInjector:"; len(id) > len(p) && strings.EqualFold(id[:len(p)], p) {
+		id = id[len(p):]
+		if dslComponent(id) != "" || strings.Contains(id, ":") {
+			return ""
+		}
+	}
+
 	if c := dslComponent(id); c != "" {
 		return c
 	}

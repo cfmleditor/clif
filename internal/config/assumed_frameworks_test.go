@@ -167,7 +167,7 @@ func TestAssumedCommandBoxContextRequiresHostEvidence(t *testing.T) {
 // handler (2,911 findings) and, once ColdBox's preset typed it, a ColdBox
 // RequestContext lacking Preside's buildAdminLink(). With the checkout
 // recognised, the ColdBox preset is assumed and `event` is Preside's
-// decorator, ahead of the preset's own.
+// decorator, and the controller Preside's own, ahead of the preset's.
 func TestAPresideCheckoutIsColdBoxWithPresidesRequestContext(t *testing.T) {
 	root := t.TempDir()
 	files := map[string]string{
@@ -201,6 +201,24 @@ func TestAPresideCheckoutIsColdBoxWithPresidesRequestContext(t *testing.T) {
 
 	if event != presideRequestContext {
 		t.Errorf("event resolves to %q first, want %q", event, presideRequestContext)
+	}
+
+	// Preside's own controller, which adds handlerExists() and the viewlet
+	// API, ahead of ColdBox's for the same names.
+	for _, name := range []string{"coldbox", "controller", "getController"} {
+		var first string
+
+		for _, res := range r.ComponentResolvers {
+			if strings.Contains(res.Prefix, name) && strings.Contains(res.Match, name) {
+				first = res.Resolve
+
+				break
+			}
+		}
+
+		if first != presideController {
+			t.Errorf("%s resolves to %q first, want %q", name, first, presideController)
+		}
 	}
 
 	delete(files, filepath.Join(root, "system", "services", "PresideSuperClass.cfc"))
