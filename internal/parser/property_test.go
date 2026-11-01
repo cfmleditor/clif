@@ -373,7 +373,8 @@ func TestNormalizeBeanKey(t *testing.T) {
 // `property name="svc" inject="id:settingService@contentbox"` types svc. Over
 // the six-project corpus that was 3,600 calls reported as "no component ref".
 // A provider stands in for what it provides, and so does the proxy Preside's
-// delayedInjector DSL injects, for a model id. The DSL's namespaces name the
+// delayedInjector DSL injects, for a model id; Preside's presidecms:object:x
+// is a Preside object, which its decorator stands for. The DSL's namespaces name the
 // frameworks' own objects, by their ColdBox paths, and so do the models
 // ColdBox registers as `Name@coldbox` — a file-name search for Renderer would
 // find whatever the workspace calls that. Everything else in the DSL is not a
@@ -382,33 +383,34 @@ func TestAnInjectionNamesItsComponent(t *testing.T) {
 	const cb = "coldbox.system."
 
 	for inject, want := range map[string]string{
-		"id:settingService@contentbox":   "settingService@contentbox",
-		"model:UserService":              "UserService",
-		"MODEL:UserService@users":        "UserService@users",
-		"models.UserService":             "models.UserService",
-		"PrintBuffer":                    "PrintBuffer",
-		"provider:UserService":           "UserService",
-		"provider:settingService@cb":     "settingService@cb",
-		"HTMLHelper@coldbox":             cb + "modules.HTMLHelper.models.HTMLHelper",
-		"Provider:Renderer@coldbox":      cb + "web.Renderer",
-		"Renderer@myModule":              "Renderer@myModule",
-		"Coldbox":                        cb + "web.Controller",
-		"coldbox:requestService":         cb + "web.services.RequestService",
-		"wirebox":                        cb + "ioc.Injector",
-		"wirebox:populator":              cb + "core.dynamic.ObjectPopulator",
-		"logbox:logger:{this}":           cb + "logging.Logger",
-		"cachebox:template":              cb + "cache.providers.CacheBoxColdBoxProvider",
-		"provider:cachebox":              cb + "cache.CacheFactory",
-		"delayedInjector:UserService":    "UserService",
-		"delayedInjector:coldbox":        "",
-		"delayedInjector:coldbox:flash":  "",
-		"coldbox:setting:appName":        "",
-		"coldbox:moduleSettings:cborm":   "",
-		"coldbox:interceptor:x@global":   "",
-		"wirebox:child:mychild":          "",
-		"":                               "dep", // WireBox reads an empty inject as the model named by the property
-		"id:":                            "",
-		"#application.settings.service#": "",
+		"id:settingService@contentbox":    "settingService@contentbox",
+		"model:UserService":               "UserService",
+		"MODEL:UserService@users":         "UserService@users",
+		"models.UserService":              "models.UserService",
+		"PrintBuffer":                     "PrintBuffer",
+		"provider:UserService":            "UserService",
+		"provider:settingService@cb":      "settingService@cb",
+		"HTMLHelper@coldbox":              cb + "modules.HTMLHelper.models.HTMLHelper",
+		"Provider:Renderer@coldbox":       cb + "web.Renderer",
+		"Renderer@myModule":               "Renderer@myModule",
+		"Coldbox":                         cb + "web.Controller",
+		"coldbox:requestService":          cb + "web.services.RequestService",
+		"wirebox":                         cb + "ioc.Injector",
+		"wirebox:populator":               cb + "core.dynamic.ObjectPopulator",
+		"logbox:logger:{this}":            cb + "logging.Logger",
+		"cachebox:template":               cb + "cache.providers.CacheBoxColdBoxProvider",
+		"provider:cachebox":               cb + "cache.CacheFactory",
+		"delayedInjector:UserService":     "UserService",
+		"presidecms:object:security_user": PresideObject,
+		"delayedInjector:coldbox":         "",
+		"delayedInjector:coldbox:flash":   "",
+		"coldbox:setting:appName":         "",
+		"coldbox:moduleSettings:cborm":    "",
+		"coldbox:interceptor:x@global":    "",
+		"wirebox:child:mychild":           "",
+		"":                                "dep", // WireBox reads an empty inject as the model named by the property
+		"id:":                             "",
+		"#application.settings.service#":  "",
 	} {
 		src := "component {\n\tproperty name=\"dep\" inject=\"" + inject + "\";\n}"
 		pr := Parse(uri.URI("file:///test.cfc"), src)
@@ -424,7 +426,7 @@ func TestAnInjectionNamesItsComponent(t *testing.T) {
 
 		// The framework's own objects are not a finding when absent; a
 		// project's component is.
-		if soft := pr.IsSoftComponent(got); got != "" && soft != strings.HasPrefix(want, cb) {
+		if soft := pr.IsSoftComponent(got); got != "" && soft != (strings.HasPrefix(want, cb) || want == PresideObject) {
 			t.Errorf("inject=%q: IsSoftComponent(%q) = %v", inject, got, soft)
 		}
 	}

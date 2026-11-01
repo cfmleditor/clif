@@ -2275,6 +2275,13 @@ func (pr *ParseResult) propertyFieldComponents() map[string]string {
 // (IsSoftComponent). Whatever else the DSL names is not a component — `coldbox:setting:x`
 // is a setting, `coldbox:moduleSettings:x` a struct — and resolving it by
 // name would find an unrelated file.
+// PresideObject is what Preside's presidecms:object:x DSL injects: the
+// object x, decorated by PresideObjectDecorator with the data API its
+// onMissingMethod hands to the PresideObjectService. The decorator stands
+// for it, as the resolver's answer for getObject() does; without Preside's
+// source a call on it is dynamic (IsSoftComponent).
+const PresideObject = "preside.system.services.presideObjects.PresideObjectDecorator"
+
 func injectedComponent(inject string) string {
 	id := strings.TrimSpace(inject)
 
@@ -2298,6 +2305,10 @@ func injectedComponent(inject string) string {
 
 	if c := dslComponent(id); c != "" {
 		return c
+	}
+
+	if p := "presidecms:object:"; len(id) > len(p) && strings.EqualFold(id[:len(p)], p) {
+		return PresideObject
 	}
 
 	for _, prefix := range []string{"id:", "model:"} {
@@ -2378,6 +2389,10 @@ var coldboxModels = map[string]string{
 // isInjectedFrameworkComponent reports whether comp is one of
 // InjectedFrameworkComponents.
 func isInjectedFrameworkComponent(comp string) bool {
+	if strings.EqualFold(comp, PresideObject) {
+		return true
+	}
+
 	if len(comp) <= len(coldboxSystem) || !strings.EqualFold(comp[:len(coldboxSystem)], coldboxSystem) {
 		return false
 	}
