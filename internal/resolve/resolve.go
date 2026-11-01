@@ -126,6 +126,8 @@ type pathCaches struct {
 	callerBuild         sync.Mutex                          // held while callerIdx is built; see buildCallerIndexOnce
 	argCache            map[string]string                   // an argument → what its callers pass (argumentFromCallers)
 	requestWriterIdx    map[string][]string                 // request key → files writing it (requestWriters)
+	ownedKeys           map[string]string                   // file and function → what its owned-key factory returns (ownedKeyReturn)
+	keyPrefixes         map[string]string                   // literal key prefix → what every factory spelling it stores, "" when they differ (prefixComponent)
 	handlerCache        map[string]*parser.ParseResult      // handler path → its parse (handlerParse)
 	fw1ActionCache      map[string][]fw1Action              // controllers dir + section.item → its actions (fw1Actions)
 	boundEntityCache    map[string]string                   // service path → the entity it binds (boundEntity)
@@ -974,6 +976,10 @@ func (r *Resolver) lookupFuncUncached(cfcPath, funcName string, depth int) *pars
 	}
 
 	if d := r.presideSuperClassFunc(chain, funcName, depth); d != nil {
+		return d
+	}
+
+	if d := r.legacyColdBoxFunc(chain, funcName, depth); d != nil {
 		return d
 	}
 
@@ -2264,8 +2270,21 @@ func (r *Resolver) bareFunc(name string, pr *parser.ParseResult, baseDir string,
 		}
 	}
 
+	// The same order a call standing alone is looked up in (canResolveCall):
+	// a chain headed by $getPresideObject() or a handler's getModel() found
+	// nothing where the call alone resolved.
+	if def, _ := r.virtualBaseFunc(pr, name); def != nil {
+		return def
+	}
+
 	if def := r.delegatedFunc(pr.Delegates, baseDir, name, 0); def != nil {
 		return def
+	}
+
+	if pr.URI.IsFile() && strings.HasPrefix(name, "$") {
+		if def := r.presideSuperClassFunc(r.extendsChainOf(pr.URI.Path()), name, 0); def != nil {
+			return def
+		}
 	}
 
 	if def, _ := r.findThroughIncludes(pr, name); def != nil {
@@ -2713,6 +2732,14 @@ func (r *Resolver) getterReturn(fd *parser.FunctionDef) string {
 		return ret
 	}
 
+	if ret := r.ownedKeyReturn(fd); ret != "" {
+		return ret
+	}
+
+	if ret := r.presideObjectReturn(fd); ret != "" {
+		return ret
+	}
+
 	if ret := r.forwardedFieldReturn(fd); ret != "" {
 		if p := r.ComponentPath(ret, filepath.Dir(fd.URI.Path())); p != "" {
 			return p
@@ -2796,6 +2823,11 @@ func (r *Resolver) returnComponentOf(fd *parser.FunctionDef, depth int, budget *
 	}
 
 	switch {
+	case strings.Contains(fd.ReturnComponent, "#"):
+		// `return new "builders.#name#.Builder"()`: a runtime path no
+		// expressionMappings entry covered is dynamic, as it is assigned to
+		// a variable (parser replaceExpressions).
+		return "$any"
 	case fd.ReturnComponent != "" && fd.ReturnComponent != "$any":
 		// `return new Expectation( … )` names the component beside the
 		// declaring file, as a bare return type does; read from the caller's

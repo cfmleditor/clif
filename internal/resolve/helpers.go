@@ -44,8 +44,15 @@ type helperSet struct {
 
 // findThroughHelpers looks name up in the helper templates mixed into the
 // parsed file, when a framework preset says it receives them.
+// An application helper is itself mixed into every receiver with the others,
+// so one helper calls another: Preside's dateUtils.cfm calls getSingleton(),
+// which presideProxies.cfm declares.
 func (r *Resolver) findThroughHelpers(file, name string) (*parser.FunctionDef, string) {
-	if r.HelperScope == nil || file == "" || !r.HelperScope(file) {
+	if r.HelperScope == nil || file == "" {
+		return nil, ""
+	}
+
+	if !r.HelperScope(file) && !slices.ContainsFunc(r.applicationHelpers(), func(p string) bool { return cfpath.SamePath(p, file) }) {
 		return nil, ""
 	}
 

@@ -178,9 +178,10 @@ var frameworkPresets = map[string]frameworkPreset{
 			// for a component: ColdBoxScheduledTask function task( name ).
 			returnResolver(coldboxSystem+"web.tasks.ColdBoxScheduledTask", "task"),
 			// WireBox builds what an id names, from a handler, a model, a
-			// test or the injector itself.
+			// test or the injector itself; getModel( id ) is its ColdBox 3
+			// to 5 name, which older applications still call.
 			dslResolvers(),
-			[]Resolver{idResolver("getInstance")},
+			[]Resolver{idResolver("getInstance"), idResolver("getModel")},
 		),
 		bases: []implicitBase{
 			{dir: "handlers", ext: ".cfc", component: coldboxSystem + "EventHandler"},
