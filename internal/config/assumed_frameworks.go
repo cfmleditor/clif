@@ -13,7 +13,21 @@ import (
 // project owners with different deployment contexts acquire no global presets.
 // These are documented runtime conventions, not inferred variable declarations.
 func AssumedFrameworks(roots []string, read func(string) ([]byte, error), directories ...func(string) ([]fs.DirEntry, error)) []string {
+	names, _ := assumedFrameworks(roots, read, directories...)
+
+	return names
+}
+
+// presideRequestContext is what Preside hands every handler, view and
+// interceptor as `event`: its config sets ColdBox's requestContextDecorator
+// to it, and the methods Preside's code calls on the request
+// (buildAdminLink(), addAdminBreadCrumb()) are declared there, not on
+// ColdBox's RequestContext.
+const presideRequestContext = "preside.system.coldboxModifications.RequestContextDecorator"
+
+func assumedFrameworks(roots []string, read func(string) ([]byte, error), directories ...func(string) ([]fs.DirEntry, error)) ([]string, bool) {
 	owners := map[string]bool{}
+	preside := false
 	presets := map[string]bool{}
 
 	for _, root := range roots {
@@ -29,6 +43,10 @@ func AssumedFrameworks(roots []string, read func(string) ([]byte, error), direct
 			case "contentbox":
 				owner = filepath.Dir(filepath.Dir(target))
 				presets["contentbox"], presets["coldbox"] = true, true
+			case "preside":
+				// Preside runs on ColdBox, which it takes as a dependency
+				// rather than shipping; the stubs answer for it.
+				presets["coldbox"], preside = true, true
 			case "mura":
 				owner = filepath.Dir(filepath.Dir(target))
 				presets["mura"] = true
@@ -46,7 +64,7 @@ func AssumedFrameworks(roots []string, read func(string) ([]byte, error), direct
 	}
 
 	if len(owners) != 1 {
-		return nil
+		return nil, false
 	}
 
 	if len(directories) > 0 && directories[0] != nil {
@@ -64,7 +82,7 @@ func AssumedFrameworks(roots []string, read func(string) ([]byte, error), direct
 
 	slices.Sort(out)
 
-	return out
+	return out, preside
 }
 
 // Assumed is the configuration a project with no config file is read as: the
@@ -73,7 +91,14 @@ func AssumedFrameworks(roots []string, read func(string) ([]byte, error), direct
 // by hand.
 func Assumed(roots []string, read func(string) ([]byte, error), directories ...func(string) ([]fs.DirEntry, error)) *Resolved {
 	r := Resolve(&JSON{}, "")
-	r.Frameworks = AssumedFrameworks(roots, read, directories...)
+	frameworks, preside := assumedFrameworks(roots, read, directories...)
+	r.Frameworks = frameworks
+
+	if preside {
+		// Ahead of the ColdBox preset's own `event`, which it replaces.
+		r.ComponentResolvers = append(r.ComponentResolvers, variableResolver(presideRequestContext, "event"))
+	}
+
 	r.ComponentResolvers = append(r.ComponentResolvers, FrameworkResolvers(r.Frameworks)...)
 
 	return r

@@ -56,6 +56,48 @@ func TestFrameworkHelpersReachTheFilesTheyAreMixedInto(t *testing.T) {
 	})
 }
 
+// TestPresideHelpersReachTheFilesColdBoxMixesThemInto: Preside's config hands
+// ColdBox every template under system/helpers, at any depth, as application
+// helpers, through a computed list (_getUdfFiles) the applicationHelper
+// reader cannot see. translateResource() alone was 2,552 findings over
+// Preside's handlers and views. A directory that is not Preside's (no
+// services/PresideSuperClass.cfc beside it) gives nothing, and a service is
+// not handed them.
+func TestPresideHelpersReachTheFilesColdBoxMixesThemInto(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{
+		"system/services/PresideSuperClass.cfc":   `component { function $helper() {} }`,
+		"system/helpers/presideProxies.cfm":       `<cffunction name="translateResource" access="public" returntype="any" output="false"><cfreturn "" /></cffunction>`,
+		"system/helpers/sitetree/pageHelpers.cfm": `<cfscript>function pageHelp() { return 1; }</cfscript>`,
+		"system/handlers/Main.cfc":                `component { function index() { translateResource( "x" ); pageHelp(); } }`,
+		"system/views/main/index.cfm":             `<cfoutput>#translateResource( "x" )# #nope()#</cfoutput>`,
+		"system/services/Svc.cfc":                 `component { function f() { translateResource( "x" ); } }`,
+		"other/helpers/orphan.cfm":                `<cfscript>function orphanHelp() { return 1; }</cfscript>`,
+		"other/handlers/Main.cfc":                 `component { function index() { orphanHelp(); } }`,
+	})
+
+	scope := func(path string) bool {
+		p := filepath.ToSlash(path)
+
+		return strings.Contains(p, "/views/") || strings.Contains(p, "/handlers/")
+	}
+
+	expectReasons(t, reasonsWith(t, &Resolver{HelperScope: scope}, dir, "system/handlers/Main.cfc"), map[string]string{
+		"translateResource": "",
+		"pageHelp":          "",
+	})
+	expectReasons(t, reasonsWith(t, &Resolver{HelperScope: scope}, dir, "system/views/main/index.cfm"), map[string]string{
+		"translateResource": "",
+		"nope":              "no qualifier, not in file",
+	})
+	expectReasons(t, reasonsWith(t, &Resolver{HelperScope: scope}, dir, "system/services/Svc.cfc"), map[string]string{
+		"translateResource": "no qualifier, not in file",
+	})
+	expectReasons(t, reasonsWith(t, &Resolver{HelperScope: scope}, dir, "other/handlers/Main.cfc"), map[string]string{
+		"orphanHelp": "no qualifier, not in file",
+	})
+}
+
 // TestWheelsGlobalsReachEveryControllerModelAndView: Wheels includes the
 // application's global/functions.cfm into every controller, model and view,
 // and that file includes the rest (the starter app's auth.cfm, logging.cfm).

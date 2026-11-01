@@ -1886,6 +1886,43 @@ project could have written by hand. Three rules hold them together, each with a 
   view's `<view>Helper.cfm`/`<folder>Helper.cfm` — and `findThroughIncludes` tries them last.
   Application helpers are workspace-wide, cached per set of config files. With ColdBox mapped
   into ContentBox it resolves all 40 of the admin module's helper calls.
+- **Preside's checkout is ColdBox with Preside's request context.** Its
+  `tests/Application.cfc` maps `/preside` to the root, which
+  `AssumedProjectMappings` recognises (markers `system/Bootstrap.cfc` and
+  `system/services/PresideSuperClass.cfc`); `config.Assumed` then assumes the
+  coldbox preset and types `event` as
+  `preside.system.coldboxModifications.RequestContextDecorator` ahead of the
+  preset's own. Preside's application helpers are every `.cfm` under
+  `system/helpers` (Config.cfc's computed `_getUdfFiles`), found beside each
+  indexed `system/services/PresideSuperClass.cfc` (`presideHelpers`). Preside
+  went from 15,869 findings to 9,753. A component whose header (doc comment
+  or attributes), or an ancestor's, holds `presideService` gets
+  PresideSuperClass's `$` methods, as Preside's `config/WireBox.cfc` gives
+  them by virtual inheritance (`presideSuperClassFunc`; 9,753 to 8,344). Not
+  yet handled: `setNextEvent`, which Preside's older ColdBox has and the stubs
+  do not (373); the test base's `_getPresideObjectService()`, a request cache
+  under a computed key (849 `poService` calls); and Preside's own
+  `coldboxModifications/Controller` standing in for ColdBox's. `TestAPresideCheckoutIsColdBoxWithPresidesRequestContext`,
+  `TestPresideHelpersReachTheFilesColdBoxMixesThemInto`,
+  `TestAPresideServiceHasPresideSuperClassMethods`.
+- **An argument documented `@arg.inject id` is the component the id names**
+  (`applyInjectDoc`, as an injected property is: `injectedComponent`), and a
+  getter returning a field is what the field is handed when every write of it
+  is `field = arguments.p` in a function whose p is a component, or in a
+  private setter every call to which in the file is a statement passing one
+  whole argument that is (`forwardedFieldReturn`). That is how Preside's
+  services hold every dependency: `_setX( arguments.x )` in init and
+  `_getX().m()` everywhere (8,162 to 7,191). A public setter is not followed,
+  since WireBox may call it.
+  `TestAFieldSetThroughAPrivateSetterIsWhatInitIsHanded`.
+- **A handler has EventHandler whatever it extends** (`virtualBaseFunc`):
+  ColdBox's HandlerService registers every handler with
+  `setVirtualInheritance( "coldbox.system.EventHandler" )`, and
+  InterceptorService every interceptor with `Interceptor`, so a bare call
+  the declared chain does not answer is looked for there. Only those two
+  bases (`virtualBases`): a view's Renderer and a Wheels class stand only
+  for a missing extends. Preside's admin handlers extend an AdminHandler that
+  extends nothing (8,344 to 8,162). `TestAHandlerGetsEventHandlerWhateverItExtends`.
 - **Two presets can claim one name.** CommandBox's `task()` and a ColdBox scheduler's
   `task()` return different things, so CommandBox's preset leaves `task()` alone.
   `TestEveryPresetResolverMatchesItsOwnNames` lists such a case beside each preset's own.

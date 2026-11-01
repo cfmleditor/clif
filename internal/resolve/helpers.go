@@ -1,8 +1,10 @@
 package resolve
 
 import (
+	"io/fs"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/parser"
@@ -191,7 +193,9 @@ func (r *Resolver) applicationHelpers() []string {
 		}
 	}
 
-	key := strings.Join(modules, "\x00") + "\x01" + strings.Join(apps, "\x00")
+	presides := r.presideRoots()
+
+	key := strings.Join(modules, "\x00") + "\x01" + strings.Join(apps, "\x00") + "\x01" + strings.Join(presides, "\x00")
 
 	r.mu.RLock()
 	cached := r.helpers
@@ -212,11 +216,50 @@ func (r *Resolver) applicationHelpers() []string {
 		templates = append(templates, r.helpersIn(a, appHelperRe, filepath.Dir(filepath.Dir(a)))...)
 	}
 
+	for _, root := range presides {
+		templates = append(templates, r.presideHelpers(root)...)
+	}
+
 	r.mu.Lock()
 	r.helpers = &helperSet{key: key, templates: templates}
 	r.mu.Unlock()
 
 	return templates
+}
+
+// presideRoots are the Preside checkouts the index holds, each named by its
+// system directory: the one holding services/PresideSuperClass.cfc.
+func (r *Resolver) presideRoots() []string {
+	var out []string
+
+	for _, p := range r.Index.FindFilesByBasename("PresideSuperClass") {
+		services := filepath.Dir(p)
+		if strings.EqualFold(filepath.Base(services), "services") && strings.EqualFold(filepath.Base(filepath.Dir(services)), "system") {
+			out = append(out, filepath.Dir(services))
+		}
+	}
+
+	return out
+}
+
+// presideHelpers are Preside's application helpers: its config hands ColdBox
+// every template under system/helpers, at any depth (Config.cfc's
+// _getUdfFiles, a DirectoryList of /preside/system/helpers), sorted so the
+// first declaration of a name is the same on every run.
+func (r *Resolver) presideHelpers(system string) []string {
+	var out []string
+
+	_ = r.fs().Walk(filepath.Join(system, "helpers"), func(p string, info fs.FileInfo, err error) error {
+		if err == nil && !info.IsDir() && strings.EqualFold(filepath.Ext(p), ".cfm") {
+			out = append(out, p)
+		}
+
+		return nil
+	})
+
+	slices.Sort(out)
+
+	return out
 }
 
 // helpersIn reads the templates the setting re matches in configFile names,
