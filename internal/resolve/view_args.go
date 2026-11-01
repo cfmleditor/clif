@@ -136,8 +136,20 @@ func (r *Resolver) renderedValueD(value []parser.Token, s viewArgSite, ctx looku
 // which passes null when the value is missing: ContentBox's admin bar is
 // handed `oContent ?: javacast( "null", "" )`, the content or nothing.
 func withoutNullFallback(value []parser.Token) []parser.Token {
-	if q, colon := conditionalAt(value); q >= 0 && colon == q+1 && colon+1 < len(value) && strings.EqualFold(value[colon+1].Value, "javacast") {
-		return value[:q]
+	depth := 0
+
+	for i := range len(value) - 1 {
+		switch value[i].Kind {
+		case parser.TokLParen, parser.TokLBracket, parser.TokLBrace:
+			depth++
+		case parser.TokRParen, parser.TokRBracket, parser.TokRBrace:
+			depth--
+		case parser.TokQuestion:
+			if depth == 0 && value[i+1].Kind == parser.TokColon && i+2 < len(value) && strings.EqualFold(value[i+2].Value, "javacast") {
+				return value[:i]
+			}
+		default:
+		}
 	}
 
 	return value

@@ -1426,19 +1426,43 @@ func (p *tagParser) parseCFReturn(tag string, line, idx int) {
 	if inner == "" {
 		return
 	}
-	// Check for direct new/createObject
+
+	returned := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(inner), "/"))
+
+	// Check for direct new/createObject. A whole construction is read as a
+	// branch of a conditional is (constructionIn: Lucee's java: and cfml:
+	// prefixes, a non-component createObject through the resolvers); the
+	// prefix readers still answer a construction a chain or an operator
+	// follows, as they always have.
 	switch {
 	case hasPrefixFold(inner, "new "):
-		if comp := extractComponentPath(inner[4:]); comp != "" {
+		comp := constructionIn(returned, p.resolveCall, nil)
+		if comp == "" {
+			comp = extractComponentPath(inner[4:])
+		}
+
+		if comp != "" {
 			f.ReturnComponent = unionReturn(f.ReturnComponent, comp)
 		}
 	case hasPrefixFold(inner, "createobject("):
-		if comp := extractCreateObjectArg(inner[13:]); comp != "" {
+		comp := constructionIn(returned, p.resolveCall, nil)
+		if comp == "" {
+			comp = extractCreateObjectArg(inner[13:])
+		}
+
+		if comp != "" {
 			f.ReturnComponent = unionReturn(f.ReturnComponent, comp)
 		}
-	case strings.EqualFold(strings.TrimSuffix(strings.TrimSpace(inner), "/"), "this"):
+	case strings.EqualFold(returned, "this"):
 		f.returnVar = returnsThis
 	default:
+		// `flag ? new A() : new B()` returns one or the other, as in script.
+		if comp := conditionalConstructions(returned, p.resolveCall, nil); comp != "" {
+			f.ReturnComponent = unionReturn(f.ReturnComponent, comp)
+
+			return
+		}
+
 		// return varName — store for deferred resolution. A name read
 		// through variables. or this. is the component's, and is read from
 		// that scope's refs alone, as the script parser reads it.
@@ -2695,7 +2719,7 @@ func (p *tagParser) mergeExpressionCalls(expr string, line int, topUp, spanLines
 	for _, in := range sub.instantiationsFound() {
 		if wrapped && knownOrigin {
 			// Counted from the wrapper's start, as its calls' spans are.
-			in.at += origin - len("function "+memberSetWrapper+"(){")
+			in.at += origin - len(memberSetPrefix)
 		}
 
 		if !slices.Contains(p.instantiations, in) {
@@ -2818,7 +2842,7 @@ func hasMemberSetShape(expr string) bool {
 // expression with: wrapped in a function, so it goes through the script
 // parser's body path.
 func (p *tagParser) memberSetParser(expr string, line int) *scriptParser {
-	sub := newScriptParser("function "+memberSetWrapper+"(){"+expr+"}", p.fileURI, line, p.resolvers).asCFScript()
+	sub := newScriptParser(memberSetPrefix+expr+"}", p.fileURI, line, p.resolvers).asCFScript()
 	sub.resolverSet = p.resolverSet
 
 	return sub
@@ -2826,6 +2850,9 @@ func (p *tagParser) memberSetParser(expr string, line int) *scriptParser {
 
 // memberSetWrapper names the function memberSetParser wraps an expression in.
 const memberSetWrapper = "__cfset"
+
+// memberSetPrefix is the text memberSetParser puts before the expression.
+const memberSetPrefix = "function " + memberSetWrapper + "(){"
 
 // keepMemberSets takes the member assignments a memberSetParser found.
 func (p *tagParser) keepMemberSets(sub *scriptParser, origins ...int) {
@@ -2836,7 +2863,7 @@ func (p *tagParser) keepMemberSets(sub *scriptParser, origins ...int) {
 		}
 
 		if c.hasClosureSpan && len(origins) > 0 && origins[0] >= 0 {
-			prefix := len("function " + memberSetWrapper + "(){")
+			prefix := len(memberSetPrefix)
 			if int(c.closureFrom) >= prefix && int(c.closureTo) <= len(sub.sc.src)-1 {
 				c.closureFrom = conv.Uint32(origins[0] + int(c.closureFrom) - prefix)
 				c.closureTo = conv.Uint32(origins[0] + int(c.closureTo) - prefix)

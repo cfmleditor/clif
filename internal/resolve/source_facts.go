@@ -112,6 +112,7 @@ func (r *Resolver) localAssignmentAt(pr *parser.ParseResult, name string, start,
 			rhs = joined
 		}
 
+		rhs = trimAssignmentRHS(withoutLineComment(rhs))
 		if strings.Count(rhs, "(") != strings.Count(rhs, ")") {
 			return "", 0, false
 		}
@@ -140,26 +141,117 @@ func (r *Resolver) localAssignmentIn(pr *parser.ParseResult, name string, start,
 func joinAssignmentLine(rhs, line string, tag bool) (string, bool) {
 	next := trimAssignmentRHS(line)
 
+	// A trailing comment is not code: its `?` is not a conditional's, and
+	// joined after it, the next line would be read as comment too.
+	code := trimAssignmentRHS(withoutLineComment(rhs))
+
 	switch {
-	case strings.Count(rhs, "(") > strings.Count(rhs, ")"):
-		return strings.TrimSpace(rhs + " " + next), true
-	case strings.HasSuffix(rhs, "?") || strings.HasSuffix(rhs, ":") && !strings.HasSuffix(rhs, "::") ||
+	case strings.Count(code, "(") > strings.Count(code, ")"):
+		return strings.TrimSpace(code + " " + next), true
+	case strings.HasSuffix(code, "?") || strings.HasSuffix(code, ":") && !strings.HasSuffix(code, "::") ||
 		strings.HasPrefix(next, "?") || strings.HasPrefix(next, ":") && !strings.HasPrefix(next, "::"):
 		// A conditional written a branch to a line.
 		if tag {
 			next = trimAssignmentRHS(strings.TrimSuffix(next, ">"))
 		}
 
-		return rhs + " " + next, true
+		return code + " " + next, true
 	case strings.HasPrefix(next, ".") && !strings.HasPrefix(next, ".."):
 		if tag {
 			next = trimAssignmentRHS(strings.TrimSuffix(next, ">"))
 		}
 
-		return rhs + next, true
+		return code + next, true
 	default:
 		return rhs, false
 	}
+}
+
+// withoutLineComment is s without a trailing `//` comment. Strings are
+// stepped over as CFScript writes them: a doubled quote stays inside, and a
+// `#...#` in one is an expression whose own strings may hold `//`. A
+// `/* … */` comment is stepped over too, so a quote in it opens nothing.
+func withoutLineComment(s string) string {
+	if !strings.Contains(s, "//") {
+		return s
+	}
+
+	if at, _, _ := lineCommentAt(s, 0, 0); at >= 0 {
+		return s[:at]
+	}
+
+	return s
+}
+
+// maxCommentScanNesting bounds the strings inside interpolations
+// lineCommentAt follows, as maxStringNesting does the scanner's.
+const maxCommentScanNesting = 16
+
+// lineCommentAt is the offset in s of the first `//` comment from i, or -1,
+// and where the scan stopped. With depth > 0 it is inside a `#...#`, ends at
+// its closing `#` (closed) and finds no comment.
+func lineCommentAt(s string, i, depth int) (comment, end int, closed bool) {
+	for i < len(s) {
+		switch c := s[i]; {
+		case depth > 0 && c == '#':
+			return -1, i + 1, true
+		case c == '"' || c == '\'':
+			i = stringEnd(s, i+1, c, depth)
+		case c == '/' && i+1 < len(s) && s[i+1] == '*':
+			j := strings.Index(s[i+2:], "*/")
+			if j < 0 {
+				return -1, len(s), false
+			}
+
+			i += j + 4
+		case depth == 0 && c == '/' && i+1 < len(s) && s[i+1] == '/':
+			return i, i, false
+		default:
+			i++
+		}
+	}
+
+	return -1, len(s), false
+}
+
+// stringEnd is the offset just past the string whose body starts at i.
+func stringEnd(s string, i int, quote byte, depth int) int {
+	for i < len(s) {
+		switch s[i] {
+		case quote:
+			if i+1 < len(s) && s[i+1] == quote {
+				i += 2
+
+				continue
+			}
+
+			return i + 1
+		case '#':
+			if i+1 < len(s) && s[i+1] == '#' {
+				i += 2
+
+				continue
+			}
+
+			// A `#` whose expression never closes is a lone hash, which
+			// Lucee tolerates (`"# Report"`): a character of the string.
+			if depth >= maxCommentScanNesting {
+				i++
+
+				continue
+			}
+
+			if _, end, closed := lineCommentAt(s, i+1, depth+1); closed {
+				i = end
+			} else {
+				i++
+			}
+		default:
+			i++
+		}
+	}
+
+	return i
 }
 
 func trimAssignmentRHS(text string) string {

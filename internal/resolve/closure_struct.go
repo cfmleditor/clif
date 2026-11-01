@@ -346,8 +346,14 @@ func returnKind(tokens []parser.Token, from, end int, pr *parser.ParseResult) re
 		}
 	}
 
-	if question, colon := conditionalAt(tokens[from:stop]); question >= 0 && colon > question {
-		a, b := headKind(tokens, from+question+1, pr), headKind(tokens, from+colon+1, pr)
+	if question, colon := parser.ConditionalAt(tokens[from:stop]); question >= 0 && colon > question {
+		// `a ?: b` is a or b; `c ? a : b` is a or b.
+		aFrom := from + question + 1
+		if colon == question+1 {
+			aFrom = from
+		}
+
+		a, b := headKind(tokens, aFrom, pr), headKind(tokens, from+colon+1, pr)
 		if a == retOther || b == retOther {
 			return retOther
 		}

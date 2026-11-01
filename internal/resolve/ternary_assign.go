@@ -37,7 +37,7 @@ func ternaryBranches(rhs string) ([]string, bool) {
 
 	tokens := significantTokens(rhs)
 
-	q, colon := conditionalAt(tokens)
+	q, colon := parser.ConditionalAt(tokens)
 	if q <= 0 || colon < 0 {
 		return nil, false
 	}
@@ -73,75 +73,10 @@ func ternaryBranches(rhs string) ([]string, bool) {
 	return out, true
 }
 
-// conditionalAt finds the top-level conditional in tokens: q is its `?` and
-// colon the `:` that closes it, which is q+1 for `a ?: b`. Either is -1 when
-// tokens hold no complete conditional at depth 0. It is the one reading of
-// `?`, `:` and `?:` the resolver's rules share.
-func conditionalAt(tokens []parser.Token) (q, colon int) {
-	q = -1
-	depth := 0
-
-	for i, t := range tokens {
-		switch t.Kind {
-		case parser.TokLParen, parser.TokLBracket, parser.TokLBrace:
-			depth++
-		case parser.TokRParen, parser.TokRBracket, parser.TokRBrace:
-			depth--
-		case parser.TokQuestion:
-			if depth == 0 && q < 0 {
-				q = i
-			}
-		default:
-		}
-	}
-
-	if q < 0 || q+1 >= len(tokens) {
-		return q, -1
-	}
-
-	if tokens[q+1].Kind == parser.TokColon {
-		return q, q + 1
-	}
-
-	return q, ternaryColon(tokens, q)
-}
-
-// ternaryColon is the index of the `:` closing the `?` at q, stepping over
-// brackets and over the `? :` of a conditional nested in the first branch,
-// or -1.
-func ternaryColon(tokens []parser.Token, q int) int {
-	depth, pending := 0, 0
-
-	for i := q + 1; i < len(tokens); i++ {
-		switch tokens[i].Kind {
-		case parser.TokLParen, parser.TokLBracket, parser.TokLBrace:
-			depth++
-		case parser.TokRParen, parser.TokRBracket, parser.TokRBrace:
-			depth--
-		case parser.TokQuestion:
-			if depth == 0 {
-				pending++
-			}
-		case parser.TokColon:
-			if depth != 0 {
-				continue
-			}
-
-			if pending == 0 {
-				return i
-			}
-
-			pending--
-		default:
-		}
-	}
-
-	return -1
-}
-
-// nullCastRe is `javacast( "null", … )`, the null a conditional falls back to
-// (`prc.x = rc.x ?: javacast( "null", "" )`).
-var nullCastRe = regexp.MustCompile(`(?i)^javacast\s*\(\s*["']null["']`)
+// nullCastRe is a null a conditional falls back to, however it is written:
+// `javacast( "null", … )` (`prc.x = rc.x ?: javacast( "null", "" )`), Lucee's
+// `nullValue()`, or the `null` literal.
+var nullCastRe = regexp.MustCompile(`(?i)^(?:javacast\s*\(\s*["']null["']|nullvalue\s*\(\s*\)$|null$)`)
 
 // sameVariable reports whether branch names variable, either spelling with
 // or without the variables scope.
