@@ -50,6 +50,11 @@ func assumedFrameworks(roots []string, read func(string) ([]byte, error), direct
 			case "mura":
 				owner = filepath.Dir(filepath.Dir(target))
 				presets["mura"] = true
+			case "commandbox":
+				// CommandBox's own source: its commands, tasks and services
+				// are written against the preset's print buffer and WireBox ids.
+				owner = filepath.Dir(filepath.Dir(target))
+				presets["commandbox"] = true
 			default:
 				continue
 			}
