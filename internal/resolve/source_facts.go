@@ -24,9 +24,23 @@ type lexicalSourceFacts struct {
 func scanSourceFacts(content string) lexicalSourceFacts {
 	facts := lexicalSourceFacts{starts: []int{0}}
 	line, from := 0, 0
+
+	// The last character of the last line holding any: after a `(` or a
+	// `,` the line goes on an argument list, and `name = x` on it is a named
+	// argument, not an assignment. Preside's handlers pass
+	// `event = "admin.x"` to runEvent() a line each.
+	var prevEnd byte
+
 	addAssignment := func(end int) {
-		if name, rhs, ok := matchSourceAssignment(content[from:end]); ok {
-			facts.assignments = append(facts.assignments, sourceAssignment{line: line, name: name, rhs: rhs})
+		text := strings.TrimRight(content[from:end], " \t\r")
+		if prevEnd != '(' && prevEnd != ',' {
+			if name, rhs, ok := matchSourceAssignment(content[from:end]); ok {
+				facts.assignments = append(facts.assignments, sourceAssignment{line: line, name: name, rhs: rhs})
+			}
+		}
+
+		if strings.TrimLeft(text, " \t") != "" {
+			prevEnd = text[len(text)-1]
 		}
 	}
 

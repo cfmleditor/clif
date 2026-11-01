@@ -58,3 +58,34 @@ func TestTheAssignmentTableAnswersAsTheLineWalkDid(t *testing.T) {
 		}
 	}
 }
+
+// TestANamedArgumentOnItsOwnLineIsNotAnAssignment: Preside's handlers call
+// runEvent() with an argument a line, `event = "admin.x"` among them, and the
+// table read that line as an assignment to event, which then typed `event` in
+// another function of the component as a string. A line after one ending in
+// `(` or `,` continues an argument list.
+func TestANamedArgumentOnItsOwnLineIsNotAnAssignment(t *testing.T) {
+	content := `component {
+	function a() {
+		var rendered = runEvent(
+			  event   = "admin.x"
+			, private = true
+		);
+		var later = "y";
+	}
+}`
+	pr := parser.ParseWithOptions("file:///w/a.cfc", content, &parser.ParseOptions{})
+	r := &Resolver{}
+
+	for _, name := range []string{"event", "private"} {
+		if rhs, _, ok := r.localAssignmentAt(pr, name, 0, 9); ok {
+			t.Errorf("%s: read as assigned %q", name, rhs)
+		}
+	}
+
+	for _, name := range []string{"rendered", "later"} {
+		if _, _, ok := r.localAssignmentAt(pr, name, 0, 9); !ok {
+			t.Errorf("%s: assignment not found", name)
+		}
+	}
+}
