@@ -1,6 +1,12 @@
 package resolve
 
-import "testing"
+import (
+	"path/filepath"
+	"testing"
+
+	"github.com/cfmleditor/clif/internal/parser"
+	cfpath "github.com/cfmleditor/clif/internal/path"
+)
 
 // TestABaseComponentsVariableIsWhatItsSubclassesHold: an abstract component
 // calls variables.svc and never assigns it; the receiver is typed by what every
@@ -54,4 +60,41 @@ function shadowed(){
 	expectReasons(t, reasonsWith(t, &Resolver{}, dir, "h/Top.cfc"), map[string]string{
 		"variables.svc.pageOnly": "",
 	})
+}
+
+// TestLeafSubclassesIsCachedButNotShared: the leaves of a base are memoised,
+// since every unanswered bare call in the base asks for them (tassweb's scan
+// took twice as long without it). A caller narrowing the list in place must
+// not narrow what the next caller gets, and a subclass indexed later is seen.
+func TestLeafSubclassesIsCachedButNotShared(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{
+		"h/Base.cfc": `component { function run(){ variables.svc.go(); } }`,
+		"h/A.cfc":    `component extends="Base" {}`,
+		"h/B.cfc":    `component extends="Base" {}`,
+	})
+
+	r := &Resolver{}
+	reasonsWith(t, r, dir, "h/Base.cfc")
+
+	base := filepath.Join(dir, "h", "Base.cfc")
+
+	first := r.leafSubclasses(base)
+	if len(first) != 2 {
+		t.Fatalf("leaves = %v, want A and B", first)
+	}
+
+	first[0] = "changed"
+
+	if again := r.leafSubclasses(base); len(again) != 2 || again[0] == "changed" {
+		t.Fatalf("a caller's edit reached the cache: %v", again)
+	}
+
+	c := filepath.Join(dir, "h", "C.cfc")
+	src := `component extends="Base" {}`
+	r.Index.IndexParsed(cfpath.ToURI(c), src, parser.Parse(cfpath.ToURI(c), src))
+
+	if later := r.leafSubclasses(base); len(later) != 3 {
+		t.Fatalf("a subclass indexed later is missing: %v", later)
+	}
 }

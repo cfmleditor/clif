@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/parser"
@@ -98,6 +99,34 @@ func (r *Resolver) leafSubclasses(base string) []string {
 		return nil
 	}
 
+	// Every bare call no file or chain answers asks this of its file, and the
+	// walk scans the extends map once per component under the base.
+	o := r.owner()
+	key := pathKey(base) + "\x00" + strconv.FormatUint(r.Index.Generation(), 10)
+
+	o.mu.RLock()
+	leaves, ok := o.leafSubs[key]
+	o.mu.RUnlock()
+
+	// A copy: a caller narrows the list in place (subclassComponent).
+	if ok {
+		return slices.Clone(leaves)
+	}
+
+	leaves = r.leafSubclassesUncached(base)
+
+	o.mu.Lock()
+	if o.leafSubs == nil || len(o.leafSubs) >= 8192 {
+		o.leafSubs = map[string][]string{}
+	}
+
+	o.leafSubs[key] = leaves
+	o.mu.Unlock()
+
+	return slices.Clone(leaves)
+}
+
+func (r *Resolver) leafSubclassesUncached(base string) []string {
 	all := []string{base}
 
 	for i := 0; i < len(all) && len(all) <= maxSubclasses; i++ {

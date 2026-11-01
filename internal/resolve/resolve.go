@@ -144,8 +144,10 @@ type pathCaches struct {
 	muraSitesBuilt      bool                                // muraSites has been read
 	muraSets            map[muraSetsKey]bool                // template, name and scope → the template sets it (muraTemplateSets)
 	collectionFields    map[string]string                   // file, field and index generation → emptyCollectionField's kind
+	leafSubs            map[string][]string                 // base file and index generation → leafSubclasses
 	tagSites            map[string][]customTagSite          // custom tag name → the tags calling it (customTagSites)
 	tagTemplates        map[string]int                      // custom tag name → how many templates answer to it
+	tagSitesBuild       sync.Mutex                          // one customTagSites build at a time
 	interceptSiteList   []interceptSite                     // the workspace's announces (interceptSites)
 	interceptSitesBuilt bool                                // interceptSiteList has been read
 	handoffs            handoffIndex                        // handler actions by the view each renders (viewActions)

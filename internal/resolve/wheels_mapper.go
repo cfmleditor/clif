@@ -266,6 +266,8 @@ type sourceDerived struct {
 	startup       []parser.StartupVariableAssignment
 	fieldsOnce    sync.Once
 	fields        variablesReferences
+	tagBodiesOnce sync.Once
+	tagBodies     map[string]string
 }
 
 // requestWriteCounts is how many statements in the source write each request

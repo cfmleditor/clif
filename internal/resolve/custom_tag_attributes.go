@@ -3,8 +3,10 @@ package resolve
 import (
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
@@ -115,44 +117,72 @@ func (r *Resolver) customTagAttribute(variable string, pr *parser.ParseResult, t
 
 // customTagSites are the workspace's custom tag calls by tag name, and how
 // many templates answer to each name, read once per scan from the batch file
-// list.
+// list. One goroutine builds it while the others wait: every scan worker asks
+// at once, and each reading the whole workspace for itself took 5s of tassweb's
+// scan. The files are read in parallel.
 func (r *Resolver) customTagSites() (map[string][]customTagSite, map[string]int) {
 	o := r.owner()
 
-	o.mu.RLock()
-	sites, templates := o.tagSites, o.tagTemplates
-	o.mu.RUnlock()
-
-	if sites != nil {
+	if sites, templates, ok := o.cachedTagSites(); ok {
 		return sites, templates
 	}
 
-	sites, templates = map[string][]customTagSite{}, map[string]int{}
+	o.tagSitesBuild.Lock()
+	defer o.tagSitesBuild.Unlock()
 
-	for _, file := range o.InferArgsFiles {
+	if sites, templates, ok := o.cachedTagSites(); ok {
+		return sites, templates
+	}
+
+	files := o.InferArgsFiles
+	found := make([]map[string][]customTagSite, len(files))
+
+	var wg sync.WaitGroup
+
+	work := make(chan int)
+
+	for range runtime.GOMAXPROCS(0) {
+		wg.Go(func() {
+			for i := range work {
+				text, err := r.readText(files[i])
+				if err == nil && (parser.IndexFold(text, "<cf_") >= 0 || parser.IndexFold(text, "<cfmodule") >= 0) {
+					found[i] = customTagCallsIn(text, files[i])
+				}
+			}
+		})
+	}
+
+	for i := range files {
+		work <- i
+	}
+
+	close(work)
+	wg.Wait()
+
+	sites, templates := map[string][]customTagSite{}, map[string]int{}
+
+	for i, file := range files {
 		if strings.EqualFold(filepath.Ext(file), ".cfm") {
 			templates[strings.ToLower(strings.TrimSuffix(filepath.Base(file), filepath.Ext(file)))]++
 		}
 
-		text, err := r.readText(file)
-		if err != nil || parser.IndexFold(text, "<cf_") < 0 && parser.IndexFold(text, "<cfmodule") < 0 {
-			continue
-		}
-
-		for tag, found := range customTagCallsIn(text, file) {
-			sites[tag] = append(sites[tag], found...)
+		for tag, calls := range found[i] {
+			sites[tag] = append(sites[tag], calls...)
 		}
 	}
 
 	o.mu.Lock()
-	if o.tagSites == nil {
-		o.tagSites, o.tagTemplates = sites, templates
-	}
-
-	sites, templates = o.tagSites, o.tagTemplates
+	o.tagSites, o.tagTemplates = sites, templates
 	o.mu.Unlock()
 
 	return sites, templates
+}
+
+func (r *Resolver) cachedTagSites() (map[string][]customTagSite, map[string]int, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	return r.tagSites, r.tagTemplates, r.tagSites != nil
 }
 
 // customTagCallsIn reads the custom tag calls in content: `<cf_name …>`, and
