@@ -80,3 +80,30 @@ func TestAStructDefaultIsSetAsideByItsOwnContract(t *testing.T) {
 		}
 	}
 }
+
+// TestAStructDefaultNothingReplacesKeepsItsMembers: with no later assignment,
+// the StructNew() default is what the variable holds, so a struct member the
+// doc sources record (sort, keyTranslate) is its method. Lucee's structsort
+// test calls `myNumb.sort()` on one.
+func TestAStructDefaultNothingReplacesKeepsItsMembers(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{
+		"Use.cfc": `component {
+function run() {
+	variables.myNumb = StructNew();
+	myNumb.sort( "numeric" );
+	myNumb.buildAdminLink();
+}
+}`,
+	})
+
+	r := &Resolver{}
+	got := reasonsWithOptions(t, r, dir, "Use.cfc", func(file string, o *parser.ParseOptions) {
+		o.BuiltinReturnLookup = r.BuiltinReturnLookupFor(file)
+	})
+
+	expectReasons(t, got, map[string]string{
+		"myNumb.sort":           "",
+		"myNumb.buildAdminLink": "variable 'myNumb' has no component ref",
+	})
+}
