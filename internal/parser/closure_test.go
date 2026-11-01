@@ -173,6 +173,37 @@ func TestMocksAndUnstubbedJavaAreDynamic(t *testing.T) {
 	}
 }
 
+// TestAReturnedMockIsTheMockAnAssignedOneIs: `var x = getMockBox().createMock(
+// … )` is a mock, and a helper returning the same call returned nothing, so
+// every test calling the helper had an untyped variable: 195 calls over
+// Preside's tests, which build each service under test that way. A returned
+// call that is not a mock's says nothing new.
+func TestAReturnedMockIsTheMockAnAssignedOneIs(t *testing.T) {
+	src := `component {
+	private function a() { return getMockBox().createMock( object=new models.User() ); }
+	private function b() {
+		return createMock( "models.User" );
+	}
+	private function c() { return prepareMock( entityNew( "User" ) ); }
+	private function d() { return getHelper().build( x ); }
+}`
+	pr := ParseWithOptions(testURI, src, &ParseOptions{})
+
+	for name, want := range map[string]string{"a": "$any", "b": MockPrefix + "models.User", "c": "$any", "d": ""} {
+		got := "(missing)"
+
+		for i := range pr.Funcs {
+			if pr.Funcs[i].Name == name {
+				got = pr.Funcs[i].ReturnComponent
+			}
+		}
+
+		if got != want {
+			t.Errorf("%s returns %q, want %q", name, got, want)
+		}
+	}
+}
+
 // TestASiblingClosuresLocalDoesNotStandForThisOne: each test in a spec
 // declares its own `t`, and a `t` typed after the parse — from a call's
 // return type — was skipped when any closure in the function already had a
