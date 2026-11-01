@@ -43,7 +43,11 @@ type metadataCache struct {
 
 const (
 	contentFileLimit = 2 << 20
-	contentBudget    = 128 << 20
+	// contentBudget holds the whole of tassweb's 141MB of source: at 128MB the
+	// files read last were opened again by every lookup that wanted them, and
+	// the larger budget took a scan 0.5s of CPU and about 0.1s of wall time
+	// less for 59MB more resident memory.
+	contentBudget = 256 << 20
 )
 
 // ReadFile returns a copy of the cached bytes, so a caller cannot change
