@@ -592,6 +592,15 @@ func (r *Resolver) callIsTo(call *parser.CallSite, hpr *parser.ParseResult, path
 		return r.componentCallIs(comp, call.FuncName, fd, dir), true
 	}
 
+	// A call chained on a bare call is made on what that call returns:
+	// Slatwall's controllers write `getOrderService().addOrderItem( … )`.
+	// Read as a call of the caller's own function, it was never fd's.
+	if call.Variable == "" && len(call.Chain) > 0 && !call.This {
+		if comp := r.typeCallExpr(chainText(call.Chain), call.Line, call.Caller, hpr, dir, lookupCtx{depth: ctx.depth + 1, callers: ctx.callers}, false); comp != "" {
+			return r.componentCallIs(comp, call.FuncName, fd, dir), true
+		}
+	}
+
 	if call.Variable == "" || strings.EqualFold(call.Variable, "this") || strings.EqualFold(call.Variable, "variables") || call.This {
 		return cfpath.SamePath(path, file) || r.descendsFrom(path, file), true
 	}
@@ -618,6 +627,35 @@ func (r *Resolver) callIsTo(call *parser.CallSite, hpr *parser.ParseResult, path
 	}
 
 	return r.componentCallIs(comp, call.FuncName, fd, dir), true
+}
+
+// chainText is a call's Chain written out as the calls it records:
+// getOrderService().getOrder( id ).
+func chainText(chain []string) string {
+	var b strings.Builder
+
+	for i, hop := range chain {
+		if i > 0 {
+			b.WriteByte('.')
+		}
+
+		if expression, ok := parser.CallExpression(hop); ok {
+			b.WriteString(expression)
+
+			continue
+		}
+
+		if property, ok := parser.PropertyName(hop); ok {
+			b.WriteString(property)
+
+			continue
+		}
+
+		b.WriteString(parser.CallHopName(hop))
+		b.WriteString("()")
+	}
+
+	return b.String()
 }
 
 // javaObjectRe is an expression that makes a Java object: createObject with

@@ -1361,12 +1361,14 @@ func (pr *ParseResult) pendingCallComponent(c *pendingCall, funcReturns map[stri
 	// x = inherited(): a method the file does not declare is its base's,
 	// which FuncLookup reaches from the file itself. ContentBox's
 	// services write `var c = newCriteria()`, a method of cborm's
-	// BaseORMService, and c was untyped.
-	if comp == "" && c.baseVar == "" && pr.FuncLookup != nil && pr.URI.IsFile() {
+	// BaseORMService, and c was untyped. `this.inherited()` and
+	// `variables.inherited()` are the same call on the same object.
+	selfCall := c.baseVar == "" || strings.EqualFold(c.baseVar, "this") || strings.EqualFold(c.baseVar, "variables")
+	if comp == "" && selfCall && pr.FuncLookup != nil && pr.URI.IsFile() {
 		comp = pr.FuncLookup(pr.URI.Path(), c.funcName)
 	}
 
-	if comp == "" && c.baseVar == "" && c.expression != "" && pr.FuncLookup != nil && pr.URI.IsFile() {
+	if comp == "" && selfCall && c.expression != "" && pr.FuncLookup != nil && pr.URI.IsFile() {
 		comp = pr.FuncLookup(pr.URI.Path(), CallHop(c.expression))
 	}
 
@@ -2089,6 +2091,8 @@ func (pr *ParseResult) generatePropertyAccessors() {
 			}
 
 			pr.Funcs = append(pr.Funcs, getterDef)
+		} else if pr.Persistent {
+			pr.overriddenRelationshipGetter(getter, &prop)
 		}
 
 		setter := "set" + strings.ToLower(prop.name)
@@ -2131,6 +2135,31 @@ func (pr *ParseResult) generatePropertyAccessors() {
 			}
 		} else if getterIdx >= 0 && (prop.typeName == "" || strings.EqualFold(prop.typeName, "any")) {
 			pr.Funcs[getterIdx].ReturnComponent = fieldComponents[strings.ToLower(prop.name)]
+		}
+	}
+}
+
+// overriddenRelationshipGetter gives an entity's own getter for a
+// relationship collection the element the generated one would have had: it
+// stands in for the accessor, so it returns the relationship's collection.
+// Slatwall's Product declares `array function getSkus( sorted = false )`,
+// which hands back the skus or a sorted copy of them. Only a getter whose
+// declared type is the collection's (array, or none) is read so.
+func (pr *ParseResult) overriddenRelationshipGetter(getter string, prop *propertyDef) {
+	elem := prop.collectionEntity()
+	if elem == "" {
+		return
+	}
+
+	for i := range pr.Funcs {
+		f := &pr.Funcs[i]
+		if f.Generated || f.ElementComponent != "" || !strings.EqualFold(f.Name, getter) {
+			continue
+		}
+
+		switch strings.ToLower(f.ReturnType) {
+		case "", "any", "array":
+			f.ElementComponent = elem
 		}
 	}
 }
@@ -2284,6 +2313,13 @@ func (pr *ParseResult) propertyFieldComponents() map[string]string {
 	return fieldComponents
 }
 
+// PresideObject is what Preside's presidecms:object:x DSL injects: the
+// object x, decorated by PresideObjectDecorator with the data API its
+// onMissingMethod hands to the PresideObjectService. The decorator stands
+// for it, as the resolver's answer for getObject() does; without Preside's
+// source a call on it is dynamic (IsSoftComponent).
+const PresideObject = "preside.system.services.presideObjects.PresideObjectDecorator"
+
 // injectedComponent is the component a WireBox injection names, when no
 // beanPaths entry or propertyResolver said.
 //
@@ -2314,8 +2350,24 @@ func injectedComponent(inject string) string {
 		id = id[len(p):]
 	}
 
+	// So does Preside's delayedInjector:x (config/WireBox.cfc maps the DSL):
+	// it injects a DelayedInjector, whose onMissingMethod hands every call
+	// to the instance x names once it is first used. Only a model id: what
+	// a DSL name like `coldbox` is depends on the application (Preside runs
+	// its own controller), so it is left to the resolvers, as it was.
+	if p := "delayedInjector:"; len(id) > len(p) && strings.EqualFold(id[:len(p)], p) {
+		id = id[len(p):]
+		if dslComponent(id) != "" || strings.Contains(id, ":") {
+			return ""
+		}
+	}
+
 	if c := dslComponent(id); c != "" {
 		return c
+	}
+
+	if p := "presidecms:object:"; len(id) > len(p) && strings.EqualFold(id[:len(p)], p) {
+		return PresideObject
 	}
 
 	for _, prefix := range []string{"id:", "model:"} {
@@ -2396,6 +2448,10 @@ var coldboxModels = map[string]string{
 // isInjectedFrameworkComponent reports whether comp is one of
 // InjectedFrameworkComponents.
 func isInjectedFrameworkComponent(comp string) bool {
+	if strings.EqualFold(comp, PresideObject) {
+		return true
+	}
+
 	if len(comp) <= len(coldboxSystem) || !strings.EqualFold(comp[:len(coldboxSystem)], coldboxSystem) {
 		return false
 	}

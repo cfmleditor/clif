@@ -1288,7 +1288,8 @@ func (pr *ParseResult) collectionValueSource(expression, function string, locals
 			continue
 		}
 
-		if c.baseVar != "" {
+		switch {
+		case c.baseVar != "":
 			ref := firstRefIn(pr.funcRefsMap[function], c.baseVar, c.baseScope)
 			if ref == nil && c.baseScope == RefAny && locals[function+"\t"+strings.ToLower(c.baseVar)] {
 				return ReturnSource{}
@@ -1301,8 +1302,15 @@ func (pr *ParseResult) collectionValueSource(expression, function string, locals
 			if ref != nil {
 				return ReturnSource{Component: pr.settledComponent(ref), Methods: append([]string{collectionCallHop(c)}, c.rest...)}
 			}
-		} else if pr.declaresFunction(c.funcName) {
+		case pr.declaresFunction(c.funcName):
 			return ReturnSource{Component: pr.URI.Path(), Methods: append([]string{collectionCallHop(c)}, c.rest...)}
+		case pr.BuiltinReturnLookup != nil:
+			// A native global the file does not shadow, as a pending call on a
+			// plain variable is typed (resolvePendingCalls): `instance.q =
+			// queryNew( "a" )` is a query.
+			if comp := pr.BuiltinReturnLookup(c.funcName); comp != "" {
+				return ReturnSource{Component: comp, Methods: c.rest}
+			}
 		}
 	}
 

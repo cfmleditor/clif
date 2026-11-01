@@ -340,7 +340,9 @@ func TestMemberFunctionsComeFromTheDocSources(t *testing.T) {
 		{"$builtin.native.string", "reFind", "$any"},
 		{"$builtin.native.string", "lCase", "$builtin.native.string"},
 		{"$builtin.native.string", "listToArray", "$builtin.native.array"},
-		{"$builtin.native.array", "append", "$builtin.native.boolean"},
+		// A mutating member returns its container, so Lucee's chains keep a type.
+		{"$builtin.native.array", "append", "$builtin.native.array"},
+		{"$builtin.native.struct", "insert", "$builtin.native.struct"},
 	} {
 		if ret, ok := LookupBuiltinMethodReturn(c.component, c.method); !ok || ret != c.want {
 			t.Errorf("%s.%s returns %q, %v; want %q", c.component, c.method, ret, ok, c.want)

@@ -46,6 +46,19 @@ type lookupCtx struct {
 // `field = fields[idx]` is the element of the collection the read indexes,
 // whose contract elementOf answers — or "" when the read is not one.
 func (r *Resolver) assignedKeyedElement(variable, rhs string, line uint32, caller string, pr *parser.ParseResult, baseDir string, tr *callTrace, depth int, leaf string) string {
+	// An element of what a call returns: `rc.order.getOrderDeliveries()[ i ]`
+	// is an element of the relationship the getter returns.
+	if m := chainKeyedReadRe.FindStringSubmatch(rhs); m != nil {
+		comp := r.elementOf(m[1], int(line), 0, caller, pr, baseDir, depth+1, leaf)
+		if comp != "" && !strings.HasPrefix(comp, "$") {
+			tr.addf("resolved %q to %q: it is assigned an element of %q, whose elements are %q", variable, comp, m[1], comp)
+
+			return comp
+		}
+
+		return ""
+	}
+
 	if !exactKeyedReadRe.MatchString(rhs) {
 		return ""
 	}
@@ -66,6 +79,9 @@ func (r *Resolver) assignedKeyedElement(variable, rhs string, line uint32, calle
 
 // exactKeyedReadRe is a whole keyed element read: the collection under one
 // key, no chain after it.
+// chainKeyedReadRe is the same read of what a call chain returns.
+var chainKeyedReadRe = regexp.MustCompile(`^([A-Za-z_]\w*(?:\.\w+)*?(?:\.\w+\s*\([^()]*\))+)\s*\[[^\]]*\]$`)
+
 var exactKeyedReadRe = regexp.MustCompile(`^(?:[A-Za-z_]\w*|(?:local|variables|this|arguments)\.[\w.]+)\s*\[[^\]]*\]$`)
 
 // assignedFamily is the family an assignment of the receiver proves over a
@@ -364,7 +380,9 @@ func hopReturns(lookup func(string, string) string, comp string, c chainCall, dy
 		if ret == "" {
 			// What some methods return depends on what they are handed
 			// (Wheels' controller( "name" )); the parse asks the same way.
-			ret = lookup(alt, parser.CallHop(c.name+"("+c.args+")"))
+			// The call is spelled as a resolver matches it: `cart( )` is
+			// `cart()`.
+			ret = lookup(alt, parser.CallHop(c.name+"("+strings.TrimSpace(c.args)+")"))
 		}
 
 		if dynamic && ret == "$any" {

@@ -138,6 +138,7 @@ func TestEveryPresetResolverMatchesItsOwnNames(t *testing.T) {
 		// is ColdBox's own class; a computed id, or a call chained on the
 		// result, is left alone.
 		{"coldbox", `getInstance( "UserService@users" )`, "UserService@users"},
+		{"coldbox", `getModel( "FeedReader@cbfeeds" )`, "FeedReader@cbfeeds"},
 		{"coldbox", `wirebox.getInstance( name = "id:models.UserService" )`, "models.UserService"},
 		{"coldbox", `wirebox.getInstance( name: "id:models.UserService" )`, "models.UserService"},
 		{"coldbox", `getInstance( name: "wirebox:populator" )`, "coldbox.system.core.dynamic.ObjectPopulator"},

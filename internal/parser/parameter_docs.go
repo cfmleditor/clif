@@ -53,7 +53,7 @@ func applyParameterDocs(comment string, args []Argument) {
 // is typed (injectedComponent): WireBox reads an argument's inject metadata
 // from the comment, and Preside's services take every dependency so. A
 // declared component type outranks it, and a DSL injectedComponent does not
-// read (`coldbox:setting:x`, Preside's `delayedInjector:x`) types nothing.
+// read (`coldbox:setting:x`) types nothing.
 func applyInjectDoc(name, value string, args []Argument) {
 	if end := strings.IndexAny(value, " \t\r"); end >= 0 {
 		value = value[:end]

@@ -321,9 +321,13 @@ func guessFamily(observed, families []string) string {
 }
 
 func init() {
-	contracts["array"] = contract(methods(Type("boolean"), "append prepend clear delete deleteat insertat isempty isdefined indexexists resize set sort swap contains containsnocase every some"), methods(Type("numeric"), "len length max min avg median sum find findnocase"), methods(Type("array"), "map filter slice mid reverse duplicate copy merge findall findallnocase"), methods(Type("string"), "tolist"), methods("$any", "first last getat pop shift reduce"), methods(Type("void"), "each"))
+	// A mutating member returns the array, which is what lets Lucee chain
+	// them (`types().append( "blank" ).findNoCase( t )`, spreadsheet-cfml),
+	// though arrayAppend() and the other functions return a boolean.
+	contracts["array"] = contract(methods(Type("array"), "append prepend clear deleteat insertat resize set sort swap"), methods(Type("boolean"), "delete isempty isdefined indexexists contains containsnocase every some"), methods(Type("numeric"), "len length max min avg median sum find findnocase"), methods(Type("array"), "map filter slice mid reverse duplicate copy merge findall findallnocase"), methods(Type("string"), "tolist"), methods("$any", "first last getat pop shift reduce"), methods(Type("void"), "each"))
 
-	contracts["struct"] = contract(methods(Type("boolean"), "keyexists isempty insert delete clear iscasesensitive isordered"), methods(Type("numeric"), "count len"), methods(Type("array"), "keyarray valuearray findkey findvalue"), methods(Type("string"), "keylist toquerystring"), methods(Type("struct"), "copy duplicate filter map append update"), methods("$any", "find get reduce"), methods(Type("void"), "each"))
+	// As for arrays, a mutating member returns the struct.
+	contracts["struct"] = contract(methods(Type("struct"), "insert delete clear"), methods(Type("boolean"), "keyexists isempty iscasesensitive isordered"), methods(Type("numeric"), "count len"), methods(Type("array"), "keyarray valuearray findkey findvalue"), methods(Type("string"), "keylist toquerystring"), methods(Type("struct"), "copy duplicate filter map append update"), methods("$any", "find get reduce"), methods(Type("void"), "each"))
 
 	// Public collection APIs used by Lucee and BoxLang. As with the other
 	// native contracts, this interface does not verify engine availability.

@@ -16,7 +16,7 @@ func TestAHandlerGetsEventHandlerWhateverItExtends(t *testing.T) {
 	dir := t.TempDir()
 	writeFiles(t, dir, map[string]string{
 		"base/AdminHandler.cfc": `component { function adminHelp() {} }`,
-		"handlers/Pages.cfc":    `component extends="base.AdminHandler" { function index() { adminHelp(); runEvent( "x" ); nope(); } }`,
+		"handlers/Pages.cfc":    `component extends="base.AdminHandler" { function index() { adminHelp(); runEvent( "x" ); nope(); getRequestContext().getValue( "x" ); getRequestContext().nope2(); } }`,
 		"models/Base.cfc":       `component {}`,
 		"models/User.cfc":       `component extends="models.Base" { function f() { runEvent( "x" ); } }`,
 	})
@@ -35,6 +35,9 @@ func TestAHandlerGetsEventHandlerWhateverItExtends(t *testing.T) {
 		"adminHelp": "",
 		"runEvent":  "",
 		"nope":      "not found in extends chain",
+		// A chain headed by one of them, as the call alone is.
+		"getRequestContext.getValue": "",
+		"getRequestContext.nope2":    "method 'nope2' not found in coldbox.system.web.context.RequestContext",
 	})
 
 	r = &Resolver{ImplicitExtends: implicit, Mappings: map[string]string{"base": filepath.Join(dir, "base"), "models": filepath.Join(dir, "models")}}

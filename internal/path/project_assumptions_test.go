@@ -20,6 +20,8 @@ func TestProjectLibraryNamespaceAssumptions(t *testing.T) {
 		{"murawrm", "Application.cfc", `component {include "core/appcfc/applicationSettings.cfm";}`, "", []string{"core/mura/configBean.cfc", "core/mura/bean/beanFactory.cfc"}},
 		{"contentbox", "Application.cfc", `component {this.mappings["/contentbox"]=expandPath("./modules/contentbox");}`, "modules/contentbox", []string{"modules/contentbox/ModuleConfig.cfc", "modules/contentbox/models/content/ContentService.cfc"}},
 		{"preside", "tests/Application.cfc", `component {currentDir = GetDirectoryFromPath( GetCurrentTemplatePath() ); this.mappings["/preside"]=currentDir & "../";}`, "", []string{"system/Bootstrap.cfc", "system/services/PresideSuperClass.cfc"}},
+		{"commandbox", "tests/Application.cfc", `component {this.mappings[ '/commandbox' ] = '../src/cfml';}`, "src/cfml", []string{"src/cfml/system/BaseCommand.cfc", "src/cfml/system/Shell.cfc"}},
+		{"wirebox", "tests/Application.cfc", `component {this.mappings[ '/wirebox' ] = '../src/cfml/system/wirebox';}`, "src/cfml/system/wirebox", []string{"src/cfml/system/BaseCommand.cfc", "src/cfml/system/wirebox/system/ioc/Injector.cfc"}},
 	} {
 		for _, mode := range []string{"layout", "missing sentinel", "source override", "dynamic override", "server config"} {
 			t.Run(profile.name+"/"+mode, func(t *testing.T) {
