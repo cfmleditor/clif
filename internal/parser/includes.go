@@ -185,6 +185,14 @@ func includeSiteAt(content string, i int) (IncludeSite, bool) {
 	p := strings.TrimSpace(content[start+from : start+to])
 	if glob, ok := computedNameGlob(p); ok {
 		p = glob
+	} else if glob, dir, ok := listedNameGlob(p); ok {
+		if !listsTemplates(content, dir) {
+			return IncludeSite{}, false
+		}
+
+		p = glob
+	} else if attr, ok := AttributeInclude(p); ok {
+		return IncludeSite{Path: "#attributes." + attr + "#", Offset: start}, true
 	}
 
 	if p == "" || strings.Contains(p, "://") || !isIncludable(p) {
@@ -354,9 +362,7 @@ func computedNameGlob(p string) (string, bool) {
 		return "", false
 	}
 
-	stem := name[:len(name)-len(".cfm")]
-	if stem[0] != '#' || stem[len(stem)-1] != '#' || strings.Count(stem, "#") != 2 ||
-		strings.ContainsAny(dir, "#*\\") || strings.HasPrefix(dir, "/") {
+	if !computedName(dir, name[:len(name)-len(".cfm")]) {
 		return "", false
 	}
 
@@ -365,4 +371,129 @@ func computedNameGlob(p string) (string, bool) {
 	}
 
 	return dir + "*.cfm", true
+}
+
+// computedName reports whether stem is one #...# span and dir a relative,
+// literal directory, as computedNameGlob and listedNameGlob need.
+func computedName(dir, stem string) bool {
+	return len(stem) >= len("#x#") && stem[0] == '#' && stem[len(stem)-1] == '#' && strings.Count(stem, "#") == 2 &&
+		!strings.ContainsAny(dir, "#*\\") && !strings.HasPrefix(dir, "/")
+}
+
+// listedNameGlob reads an include whose whole file name is computed, extension
+// and all, in a written directory — `specs/#file#` — as the glob of that
+// directory's templates, and returns the directory as written. A test suite
+// lists its spec directory and includes each file it finds:
+//
+//	var specs = DirectoryList( ExpandPath( "specs" ), false, "name", "*.cfm" );
+//	for( var file in specs ){ include "specs/#file#"; }
+//
+// The name says nothing about the extension, so the glob holds only when the
+// file lists that directory for templates as well (listsTemplates); without
+// a directory, `#attributes.file#`, it says nothing about where the file is.
+func listedNameGlob(p string) (glob, dir string, ok bool) {
+	dir, name := path.Split(p)
+	if dir == "" || !computedName(dir, name) {
+		return "", "", false
+	}
+
+	return dir + "*.cfm", dir, true
+}
+
+// listsTemplates reports whether content calls directoryList on dir, written
+// as the include writes it and not recursively, filtered to `*.cfm`: the
+// listing that makes listedNameGlob's glob the files the include can name.
+// A <cfdirectory> listing is listingIncludes' to read.
+func listsTemplates(content, dir string) bool {
+	dir = strings.TrimSuffix(strings.TrimPrefix(dir, "./"), "/")
+	if dir == "" {
+		return false
+	}
+
+	const call = "directoryList"
+
+	for i := indexFold(content, call); i >= 0; i = indexFoldFrom(content, call, i+len(call)) {
+		args, ok := callArgs(content, i+len(call))
+		if ok && (strings.Contains(args, `"*.cfm"`) || strings.Contains(args, `'*.cfm'`)) &&
+			quotesDir(args, dir) && !hasWordFold(args, "true") && !hasWordFold(args, "yes") {
+			return true
+		}
+	}
+
+	return false
+}
+
+// callArgs is the text between the parentheses of a call whose name ends at
+// i, bounded by includeWindow; quotes are not stepped over, which a listing's
+// arguments do not need.
+func callArgs(content string, i int) (string, bool) {
+	i = skipRegexpSpace(content, i)
+	if i >= len(content) || content[i] != '(' {
+		return "", false
+	}
+
+	depth := 0
+
+	for j := i; j < min(len(content), i+includeWindow); j++ {
+		switch content[j] {
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 {
+				return content[i+1 : j], true
+			}
+		}
+	}
+
+	return "", false
+}
+
+// quotesDir reports whether args holds dir as a string literal, with or
+// without a leading "./" and a trailing slash.
+func quotesDir(args, dir string) bool {
+	for _, q := range []string{`"`, `'`} {
+		for _, d := range []string{dir, dir + "/", "./" + dir, "./" + dir + "/"} {
+			if indexFold(args, q+d+q) >= 0 {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// hasWordFold reports whether word appears in s as a whole word.
+func hasWordFold(s, word string) bool {
+	for i := indexFold(s, word); i >= 0; i = indexFoldFrom(s, word, i+len(word)) {
+		if wordStartAt(s, i) && wordEndAt(s, i+len(word)) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// AttributeInclude reports the lowercased attribute name of an include whose
+// path is exactly one custom tag attribute, `#attributes.file#`. A custom tag
+// that runs the template it is handed (`<cf_runtest file="core/test_x.cfm">`)
+// includes it into the tag's own variables scope, so what the tag includes
+// beside it is callable from the template. Which templates those are is what
+// the tag's callers pass, which the resolver reads; IncludeSites reports the
+// path in this one spelling so it can.
+func AttributeInclude(p string) (string, bool) {
+	const prefix = "#attributes."
+
+	if len(p) <= len(prefix)+1 || !hasPrefixFold(p, prefix) || p[len(p)-1] != '#' {
+		return "", false
+	}
+
+	name := p[len(prefix) : len(p)-1]
+	for i := range len(name) {
+		if !isWordByte(name[i]) {
+			return "", false
+		}
+	}
+
+	return strings.ToLower(name), true
 }

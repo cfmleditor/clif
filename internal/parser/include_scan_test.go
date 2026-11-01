@@ -12,8 +12,8 @@ import (
 // The expressions the include scanners replaced, and the scan built on them as
 // it was, kept as the reference the scanners must agree with.
 var (
-	refIncludeTagAt       = regexp.MustCompile(`^(?i)<cfinclude\b[^>]*?\btemplate\s*=\s*["']([^"'#]+|(?:[^"'#*\\/][^"'#*\\]*/)?#[^"'#/]+#\.cfm)["']`)
-	refIncludeScriptAt    = regexp.MustCompile(`^(?i)(?:cf)?include\s*\(?\s*(?:template\s*=\s*)?["']([^"'#]+|(?:[^"'#*\\/][^"'#*\\]*/)?#[^"'#/]+#\.cfm)["']`)
+	refIncludeTagAt       = regexp.MustCompile(`^(?i)<cfinclude\b[^>]*?\btemplate\s*=\s*["']([^"'#]+|(?:[^"'#*\\/][^"'#*\\]*/)?#[^"'#/]+#\.cfm|[^"'#*\\/][^"'#*\\]*/#[^"'#/]+#|#attributes\.\w+#)["']`)
+	refIncludeScriptAt    = regexp.MustCompile(`^(?i)(?:cf)?include\s*\(?\s*(?:template\s*=\s*)?["']([^"'#]+|(?:[^"'#*\\/][^"'#*\\]*/)?#[^"'#/]+#\.cfm|[^"'#*\\/][^"'#*\\]*/#[^"'#/]+#|#attributes\.\w+#)["']`)
 	refDirectoryListing   = regexp.MustCompile(`(?is)<cfdirectory\b[^>]*>`)
 	refListingAttr        = regexp.MustCompile(`(?i)\b([a-z]+)\s*=\s*["']([^"']*)["']`)
 	refListingDir         = regexp.MustCompile(`(?i)^#\s*getDirectoryFromPath\s*\(\s*getCurrentTemplatePath\s*\(\s*\)\s*\)\s*#([\w./-]+?)/?$`)
@@ -41,9 +41,20 @@ func includeSitesRegexp(content string) []IncludeSite {
 		p := strings.TrimSpace(content[start+m[2] : start+m[3]])
 		if glob, ok := computedNameGlob(p); ok {
 			p = glob
+		} else if glob, dir, ok := listedNameGlob(p); ok {
+			if !listsTemplates(content, dir) {
+				continue
+			}
+
+			p = glob
 		}
 
-		if p == "" || strings.Contains(p, "://") || !isIncludable(p) {
+		attr, isAttr := AttributeInclude(p)
+		if isAttr {
+			p = "#attributes." + attr + "#"
+		}
+
+		if p == "" || strings.Contains(p, "://") || !isAttr && !isIncludable(p) {
 			continue
 		}
 
@@ -175,38 +186,44 @@ func tagCommentSpans(s string) [][2]int {
 }
 
 var includeSamples = map[string]string{
-	"tag":                     `<cfinclude template="a.cfm">`,
-	"tag upper":               `<CFINCLUDE TEMPLATE = 'b.cfml' >`,
-	"tag later attr":          `<cfinclude x="1" template="c.cfm">`,
-	"tag dynamic":             `<cfinclude template="#x#.cfm">`,
-	"tag dynamic then static": `<cfinclude template="#x#" template="d.cfm">`,
-	"tag computed name":       `<cfinclude template="pages/#x.y#.cfm">`,
-	"tag computed name upper": `<cfinclude template="#x#.CFM">`,
-	"tag computed directory":  `<cfinclude template="#x#/a.cfm">`,
-	"tag computed mapping":    `<cfinclude template="/m/#x#.cfm">`,
-	"tag computed part":       `<cfinclude template="page_#x#.cfm">`,
-	"tag computed two":        `<cfinclude template="#x##y#.cfm">`,
-	"tag computed backslash":  `<cfinclude template="a\#x#.cfm">`,
-	"tag computed both":       `<cfinclude template="#d#/#x#.cfm">`,
-	"tag backslash directory": `<cfinclude template="a\b/#x#.cfm">`,
-	"tag glob directory":      `<cfinclude template="*/#x#.cfm">`,
-	"script computed name":    `include "../v/#local.view#.cfm";`,
-	"script computed cfml":    `include "#view#.cfml";`,
-	"tag no boundary":         `<cfincludex template="e.cfm">`,
-	"tag attr word":           `<cfinclude mytemplate="f.cfm">`,
-	"tag after end":           `<cfinclude a="1"> template="g.cfm"`,
-	"script":                  `include "h.cfm";`,
-	"script paren":            `cfinclude( template = "i.cfm" );`,
-	"script template no eq":   `include template "j.cfm";`,
-	"script mixed quotes":     `include "k.cfm';`,
-	"member":                  `arr.include("l.cfm")`,
-	"ident tail":              `myinclude "m.cfm"`,
-	"comment":                 `<!--- <cfinclude template="n.cfm"> --->`,
-	"url":                     `<cfinclude template="http://x/o.cfm">`,
-	"not cfml":                `<cfinclude template="p.js">`,
-	"spaces in path":          `<cfinclude template=" q.cfm ">`,
-	"open overlapping close":  `<!--- a <!---> <cfinclude template="r.cfm"> ---> <cfinclude template="s.cfm">`,
-	"nested comments":         `<!--- <!--- x ---> <cfinclude template="t.cfm"> ---> <cfinclude template="u.cfm">`,
+	"tag":                      `<cfinclude template="a.cfm">`,
+	"tag upper":                `<CFINCLUDE TEMPLATE = 'b.cfml' >`,
+	"tag later attr":           `<cfinclude x="1" template="c.cfm">`,
+	"tag dynamic":              `<cfinclude template="#x#.cfm">`,
+	"tag dynamic then static":  `<cfinclude template="#x#" template="d.cfm">`,
+	"tag computed name":        `<cfinclude template="pages/#x.y#.cfm">`,
+	"tag computed name upper":  `<cfinclude template="#x#.CFM">`,
+	"tag computed directory":   `<cfinclude template="#x#/a.cfm">`,
+	"tag computed mapping":     `<cfinclude template="/m/#x#.cfm">`,
+	"tag computed part":        `<cfinclude template="page_#x#.cfm">`,
+	"tag computed two":         `<cfinclude template="#x##y#.cfm">`,
+	"tag computed backslash":   `<cfinclude template="a\#x#.cfm">`,
+	"tag computed both":        `<cfinclude template="#d#/#x#.cfm">`,
+	"tag backslash directory":  `<cfinclude template="a\b/#x#.cfm">`,
+	"tag glob directory":       `<cfinclude template="*/#x#.cfm">`,
+	"script computed name":     `include "../v/#local.view#.cfm";`,
+	"script computed cfml":     `include "#view#.cfml";`,
+	"script listed name":       `include "specs/#file#";`,
+	"script listed and listed": `x = directoryList( expandPath( "specs" ), false, "name", "*.cfm" ); include "specs/#file#";`,
+	"script listed recursive":  `x = directoryList( expandPath( "specs" ), true, "name", "*.cfm" ); include "specs/#file#";`,
+	"tag attribute":            `<cfinclude template="#attributes.file#">`,
+	"tag attribute dotted":     `<cfinclude template="#attributes.a.b#">`,
+	"tag attribute upper":      `<CFINCLUDE TEMPLATE="#Attributes.File#">`,
+	"tag no boundary":          `<cfincludex template="e.cfm">`,
+	"tag attr word":            `<cfinclude mytemplate="f.cfm">`,
+	"tag after end":            `<cfinclude a="1"> template="g.cfm"`,
+	"script":                   `include "h.cfm";`,
+	"script paren":             `cfinclude( template = "i.cfm" );`,
+	"script template no eq":    `include template "j.cfm";`,
+	"script mixed quotes":      `include "k.cfm';`,
+	"member":                   `arr.include("l.cfm")`,
+	"ident tail":               `myinclude "m.cfm"`,
+	"comment":                  `<!--- <cfinclude template="n.cfm"> --->`,
+	"url":                      `<cfinclude template="http://x/o.cfm">`,
+	"not cfml":                 `<cfinclude template="p.js">`,
+	"spaces in path":           `<cfinclude template=" q.cfm ">`,
+	"open overlapping close":   `<!--- a <!---> <cfinclude template="r.cfm"> ---> <cfinclude template="s.cfm">`,
+	"nested comments":          `<!--- <!--- x ---> <cfinclude template="t.cfm"> ---> <cfinclude template="u.cfm">`,
 	"listing": `<cfdirectory action="list" directory="#getDirectoryFromPath(getCurrentTemplatePath())#dbUpdates" name="rsUpdates" filter="*.cfm">` +
 		`<cfloop query="rsUpdates"><cfinclude template="dbUpdates/#rsUpdates.name#"></cfloop>`,
 	"listing spaced": `<CFDIRECTORY ACTION='list' DIRECTORY='# getDirectoryFromPath ( getCurrentTemplatePath ( ) ) #up/' NAME='q' FILTER='*.cfm'>` +
