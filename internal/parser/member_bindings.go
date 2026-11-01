@@ -31,6 +31,20 @@ func MemberReceiverName(variable string) (string, RefScope, bool) {
 	}
 }
 
+// memberValueKept reports whether a value that is not a component path still
+// types a member: a dynamic one, or a native or built-in one. Not a struct:
+// that is the placeholder a component is so often handed in for (tassweb's
+// `<cfparam name="attributes.displayFormatObject" type="struct"
+// default="#StructNew()#">`, which callers pass a component through), and a
+// member has no later assignment to set it aside for (nativeDefaultOverwritten).
+func memberValueKept(component string) bool {
+	if component == NativeTypePrefix+"struct" || strings.EqualFold(component, "$builtin.structnew") {
+		return false
+	}
+
+	return component == "$any" || strings.HasPrefix(component, "$builtin.")
+}
+
 // Explicit writes type one member, never its whole container. Conflicting or
 // unknown writes and parent replacements withhold the member's component.
 // applyMemberBindings types the members a component assigns. hasBindings is
@@ -78,8 +92,13 @@ func (pr *ParseResult) applyMemberBindings(hasBindings bool) {
 			continue
 		}
 
+		// A dynamic value ($any) and a native or built-in one ($builtin.…)
+		// are what a plain variable assigned the same expression holds, so a
+		// member holds them too: cbi18n's `instance.timeZone =
+		// createObject( "java", "java.util.TimeZone" )`. Only an unknown write
+		// withholds the member.
 		source := pr.memberValueSource(w.expression, w.function, locals)
-		if w.unknown || source.Component == "" || strings.HasPrefix(source.Component, "$") {
+		if w.unknown || source.Component == "" || strings.HasPrefix(source.Component, "$") && !memberValueKept(source.Component) {
 			n.invalid = true
 
 			continue
@@ -301,7 +320,7 @@ func (pr *ParseResult) memberSourceComponent(node *collectionNode) string {
 			component = dynamicIfTyped(component, source.Methods)
 		}
 
-		if component == "" || strings.HasPrefix(component, "$") || answer != "" && !strings.EqualFold(answer, component) {
+		if component == "" || strings.HasPrefix(component, "$") && !memberValueKept(component) || answer != "" && !strings.EqualFold(answer, component) {
 			return ""
 		}
 
