@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -156,5 +157,55 @@ func TestAssumedCommandBoxContextRequiresHostEvidence(t *testing.T) {
 				t.Fatalf("%s: %v", mode, got)
 			}
 		})
+	}
+}
+
+// TestAPresideCheckoutIsColdBoxWithPresidesRequestContext: Preside's source
+// maps /preside to its own root (tests/Application.cfc, as the Bootstrap every
+// Preside site extends does) and runs on ColdBox without shipping it. Nothing
+// recognised it, so no preset was assumed: `event` was untyped in every
+// handler (2,911 findings) and, once ColdBox's preset typed it, a ColdBox
+// RequestContext lacking Preside's buildAdminLink(). With the checkout
+// recognised, the ColdBox preset is assumed and `event` is Preside's
+// decorator, ahead of the preset's own.
+func TestAPresideCheckoutIsColdBoxWithPresidesRequestContext(t *testing.T) {
+	root := t.TempDir()
+	files := map[string]string{
+		filepath.Join(root, "tests", "Application.cfc"):                    `component { currentDir = GetDirectoryFromPath( GetCurrentTemplatePath() ); this.mappings['/preside'] = currentDir & "../"; }`,
+		filepath.Join(root, "system", "Bootstrap.cfc"):                     `component {}`,
+		filepath.Join(root, "system", "services", "PresideSuperClass.cfc"): `component {}`,
+	}
+
+	read := func(p string) ([]byte, error) {
+		if s, ok := files[p]; ok {
+			return []byte(s), nil
+		}
+
+		return nil, os.ErrNotExist
+	}
+
+	r := Assumed([]string{root}, read)
+	if !slices.Equal(r.Frameworks, []string{"coldbox"}) {
+		t.Fatalf("frameworks = %v, want [coldbox]", r.Frameworks)
+	}
+
+	var event string
+
+	for _, res := range r.ComponentResolvers {
+		if strings.Contains(res.Prefix, "event") && strings.Contains(res.Match, "event") {
+			event = res.Resolve
+
+			break
+		}
+	}
+
+	if event != presideRequestContext {
+		t.Errorf("event resolves to %q first, want %q", event, presideRequestContext)
+	}
+
+	delete(files, filepath.Join(root, "system", "services", "PresideSuperClass.cfc"))
+
+	if got := Assumed([]string{root}, read); len(got.Frameworks) != 0 {
+		t.Errorf("without Preside's markers: frameworks = %v", got.Frameworks)
 	}
 }

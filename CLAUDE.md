@@ -1876,6 +1876,20 @@ project could have written by hand. Three rules hold them together, each with a 
   view's `<view>Helper.cfm`/`<folder>Helper.cfm` — and `findThroughIncludes` tries them last.
   Application helpers are workspace-wide, cached per set of config files. With ColdBox mapped
   into ContentBox it resolves all 40 of the admin module's helper calls.
+- **Preside's checkout is ColdBox with Preside's request context.** Its
+  `tests/Application.cfc` maps `/preside` to the root, which
+  `AssumedProjectMappings` recognises (markers `system/Bootstrap.cfc` and
+  `system/services/PresideSuperClass.cfc`); `config.Assumed` then assumes the
+  coldbox preset and types `event` as
+  `preside.system.coldboxModifications.RequestContextDecorator` ahead of the
+  preset's own. Preside's application helpers are every `.cfm` under
+  `system/helpers` (Config.cfc's computed `_getUdfFiles`), found beside each
+  indexed `system/services/PresideSuperClass.cfc` (`presideHelpers`). Preside
+  went from 15,869 findings to 9,753. Not yet handled: the `$` methods a
+  `@presideService` component gets by WireBox virtual inheritance from
+  PresideSuperClass, and an init argument typed by an `@arg.inject id` doc.
+  `TestAPresideCheckoutIsColdBoxWithPresidesRequestContext`,
+  `TestPresideHelpersReachTheFilesColdBoxMixesThemInto`.
 - **Two presets can claim one name.** CommandBox's `task()` and a ColdBox scheduler's
   `task()` return different things, so CommandBox's preset leaves `task()` alone.
   `TestEveryPresetResolverMatchesItsOwnNames` lists such a case beside each preset's own.

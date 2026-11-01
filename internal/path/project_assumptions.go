@@ -39,6 +39,9 @@ func AssumedProjectMappings(dir string, read func(string) ([]byte, error)) map[s
 			{"mura", "Application.cfc", "core/mura", []string{"core/mura/configBean.cfc", "core/mura/bean/beanFactory.cfc", "core/appcfc/applicationSettings.cfm"}},
 			{"murawrm", "Application.cfc", "", []string{"core/mura/configBean.cfc", "core/mura/bean/beanFactory.cfc", "core/appcfc/applicationSettings.cfm"}},
 			{"contentbox", "Application.cfc", "modules/contentbox", []string{"modules/contentbox/ModuleConfig.cfc", "modules/contentbox/models/content/ContentService.cfc"}},
+			// Preside's own checkout: its test suite maps /preside to the root,
+			// as the Bootstrap every Preside application extends does.
+			{"preside", "tests/Application.cfc", "", []string{"system/Bootstrap.cfc", "system/services/PresideSuperClass.cfc"}},
 		} {
 			if seen[profile.namespace] {
 				continue

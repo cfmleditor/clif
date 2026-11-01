@@ -19,6 +19,7 @@ func TestProjectLibraryNamespaceAssumptions(t *testing.T) {
 		{"mura", "Application.cfc", `component {include "core/appcfc/applicationSettings.cfm";}`, "core/mura", []string{"core/mura/configBean.cfc", "core/mura/bean/beanFactory.cfc"}},
 		{"murawrm", "Application.cfc", `component {include "core/appcfc/applicationSettings.cfm";}`, "", []string{"core/mura/configBean.cfc", "core/mura/bean/beanFactory.cfc"}},
 		{"contentbox", "Application.cfc", `component {this.mappings["/contentbox"]=expandPath("./modules/contentbox");}`, "modules/contentbox", []string{"modules/contentbox/ModuleConfig.cfc", "modules/contentbox/models/content/ContentService.cfc"}},
+		{"preside", "tests/Application.cfc", `component {currentDir = GetDirectoryFromPath( GetCurrentTemplatePath() ); this.mappings["/preside"]=currentDir & "../";}`, "", []string{"system/Bootstrap.cfc", "system/services/PresideSuperClass.cfc"}},
 	} {
 		for _, mode := range []string{"layout", "missing sentinel", "source override", "dynamic override", "server config"} {
 			t.Run(profile.name+"/"+mode, func(t *testing.T) {
