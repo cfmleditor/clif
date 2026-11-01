@@ -973,6 +973,10 @@ func (r *Resolver) lookupFuncUncached(cfcPath, funcName string, depth int) *pars
 		}
 	}
 
+	if d := r.presideSuperClassFunc(chain, funcName, depth); d != nil {
+		return d
+	}
+
 	// A Wheels association's methods: `hasMany( "comments" )` in config()
 	// gives the model comments(), commentCount(), newComment() and the rest.
 	if len(chain) > 0 && r.isWheelsModel(chain[0]) {
@@ -2060,11 +2064,27 @@ func (r *Resolver) resolveBareCall(call *parser.CallSite, pr *parser.ParseResult
 		}
 	}
 
+	if def, base := r.virtualBaseFunc(pr, funcName); def != nil {
+		tr.hit(TargetExtends, base, def)
+		tr.addf("found %q on %s, which the framework gives this component by virtual inheritance", funcName, base)
+
+		return ""
+	}
+
 	if def := r.delegatedFunc(pr.Delegates, baseDir, funcName, 0); def != nil {
 		tr.hit(TargetExtends, "", def)
 		tr.addf("found %q among the methods a WireBox delegate gives this component", funcName)
 
 		return ""
+	}
+
+	if pr.URI.IsFile() && strings.HasPrefix(funcName, "$") {
+		if def := r.presideSuperClassFunc(r.extendsChainOf(pr.URI.Path()), funcName, 0); def != nil {
+			tr.hit(TargetExtends, "", def)
+			tr.addf("found %q on PresideSuperClass, which Preside's WireBox gives a presideService component", funcName)
+
+			return ""
+		}
 	}
 
 	if def, via := r.findThroughIncludes(pr, funcName); def != nil {
