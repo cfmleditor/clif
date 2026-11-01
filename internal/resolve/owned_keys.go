@@ -182,7 +182,7 @@ func (r *Resolver) prefixComponent(prefix string) string {
 // prefix stores, or "".
 func (r *Resolver) prefixFactoryIn(file, prefix string) string {
 	source := r.sourceInfo(file)
-	names := []string{}
+	names := make([]string, 0, len(source.methods))
 
 	for name := range source.methods {
 		names = append(names, name)
@@ -295,26 +295,23 @@ func ownedKeyUse(tokens []parser.Token, i int, scope string) bool {
 		return tokens[i-n]
 	}
 
-	next := func(n int) parser.Token {
-		if i+n >= len(tokens) {
-			return parser.Token{}
-		}
-
-		return tokens[i+n]
+	var next parser.Token
+	if i+1 < len(tokens) {
+		next = tokens[i+1]
 	}
 
 	switch {
 	case isAssignment(tokens, i+1):
 		return prev(1).Kind != parser.TokDot || strings.EqualFold(prev(2).Value, "local")
-	case prev(1).Kind == parser.TokLBracket && next(1).Kind == parser.TokRBracket:
+	case prev(1).Kind == parser.TokLBracket && next.Kind == parser.TokRBracket:
 		return strings.EqualFold(prev(2).Value, scope)
-	case prev(1).Kind == parser.TokAmpersand || next(1).Kind == parser.TokAmpersand:
+	case prev(1).Kind == parser.TokAmpersand || next.Kind == parser.TokAmpersand:
 		return true
-	case prev(1).Kind == parser.TokComma && strings.EqualFold(prev(2).Value, scope) && prev(3).Kind == parser.TokLParen && next(1).Kind == parser.TokRParen:
+	case prev(1).Kind == parser.TokComma && strings.EqualFold(prev(2).Value, scope) && prev(3).Kind == parser.TokLParen && next.Kind == parser.TokRParen:
 		name := strings.ToLower(prev(4).Value)
 
 		return name == "structkeyexists" || name == "structdelete"
-	case prev(1).Kind == parser.TokLParen && next(1).Kind == parser.TokRParen && prev(3).Kind == parser.TokDot && strings.EqualFold(prev(4).Value, scope):
+	case prev(1).Kind == parser.TokLParen && next.Kind == parser.TokRParen && prev(3).Kind == parser.TokDot && strings.EqualFold(prev(4).Value, scope):
 		name := strings.ToLower(prev(2).Value)
 
 		return name == "keyexists" || name == "delete"
@@ -420,6 +417,7 @@ func ownedStatementEnd(tokens []parser.Token, from int) int {
 			if depth == 0 {
 				return i
 			}
+		default:
 		}
 	}
 

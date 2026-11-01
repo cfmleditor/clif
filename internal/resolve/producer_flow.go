@@ -176,13 +176,8 @@ func (e *producerEvaluation) call(fd *parser.FunctionDef, receiver string, argum
 	}
 
 	if !forwarding && specific && receiver != "" {
-		source := e.resolver.sourceInfo(fd.URI.Path()).methods[strings.ToLower(fd.Name)]
-		if source.selfDefaultParam != "" && !source.literalDefaults {
-			return producerUnknown()
-		}
-
-		if source.selfDefaultParam != "" && e.instanceSelfReturnCompatible(fd, receiver) && e.selfModeSelected(fd, source.selfDefaultParam, source.selfExcludedModes, arguments) {
-			return e.concrete(receiver, e.baseDir)
+		if value, ok := e.selfModeReturn(fd, receiver, arguments); ok {
+			return value
 		}
 	}
 
@@ -229,14 +224,7 @@ func (e *producerEvaluation) call(fd *parser.FunctionDef, receiver string, argum
 		}
 	}
 
-	// A factory caching under a key only it writes returns the same
-	// component whatever it is passed (ownedKeyReturn), and so does
-	// Preside's getObject() (presideObjectReturn).
-	if ret := e.resolver.ownedKeyReturn(fd); ret != "" {
-		return e.concrete(ret, filepath.Dir(fd.URI.Path()))
-	}
-
-	if ret := e.resolver.presideObjectReturn(fd); ret != "" {
+	if ret := e.resolver.argumentFreeReturn(fd); ret != "" {
 		return e.concrete(ret, filepath.Dir(fd.URI.Path()))
 	}
 
@@ -263,6 +251,33 @@ func (e *producerEvaluation) call(fd *parser.FunctionDef, receiver string, argum
 	local.depth++
 
 	return local.executeBoundCall(fd, method, arguments, specific, forwarding)
+}
+
+// selfModeReturn is a specific call's answer from fd's self-returning mode
+// parameter, when that decides it: unknown for a mode defaulted to anything
+// but a literal, the receiver when the call selects the self mode.
+func (e *producerEvaluation) selfModeReturn(fd *parser.FunctionDef, receiver string, arguments map[string]producerValue) (producerValue, bool) {
+	source := e.resolver.sourceInfo(fd.URI.Path()).methods[strings.ToLower(fd.Name)]
+	if source.selfDefaultParam != "" && !source.literalDefaults {
+		return producerUnknown(), true
+	}
+
+	if source.selfDefaultParam != "" && e.instanceSelfReturnCompatible(fd, receiver) && e.selfModeSelected(fd, source.selfDefaultParam, source.selfExcludedModes, arguments) {
+		return e.concrete(receiver, e.baseDir), true
+	}
+
+	return producerValue{}, false
+}
+
+// argumentFreeReturn is what fd returns whatever it is passed, where the
+// plan cannot show it: a factory caching under a key only it writes
+// (ownedKeyReturn), or Preside's getObject() (presideObjectReturn).
+func (r *Resolver) argumentFreeReturn(fd *parser.FunctionDef) string {
+	if ret := r.ownedKeyReturn(fd); ret != "" {
+		return ret
+	}
+
+	return r.presideObjectReturn(fd)
 }
 
 func (e *producerEvaluation) executeBoundCall(fd *parser.FunctionDef, method *producerMethod, arguments map[string]producerValue, specific, forwarding bool) producerValue {

@@ -2254,6 +2254,13 @@ func (pr *ParseResult) propertyFieldComponents() map[string]string {
 	return fieldComponents
 }
 
+// PresideObject is what Preside's presidecms:object:x DSL injects: the
+// object x, decorated by PresideObjectDecorator with the data API its
+// onMissingMethod hands to the PresideObjectService. The decorator stands
+// for it, as the resolver's answer for getObject() does; without Preside's
+// source a call on it is dynamic (IsSoftComponent).
+const PresideObject = "preside.system.services.presideObjects.PresideObjectDecorator"
+
 // injectedComponent is the component a WireBox injection names, when no
 // beanPaths entry or propertyResolver said.
 //
@@ -2275,13 +2282,6 @@ func (pr *ParseResult) propertyFieldComponents() map[string]string {
 // (IsSoftComponent). Whatever else the DSL names is not a component — `coldbox:setting:x`
 // is a setting, `coldbox:moduleSettings:x` a struct — and resolving it by
 // name would find an unrelated file.
-// PresideObject is what Preside's presidecms:object:x DSL injects: the
-// object x, decorated by PresideObjectDecorator with the data API its
-// onMissingMethod hands to the PresideObjectService. The decorator stands
-// for it, as the resolver's answer for getObject() does; without Preside's
-// source a call on it is dynamic (IsSoftComponent).
-const PresideObject = "preside.system.services.presideObjects.PresideObjectDecorator"
-
 func injectedComponent(inject string) string {
 	id := strings.TrimSpace(inject)
 
