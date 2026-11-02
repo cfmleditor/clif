@@ -6,7 +6,7 @@ import (
 )
 
 type memberDependency struct {
-	receiver string
+	receiver collKey
 	methods  []string
 }
 
@@ -52,9 +52,9 @@ func (pr *ParseResult) memberDependencySource(expression string) (string, []stri
 // A concrete write grounds a dependency cycle. Every producer and method
 // result must agree, including self-updates; unknown or conflicting writes
 // invalidate their consumers. Work is bounded independently of file size.
-func (pr *ParseResult) settleMemberDependencies(nodes map[string]*collectionNode, dependencies map[string][]memberDependency) map[string]string {
-	components := map[string]string{}
-	reverse := map[string][]string{}
+func (pr *ParseResult) settleMemberDependencies(nodes map[collKey]*collectionNode, dependencies map[collKey][]memberDependency) map[collKey]string {
+	components := map[collKey]string{}
+	reverse := map[collKey][]collKey{}
 
 	for identity, node := range nodes {
 		components[identity] = pr.memberSourceComponent(node)
@@ -106,7 +106,7 @@ func (pr *ParseResult) settleMemberDependencies(nodes map[string]*collectionNode
 		}
 	}
 
-	queue := []string{}
+	queue := []collKey{}
 
 	for identity, node := range nodes {
 		if !pr.memberDependenciesAgree(identity, dependencies[identity], nodes, components) {
@@ -136,7 +136,7 @@ func (pr *ParseResult) settleMemberDependencies(nodes map[string]*collectionNode
 	return components
 }
 
-func (pr *ParseResult) memberDependenciesAgree(identity string, dependencies []memberDependency, nodes map[string]*collectionNode, components map[string]string) bool {
+func (pr *ParseResult) memberDependenciesAgree(identity collKey, dependencies []memberDependency, nodes map[collKey]*collectionNode, components map[collKey]string) bool {
 	for _, dep := range dependencies {
 		producer := nodes[dep.receiver]
 		if producer == nil || producer.invalid || components[dep.receiver] == "" {

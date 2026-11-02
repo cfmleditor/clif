@@ -18,8 +18,8 @@ var parseAllocBudgets = []struct {
 	opts    ParseOptions
 	budget  float64
 }{
-	{"script", &benchScriptCFC, ParseOptions{}, 1650},
-	{"script, calls", &benchScriptCFC, ParseOptions{ExtractCalls: true}, 1720},
+	{"script", &benchScriptCFC, ParseOptions{}, 1100},
+	{"script, calls", &benchScriptCFC, ParseOptions{ExtractCalls: true}, 1180},
 	{"tag", &benchTagCFC, ParseOptions{}, 425},
 	{"tag, calls", &benchTagCFC, ParseOptions{ExtractCalls: true}, 870},
 }
