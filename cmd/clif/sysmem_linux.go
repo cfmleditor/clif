@@ -17,7 +17,7 @@ func systemMemory() uint64 {
 		return 0
 	}
 
-	total := uint64(info.Totalram) * uint64(info.Unit)
+	total := widen(info.Totalram) * uint64(info.Unit)
 
 	for _, path := range []string{"/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes"} {
 		data, err := os.ReadFile(path)
@@ -32,3 +32,8 @@ func systemMemory() uint64 {
 
 	return total
 }
+
+// widen is v as a uint64. sysinfo's fields are uint64 on 64-bit Linux and
+// uint32 on 32-bit, so a plain conversion is redundant on one and needed on
+// the other.
+func widen[T uint32 | uint64](v T) uint64 { return uint64(v) }
