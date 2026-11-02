@@ -180,6 +180,14 @@ func (s *Scanner) replaySeek(pos int) {
 	s.replayAt(min(i, len(toks)-1))
 }
 
+// reset makes s the scanner NewScanner(src) returns, whatever it was before.
+func (s *Scanner) reset(src string) {
+	*s = Scanner{src: src}
+	if strings.HasPrefix(src, bomUTF8) {
+		s.pos = len(bomUTF8)
+	}
+}
+
 // NewScanner creates a scanner for the given source.
 func NewScanner(src string) *Scanner {
 	// A UTF-8 BOM is an encoding marker, not a token. It is invisible in an
@@ -190,10 +198,8 @@ func NewScanner(src string) *Scanner {
 	// `<script>` inside a string literal came apart into regions parsed from
 	// the middle of an expression: 800 lines of ColdBox's HTMLHelperSpec with
 	// no function and almost no call found.
-	sc := &Scanner{src: src}
-	if strings.HasPrefix(src, bomUTF8) {
-		sc.pos = len(bomUTF8)
-	}
+	sc := &Scanner{}
+	sc.reset(src)
 
 	return sc
 }

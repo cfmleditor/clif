@@ -20,6 +20,7 @@ type tagParser struct {
 	links          []DocumentLink            // global scope links
 	calls          []CallSite                // global scope call sites
 	instantiations []Instantiation           // what its expressions' sub-parses found built
+	exprParser     *scriptParser             // the one sub-parser every expression is read with; see subParser
 	scopes         []FuncScope
 	pendingCalls   []pendingCall
 	// pendingByName indexes pendingCalls by lowercased varName, for
@@ -2692,7 +2693,7 @@ func (p *tagParser) mergeExpressionCalls(expr string, line int, topUp, spanLines
 			p.keepMemberSets(sub, origin)
 		}
 	} else {
-		sub = newScriptParser(expr, p.fileURI, line, p.resolvers).asCFScript()
+		sub = p.subParser(expr, line)
 		if len(offsets) > 0 && offsets[0] >= 0 {
 			sub.baseOffset = p.srcOffset + offsets[0]
 		}
@@ -2841,10 +2842,29 @@ func hasMemberSetShape(expr string) bool {
 // expression with: wrapped in a function, so it goes through the script
 // parser's body path.
 func (p *tagParser) memberSetParser(expr string, line int) *scriptParser {
-	sub := newScriptParser(memberSetPrefix+expr+"}", p.fileURI, line, p.resolvers).asCFScript()
+	sub := p.subParser(memberSetPrefix+expr+"}", line)
 	sub.resolverSet = p.resolverSet
 
 	return sub
+}
+
+// freshExprParsers makes subParser build a parser each time, as every
+// expression did before they were reused. Only a test sets it, to compare the
+// two.
+var freshExprParsers bool
+
+// subParser is the script parser an expression of this file is read with,
+// reset for it. There is one, reused: the expression's results are read out of
+// it before the next is parsed, and nothing keeps a reference into it. A
+// caller finishes with the sub-parser it was given before asking for another.
+func (p *tagParser) subParser(src string, line int) *scriptParser {
+	if p.exprParser == nil || freshExprParsers {
+		p.exprParser = newScriptParser(src, p.fileURI, line, p.resolvers)
+	} else {
+		p.exprParser.reset(src, p.fileURI, line, p.resolvers)
+	}
+
+	return p.exprParser.asCFScript()
 }
 
 // memberSetWrapper names the function memberSetParser wraps an expression in.

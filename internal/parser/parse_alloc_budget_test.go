@@ -21,7 +21,7 @@ var parseAllocBudgets = []struct {
 	{"script", &benchScriptCFC, ParseOptions{}, 1650},
 	{"script, calls", &benchScriptCFC, ParseOptions{ExtractCalls: true}, 1720},
 	{"tag", &benchTagCFC, ParseOptions{}, 425},
-	{"tag, calls", &benchTagCFC, ParseOptions{ExtractCalls: true}, 1070},
+	{"tag, calls", &benchTagCFC, ParseOptions{ExtractCalls: true}, 870},
 }
 
 func TestParseStaysWithinItsAllocationBudget(t *testing.T) {

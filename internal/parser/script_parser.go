@@ -115,6 +115,38 @@ func newScriptParser(src, fileURI string, baseLine int, resolvers []Resolver) *s
 	}
 }
 
+// reset makes p the parser newScriptParser(src, fileURI, baseLine, resolvers)
+// returns, for one that has finished with an earlier source and whose results
+// have been read. It keeps the storage that parse filled (the per-function
+// maps and the lists of calls, pending calls, instantiations, functions, scopes,
+// variables and references, emptied) and the
+// scanner, and nothing else: p is zeroed first, so a field added to the struct
+// and left out here is cleared rather than carried into the next source.
+// A tag file reads each expression it holds with one of these; building a
+// parser, a scanner and their maps for every <cfset> was a third of the
+// allocations of a tag parse.
+func (p *scriptParser) reset(src, fileURI string, baseLine int, resolvers []Resolver) {
+	sc, funcRefs, funcLinks, funcCalls := p.sc, p.funcRefs, p.funcLinks, p.funcCalls
+	calls, pending, inst := p.calls[:0], p.pendingCalls[:0], p.instantiations
+	funcs, scopes, vars, refs := p.funcs[:0], p.scopes[:0], p.vars[:0], p.componentRefs[:0]
+
+	*p = scriptParser{fileURI: fileURI, baseLine: baseLine, baseOffset: -1, resolvers: resolvers}
+
+	sc.reset(src)
+
+	clear(funcRefs)
+	clear(funcLinks)
+	clear(funcCalls)
+
+	if inst != nil {
+		*inst = (*inst)[:0]
+	}
+
+	p.sc, p.funcRefs, p.funcLinks, p.funcCalls = sc, funcRefs, funcLinks, funcCalls
+	p.calls, p.pendingCalls, p.instantiations = calls, pending, inst
+	p.funcs, p.scopes, p.vars, p.componentRefs = funcs, scopes, vars, refs
+}
+
 func (p *scriptParser) resolveCall(expr string) string {
 	return resolveCallExpr(p.resolverSet, p.resolvers, expr)
 }
