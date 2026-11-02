@@ -1,6 +1,9 @@
 package parser
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 // tagFrame is one open tag in tagStructure's stack.
 type tagFrame struct {
@@ -10,6 +13,15 @@ type tagFrame struct {
 	// line is the line of the tag's `<`.
 	line int
 }
+
+// spanLineRatio is how many lines of a page tagStructure expects one span
+// from, to size its result. An estimate: a page with more spans still grows
+// the slice, and one with fewer has spare room.
+const spanLineRatio = 4
+
+// maxSpanPresize caps that estimate, so a file of blank lines at the size
+// limit does not ask for a slice as large as it is.
+const maxSpanPresize = 1 << 14
 
 // maxTagSearch bounds how far down the stack a closing tag looks for its
 // opener. Unclosed tags pile up — a `<p>` or `<li>` whose close is implied —
@@ -30,6 +42,10 @@ const maxTagSearch = 64
 // short.
 func tagStructure(content string, script [][2]int, idx []int32, spans []Span) []Span {
 	var stack []tagFrame
+
+	// A page has about one span in four lines. Growing the slice from nothing
+	// copied it over and over.
+	spans = slices.Grow(spans, min(len(idx)/spanLineRatio, maxSpanPresize))
 
 	ends := newTagEnds(content)
 	lines := lineCursor{idx: idx}
@@ -117,11 +133,29 @@ func tagStructure(content string, script [][2]int, idx []int32, spans []Span) []
 				pos = raw
 			}
 
-			stack = append(stack, tagFrame{name: name, line: line})
+			stack = pushTag(stack, name, line)
 		}
 	}
 
 	return spans
+}
+
+// pushTag pushes an open tag onto stack. A frame popped earlier leaves its
+// slot, and its branches list, in the slice's spare room: the new frame takes
+// the slot and keeps the list's storage, so a page of many `<cfif>`s with an
+// `<cfelse>` each does not allocate a list per `<cfif>`. Nothing else holds a
+// popped frame's list; closeTag has read it before it pops.
+func pushTag(stack []tagFrame, name string, line int) []tagFrame {
+	n := len(stack)
+	if n == cap(stack) {
+		return append(stack, tagFrame{name: name, line: line})
+	}
+
+	stack = stack[:n+1]
+	f := &stack[n]
+	*f = tagFrame{name: name, line: line, branches: f.branches[:0]}
+
+	return stack
 }
 
 // tagName returns the name at the start of s: a letter or underscore, then

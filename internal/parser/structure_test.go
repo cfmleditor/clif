@@ -2,6 +2,7 @@ package parser
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -323,5 +324,25 @@ func TestLineCursorMatchesLineAtOffset(t *testing.T) {
 		if got, want := cur.at(off), lineAtOffset(idx, off); got != want {
 			t.Fatalf("offset %d: cursor %d, lineAtOffset %d", off, got, want)
 		}
+	}
+}
+
+// A frame popped off the tag stack leaves its slot, and the branches list in
+// it, for the next push. The list must start empty: a `<cfif>` that reuses a
+// slot must not fold the earlier one's `<cfelse>` lines.
+func TestCfifBranchesDoNotLeakIntoTheNextCfif(t *testing.T) {
+	src := "<cfif a>\n\tone\n<cfelse>\n\ttwo\n\ttwo\n</cfif>\n" +
+		"<cfif b>\n\tone\n\tone\n</cfif>\n" +
+		"<cfif c>\n\t<cfif d>\n\t\tx\n\t<cfelse>\n\t\ty\n\t\ty\n\t</cfif>\n<cfelseif e>\n\tz\n\tz\n</cfif>\n"
+
+	var got []string
+
+	for _, sp := range StructureSpans(src) {
+		got = append(got, fmt.Sprintf("%d-%d %d", sp.Start, sp.End, sp.Kind))
+	}
+
+	want := []string{"0-5 1", "2-4 3", "6-9 1", "11-16 1", "13-15 3", "10-20 1", "17-19 3"}
+	if !slices.Equal(got, want) {
+		t.Errorf("spans %q, want %q", got, want)
 	}
 }
