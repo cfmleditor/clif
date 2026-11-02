@@ -22,6 +22,7 @@ type behaviour struct {
 	dieOnInit     bool          // exits with code 2 on initialize
 	dieOnShutdown bool          // exits with code 2 on shutdown, unanswered
 	capacity      int           // the stream's buffer, in messages; 64 when zero
+	ignoreExit    bool          // ends, with code 0, only when its input does
 }
 
 // fakeServer is an in-process language server: it answers initialize and
@@ -66,7 +67,14 @@ func (f *fakeServer) serve(s jsonrpc2.Stream) {
 	for {
 		msg, _, err := s.Read(ctx)
 		if err != nil {
-			f.code <- 1
+			// One that ignores exit ends cleanly when its input does. (A
+			// channel stream's close can overtake a message it buffered,
+			// so whether it read the exit first is not a thing to test.)
+			if f.b.ignoreExit {
+				f.code <- 0
+			} else {
+				f.code <- 1
+			}
 
 			return
 		}
@@ -167,7 +175,7 @@ func (f *fakeServer) notification(ctx context.Context, s jsonrpc2.Stream, m *jso
 			f.versions[u] = p.TextDocument.Version
 		}
 	case protocol.MethodExit:
-		return 0, true
+		return 0, !f.b.ignoreExit
 	}
 
 	return 0, false
@@ -180,6 +188,7 @@ type editor struct {
 	t      *testing.T
 	stream jsonrpc2.Stream
 	reject bool
+	delay  time.Duration // answers a registration this late
 
 	mu        sync.Mutex
 	responses map[jsonrpc2.ID]*jsonrpc2.Response
@@ -233,6 +242,8 @@ func (e *editor) read() {
 				// reader that blocks on its own write is a deadlock of the
 				// test's making.
 				go func(id jsonrpc2.ID) {
+					time.Sleep(e.delay)
+
 					_, _ = e.stream.Write(ctx, jsonrpc2.NewResponse(id, jsonrpc2.RawMessage("null"), err))
 
 					e.mu.Lock()
@@ -652,4 +663,155 @@ func TestARejectedRegistrationIsAskedAgainAfterARestart(t *testing.T) {
 	}
 
 	endSession(t, e, done, 5)
+}
+
+// A panic tracking the editor's messages does not end the supervisor: the
+// document it could not follow is dropped, and a restart does not reopen it.
+func TestAPanicTrackingADocumentDropsTheDocument(t *testing.T) {
+	applyChanges = func(string, []protocol.TextDocumentContentChangeEvent) string { panic("cannot apply") }
+
+	t.Cleanup(func() { applyChanges = lspdoc.ApplyChanges })
+
+	e, editorEnd := newEditor(t, 64)
+	sv := &servers{plan: []behaviour{{}}}
+	done := run(t, editorEnd, sv, Options{})
+
+	e.start()
+	e.notify(protocol.MethodTextDocumentDidOpen, `{"textDocument":{"uri":"file:///a.cfm","languageId":"cfml","version":1,"text":"a"}}`)
+	e.notify(protocol.MethodTextDocumentDidOpen, `{"textDocument":{"uri":"file:///b.cfm","languageId":"cfml","version":1,"text":"b"}}`)
+	e.notify(protocol.MethodTextDocumentDidChange, `{"textDocument":{"uri":"file:///a.cfm","version":2},"contentChanges":[{"text":"aa"}]}`)
+
+	if st := e.state(2); st.Docs["file:///a.cfm"] != "aa" {
+		t.Fatalf("the server has %q, want the change relayed whatever the supervisor's copy", st.Docs["file:///a.cfm"])
+	}
+
+	e.call(3, "test/crash", `{}`)
+	e.await(3)
+
+	st := e.state(4)
+	if _, ok := st.Docs["file:///a.cfm"]; ok {
+		t.Fatalf("the restarted server was given a.cfm, which the supervisor could not follow")
+	}
+
+	if st.Docs["file:///b.cfm"] != "b" {
+		t.Fatalf("the restarted server has b.cfm as %q, want it reopened", st.Docs["file:///b.cfm"])
+	}
+
+	endSession(t, e, done, 5)
+}
+
+// A replacement that dies on the replayed initialize is restarted when it
+// dies, not when the replay times out.
+func TestAReplacementDyingOnInitializeIsRestartedAtOnce(t *testing.T) {
+	e, editorEnd := newEditor(t, 64)
+	sv := &servers{plan: []behaviour{{}, {dieOnInit: true}, {}}}
+	done := run(t, editorEnd, sv, Options{ReplayTimeout: time.Minute})
+
+	e.start()
+
+	began := time.Now()
+
+	e.call(2, "test/crash", `{}`)
+	e.await(2)
+	e.state(3)
+
+	if took := time.Since(began); took > 5*time.Second {
+		t.Fatalf("the session came back after %v: it waited out the replay timeout", took)
+	}
+
+	if n := sv.count(); n != 3 {
+		t.Fatalf("%d servers started, want 3", n)
+	}
+
+	endSession(t, e, done, 4)
+}
+
+// A shutdown and exit the editor sends while the server restarts end the
+// session: the queued exit closes the new server's input, which is what ends
+// a server that does not end on exit alone.
+func TestAnExitSentDuringARestartEndsTheSession(t *testing.T) {
+	e, editorEnd := newEditor(t, 64)
+	sv := &servers{plan: []behaviour{{}, {initDelay: 300 * time.Millisecond, ignoreExit: true}}}
+	done := run(t, editorEnd, sv, Options{})
+
+	e.start()
+	e.call(2, "test/crash", `{}`)
+	e.await(2)
+
+	// Both before the new server answers initialize, so both are queued.
+	e.call(3, protocol.MethodShutdown, `null`)
+	e.notify(protocol.MethodExit, `null`)
+
+	if r := e.await(3); r.Err() != nil {
+		t.Fatalf("shutdown: %v", r.Err())
+	}
+
+	select {
+	case code := <-done:
+		if code != 0 {
+			t.Fatalf("exit code %d, want 0", code)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the supervisor did not end after a queued shutdown and exit")
+	}
+}
+
+// A registration the editor accepts after its server died is held: the
+// restarted server's same registration does not go to the editor again.
+func TestARegistrationAcceptedAfterTheCrashIsNotAskedAgain(t *testing.T) {
+	e, editorEnd := newEditor(t, 64)
+	e.delay = 100 * time.Millisecond
+	sv := &servers{plan: []behaviour{{}, {initDelay: 300 * time.Millisecond}}}
+	done := run(t, editorEnd, sv, Options{})
+
+	e.start()
+	e.call(2, "test/crash", `{}`)
+	e.await(2)
+	e.settled(1, 3)
+	e.state(4)
+
+	e.mu.Lock()
+	registers := e.registers
+	e.mu.Unlock()
+
+	if registers != 1 {
+		t.Fatalf("the editor was asked to register %d times, want once", registers)
+	}
+
+	endSession(t, e, done, 5)
+}
+
+// A restart drops the queued notifications its replay carries as state, so a
+// second restart before the queue is flushed does not send them twice.
+func TestARestartDropsQueuedStateTheReplayCarries(t *testing.T) {
+	note := func(method string) jsonrpc2.Message {
+		return jsonrpc2.NewNotification(method, jsonrpc2.RawMessage(`{}`))
+	}
+	call := jsonrpc2.NewCall(jsonrpc2.NewNumberID(7), protocol.MethodTextDocumentHover, jsonrpc2.RawMessage(`{}`))
+	queue := []jsonrpc2.Message{
+		note(protocol.MethodWorkspaceDidChangeWorkspaceFolders),
+		call,
+		note(protocol.MethodTextDocumentDidOpen),
+		note(protocol.MethodTextDocumentDidChange),
+		note(protocol.MethodTextDocumentDidSave),
+		note(protocol.MethodTextDocumentDidClose),
+		note(protocol.MethodWorkspaceDidChangeConfiguration),
+		note(protocol.MethodExit),
+	}
+
+	var got []string
+
+	for _, m := range withoutReplayedState(queue) {
+		switch m := m.(type) {
+		case *jsonrpc2.Call:
+			got = append(got, "call:"+m.Method())
+		case *jsonrpc2.Notification:
+			got = append(got, m.Method())
+		}
+	}
+
+	want := []string{"call:" + protocol.MethodTextDocumentHover, protocol.MethodTextDocumentDidSave, protocol.MethodExit}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("kept %v, want %v", got, want)
+	}
 }
