@@ -62,6 +62,8 @@ func FromURI(rawURI string) string {
 		return rawURI
 	}
 
+	rawURI = driveInPath(rawURI)
+
 	if p := uri.URI(rawURI).FsPath(); p != "" {
 		return p
 	}
@@ -76,12 +78,33 @@ func FromURIFor(platform uri.Platform, rawURI string) string {
 		return rawURI
 	}
 
+	rawURI = driveInPath(rawURI)
+
 	if p := uri.FsPathFor(uri.URI(rawURI), platform, false); p != "" {
 		return p
 	}
 
 	return strings.TrimPrefix(rawURI, uriScheme)
 }
+
+// driveInPath moves a drive letter out of a file URI's authority:
+// file://C:/x.cfm is file:///C:/x.cfm. IntelliJ's VirtualFile.getUrl()
+// spells a Windows file that way, and parsed as written the C: is a host, so
+// the path came out as the UNC \\C:\x.cfm, which names nothing; clif.format
+// then did nothing on Windows (intellilucee#13). A drive letter cannot be a
+// host name, so nothing else is read differently.
+func driveInPath(rawURI string) string {
+	rest := rawURI[len(uriScheme):]
+	// Only the forward-slash spelling: file://C:\x.cfm already reads as the
+	// path through FromURI's fallback, with its drive's case kept.
+	if len(rest) >= 3 && rest[1] == ':' && rest[2] == '/' && isASCIILetter(rest[0]) {
+		return uriScheme + "/" + rest
+	}
+
+	return rawURI
+}
+
+func isASCIILetter(c byte) bool { return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' }
 
 // URIDistance reports how far apart two document URIs are in the directory
 // tree: the number of directory hops needed to get from one to the other. Two

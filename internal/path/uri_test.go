@@ -53,6 +53,10 @@ func TestFromURIAcceptsEveryShapeAClientSends(t *testing.T) {
 		{"canonical windows", `file:///c%3A/Users/q/App.cfc`, `c:\Users\q\App.cfc`},
 		{"windows unencoded colon", `file:///C:/Users/q/App.cfc`, `c:\Users\q\App.cfc`},
 		{"windows raw backslashes", `file://C:\Users\q\App.cfc`, `C:\Users\q\App.cfc`},
+		// IntelliJ's VirtualFile.getUrl(): the drive where a host would be
+		// read as a host gave the UNC \\C:\Users\..., intellilucee#13.
+		{"drive in the authority", `file://C:/Users/q/App.cfc`, `c:\Users\q\App.cfc`},
+		{"a real host stays a share", `file://server/share/App.cfc`, `\\server\share\App.cfc`},
 		{"already a path", `C:\Users\q\App.cfc`, `C:\Users\q\App.cfc`},
 		{"not a file uri", `untitled:Untitled-1`, `untitled:Untitled-1`},
 	}

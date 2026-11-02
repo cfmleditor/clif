@@ -3800,12 +3800,44 @@ func TestCompletionSnippetFormat(t *testing.T) {
 		t.Error("expected snippet format")
 	}
 
-	if !strings.Contains(optVal(found.InsertText), "${1:name}") {
-		t.Errorf("expected ${1:name} placeholder, got %s", optVal(found.InsertText))
+	// The required argument has a placeholder and the optional one none:
+	// signature help shows it as it is needed (intellilucee#47). The detail
+	// still lists both.
+	if got := optVal(found.InsertText); got != "myFunc(${1:name})" {
+		t.Errorf("insert text = %s, want myFunc(${1:name})", got)
 	}
 
-	if !strings.Contains(optVal(found.InsertText), "${2:count}") {
-		t.Errorf("expected ${2:count} placeholder, got %s", optVal(found.InsertText))
+	if d := optVal(found.Detail); !strings.Contains(d, "name") || !strings.Contains(d, "count") {
+		t.Errorf("detail = %s, want both arguments listed", d)
+	}
+}
+
+// A built-in function's snippet holds only its required arguments, and one
+// with none leaves the cursor inside the parentheses (intellilucee#47:
+// completing writeDump filled in every optional argument it takes).
+func TestBuiltinSnippetsHoldOnlyRequiredArguments(t *testing.T) {
+	// writeDump's docs mark every argument optional, var included.
+	want := map[string]string{
+		"listgetat": "listGetAt(${1:list}, ${2:position})",
+		"writedump": "writeDump($0)",
+		"now":       "now($0)",
+	}
+
+	for _, item := range getBuiltinFuncItems() {
+		w, ok := want[strings.ToLower(item.Label)]
+		if !ok {
+			continue
+		}
+
+		if got := optVal(item.InsertText); got != w {
+			t.Errorf("%s: insert text %s, want %s", item.Label, got, w)
+		}
+
+		delete(want, strings.ToLower(item.Label))
+	}
+
+	if len(want) > 0 {
+		t.Fatalf("no completion items for %v", want)
 	}
 }
 

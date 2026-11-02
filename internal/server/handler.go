@@ -942,9 +942,13 @@ func (s *Server) cmdFormat(ctx context.Context, args []protocol.LSPAny) (any, er
 		return nil, nil
 	}
 
-	content, ok := s.getDocument(uri.URI(docURI))
+	fileURI := s.documentURI(docURI)
+
+	content, ok := s.getDocument(fileURI)
 	if !ok {
-		return nil, nil
+		// Said rather than ignored: a client that gets nothing back cannot
+		// tell a document it named wrongly from one with nothing to format.
+		return nil, fmt.Errorf("clif.format: %s is not an open document", docURI)
 	}
 
 	// A snapshot, as the formatting handler takes: the formatter reads it
@@ -966,7 +970,7 @@ func (s *Server) cmdFormat(ctx context.Context, args []protocol.LSPAny) (any, er
 		Label: &formatLabel,
 		Edit: protocol.WorkspaceEdit{
 			Changes: map[uri.URI][]protocol.TextEdit{
-				uri.URI(docURI): {{
+				fileURI: {{
 					Range: protocol.Range{
 						Start: protocol.Position{Line: 0, Character: 0},
 						End:   protocol.Position{Line: conv.Uint32(lines + 1), Character: 0},
@@ -1084,7 +1088,7 @@ func (s *Server) cmdShowFileIndex(ctx context.Context, args []protocol.LSPAny) (
 		return nil, errors.New("clif.showFileIndex: invalid argument")
 	}
 
-	fileURI := uri.URI(docURI)
+	fileURI := s.documentURI(docURI)
 	funcs := s.index.FunctionsForFile(fileURI)
 	compRefs := s.index.RefsForFile(fileURI)
 
@@ -1173,9 +1177,9 @@ func (s *Server) cmdGoToMatchingTag(_ context.Context, args []protocol.LSPAny) (
 		return nil, nil
 	}
 
-	content, ok := s.getDocument(uri.URI(docURI))
+	content, ok := s.getDocument(s.documentURI(docURI))
 	if !ok {
-		return nil, nil
+		return nil, fmt.Errorf("clif.goToMatchingTag: %s is not an open document", docURI)
 	}
 
 	var line, char int
@@ -1290,7 +1294,7 @@ func (s *Server) cmdExportDeps(ctx context.Context, args []protocol.LSPAny) (any
 		funcName, _ = argString(args, 1)
 	}
 
-	fileURI := uri.URI(docURI)
+	fileURI := s.documentURI(docURI)
 
 	// A fresh parse, not s.parseResults: the cached result loses every call
 	// inside a function on an edit outside one (see parseForCalls), and the

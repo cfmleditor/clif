@@ -64,27 +64,21 @@ func getBuiltinFuncItems() []protocol.CompletionItem {
 		builtinFuncItems = make([]protocol.CompletionItem, 0, len(fns)+len(scopes))
 
 		for _, fn := range fns {
-			var insertText strings.Builder
-			insertText.WriteString(fn.Name)
-			insertText.WriteByte('(')
+			var required []string
 
 			for i := range fn.Params {
-				p := &fn.Params[i]
-
-				if i > 0 {
-					insertText.WriteString(", ")
+				if p := &fn.Params[i]; p.Required {
+					required = append(required, p.Name)
 				}
-
-				fmt.Fprintf(&insertText, "${%d:%s}", i+1, p.Name)
 			}
 
-			insertText.WriteString(")")
+			insertText := callSnippet(fn.Name, required)
 			builtinFuncItems = append(builtinFuncItems, protocol.CompletionItem{
 				Label:            fn.Name,
 				Kind:             protocol.CompletionItemKindFunction,
 				Detail:           optStr(fn.Syntax),
 				Documentation:    tooltip(fn.Description),
-				InsertText:       optStr(insertText.String()),
+				InsertText:       optStr(insertText),
 				InsertTextFormat: protocol.InsertTextFormatSnippet,
 				SortText:         optStr(SortBuiltinFuncs + fn.Name),
 			})
@@ -842,35 +836,14 @@ func (s *Server) rebuildFileCompletionCacheFromPR(docURI uri.URI, pr *parser.Par
 		detail.WriteString(f.Name)
 		detail.WriteByte('(')
 
-		var insertText strings.Builder
-		insertText.WriteString(f.Name)
-		insertText.WriteByte('(')
-
-		for i, arg := range f.Arguments {
-			if i > 0 {
-				detail.WriteString(", ")
-
-				insertText.WriteString(", ")
-			}
-
-			if arg.Type != "" {
-				detail.WriteString(arg.Type)
-				detail.WriteByte(' ')
-			}
-
-			detail.WriteString(arg.Name)
-			fmt.Fprintf(&insertText, "${%d:%s}", i+1, arg.Name)
-		}
-
-		detail.WriteString(")")
-
-		insertText.WriteString(")")
+		writeArgDetail(&detail, f.Arguments)
+		insertText := callSnippet(f.Name, requiredArgs(f.Arguments))
 		items = append(items, protocol.CompletionItem{
 			Label:  f.Name,
 			Kind:   protocol.CompletionItemKindFunction,
 			Detail: optStr(detail.String()),
 
-			InsertText: optStr(insertText.String()),
+			InsertText: optStr(insertText),
 
 			InsertTextFormat: protocol.InsertTextFormatSnippet,
 			SortText:         optStr(SortUserFunctions + f.Name),
@@ -1273,36 +1246,15 @@ func (s *Server) methodCompletionItems(cfcPath string) []protocol.CompletionItem
 		detail.WriteString(d.Name)
 		detail.WriteByte('(')
 
-		var insertText strings.Builder
-		insertText.WriteString(d.Name)
-		insertText.WriteByte('(')
-
-		for i, arg := range d.Arguments {
-			if i > 0 {
-				detail.WriteString(", ")
-
-				insertText.WriteString(", ")
-			}
-
-			if arg.Type != "" {
-				detail.WriteString(arg.Type)
-				detail.WriteByte(' ')
-			}
-
-			detail.WriteString(arg.Name)
-			fmt.Fprintf(&insertText, "${%d:%s}", i+1, arg.Name)
-		}
-
-		detail.WriteString(")")
-
-		insertText.WriteString(")")
+		writeArgDetail(&detail, d.Arguments)
+		insertText := callSnippet(d.Name, requiredArgs(d.Arguments))
 
 		item := protocol.CompletionItem{
 			Label:  d.Name,
 			Kind:   protocol.CompletionItemKindMethod,
 			Detail: optStr(detail.String()),
 
-			InsertText: optStr(insertText.String()),
+			InsertText: optStr(insertText),
 
 			InsertTextFormat: protocol.InsertTextFormatSnippet,
 			SortText:         optStr(SortUserFunctions + d.Name),
@@ -1315,6 +1267,66 @@ func (s *Server) methodCompletionItems(cfcPath string) []protocol.CompletionItem
 	}
 
 	return items
+}
+
+// callSnippet is a call to name with a placeholder for each required
+// argument, and the cursor inside the parentheses when there is none. Every
+// argument used to get one, so completing writeDump filled in every optional
+// argument it takes (intellilucee#47); signature help shows the optional
+// ones as they are needed, and a tag's snippet has always held only its
+// required attributes (buildTagSnippet).
+func callSnippet(name string, required []string) string {
+	if len(required) == 0 {
+		return name + "($0)"
+	}
+
+	var b strings.Builder
+
+	b.WriteString(name)
+	b.WriteByte('(')
+
+	for i, arg := range required {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+
+		fmt.Fprintf(&b, "${%d:%s}", i+1, arg)
+	}
+
+	b.WriteByte(')')
+
+	return b.String()
+}
+
+func requiredArgs(args []parser.Argument) []string {
+	var out []string
+
+	for _, a := range args {
+		if a.Required {
+			out = append(out, a.Name)
+		}
+	}
+
+	return out
+}
+
+// writeArgDetail writes the argument list a function's completion item shows
+// as its detail, every argument included, and the closing parenthesis.
+func writeArgDetail(detail *strings.Builder, args []parser.Argument) {
+	for i, arg := range args {
+		if i > 0 {
+			detail.WriteString(", ")
+		}
+
+		if arg.Type != "" {
+			detail.WriteString(arg.Type)
+			detail.WriteByte(' ')
+		}
+
+		detail.WriteString(arg.Name)
+	}
+
+	detail.WriteString(")")
 }
 
 // buildTagSnippet creates a snippet for a CF tag with required attributes as tab stops.

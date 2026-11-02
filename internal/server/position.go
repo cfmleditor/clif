@@ -6,6 +6,8 @@ import (
 
 	"github.com/cfmleditor/clif/internal/conv"
 	"github.com/cfmleditor/clif/internal/parser"
+	cfpath "github.com/cfmleditor/clif/internal/path"
+	"go.lsp.dev/uri"
 )
 
 // LSP positions count UTF-16 code units; everything in this server that reads
@@ -133,4 +135,34 @@ func (m *colMapper) col(line uint32, col uint32) uint32 {
 	}
 
 	return col
+}
+
+// documentURI is the URI the editor opened a document under, for a command's
+// URI argument naming the same file in another spelling, else that argument
+// as the file's canonical URI. A command's arguments are built by the client,
+// not echoed from a didOpen: IntelliJ passes VirtualFile.getUrl(),
+// file://C:/x.cfm, for a document it opened as file:///c%3A/x.cfm, and a path
+// with a space can arrive escaped or not. Looking the raw string up found
+// nothing, and clif.format did nothing on Windows (intellilucee#13).
+func (s *Server) documentURI(raw string) uri.URI {
+	u := uri.URI(raw)
+	if _, ok := s.getDocument(u); ok {
+		return u
+	}
+
+	path := cfpath.FromURI(raw)
+	if path == "" {
+		return u
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	for open := range s.documents {
+		if cfpath.SamePath(cfpath.FromURI(string(open)), path) {
+			return open
+		}
+	}
+
+	return uri.File(path)
 }
