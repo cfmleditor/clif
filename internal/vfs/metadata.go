@@ -43,12 +43,28 @@ type metadataCache struct {
 
 const (
 	contentFileLimit = 2 << 20
-	// contentBudget holds the whole of tassweb's 141MB of source: at 128MB the
-	// files read last were opened again by every lookup that wanted them, and
-	// the larger budget took a scan 0.5s of CPU and about 0.1s of wall time
-	// less for 59MB more resident memory.
-	contentBudget = 256 << 20
+	// defaultContentBudget is the budget unless SetContentBudget gives one.
+	// It holds the whole of tassweb's 141MB of source: at 128MB the files
+	// read last were opened again by every lookup that wanted them, and the
+	// larger budget took a scan 0.5s of CPU and about 0.1s of wall time less
+	// for 59MB more resident memory.
+	defaultContentBudget = 256 << 20
 )
+
+var contentBudget atomic.Int64
+
+func init() { contentBudget.Store(defaultContentBudget) }
+
+// SetContentBudget sets how many bytes of file text every batch cache made
+// after it may keep; a command sizes it from the machine's memory.
+func SetContentBudget(bytes int64) {
+	if bytes > 0 {
+		contentBudget.Store(bytes)
+	}
+}
+
+// ContentBudget is the budget SetContentBudget last set, or the default.
+func ContentBudget() int64 { return contentBudget.Load() }
 
 // ReadFile returns a copy of the cached bytes, so a caller cannot change
 // another reader's file.
@@ -70,7 +86,7 @@ func (c *metadataCache) ReadFile(path string) ([]byte, error) {
 		return data, err
 	}
 
-	if c.held.Add(int64(len(data))) > contentBudget {
+	if c.held.Add(int64(len(data))) > contentBudget.Load() {
 		c.held.Add(-int64(len(data)))
 
 		return data, nil
@@ -109,7 +125,7 @@ func (c *metadataCache) ReadFileString(path string) (string, error) {
 		return text, nil
 	}
 
-	if c.held.Add(int64(len(text))) > contentBudget {
+	if c.held.Add(int64(len(text))) > contentBudget.Load() {
 		c.held.Add(-int64(len(text)))
 
 		return text, nil

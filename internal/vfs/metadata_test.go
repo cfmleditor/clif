@@ -144,7 +144,7 @@ func TestMetadataCacheKeepsFileBytesWithinItsBudget(t *testing.T) {
 		t.Fatal("not a metadata cache")
 	}
 
-	full.held.Store(contentBudget)
+	full.held.Store(contentBudget.Load())
 
 	other := filepath.Join(dir, "b.cfc")
 	if err := os.WriteFile(other, []byte("component {}"), 0o600); err != nil {

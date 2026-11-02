@@ -48,6 +48,7 @@ func main() {
 				return
 			}
 
+			tuneBatchMemory(systemMemory())
 			cmd.run(args)
 
 			return
