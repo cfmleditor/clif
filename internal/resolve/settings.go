@@ -2,8 +2,6 @@ package resolve
 
 import (
 	"path/filepath"
-	"runtime"
-	"sync"
 
 	"github.com/cfmleditor/clif/internal/config"
 	"github.com/cfmleditor/clif/internal/frameworkapi"
@@ -352,34 +350,23 @@ func (r *Resolver) IndexFiles(files []string, visit func(f, content string, incl
 // before the next began: on tassweb's eleven configs that was a second of a
 // six-second scan. under is called from the workers and must be safe to call
 // concurrently.
+//
+// A panic on one file is recovered (forEachFile) and the file is left out of
+// the index: the editor's export runs this inside the language server, which
+// a panic on a worker goroutine would take down.
 func IndexFilesUnder(files []string, under func(file string) *Resolver, visit func(f, content string, includes []string)) {
-	work := make(chan string)
+	forEachFile(files, func(_ int, f string) {
+		r := under(f)
 
-	var wg sync.WaitGroup
+		content, err := vfs.ReadString(r.FS, f)
+		if err != nil || cfpath.IsBinary(content) {
+			return
+		}
 
-	for range runtime.GOMAXPROCS(0) {
-		wg.Go(func() {
-			for f := range work {
-				r := under(f)
+		includes := r.IndexForBatch(f, content)
 
-				content, err := vfs.ReadString(r.FS, f)
-				if err != nil || cfpath.IsBinary(content) {
-					continue
-				}
-
-				includes := r.IndexForBatch(f, content)
-
-				if visit != nil {
-					visit(f, content, includes)
-				}
-			}
-		})
-	}
-
-	for _, f := range files {
-		work <- f
-	}
-
-	close(work)
-	wg.Wait()
+		if visit != nil {
+			visit(f, content, includes)
+		}
+	})
 }

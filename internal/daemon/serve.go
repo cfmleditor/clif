@@ -104,6 +104,15 @@ func Serve(ctx context.Context, sockPath string, log cflog.Logger, idx *index.In
 		wg.Go(func() {
 			defer func() { _ = c.Close() }()
 
+			// A panic while setting up or serving one editor's session
+			// (applying the config, building the server) ends that
+			// session, not the daemon every other editor is connected to.
+			defer func() {
+				if r := recover(); r != nil {
+					cflog.Recovered(log, "daemon session panic", r)
+				}
+			}()
+
 			if ct != nil {
 				ct.Add()
 				defer ct.Remove()

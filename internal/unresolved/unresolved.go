@@ -18,6 +18,7 @@ import (
 	"github.com/cfmleditor/clif/internal/conv"
 	"github.com/cfmleditor/clif/internal/index"
 	"github.com/cfmleditor/clif/internal/knownissues"
+	cflog "github.com/cfmleditor/clif/internal/log"
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
 	"github.com/cfmleditor/clif/internal/resolve"
@@ -175,7 +176,7 @@ func Scan(fsys vfs.FS, files, targets []string, opt *Options) Report {
 			defer wg.Done()
 			defer func() { <-sem }()
 
-			calls, resolved := scanFile(fsys, opt.resolverFor(resolver, file), file, opt)
+			calls, resolved := scanFileRecovered(fsys, opt.resolverFor(resolver, file), file, opt)
 
 			mu.Lock()
 
@@ -213,6 +214,28 @@ func Scan(fsys vfs.FS, files, targets []string, opt *Options) Report {
 
 	return rep
 }
+
+// scanFileRecovered is scanFile, with a panic on the file recorded and the
+// file reported as one it could not scan. It runs on a worker goroutine,
+// which the caller's own recovery does not cover: the editor's export runs a
+// scan inside the language server, and one bad file ended it. A file left
+// out silently would read as one with nothing unresolved in it.
+func scanFileRecovered(fsys vfs.FS, resolver *resolve.Resolver, file string, opt *Options) (out []Call, resolved int) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			cflog.Recovered(nil, "unresolved scan panic", rec, cflog.String("file", file))
+
+			out = []Call{{File: file, Line: 1, Reason: fmt.Sprintf("%s: %v", ScanFailedReason, rec)}}
+			resolved = 0
+		}
+	}()
+
+	return scanFile(fsys, resolver, file, opt)
+}
+
+// ScanFailedReason begins the reason of the entry for a file the scan could
+// not check because checking it panicked.
+const ScanFailedReason = "clif could not scan this file (an internal error, recorded on stderr or in the crash log)"
 
 // NewResolver is the resolver a scan checks calls with, its index built from
 // files. The explain command builds its resolver here too, so a trace and the

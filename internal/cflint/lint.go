@@ -101,6 +101,11 @@ func (r *Runner) lintJobs(ctx context.Context, jobs [][]string, stdin [][]byte) 
 		go func() {
 			defer wg.Done()
 			defer func() { <-sem }()
+			defer recoverInto(&mu, func(err error) {
+				if firstErr == nil {
+					firstErr = err
+				}
+			}, "cflint lint")
 
 			var in []byte
 			if stdin != nil {

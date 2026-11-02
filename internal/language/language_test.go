@@ -59,3 +59,15 @@ func TestTreeSitterAllocatesThroughLibc(t *testing.T) {
 		t.Fatal("tree-sitter allocates through go-tree-sitter's Go callbacks, not libc")
 	}
 }
+
+// A grammar that cannot be loaded panics, which the request running it
+// recovers, rather than exiting the process and every editor with it.
+func TestAGrammarThatCannotLoadPanicsRatherThanExiting(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("an unknown grammar neither panicked nor failed")
+		}
+	}()
+
+	NewParser(Grammar(99))
+}

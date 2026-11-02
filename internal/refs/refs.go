@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 
+	cflog "github.com/cfmleditor/clif/internal/log"
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
 	"github.com/cfmleditor/clif/internal/resolve"
@@ -106,7 +107,7 @@ func findInFiles(fsys vfs.FS, files []string, opts *Options) []Entry {
 			defer wg.Done()
 			defer func() { <-sem }()
 
-			if entries := findInFile(fsys, f, opts); len(entries) > 0 {
+			if entries := findInFileRecovered(fsys, f, opts); len(entries) > 0 {
 				mu.Lock()
 
 				results = append(results, entries...)
@@ -118,6 +119,22 @@ func findInFiles(fsys vfs.FS, files []string, opts *Options) []Entry {
 	wg.Wait()
 
 	return results
+}
+
+// findInFileRecovered is findInFile, with a panic on the file recorded and
+// the file read as holding no references. It runs on a worker goroutine,
+// which the caller's recovery does not cover: textDocument/references and
+// clif.findRefs search inside the language server, and one bad file ended it.
+func findInFileRecovered(fsys vfs.FS, f string, opts *Options) (entries []Entry) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			cflog.Recovered(nil, "reference search panic", rec, cflog.String("file", f))
+
+			entries = nil
+		}
+	}()
+
+	return findInFile(fsys, f, opts)
 }
 
 // findInFile is findInFiles for one file.

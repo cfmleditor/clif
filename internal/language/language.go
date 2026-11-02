@@ -2,7 +2,7 @@
 package language
 
 import (
-	cflog "github.com/cfmleditor/clif/internal/log"
+	"fmt"
 
 	tree_sitter_cfml "github.com/cfmleditor/tree-sitter-cfml/bindings/go"
 	sitter "github.com/tree-sitter/go-tree-sitter"
@@ -37,9 +37,12 @@ func Language(g Grammar) *sitter.Language {
 func NewParser(g Grammar) *sitter.Parser {
 	p := sitter.NewParser()
 
-	err := p.SetLanguage(Language(g))
-	if err != nil {
-		cflog.Fatalf("Couldnt set parser language: %s", err)
+	// A panic, not an exit: this runs inside a request (formatting) whose
+	// recovery fails that one request, where os.Exit took the language
+	// server and every editor of a daemon with it.
+	if err := p.SetLanguage(Language(g)); err != nil {
+		p.Close()
+		panic(fmt.Sprintf("tree-sitter: cannot set the %v grammar: %v", g, err))
 	}
 
 	return p

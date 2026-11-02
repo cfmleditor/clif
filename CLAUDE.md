@@ -2561,6 +2561,19 @@ passes whatever the code does. And a window test needs both documents to present
 a **full** window, or it compares a five-line window against a fifty-line one and
 fails for that instead.
 
+**A worker goroutine needs a recover of its own.** A request handler's
+recover (`Handler`, `safeGo`, the timers) covers its own goroutine only, so a
+panic on a goroutine a command starts underneath it ends the language server,
+and in daemon mode every editor connected to it. Every pool the server can
+reach recovers per file: `resolve.forEachFile` (which returns the files that
+failed, so a caller does not read one as holding nothing), the unresolved scan
+(`scanFileRecovered`, which reports the file as one it could not scan), the
+code map (`Stats.Failed`), reference search, the workspace indexing writer,
+CFLint's workers (the panic becomes the run's error) and each daemon session.
+`cflog.Recovered` prints a line to stderr when there is no logger and no crash
+file, which is every command-line run. A new pool gets the same, and a test
+that panics on one file (`TestAScanSurvivesAPanicOnOneFile` and its siblings).
+
 **A close tag reaches the walk as `</`, not `<c`.** The `</cffunction>` check sat in
 `handleCFTag`, which the walk calls only for a tag whose second byte is `c`, so a tag
 function's scope ran on until the next `<cffunction>`. Every top-level `<cfset>` after one

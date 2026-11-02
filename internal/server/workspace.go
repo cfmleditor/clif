@@ -73,9 +73,9 @@ func (s *Server) indexWorkspace() {
 		defer indexWg.Done()
 
 		for r := range results {
-			s.applyIndexResult(r.fileURI, r.file, r.pr)
-
-			indexed++
+			if s.applyIndexResultRecovered(r.fileURI, r.file, r.pr) {
+				indexed++
+			}
 		}
 	}()
 
@@ -315,4 +315,23 @@ func indexingGC() func() {
 
 		indexingGCState.Unlock()
 	}
+}
+
+// applyIndexResultRecovered is applyIndexResult, with a panic recorded and
+// the file left out of the index; it reports whether the file was indexed.
+// It runs on the goroutine draining the parse results, outside any handler's
+// recovery: a panic there ended the language server, and leaving the loop
+// would leave the parse workers blocked on a channel nobody reads.
+func (s *Server) applyIndexResultRecovered(fileURI uri.URI, file string, pr *parser.ParseResult) (ok bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			cflog.Recovered(s.log, "panic applying an index result", r, cflog.String("file", file))
+
+			ok = false
+		}
+	}()
+
+	s.applyIndexResult(fileURI, file, pr)
+
+	return true
 }

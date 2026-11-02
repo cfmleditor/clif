@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/cfmleditor/clif/internal/frameworkapi"
+	cflog "github.com/cfmleditor/clif/internal/log"
 
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
@@ -242,7 +243,7 @@ func Build(opts *Options) *Map {
 	for range opts.Workers {
 		wg.Go(func() {
 			for f := range jobs {
-				results <- scanFile(opts, root, f, fingerprint)
+				results <- scanFileRecovered(opts, root, f, fingerprint)
 			}
 		})
 	}
@@ -440,6 +441,22 @@ type FileGraph struct {
 	Provisional []Node `json:"provisional"`
 	Edges       []Edge `json:"edges"`
 	Stats       Stats  `json:"stats"`
+}
+
+// scanFileRecovered is scanFile, with a panic on the file recorded and the
+// file counted as failed. It runs on a worker goroutine, which the caller's
+// recovery does not cover: the editor's generateCodeMap builds a map inside
+// the language server, and one bad file ended it.
+func scanFileRecovered(opts *Options, root, file, fingerprint string) (res *FileGraph) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			cflog.Recovered(nil, "code map scan panic", rec, cflog.String("file", file))
+
+			res = &FileGraph{Stats: Stats{Failed: 1}}
+		}
+	}()
+
+	return scanFile(opts, root, file, fingerprint)
 }
 
 func scanFile(opts *Options, root, file, fingerprint string) *FileGraph {
@@ -1055,6 +1072,7 @@ func (c *collector) merge(r *FileGraph) {
 	c.m.Stats.Unresolved += r.Stats.Unresolved
 	c.m.Stats.Builtin += r.Stats.Builtin
 	c.m.Stats.Unreadable += r.Stats.Unreadable
+	c.m.Stats.Failed += r.Stats.Failed
 	c.m.Stats.Cached += r.Stats.Cached
 	c.m.Stats.Routes += r.Stats.Routes
 	c.m.Stats.RoutesUnresolved += r.Stats.RoutesUnresolved
