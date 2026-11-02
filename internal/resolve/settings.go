@@ -2,8 +2,6 @@ package resolve
 
 import (
 	"path/filepath"
-	"runtime"
-	"sync"
 
 	"github.com/cfmleditor/clif/internal/config"
 	"github.com/cfmleditor/clif/internal/frameworkapi"
@@ -241,6 +239,7 @@ func (r *Resolver) ParseFile(file, content string, spec ParseSpec) *parser.Parse
 	po := &parser.ParseOptions{
 		Logger:                   spec.Logger,
 		Resolvers:                r.Resolvers,
+		ResolverSet:              r.parseResolverSet(r.Resolvers),
 		ExpressionMappings:       r.ExpressionMappings,
 		ServicePropertyResolvers: r.ServicePropertyResolvers,
 		PropertyResolvers:        r.PropertyResolvers,
@@ -269,6 +268,44 @@ func (r *Resolver) ParseFile(file, content string, spec ParseSpec) *parser.Parse
 	}
 
 	return pr
+}
+
+// parseResolverSet is resolvers, the slice the parse is about to be given,
+// as every parse matches them, shared with the resolver's views: what each
+// expression resolves to is the same in every file, and each parse used to
+// build a set of its own and match the expressions it met afresh. It is
+// rebuilt when the parse brings another slice: NewBatchResolver replaces
+// Resolvers with the bean resolvers after BeanResolvers' own validation has
+// parsed files, and a set built once before that served no later parse
+// (2,058 on MasaCMS fell back). A set is kept per slice, so two resolvers
+// with different slices (a view made before the list was replaced) cannot
+// replace each other's set on every parse. It reads no field the caller did
+// not, and takes no lock: it is asked once per parse.
+func (r *Resolver) parseResolverSet(resolvers []parser.Resolver) *parser.ResolverSet {
+	o := r.owner()
+	key := resolverSetKey{n: len(resolvers)}
+
+	if len(resolvers) > 0 {
+		key.first = &resolvers[0]
+	}
+
+	if held, ok := o.resolverSets.Load(key); ok {
+		set, _ := held.(*parser.ResolverSet)
+
+		return set
+	}
+
+	held, _ := o.resolverSets.LoadOrStore(key, parser.BuildResolverSet(resolvers))
+	set, _ := held.(*parser.ResolverSet)
+
+	return set
+}
+
+// resolverSetKey names a slice of resolvers by where it starts and its
+// length, which is what ResolverSet.Serves compares.
+type resolverSetKey struct {
+	first *parser.Resolver
+	n     int
 }
 
 // IndexForBatch indexes one file the way every batch run must: a template only
@@ -313,34 +350,23 @@ func (r *Resolver) IndexFiles(files []string, visit func(f, content string, incl
 // before the next began: on tassweb's eleven configs that was a second of a
 // six-second scan. under is called from the workers and must be safe to call
 // concurrently.
+//
+// A panic on one file is recovered (forEachFile) and the file is left out of
+// the index: the editor's export runs this inside the language server, which
+// a panic on a worker goroutine would take down.
 func IndexFilesUnder(files []string, under func(file string) *Resolver, visit func(f, content string, includes []string)) {
-	work := make(chan string)
+	forEachFile(files, func(_ int, f string) {
+		r := under(f)
 
-	var wg sync.WaitGroup
+		content, err := vfs.ReadString(r.FS, f)
+		if err != nil || cfpath.IsBinary(content) {
+			return
+		}
 
-	for range runtime.GOMAXPROCS(0) {
-		wg.Go(func() {
-			for f := range work {
-				r := under(f)
+		includes := r.IndexForBatch(f, content)
 
-				content, err := vfs.ReadString(r.FS, f)
-				if err != nil || cfpath.IsBinary(content) {
-					continue
-				}
-
-				includes := r.IndexForBatch(f, content)
-
-				if visit != nil {
-					visit(f, content, includes)
-				}
-			}
-		})
-	}
-
-	for _, f := range files {
-		work <- f
-	}
-
-	close(work)
-	wg.Wait()
+		if visit != nil {
+			visit(f, content, includes)
+		}
+	})
 }

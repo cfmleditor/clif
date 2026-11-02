@@ -48,6 +48,7 @@ func main() {
 				return
 			}
 
+			tuneBatchMemory(systemMemory())
 			cmd.run(args)
 
 			return
@@ -79,8 +80,8 @@ func main() {
 		}
 	}
 
-	// Default: run LSP server
-	runServer()
+	// Default: run LSP server, supervised (supervise.go)
+	serveLanguage()
 }
 
 func printHelp() {
@@ -117,8 +118,16 @@ for a command's usage and options.
 // versions up to a batch scan's budget. TestLongLivedProcessesLimitTextCaches.
 const longLivedCacheBytes = 16 << 20
 
+// longLivedContentBytes is the batch file cache's budget in such a process:
+// the editor's export of the unresolved report and the MCP server's tools
+// run a batch scan inside it, and its memory is the editor's.
+const longLivedContentBytes = 128 << 20
+
 func limitLongLivedCaches() {
 	resolve.LimitTextCaches(longLivedCacheBytes)
+	// At most this: a subcommand has already sized it from the machine, and
+	// a small machine's budget is smaller still.
+	vfs.SetContentBudget(min(vfs.ContentBudget(), longLivedContentBytes))
 }
 
 func runServer() {

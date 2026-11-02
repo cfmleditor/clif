@@ -115,44 +115,123 @@ func (r *Resolver) customTagAttribute(variable string, pr *parser.ParseResult, t
 
 // customTagSites are the workspace's custom tag calls by tag name, and how
 // many templates answer to each name, read once per scan from the batch file
-// list.
+// list. One goroutine builds it while the others wait: every scan worker asks
+// at once, and each reading the whole workspace for itself took 5s of tassweb's
+// scan. The files are read in parallel.
 func (r *Resolver) customTagSites() (map[string][]customTagSite, map[string]int) {
 	o := r.owner()
 
-	o.mu.RLock()
-	sites, templates := o.tagSites, o.tagTemplates
-	o.mu.RUnlock()
-
-	if sites != nil {
+	if sites, templates, ok := o.cachedTagSites(); ok {
 		return sites, templates
 	}
 
-	sites, templates = map[string][]customTagSite{}, map[string]int{}
+	o.tagSitesBuild.Lock()
+	defer o.tagSitesBuild.Unlock()
 
-	for _, file := range o.InferArgsFiles {
+	if sites, templates, ok := o.cachedTagSites(); ok {
+		return sites, templates
+	}
+
+	files := o.InferArgsFiles
+	found := make([]map[string][]customTagSite, len(files))
+
+	failed := forEachFile(files, func(i int, file string) { found[i] = r.customTagCallsInFile(file) })
+
+	sites, templates := map[string][]customTagSite{}, map[string]int{}
+
+	// A file whose calls could not be read is an opaque caller of each tag
+	// it names, which makes that tag's attributes decline. When even its tag
+	// names cannot be read it may call any tag, and no tag's callers are
+	// known: every attribute declines, and no include is read from them.
+	opaque := map[string][]string{}
+
+	for _, file := range failed {
+		names, ok := r.tagsNamedIn(file)
+		if !ok {
+			found = nil
+
+			break
+		}
+
+		for _, name := range names {
+			opaque[name] = append(opaque[name], file)
+		}
+	}
+
+	for i, file := range files {
 		if strings.EqualFold(filepath.Ext(file), ".cfm") {
 			templates[strings.ToLower(strings.TrimSuffix(filepath.Base(file), filepath.Ext(file)))]++
 		}
 
-		text, err := r.readText(file)
-		if err != nil || parser.IndexFold(text, "<cf_") < 0 && parser.IndexFold(text, "<cfmodule") < 0 {
+		if found == nil {
 			continue
 		}
 
-		for tag, found := range customTagCallsIn(text, file) {
-			sites[tag] = append(sites[tag], found...)
+		for tag, calls := range found[i] {
+			sites[tag] = append(sites[tag], calls...)
+		}
+	}
+
+	if found != nil {
+		for tag, from := range opaque {
+			for _, file := range from {
+				sites[tag] = append(sites[tag], customTagSite{file: file, opaque: true})
+			}
 		}
 	}
 
 	o.mu.Lock()
-	if o.tagSites == nil {
-		o.tagSites, o.tagTemplates = sites, templates
-	}
-
-	sites, templates = o.tagSites, o.tagTemplates
+	o.tagSites, o.tagTemplates = sites, templates
 	o.mu.Unlock()
 
 	return sites, templates
+}
+
+// customTagCallsInFile is customTagCallsIn over one file, nil when it holds
+// none.
+func (r *Resolver) customTagCallsInFile(file string) map[string][]customTagSite {
+	text, err := r.readText(file)
+	if err != nil || parser.IndexFold(text, "<cf_") < 0 && parser.IndexFold(text, "<cfmodule") < 0 {
+		return nil
+	}
+
+	return customTagCallsIn(text, file)
+}
+
+// tagsNamedIn is the custom tag names file's text spells, read with the
+// tag-start pattern alone, for a file whose full read of its calls panicked.
+// ok is false when it cannot say: the text cannot be read, it calls a tag
+// through <cfmodule> (whose name is in an attribute), or this read panics too.
+func (r *Resolver) tagsNamedIn(file string) (names []string, ok bool) {
+	defer func() {
+		if recover() != nil {
+			names, ok = nil, false
+		}
+	}()
+
+	text, err := r.readText(file)
+	if err != nil {
+		return nil, false
+	}
+
+	for _, m := range customTagStartRe.FindAllStringSubmatch(text, -1) {
+		if m[1] == "" {
+			return nil, false
+		}
+
+		if name := strings.ToLower(m[1]); !slices.Contains(names, name) {
+			names = append(names, name)
+		}
+	}
+
+	return names, true
+}
+
+func (r *Resolver) cachedTagSites() (map[string][]customTagSite, map[string]int, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	return r.tagSites, r.tagTemplates, r.tagSites != nil
 }
 
 // customTagCallsIn reads the custom tag calls in content: `<cf_name …>`, and

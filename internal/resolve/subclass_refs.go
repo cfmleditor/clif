@@ -1,9 +1,11 @@
 package resolve
 
 import (
+	"maps"
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/parser"
@@ -98,6 +100,51 @@ func (r *Resolver) leafSubclasses(base string) []string {
 		return nil
 	}
 
+	// Every bare call no file or chain answers asks this of its file, and the
+	// walk scans the extends map once per component under the base. Kept on
+	// the owner under the mappings the walk resolved with: descendsFrom
+	// resolves each extends through r.ComponentPath, and a caller-context view
+	// resolves with its application's mappings (mappingsKey), so views whose
+	// mappings agree share an answer and the owner, which resolves by
+	// directory, keeps its own.
+	o := r.owner()
+	scope := "owner"
+
+	if r.indexer != nil {
+		scope = "view:" + r.mappingsKey
+	}
+
+	key := pathKey(base) + "\x00" + strconv.FormatUint(r.Index.Generation(), 10)
+
+	o.mu.RLock()
+	leaves, ok := o.leafSubs[scope][key]
+	o.mu.RUnlock()
+
+	// A copy: a caller narrows the list in place (subclassComponent).
+	if ok {
+		return slices.Clone(leaves)
+	}
+
+	leaves = r.leafSubclassesUncached(base)
+
+	// Each scope has its own cap, so a workspace of many applications does
+	// not empty every view's answers each time one view fills up.
+	o.mu.Lock()
+	if o.leafSubs == nil {
+		o.leafSubs = map[string]map[string][]string{}
+	}
+
+	if o.leafSubs[scope] == nil || len(o.leafSubs[scope]) >= 8192 {
+		o.leafSubs[scope] = map[string][]string{}
+	}
+
+	o.leafSubs[scope][key] = leaves
+	o.mu.Unlock()
+
+	return slices.Clone(leaves)
+}
+
+func (r *Resolver) leafSubclassesUncached(base string) []string {
 	all := []string{base}
 
 	for i := 0; i < len(all) && len(all) <= maxSubclasses; i++ {
@@ -200,4 +247,21 @@ func (r *Resolver) leafLiteral(leaf, base, name string) string {
 	}
 
 	return ""
+}
+
+// mappingsKey is a set of mappings as a string, the same for any two sets
+// that map alike.
+func mappingsKey(m map[string]string) string {
+	keys := slices.Sorted(maps.Keys(m))
+
+	var b strings.Builder
+
+	for _, k := range keys {
+		b.WriteString(strings.ToLower(k))
+		b.WriteByte('=')
+		b.WriteString(m[k])
+		b.WriteByte(0)
+	}
+
+	return b.String()
 }

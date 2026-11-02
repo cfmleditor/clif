@@ -179,6 +179,11 @@ func expressionWrappedCallOrigin(call *CallSite, text string, offset, line int, 
 	}
 }
 
+// maxOriginScan bounds the bytes one expression's calls are rescanned for
+// their origins (mergeExpressionCalls). Every expression in the corpus is
+// well inside it; it is there for the one that is not.
+const maxOriginScan = 4 << 20
+
 // lineCounter counts the newlines in text before an offset, carrying the
 // count forward between calls asked in increasing order, as a token's spans
 // and an expression's calls are. Counting from the start each time was

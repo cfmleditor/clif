@@ -502,7 +502,7 @@ func matchPropertyPattern(value, pattern, resolve string) string {
 // ResolverSet groups resolvers by the first byte of their prefix for fast rejection.
 type ResolverSet struct {
 	resolvers []Resolver
-	byByte    [256][]int // lowercase first byte → resolver indices
+	byByte    *[256][]int // lowercase first byte → resolver indices
 	built     bool
 
 	// soft holds the components a DynamicIfMissing resolver produced during
@@ -512,14 +512,33 @@ type ResolverSet struct {
 	softMu sync.Mutex
 	soft   map[string]bool
 
-	// answers holds what Resolve gave each expression. The answer is a pure
+	// memo holds what Resolve gave each expression. The answer is a pure
 	// function of the expression and the resolvers, and a reparse asks the
 	// same set about every assignment and call in the file again; on a
-	// 65,000-line component that search was a fifth of a reparse. It is
-	// emptied when it reaches maxResolverAnswers, so text typed and deleted
-	// cannot grow it without bound.
-	answersMu sync.Mutex
-	answers   map[string]resolverAnswer
+	// 65,000-line component that search was a fifth of a reparse. Sets made
+	// by ForParse share it, so a batch run's parses do not each match the
+	// same expressions afresh. It is emptied when it reaches
+	// maxResolverAnswers, so text typed and deleted cannot grow it without
+	// bound.
+	memo *resolverMemo
+}
+
+type resolverMemo struct {
+	mu      sync.RWMutex // read-locked for a hit: every parse worker shares it
+	answers map[string]resolverAnswer
+}
+
+// ForParse is a set for one parse: rs's index and memo of answers, shared,
+// and a soft set of its own, which belongs to the parse that asked. Building
+// a set per parse threw both away with every file of a batch run.
+func (rs *ResolverSet) ForParse() *ResolverSet {
+	return &ResolverSet{resolvers: rs.resolvers, byByte: rs.byByte, built: true, memo: rs.memo}
+}
+
+// Serves reports whether rs was built from exactly resolvers, the same slice,
+// so a parse given resolvers may use it.
+func (rs *ResolverSet) Serves(resolvers []Resolver) bool {
+	return rs != nil && len(rs.resolvers) == len(resolvers) && (len(resolvers) == 0 || &rs.resolvers[0] == &resolvers[0])
 }
 
 type resolverAnswer struct {
@@ -559,7 +578,7 @@ func (rs *ResolverSet) isSoft(comp string) bool {
 
 // BuildResolverSet creates an optimized resolver set from a slice of resolvers.
 func BuildResolverSet(resolvers []Resolver) *ResolverSet {
-	rs := &ResolverSet{resolvers: resolvers}
+	rs := &ResolverSet{resolvers: resolvers, byByte: &[256][]int{}, memo: &resolverMemo{}}
 	for i := range resolvers {
 		if resolvers[i].Prefix == "" {
 			continue
@@ -734,24 +753,26 @@ func (rs *ResolverSet) Resolve(expr string) string {
 		return ""
 	}
 
-	rs.answersMu.Lock()
-	a, ok := rs.answers[expr]
-	rs.answersMu.Unlock()
+	m := rs.memo
+
+	m.mu.RLock()
+	a, ok := m.answers[expr]
+	m.mu.RUnlock()
 
 	if !ok {
 		a = rs.resolve(expr)
 
-		rs.answersMu.Lock()
-		if rs.answers == nil || len(rs.answers) >= maxResolverAnswers {
-			rs.answers = make(map[string]resolverAnswer)
+		m.mu.Lock()
+		if m.answers == nil || len(m.answers) >= maxResolverAnswers {
+			m.answers = make(map[string]resolverAnswer)
 		}
 
 		// The answer is cloned with the key: a resolver can answer with a
 		// slice of the expression, which is a slice of the whole document,
 		// and kept here it would keep every edit's copy of the document.
 		a.component = strings.Clone(a.component)
-		rs.answers[strings.Clone(expr)] = a
-		rs.answersMu.Unlock()
+		m.answers[strings.Clone(expr)] = a
+		m.mu.Unlock()
 	}
 
 	// Noted on every answer, not only the first: the soft set belongs to the

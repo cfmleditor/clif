@@ -1,6 +1,7 @@
 package vfs
 
 import (
+	"errors"
 	"io/fs"
 	"slices"
 	"sync"
@@ -18,7 +19,11 @@ import (
 // contentBudget in all, first read first kept): resolution re-reads the same
 // sources many times over (a framework's bindings, every caller of an
 // inferred argument), and those reads were a fifth of a Wheels scan's CPU. A
-// file read after the budget is spent, or a failed read, stays live.
+// file read after the budget is spent stays live. A file that does not exist
+// is remembered as missing, as Stat remembers it: discovery probes the same
+// absent server.json, .cfconfig.json and framework markers in every directory
+// up to the root for each application it looks at, 70,000 failed opens in
+// one tassweb scan. Any other failed read stays live.
 func CacheMetadata(base FS) FS {
 	if _, ok := base.(*metadataCache); ok {
 		return base
@@ -32,13 +37,34 @@ type metadataCache struct {
 	stats    sync.Map
 	dirs     sync.Map
 	contents sync.Map // path -> string, within contentBudget
+	missing  sync.Map // path -> the fs.ErrNotExist error its read returned
 	held     atomic.Int64
 }
 
 const (
 	contentFileLimit = 2 << 20
-	contentBudget    = 128 << 20
+	// defaultContentBudget is the budget unless SetContentBudget gives one.
+	// It holds the whole of tassweb's 141MB of source: at 128MB the files
+	// read last were opened again by every lookup that wanted them, and the
+	// larger budget took a scan 0.5s of CPU and about 0.1s of wall time less
+	// for 59MB more resident memory.
+	defaultContentBudget = 256 << 20
 )
+
+var contentBudget atomic.Int64
+
+func init() { contentBudget.Store(defaultContentBudget) }
+
+// SetContentBudget sets how many bytes of file text every batch cache made
+// after it may keep; a command sizes it from the machine's memory.
+func SetContentBudget(bytes int64) {
+	if bytes > 0 {
+		contentBudget.Store(bytes)
+	}
+}
+
+// ContentBudget is the budget SetContentBudget last set, or the default.
+func ContentBudget() int64 { return contentBudget.Load() }
 
 // ReadFile returns a copy of the cached bytes, so a caller cannot change
 // another reader's file.
@@ -49,12 +75,18 @@ func (c *metadataCache) ReadFile(path string) ([]byte, error) {
 		return []byte(text), nil
 	}
 
+	if err := c.missingErr(path); err != nil {
+		return nil, err
+	}
+
 	data, err := c.FS.ReadFile(path)
 	if err != nil || len(data) > contentFileLimit {
+		c.noteMissing(path, err)
+
 		return data, err
 	}
 
-	if c.held.Add(int64(len(data))) > contentBudget {
+	if c.held.Add(int64(len(data))) > contentBudget.Load() {
 		c.held.Add(-int64(len(data)))
 
 		return data, nil
@@ -76,10 +108,16 @@ func (c *metadataCache) ReadFileString(path string) (string, error) {
 		return text, nil
 	}
 
+	if err := c.missingErr(path); err != nil {
+		return "", err
+	}
+
 	// Through the base's own ReadFileString where it has one (vfs.OS's
 	// hands over the bytes it read without copying them).
 	text, err := ReadString(c.FS, path)
 	if err != nil {
+		c.noteMissing(path, err)
+
 		return "", err
 	}
 
@@ -87,7 +125,7 @@ func (c *metadataCache) ReadFileString(path string) (string, error) {
 		return text, nil
 	}
 
-	if c.held.Add(int64(len(text))) > contentBudget {
+	if c.held.Add(int64(len(text))) > contentBudget.Load() {
 		c.held.Add(-int64(len(text)))
 
 		return text, nil
@@ -99,6 +137,25 @@ func (c *metadataCache) ReadFileString(path string) (string, error) {
 	}
 
 	return text, nil
+}
+
+// missingErr is the error an earlier read of path returned when the file did
+// not exist, or nil.
+func (c *metadataCache) missingErr(path string) error {
+	held, ok := c.missing.Load(path)
+	if !ok {
+		return nil
+	}
+
+	err, _ := held.(error)
+
+	return err
+}
+
+func (c *metadataCache) noteMissing(path string, err error) {
+	if errors.Is(err, fs.ErrNotExist) {
+		c.missing.Store(path, err)
+	}
 }
 
 func (c *metadataCache) Stat(path string) (fs.FileInfo, error) {

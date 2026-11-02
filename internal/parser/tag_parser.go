@@ -2739,8 +2739,19 @@ func (p *tagParser) mergeExpressionCalls(expr string, line int, topUp, spanLines
 
 	exprLines := lineCounter{text: expr}
 
+	// A call without a span is found by scanning the whole expression again,
+	// so an expression holding thousands of them was quadratic: a 1MB
+	// <cfset> of unclosed interpolations hung the parse, and so the editor,
+	// for good. Past originBudget bytes scanned the rest keep an unknown
+	// span, which is what an ambiguous origin already gets.
+	originBudget := maxOriginScan
+
 	emit := func(c CallSite) {
-		if knownOrigin {
+		if knownOrigin && (c.HasSpan || originBudget >= len(expr)) {
+			if !c.HasSpan {
+				originBudget -= len(expr)
+			}
+
 			expressionWrappedCallOrigin(&c, expr, p.srcOffset+offsets[0], line, wrapped, spanLines, &exprLines)
 		}
 

@@ -431,22 +431,44 @@ func functionSource(source *sourceInfo, name string) string {
 		return m.body
 	}
 
-	lower := strings.ToLower(source.content)
+	return source.tagFunctionBodies()[strings.ToLower(name)]
+}
+
+// tagFunctionBodies is the body of each `<cffunction>` in the source by its
+// lowercased name, the first declaration of a name winning, read once per
+// source: functionSource is asked for every owned-key candidate, and reading
+// the whole file for each was 4% of tassweb's scan.
+func (s *sourceInfo) tagFunctionBodies() map[string]string {
+	if s.derived == nil {
+		return tagFunctionBodies(s.content)
+	}
+
+	s.derived.tagBodiesOnce.Do(func() { s.derived.tagBodies = tagFunctionBodies(s.content) })
+
+	return s.derived.tagBodies
+}
+
+func tagFunctionBodies(content string) map[string]string {
+	lower := strings.ToLower(content)
+	out := map[string]string{}
 
 	for _, loc := range tagFunctionRe.FindAllStringSubmatchIndex(lower, -1) {
-		if lower[loc[2]:loc[3]] != strings.ToLower(name) {
+		// A clone: a slice of lower would keep the whole lowercased copy of
+		// the file alive for as long as the map, 60MB over tassweb.
+		name := strings.Clone(lower[loc[2]:loc[3]])
+		if _, seen := out[name]; seen {
 			continue
 		}
 
-		end := strings.Index(lower[loc[1]:], "</cffunction")
-		if end < 0 {
-			return ""
+		body := ""
+		if end := strings.Index(lower[loc[1]:], "</cffunction"); end >= 0 {
+			body = content[loc[1] : loc[1]+end]
 		}
 
-		return source.content[loc[1] : loc[1]+end]
+		out[name] = body
 	}
 
-	return ""
+	return out
 }
 
 var tagFunctionRe = regexp.MustCompile(`<cffunction\b[^>]*?\bname\s*=\s*["']([\w$]+)["'][^>]*>`)

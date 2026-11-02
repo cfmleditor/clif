@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json/v2"
 
+	"github.com/cfmleditor/clif/internal/lspdoc"
 	"go.lsp.dev/protocol"
 )
 
@@ -16,17 +17,9 @@ func tooltip(s string) protocol.InlayHintTooltip {
 	return protocol.String(s)
 }
 
-// changeRangeAndText extracts the range, text and whether the change is a whole-document
-// replacement from a TextDocumentContentChangeEvent union value.
-func changeRangeAndText(change protocol.TextDocumentContentChangeEvent) (r protocol.Range, text string, isFull bool) {
-	switch c := change.(type) {
-	case *protocol.TextDocumentContentChangePartial:
-		return c.Range, c.Text, false
-	case *protocol.TextDocumentContentChangeWholeDocument:
-		return protocol.Range{}, c.Text, true
-	default:
-		return protocol.Range{}, "", true
-	}
+// changeRangeAndText is lspdoc.ChangeRangeAndText.
+func changeRangeAndText(change protocol.TextDocumentContentChangeEvent) (protocol.Range, string, bool) {
+	return lspdoc.ChangeRangeAndText(change)
 }
 
 // argAs decodes the i'th ExecuteCommand argument (a raw JSON LSPAny) as a T,

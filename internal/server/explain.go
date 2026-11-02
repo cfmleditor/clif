@@ -39,7 +39,7 @@ func (s *Server) handleExplainCall(ctx context.Context, args []protocol.LSPAny) 
 	line := int(lineArg)
 	filter, _ := argString(args, 2)
 
-	fileURI := uri.URI(docURI)
+	fileURI := s.documentURI(docURI)
 	file := cfpath.FromURI(docURI)
 
 	content, ok := s.getDocument(fileURI)

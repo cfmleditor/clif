@@ -21,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	cflog "github.com/cfmleditor/clif/internal/log"
 	"github.com/cfmleditor/clif/internal/vfs"
 
 	"go.lsp.dev/protocol"
@@ -223,6 +224,11 @@ func (r *Runner) ScanFiles(ctx context.Context, files []string) (map[string][]pr
 		go func() {
 			defer wg.Done()
 			defer func() { <-sem }()
+			defer recoverInto(&mu, func(err error) {
+				if firstErr == nil {
+					firstErr = err
+				}
+			}, "cflint scan")
 
 			result, err := r.run(ctx, "", "-file", strings.Join(batch, ","), "-json", "-stdout", "-q")
 
@@ -251,6 +257,22 @@ func (r *Runner) ScanFiles(ctx context.Context, files []string) (map[string][]pr
 	}
 
 	return out, firstErr
+}
+
+// recoverInto turns a panic in a worker goroutine into the run's error,
+// recorded with its stack. The workers run outside any request handler's
+// recovery, so a panic mapping CFLint's report ended the language server; it
+// now fails the lint and the editor says so. It is deferred before the
+// worker takes mu, so mu is free by the time it runs; fail is called with
+// mu held.
+func recoverInto(mu *sync.Mutex, fail func(error), what string) {
+	if rec := recover(); rec != nil {
+		cflog.Recovered(nil, what+" panic", rec)
+
+		mu.Lock()
+		fail(fmt.Errorf("%s: internal error: %v", what, rec))
+		mu.Unlock()
+	}
 }
 
 // run runs the binary with args, in dir when it is not empty, and decodes its

@@ -180,6 +180,12 @@ The server logs to stderr, which the editor keeps in its language-server log. Tw
 
 For a fatal Go error, such as a stack overflow, the one-line reason (`fatal error: stack overflow`) appears only on stderr. The file gets the traceback that follows it.
 
+### Restart after a crash
+
+The `clif` an editor starts supervises the language server rather than being it: it runs the server as a child process and relays the session. If the server ever exits without being asked to, whatever the cause (a fatal error no recovery can catch included), the supervisor starts a new one and replays the session to it: the editor's `initialize`, its configuration and workspace folders, and every open document as it stands, unsaved edits included. A request the old server left unanswered is answered `ContentModified`, which editors retry or drop quietly, and the editor is told the server was restarted. A server that exits more than five times in three minutes is not restarted again. In daemon mode each editor's supervisor restarts its own session, so the daemon dying is recovered from by every editor connected to it.
+
+Set `CLIF_NO_SUPERVISOR=1` in the environment the editor starts the server with to run the server directly. The wasm build always does.
+
 ### Scanning a project for unresolved calls
 
 `unresolved` reports every call the server cannot resolve to a definition. It takes files or directories and walks directories itself, so there is no glob to pass. It skips dot-directories such as `.git` and `.claude/worktrees`. It reads the `.clif.json` governing the first path it is given.

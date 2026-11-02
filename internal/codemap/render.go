@@ -233,6 +233,10 @@ func (m *Map) WriteText(w io.Writer, limit int) error {
 		fmt.Fprintf(&b, "  %.1f%% of call sites resolved to a definition\n", pct)
 	}
 
+	if m.Stats.Failed > 0 {
+		fmt.Fprintf(&b, "  %d files could not be scanned (an internal error, recorded on stderr or in the crash log)\n", m.Stats.Failed)
+	}
+
 	if m.Stats.Unreadable > 0 {
 		fmt.Fprintf(&b, "  %d files unreadable or binary\n", m.Stats.Unreadable)
 	}

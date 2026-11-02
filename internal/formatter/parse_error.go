@@ -17,6 +17,12 @@ import (
 // — the LSP's textDocument/formatting handler and the `format` subcommand —
 // gate on this first, so a file the editor refuses is a file the CLI refuses.
 func ParseError(tree *sitter.Tree, src []byte) error {
+	// No tree is a parse that did not finish (language.MaxParseTime): there
+	// is nothing to format from, and reading one panicked the request.
+	if tree == nil {
+		return errors.New("the document took too long to parse, cannot format")
+	}
+
 	root := tree.RootNode()
 	if !root.HasError() {
 		return nil

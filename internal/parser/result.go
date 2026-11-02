@@ -177,8 +177,12 @@ type ParseResult struct {
 
 // ParseOptions configures optional parse behaviour.
 type ParseOptions struct {
-	Logger                   Logger
-	Resolvers                []Resolver
+	Logger    Logger
+	Resolvers []Resolver
+	// ResolverSet, built from Resolvers, lends a parse its index and memo of
+	// answers (ResolverSet.ForParse), so the parses of one workspace share
+	// them. Optional; a set built from another slice is ignored.
+	ResolverSet              *ResolverSet
 	PropertyResolvers        []PropertyResolver
 	ConstructorLookup        func(name string) string // optional, only for known factory construction
 	SetterLookup             func(name string) string // optional, only for factory-managed components
@@ -294,7 +298,11 @@ func ParseWithOptions(fileURI uri.URI, content string, opts *ParseOptions) *Pars
 		interpolateAll:           opts.InterpolateAllText,
 	}
 	if len(pr.Resolvers) > 0 {
-		pr.resolverSet = BuildResolverSet(pr.Resolvers)
+		if opts.ResolverSet.Serves(pr.Resolvers) {
+			pr.resolverSet = opts.ResolverSet.ForParse()
+		} else {
+			pr.resolverSet = BuildResolverSet(pr.Resolvers)
+		}
 	}
 
 	start := time.Now()

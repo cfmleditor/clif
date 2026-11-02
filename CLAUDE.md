@@ -2561,6 +2561,36 @@ passes whatever the code does. And a window test needs both documents to present
 a **full** window, or it compares a five-line window against a fifty-line one and
 fails for that instead.
 
+**A worker goroutine needs a recover of its own.** A request handler's
+recover (`Handler`, `safeGo`, the timers) covers its own goroutine only, so a
+panic on a goroutine a command starts underneath it ends the language server,
+and in daemon mode every editor connected to it. Every pool the server can
+reach recovers per file: `resolve.forEachFile` (which returns the files that
+failed, so a caller does not read one as holding nothing), the unresolved scan
+(`scanFileRecovered`, which reports the file as one it could not scan), the
+code map (`Stats.Failed`), reference search, the workspace indexing writer,
+CFLint's workers (the panic becomes the run's error) and each daemon session.
+`cflog.Recovered` prints a line to stderr when there is no logger and no crash
+file, which is every command-line run. A new pool gets the same, and a test
+that panics on one file (`TestAScanSurvivesAPanicOnOneFile` and its siblings).
+
+**What no recover catches, a supervisor does** (`internal/supervise`,
+`cmd/clif/supervise.go`). A stack overflow, a concurrent map write and running
+out of memory end the process wherever they happen, so the `clif` an editor
+starts runs the server as a child (`CLIF_SUPERVISED=1`) and relays the
+session, remembering the initialize request, the configuration and folders,
+and each open document's text (applied through `lspdoc.ApplyChanges`, the
+server's own code, so the two agree byte for byte). A child that exits unasked
+is replaced and the session replayed; its unanswered requests get
+ContentModified; a registration the editor already holds is answered by the
+supervisor, since registering an id twice is an error to an editor; more than
+five exits in three minutes and it gives up. It also closes the child's stdin
+after `exit`, which the server otherwise waits for. A message from the editor
+during a restart is queued, except document sync, which the replay already
+carries. `TestACrashedServerIsRestartedWithTheSessionReplayed` drives the whole
+cycle against an in-process fake; `CLIF_NO_SUPERVISOR=1` runs the server
+directly.
+
 **A close tag reaches the walk as `</`, not `<c`.** The `</cffunction>` check sat in
 `handleCFTag`, which the walk calls only for a tag whose second byte is `c`, so a tag
 function's scope ran on until the next `<cffunction>`. Every top-level `<cfset>` after one

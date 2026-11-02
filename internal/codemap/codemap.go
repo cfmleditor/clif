@@ -157,6 +157,9 @@ type Stats struct {
 	Unresolved int `json:"unresolved"`
 	Builtin    int `json:"builtin"`
 	Unreadable int `json:"unreadable"`
+	// Failed counts the files whose scan panicked: recovered, so the editor's
+	// language server survives, and left out of the map.
+	Failed int `json:"failed,omitempty"`
 
 	// Routes counts the framework route strings found, and RoutesUnresolved how
 	// many named nothing the convention could reach. A high unresolved share means

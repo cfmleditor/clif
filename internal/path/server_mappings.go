@@ -15,7 +15,7 @@ func loadServerMappings(appDir string) map[string]string {
 		selected := false
 
 		config := filepath.Join(dir, ".cfconfig.json")
-		if data, err := DefaultFS.ReadFile(filepath.Join(dir, "server.json")); err == nil {
+		if data, err := probeRead(filepath.Join(dir, "server.json")); err == nil {
 			var server struct {
 				CFConfig struct {
 					File string `json:"file"`
@@ -35,7 +35,7 @@ func loadServerMappings(appDir string) map[string]string {
 			}
 		}
 
-		if data, err := DefaultFS.ReadFile(config); err == nil {
+		if data, err := probeRead(config); err == nil {
 			var source struct {
 				Mappings map[string]json.RawMessage `json:"mappings"`
 			}

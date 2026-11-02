@@ -1,6 +1,7 @@
 package vfs
 
 import (
+	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -143,7 +144,7 @@ func TestMetadataCacheKeepsFileBytesWithinItsBudget(t *testing.T) {
 		t.Fatal("not a metadata cache")
 	}
 
-	full.held.Store(contentBudget)
+	full.held.Store(contentBudget.Load())
 
 	other := filepath.Join(dir, "b.cfc")
 	if err := os.WriteFile(other, []byte("component {}"), 0o600); err != nil {
@@ -158,6 +159,48 @@ func TestMetadataCacheKeepsFileBytesWithinItsBudget(t *testing.T) {
 
 	if base.reads.Load() != 3 {
 		t.Errorf("a file read past the budget was kept: %d disk reads, want 3", base.reads.Load())
+	}
+}
+
+func (c *readCountingFS) ReadFileString(path string) (string, error) {
+	c.reads.Add(1)
+
+	return c.OS.ReadFileString(path)
+}
+
+// TestMetadataCacheRemembersAMissingFile: discovery probes the same absent
+// files from every application, so a read that found no file is answered
+// from the cache, by ReadFile and ReadFileString alike. A read that failed
+// for any other reason (here, a directory) still reaches the disk.
+func TestMetadataCacheRemembersAMissingFile(t *testing.T) {
+	dir := t.TempDir()
+	missing := filepath.Join(dir, "server.json")
+
+	base := &readCountingFS{}
+	cached := CacheMetadata(base)
+
+	for range 5 {
+		if _, err := cached.ReadFile(missing); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("ReadFile of a missing file: %v", err)
+		}
+
+		if _, err := ReadString(cached, missing); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("ReadFileString of a missing file: %v", err)
+		}
+	}
+
+	if got := base.reads.Load(); got != 1 {
+		t.Errorf("10 reads of a missing file reached the disk %d times, want 1", got)
+	}
+
+	for range 3 {
+		if _, err := cached.ReadFile(dir); err == nil {
+			t.Fatal("reading a directory succeeded")
+		}
+	}
+
+	if got := base.reads.Load(); got != 4 {
+		t.Errorf("a read failing for another reason was remembered: %d disk reads, want 4", got)
 	}
 }
 

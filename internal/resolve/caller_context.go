@@ -32,6 +32,7 @@ func (r *Resolver) forCaller(baseDir string) *Resolver {
 		HelperScope: r.HelperScope, Stubs: r.Stubs, InferArgsFiles: r.InferArgsFiles, CallerInferenceLimits: r.CallerInferenceLimits, stubFS: r.fs(),
 		callerApplication: root, callerMappings: r.effectiveMappings(baseDir), indexer: r,
 	}
+	view.mappingsKey = mappingsKey(view.callerMappings)
 	// Source indexing is deliberately delegated to the original resolver. Shared
 	// metadata must not acquire whichever caller happened to index a CFC first.
 	r.mu.Lock()

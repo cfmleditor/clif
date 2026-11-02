@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"strings"
 	"sync"
 	"time"
 
@@ -235,17 +236,20 @@ func CrashFilePath() string {
 // Directly to the file rather than through the logger: a panic means the
 // process is in a state nothing should be trusted in, and the whole point of
 // this record is that it survives.
-func writeCrashRecord(header string, stack []byte) {
+// writeCrashRecord writes to the crash file, and reports whether one is open.
+func writeCrashRecord(header string, stack []byte) bool {
 	crashMu.Lock()
 	defer crashMu.Unlock()
 
 	if crashFile == nil {
-		return
+		return false
 	}
 
 	_, _ = crashFile.WriteString(header)
 	_, _ = crashFile.Write(stack)
 	_ = crashFile.Sync()
+
+	return true
 }
 
 // Recovered records a panic the caller recovered from and is carrying on
@@ -266,8 +270,30 @@ func Recovered(l Logger, msg string, r any, kv ...any) {
 	// Also when the crash file is the log file and l has just written this
 	// record there: l's copy carries the stack as one escaped field, and this
 	// one is the traceback a person can read.
-	writeCrashRecord(fmt.Sprintf("\n=== clif recovered panic: %s at %s ===\npanic: %v\n",
+	written := writeCrashRecord(fmt.Sprintf("\n=== clif recovered panic: %s at %s ===\npanic: %v\n",
 		msg, time.Now().Format(time.RFC3339), r), stack)
+
+	// With no logger and no crash file, a command-line run (which opens
+	// none) carried on with nothing to say a file was skipped, though the
+	// skip can change what it reports. One line on stderr says so; stdout is
+	// left alone, being the editor's channel.
+	if l == nil && !written {
+		fmt.Fprintf(os.Stderr, "clif: recovered from a panic (%s%s): %v\n", msg, stringFields(kv), r)
+	}
+}
+
+// stringFields renders the string fields of kv as " key=value" pairs, for a
+// line that names the file a panic was recovered on.
+func stringFields(kv []any) string {
+	var out strings.Builder
+
+	for _, v := range kv {
+		if f, ok := v.(zap.Field); ok && f.Type == zapcore.StringType {
+			out.WriteString(" " + f.Key + "=" + f.String)
+		}
+	}
+
+	return out.String()
 }
 
 // WritePanic records a panic and its stack everywhere it can, then returns.

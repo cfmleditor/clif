@@ -1,6 +1,7 @@
 package language
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -57,5 +58,34 @@ func TestParseCFQuery(t *testing.T) {
 func TestTreeSitterAllocatesThroughLibc(t *testing.T) {
 	if !nativeAllocator() {
 		t.Fatal("tree-sitter allocates through go-tree-sitter's Go callbacks, not libc")
+	}
+}
+
+// A grammar that cannot be loaded panics, which the request running it
+// recovers, rather than exiting the process and every editor with it.
+func TestAGrammarThatCannotLoadPanicsRatherThanExiting(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("an unknown grammar neither panicked nor failed")
+		}
+	}()
+
+	NewParser(Grammar(99))
+}
+
+// A parse that runs past MaxParseTime is cancelled and returns no tree:
+// tree-sitter's parser never returned on some pathological pages, and a
+// format request then held a core for good.
+func TestAParsePastItsTimeLimitIsCancelled(t *testing.T) {
+	prev := MaxParseTime
+	MaxParseTime = 0
+
+	t.Cleanup(func() { MaxParseTime = prev })
+
+	src := []byte(strings.Repeat("<cfif a>", 20000) + strings.Repeat("</cfif>", 20000))
+
+	if tree := Parse(CFML, src, nil); tree != nil {
+		tree.Close()
+		t.Fatal("a parse past its time limit still returned a tree")
 	}
 }

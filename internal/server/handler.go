@@ -14,6 +14,7 @@ import (
 	"github.com/cfmleditor/clif/internal/conv"
 	"github.com/cfmleditor/clif/internal/deps"
 	cflog "github.com/cfmleditor/clif/internal/log"
+	"github.com/cfmleditor/clif/internal/lspdoc"
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
 	"github.com/cfmleditor/clif/internal/refs"
@@ -536,33 +537,10 @@ func applyEdit(content string, r protocol.Range, newText string) string {
 	return parser.ApplyEdit(content, int(r.Start.Line), int(r.Start.Character), int(r.End.Line), int(r.End.Character), newText)
 }
 
-// applyContentChanges applies a didChange's changes in one pass where it can
-// (see parser.ApplyEdits). A batch is what an editor sends when it undoes a
-// reformat, an edit per line, and applying those one at a time cost the whole
-// document per edit. A whole-document change replaces everything before it.
+// applyContentChanges is lspdoc.ApplyChanges, which the supervisor in front of
+// the server shares, so the two agree on every open document's text.
 func applyContentChanges(content string, changes []protocol.TextDocumentContentChangeEvent) string {
-	var edits []parser.Edit
-
-	for _, change := range changes {
-		r, text, isFull := changeRangeAndText(change)
-		if isFull {
-			content, edits = text, edits[:0]
-
-			continue
-		}
-
-		edits = append(edits, parser.Edit{
-			StartLine: int(r.Start.Line), StartChar: int(r.Start.Character),
-			EndLine: int(r.End.Line), EndChar: int(r.End.Character),
-			Text: text,
-		})
-	}
-
-	if len(edits) == 0 {
-		return content
-	}
-
-	return parser.ApplyEdits(content, edits)
+	return lspdoc.ApplyChanges(content, changes)
 }
 
 func (s *Server) handleDidClose(ctx context.Context, rawParams []byte) (any, error) {
@@ -964,9 +942,13 @@ func (s *Server) cmdFormat(ctx context.Context, args []protocol.LSPAny) (any, er
 		return nil, nil
 	}
 
-	content, ok := s.getDocument(uri.URI(docURI))
+	fileURI := s.documentURI(docURI)
+
+	content, ok := s.getDocument(fileURI)
 	if !ok {
-		return nil, nil
+		// Said rather than ignored: a client that gets nothing back cannot
+		// tell a document it named wrongly from one with nothing to format.
+		return nil, fmt.Errorf("clif.format: %s is not an open document", docURI)
 	}
 
 	// A snapshot, as the formatting handler takes: the formatter reads it
@@ -988,7 +970,7 @@ func (s *Server) cmdFormat(ctx context.Context, args []protocol.LSPAny) (any, er
 		Label: &formatLabel,
 		Edit: protocol.WorkspaceEdit{
 			Changes: map[uri.URI][]protocol.TextEdit{
-				uri.URI(docURI): {{
+				fileURI: {{
 					Range: protocol.Range{
 						Start: protocol.Position{Line: 0, Character: 0},
 						End:   protocol.Position{Line: conv.Uint32(lines + 1), Character: 0},
@@ -1106,7 +1088,7 @@ func (s *Server) cmdShowFileIndex(ctx context.Context, args []protocol.LSPAny) (
 		return nil, errors.New("clif.showFileIndex: invalid argument")
 	}
 
-	fileURI := uri.URI(docURI)
+	fileURI := s.documentURI(docURI)
 	funcs := s.index.FunctionsForFile(fileURI)
 	compRefs := s.index.RefsForFile(fileURI)
 
@@ -1195,9 +1177,9 @@ func (s *Server) cmdGoToMatchingTag(_ context.Context, args []protocol.LSPAny) (
 		return nil, nil
 	}
 
-	content, ok := s.getDocument(uri.URI(docURI))
+	content, ok := s.getDocument(s.documentURI(docURI))
 	if !ok {
-		return nil, nil
+		return nil, fmt.Errorf("clif.goToMatchingTag: %s is not an open document", docURI)
 	}
 
 	var line, char int
@@ -1312,7 +1294,7 @@ func (s *Server) cmdExportDeps(ctx context.Context, args []protocol.LSPAny) (any
 		funcName, _ = argString(args, 1)
 	}
 
-	fileURI := uri.URI(docURI)
+	fileURI := s.documentURI(docURI)
 
 	// A fresh parse, not s.parseResults: the cached result loses every call
 	// inside a function on an edit outside one (see parseForCalls), and the
