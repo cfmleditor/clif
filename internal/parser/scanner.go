@@ -672,11 +672,16 @@ func (s *Scanner) scanNumber(start, startLine int) Token {
 }
 
 func (s *Scanner) scanIdent(start, startLine int) Token {
-	for s.pos < len(s.src) && isIdentPart(s.src[s.pos]) {
-		s.pos++
+	// On a local, so the loop keeps its position and the source in registers
+	// instead of reading and writing them through the receiver per byte.
+	src, pos := s.src, s.pos
+	for pos < len(src) && isIdentPart(src[pos]) {
+		pos++
 	}
 
-	return Token{Kind: TokIdent, Value: s.src[start:s.pos], Offset: start, Line: startLine}
+	s.pos = pos
+
+	return Token{Kind: TokIdent, Value: src[start:pos], Offset: start, Line: startLine}
 }
 
 // Rest returns the remaining unscanned source from current position.
