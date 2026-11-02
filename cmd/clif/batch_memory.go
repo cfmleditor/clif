@@ -13,9 +13,11 @@ import (
 // small and its latency is what matters.
 //
 // The garbage collector keeps Go's default target, under which the heap grows
-// to twice what is live before a collection, and gets a soft limit of
-// memoryLimitShare of the machine's memory: only a run nearing it collects
-// sooner. A fixed lower target was measured on tassweb's `unresolved` scan
+// to twice what is live before a collection, and gets a soft limit of three
+// quarters of the machine's memory: only a run nearing it collects sooner.
+// The limit is there to keep a run inside the machine, not to make it small:
+// a quarter put a 2GB container's limit at 512MB, under the 600MB a tassweb
+// scan holds live, where Go collects without pause. A fixed lower target was measured on tassweb's `unresolved` scan
 // (GOGC=75: 190MB less resident memory for 3% more time; GOGC=50: 300MB for
 // 10%), and is a cost worth paying only where the memory is short. GOGC or
 // GOMEMLIMIT, when set, say what the user wants instead.
@@ -24,7 +26,6 @@ import (
 // sixty-fourth of the machine's memory, from 64MB to 256MB, so 16GB and up
 // holds the whole of tassweb's 141MB of source.
 const (
-	memoryLimitShare = 4
 	contentShare     = 64
 	minContentBudget = 64 << 20
 	maxContentBudget = 256 << 20
@@ -41,7 +42,7 @@ func tuneBatchMemory(total uint64) {
 	_, limit := os.LookupEnv("GOMEMLIMIT")
 
 	if !gogc && !limit {
-		debug.SetMemoryLimit(int64(min(total/memoryLimitShare, 1<<62)))
+		debug.SetMemoryLimit(int64(min(total/4*3, 1<<62)))
 	}
 
 	vfs.SetContentBudget(int64(min(max(total/contentShare, minContentBudget), maxContentBudget)))

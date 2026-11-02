@@ -3,6 +3,7 @@ package resolve
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/cfmleditor/clif/internal/index"
@@ -16,9 +17,19 @@ func TestCustomTagSitesKeepTheFileOrder(t *testing.T) {
 	files := map[string]string{"tags/widget.cfm": `<cfoutput>#attributes.svc.go()#</cfoutput>`}
 	paths := []string{}
 
+	// The first files are large and the rest small, so workers finish the
+	// later ones first: a merge in the order they finish would not keep the
+	// file order.
+	filler := strings.Repeat("<p>text</p>\n", 60000)
+
 	for i := range 40 {
 		name := fmt.Sprintf("p%02d.cfm", i)
 		files[name] = `<cf_widget svc="#x#">`
+
+		if i < 8 {
+			files[name] = filler + files[name]
+		}
+
 		paths = append(paths, filepath.Join(dir, name))
 	}
 

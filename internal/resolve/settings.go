@@ -272,13 +272,30 @@ func (r *Resolver) ParseFile(file, content string, spec ParseSpec) *parser.Parse
 	return pr
 }
 
-// parseResolverSet is Resolvers as every parse matches them, built once and
-// shared with the resolver's views: what each expression resolves to is the
-// same in every file, and each parse used to build a set of its own and match
-// the expressions it met afresh.
+// parseResolverSet is Resolvers as every parse matches them, shared with the
+// resolver's views: what each expression resolves to is the same in every
+// file, and each parse used to build a set of its own and match the
+// expressions it met afresh. It is rebuilt when Resolvers is another slice:
+// NewBatchResolver replaces it with the bean resolvers after
+// BeanResolvers' own validation has parsed files, and a set built once
+// before that served no later parse (2,058 on MasaCMS fell back).
 func (r *Resolver) parseResolverSet() *parser.ResolverSet {
 	o := r.owner()
-	o.resolverSetOnce.Do(func() { o.resolverSet = parser.BuildResolverSet(o.Resolvers) })
+
+	o.mu.RLock()
+	set, resolvers := o.resolverSet, o.Resolvers
+	o.mu.RUnlock()
+
+	if set.Serves(resolvers) {
+		return set
+	}
+
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	if !o.resolverSet.Serves(o.Resolvers) {
+		o.resolverSet = parser.BuildResolverSet(o.Resolvers)
+	}
 
 	return o.resolverSet
 }

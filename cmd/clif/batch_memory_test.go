@@ -32,9 +32,9 @@ func TestBatchMemoryIsSizedFromTheMachine(t *testing.T) {
 		total         uint64
 		limit, budget int64
 	}{
-		{32 << 30, 8 << 30, 256 << 20},
-		{8 << 30, 2 << 30, 128 << 20},
-		{2 << 30, 512 << 20, 64 << 20},
+		{32 << 30, 24 << 30, 256 << 20},
+		{8 << 30, 6 << 30, 128 << 20},
+		{2 << 30, 1536 << 20, 64 << 20},
 	} {
 		debug.SetMemoryLimit(math.MaxInt64)
 		tuneBatchMemory(c.total)
@@ -74,5 +74,20 @@ func TestSystemMemoryIsKnownWhereItCanBeRead(t *testing.T) {
 
 	if systemMemory() < 256<<20 {
 		t.Errorf("systemMemory() = %d", systemMemory())
+	}
+}
+
+// The editor's server and the MCP server run batch scans inside a process
+// that stays up, so their file cache keeps the smaller budget.
+func TestLongLivedProcessesKeepASmallerContentBudget(t *testing.T) {
+	prev := vfs.ContentBudget()
+
+	t.Cleanup(func() { vfs.SetContentBudget(prev) })
+
+	vfs.SetContentBudget(256 << 20)
+	limitLongLivedCaches()
+
+	if got := vfs.ContentBudget(); got != longLivedContentBytes {
+		t.Fatalf("content budget %d, want %d", got, longLivedContentBytes)
 	}
 }

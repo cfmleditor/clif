@@ -118,8 +118,14 @@ for a command's usage and options.
 // versions up to a batch scan's budget. TestLongLivedProcessesLimitTextCaches.
 const longLivedCacheBytes = 16 << 20
 
+// longLivedContentBytes is the batch file cache's budget in such a process:
+// the editor's export of the unresolved report and the MCP server's tools
+// run a batch scan inside it, and its memory is the editor's.
+const longLivedContentBytes = 128 << 20
+
 func limitLongLivedCaches() {
 	resolve.LimitTextCaches(longLivedCacheBytes)
+	vfs.SetContentBudget(longLivedContentBytes)
 }
 
 func runServer() {

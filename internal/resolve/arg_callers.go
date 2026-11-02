@@ -3,7 +3,6 @@ package resolve
 import (
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"slices"
 	"sort"
 	"strconv"
@@ -261,26 +260,11 @@ func ShareCallerIndex(rs []*Resolver) (restore func()) {
 	files := rs[0].InferArgsFiles
 	names := make([]map[string]bool, len(files))
 
-	var wg sync.WaitGroup
-
-	work := make(chan int)
-
-	for range runtime.GOMAXPROCS(0) {
-		wg.Go(func() {
-			for i := range work {
-				if text, err := rs[0].readText(files[i]); err == nil {
-					names[i] = callerNames(text)
-				}
-			}
-		})
-	}
-
-	for i := range files {
-		work <- i
-	}
-
-	close(work)
-	wg.Wait()
+	forEachFile(files, func(i int, file string) {
+		if text, err := rs[0].readText(file); err == nil {
+			names[i] = callerNames(text)
+		}
+	})
 
 	idx := &callerIndex{byName: map[string][]string{}}
 

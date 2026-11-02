@@ -1,6 +1,7 @@
 package resolve
 
 import (
+	"maps"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -100,15 +101,24 @@ func (r *Resolver) leafSubclasses(base string) []string {
 	}
 
 	// Every bare call no file or chain answers asks this of its file, and the
-	// walk scans the extends map once per component under the base. Kept per
-	// resolver, not on the owner: descendsFrom resolves each extends through
-	// r.ComponentPath, and a caller-context view resolves with its own
-	// application's mappings.
-	key := pathKey(base) + "\x00" + strconv.FormatUint(r.Index.Generation(), 10)
+	// walk scans the extends map once per component under the base. Kept on
+	// the owner under the mappings the walk resolved with: descendsFrom
+	// resolves each extends through r.ComponentPath, and a caller-context view
+	// resolves with its application's mappings (mappingsKey), so views whose
+	// mappings agree share an answer and the owner, which resolves by
+	// directory, keeps its own.
+	o := r.owner()
+	scope := "owner"
 
-	r.mu.RLock()
-	leaves, ok := r.leafSubs[key]
-	r.mu.RUnlock()
+	if r.indexer != nil {
+		scope = "view:" + r.mappingsKey
+	}
+
+	key := scope + "\x00" + pathKey(base) + "\x00" + strconv.FormatUint(r.Index.Generation(), 10)
+
+	o.mu.RLock()
+	leaves, ok := o.leafSubs[key]
+	o.mu.RUnlock()
 
 	// A copy: a caller narrows the list in place (subclassComponent).
 	if ok {
@@ -117,13 +127,13 @@ func (r *Resolver) leafSubclasses(base string) []string {
 
 	leaves = r.leafSubclassesUncached(base)
 
-	r.mu.Lock()
-	if r.leafSubs == nil || len(r.leafSubs) >= 8192 {
-		r.leafSubs = map[string][]string{}
+	o.mu.Lock()
+	if o.leafSubs == nil || len(o.leafSubs) >= 8192 {
+		o.leafSubs = map[string][]string{}
 	}
 
-	r.leafSubs[key] = leaves
-	r.mu.Unlock()
+	o.leafSubs[key] = leaves
+	o.mu.Unlock()
 
 	return slices.Clone(leaves)
 }
@@ -231,4 +241,21 @@ func (r *Resolver) leafLiteral(leaf, base, name string) string {
 	}
 
 	return ""
+}
+
+// mappingsKey is a set of mappings as a string, the same for any two sets
+// that map alike.
+func mappingsKey(m map[string]string) string {
+	keys := slices.Sorted(maps.Keys(m))
+
+	var b strings.Builder
+
+	for _, k := range keys {
+		b.WriteString(strings.ToLower(k))
+		b.WriteByte('=')
+		b.WriteString(m[k])
+		b.WriteByte(0)
+	}
+
+	return b.String()
 }

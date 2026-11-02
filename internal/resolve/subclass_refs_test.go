@@ -2,6 +2,7 @@ package resolve
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/cfmleditor/clif/internal/parser"
@@ -100,8 +101,9 @@ func TestLeafSubclassesIsCachedButNotShared(t *testing.T) {
 }
 
 // A caller-context view resolves extends with its own application's
-// mappings, so the leaves it finds are its own, not the owner's.
-func TestLeafSubclassesAreCachedPerResolver(t *testing.T) {
+// mappings, so the leaves it finds are filed under them, apart from the
+// owner's, which resolves by directory.
+func TestLeafSubclassesAreKeptApartByMappings(t *testing.T) {
 	dir := t.TempDir()
 	writeFiles(t, dir, map[string]string{
 		"h/Base.cfc": `component { function run(){ variables.svc.go(); } }`,
@@ -121,11 +123,25 @@ func TestLeafSubclassesAreCachedPerResolver(t *testing.T) {
 		t.Fatalf("leaves = %v, want A", leaves)
 	}
 
-	r.mu.RLock()
-	shared := len(r.leafSubs)
-	r.mu.RUnlock()
+	if leaves := r.leafSubclasses(base); len(leaves) != 1 {
+		t.Fatalf("leaves = %v, want A", leaves)
+	}
 
-	if shared != 0 {
-		t.Fatal("a view's leaves were cached on the owner, where every other view reads them")
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	views, owners := 0, 0
+
+	for key := range r.leafSubs {
+		switch {
+		case strings.HasPrefix(key, "view:"+view.mappingsKey+"\x00"):
+			views++
+		case strings.HasPrefix(key, "owner\x00"):
+			owners++
+		}
+	}
+
+	if views != 1 || owners != 1 {
+		t.Fatalf("%d entries under the view's mappings and %d under the owner's, want one each: %q", views, owners, r.leafSubs)
 	}
 }
