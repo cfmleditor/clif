@@ -1,0 +1,587 @@
+// Package supervise keeps an editor's language server session alive across a
+// crash of the server. Go recovers a panic only on the goroutine that raised
+// it, and a stack overflow, a concurrent map write or running out of memory is
+// not recoverable at all, so the one thing that survives every failure is a
+// separate process. The editor talks to the supervisor; the supervisor runs
+// the server as a child, relays every message both ways and remembers what a
+// new server needs to carry on: the initialize request, the configuration and
+// workspace folders the editor sent, and the current text of every open
+// document. When the child exits without having been asked to, the
+// supervisor starts another, replays that state to it, fails the requests the
+// dead one left unanswered (ContentModified, which an editor retries or drops
+// quietly), and tells the user.
+package supervise
+
+import (
+	"context"
+	"encoding/json/v2"
+	"errors"
+	"fmt"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/cfmleditor/clif/internal/lspdoc"
+	"go.lsp.dev/jsonrpc2"
+	"go.lsp.dev/protocol"
+)
+
+// Child is one running language server.
+type Child interface {
+	// Stream is the server's stdio as an LSP stream.
+	Stream() jsonrpc2.Stream
+	// Wait blocks until the server exits and returns its exit code.
+	Wait() int
+}
+
+// Options configures Run.
+type Options struct {
+	// Start starts a language server.
+	Start func() (Child, error)
+	// Editor is the editor's end of the session.
+	Editor jsonrpc2.Stream
+	// Log records one line about the supervisor's own work (a restart);
+	// nil for none.
+	Log func(msg string)
+	// MaxRestarts within Window, past which the supervisor gives up and
+	// exits as the server did, so a server that crashes at once every time
+	// is not restarted forever. Zero values take 5 and three minutes.
+	MaxRestarts int
+	Window      time.Duration
+	// ReplayTimeout bounds how long a new server may take to answer the
+	// replayed initialize. Zero takes a minute.
+	ReplayTimeout time.Duration
+}
+
+// contentModified is LSP's ContentModified: an editor retries the request or
+// drops its answer, rather than showing an error.
+const contentModified jsonrpc2.Code = -32801
+
+type document struct {
+	languageID string
+	version    int32
+	text       string
+}
+
+type exitEvent struct {
+	gen  int
+	code int
+}
+
+type supervisor struct {
+	opts Options
+
+	mu         sync.Mutex
+	child      Child
+	stream     jsonrpc2.Stream
+	gen        int
+	restarting bool
+	queue      []jsonrpc2.Message
+
+	initID       jsonrpc2.ID
+	initParams   jsonrpc2.RawMessage
+	initAnswered bool
+	initialized  bool
+	config       jsonrpc2.RawMessage
+	folders      []jsonrpc2.RawMessage
+	docs         map[string]*document
+	order        []string // docs' URIs in the order they were opened
+
+	registered    map[string]bool        // registration ids the editor has been sent
+	editorPending map[jsonrpc2.ID]string // editor requests the server has not answered
+	serverPending map[jsonrpc2.ID]int    // server requests the editor has not answered, by generation
+	replayID      jsonrpc2.ID
+	replayDone    chan struct{}
+
+	shutdown     bool
+	editorClosed bool
+	restarts     []time.Time
+	exits        chan exitEvent
+}
+
+// Run relays the session until it ends, restarting the server when it dies
+// unasked, and returns the exit code the process should end with.
+func Run(ctx context.Context, opts Options) int {
+	if opts.MaxRestarts == 0 {
+		opts.MaxRestarts = 5
+	}
+
+	if opts.Window == 0 {
+		opts.Window = 3 * time.Minute
+	}
+
+	if opts.ReplayTimeout == 0 {
+		opts.ReplayTimeout = time.Minute
+	}
+
+	s := &supervisor{
+		opts:          opts,
+		docs:          map[string]*document{},
+		editorPending: map[jsonrpc2.ID]string{},
+		serverPending: map[jsonrpc2.ID]int{},
+		registered:    map[string]bool{},
+		exits:         make(chan exitEvent, 4),
+	}
+
+	child, err := opts.Start()
+	if err != nil {
+		s.logf("cannot start the language server: %v", err)
+
+		return 1
+	}
+
+	s.adopt(child)
+
+	editorDone := make(chan struct{})
+
+	go func() {
+		s.pumpEditor(ctx)
+		close(editorDone)
+	}()
+
+	return s.watch(ctx, editorDone)
+}
+
+// watch waits for the server to exit, and restarts it while the session goes
+// on.
+func (s *supervisor) watch(ctx context.Context, editorDone <-chan struct{}) int {
+	for {
+		var ev exitEvent
+
+		select {
+		case ev = <-s.exits:
+		case <-editorDone:
+			// The editor has gone: let the server see its stdin close and
+			// end as it would have with no supervisor.
+			s.closeChild()
+
+			ev = <-s.exits
+		}
+
+		s.mu.Lock()
+		current, ended := ev.gen == s.gen, s.shutdown || s.editorClosed
+		s.mu.Unlock()
+
+		if !current {
+			continue
+		}
+
+		if ended {
+			return ev.code
+		}
+
+		if !s.restart(ctx, ev.code) {
+			return max(ev.code, 1)
+		}
+	}
+}
+
+// adopt makes child the server the session talks to.
+func (s *supervisor) adopt(child Child) {
+	s.mu.Lock()
+	s.gen++
+	gen := s.gen
+	s.child, s.stream = child, child.Stream()
+	s.mu.Unlock()
+
+	go s.pumpChild(child, gen)
+}
+
+func (s *supervisor) closeChild() {
+	s.mu.Lock()
+	stream := s.stream
+	s.mu.Unlock()
+
+	_ = stream.Close()
+}
+
+// restart starts a new server after one exited with code, and replays the
+// session to it; it reports false when the supervisor gives up.
+func (s *supervisor) restart(ctx context.Context, code int) bool {
+	now := time.Now()
+
+	s.mu.Lock()
+	s.restarts = append(s.restarts, now)
+
+	for len(s.restarts) > 0 && now.Sub(s.restarts[0]) > s.opts.Window {
+		s.restarts = s.restarts[1:]
+	}
+
+	tooMany := len(s.restarts) > s.opts.MaxRestarts
+	s.restarting = true
+	s.mu.Unlock()
+
+	s.failPending(ctx)
+
+	if tooMany {
+		s.logf("the language server exited %d times in %v; not restarting it", len(s.restarts), s.opts.Window)
+		s.notify(ctx, protocol.MessageTypeError, fmt.Sprintf("clif's language server stopped %d times in %v and was not restarted. The crash log has the details.", len(s.restarts), s.opts.Window))
+
+		return false
+	}
+
+	child, err := s.opts.Start()
+	if err != nil {
+		s.logf("cannot restart the language server: %v", err)
+
+		return false
+	}
+
+	s.adopt(child)
+	s.logf("the language server exited (code %d); restarted it", code)
+
+	if !s.replay(ctx) {
+		// The new server died during the replay: the next exit event
+		// restarts it again, within the limit.
+		return true
+	}
+
+	if code != 0 {
+		s.notify(ctx, protocol.MessageTypeWarning, "clif's language server stopped after an internal error and was restarted. The crash log has the details.")
+	}
+
+	return true
+}
+
+// replay brings the new server to where the old one was, then sends what the
+// editor said meanwhile.
+func (s *supervisor) replay(ctx context.Context) bool {
+	s.mu.Lock()
+	stream, gen := s.stream, s.gen
+	answered, params, initID := s.initAnswered, s.initParams, s.initID
+	s.mu.Unlock()
+
+	if params != nil && !answered {
+		// The editor's initialize was never answered: send it again as it
+		// was, and let the answer through.
+		_, _ = stream.Write(ctx, jsonrpc2.NewCall(initID, protocol.MethodInitialize, params))
+	}
+
+	if params != nil && answered {
+		done := make(chan struct{})
+
+		s.mu.Lock()
+		s.replayID, s.replayDone = jsonrpc2.NewStringID(fmt.Sprintf("clif-supervisor-initialize-%d", gen)), done
+		id := s.replayID
+		s.mu.Unlock()
+
+		_, _ = stream.Write(ctx, jsonrpc2.NewCall(id, protocol.MethodInitialize, params))
+
+		select {
+		case <-done:
+		case <-time.After(s.opts.ReplayTimeout):
+			s.logf("the restarted language server did not answer initialize")
+
+			return false
+		case <-ctx.Done():
+			return false
+		}
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if gen != s.gen {
+		return false
+	}
+
+	if s.initialized {
+		s.write(ctx, jsonrpc2.NewNotification(protocol.MethodInitialized, jsonrpc2.RawMessage("{}")))
+	}
+
+	if s.config != nil {
+		s.write(ctx, jsonrpc2.NewNotification(protocol.MethodWorkspaceDidChangeConfiguration, s.config))
+	}
+
+	for _, f := range s.folders {
+		s.write(ctx, jsonrpc2.NewNotification(protocol.MethodWorkspaceDidChangeWorkspaceFolders, f))
+	}
+
+	for _, u := range s.order {
+		d := s.docs[u]
+		params, _ := json.Marshal(map[string]any{"textDocument": map[string]any{
+			"uri": u, "languageId": d.languageID, "version": d.version, "text": d.text,
+		}})
+
+		s.write(ctx, jsonrpc2.NewNotification(protocol.MethodTextDocumentDidOpen, params))
+	}
+
+	for _, m := range s.queue {
+		s.write(ctx, m)
+	}
+
+	s.queue, s.restarting = nil, false
+
+	return true
+}
+
+// write sends m to the current server; s.mu is held.
+func (s *supervisor) write(ctx context.Context, m jsonrpc2.Message) {
+	_, _ = s.stream.Write(ctx, m)
+}
+
+// failPending answers every editor request the dead server left unanswered,
+// except an initialize not yet answered, which the replay sends again.
+func (s *supervisor) failPending(ctx context.Context) {
+	s.mu.Lock()
+	ids := make([]jsonrpc2.ID, 0, len(s.editorPending))
+
+	for id, method := range s.editorPending {
+		if method == protocol.MethodInitialize && !s.initAnswered {
+			continue
+		}
+
+		ids = append(ids, id)
+		delete(s.editorPending, id)
+	}
+
+	s.serverPending = map[jsonrpc2.ID]int{}
+	s.mu.Unlock()
+
+	for _, id := range ids {
+		_, _ = s.opts.Editor.Write(ctx, jsonrpc2.NewResponse(id, nil,
+			jsonrpc2.NewError(contentModified, "clif's language server restarted; try again")))
+	}
+}
+
+func (s *supervisor) notify(ctx context.Context, kind protocol.MessageType, message string) {
+	params, _ := json.Marshal(map[string]any{"type": kind, "message": message})
+	_, _ = s.opts.Editor.Write(ctx, jsonrpc2.NewNotification(protocol.MethodWindowShowMessage, params))
+}
+
+func (s *supervisor) logf(format string, args ...any) {
+	if s.opts.Log != nil {
+		s.opts.Log(fmt.Sprintf(format, args...))
+	}
+}
+
+// pumpEditor relays the editor's messages to the server, noting what a new
+// server would need, until the editor closes the session.
+func (s *supervisor) pumpEditor(ctx context.Context) {
+	for {
+		msg, _, err := s.opts.Editor.Read(ctx)
+		if err != nil {
+			s.mu.Lock()
+			s.editorClosed = true
+			s.mu.Unlock()
+
+			return
+		}
+
+		s.fromEditor(ctx, msg)
+	}
+}
+
+func (s *supervisor) fromEditor(ctx context.Context, msg jsonrpc2.Message) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	switch m := msg.(type) {
+	case *jsonrpc2.Call:
+		method := strings.Clone(m.Method())
+		s.editorPending[m.ID()] = method
+
+		switch method {
+		case protocol.MethodInitialize:
+			s.initID, s.initParams = m.ID(), clone(m.Params())
+		case protocol.MethodShutdown:
+			s.shutdown = true
+		}
+
+		msg = jsonrpc2.NewCall(m.ID(), method, clone(m.Params()))
+	case *jsonrpc2.Notification:
+		method := strings.Clone(m.Method())
+		params := clone(m.Params())
+
+		if s.track(method, params) && s.restarting {
+			// The replay sends every open document as it now stands.
+			return
+		}
+
+		msg = jsonrpc2.NewNotification(method, params)
+	case *jsonrpc2.Response:
+		if gen, ok := s.serverPending[m.ID()]; !ok || gen != s.gen {
+			return // an answer for a server that has gone
+		}
+
+		delete(s.serverPending, m.ID())
+	}
+
+	if s.restarting {
+		s.queue = append(s.queue, msg)
+
+		return
+	}
+
+	s.write(ctx, msg)
+
+	// The server ends when its stdin does, not on exit itself; the editor
+	// may keep the pipe open after exit, and then nothing would end.
+	if n, ok := msg.(*jsonrpc2.Notification); ok && n.Method() == protocol.MethodExit {
+		_ = s.stream.Close()
+	}
+}
+
+// track notes what a notification changes in the session, and reports
+// whether it was document synchronisation.
+func (s *supervisor) track(method string, params jsonrpc2.RawMessage) bool {
+	switch method {
+	case protocol.MethodInitialized:
+		s.initialized = true
+	case protocol.MethodExit:
+		s.shutdown = true
+	case protocol.MethodWorkspaceDidChangeConfiguration:
+		s.config = params
+	case protocol.MethodWorkspaceDidChangeWorkspaceFolders:
+		s.folders = append(s.folders, params)
+	case protocol.MethodTextDocumentDidOpen:
+		var p protocol.DidOpenTextDocumentParams
+		if json.Unmarshal(params, &p) == nil {
+			u := string(p.TextDocument.URI)
+			if _, open := s.docs[u]; !open {
+				s.order = append(s.order, u)
+			}
+
+			s.docs[u] = &document{languageID: string(p.TextDocument.LanguageID), version: p.TextDocument.Version, text: p.TextDocument.Text}
+		}
+
+		return true
+	case protocol.MethodTextDocumentDidChange:
+		var p protocol.DidChangeTextDocumentParams
+		if json.Unmarshal(params, &p) == nil {
+			if d := s.docs[string(p.TextDocument.URI)]; d != nil {
+				d.text, d.version = lspdoc.ApplyChanges(d.text, p.ContentChanges), p.TextDocument.Version
+			}
+		}
+
+		return true
+	case protocol.MethodTextDocumentDidClose:
+		var p protocol.DidCloseTextDocumentParams
+		if json.Unmarshal(params, &p) == nil {
+			u := string(p.TextDocument.URI)
+			delete(s.docs, u)
+
+			for i, o := range s.order {
+				if o == u {
+					s.order = append(s.order[:i], s.order[i+1:]...)
+
+					break
+				}
+			}
+		}
+
+		return true
+	}
+
+	return false
+}
+
+// pumpChild relays the server's messages to the editor until the server's
+// stdout closes, then reports its exit.
+func (s *supervisor) pumpChild(child Child, gen int) {
+	ctx := context.Background()
+	stream := child.Stream()
+
+	for {
+		msg, _, err := stream.Read(ctx)
+		if err != nil {
+			break
+		}
+
+		s.fromChild(ctx, msg, gen, stream)
+	}
+
+	s.exits <- exitEvent{gen: gen, code: child.Wait()}
+}
+
+func (s *supervisor) fromChild(ctx context.Context, msg jsonrpc2.Message, gen int, stream jsonrpc2.Stream) {
+	s.mu.Lock()
+
+	if gen != s.gen {
+		s.mu.Unlock()
+
+		return
+	}
+
+	switch m := msg.(type) {
+	case *jsonrpc2.Response:
+		if s.replayDone != nil && m.ID() == s.replayID {
+			close(s.replayDone)
+			s.replayDone = nil
+			s.mu.Unlock()
+
+			return
+		}
+
+		if method, ok := s.editorPending[m.ID()]; ok {
+			delete(s.editorPending, m.ID())
+
+			if method == protocol.MethodInitialize {
+				s.initAnswered = true
+			}
+		}
+	case *jsonrpc2.Call:
+		method := strings.Clone(m.Method())
+		if method == protocol.MethodClientRegisterCapability && s.alreadyRegistered(m.Params()) {
+			// A restarted server registering what the editor holds from
+			// the first: registering an id twice is an error to an editor.
+			s.mu.Unlock()
+
+			_, _ = stream.Write(ctx, jsonrpc2.NewResponse(m.ID(), jsonrpc2.RawMessage("null"), nil))
+
+			return
+		}
+
+		s.serverPending[m.ID()] = gen
+		msg = jsonrpc2.NewCall(m.ID(), method, clone(m.Params()))
+	case *jsonrpc2.Notification:
+		msg = jsonrpc2.NewNotification(strings.Clone(m.Method()), clone(m.Params()))
+	}
+
+	s.mu.Unlock()
+
+	if _, err := s.opts.Editor.Write(ctx, msg); err != nil && !errors.Is(err, context.Canceled) {
+		s.logf("cannot write to the editor: %v", err)
+	}
+}
+
+// alreadyRegistered reports whether every registration in a
+// client/registerCapability is one the editor was sent before, and notes the
+// ids of one that is not; s.mu is held.
+func (s *supervisor) alreadyRegistered(params jsonrpc2.RawMessage) bool {
+	var p struct {
+		Registrations []struct {
+			ID string `json:"id"`
+		} `json:"registrations"`
+	}
+
+	if json.Unmarshal(params, &p) != nil || len(p.Registrations) == 0 {
+		return false
+	}
+
+	all := true
+
+	for _, r := range p.Registrations {
+		if !s.registered[r.ID] {
+			all = false
+		}
+	}
+
+	if !all {
+		for _, r := range p.Registrations {
+			s.registered[r.ID] = true
+		}
+	}
+
+	return all
+}
+
+// clone copies params out of the stream's read buffer, which the next Read
+// reuses.
+func clone(p jsonrpc2.RawMessage) jsonrpc2.RawMessage {
+	if p == nil {
+		return nil
+	}
+
+	return append(jsonrpc2.RawMessage(nil), p...)
+}

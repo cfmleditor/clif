@@ -2574,6 +2574,23 @@ CFLint's workers (the panic becomes the run's error) and each daemon session.
 file, which is every command-line run. A new pool gets the same, and a test
 that panics on one file (`TestAScanSurvivesAPanicOnOneFile` and its siblings).
 
+**What no recover catches, a supervisor does** (`internal/supervise`,
+`cmd/clif/supervise.go`). A stack overflow, a concurrent map write and running
+out of memory end the process wherever they happen, so the `clif` an editor
+starts runs the server as a child (`CLIF_SUPERVISED=1`) and relays the
+session, remembering the initialize request, the configuration and folders,
+and each open document's text (applied through `lspdoc.ApplyChanges`, the
+server's own code, so the two agree byte for byte). A child that exits unasked
+is replaced and the session replayed; its unanswered requests get
+ContentModified; a registration the editor already holds is answered by the
+supervisor, since registering an id twice is an error to an editor; more than
+five exits in three minutes and it gives up. It also closes the child's stdin
+after `exit`, which the server otherwise waits for. A message from the editor
+during a restart is queued, except document sync, which the replay already
+carries. `TestACrashedServerIsRestartedWithTheSessionReplayed` drives the whole
+cycle against an in-process fake; `CLIF_NO_SUPERVISOR=1` runs the server
+directly.
+
 **A close tag reaches the walk as `</`, not `<c`.** The `</cffunction>` check sat in
 `handleCFTag`, which the walk calls only for a tag whose second byte is `c`, so a tag
 function's scope ran on until the next `<cffunction>`. Every top-level `<cfset>` after one

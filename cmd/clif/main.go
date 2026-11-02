@@ -80,8 +80,8 @@ func main() {
 		}
 	}
 
-	// Default: run LSP server
-	runServer()
+	// Default: run LSP server, supervised (supervise.go)
+	serveLanguage()
 }
 
 func printHelp() {
