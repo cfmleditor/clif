@@ -10,7 +10,6 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/cfmleditor/clif/internal/config"
@@ -87,12 +86,12 @@ type Resolver struct {
 	// The build locks are outside pathCaches: InvalidatePaths replaces that
 	// struct whole, and a lock held by a build in progress would be replaced
 	// by an unlocked one, which the build's Unlock then aborts on.
-	callerBuild    sync.Mutex                         // held while callerIdx is built; see buildCallerIndexOnce
-	tagSitesBuild  sync.Mutex                         // one customTagSites build at a time
-	exprKeys       []string                           // ExpressionMappings' keys in the order they apply
-	resolverSet    atomic.Pointer[parser.ResolverSet] // Resolvers, indexed, with the memo every parse shares (parseResolverSet)
-	mappingsKey    string                             // a view's callerMappings as a key; see leafSubclasses
-	beanPathsCache map[string]string                  // merged application/configured bean roots
+	callerBuild    sync.Mutex        // held while callerIdx is built; see buildCallerIndexOnce
+	tagSitesBuild  sync.Mutex        // one customTagSites build at a time
+	exprKeys       []string          // ExpressionMappings' keys in the order they apply
+	resolverSets   sync.Map          // resolverSetKey → *parser.ResolverSet, every parse with that slice sharing it (parseResolverSet)
+	mappingsKey    string            // a view's callerMappings as a key; see leafSubclasses
+	beanPathsCache map[string]string // merged application/configured bean roots
 	diOnce         sync.Once
 	diPolicies     []diPolicy // source-backed DI/1 injection contracts
 	discoveringDI  bool       // private policy discovery never re-enters injection lookup

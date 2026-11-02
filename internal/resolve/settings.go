@@ -279,19 +279,35 @@ func (r *Resolver) ParseFile(file, content string, spec ParseSpec) *parser.Parse
 // rebuilt when the parse brings another slice: NewBatchResolver replaces
 // Resolvers with the bean resolvers after BeanResolvers' own validation has
 // parsed files, and a set built once before that served no later parse
-// (2,058 on MasaCMS fell back). It reads no field the caller did not, and
-// takes no lock: it is asked once per parse.
+// (2,058 on MasaCMS fell back). A set is kept per slice, so two resolvers
+// with different slices (a view made before the list was replaced) cannot
+// replace each other's set on every parse. It reads no field the caller did
+// not, and takes no lock: it is asked once per parse.
 func (r *Resolver) parseResolverSet(resolvers []parser.Resolver) *parser.ResolverSet {
 	o := r.owner()
+	key := resolverSetKey{n: len(resolvers)}
 
-	if set := o.resolverSet.Load(); set.Serves(resolvers) {
+	if len(resolvers) > 0 {
+		key.first = &resolvers[0]
+	}
+
+	if held, ok := o.resolverSets.Load(key); ok {
+		set, _ := held.(*parser.ResolverSet)
+
 		return set
 	}
 
-	set := parser.BuildResolverSet(resolvers)
-	o.resolverSet.Store(set)
+	held, _ := o.resolverSets.LoadOrStore(key, parser.BuildResolverSet(resolvers))
+	set, _ := held.(*parser.ResolverSet)
 
 	return set
+}
+
+// resolverSetKey names a slice of resolvers by where it starts and its
+// length, which is what ResolverSet.Serves compares.
+type resolverSetKey struct {
+	first *parser.Resolver
+	n     int
 }
 
 // IndexForBatch indexes one file the way every batch run must: a template only

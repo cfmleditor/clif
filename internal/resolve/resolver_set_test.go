@@ -21,6 +21,7 @@ func TestTheParseResolverSetFollowsTheResolvers(t *testing.T) {
 		t.Fatal("a second parse with the same resolvers was not handed the same set")
 	}
 
+	oldResolvers := r.Resolvers
 	r.Resolvers = []parser.Resolver{{Match: "getB()", Resolve: "b.B", Prefix: "getB"}, {Match: "getA()", Resolve: "a.A", Prefix: "getA"}}
 
 	rebuilt := r.parseResolverSet(r.Resolvers)
@@ -30,5 +31,15 @@ func TestTheParseResolverSetFollowsTheResolvers(t *testing.T) {
 
 	if again := r.parseResolverSet(r.Resolvers); again != rebuilt {
 		t.Fatal("the rebuilt set was not kept: every later parse builds its own again")
+	}
+
+	// A resolver still holding the old slice keeps its own set, and asking
+	// with it does not replace the new one.
+	if old := r.parseResolverSet(oldResolvers); old != first {
+		t.Fatal("the old slice was handed a new set rather than the one built for it")
+	}
+
+	if again := r.parseResolverSet(r.Resolvers); again != rebuilt {
+		t.Fatal("asking with the old slice replaced the new slice's set")
 	}
 }

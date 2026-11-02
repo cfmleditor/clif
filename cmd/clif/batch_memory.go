@@ -9,8 +9,9 @@ import (
 
 // A subcommand sizes its memory from the machine's (systemMemory), so a
 // large workspace runs at full speed where memory is plentiful and gives some
-// speed back where it is not. The editor's server is not tuned: its heap is
-// small and its latency is what matters.
+// speed back where it is not. The editor's server keeps Go's GC defaults, its
+// heap being small and its latency what matters; its batch file cache, used
+// by the unresolved export, is capped at 128MB (limitLongLivedCaches).
 //
 // The garbage collector keeps Go's default target, under which the heap grows
 // to twice what is live before a collection, and gets a soft limit of three
