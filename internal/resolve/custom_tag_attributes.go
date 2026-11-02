@@ -135,13 +135,24 @@ func (r *Resolver) customTagSites() (map[string][]customTagSite, map[string]int)
 	files := o.InferArgsFiles
 	found := make([]map[string][]customTagSite, len(files))
 
-	forEachFile(files, func(i int, file string) { found[i] = r.customTagCallsInFile(file) })
+	failed := forEachFile(files, func(i int, file string) { found[i] = r.customTagCallsInFile(file) })
 
 	sites, templates := map[string][]customTagSite{}, map[string]int{}
+
+	if len(failed) > 0 {
+		// A file whose calls could not be read may call any tag, so no
+		// tag's callers are known: every attribute declines, and no
+		// include is read from them.
+		found = nil
+	}
 
 	for i, file := range files {
 		if strings.EqualFold(filepath.Ext(file), ".cfm") {
 			templates[strings.ToLower(strings.TrimSuffix(filepath.Base(file), filepath.Ext(file)))]++
+		}
+
+		if found == nil {
+			continue
 		}
 
 		for tag, calls := range found[i] {

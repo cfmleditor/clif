@@ -17,10 +17,11 @@ import (
 // quarters of the machine's memory: only a run nearing it collects sooner.
 // The limit is there to keep a run inside the machine, not to make it small:
 // a quarter put a 2GB container's limit at 512MB, under the 600MB a tassweb
-// scan holds live, where Go collects without pause. A fixed lower target was measured on tassweb's `unresolved` scan
-// (GOGC=75: 190MB less resident memory for 3% more time; GOGC=50: 300MB for
-// 10%), and is a cost worth paying only where the memory is short. GOGC or
-// GOMEMLIMIT, when set, say what the user wants instead.
+// scan holds live, where Go collects without pause. A fixed lower target was
+// measured on tassweb's `unresolved` scan (GOGC=75: 190MB less resident
+// memory for 3% more time; GOGC=50: 300MB for 10%), and is a cost worth
+// paying only where the memory is short. GOGC or GOMEMLIMIT, when set, say
+// what the user wants instead.
 //
 // The batch file cache is sized the same way (vfs.SetContentBudget): a
 // sixty-fourth of the machine's memory, from 64MB to 256MB, so 16GB and up

@@ -280,7 +280,7 @@ func (r *Resolver) handlerParse(path string) *parser.ParseResult {
 	content := text
 
 	pr = parser.ParseWithOptions(cfpath.ToURI(path), content, &parser.ParseOptions{
-		Resolvers: r.Resolvers, ResolverSet: r.parseResolverSet(), FuncLookup: r.FuncLookup(filepath.Dir(path)),
+		Resolvers: r.Resolvers, ResolverSet: r.parseResolverSet(r.Resolvers), FuncLookup: r.FuncLookup(filepath.Dir(path)),
 		BeanLookup: r.InjectionBeanLookup(path), PropertyBeanLookup: r.InjectionPropertyLookup(path),
 		SetterLookup: r.SetterLookup(path), ConstructorLookup: r.ConstructorLookup(path),
 		ExtractCalls: true, ScanAllScopes: true,

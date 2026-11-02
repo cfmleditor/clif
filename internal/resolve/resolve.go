@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/cfmleditor/clif/internal/config"
@@ -86,12 +87,12 @@ type Resolver struct {
 	// The build locks are outside pathCaches: InvalidatePaths replaces that
 	// struct whole, and a lock held by a build in progress would be replaced
 	// by an unlocked one, which the build's Unlock then aborts on.
-	callerBuild    sync.Mutex          // held while callerIdx is built; see buildCallerIndexOnce
-	tagSitesBuild  sync.Mutex          // one customTagSites build at a time
-	exprKeys       []string            // ExpressionMappings' keys in the order they apply
-	resolverSet    *parser.ResolverSet // Resolvers, indexed, with the memo every parse shares (parseResolverSet)
-	mappingsKey    string              // a view's callerMappings as a key; see leafSubclasses
-	beanPathsCache map[string]string   // merged application/configured bean roots
+	callerBuild    sync.Mutex                         // held while callerIdx is built; see buildCallerIndexOnce
+	tagSitesBuild  sync.Mutex                         // one customTagSites build at a time
+	exprKeys       []string                           // ExpressionMappings' keys in the order they apply
+	resolverSet    atomic.Pointer[parser.ResolverSet] // Resolvers, indexed, with the memo every parse shares (parseResolverSet)
+	mappingsKey    string                             // a view's callerMappings as a key; see leafSubclasses
+	beanPathsCache map[string]string                  // merged application/configured bean roots
 	diOnce         sync.Once
 	diPolicies     []diPolicy // source-backed DI/1 injection contracts
 	discoveringDI  bool       // private policy discovery never re-enters injection lookup
@@ -150,7 +151,7 @@ type pathCaches struct {
 	muraSitesBuilt      bool                                // muraSites has been read
 	muraSets            map[muraSetsKey]bool                // template, name and scope → the template sets it (muraTemplateSets)
 	collectionFields    map[string]string                   // file, field and index generation → emptyCollectionField's kind
-	leafSubs            map[string][]string                 // base file and index generation → leafSubclasses
+	leafSubs            map[string]map[string][]string      // mappings scope → base file and index generation → leafSubclasses
 	tagSites            map[string][]customTagSite          // custom tag name → the tags calling it (customTagSites)
 	tagTemplates        map[string]int                      // custom tag name → how many templates answer to it
 	interceptSiteList   []interceptSite                     // the workspace's announces (interceptSites)

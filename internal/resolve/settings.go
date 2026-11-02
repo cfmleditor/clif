@@ -241,7 +241,7 @@ func (r *Resolver) ParseFile(file, content string, spec ParseSpec) *parser.Parse
 	po := &parser.ParseOptions{
 		Logger:                   spec.Logger,
 		Resolvers:                r.Resolvers,
-		ResolverSet:              r.parseResolverSet(),
+		ResolverSet:              r.parseResolverSet(r.Resolvers),
 		ExpressionMappings:       r.ExpressionMappings,
 		ServicePropertyResolvers: r.ServicePropertyResolvers,
 		PropertyResolvers:        r.PropertyResolvers,
@@ -272,32 +272,26 @@ func (r *Resolver) ParseFile(file, content string, spec ParseSpec) *parser.Parse
 	return pr
 }
 
-// parseResolverSet is Resolvers as every parse matches them, shared with the
-// resolver's views: what each expression resolves to is the same in every
-// file, and each parse used to build a set of its own and match the
-// expressions it met afresh. It is rebuilt when Resolvers is another slice:
-// NewBatchResolver replaces it with the bean resolvers after
-// BeanResolvers' own validation has parsed files, and a set built once
-// before that served no later parse (2,058 on MasaCMS fell back).
-func (r *Resolver) parseResolverSet() *parser.ResolverSet {
+// parseResolverSet is resolvers, the slice the parse is about to be given,
+// as every parse matches them, shared with the resolver's views: what each
+// expression resolves to is the same in every file, and each parse used to
+// build a set of its own and match the expressions it met afresh. It is
+// rebuilt when the parse brings another slice: NewBatchResolver replaces
+// Resolvers with the bean resolvers after BeanResolvers' own validation has
+// parsed files, and a set built once before that served no later parse
+// (2,058 on MasaCMS fell back). It reads no field the caller did not, and
+// takes no lock: it is asked once per parse.
+func (r *Resolver) parseResolverSet(resolvers []parser.Resolver) *parser.ResolverSet {
 	o := r.owner()
 
-	o.mu.RLock()
-	set, resolvers := o.resolverSet, o.Resolvers
-	o.mu.RUnlock()
-
-	if set.Serves(resolvers) {
+	if set := o.resolverSet.Load(); set.Serves(resolvers) {
 		return set
 	}
 
-	o.mu.Lock()
-	defer o.mu.Unlock()
+	set := parser.BuildResolverSet(resolvers)
+	o.resolverSet.Store(set)
 
-	if !o.resolverSet.Serves(o.Resolvers) {
-		o.resolverSet = parser.BuildResolverSet(o.Resolvers)
-	}
-
-	return o.resolverSet
+	return set
 }
 
 // IndexForBatch indexes one file the way every batch run must: a template only

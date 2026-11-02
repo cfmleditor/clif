@@ -90,4 +90,12 @@ func TestLongLivedProcessesKeepASmallerContentBudget(t *testing.T) {
 	if got := vfs.ContentBudget(); got != longLivedContentBytes {
 		t.Fatalf("content budget %d, want %d", got, longLivedContentBytes)
 	}
+
+	// A smaller budget, sized from a small machine, is not raised.
+	vfs.SetContentBudget(64 << 20)
+	limitLongLivedCaches()
+
+	if got := vfs.ContentBudget(); got != 64<<20 {
+		t.Fatalf("a 64MB budget became %d: the limit raised it", got)
+	}
 }

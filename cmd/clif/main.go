@@ -125,7 +125,9 @@ const longLivedContentBytes = 128 << 20
 
 func limitLongLivedCaches() {
 	resolve.LimitTextCaches(longLivedCacheBytes)
-	vfs.SetContentBudget(longLivedContentBytes)
+	// At most this: a subcommand has already sized it from the machine, and
+	// a small machine's budget is smaller still.
+	vfs.SetContentBudget(min(vfs.ContentBudget(), longLivedContentBytes))
 }
 
 func runServer() {

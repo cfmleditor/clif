@@ -12,13 +12,23 @@ import (
 func TestTheParseResolverSetFollowsTheResolvers(t *testing.T) {
 	r := &Resolver{Resolvers: []parser.Resolver{{Match: "getA()", Resolve: "a.A", Prefix: "getA"}}}
 
-	if !r.parseResolverSet().Serves(r.Resolvers) {
+	first := r.parseResolverSet(r.Resolvers)
+	if !first.Serves(r.Resolvers) {
 		t.Fatal("the set does not serve the resolvers it was built from")
+	}
+
+	if again := r.parseResolverSet(r.Resolvers); again != first {
+		t.Fatal("a second parse with the same resolvers was not handed the same set")
 	}
 
 	r.Resolvers = []parser.Resolver{{Match: "getB()", Resolve: "b.B", Prefix: "getB"}, {Match: "getA()", Resolve: "a.A", Prefix: "getA"}}
 
-	if !r.parseResolverSet().Serves(r.Resolvers) {
+	rebuilt := r.parseResolverSet(r.Resolvers)
+	if !rebuilt.Serves(r.Resolvers) {
 		t.Fatal("after Resolvers was replaced, the set still serves the old slice")
+	}
+
+	if again := r.parseResolverSet(r.Resolvers); again != rebuilt {
+		t.Fatal("the rebuilt set was not kept: every later parse builds its own again")
 	}
 }

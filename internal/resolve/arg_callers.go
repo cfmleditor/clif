@@ -41,6 +41,11 @@ import (
 // the files, the files it appears in.
 type callerIndex struct {
 	byName map[string][]string
+	// failed are the files whose names could not be read (forEachFile).
+	// Each is listed as a caller of every name, so inference parses it and,
+	// when that fails too, withholds rather than typing an argument from
+	// the callers that were read.
+	failed []string
 }
 
 // IndexCallerFile adds the call-shaped names in content to the batch caller
@@ -222,6 +227,12 @@ func (r *Resolver) callerFiles(name string) []string {
 	files = slices.Compact(files)
 	idx.byName[key] = files
 	files = slices.Clone(files)
+
+	for _, f := range idx.failed {
+		if !slices.Contains(files, f) {
+			files = append(files, f)
+		}
+	}
 	o.mu.Unlock()
 
 	return files
@@ -260,13 +271,13 @@ func ShareCallerIndex(rs []*Resolver) (restore func()) {
 	files := rs[0].InferArgsFiles
 	names := make([]map[string]bool, len(files))
 
-	forEachFile(files, func(i int, file string) {
+	failed := forEachFile(files, func(i int, file string) {
 		if text, err := rs[0].readText(file); err == nil {
 			names[i] = callerNames(text)
 		}
 	})
 
-	idx := &callerIndex{byName: map[string][]string{}}
+	idx := &callerIndex{byName: map[string][]string{}, failed: failed}
 
 	for i, seen := range names {
 		for name := range seen {

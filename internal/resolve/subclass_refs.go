@@ -114,10 +114,10 @@ func (r *Resolver) leafSubclasses(base string) []string {
 		scope = "view:" + r.mappingsKey
 	}
 
-	key := scope + "\x00" + pathKey(base) + "\x00" + strconv.FormatUint(r.Index.Generation(), 10)
+	key := pathKey(base) + "\x00" + strconv.FormatUint(r.Index.Generation(), 10)
 
 	o.mu.RLock()
-	leaves, ok := o.leafSubs[key]
+	leaves, ok := o.leafSubs[scope][key]
 	o.mu.RUnlock()
 
 	// A copy: a caller narrows the list in place (subclassComponent).
@@ -127,12 +127,18 @@ func (r *Resolver) leafSubclasses(base string) []string {
 
 	leaves = r.leafSubclassesUncached(base)
 
+	// Each scope has its own cap, so a workspace of many applications does
+	// not empty every view's answers each time one view fills up.
 	o.mu.Lock()
-	if o.leafSubs == nil || len(o.leafSubs) >= 8192 {
-		o.leafSubs = map[string][]string{}
+	if o.leafSubs == nil {
+		o.leafSubs = map[string]map[string][]string{}
 	}
 
-	o.leafSubs[key] = leaves
+	if o.leafSubs[scope] == nil || len(o.leafSubs[scope]) >= 8192 {
+		o.leafSubs[scope] = map[string][]string{}
+	}
+
+	o.leafSubs[scope][key] = leaves
 	o.mu.Unlock()
 
 	return slices.Clone(leaves)

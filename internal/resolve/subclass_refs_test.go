@@ -2,7 +2,6 @@ package resolve
 
 import (
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/cfmleditor/clif/internal/parser"
@@ -101,47 +100,53 @@ func TestLeafSubclassesIsCachedButNotShared(t *testing.T) {
 }
 
 // A caller-context view resolves extends with its own application's
-// mappings, so the leaves it finds are filed under them, apart from the
-// owner's, which resolves by directory.
-func TestLeafSubclassesAreKeptApartByMappings(t *testing.T) {
+// mappings, so the leaves it finds are filed under them: views whose
+// mappings agree share an answer, views whose mappings differ do not, and
+// the owner, which resolves by directory, keeps its own.
+func TestLeafSubclassesAreSharedByViewsThatMapAlike(t *testing.T) {
 	dir := t.TempDir()
 	writeFiles(t, dir, map[string]string{
-		"h/Base.cfc": `component { function run(){ variables.svc.go(); } }`,
-		"h/A.cfc":    `component extends="Base" {}`,
+		"h/Base.cfc":        `component { function run(){ variables.svc.go(); } }`,
+		"h/A.cfc":           `component extends="Base" {}`,
+		"a/Application.cfc": `component { this.name = "a"; }`,
+		"b/Application.cfc": `component { this.name = "b"; }`,
+		"c/Application.cfc": `component { this.name = "c"; this.mappings["/lib"] = getDirectoryFromPath(getCurrentTemplatePath()) & "lib/"; }`,
 	})
 
 	r := &Resolver{}
 	reasonsWith(t, r, dir, "h/Base.cfc")
 
-	view := r.forCaller(dir)
-	if view == r {
-		t.Skip("the resolver served itself, so there is no view to keep apart")
+	va, vb, vc := r.forCaller(filepath.Join(dir, "a")), r.forCaller(filepath.Join(dir, "b")), r.forCaller(filepath.Join(dir, "c"))
+	if va == r || vb == r || vc == r {
+		t.Skip("the resolver served itself, so there are no views to keep apart")
+	}
+
+	if va == vb {
+		t.Fatal("two applications were given one view; the test needs two")
+	}
+
+	if va.mappingsKey != vb.mappingsKey || va.mappingsKey == vc.mappingsKey {
+		t.Fatalf("mappings keys a=%q b=%q c=%q: a and b should agree and c differ", va.mappingsKey, vb.mappingsKey, vc.mappingsKey)
 	}
 
 	base := filepath.Join(dir, "h", "Base.cfc")
-	if leaves := view.leafSubclasses(base); len(leaves) != 1 {
-		t.Fatalf("leaves = %v, want A", leaves)
-	}
 
-	if leaves := r.leafSubclasses(base); len(leaves) != 1 {
-		t.Fatalf("leaves = %v, want A", leaves)
+	for _, res := range []*Resolver{va, vb, vc, r} {
+		if leaves := res.leafSubclasses(base); len(leaves) != 1 {
+			t.Fatalf("leaves = %v, want A", leaves)
+		}
 	}
 
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	views, owners := 0, 0
-
-	for key := range r.leafSubs {
-		switch {
-		case strings.HasPrefix(key, "view:"+view.mappingsKey+"\x00"):
-			views++
-		case strings.HasPrefix(key, "owner\x00"):
-			owners++
+	for scope, want := range map[string]int{"view:" + va.mappingsKey: 1, "view:" + vc.mappingsKey: 1, "owner": 1} {
+		if got := len(r.leafSubs[scope]); got != want {
+			t.Errorf("scope %q holds %d answers, want %d", scope, got, want)
 		}
 	}
 
-	if views != 1 || owners != 1 {
-		t.Fatalf("%d entries under the view's mappings and %d under the owner's, want one each: %q", views, owners, r.leafSubs)
+	if len(r.leafSubs) != 3 {
+		t.Errorf("%d scopes, want 3 (a and b sharing one): %q", len(r.leafSubs), r.leafSubs)
 	}
 }
