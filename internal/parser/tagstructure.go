@@ -169,7 +169,15 @@ func tagEnd(ends *tagEnds, from int) int {
 		gt = len(content) - from - 1
 	}
 
-	if lt := strings.IndexByte(content[from:from+gt], '<'); lt >= 0 && startsTag(content[from+lt+1:]) {
+	var lt int
+
+	if ends.ltFrom == from && ends.ltGT == gt {
+		lt = ends.ltAt
+	} else {
+		lt = strings.IndexByte(content[from:from+gt], '<')
+	}
+
+	if lt >= 0 && startsTag(content[from+lt+1:]) {
 		return from + lt
 	}
 

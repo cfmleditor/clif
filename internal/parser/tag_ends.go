@@ -40,7 +40,18 @@ type tagEnds struct {
 	commentWalked map[int]int
 	// visited is the walk's scratch list of positions, kept between walks.
 	visited []int
+	// ltFrom, ltGT and ltAt are the last answer at made from the one scan of
+	// a short tag's text: for the tag opening at ltFrom, whose '>' is ltGT
+	// bytes on, the first '<' inside it, ltAt bytes on or -1. tagEnd reads
+	// the same text for a '<' and takes it from here when at answered with
+	// that '>'. ltFrom is -1 when the last answer was not made that way.
+	ltFrom, ltGT, ltAt int
 }
+
+// fusedTagSpan is the longest tag text at reads in one pass. Past it the
+// counting and searching functions, which take eight bytes or more at a time,
+// are cheaper than a byte loop.
+const fusedTagSpan = 128
 
 // longTagSpan is how far a tag's '>' may be before tagEnds indexes s rather
 // than scanning it again for the next tag. Nearly every tag ends within a
@@ -65,12 +76,14 @@ type tagGaps struct {
 const quoteNeverCloses = -2
 
 func newTagEnds(s string) tagEnds {
-	return tagEnds{s: s, lastGT: strings.LastIndexByte(s, '>')}
+	return tagEnds{s: s, lastGT: strings.LastIndexByte(s, '>'), ltFrom: -1}
 }
 
 // at is tagEndIndex(t.s[from:]): the offset of the '>' ending the tag that
 // opens at from, relative to from, or -1 when the tag has no end.
 func (t *tagEnds) at(from int) int {
+	t.ltFrom = -1
+
 	if from > t.lastGT {
 		return -1
 	}
@@ -89,6 +102,10 @@ func (t *tagEnds) at(from int) int {
 		}
 	}
 
+	if t.gaps == nil && gt <= fusedTagSpan {
+		return t.fusedAt(from, gt)
+	}
+
 	if t.hasComment(from, from+gt) {
 		switch end := t.commentWalk(from); end {
 		case quoteNeverCloses:
@@ -101,6 +118,58 @@ func (t *tagEnds) at(from int) int {
 	}
 
 	if t.quotesEven(from, from+gt) {
+		return gt
+	}
+
+	switch end := t.walk(from); end {
+	case quoteNeverCloses:
+		return gt
+	case -1:
+		return -1
+	default:
+		return end - from
+	}
+}
+
+// fusedAt is at for a tag whose '>' is gt bytes on and close enough to read in
+// one pass: the comment test, the quote counts and the search tagEnd makes for
+// a '<' are all over the same text, which is a few dozen bytes for nearly every
+// tag, and each was a call of its own over it.
+func (t *tagEnds) fusedAt(from, gt int) int {
+	text := t.s[from : from+gt]
+	dq, sq, lt, comment := 0, 0, -1, false
+
+	for i := range len(text) {
+		switch text[i] {
+		case '"':
+			dq++
+		case '\'':
+			sq++
+		case '<':
+			if lt < 0 {
+				lt = i
+			}
+
+			if strings.HasPrefix(text[i:], "<!--") {
+				comment = true
+			}
+		}
+	}
+
+	if comment {
+		switch end := t.commentWalk(from); end {
+		case quoteNeverCloses:
+			return gt
+		case -1:
+			return -1
+		default:
+			return end - from
+		}
+	}
+
+	if dq%2 == 0 && sq%2 == 0 {
+		t.ltFrom, t.ltGT, t.ltAt = from, gt, lt
+
 		return gt
 	}
 

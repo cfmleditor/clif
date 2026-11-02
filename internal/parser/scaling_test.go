@@ -575,3 +575,50 @@ func TestRefIndexAgreesWithTheScan(t *testing.T) {
 		}
 	}
 }
+
+// tagEnd takes the '<' inside a tag from the scan at made of the same text.
+// It must give what searching the text itself gives, whatever was asked
+// before it: a tag whose text holds a '<', one whose quotes are odd, one past
+// the fused span, and a tag asked about after another that left an answer.
+func TestTagEndFindsTheSameLtAsSearching(t *testing.T) {
+	reference := func(s string, from int) int {
+		ends := newTagEnds(s)
+		gt := ends.at(from)
+
+		if gt < 0 {
+			gt = len(s) - from - 1
+		}
+
+		if lt := strings.IndexByte(s[from:from+gt], '<'); lt >= 0 && startsTag(s[from+lt+1:]) {
+			return from + lt
+		}
+
+		return from + gt + 1
+	}
+
+	texts := []string{
+		`<input <cfif a>checked</cfif>>`,
+		`<cfset x="a<b"><cfif a>x</cfif>`,
+		`<cfset x='a"b<c' y="d">e<cfset z=1>`,
+		`<a href="x" <b>>`,
+		`<cffunction <!--- a < b ---> name="f">`,
+		`<cfset x = 1><cfset y = "<cfif>">`,
+		`<cf` + strings.Repeat(" a<b ", 40) + `>`,
+		`<cf` + strings.Repeat(" ", fusedTagSpan-2) + `<x>>`,
+		`<cf` + strings.Repeat(" ", fusedTagSpan+2) + `<x>>`,
+		`<cfset x="never closed <cfif>`,
+		strings.Repeat(`<cfset x="a>b"><p <b>c>`, 30),
+		"<cf",
+		"<",
+	}
+
+	for _, text := range texts {
+		walk := newTagEnds(text)
+
+		for from := range len(text) {
+			if got, want := tagEnd(&walk, from), reference(text, from); got != want {
+				t.Fatalf("%q from %d: tagEnd %d, searching %d", text[:min(len(text), 40)], from, got, want)
+			}
+		}
+	}
+}
