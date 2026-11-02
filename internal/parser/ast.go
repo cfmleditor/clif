@@ -524,7 +524,7 @@ type ResolverSet struct {
 }
 
 type resolverMemo struct {
-	mu      sync.Mutex
+	mu      sync.RWMutex // read-locked for a hit: every parse worker shares it
 	answers map[string]resolverAnswer
 }
 
@@ -755,9 +755,9 @@ func (rs *ResolverSet) Resolve(expr string) string {
 
 	m := rs.memo
 
-	m.mu.Lock()
+	m.mu.RLock()
 	a, ok := m.answers[expr]
-	m.mu.Unlock()
+	m.mu.RUnlock()
 
 	if !ok {
 		a = rs.resolve(expr)

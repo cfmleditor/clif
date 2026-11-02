@@ -1,10 +1,10 @@
 package main
 
 import (
-	"os"
 	"strconv"
 	"strings"
 
+	"github.com/cfmleditor/clif/internal/vfs"
 	"golang.org/x/sys/unix"
 )
 
@@ -20,7 +20,7 @@ func systemMemory() uint64 {
 	total := widen(info.Totalram) * uint64(info.Unit)
 
 	for _, path := range []string{"/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes"} {
-		data, err := os.ReadFile(path)
+		data, err := vfs.ReadRegular(path)
 		if err != nil {
 			continue
 		}

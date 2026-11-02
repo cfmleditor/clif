@@ -98,3 +98,34 @@ func TestLeafSubclassesIsCachedButNotShared(t *testing.T) {
 		t.Fatalf("a subclass indexed later is missing: %v", later)
 	}
 }
+
+// A caller-context view resolves extends with its own application's
+// mappings, so the leaves it finds are its own, not the owner's.
+func TestLeafSubclassesAreCachedPerResolver(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{
+		"h/Base.cfc": `component { function run(){ variables.svc.go(); } }`,
+		"h/A.cfc":    `component extends="Base" {}`,
+	})
+
+	r := &Resolver{}
+	reasonsWith(t, r, dir, "h/Base.cfc")
+
+	view := r.forCaller(dir)
+	if view == r {
+		t.Skip("the resolver served itself, so there is no view to keep apart")
+	}
+
+	base := filepath.Join(dir, "h", "Base.cfc")
+	if leaves := view.leafSubclasses(base); len(leaves) != 1 {
+		t.Fatalf("leaves = %v, want A", leaves)
+	}
+
+	r.mu.RLock()
+	shared := len(r.leafSubs)
+	r.mu.RUnlock()
+
+	if shared != 0 {
+		t.Fatal("a view's leaves were cached on the owner, where every other view reads them")
+	}
+}

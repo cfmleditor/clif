@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	cflog "github.com/cfmleditor/clif/internal/log"
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
 )
@@ -144,10 +145,7 @@ func (r *Resolver) customTagSites() (map[string][]customTagSite, map[string]int)
 	for range runtime.GOMAXPROCS(0) {
 		wg.Go(func() {
 			for i := range work {
-				text, err := r.readText(files[i])
-				if err == nil && (parser.IndexFold(text, "<cf_") >= 0 || parser.IndexFold(text, "<cfmodule") >= 0) {
-					found[i] = customTagCallsIn(text, files[i])
-				}
+				found[i] = r.customTagCallsInFile(files[i])
 			}
 		})
 	}
@@ -176,6 +174,27 @@ func (r *Resolver) customTagSites() (map[string][]customTagSite, map[string]int)
 	o.mu.Unlock()
 
 	return sites, templates
+}
+
+// customTagCallsInFile is customTagCallsIn over one file, nil when it holds
+// none. It runs on a worker goroutine, where nothing the scan recovers would
+// catch a panic, so one is recorded and read as no calls rather than ending
+// the process (as recoveredHandlerParse does for caller parses).
+func (r *Resolver) customTagCallsInFile(file string) (calls map[string][]customTagSite) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			cflog.Recovered(nil, "custom tag scan panic", rec, cflog.String("file", file))
+
+			calls = nil
+		}
+	}()
+
+	text, err := r.readText(file)
+	if err != nil || parser.IndexFold(text, "<cf_") < 0 && parser.IndexFold(text, "<cfmodule") < 0 {
+		return nil
+	}
+
+	return customTagCallsIn(text, file)
 }
 
 func (r *Resolver) cachedTagSites() (map[string][]customTagSite, map[string]int, bool) {

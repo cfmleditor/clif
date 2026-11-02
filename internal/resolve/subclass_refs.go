@@ -100,13 +100,15 @@ func (r *Resolver) leafSubclasses(base string) []string {
 	}
 
 	// Every bare call no file or chain answers asks this of its file, and the
-	// walk scans the extends map once per component under the base.
-	o := r.owner()
+	// walk scans the extends map once per component under the base. Kept per
+	// resolver, not on the owner: descendsFrom resolves each extends through
+	// r.ComponentPath, and a caller-context view resolves with its own
+	// application's mappings.
 	key := pathKey(base) + "\x00" + strconv.FormatUint(r.Index.Generation(), 10)
 
-	o.mu.RLock()
-	leaves, ok := o.leafSubs[key]
-	o.mu.RUnlock()
+	r.mu.RLock()
+	leaves, ok := r.leafSubs[key]
+	r.mu.RUnlock()
 
 	// A copy: a caller narrows the list in place (subclassComponent).
 	if ok {
@@ -115,13 +117,13 @@ func (r *Resolver) leafSubclasses(base string) []string {
 
 	leaves = r.leafSubclassesUncached(base)
 
-	o.mu.Lock()
-	if o.leafSubs == nil || len(o.leafSubs) >= 8192 {
-		o.leafSubs = map[string][]string{}
+	r.mu.Lock()
+	if r.leafSubs == nil || len(r.leafSubs) >= 8192 {
+		r.leafSubs = map[string][]string{}
 	}
 
-	o.leafSubs[key] = leaves
-	o.mu.Unlock()
+	r.leafSubs[key] = leaves
+	r.mu.Unlock()
 
 	return slices.Clone(leaves)
 }

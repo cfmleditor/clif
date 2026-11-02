@@ -297,10 +297,12 @@ func ParseWithOptions(fileURI uri.URI, content string, opts *ParseOptions) *Pars
 		shallow:                  opts.Shallow,
 		interpolateAll:           opts.InterpolateAllText,
 	}
-	if opts.ResolverSet.Serves(pr.Resolvers) && len(pr.Resolvers) > 0 {
-		pr.resolverSet = opts.ResolverSet.ForParse()
-	} else if len(pr.Resolvers) > 0 {
-		pr.resolverSet = BuildResolverSet(pr.Resolvers)
+	if len(pr.Resolvers) > 0 {
+		if opts.ResolverSet.Serves(pr.Resolvers) {
+			pr.resolverSet = opts.ResolverSet.ForParse()
+		} else {
+			pr.resolverSet = BuildResolverSet(pr.Resolvers)
+		}
 	}
 
 	start := time.Now()
