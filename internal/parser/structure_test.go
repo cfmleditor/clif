@@ -289,3 +289,39 @@ func TestClassifyDoesNotAllocate(t *testing.T) {
 		t.Errorf("classify allocated %v times per run", n)
 	}
 }
+
+// A lineCursor must give lineAtOffset's answer whatever order it is asked in:
+// forward steps, backward steps, jumps past its step limit and offsets at the
+// ends of the document.
+func TestLineCursorMatchesLineAtOffset(t *testing.T) {
+	var sb strings.Builder
+
+	for i := range 400 {
+		sb.WriteString(strings.Repeat("x", i%37))
+		sb.WriteByte('\n')
+	}
+
+	src := sb.String()
+	idx := buildLineIdx(src)
+	cur := lineCursor{idx: idx}
+	state := uint32(1)
+
+	for i := range 20000 {
+		state = state*1664525 + 1013904223
+
+		var off int
+
+		switch i % 3 {
+		case 0: // a jump anywhere
+			off = int(state>>8) % (len(src) + 1)
+		case 1: // a short step from the last answer
+			off = min(max(int(idx[cur.line])+int(state>>8)%120-40, 0), len(src))
+		default: // the ends
+			off = []int{0, len(src), len(src) - 1}[int(state>>8)%3]
+		}
+
+		if got, want := cur.at(off), lineAtOffset(idx, off); got != want {
+			t.Fatalf("offset %d: cursor %d, lineAtOffset %d", off, got, want)
+		}
+	}
+}

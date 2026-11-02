@@ -497,6 +497,47 @@ func lineAtOffset(idx []int32, offset int) int {
 	return lo - 1
 }
 
+// lineCursor answers lineAtOffset for a walk that mostly moves forward. A
+// document walk asks for the line of each tag's start, its end and, for a
+// closing tag, the line of the content before it: offsets within a few lines
+// of the last answer, which a short step from that line finds without the
+// binary search over every line in the file. An offset further away falls
+// back to lineAtOffset, so the answer is always lineAtOffset's.
+type lineCursor struct {
+	idx  []int32
+	line int
+}
+
+// maxCursorSteps is how many lines a lineCursor walks before it searches.
+const maxCursorSteps = 8
+
+// at returns lineAtOffset(c.idx, offset).
+func (c *lineCursor) at(offset int) int {
+	idx, l := c.idx, c.line
+
+	for range maxCursorSteps {
+		switch {
+		case l+1 < len(idx) && int(idx[l+1]) <= offset:
+			l++
+		case int(idx[l]) > offset:
+			l--
+		default:
+			c.line = l
+
+			return l
+		}
+
+		if l < 0 {
+			break
+		}
+	}
+
+	l = lineAtOffset(idx, offset)
+	c.line = max(l, 0)
+
+	return l
+}
+
 // ClassifyRegions segments CFC content into script and tag regions.
 func ClassifyRegions(content string) []Region {
 	regions, _ := ClassifyRegionsIdx(content)

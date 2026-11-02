@@ -32,6 +32,7 @@ func tagStructure(content string, script [][2]int, idx []int32, spans []Span) []
 	var stack []tagFrame
 
 	ends := newTagEnds(content)
+	lines := lineCursor{idx: idx}
 
 	for pos := 0; pos < len(content); {
 		if len(script) > 0 && pos >= script[0][0] {
@@ -65,7 +66,7 @@ func tagStructure(content string, script [][2]int, idx []int32, spans []Span) []
 				end = lt + 4 + c + 3
 			}
 
-			if start, last := lineAtOffset(idx, lt), lineAtOffset(idx, end-1); last > start {
+			if start, last := lines.at(lt), lines.at(end-1); last > start {
 				spans = append(spans, Span{Start: start, End: last, Kind: SpanComment})
 			}
 
@@ -79,7 +80,7 @@ func tagStructure(content string, script [][2]int, idx []int32, spans []Span) []
 			}
 
 			pos = tagEnd(&ends, lt+2+len(name))
-			stack = closeTag(stack, name, lineAtOffset(idx, lt), lineAtOffset(idx, lastContent(content, lt)), &spans)
+			stack = closeTag(stack, name, lines.at(lt), lines.at(lastContent(content, lt)), &spans)
 		default:
 			name := tagName(rest[1:])
 			if name == "" {
@@ -90,12 +91,12 @@ func tagStructure(content string, script [][2]int, idx []int32, spans []Span) []
 
 			gt := tagEnd(&ends, lt+1+len(name))
 			pos = gt
-			line := lineAtOffset(idx, lt)
+			line := lines.at(lt)
 
 			// An opening tag whose attributes wrap folds by itself, to the
 			// line before its `>`, whether or not it has a body: `<button`
 			// with an attribute a line, a twenty-line `<cfset x = {`.
-			if last := lineAtOffset(idx, gt-1); last > line {
+			if last := lines.at(gt - 1); last > line {
 				spans = append(spans, Span{Start: line, End: last, Kind: SpanBlock})
 			}
 
