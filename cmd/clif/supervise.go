@@ -79,6 +79,12 @@ func startServerChild() (supervise.Child, error) {
 
 func (c *execChild) Stream() jsonrpc2.Stream { return c.stream }
 
+func (c *execChild) Kill() {
+	if c.cmd.Process != nil {
+		_ = c.cmd.Process.Kill()
+	}
+}
+
 func (c *execChild) Wait() int {
 	err := c.cmd.Wait()
 	if err == nil {

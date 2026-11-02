@@ -164,5 +164,13 @@ func (s *Server) documentURI(raw string) uri.URI {
 		}
 	}
 
+	// Not open. A document opened and closed again stays indexed under the
+	// URI it was opened as, which the argument may be: keep it when the index
+	// knows it, and use the canonical form, which the workspace scan indexes
+	// under, otherwise.
+	if s.index != nil && s.index.HasFile(u) {
+		return u
+	}
+
 	return uri.File(path)
 }

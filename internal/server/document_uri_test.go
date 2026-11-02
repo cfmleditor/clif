@@ -35,3 +35,20 @@ func TestFormatCommandReportsADocumentThatIsNotOpen(t *testing.T) {
 		t.Fatalf("err = %v, want one saying the document is not open", err)
 	}
 }
+
+// A closed document stays indexed under the URI it was opened as, and a
+// command naming it that way still finds it; another spelling falls back to
+// the canonical URI the workspace scan indexes under.
+func TestACommandFindsAClosedDocumentUnderItsIndexedURI(t *testing.T) {
+	srv := newTestServer()
+	indexed := uri.URI("file:///work/Old App/Svc.cfc") // a spelling the canonical form escapes
+	srv.index.IndexFile(indexed, "component { function run() {} }")
+
+	if got := srv.documentURI(string(indexed)); got != indexed {
+		t.Errorf("documentURI(%q) = %q, want the indexed URI", indexed, got)
+	}
+
+	if got := srv.documentURI("file:///work/New%20App/Svc.cfc"); got != uri.File("/work/New App/Svc.cfc") {
+		t.Errorf("an unindexed, unopened file resolved to %q, want its canonical URI", got)
+	}
+}

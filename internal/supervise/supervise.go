@@ -32,6 +32,8 @@ type Child interface {
 	Stream() jsonrpc2.Stream
 	// Wait blocks until the server exits and returns its exit code.
 	Wait() int
+	// Kill ends a server that has stopped answering.
+	Kill()
 }
 
 // Options configures Run.
@@ -68,14 +70,28 @@ type exitEvent struct {
 	code int
 }
 
+// notificationKind is what a notification from the editor is to the replay.
+type notificationKind int
+
+const (
+	relayed  notificationKind = iota // passed on as it is
+	replayed                         // state the replay sends as it stands: initialized, configuration, folders, document sync
+)
+
 type supervisor struct {
 	opts Options
 
+	// mu guards every field below. No write to either stream is made while
+	// it is held: relaying the server's output takes it, so a write to the
+	// server blocked on a full pipe while holding it stopped the server's
+	// output being read, and a server that then wrote a pipe's worth before
+	// reading again waited on the supervisor as the supervisor waited on it.
 	mu         sync.Mutex
 	child      Child
 	stream     jsonrpc2.Stream
 	gen        int
 	restarting bool
+	snapshot   bool // the replay has taken its snapshot of the session
 	queue      []jsonrpc2.Message
 
 	initID       jsonrpc2.ID
@@ -86,10 +102,12 @@ type supervisor struct {
 	folders      []jsonrpc2.RawMessage
 	docs         map[string]*document
 	order        []string // docs' URIs in the order they were opened
+	notice       string   // a restart notice held until the editor's initialize is answered
 
-	registered    map[string]bool        // registration ids the editor has been sent
-	editorPending map[jsonrpc2.ID]string // editor requests the server has not answered
-	serverPending map[jsonrpc2.ID]int    // server requests the editor has not answered, by generation
+	registered    map[string]bool          // registration ids the editor has accepted
+	registering   map[jsonrpc2.ID][]string // registration ids sent to the editor, by request, until it answers
+	editorPending map[jsonrpc2.ID]string   // editor requests the server has not answered
+	serverPending map[jsonrpc2.ID]int      // server requests the editor has not answered, by generation
 	replayID      jsonrpc2.ID
 	replayDone    chan struct{}
 
@@ -120,6 +138,7 @@ func Run(ctx context.Context, opts Options) int {
 		editorPending: map[jsonrpc2.ID]string{},
 		serverPending: map[jsonrpc2.ID]int{},
 		registered:    map[string]bool{},
+		registering:   map[jsonrpc2.ID][]string{},
 		exits:         make(chan exitEvent, 4),
 	}
 
@@ -167,12 +186,36 @@ func (s *supervisor) watch(ctx context.Context, editorDone <-chan struct{}) int 
 		}
 
 		if ended {
+			s.answerShutdown(ctx)
+
 			return ev.code
 		}
 
 		if !s.restart(ctx, ev.code) {
 			return max(ev.code, 1)
 		}
+	}
+}
+
+// answerShutdown answers a shutdown the server died before answering: the
+// session is over either way, and the editor otherwise waits for its own
+// timeout.
+func (s *supervisor) answerShutdown(ctx context.Context) {
+	s.mu.Lock()
+
+	var ids []jsonrpc2.ID
+
+	for id, method := range s.editorPending {
+		if method == protocol.MethodShutdown {
+			ids = append(ids, id)
+			delete(s.editorPending, id)
+		}
+	}
+
+	s.mu.Unlock()
+
+	for _, id := range ids {
+		_, _ = s.opts.Editor.Write(ctx, jsonrpc2.NewResponse(id, jsonrpc2.RawMessage("null"), nil))
 	}
 }
 
@@ -208,7 +251,7 @@ func (s *supervisor) restart(ctx context.Context, code int) bool {
 	}
 
 	tooMany := len(s.restarts) > s.opts.MaxRestarts
-	s.restarting = true
+	s.restarting, s.snapshot = true, false
 	s.mu.Unlock()
 
 	s.failPending(ctx)
@@ -230,24 +273,44 @@ func (s *supervisor) restart(ctx context.Context, code int) bool {
 	s.adopt(child)
 	s.logf("the language server exited (code %d); restarted it", code)
 
-	if !s.replay(ctx) {
-		// The new server died during the replay: the next exit event
-		// restarts it again, within the limit.
+	if !s.replay(ctx, child) {
+		// The new server died, or was killed for not answering, during
+		// the replay: its exit restarts it again, within the limit.
 		return true
 	}
 
 	if code != 0 {
-		s.notify(ctx, protocol.MessageTypeWarning, "clif's language server stopped after an internal error and was restarted. The crash log has the details.")
+		s.noticeOnce(ctx, "clif's language server stopped after an internal error and was restarted. The crash log has the details.")
 	}
 
 	return true
 }
 
-// replay brings the new server to where the old one was, then sends what the
-// editor said meanwhile.
-func (s *supervisor) replay(ctx context.Context) bool {
+// noticeOnce tells the user, or holds the notice until the editor's
+// initialize is answered: before that a server may send it nothing.
+func (s *supervisor) noticeOnce(ctx context.Context, message string) {
 	s.mu.Lock()
-	stream, gen := s.stream, s.gen
+	answered := s.initAnswered
+
+	if !answered {
+		s.notice = message
+	}
+	s.mu.Unlock()
+
+	if answered {
+		s.notify(ctx, protocol.MessageTypeWarning, message)
+	}
+}
+
+// replay brings the new server to where the old one was, then sends what the
+// editor said meanwhile. The writes are made without s.mu (see its comment);
+// pumpEditor queues while s.restarting holds, and skips the state the
+// snapshot already carries.
+func (s *supervisor) replay(ctx context.Context, child Child) bool {
+	stream := child.Stream()
+
+	s.mu.Lock()
+	gen := s.gen
 	answered, params, initID := s.initAnswered, s.initParams, s.initID
 	s.mu.Unlock()
 
@@ -257,44 +320,85 @@ func (s *supervisor) replay(ctx context.Context) bool {
 		_, _ = stream.Write(ctx, jsonrpc2.NewCall(initID, protocol.MethodInitialize, params))
 	}
 
-	if params != nil && answered {
-		done := make(chan struct{})
-
-		s.mu.Lock()
-		s.replayID, s.replayDone = jsonrpc2.NewStringID(fmt.Sprintf("clif-supervisor-initialize-%d", gen)), done
-		id := s.replayID
-		s.mu.Unlock()
-
-		_, _ = stream.Write(ctx, jsonrpc2.NewCall(id, protocol.MethodInitialize, params))
-
-		select {
-		case <-done:
-		case <-time.After(s.opts.ReplayTimeout):
-			s.logf("the restarted language server did not answer initialize")
-
-			return false
-		case <-ctx.Done():
-			return false
-		}
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if gen != s.gen {
+	if params != nil && answered && !s.replayInitialize(ctx, child, gen) {
 		return false
 	}
 
+	for _, m := range s.takeSnapshot() {
+		_, _ = stream.Write(ctx, m)
+	}
+
+	for {
+		s.mu.Lock()
+
+		if gen != s.gen {
+			s.mu.Unlock()
+
+			return false
+		}
+
+		queued := s.queue
+		s.queue = nil
+
+		if len(queued) == 0 {
+			s.restarting, s.snapshot = false, false
+			s.mu.Unlock()
+
+			return true
+		}
+
+		s.mu.Unlock()
+
+		for _, m := range queued {
+			_, _ = stream.Write(ctx, m)
+		}
+	}
+}
+
+// replayInitialize sends the editor's initialize to the new server under an
+// id of the supervisor's own and waits for, and swallows, its answer. A server
+// that does not answer in time is killed, and its exit restarts it.
+func (s *supervisor) replayInitialize(ctx context.Context, child Child, gen int) bool {
+	done := make(chan struct{})
+
+	s.mu.Lock()
+	s.replayID, s.replayDone = jsonrpc2.NewStringID(fmt.Sprintf("clif-supervisor-initialize-%d", gen)), done
+	id, params := s.replayID, s.initParams
+	s.mu.Unlock()
+
+	_, _ = child.Stream().Write(ctx, jsonrpc2.NewCall(id, protocol.MethodInitialize, params))
+
+	select {
+	case <-done:
+		return true
+	case <-time.After(s.opts.ReplayTimeout):
+		s.logf("the restarted language server did not answer initialize in %v; ending it", s.opts.ReplayTimeout)
+		child.Kill()
+
+		return false
+	case <-ctx.Done():
+		return false
+	}
+}
+
+// takeSnapshot is the session as the new server needs it, and marks the
+// moment: replayed state the editor sends after it is queued, not skipped.
+func (s *supervisor) takeSnapshot() []jsonrpc2.Message {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var out []jsonrpc2.Message
+
 	if s.initialized {
-		s.write(ctx, jsonrpc2.NewNotification(protocol.MethodInitialized, jsonrpc2.RawMessage("{}")))
+		out = append(out, jsonrpc2.NewNotification(protocol.MethodInitialized, jsonrpc2.RawMessage("{}")))
 	}
 
 	if s.config != nil {
-		s.write(ctx, jsonrpc2.NewNotification(protocol.MethodWorkspaceDidChangeConfiguration, s.config))
+		out = append(out, jsonrpc2.NewNotification(protocol.MethodWorkspaceDidChangeConfiguration, s.config))
 	}
 
 	for _, f := range s.folders {
-		s.write(ctx, jsonrpc2.NewNotification(protocol.MethodWorkspaceDidChangeWorkspaceFolders, f))
+		out = append(out, jsonrpc2.NewNotification(protocol.MethodWorkspaceDidChangeWorkspaceFolders, f))
 	}
 
 	for _, u := range s.order {
@@ -303,31 +407,33 @@ func (s *supervisor) replay(ctx context.Context) bool {
 			"uri": u, "languageId": d.languageID, "version": d.version, "text": d.text,
 		}})
 
-		s.write(ctx, jsonrpc2.NewNotification(protocol.MethodTextDocumentDidOpen, params))
+		out = append(out, jsonrpc2.NewNotification(protocol.MethodTextDocumentDidOpen, params))
 	}
 
-	for _, m := range s.queue {
-		s.write(ctx, m)
-	}
+	s.snapshot = true
 
-	s.queue, s.restarting = nil, false
-
-	return true
-}
-
-// write sends m to the current server; s.mu is held.
-func (s *supervisor) write(ctx context.Context, m jsonrpc2.Message) {
-	_, _ = s.stream.Write(ctx, m)
+	return out
 }
 
 // failPending answers every editor request the dead server left unanswered,
-// except an initialize not yet answered, which the replay sends again.
+// except an initialize not yet answered, which the replay sends again, a
+// shutdown, which answerShutdown answers, and one still queued.
 func (s *supervisor) failPending(ctx context.Context) {
 	s.mu.Lock()
 	ids := make([]jsonrpc2.ID, 0, len(s.editorPending))
 
+	// A request still in the queue reached no server: it goes to the next
+	// one, and failing it as well gave the editor two answers to it.
+	queued := map[jsonrpc2.ID]bool{}
+
+	for _, m := range s.queue {
+		if c, ok := m.(*jsonrpc2.Call); ok {
+			queued[c.ID()] = true
+		}
+	}
+
 	for id, method := range s.editorPending {
-		if method == protocol.MethodInitialize && !s.initAnswered {
+		if method == protocol.MethodInitialize && !s.initAnswered || method == protocol.MethodShutdown || queued[id] {
 			continue
 		}
 
@@ -336,6 +442,7 @@ func (s *supervisor) failPending(ctx context.Context) {
 	}
 
 	s.serverPending = map[jsonrpc2.ID]int{}
+	s.registering = map[jsonrpc2.ID][]string{}
 	s.mu.Unlock()
 
 	for _, id := range ids {
@@ -356,7 +463,9 @@ func (s *supervisor) logf(format string, args ...any) {
 }
 
 // pumpEditor relays the editor's messages to the server, noting what a new
-// server would need, until the editor closes the session.
+// server would need, until the editor closes the session. It is the one
+// writer of editor messages to the server, which keeps them in order though
+// each write is made without s.mu.
 func (s *supervisor) pumpEditor(ctx context.Context) {
 	for {
 		msg, _, err := s.opts.Editor.Read(ctx)
@@ -368,11 +477,24 @@ func (s *supervisor) pumpEditor(ctx context.Context) {
 			return
 		}
 
-		s.fromEditor(ctx, msg)
+		out, stream, closeAfter := s.fromEditor(msg)
+		if out == nil {
+			continue
+		}
+
+		_, _ = stream.Write(ctx, out)
+
+		// The server ends when its stdin does, not on exit itself; the
+		// editor may keep the pipe open after exit, and then nothing would.
+		if closeAfter {
+			_ = stream.Close()
+		}
 	}
 }
 
-func (s *supervisor) fromEditor(ctx context.Context, msg jsonrpc2.Message) {
+// fromEditor notes what msg changes and returns what to send the server and
+// on which stream, or nil when it is queued or dropped.
+func (s *supervisor) fromEditor(msg jsonrpc2.Message) (out jsonrpc2.Message, stream jsonrpc2.Stream, closeAfter bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -393,59 +515,56 @@ func (s *supervisor) fromEditor(ctx context.Context, msg jsonrpc2.Message) {
 		method := strings.Clone(m.Method())
 		params := clone(m.Params())
 
-		if s.track(method, params) && s.restarting {
-			// The replay sends every open document as it now stands.
-			return
+		if s.track(method, params) == replayed && s.restarting && !s.snapshot {
+			// The replay's snapshot, still to be taken, carries it.
+			return nil, nil, false
 		}
 
 		msg = jsonrpc2.NewNotification(method, params)
+		closeAfter = method == protocol.MethodExit
 	case *jsonrpc2.Response:
 		if gen, ok := s.serverPending[m.ID()]; !ok || gen != s.gen {
-			return // an answer for a server that has gone
+			return nil, nil, false // an answer for a server that has gone
 		}
 
 		delete(s.serverPending, m.ID())
+
+		if ids, ok := s.registering[m.ID()]; ok {
+			delete(s.registering, m.ID())
+
+			if m.Err() == nil {
+				for _, id := range ids {
+					s.registered[id] = true
+				}
+			}
+		}
 	}
 
 	if s.restarting {
 		s.queue = append(s.queue, msg)
 
-		return
+		return nil, nil, false
 	}
 
-	s.write(ctx, msg)
-
-	// The server ends when its stdin does, not on exit itself; the editor
-	// may keep the pipe open after exit, and then nothing would end.
-	if n, ok := msg.(*jsonrpc2.Notification); ok && n.Method() == protocol.MethodExit {
-		_ = s.stream.Close()
-	}
+	return msg, s.stream, closeAfter
 }
 
-// track notes what a notification changes in the session, and reports
-// whether it was document synchronisation.
-func (s *supervisor) track(method string, params jsonrpc2.RawMessage) bool {
+// track notes what a notification changes in the session, and says whether
+// the replay carries it.
+func (s *supervisor) track(method string, params jsonrpc2.RawMessage) notificationKind {
 	switch method {
 	case protocol.MethodInitialized:
 		s.initialized = true
 	case protocol.MethodExit:
 		s.shutdown = true
+
+		return relayed
 	case protocol.MethodWorkspaceDidChangeConfiguration:
 		s.config = params
 	case protocol.MethodWorkspaceDidChangeWorkspaceFolders:
 		s.folders = append(s.folders, params)
 	case protocol.MethodTextDocumentDidOpen:
-		var p protocol.DidOpenTextDocumentParams
-		if json.Unmarshal(params, &p) == nil {
-			u := string(p.TextDocument.URI)
-			if _, open := s.docs[u]; !open {
-				s.order = append(s.order, u)
-			}
-
-			s.docs[u] = &document{languageID: string(p.TextDocument.LanguageID), version: p.TextDocument.Version, text: p.TextDocument.Text}
-		}
-
-		return true
+		s.trackOpen(params)
 	case protocol.MethodTextDocumentDidChange:
 		var p protocol.DidChangeTextDocumentParams
 		if json.Unmarshal(params, &p) == nil {
@@ -453,27 +572,45 @@ func (s *supervisor) track(method string, params jsonrpc2.RawMessage) bool {
 				d.text, d.version = lspdoc.ApplyChanges(d.text, p.ContentChanges), p.TextDocument.Version
 			}
 		}
-
-		return true
 	case protocol.MethodTextDocumentDidClose:
-		var p protocol.DidCloseTextDocumentParams
-		if json.Unmarshal(params, &p) == nil {
-			u := string(p.TextDocument.URI)
-			delete(s.docs, u)
-
-			for i, o := range s.order {
-				if o == u {
-					s.order = append(s.order[:i], s.order[i+1:]...)
-
-					break
-				}
-			}
-		}
-
-		return true
+		s.trackClose(params)
+	default:
+		return relayed
 	}
 
-	return false
+	return replayed
+}
+
+func (s *supervisor) trackOpen(params jsonrpc2.RawMessage) {
+	var p protocol.DidOpenTextDocumentParams
+	if json.Unmarshal(params, &p) != nil {
+		return
+	}
+
+	u := string(p.TextDocument.URI)
+	if _, open := s.docs[u]; !open {
+		s.order = append(s.order, u)
+	}
+
+	s.docs[u] = &document{languageID: string(p.TextDocument.LanguageID), version: p.TextDocument.Version, text: p.TextDocument.Text}
+}
+
+func (s *supervisor) trackClose(params jsonrpc2.RawMessage) {
+	var p protocol.DidCloseTextDocumentParams
+	if json.Unmarshal(params, &p) != nil {
+		return
+	}
+
+	u := string(p.TextDocument.URI)
+	delete(s.docs, u)
+
+	for i, o := range s.order {
+		if o == u {
+			s.order = append(s.order[:i], s.order[i+1:]...)
+
+			break
+		}
+	}
 }
 
 // pumpChild relays the server's messages to the editor until the server's
@@ -495,12 +632,32 @@ func (s *supervisor) pumpChild(child Child, gen int) {
 }
 
 func (s *supervisor) fromChild(ctx context.Context, msg jsonrpc2.Message, gen int, stream jsonrpc2.Stream) {
+	out, toServer, notice := s.routeFromChild(msg, gen)
+
+	if toServer != nil {
+		_, _ = stream.Write(ctx, toServer)
+	}
+
+	if out != nil {
+		if _, err := s.opts.Editor.Write(ctx, out); err != nil && !errors.Is(err, context.Canceled) {
+			s.logf("cannot write to the editor: %v", err)
+		}
+	}
+
+	if notice != "" {
+		s.notify(ctx, protocol.MessageTypeWarning, notice)
+	}
+}
+
+// routeFromChild decides what a message from the server becomes: out for the
+// editor, toServer answered on its behalf, and a held restart notice to send
+// once the editor's initialize has been answered.
+func (s *supervisor) routeFromChild(msg jsonrpc2.Message, gen int) (out, toServer jsonrpc2.Message, notice string) {
 	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	if gen != s.gen {
-		s.mu.Unlock()
-
-		return
+		return nil, nil, ""
 	}
 
 	switch m := msg.(type) {
@@ -508,9 +665,8 @@ func (s *supervisor) fromChild(ctx context.Context, msg jsonrpc2.Message, gen in
 		if s.replayDone != nil && m.ID() == s.replayID {
 			close(s.replayDone)
 			s.replayDone = nil
-			s.mu.Unlock()
 
-			return
+			return nil, nil, ""
 		}
 
 		if method, ok := s.editorPending[m.ID()]; ok {
@@ -518,62 +674,66 @@ func (s *supervisor) fromChild(ctx context.Context, msg jsonrpc2.Message, gen in
 
 			if method == protocol.MethodInitialize {
 				s.initAnswered = true
+				notice, s.notice = s.notice, ""
 			}
 		}
+
+		return msg, nil, notice
 	case *jsonrpc2.Call:
 		method := strings.Clone(m.Method())
-		if method == protocol.MethodClientRegisterCapability && s.alreadyRegistered(m.Params()) {
-			// A restarted server registering what the editor holds from
-			// the first: registering an id twice is an error to an editor.
-			s.mu.Unlock()
 
-			_, _ = stream.Write(ctx, jsonrpc2.NewResponse(m.ID(), jsonrpc2.RawMessage("null"), nil))
+		if method == protocol.MethodClientRegisterCapability {
+			ids := registrationIDs(m.Params())
+			if len(ids) > 0 && s.allRegistered(ids) {
+				// A restarted server registering what the editor holds
+				// from the first: registering an id twice is an error to
+				// an editor.
+				return nil, jsonrpc2.NewResponse(m.ID(), jsonrpc2.RawMessage("null"), nil), ""
+			}
 
-			return
+			s.registering[m.ID()] = ids
 		}
 
 		s.serverPending[m.ID()] = gen
-		msg = jsonrpc2.NewCall(m.ID(), method, clone(m.Params()))
+
+		return jsonrpc2.NewCall(m.ID(), method, clone(m.Params())), nil, ""
 	case *jsonrpc2.Notification:
-		msg = jsonrpc2.NewNotification(strings.Clone(m.Method()), clone(m.Params()))
+		return jsonrpc2.NewNotification(strings.Clone(m.Method()), clone(m.Params())), nil, ""
 	}
 
-	s.mu.Unlock()
-
-	if _, err := s.opts.Editor.Write(ctx, msg); err != nil && !errors.Is(err, context.Canceled) {
-		s.logf("cannot write to the editor: %v", err)
-	}
+	return msg, nil, ""
 }
 
-// alreadyRegistered reports whether every registration in a
-// client/registerCapability is one the editor was sent before, and notes the
-// ids of one that is not; s.mu is held.
-func (s *supervisor) alreadyRegistered(params jsonrpc2.RawMessage) bool {
+// registrationIDs is the ids a client/registerCapability registers.
+func registrationIDs(params jsonrpc2.RawMessage) []string {
 	var p struct {
 		Registrations []struct {
 			ID string `json:"id"`
 		} `json:"registrations"`
 	}
 
-	if json.Unmarshal(params, &p) != nil || len(p.Registrations) == 0 {
-		return false
+	if json.Unmarshal(params, &p) != nil {
+		return nil
 	}
 
-	all := true
-
+	ids := make([]string, 0, len(p.Registrations))
 	for _, r := range p.Registrations {
-		if !s.registered[r.ID] {
-			all = false
+		ids = append(ids, r.ID)
+	}
+
+	return ids
+}
+
+// allRegistered reports whether the editor accepted every one of ids from an
+// earlier server; s.mu is held.
+func (s *supervisor) allRegistered(ids []string) bool {
+	for _, id := range ids {
+		if !s.registered[id] {
+			return false
 		}
 	}
 
-	if !all {
-		for _, r := range p.Registrations {
-			s.registered[r.ID] = true
-		}
-	}
-
-	return all
+	return true
 }
 
 // clone copies params out of the stream's read buffer, which the next Read
