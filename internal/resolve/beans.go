@@ -293,7 +293,7 @@ func beanCalls(content string) []beanCall {
 
 			args := beanArguments(a.Scanner)
 
-			line := a.Region.StartLine + tok.Line
+			line := a.Region.StartLine + int(tok.Line)
 			if receiver != "" && line >= 0 && line <= math.MaxUint32 {
 				calls = append(calls, beanCall{receiver: receiver, method: method, line: uint32(line), args: args})
 			}

@@ -119,7 +119,7 @@ func scriptFunction(tokens []parser.Token, name string, line int) (body, params 
 	pick := -1
 
 	for n, f := range found {
-		if tokens[f[0]].Line == line || tokens[f[0]+1].Line == line {
+		if int(tokens[f[0]].Line) == line || int(tokens[f[0]+1].Line) == line {
 			pick = n
 		}
 	}

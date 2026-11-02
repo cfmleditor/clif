@@ -10,7 +10,7 @@ import (
 )
 
 // TokenKind classifies a lexical token.
-type TokenKind int
+type TokenKind uint8
 
 // TokenKind values produced by the scanner.
 const (
@@ -53,10 +53,12 @@ const (
 
 // Token is a lexical token with position info.
 type Token struct {
-	Kind   TokenKind
 	Value  string
 	Offset int // byte offset in source
-	Line   int // 0-based line number
+	// Line is the 0-based line number. An int32 beside Kind: a source is at
+	// most vfs.MaxFileSize bytes, and the two share one word.
+	Line int32
+	Kind TokenKind
 }
 
 // Scanner tokenizes CFML/CFScript source.
@@ -139,13 +141,13 @@ var tokenPool = sync.Pool{New: func() any { return new([]Token) }}
 // read src. Only NextSkipComments, PeekSkipComments, Save and Restore move
 // it; LastBlockComment is not kept.
 func newReplayScanner(src string, toks *[]Token) *Scanner {
-	return &Scanner{src: src, replay: toks, pos: (*toks)[0].Offset, line: int32((*toks)[0].Line)} //nolint:gosec // line counts are far below 2^31
+	return &Scanner{src: src, replay: toks, pos: (*toks)[0].Offset, line: (*toks)[0].Line}
 }
 
 // replayAt moves to the token at index i.
 func (s *Scanner) replayAt(i int) {
 	t := &(*s.replay)[i]
-	s.peekPos, s.pos, s.line = i, t.Offset, int32(t.Line) //nolint:gosec // line counts are far below 2^31
+	s.peekPos, s.pos, s.line = i, t.Offset, t.Line
 }
 
 // replayNext takes the token at the replay index.
@@ -256,11 +258,11 @@ func (s *Scanner) next() Token {
 	s.skipWhitespaceNoNewline()
 
 	if s.pos >= len(s.src) {
-		return Token{Kind: TokEOF, Offset: s.pos, Line: int(s.line)}
+		return Token{Kind: TokEOF, Offset: s.pos, Line: s.line}
 	}
 
 	start := s.pos
-	startLine := int(s.line)
+	startLine := s.line
 	ch := s.src[s.pos]
 
 	switch {
@@ -443,7 +445,7 @@ func (s *Scanner) skipWhitespaceNoNewline() {
 	}
 }
 
-func (s *Scanner) scanCFComment(start, startLine int) Token {
+func (s *Scanner) scanCFComment(start int, startLine int32) Token {
 	s.pos += 5 // skip <!---
 	depth := 1
 
@@ -472,7 +474,7 @@ func (s *Scanner) scanCFComment(start, startLine int) Token {
 	return Token{Kind: TokCFComment, Value: s.src[start:s.pos], Offset: start, Line: startLine}
 }
 
-func (s *Scanner) scanBlockComment(start, startLine int) Token {
+func (s *Scanner) scanBlockComment(start int, startLine int32) Token {
 	s.pos += 2 // skip /*
 	for s.pos < len(s.src) {
 		if s.src[s.pos] == '*' && s.pos+1 < len(s.src) && s.src[s.pos+1] == '/' {
@@ -491,7 +493,7 @@ func (s *Scanner) scanBlockComment(start, startLine int) Token {
 	return Token{Kind: TokBlockComment, Value: s.src[start:s.pos], Offset: start, Line: startLine}
 }
 
-func (s *Scanner) scanLineComment(start, startLine int) Token {
+func (s *Scanner) scanLineComment(start int, startLine int32) Token {
 	s.pos += 2 // skip //
 
 	// A bare CR ends a line too. Five of the 5,629 corpus files use CR-only
@@ -516,7 +518,7 @@ func (s *Scanner) scanLineComment(start, startLine int) Token {
 // from stack exhaustion is what makes a cap necessary rather than tidy.
 const maxStringNesting = 32
 
-func (s *Scanner) scanString(start, startLine int) Token {
+func (s *Scanner) scanString(start int, startLine int32) Token {
 	// A `#` inside a string opens an expression, and a string may be opened
 	// inside *that*: `"#DayOfWeek("{ts '2000-1-1'}")#"` is one token, and
 	// closing it at the inner quote left `"#DayOfWeek("` — so the interpolation
@@ -663,7 +665,7 @@ func (s *Scanner) scanHashExpr(depth int) bool {
 	return false
 }
 
-func (s *Scanner) scanNumber(start, startLine int) Token {
+func (s *Scanner) scanNumber(start int, startLine int32) Token {
 	for s.pos < len(s.src) && (isDigit(s.src[s.pos]) || s.src[s.pos] == '.') {
 		s.pos++
 	}
@@ -671,7 +673,7 @@ func (s *Scanner) scanNumber(start, startLine int) Token {
 	return Token{Kind: TokNumber, Value: s.src[start:s.pos], Offset: start, Line: startLine}
 }
 
-func (s *Scanner) scanIdent(start, startLine int) Token {
+func (s *Scanner) scanIdent(start int, startLine int32) Token {
 	// On a local, so the loop keeps its position and the source in registers
 	// instead of reading and writing them through the receiver per byte.
 	src, pos := s.src, s.pos

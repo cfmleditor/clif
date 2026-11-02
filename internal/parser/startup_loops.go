@@ -75,7 +75,7 @@ func StartupBeanBindings(content string) []StartupBeanBinding {
 		}
 
 		cursor := *sc
-		cursor.Restore(ScannerState{pos: t.Offset, line: t.Line})
+		cursor.Restore(ScannerState{pos: t.Offset, line: int(t.Line)})
 
 		target, key, ok := mappingSourceTarget(&cursor)
 		if !ok || key != "" || cursor.NextSkipComments().Kind != TokEquals || cursor.PeekSkipComments().Kind == TokEquals {
@@ -139,7 +139,7 @@ func serviceLoopBody(body, iterator string, values []string) ([]StartupBeanBindi
 		}
 
 		cursor := *sc
-		cursor.Restore(ScannerState{pos: t.Offset, line: t.Line})
+		cursor.Restore(ScannerState{pos: t.Offset, line: int(t.Line)})
 
 		if target, _, ok := mappingSourceTarget(&cursor); ok && strings.EqualFold(target, iterator) && serviceIteratorMutation(&cursor) {
 			return nil, false

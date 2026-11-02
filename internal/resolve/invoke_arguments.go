@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/cfmleditor/clif/internal/conv"
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
 )
@@ -38,7 +39,7 @@ func (r *Resolver) invokeArgument(call *parser.CallSite, pr *parser.ParseResult,
 
 	for i := range tokens {
 		tokens[i].Offset += int(call.StartByte)
-		tokens[i].Line += int(call.Line)
+		tokens[i].Line += conv.Int32(int(call.Line))
 	}
 
 	parts := producerSplit(tokens[2 : len(tokens)-1])

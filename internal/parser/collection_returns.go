@@ -950,7 +950,7 @@ func scanExpressionWritesFrom(sc *Scanner, expression string, toks []Token) []ex
 		}
 
 		cursor = *sc
-		cursor.Restore(ScannerState{pos: t.Offset, line: t.Line})
+		cursor.Restore(ScannerState{pos: t.Offset, line: int(t.Line)})
 		root, element := collectionTarget(&cursor)
 
 		local := identEq(t.Value, "var")

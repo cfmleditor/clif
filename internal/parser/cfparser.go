@@ -214,7 +214,7 @@ func findScriptFuncScopes(src string, baseLine int) []FuncScope {
 			continue
 		}
 
-		startLine := baseLine + tok.Line
+		startLine := baseLine + int(tok.Line)
 
 		// Skip name
 		nameTok := sc.NextSkipComments()
@@ -235,7 +235,7 @@ func findScriptFuncScopes(src string, baseLine int) []FuncScope {
 		if brace.Kind == TokSemicolon {
 			sc.NextSkipComments()
 
-			scopes = append(scopes, FuncScope{Name: nameTok.Value, Start: startLine, End: baseLine + brace.Line})
+			scopes = append(scopes, FuncScope{Name: nameTok.Value, Start: startLine, End: baseLine + int(brace.Line)})
 
 			continue
 		}
@@ -248,7 +248,7 @@ func findScriptFuncScopes(src string, baseLine int) []FuncScope {
 
 		lastTok := skipToClose(sc, TokLBrace, TokRBrace)
 
-		endLine := baseLine + lastTok.Line
+		endLine := baseLine + int(lastTok.Line)
 		scopes = append(scopes, FuncScope{Name: nameTok.Value, Start: startLine, End: endLine})
 	}
 

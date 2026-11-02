@@ -20,7 +20,12 @@ func TestParserStructsKeepTheirSize(t *testing.T) {
 		got, want uintptr
 	}{
 		{"CallSite", unsafe.Sizeof(CallSite{}), 120},
-		{"Scanner", unsafe.Sizeof(Scanner{}), 128},
+		// A token is a string, an offset and a line beside its kind: the line
+		// and the kind share a word, and the 40 bytes it was copied as through
+		// every scanner call became 32. A scanner holds one and the replay
+		// cursor's tokens are a slice of them.
+		{"Token", unsafe.Sizeof(Token{}), 32},
+		{"Scanner", unsafe.Sizeof(Scanner{}), 120},
 		// The managed-setter lookup and the flowBlocks pointer add a word
 		// each, and fill the existing 384-byte allocation class: the next
 		// word moves it to 416. The source-origin offset now adds that word,

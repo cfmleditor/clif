@@ -253,9 +253,9 @@ func scriptLoops(tokens []parser.Token) []loopSpan {
 		out = append(out, loopSpan{
 			name:       strings.TrimPrefix(strings.ToLower(tokens[j].Value), "local."),
 			collection: producerText(tokens[j+2 : closeParen]),
-			header:     tokens[i].Line,
-			start:      tokens[closeParen+1].Line,
-			end:        tokens[closeBrace].Line,
+			header:     int(tokens[i].Line),
+			start:      int(tokens[closeParen+1].Line),
+			end:        int(tokens[closeBrace].Line),
 			keys:       true,
 		})
 	}

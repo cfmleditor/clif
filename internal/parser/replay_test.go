@@ -34,7 +34,7 @@ func TestReplayReadsWhatTheScannerReads(t *testing.T) {
 	}
 
 	for _, back := range []int{0, 5, len(toks) - 3, len(toks) - 2} {
-		at := ScannerState{pos: toks[back].Offset, line: toks[back].Line}
+		at := ScannerState{pos: toks[back].Offset, line: int(toks[back].Line)}
 		live.Restore(at)
 		replay.Restore(at)
 

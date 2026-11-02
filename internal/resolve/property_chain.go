@@ -117,7 +117,7 @@ func publicPropertyWrites(content, name string) map[int]int {
 		}
 
 		if strings.EqualFold(field, name) && sc.NextSkipComments().Kind == parser.TokEquals && sc.PeekSkipComments().Kind != parser.TokEquals {
-			writes[tok.Line]++
+			writes[int(tok.Line)]++
 		}
 
 		sc.Restore(state)

@@ -188,7 +188,7 @@ func (r *Resolver) constructions(tokens []parser.Token, base, file, dir string) 
 		}
 
 		if p := r.ComponentPath(dotted.String(), dir); p != "" && cfpath.SamePath(p, file) {
-			out = append(out, construction{at: j, line: tokens[j].Line})
+			out = append(out, construction{at: j, line: int(tokens[j].Line)})
 		}
 	}
 

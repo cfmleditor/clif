@@ -184,7 +184,7 @@ func (pr *ParseResult) collectionCallEscapes(sc *Scanner, offset int, key func(s
 		}
 
 		cursor := *sc
-		cursor.Restore(ScannerState{pos: t.Offset, line: t.Line})
+		cursor.Restore(ScannerState{pos: t.Offset, line: int(t.Line)})
 
 		callee, element := collectionTarget(&cursor)
 		if len(open) > 0 && callee != "" && !element && mayName(names, t.Value) {
@@ -266,7 +266,7 @@ func (pr *ParseResult) markCollectionArgumentEscapeDepth(expression, function st
 		}
 
 		cursor := *sc
-		cursor.Restore(ScannerState{pos: t.Offset, line: t.Line})
+		cursor.Restore(ScannerState{pos: t.Offset, line: int(t.Line)})
 
 		root, indexed := collectionTarget(&cursor)
 		if root != "" && !indexed {

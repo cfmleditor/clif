@@ -191,7 +191,7 @@ func (s *mappingSourceState) content(content, file string, depth int) {
 		}
 
 		cursor := *sc
-		cursor.Restore(ScannerState{pos: t.Offset, line: t.Line})
+		cursor.Restore(ScannerState{pos: t.Offset, line: int(t.Line)})
 
 		target, key, ok := mappingSourceTarget(&cursor)
 		if !ok || cursor.NextSkipComments().Kind != TokEquals || cursor.PeekSkipComments().Kind == TokEquals {

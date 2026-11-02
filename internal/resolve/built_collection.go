@@ -145,7 +145,7 @@ func builtAppends(tokens []parser.Token, built string) ([]appendValue, bool) {
 			return nil, false
 		}
 
-		values = append(values, appendValue{tokens: args[1], line: conv.Uint32(args[1][0].Line)})
+		values = append(values, appendValue{tokens: args[1], line: conv.Uint32(int(args[1][0].Line))})
 	}
 
 	return values, len(values) > 0
@@ -508,7 +508,7 @@ func fieldAppends(tokens []parser.Token, field, getter string) ([]appendValue, b
 			return nil, false
 		}
 
-		values = append(values, appendValue{tokens: args[1], line: conv.Uint32(args[1][0].Line)})
+		values = append(values, appendValue{tokens: args[1], line: conv.Uint32(int(args[1][0].Line))})
 	}
 
 	return values, len(values) > 0
