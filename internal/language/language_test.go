@@ -1,6 +1,7 @@
 package language
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -70,4 +71,21 @@ func TestAGrammarThatCannotLoadPanicsRatherThanExiting(t *testing.T) {
 	}()
 
 	NewParser(Grammar(99))
+}
+
+// A parse that runs past MaxParseTime is cancelled and returns no tree:
+// tree-sitter's parser never returned on some pathological pages, and a
+// format request then held a core for good.
+func TestAParsePastItsTimeLimitIsCancelled(t *testing.T) {
+	prev := MaxParseTime
+	MaxParseTime = 0
+
+	t.Cleanup(func() { MaxParseTime = prev })
+
+	src := []byte(strings.Repeat("<cfif a>", 20000) + strings.Repeat("</cfif>", 20000))
+
+	if tree := Parse(CFML, src, nil); tree != nil {
+		tree.Close()
+		t.Fatal("a parse past its time limit still returned a tree")
+	}
 }

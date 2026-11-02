@@ -40,6 +40,13 @@ import (
 // callerIndex is, for each name followed by an open parenthesis anywhere in
 // the files, the files it appears in.
 type callerIndex struct {
+	// mu guards byName. The index is shared between resolvers
+	// (ShareCallerIndex gives one to every config's resolver), so the lock
+	// is the index's own: each resolver's r.mu guarded it, and two
+	// resolvers sorting and writing the map under two different locks is a
+	// concurrent map write, which Go cannot recover from. The race detector
+	// found it in the code map's build, which the editor runs in-process.
+	mu     sync.Mutex
 	byName map[string][]string
 	// failed are the files whose names could not be read (forEachFile).
 	// Each is listed as a caller of every name, so inference parses it and,
@@ -64,10 +71,14 @@ func (r *Resolver) IndexCallerFile(path, content string) {
 		r.callerIdx = &callerIndex{byName: map[string][]string{}}
 	}
 
-	for name := range seen {
-		r.callerIdx.byName[name] = append(r.callerIdx.byName[name], path)
-	}
+	idx := r.callerIdx
 	r.mu.Unlock()
+
+	idx.mu.Lock()
+	for name := range seen {
+		idx.byName[name] = append(idx.byName[name], path)
+	}
+	idx.mu.Unlock()
 }
 
 func callerNames(content string) map[string]bool {
@@ -221,19 +232,20 @@ func (r *Resolver) callerFiles(name string) []string {
 
 	key := strings.ToLower(name)
 
-	o.mu.Lock()
+	idx.mu.Lock()
 	files := idx.byName[key]
 	slices.Sort(files)
 	files = slices.Compact(files)
 	idx.byName[key] = files
 	files = slices.Clone(files)
+	idx.mu.Unlock()
 
+	// failed is set when the index is built and never written after.
 	for _, f := range idx.failed {
 		if !slices.Contains(files, f) {
 			files = append(files, f)
 		}
 	}
-	o.mu.Unlock()
 
 	return files
 }

@@ -247,11 +247,22 @@ func commentEnd(s string, open int) int {
 	depth := 1
 	j := open + len("<!---")
 
+	// closeAt is the next "--->" at or after j, found again only once j has
+	// passed it: searching afresh after each nested open read the whole body
+	// of a comment once per level, and 200,000 nested comments hung indexing.
+	closeAt := -1
+
 	for depth > 0 {
-		nextClose := strings.Index(s[j:], "--->")
-		if nextClose < 0 {
-			return len(s)
+		if closeAt < j {
+			c := strings.Index(s[j:], "--->")
+			if c < 0 {
+				return len(s)
+			}
+
+			closeAt = j + c
 		}
+
+		nextClose := closeAt - j
 
 		// A nested open matters only if it starts before the close, so the
 		// search for one stops there — it may still run into the close, as
