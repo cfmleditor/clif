@@ -48,10 +48,14 @@ type tagEnds struct {
 	ltFrom, ltGT, ltAt int
 }
 
-// fusedTagSpan is the longest tag text at reads in one pass. Past it the
-// counting and searching functions, which take eight bytes or more at a time,
-// are cheaper than a byte loop.
-const fusedTagSpan = 128
+// fusedTagSpan is the longest tag text at reads in one pass. It is short: a
+// tag with no attributes (`<td>`, `</div>`: its text is empty) is most of the
+// tags in a page of markup, and one pass over nothing is cheaper than four
+// calls. Past a few bytes the counting and searching functions, which take
+// eight bytes or more at a time, are cheaper than a byte loop. At 128 the loop
+// ran over a <cffunction> or <cfargument> line and made the tag parse of a
+// component 8-15% slower, with no gain on markup that 16 does not already have.
+const fusedTagSpan = 16
 
 // longTagSpan is how far a tag's '>' may be before tagEnds indexes s rather
 // than scanning it again for the next tag. Nearly every tag ends within a
