@@ -5,6 +5,10 @@ Costs found while profiling the per-keystroke and batch-analysis paths. Sections
 worth doing without a real-workspace profile; the remaining follow-ups are
 called out in sections 3, 5, 7 and 8.
 
+The parse, folding and collection-pass work of November 2026, what has not been
+checked against a real corpus, and what to try once there is one, is in
+[PERFORMANCE-CORPUS-FOLLOWUPS.md](PERFORMANCE-CORPUS-FOLLOWUPS.md).
+
 This file exists so they are not rediscovered from scratch, and so the reasons
 are on record rather than remembered. Every number below is measured, and the
 method is in section 1 — including the mistake that made one of them look
