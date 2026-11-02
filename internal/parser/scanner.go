@@ -264,6 +264,12 @@ func (s *Scanner) next() Token {
 	ch := s.src[s.pos]
 
 	switch {
+	// Most tokens are identifiers, so this is the first test. Nothing below it
+	// but the last arms can take a letter, `_` or `$`, so the order is not
+	// observable.
+	case isIdentStart(ch):
+		return s.scanIdent(start, startLine)
+
 	case ch == '\n':
 		s.pos++
 		s.line++
@@ -284,9 +290,6 @@ func (s *Scanner) next() Token {
 
 	case isDigit(ch):
 		return s.scanNumber(start, startLine)
-
-	case isIdentStart(ch):
-		return s.scanIdent(start, startLine)
 
 	// Safe navigation. Emitting `?.` as a plain dot is what lets every chain
 	// walk in the parser see `svc?.save()` as `svc.save()` — the alternative is
@@ -686,10 +689,34 @@ func (s *Scanner) Rest() string {
 }
 
 func isDigit(ch byte) bool { return ch >= '0' && ch <= '9' }
-func isIdentStart(ch byte) bool {
-	return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || ch == '_' || ch == '$'
-}
-func isIdentPart(ch byte) bool { return isIdentStart(ch) || isDigit(ch) }
+
+// identBits classifies every byte once. An identifier is most of a script's
+// bytes and isIdentPart ran up to five range tests on each; this is one load.
+const (
+	identStartBit = 1 << iota
+	identPartBit
+)
+
+var identBits = func() [256]uint8 {
+	var table [256]uint8
+
+	for i := range table {
+		ch := byte(i)
+
+		if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || ch == '_' || ch == '$' {
+			table[i] |= identStartBit | identPartBit
+		}
+
+		if ch >= '0' && ch <= '9' {
+			table[i] |= identPartBit
+		}
+	}
+
+	return table
+}()
+
+func isIdentStart(ch byte) bool { return identBits[ch]&identStartBit != 0 }
+func isIdentPart(ch byte) bool  { return identBits[ch]&identPartBit != 0 }
 
 func charToKind(ch byte) TokenKind {
 	switch ch {
