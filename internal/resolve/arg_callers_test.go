@@ -9,10 +9,12 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/cfmleditor/clif/internal/config"
 	"github.com/cfmleditor/clif/internal/index"
 	"github.com/cfmleditor/clif/internal/parser"
+	"github.com/cfmleditor/clif/internal/vfs"
 )
 
 func cfmlFilesIn(t *testing.T, dir string) []string {
@@ -689,5 +691,51 @@ function add(){ getOrderService().addOrderItem( order = new models.Order() ); }
 
 	if !strings.Contains(got["arguments.order.nope"], "method 'nope' not found in") {
 		t.Errorf("arguments.order.nope: %q, want it checked against Order", got["arguments.order.nope"])
+	}
+}
+
+// TestParseCallersRunsABoundedWayAhead: the workers may parse only a few
+// files past what the loop has read. Their results were buffered for every
+// candidate, so each inference held every caller's parse at once while the
+// loop read them one at a time.
+func TestParseCallersRunsABoundedWayAhead(t *testing.T) {
+	dir := t.TempDir()
+	files := make([]string, 0, 40)
+
+	for i := range 40 {
+		path := filepath.Join(dir, fmt.Sprintf("caller%02d.cfc", i))
+		if err := os.WriteFile(path, []byte(`component { function f() { svc.run( 1 ); } }`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		files = append(files, path)
+	}
+
+	r := &Resolver{FS: vfs.OS{}, Index: index.New(), InferArgsFiles: files}
+
+	next, stop := r.parseCallers(files)
+	defer stop()
+
+	if _, ok := next(); !ok {
+		t.Fatal("no parse handed over")
+	}
+
+	// Let the workers run as far ahead as they will.
+	parsed := func() int {
+		r.mu.RLock()
+		defer r.mu.RUnlock()
+
+		return len(r.handlerCache)
+	}
+
+	for last := -1; last != parsed(); {
+		last = parsed()
+
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	// One read, prefetchWorkers buffered, and one more in each worker's hands.
+	if got, limit := parsed(), 1+2*prefetchWorkers; got > limit {
+		t.Errorf("after one file was read, %d of %d were parsed; want at most %d", got, len(files), limit)
 	}
 }
