@@ -35,7 +35,7 @@ type Index struct {
 	// drops exactly its own.
 	entities    map[string][]uri.URI // lowercase entity name -> the files declaring it
 	entityNames map[string][]string  // lowercase URI -> the lowercase entity names it holds
-	// entityRead is every file whose entity the index has read from a parse,
+	// entityRead is every component whose entity the index has read from a parse,
 	// persistent or not, so RefreshEntity can follow a file the index took in
 	// even after an edit left it no entity for a while.
 	entityRead map[string]struct{} // lowercase URI
@@ -672,7 +672,10 @@ func (idx *Index) indexParseResult(fileURI uri.URI, content string, pr *parser.P
 	// entityNew( "cbAuthor" ) names it.
 	persistent, entityName := entityOf(fileURI, pr)
 	idx.setFileEntityLocked(uri.URI(strings.Clone(string(fileURI))), persistent, entityName)
-	idx.entityRead[fk] = struct{}{}
+
+	if isComponent(fileURI) {
+		idx.entityRead[fk] = struct{}{}
+	}
 
 	idx.setIncludesLocked(fileURI, parser.ExtractIncludes(content))
 
@@ -1204,17 +1207,6 @@ func (idx *Index) LookupBean(name string) string {
 	return idx.beans[strings.ToLower(name)]
 }
 
-// setFileEntity records what ORM entity fileURI declares, replacing what it
-// declared before: entityName when it names one, else an entity called after
-// the file, and nothing when the component is not persistent. Outside the
-// index a file's entity is recorded through IndexEntity or RefreshEntity, which
-// read both from a parse by one rule (entityOf).
-func (idx *Index) setFileEntity(fileURI uri.URI, persistent bool, entityName string) {
-	idx.mu.Lock()
-	idx.setFileEntityLocked(fileURI, persistent, entityName)
-	idx.mu.Unlock()
-}
-
 // IndexEntity records the ORM entity a parsed file declares (entityOf),
 // replacing what it declared before. It is how the editor records one for a
 // parse it made itself, by the rule the index applies to a parse it is handed,
@@ -1271,7 +1263,11 @@ func isComponent(fileURI uri.URI) bool {
 	return strings.EqualFold(path.Ext(string(fileURI)), ".cfc")
 }
 
-// setFileEntityLocked is setFileEntity with idx.mu held.
+// setFileEntityLocked records what ORM entity fileURI declares, replacing
+// what it declared before: entityName when it names one, else an entity
+// called after the file, and nothing when the component is not persistent;
+// idx.mu is held. Outside the index a file's entity is recorded through
+// IndexEntity or RefreshEntity, which read both from a parse (entityOf).
 func (idx *Index) setFileEntityLocked(fileURI uri.URI, persistent bool, entityName string) {
 	key := uriKey(fileURI)
 	idx.dropEntitiesLocked(key)

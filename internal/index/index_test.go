@@ -215,7 +215,8 @@ func TestIndex_BeansAndEntities(t *testing.T) {
 		t.Errorf("expected empty string for unknown bean, got %q", got)
 	}
 
-	idx.setFileEntity(uri.URI("file:///models/User.cfc"), true, "User")
+	user := uri.URI("file:///models/User.cfc")
+	idx.IndexEntity(user, parser.Parse(user, `component persistent="true" entityName="User" {}`))
 
 	if got := idx.NamedEntities("user"); len(got) != 1 || got[0] != uri.URI("file:///models/User.cfc") {
 		t.Errorf("expected case-insensitive entity lookup, got %q", got)
@@ -368,14 +369,14 @@ func TestAReindexReplacesAFilesEntity(t *testing.T) {
 		t.Fatalf("Author.cfc is no longer persistent, yet cbAuthor's candidates are %v", got)
 	}
 
-	idx.setFileEntity(author, true, "cbAuthor")
-	idx.setFileEntity(author, true, "cbAuthor")
+	idx.IndexEntity(author, parser.Parse(author, `component persistent="true" entityName="cbAuthor" {}`))
+	idx.IndexEntity(author, parser.Parse(author, `component persistent="true" entityName="cbAuthor" {}`))
 
 	if got := idx.NamedEntities("author"); len(got) != 0 {
 		t.Fatalf("the file's name was filed as a declared entity name: %v", got)
 	}
 
-	idx.setFileEntity(author, true, "cbWriter")
+	idx.IndexEntity(author, parser.Parse(author, `component persistent="true" entityName="cbWriter" {}`))
 
 	if got := idx.NamedEntities("cbauthor"); len(got) != 0 {
 		t.Fatalf("after renaming its entity, cbAuthor is still declared by %v", got)
@@ -385,7 +386,7 @@ func TestAReindexReplacesAFilesEntity(t *testing.T) {
 		t.Fatalf("cbWriter is declared by %v", got)
 	}
 
-	idx.setFileEntity(author, false, "cbWriter")
+	idx.IndexEntity(author, parser.Parse(author, `component entityName="cbWriter" {}`))
 
 	if got := idx.EntityCandidates("cbwriter"); len(got) != 0 {
 		t.Fatalf("outside ORM scope, cbWriter is still declared by %v", got)
@@ -498,5 +499,22 @@ func TestRefreshEntityFollowsAFileThroughAnEditThatDropsIt(t *testing.T) {
 
 	if got := idx.EntityCandidates("author"); len(got) != 0 {
 		t.Errorf("after the file's removal a refresh registered Author: %v", got)
+	}
+}
+
+// TestOnlyComponentsAreRecordedAsRead: entityRead exists for RefreshEntity,
+// which only asks about components, so a page is never recorded.
+func TestOnlyComponentsAreRecordedAsRead(t *testing.T) {
+	idx := New()
+
+	idx.IndexFile(uri.URI("file:///a/page.cfm"), `<cfoutput>hi</cfoutput>`)
+	idx.IndexFile(uri.URI("file:///a/Plain.cfc"), `component {}`)
+
+	if _, ok := idx.entityRead[uriKey(uri.URI("file:///a/page.cfm"))]; ok {
+		t.Error("a page was recorded as an entity read")
+	}
+
+	if _, ok := idx.entityRead[uriKey(uri.URI("file:///a/Plain.cfc"))]; !ok {
+		t.Error("a component was not recorded as read")
 	}
 }

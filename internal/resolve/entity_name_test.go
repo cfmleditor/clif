@@ -1,6 +1,18 @@
 package resolve
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+
+	"github.com/cfmleditor/clif/internal/index"
+	cfpath "github.com/cfmleditor/clif/internal/path"
+	"github.com/cfmleditor/clif/internal/vfs"
+
+	"go.lsp.dev/uri"
+)
 
 // TestAnEntityNameIsTheEntityNotTheFileBesideTheCaller: FW/1's qBall writes
 // entityNew( "question" ) in services/question.cfc, whose own file a path
@@ -165,4 +177,57 @@ func TestANestedApplicationsEntityIsNotTheCallers(t *testing.T) {
 	expectReasons(t, reasonsWith(t, &Resolver{}, dir, "root/tests/orm/specs/deep/books.cfc"), map[string]string{
 		"a.setPen": "",
 	})
+}
+
+// TestTheCallersOwnEntityByFileNameOutranksANestedApplications: the
+// caller's application has a plain persistent Author.cfc, farther from the
+// caller than a nested application that declares entityName="Author". The
+// caller's own application answers first, declared or not.
+func TestTheCallersOwnEntityByFileNameOutranksANestedApplications(t *testing.T) {
+	dir := t.TempDir()
+
+	writeFiles(t, dir, map[string]string{
+		"app/Application.cfc":         `component { this.ormEnabled = true; }`,
+		"app/models/Author.cfc":       `component persistent="true" accessors="true" { property name="quill"; }`,
+		"app/a/b/sub/Application.cfc": `component { this.ormEnabled = true; }`,
+		"app/a/b/sub/Writer.cfc":      `component persistent="true" entityName="Author" accessors="true" { property name="pen"; }`,
+		"app/a/b/c/books.cfc": `component {
+	function post(){
+		var a = entityNew( "Author" );
+		a.setQuill( 1 );
+		return a;
+	}
+}`,
+	})
+
+	expectReasons(t, reasonsWith(t, &Resolver{}, dir, "app/a/b/c/books.cfc"), map[string]string{
+		"a.setQuill": "",
+	})
+}
+
+// TestApplicationRootsAreComparedIgnoringCase: a candidate whose URI spells
+// the application's folder in another case is still in the caller's
+// application. Only meaningful on a case-insensitive volume.
+func TestApplicationRootsAreComparedIgnoringCase(t *testing.T) {
+	dir := t.TempDir()
+
+	writeFiles(t, dir, map[string]string{
+		"app/Application.cfc":       `component {}`,
+		"app/models/orm/Writer.cfc": `component persistent="true" entityName="Author" {}`,
+		"app/legacy/Author.cfc":     `component persistent="true" {}`,
+	})
+
+	upper := filepath.Join(dir, "APP", "models", "orm", "Writer.cfc")
+	if _, err := os.Stat(upper); err != nil {
+		t.Skip("case-sensitive volume")
+	}
+
+	r := &Resolver{FS: vfs.OS{}, Index: index.New()}
+	declared := []uri.URI{cfpath.ToURI(upper)}
+	byFile := cfpath.ToURI(filepath.Join(dir, "app", "legacy", "Author.cfc"))
+
+	got := r.pickEntity(declared, append(slices.Clone(declared), byFile), filepath.Join(dir, "app", "legacy"))
+	if !strings.EqualFold(got, upper) {
+		t.Errorf("picked %q, want the declared entity in the caller's application", got)
+	}
 }

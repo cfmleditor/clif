@@ -1262,28 +1262,39 @@ func (r *Resolver) nearestEntity(name, baseDir string) string {
 	return r.pickEntity(r.Index.NamedEntities(name), r.Index.EntityCandidates(name), baseDir)
 }
 
-// pickEntity is the entity file baseDir means among candidates: the nearest
-// of declared that belongs to the caller's own application (its nearest
-// Application.cfc is the caller's, so a nested application's entities are not
-// the caller's), else the nearest of candidates. Every lookup of an entity by
-// name goes through it, so entityNew(), a bare component name and Slatwall's
-// gateway methods agree about one.
+// pickEntity is the entity file baseDir means among candidates (declared is
+// the subset declaring the name as their entityname). Within the caller's own
+// application, the one whose nearest Application.cfc is the caller's, so a
+// nested application's entities are not the caller's: the nearest declared
+// one, else the nearest of any. Otherwise the nearest of every candidate.
+// Every lookup of an entity by name goes through it, so entityNew(), a bare
+// component name and Slatwall's gateway methods agree about one.
 func (r *Resolver) pickEntity(declared, candidates []uri.URI, baseDir string) string {
 	if root := r.FindApplicationRoot(baseDir); root != "" {
-		var inApp []uri.URI
-
-		for _, u := range declared {
-			if r.FindApplicationRoot(filepath.Dir(cfpath.FromURI(string(u)))) == root {
-				inApp = append(inApp, u)
+		for _, group := range [][]uri.URI{declared, candidates} {
+			if p := r.nearestOf(r.inApplication(group, root), baseDir); p != "" {
+				return p
 			}
-		}
-
-		if p := r.nearestOf(inApp, baseDir); p != "" {
-			return p
 		}
 	}
 
 	return r.nearestOf(candidates, baseDir)
+}
+
+// inApplication is the files of list whose nearest Application.cfc is in
+// root. The two are compared ignoring case: a root walked from an editor's
+// URI and one from a path can spell one folder differently (a Windows drive
+// letter, a case-insensitive volume).
+func (r *Resolver) inApplication(list []uri.URI, root string) []uri.URI {
+	var out []uri.URI
+
+	for _, u := range list {
+		if strings.EqualFold(r.FindApplicationRoot(filepath.Dir(cfpath.FromURI(string(u)))), root) {
+			out = append(out, u)
+		}
+	}
+
+	return out
 }
 
 // nearestOf is the candidate nearest baseDir, the first among equals: sorted

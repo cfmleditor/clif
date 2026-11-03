@@ -1557,9 +1557,12 @@ dynamic, since that is the module not being installed.
 **ORM entities are found by the name code uses.** `entityNew( "cbRole" )` and
 `entityLoad( "cbRole" )` find the component declaring
 `entityname="cbRole"`, whatever its file is called, and a persistent
-component that declares no entityname is found by its file's name. Where
-several applications in a workspace declare the same entity, the one nearest
-the calling file wins. Any persistent component counts, wherever it sits: the
+component that declares no entityname is found by its file's name. The
+caller's own application answers first (the one whose nearest
+`Application.cfc` is the caller's, so an application nested inside another,
+such as a test suite, keeps its entities to itself), a declared entityname
+before a file's name; across applications the entity nearest the calling file
+wins, a declared one breaking a tie. Any persistent component counts, wherever it sits: the
 editor no longer limits entities to the folders an `Application.cfc` names in
 `ormSettings.cfcLocation`, which the command line never did. A cborm
 `VirtualEntityService` bound with `super.init( entityName = "cbRole" )`
