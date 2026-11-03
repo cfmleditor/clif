@@ -198,13 +198,7 @@ func (s *Server) applyIndexResult(fileURI uri.URI, path string, pr *parser.Parse
 		s.index.SetDelegates(fileURI, nil)
 	}
 
-	if pr.Persistent && s.isOrmPath(path) {
-		s.index.SetEntity(cfpath.CfcNameFromURI(string(fileURI)), fileURI)
-
-		if name := pr.EntityName(); name != "" {
-			s.index.SetEntity(name, fileURI)
-		}
-	}
+	s.index.SetFileEntity(fileURI, pr.Persistent && s.isOrmPath(path), pr.EntityName())
 }
 
 // isOrmPath returns true if the file path is within the ORM entity scope.

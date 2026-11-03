@@ -102,7 +102,7 @@ func TestWatchedFileDeleteRemovesFromIndex(t *testing.T) {
 
 	// Asserted rather than assumed: if the fixture stopped registering an
 	// entity, the check below would pass for the wrong reason.
-	if len(srv.index.NamedEntities("Gone")) == 0 {
+	if len(srv.index.EntityCandidates("Gone")) == 0 {
 		t.Fatal("precondition: Gone was not registered as an ORM entity")
 	}
 
@@ -116,8 +116,44 @@ func TestWatchedFileDeleteRemovesFromIndex(t *testing.T) {
 		t.Errorf("willVanish still indexed %d times after its file was deleted", got)
 	}
 
-	if len(srv.index.NamedEntities("Gone")) != 0 {
+	if len(srv.index.EntityCandidates("Gone")) != 0 {
 		t.Error("ORM entity Gone still registered after its file was deleted")
+	}
+}
+
+// TestARenamedEntityIsNotKeptUnderItsOldName: the server registered an
+// entity with SetEntity on every index and never dropped one, so a file whose
+// entityname changed stayed registered under the old name, and its file name
+// was filed as a declared entity name beside it.
+func TestARenamedEntityIsNotKeptUnderItsOldName(t *testing.T) {
+	dir := t.TempDir()
+
+	writeCFC(t, filepath.Join(dir, "Application.cfc"), "component {\n\tthis.ormEnabled = true;\n}\n")
+
+	path := filepath.Join(dir, "Writer.cfc")
+	writeCFC(t, path, "component persistent=\"true\" entityName=\"Author\" {}\n")
+
+	srv := newTestServer()
+	srv.WorkspaceFolders = []string{dir}
+	srv.indexWorkspace()
+
+	if len(srv.index.NamedEntities("Author")) != 1 {
+		t.Fatal("precondition: Author was not registered as an ORM entity")
+	}
+
+	if got := srv.index.NamedEntities("Writer"); len(got) != 0 {
+		t.Errorf("the file's name was registered as a declared entity name: %v", got)
+	}
+
+	writeCFC(t, path, "component persistent=\"true\" entityName=\"Poet\" {}\n")
+	srv.applyWatchedFileChanges([]protocol.FileEvent{fileEvent(path, protocol.FileChangeTypeChanged)})
+
+	if got := srv.index.NamedEntities("Author"); len(got) != 0 {
+		t.Errorf("Author still registered to %v after the file renamed its entity", got)
+	}
+
+	if len(srv.index.NamedEntities("Poet")) != 1 {
+		t.Error("Poet was not registered after the rename")
 	}
 }
 

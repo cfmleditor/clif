@@ -665,14 +665,7 @@ func (idx *Index) indexParseResult(fileURI uri.URI, content string, pr *parser.P
 	// An ORM entity is named by its entityname attribute, which is often not
 	// its file's name: ContentBox's Author.cfc is cbAuthor, and
 	// entityNew( "cbAuthor" ) names it.
-	idx.dropEntitiesLocked(fk)
-
-	if name := pr.EntityName(); name != "" && pr.Persistent {
-		idx.addEntityLocked(name, uri.URI(strings.Clone(string(fileURI))))
-	} else if pr.Persistent {
-		name := strings.ToLower(strings.TrimSuffix(path.Base(string(fileURI)), path.Ext(string(fileURI))))
-		idx.defaultEntities[name] = append(idx.defaultEntities[name], uri.URI(strings.Clone(string(fileURI))))
-	}
+	idx.setFileEntityLocked(uri.URI(strings.Clone(string(fileURI))), pr.Persistent, pr.EntityName())
 
 	idx.setIncludesLocked(fileURI, parser.ExtractIncludes(content))
 
@@ -753,10 +746,9 @@ func (idx *Index) IndexFileFromResult(fileURI uri.URI, funcs []parser.FunctionDe
 // component refs, this-scoped vars, per-function scope refs, and its ORM entity
 // registration if it had one. Used when a watched file is deleted on disk.
 //
-// The entity map is keyed by name rather than by URI, so it is swept by value
-// rather than by a computed key: an entity name the deleted file registered may
-// since have been claimed by a different file, and deleting the key blind would
-// unregister that one instead.
+// An entity name may be declared by several files, so only this file's entry
+// is dropped from it (entityNames says which names it held), and a name
+// another file also declares stays registered to that one.
 func (idx *Index) RemoveFile(fileURI uri.URI) {
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
@@ -768,13 +760,7 @@ func (idx *Index) RemoveFile(fileURI uri.URI) {
 	// re-index set includes afresh, and setIncludesLocked compares.
 	idx.setIncludesLocked(fileURI, nil)
 
-	key := uriKey(fileURI)
-	idx.dropEntitiesLocked(key)
-
-	name := strings.ToLower(strings.TrimSuffix(path.Base(string(fileURI)), path.Ext(string(fileURI))))
-	if list := idx.defaultEntities[name]; len(list) > 0 {
-		idx.defaultEntities[name] = slices.DeleteFunc(list, func(u uri.URI) bool { return uriKey(u) == key })
-	}
+	idx.setFileEntityLocked(fileURI, false, "")
 }
 
 // RemoveFilesUnder removes all indexed entries whose URI starts with prefix.
@@ -1181,6 +1167,38 @@ func (idx *Index) SetEntity(name string, fileURI uri.URI) {
 	idx.mu.Unlock()
 }
 
+// SetFileEntity records what ORM entity fileURI declares, replacing what it
+// declared before: entityName when it names one, else an entity called after
+// the file, and nothing when the component is not persistent. The editor's
+// re-index goes through it as the batch index does, so a file that renames its
+// entity, or stops being one, does not keep its old registration.
+func (idx *Index) SetFileEntity(fileURI uri.URI, persistent bool, entityName string) {
+	idx.mu.Lock()
+	idx.setFileEntityLocked(fileURI, persistent, entityName)
+	idx.mu.Unlock()
+}
+
+// setFileEntityLocked is SetFileEntity with idx.mu held.
+func (idx *Index) setFileEntityLocked(fileURI uri.URI, persistent bool, entityName string) {
+	key := uriKey(fileURI)
+	idx.dropEntitiesLocked(key)
+
+	byFile := strings.ToLower(strings.TrimSuffix(path.Base(string(fileURI)), path.Ext(string(fileURI))))
+	if list := slices.DeleteFunc(idx.defaultEntities[byFile], func(u uri.URI) bool { return uriKey(u) == key }); len(list) > 0 {
+		idx.defaultEntities[byFile] = list
+	} else {
+		delete(idx.defaultEntities, byFile)
+	}
+
+	switch {
+	case !persistent:
+	case entityName != "":
+		idx.addEntityLocked(entityName, fileURI)
+	default:
+		idx.defaultEntities[byFile] = append(idx.defaultEntities[byFile], fileURI)
+	}
+}
+
 // addEntityLocked records that fileURI declares entity name; idx.mu is held.
 func (idx *Index) addEntityLocked(name string, fileURI uri.URI) {
 	name, key := strings.ToLower(name), uriKey(fileURI)
@@ -1213,14 +1231,17 @@ func (idx *Index) dropEntitiesLocked(key string) {
 // entityname it is, or else every persistent component called after it,
 // sorted, for the caller to choose the nearest.
 func (idx *Index) EntityCandidates(name string) []uri.URI {
-	if out := idx.NamedEntities(name); len(out) > 0 {
-		return out
-	}
-
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
 
-	out := slices.Clone(idx.defaultEntities[strings.ToLower(name)])
+	name = strings.ToLower(name)
+
+	list := idx.entities[name]
+	if len(list) == 0 {
+		list = idx.defaultEntities[name]
+	}
+
+	out := slices.Clone(list)
 	slices.Sort(out)
 
 	return out

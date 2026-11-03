@@ -338,3 +338,56 @@ func TestEveryDeclarationOfAnEntityNameIsKept(t *testing.T) {
 		t.Fatalf("after its removal, Author is declared by %v", got)
 	}
 }
+
+// TestAReindexReplacesAFilesEntity: each re-index of a persistent component
+// named after its file appended it again, and one that went on to declare an
+// entityname, or stopped being persistent, stayed a candidate under its file
+// name. The editor's SetFileEntity must replace in the same way, and must not
+// file the file's name as a declared entityname.
+func TestAReindexReplacesAFilesEntity(t *testing.T) {
+	idx := New()
+	author := uri.URI("file:///app/Author.cfc")
+
+	for range 3 {
+		idx.IndexFile(author, `component persistent="true" {}`)
+	}
+
+	if got := idx.EntityCandidates("author"); !slices.Equal(got, []uri.URI{author}) {
+		t.Fatalf("after three re-indexes, Author's candidates are %v", got)
+	}
+
+	idx.IndexFile(author, `component persistent="true" entityName="cbAuthor" {}`)
+
+	if got := idx.EntityCandidates("author"); len(got) != 0 {
+		t.Fatalf("Author.cfc declares cbAuthor, yet Author's candidates are %v", got)
+	}
+
+	idx.IndexFile(author, `component {}`)
+
+	if got := idx.EntityCandidates("cbauthor"); len(got) != 0 {
+		t.Fatalf("Author.cfc is no longer persistent, yet cbAuthor's candidates are %v", got)
+	}
+
+	idx.SetFileEntity(author, true, "cbAuthor")
+	idx.SetFileEntity(author, true, "cbAuthor")
+
+	if got := idx.NamedEntities("author"); len(got) != 0 {
+		t.Fatalf("the file's name was filed as a declared entity name: %v", got)
+	}
+
+	idx.SetFileEntity(author, true, "cbWriter")
+
+	if got := idx.NamedEntities("cbauthor"); len(got) != 0 {
+		t.Fatalf("after renaming its entity, cbAuthor is still declared by %v", got)
+	}
+
+	if got := idx.NamedEntities("cbwriter"); !slices.Equal(got, []uri.URI{author}) {
+		t.Fatalf("cbWriter is declared by %v", got)
+	}
+
+	idx.SetFileEntity(author, false, "cbWriter")
+
+	if got := idx.EntityCandidates("cbwriter"); len(got) != 0 {
+		t.Fatalf("outside ORM scope, cbWriter is still declared by %v", got)
+	}
+}
