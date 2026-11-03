@@ -207,22 +207,25 @@ func TestTheCallersOwnEntityByFileNameOutranksANestedApplications(t *testing.T) 
 
 // TestApplicationRootsAreComparedIgnoringCase: a candidate whose URI spells
 // the application's folder in another case is still in the caller's
-// application. Only meaningful on a case-insensitive volume.
+// application. The filesystem answers Stat ignoring case (foldStatFS), as a
+// case-insensitive volume does, so the test runs on any platform.
 func TestApplicationRootsAreComparedIgnoringCase(t *testing.T) {
 	dir := t.TempDir()
-
-	writeFiles(t, dir, map[string]string{
+	files := map[string]string{
 		"app/Application.cfc":       `component {}`,
 		"app/models/orm/Writer.cfc": `component persistent="true" entityName="Author" {}`,
 		"app/legacy/Author.cfc":     `component persistent="true" {}`,
-	})
-
-	upper := filepath.Join(dir, "APP", "models", "orm", "Writer.cfc")
-	if _, err := os.Stat(upper); err != nil {
-		t.Skip("case-sensitive volume")
 	}
 
-	r := &Resolver{FS: vfs.OS{}, Index: index.New()}
+	writeFiles(t, dir, files)
+
+	fsys := foldStatFS{}
+	for name := range files {
+		fsys.files = append(fsys.files, filepath.Join(dir, filepath.FromSlash(name)))
+	}
+
+	upper := filepath.Join(dir, "APP", "models", "orm", "Writer.cfc")
+	r := &Resolver{FS: fsys, Index: index.New()}
 	declared := []uri.URI{cfpath.ToURI(upper)}
 	byFile := cfpath.ToURI(filepath.Join(dir, "app", "legacy", "Author.cfc"))
 
@@ -230,4 +233,22 @@ func TestApplicationRootsAreComparedIgnoringCase(t *testing.T) {
 	if !strings.EqualFold(got, upper) {
 		t.Errorf("picked %q, want the declared entity in the caller's application", got)
 	}
+}
+
+// foldStatFS is the real filesystem with Stat answering a path that matches
+// one of files ignoring case, as a case-insensitive volume does.
+type foldStatFS struct {
+	vfs.OS
+
+	files []string
+}
+
+func (f foldStatFS) Stat(path string) (os.FileInfo, error) {
+	for _, file := range f.files {
+		if strings.EqualFold(file, path) {
+			return os.Stat(file)
+		}
+	}
+
+	return f.OS.Stat(path)
 }

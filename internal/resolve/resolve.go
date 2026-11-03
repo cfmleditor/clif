@@ -1270,6 +1270,10 @@ func (r *Resolver) nearestEntity(name, baseDir string) string {
 // Every lookup of an entity by name goes through it, so entityNew(), a bare
 // component name and Slatwall's gateway methods agree about one.
 func (r *Resolver) pickEntity(declared, candidates []uri.URI, baseDir string) string {
+	if len(candidates) == 0 {
+		return ""
+	}
+
 	if root := r.FindApplicationRoot(baseDir); root != "" {
 		for _, group := range [][]uri.URI{declared, candidates} {
 			if p := r.nearestOf(r.inApplication(group, root), baseDir); p != "" {
@@ -1282,14 +1286,14 @@ func (r *Resolver) pickEntity(declared, candidates []uri.URI, baseDir string) st
 }
 
 // inApplication is the files of list whose nearest Application.cfc is in
-// root. The two are compared ignoring case: a root walked from an editor's
-// URI and one from a path can spell one folder differently (a Windows drive
-// letter, a case-insensitive volume).
+// root, compared as every path here is (cfpath.SamePath, ignoring case): a
+// root walked from an editor's URI and one from a path can spell one folder
+// differently, a Windows drive letter or a case-insensitive volume.
 func (r *Resolver) inApplication(list []uri.URI, root string) []uri.URI {
 	var out []uri.URI
 
 	for _, u := range list {
-		if strings.EqualFold(r.FindApplicationRoot(filepath.Dir(cfpath.FromURI(string(u)))), root) {
+		if cfpath.SamePath(r.FindApplicationRoot(filepath.Dir(cfpath.FromURI(string(u)))), root) {
 			out = append(out, u)
 		}
 	}
