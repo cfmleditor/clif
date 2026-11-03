@@ -115,6 +115,38 @@ func newScriptParser(src, fileURI string, baseLine int, resolvers []Resolver) *s
 	}
 }
 
+// reset makes p the parser newScriptParser(src, fileURI, baseLine, resolvers)
+// returns, for one that has finished with an earlier source and whose results
+// have been read. It keeps the storage that parse filled (the per-function
+// maps and the lists of calls, pending calls, instantiations, functions, scopes,
+// variables and references, emptied) and the
+// scanner, and nothing else: p is zeroed first, so a field added to the struct
+// and left out here is cleared rather than carried into the next source.
+// A tag file reads each expression it holds with one of these; building a
+// parser, a scanner and their maps for every <cfset> was a third of the
+// allocations of a tag parse.
+func (p *scriptParser) reset(src, fileURI string, baseLine int, resolvers []Resolver) {
+	sc, funcRefs, funcLinks, funcCalls := p.sc, p.funcRefs, p.funcLinks, p.funcCalls
+	calls, pending, inst := p.calls[:0], p.pendingCalls[:0], p.instantiations
+	funcs, scopes, vars, refs := p.funcs[:0], p.scopes[:0], p.vars[:0], p.componentRefs[:0]
+
+	*p = scriptParser{fileURI: fileURI, baseLine: baseLine, baseOffset: -1, resolvers: resolvers}
+
+	sc.reset(src)
+
+	clear(funcRefs)
+	clear(funcLinks)
+	clear(funcCalls)
+
+	if inst != nil {
+		*inst = (*inst)[:0]
+	}
+
+	p.sc, p.funcRefs, p.funcLinks, p.funcCalls = sc, funcRefs, funcLinks, funcCalls
+	p.calls, p.pendingCalls, p.instantiations = calls, pending, inst
+	p.funcs, p.scopes, p.vars, p.componentRefs = funcs, scopes, vars, refs
+}
+
 func (p *scriptParser) resolveCall(expr string) string {
 	return resolveCallExpr(p.resolverSet, p.resolvers, expr)
 }
@@ -446,7 +478,7 @@ func (p *scriptParser) recordBareCallAndChain(tok Token) (alone string) {
 
 	p.addCall(&CallSite{
 		FuncName: tok.Value,
-		Line:     conv.Uint32(p.baseLine + tok.Line),
+		Line:     conv.Uint32(p.baseLine + int(tok.Line)),
 		Caller:   caller,
 	})
 
@@ -553,7 +585,7 @@ func (p *scriptParser) recordBareCallAndChain(tok Token) (alone string) {
 				FuncName:  funcName,
 				Component: comp,
 				Chain:     hops,
-				Line:      conv.Uint32(p.baseLine + tok.Line),
+				Line:      conv.Uint32(p.baseLine + int(tok.Line)),
 				Caller:    caller,
 				Resolved:  comp != "",
 			})
@@ -808,7 +840,7 @@ func (p *scriptParser) recordChainContinuationFrom(baseVar string, prior []strin
 		if p.extractCalls {
 			call = CallSite{
 				FuncName: funcName, Variable: baseVar, Component: baseComp,
-				Chain: chainSoFar(chainHops), Line: conv.Uint32(p.baseLine + methTok.Line),
+				Chain: chainSoFar(chainHops), Line: conv.Uint32(p.baseLine + int(methTok.Line)),
 				Caller: caller, Resolved: baseComp != "", This: viaThis,
 			}
 			// Each hop has its own lexical origin. Capture it while the
@@ -889,7 +921,7 @@ func (p *scriptParser) parseVarDecl(tok Token) {
 
 	p.vars = append(p.vars, VarDef{
 		Name: nameTok.Value, Scope: ScopeLocal,
-		Line: conv.Uint32(p.baseLine + tok.Line),
+		Line: conv.Uint32(p.baseLine + int(tok.Line)),
 	})
 
 	if p.chainedAssign(nameTok.Value) {
@@ -908,18 +940,18 @@ func (p *scriptParser) parseVarDecl(tok Token) {
 	switch string(buf.lowerFold(rhs.Value)) {
 	case "new":
 		p.sc.NextSkipComments()
-		p.parseNewRef(nameTok.Value, tok.Line)
+		p.parseNewRef(nameTok.Value, int(tok.Line))
 	case "createobject":
 		p.sc.NextSkipComments()
-		p.parseCreateObjectRef(nameTok.Value, tok.Line)
+		p.parseCreateObjectRef(nameTok.Value, int(tok.Line))
 	case "entitynew":
 		p.sc.NextSkipComments()
-		p.parseEntityNewRef(nameTok.Value, tok.Line)
+		p.parseEntityNewRef(nameTok.Value, int(tok.Line))
 	case "entityload", "entityloadbypk":
 		p.sc.NextSkipComments()
-		p.parseEntityNewRef(nameTok.Value, tok.Line)
+		p.parseEntityNewRef(nameTok.Value, int(tok.Line))
 	default:
-		p.checkVarRHS(nameTok.Value, tok.Line)
+		p.checkVarRHS(nameTok.Value, int(tok.Line))
 	}
 }
 
@@ -958,7 +990,7 @@ func (p *scriptParser) checkVarRHS(varName string, line int) {
 	var fullChain chainBuilder
 	fullChain.reset(rhs.Value)
 
-	prevIdent, lastIdent, ok := p.walkChain(&fullChain, rhs.Value, Token{Line: line})
+	prevIdent, lastIdent, ok := p.walkChain(&fullChain, rhs.Value, Token{Line: conv.Int32(line)})
 	if !ok {
 		return
 	}
@@ -1016,7 +1048,7 @@ func (p *scriptParser) recordScopedMemberCall(scopeTok, nameTok Token) {
 
 	call := CallSite{
 		FuncName: nameTok.Value,
-		Line:     conv.Uint32(p.baseLine + scopeTok.Line),
+		Line:     conv.Uint32(p.baseLine + int(scopeTok.Line)),
 		Caller:   caller,
 	}
 
@@ -1042,12 +1074,12 @@ func (p *scriptParser) recordScopedMemberCall(scopeTok, nameTok Token) {
 	// receiver stays dynamic all the way down, as a literal receiver's chain
 	// already does.
 	if call.Component == "" {
-		p.recordChainContinuation(scopeTok.Value, hop, comp, scopeTok.Line)
+		p.recordChainContinuation(scopeTok.Value, hop, comp, int(scopeTok.Line))
 
 		return
 	}
 
-	p.recordChainContinuation(call.Variable, hop, call.Component, scopeTok.Line)
+	p.recordChainContinuation(call.Variable, hop, call.Component, int(scopeTok.Line))
 }
 
 // recordDynamicChain records the hops chained onto a call whose receiver is
@@ -1131,7 +1163,7 @@ func (p *scriptParser) parseScopedVar(tok Token, scope Scope) {
 			}
 
 			if p.sc.PeekSkipComments().Kind == TokLParen {
-				p.recordChainFromScope(fullChain.String(), tok.Line)
+				p.recordChainFromScope(fullChain.String(), int(tok.Line))
 			}
 		}
 
@@ -1142,7 +1174,7 @@ func (p *scriptParser) parseScopedVar(tok Token, scope Scope) {
 
 	p.vars = append(p.vars, VarDef{
 		Name: nameTok.Value, Scope: scope,
-		Line: conv.Uint32(p.baseLine + tok.Line),
+		Line: conv.Uint32(p.baseLine + int(tok.Line)),
 	})
 
 	isLocal := scope == ScopeLocal || scope == ScopeArguments
@@ -1177,16 +1209,16 @@ func (p *scriptParser) parseScopedVar(tok Token, scope Scope) {
 		switch string(buf.lowerFold(rhs.Value)) {
 		case "new":
 			p.sc.NextSkipComments()
-			p.parseNewRef(nameTok.Value, tok.Line)
+			p.parseNewRef(nameTok.Value, int(tok.Line))
 		case "createobject":
 			p.sc.NextSkipComments()
-			p.parseCreateObjectRef(nameTok.Value, tok.Line)
+			p.parseCreateObjectRef(nameTok.Value, int(tok.Line))
 		case "entitynew":
 			p.sc.NextSkipComments()
-			p.parseEntityNewRef(nameTok.Value, tok.Line)
+			p.parseEntityNewRef(nameTok.Value, int(tok.Line))
 		case "entityload", "entityloadbypk":
 			p.sc.NextSkipComments()
-			p.parseEntityNewRef(nameTok.Value, tok.Line)
+			p.parseEntityNewRef(nameTok.Value, int(tok.Line))
 		case "this":
 			p.sc.NextSkipComments()
 
@@ -1197,12 +1229,12 @@ func (p *scriptParser) parseScopedVar(tok Token, scope Scope) {
 				if selfPath := strings.TrimPrefix(p.fileURI, "file://"); selfPath != "" {
 					p.addRef(&ComponentRef{
 						Variable: nameTok.Value, Component: selfPath,
-						URI: uriFromString(p.fileURI), Line: conv.Uint32(p.baseLine + tok.Line),
+						URI: uriFromString(p.fileURI), Line: conv.Uint32(p.baseLine + int(tok.Line)),
 					})
 				}
 			}
 		default:
-			p.checkVarRHS(nameTok.Value, tok.Line)
+			p.checkVarRHS(nameTok.Value, int(tok.Line))
 		}
 	}
 
@@ -1316,7 +1348,7 @@ func (p *scriptParser) parse() {
 					}
 
 					funcName := lastIdent
-					line := tok.Line
+					line := int(tok.Line)
 
 					call := CallSite{
 						FuncName: funcName,
@@ -1365,7 +1397,7 @@ func (p *scriptParser) parse() {
 //	property string name;
 //	property name;
 func (p *scriptParser) parseProperty(startTok Token) {
-	line := conv.Uint32(p.baseLine + startTok.Line)
+	line := conv.Uint32(p.baseLine + int(startTok.Line))
 
 	var name, typeName string
 
@@ -1606,7 +1638,7 @@ func (p *scriptParser) parseFunction(startTok Token, access string, returnType s
 		}
 	}
 
-	funcLine := p.baseLine + startTok.Line
+	funcLine := p.baseLine + int(startTok.Line)
 
 	p.funcs = append(p.funcs, FunctionDef{
 		Name:       nameTok.Value,
@@ -1748,7 +1780,7 @@ func (p *scriptParser) skipParensQuiet() bool {
 // recordFunctionValue files the declaration and walks the body, as
 // parseFunction does for a declared method.
 func (p *scriptParser) recordFunctionValue(name string, startTok Token, args []Argument) {
-	funcLine := p.baseLine + startTok.Line
+	funcLine := p.baseLine + int(startTok.Line)
 
 	p.funcs = append(p.funcs, FunctionDef{
 		Name:      name,
@@ -1823,7 +1855,7 @@ func (p *scriptParser) declareVar(nameTok Token, scope Scope) {
 
 	p.vars = append(p.vars, VarDef{
 		Name: nameTok.Value, Scope: scope,
-		Line: conv.Uint32(p.baseLine + nameTok.Line),
+		Line: conv.Uint32(p.baseLine + int(nameTok.Line)),
 	})
 }
 
@@ -1867,7 +1899,7 @@ func (p *scriptParser) recordStaticCall(component string, startTok Token) {
 	call := CallSite{
 		FuncName:  methTok.Value,
 		Component: component,
-		Line:      conv.Uint32(p.baseLine + startTok.Line),
+		Line:      conv.Uint32(p.baseLine + int(startTok.Line)),
 		Caller:    caller,
 		Resolved:  true,
 	}
@@ -1952,7 +1984,7 @@ func (p *scriptParser) scanInterpolation(tok Token) {
 		p.argNesting--
 	}()
 
-	tokBase := p.baseLine + tok.Line
+	tokBase := p.baseLine + int(tok.Line)
 
 	// lines counts the newlines before counted, carried from span to span:
 	// counting from the token's start for each span was quadratic in a
@@ -2153,7 +2185,7 @@ func (p *scriptParser) recordLiteralMemberCall(recv Token) {
 		p.addCall(&CallSite{
 			FuncName:  methTok.Value,
 			Component: "$any",
-			Line:      conv.Uint32(p.baseLine + recv.Line),
+			Line:      conv.Uint32(p.baseLine + int(recv.Line)),
 			Caller:    caller,
 			Resolved:  true,
 		})
@@ -2285,11 +2317,11 @@ func (p *scriptParser) parseBody(funcLine int, args []Argument) int {
 	if tok.Kind == TokSemicolon {
 		t := p.sc.NextSkipComments()
 
-		return t.Line
+		return int(t.Line)
 	}
 
 	if tok.Kind != TokLBrace {
-		return tok.Line
+		return int(tok.Line)
 	}
 
 	p.sc.NextSkipComments() // consume {
@@ -2345,7 +2377,7 @@ func (p *scriptParser) parseBody(funcLine int, args []Argument) int {
 				p.flow.dropBraceless()
 			}
 
-			return t.Line
+			return int(t.Line)
 		}
 
 		if p.flow != nil && len(p.flow.ends) > 0 {
@@ -2365,7 +2397,7 @@ func (p *scriptParser) parseBody(funcLine int, args []Argument) int {
 		case TokRBrace:
 			depth--
 			if depth == 0 {
-				endLine = t.Line
+				endLine = int(t.Line)
 			} else if p.flow != nil {
 				p.flow.close("")
 			}
@@ -2717,7 +2749,7 @@ func (p *scriptParser) checkReturnComponent() {
 			p.skipParens()
 		}
 
-		p.scanChainedCalls(comp, peek.Line)
+		p.scanChainedCalls(comp, int(peek.Line))
 	case "createobject":
 		p.sc.NextSkipComments()
 
@@ -2726,7 +2758,7 @@ func (p *scriptParser) checkReturnComponent() {
 			p.sc.NextSkipComments()
 		}
 
-		p.scanChainedCalls(comp, peek.Line)
+		p.scanChainedCalls(comp, int(peek.Line))
 	case "entitynew":
 		p.sc.NextSkipComments()
 
@@ -2735,7 +2767,7 @@ func (p *scriptParser) checkReturnComponent() {
 			p.sc.NextSkipComments()
 		}
 
-		p.scanChainedCalls(comp, peek.Line)
+		p.scanChainedCalls(comp, int(peek.Line))
 	default:
 		bareThis := identEq(peek.Value, "this") && p.returnsBareThis()
 		scopedVar, scope := p.returnedScopedVar()
@@ -2746,7 +2778,7 @@ func (p *scriptParser) checkReturnComponent() {
 		// function a Shell. A call on a dynamic value is dynamic, though,
 		// which returnsCallOn keeps.
 		p.returnVar = peek.Value
-		p.returnLine = conv.Uint32(p.baseLine + peek.Line)
+		p.returnLine = conv.Uint32(p.baseLine + int(peek.Line))
 
 		if p.flow != nil {
 			p.flow.noteReturn(p.returnLine)
@@ -2925,7 +2957,7 @@ func (p *scriptParser) addInstantiation(comp string, tok Token) {
 		at += p.baseOffset
 	}
 
-	in := Instantiation{Component: comp, Line: conv.Uint32(p.baseLine + tok.Line), at: at}
+	in := Instantiation{Component: comp, Line: conv.Uint32(p.baseLine + int(tok.Line)), at: at}
 	if p.instantiations == nil {
 		p.instantiations = &[]Instantiation{}
 	}
@@ -3251,12 +3283,12 @@ func (p *scriptParser) parseBodyVarDecl(varTok Token) {
 	}
 
 	p.sc.NextSkipComments() // consume =
-	p.noteAssign(nameTok.Value, varTok.Line)
+	p.noteAssign(nameTok.Value, int(varTok.Line))
 
 	p.localVarSet[strings.ToLower(nameTok.Value)] = true
 	p.vars = append(p.vars, VarDef{
 		Name: nameTok.Value, Scope: ScopeLocal,
-		Line: conv.Uint32(p.baseLine + varTok.Line),
+		Line: conv.Uint32(p.baseLine + int(varTok.Line)),
 	})
 
 	if p.chainedAssign(nameTok.Value) {
@@ -3275,19 +3307,19 @@ func (p *scriptParser) parseBodyVarDecl(varTok Token) {
 	switch string(buf.lowerFold(rhs.Value)) {
 	case "new":
 		p.sc.NextSkipComments()
-		p.parseNewRef(nameTok.Value, varTok.Line)
+		p.parseNewRef(nameTok.Value, int(varTok.Line))
 	case "createobject":
 		p.sc.NextSkipComments()
-		p.parseCreateObjectRef(nameTok.Value, varTok.Line)
+		p.parseCreateObjectRef(nameTok.Value, int(varTok.Line))
 	case "entitynew":
 		p.sc.NextSkipComments()
-		p.parseEntityNewRef(nameTok.Value, varTok.Line)
+		p.parseEntityNewRef(nameTok.Value, int(varTok.Line))
 	case "entityload", "entityloadbypk":
 		p.sc.NextSkipComments()
-		p.parseEntityNewRef(nameTok.Value, varTok.Line)
+		p.parseEntityNewRef(nameTok.Value, int(varTok.Line))
 	default:
 		// The same right-hand side an assignment outside a function has.
-		p.checkVarRHS(nameTok.Value, varTok.Line)
+		p.checkVarRHS(nameTok.Value, int(varTok.Line))
 	}
 }
 
@@ -3321,11 +3353,11 @@ func (p *scriptParser) parseBodyScopedVar(scopeTok Token, scope Scope) {
 	}
 
 	p.sc.NextSkipComments() // consume =
-	p.noteAssign(nameTok.Value, scopeTok.Line)
+	p.noteAssign(nameTok.Value, int(scopeTok.Line))
 
 	p.vars = append(p.vars, VarDef{
 		Name: nameTok.Value, Scope: scope,
-		Line: conv.Uint32(p.baseLine + scopeTok.Line),
+		Line: conv.Uint32(p.baseLine + int(scopeTok.Line)),
 	})
 
 	isLocal := scope == ScopeLocal || scope == ScopeArguments
@@ -3353,16 +3385,16 @@ func (p *scriptParser) parseBodyScopedVar(scopeTok Token, scope Scope) {
 		switch string(buf.lowerFold(rhs.Value)) {
 		case "new":
 			p.sc.NextSkipComments()
-			p.parseNewRef(nameTok.Value, scopeTok.Line)
+			p.parseNewRef(nameTok.Value, int(scopeTok.Line))
 		case "createobject":
 			p.sc.NextSkipComments()
-			p.parseCreateObjectRef(nameTok.Value, scopeTok.Line)
+			p.parseCreateObjectRef(nameTok.Value, int(scopeTok.Line))
 		case "entitynew":
 			p.sc.NextSkipComments()
-			p.parseEntityNewRef(nameTok.Value, scopeTok.Line)
+			p.parseEntityNewRef(nameTok.Value, int(scopeTok.Line))
 		case "entityload", "entityloadbypk":
 			p.sc.NextSkipComments()
-			p.parseEntityNewRef(nameTok.Value, scopeTok.Line)
+			p.parseEntityNewRef(nameTok.Value, int(scopeTok.Line))
 		case "this":
 			p.sc.NextSkipComments()
 
@@ -3373,7 +3405,7 @@ func (p *scriptParser) parseBodyScopedVar(scopeTok Token, scope Scope) {
 				if selfPath := strings.TrimPrefix(p.fileURI, "file://"); selfPath != "" {
 					p.addRef(&ComponentRef{
 						Variable: nameTok.Value, Component: selfPath,
-						URI: uriFromString(p.fileURI), Line: conv.Uint32(p.baseLine + scopeTok.Line),
+						URI: uriFromString(p.fileURI), Line: conv.Uint32(p.baseLine + int(scopeTok.Line)),
 					})
 				}
 			}
@@ -3389,7 +3421,7 @@ func (p *scriptParser) parseBodyScopedVar(scopeTok Token, scope Scope) {
 					return
 				}
 
-				p.assignFromChain(nameTok.Value, &fullChain, prevIdent, lastIdent, scopeTok.Line)
+				p.assignFromChain(nameTok.Value, &fullChain, prevIdent, lastIdent, int(scopeTok.Line))
 			}
 		}
 	}
@@ -3454,7 +3486,7 @@ func (p *scriptParser) skipNestedFunction(tok Token, _ int) {
 	// the signature reaches signature help; both record the calls an argument
 	// default holds, since parseArgList routes one through skipDefault.
 	args := p.parseArgList()
-	funcLine := p.baseLine + tok.Line
+	funcLine := p.baseLine + int(tok.Line)
 
 	p.funcs = append(p.funcs, FunctionDef{
 		Name:      nameTok.Value,
@@ -3494,16 +3526,16 @@ func (p *scriptParser) scanNestedFunctionBody(params []string) int {
 	if tok.Kind == TokSemicolon {
 		p.sc.NextSkipComments()
 
-		return tok.Line
+		return int(tok.Line)
 	}
 
 	if tok.Kind != TokLBrace {
-		return tok.Line
+		return int(tok.Line)
 	}
 
 	p.sc.NextSkipComments()
 
-	return p.scanClosureBody(tok.Line, params)
+	return p.scanClosureBody(int(tok.Line), params)
 }
 
 // argNames is the names of args, a closure's parameters.
@@ -3615,7 +3647,7 @@ func (p *scriptParser) scanClosureBody(line int, params []string) int {
 
 	for depth > 0 {
 		t := p.sc.NextSkipComments()
-		last = t.Line
+		last = int(t.Line)
 
 		afterLT := p.afterLT
 		p.afterLT = t.Kind == TokLT
@@ -3672,12 +3704,12 @@ func (p *scriptParser) checkAssignRef(tok Token) {
 	}
 
 	p.sc.NextSkipComments() // consume =
-	p.noteAssign(tok.Value, tok.Line)
+	p.noteAssign(tok.Value, int(tok.Line))
 
 	// Record the variable
 	p.vars = append(p.vars, VarDef{
 		Name: tok.Value, Scope: ScopeVariables,
-		Line: conv.Uint32(p.baseLine + tok.Line),
+		Line: conv.Uint32(p.baseLine + int(tok.Line)),
 	})
 
 	// If inside a function and variable is NOT declared local, route to componentRefs
@@ -3710,16 +3742,16 @@ func (p *scriptParser) checkAssignRef(tok Token) {
 	switch string(buf.lowerFold(rhs.Value)) {
 	case "new":
 		p.sc.NextSkipComments()
-		p.parseNewRef(tok.Value, tok.Line)
+		p.parseNewRef(tok.Value, int(tok.Line))
 	case "createobject":
 		p.sc.NextSkipComments()
-		p.parseCreateObjectRef(tok.Value, tok.Line)
+		p.parseCreateObjectRef(tok.Value, int(tok.Line))
 	case "entitynew":
 		p.sc.NextSkipComments()
-		p.parseEntityNewRef(tok.Value, tok.Line)
+		p.parseEntityNewRef(tok.Value, int(tok.Line))
 	case "entityload", "entityloadbypk":
 		p.sc.NextSkipComments()
-		p.parseEntityNewRef(tok.Value, tok.Line)
+		p.parseEntityNewRef(tok.Value, int(tok.Line))
 	default:
 		// Check if RHS is a function call: funcName( or someVar.method(
 		if !isKeyword(rhs.Value) {
@@ -3733,7 +3765,7 @@ func (p *scriptParser) checkAssignRef(tok Token) {
 				return
 			}
 
-			p.assignFromChain(tok.Value, &fullChain, prevIdent, lastIdent, tok.Line)
+			p.assignFromChain(tok.Value, &fullChain, prevIdent, lastIdent, int(tok.Line))
 		}
 	}
 
@@ -3917,10 +3949,10 @@ func (p *scriptParser) scopedChainCall(scopeTok, nameTok Token) {
 
 	switch p.sc.PeekSkipComments().Kind {
 	case TokLParen:
-		p.recordChainFromScope(fullChain.String(), scopeTok.Line)
+		p.recordChainFromScope(fullChain.String(), int(scopeTok.Line))
 	case TokEquals:
 		if chain := strings.Split(fullChain.String(), "."); len(chain) > 2 {
-			p.checkMemberSet(chain, scopeTok.Line)
+			p.checkMemberSet(chain, int(scopeTok.Line))
 		}
 	default:
 	}
@@ -4099,7 +4131,7 @@ chainWalk:
 
 	// Must end with ( to be a call
 	if p.sc.PeekSkipComments().Kind != TokLParen {
-		p.checkMemberSet(identChain, tok.Line)
+		p.checkMemberSet(identChain, int(tok.Line))
 
 		return
 	}
@@ -4116,7 +4148,7 @@ chainWalk:
 	call := CallSite{
 		FuncName: funcName,
 		Variable: varName,
-		Line:     conv.Uint32(p.baseLine + tok.Line),
+		Line:     conv.Uint32(p.baseLine + int(tok.Line)),
 		Caller:   caller,
 	}
 
@@ -4138,7 +4170,7 @@ chainWalk:
 	// value. Each hop's CallSite keeps Variable pointing at the original
 	// receiver and accumulates the intermediate method names in Chain, so
 	// CanResolveCall can walk the receiver's type through each call.
-	p.recordChainContinuation(varName, hop, comp, tok.Line)
+	p.recordChainContinuation(varName, hop, comp, int(tok.Line))
 }
 
 func (p *scriptParser) parseNewRef(varName string, line int) {
@@ -4317,7 +4349,7 @@ func (p *globalScriptParser) parse() {
 			continue
 		}
 
-		line := p.baseLine + tok.Line
+		line := p.baseLine + int(tok.Line)
 		// Skip if inside a function
 		if p.funcScopeAt(line).Start != -1 {
 			// Skip to end of function body
@@ -4372,7 +4404,7 @@ func (p *globalScriptParser) skipPastScope(line int) {
 			return
 		}
 
-		if p.baseLine+tok.Line > fs.End {
+		if p.baseLine+int(tok.Line) > fs.End {
 			return
 		}
 	}
@@ -4391,7 +4423,7 @@ func (p *globalScriptParser) parseVar(tok Token) {
 
 	p.vars = append(p.vars, VarDef{
 		Name: name.Value, Scope: ScopeVariables,
-		Line: conv.Uint32(p.baseLine + tok.Line),
+		Line: conv.Uint32(p.baseLine + int(tok.Line)),
 	})
 
 	p.consumeAssignment()
@@ -4417,7 +4449,7 @@ func (p *globalScriptParser) parseDot(tok Token, scope Scope) {
 
 	p.vars = append(p.vars, VarDef{
 		Name: name.Value, Scope: scope,
-		Line: conv.Uint32(p.baseLine + tok.Line),
+		Line: conv.Uint32(p.baseLine + int(tok.Line)),
 	})
 
 	p.consumeAssignment()
@@ -4448,7 +4480,7 @@ func (p *globalScriptParser) parsePlain(tok Token, afterLT bool) {
 
 	p.vars = append(p.vars, VarDef{
 		Name: tok.Value, Scope: ScopeVariables,
-		Line: conv.Uint32(p.baseLine + tok.Line),
+		Line: conv.Uint32(p.baseLine + int(tok.Line)),
 	})
 
 	p.consumeAssignment()
@@ -4854,7 +4886,7 @@ func (p *scriptParser) scanParenArgs() (firstArg string, positional []string, ok
 		// An arrow function's block body: `=>` is `=` then `>`.
 		if tok.Kind == TokGT && arrow.prev == TokEquals && p.sc.PeekSkipComments().Kind == TokLBrace {
 			p.sc.NextSkipComments() // consume {
-			p.scanClosureBody(tok.Line, arrow.params())
+			p.scanClosureBody(int(tok.Line), arrow.params())
 
 			arrow = arrowParams{prev: TokRBrace}
 			argStart = false
@@ -4866,7 +4898,7 @@ func (p *scriptParser) scanParenArgs() (firstArg string, positional []string, ok
 		// scanned here as it always was, and only its parameters need
 		// declaring.
 		if tok.Kind == TokGT && arrow.prev == TokEquals {
-			p.declareClosureParams(arrow.params(), tok.Line)
+			p.declareClosureParams(arrow.params(), int(tok.Line))
 		}
 
 		arrow.see(tok, depth)
@@ -5479,7 +5511,7 @@ func (p *scriptParser) parseStandaloneNew(newTok Token) {
 		return
 	}
 
-	p.scanChainedCalls(component, newTok.Line)
+	p.scanChainedCalls(component, int(newTok.Line))
 }
 
 // operatorWordIsName reports whether tok, a word operator, is a variable's

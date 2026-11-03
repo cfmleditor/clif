@@ -2,6 +2,7 @@ package parser
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -287,5 +288,61 @@ func TestClassifyDoesNotAllocate(t *testing.T) {
 	})
 	if n != 0 {
 		t.Errorf("classify allocated %v times per run", n)
+	}
+}
+
+// A lineCursor must give lineAtOffset's answer whatever order it is asked in:
+// forward steps, backward steps, jumps past its step limit and offsets at the
+// ends of the document.
+func TestLineCursorMatchesLineAtOffset(t *testing.T) {
+	var sb strings.Builder
+
+	for i := range 400 {
+		sb.WriteString(strings.Repeat("x", i%37))
+		sb.WriteByte('\n')
+	}
+
+	src := sb.String()
+	idx := buildLineIdx(src)
+	cur := lineCursor{idx: idx}
+	state := uint32(1)
+
+	for i := range 20000 {
+		state = state*1664525 + 1013904223
+
+		var off int
+
+		switch i % 3 {
+		case 0: // a jump anywhere
+			off = int(state>>8) % (len(src) + 1)
+		case 1: // a short step from the last answer
+			off = min(max(int(idx[cur.line])+int(state>>8)%120-40, 0), len(src))
+		default: // the ends
+			off = []int{0, len(src), len(src) - 1}[int(state>>8)%3]
+		}
+
+		if got, want := cur.at(off), lineAtOffset(idx, off); got != want {
+			t.Fatalf("offset %d: cursor %d, lineAtOffset %d", off, got, want)
+		}
+	}
+}
+
+// A frame popped off the tag stack leaves its slot, and the branches list in
+// it, for the next push. The list must start empty: a `<cfif>` that reuses a
+// slot must not fold the earlier one's `<cfelse>` lines.
+func TestCfifBranchesDoNotLeakIntoTheNextCfif(t *testing.T) {
+	src := "<cfif a>\n\tone\n<cfelse>\n\ttwo\n\ttwo\n</cfif>\n" +
+		"<cfif b>\n\tone\n\tone\n</cfif>\n" +
+		"<cfif c>\n\t<cfif d>\n\t\tx\n\t<cfelse>\n\t\ty\n\t\ty\n\t</cfif>\n<cfelseif e>\n\tz\n\tz\n</cfif>\n"
+
+	var got []string
+
+	for _, sp := range StructureSpans(src) {
+		got = append(got, fmt.Sprintf("%d-%d %d", sp.Start, sp.End, sp.Kind))
+	}
+
+	want := []string{"0-5 1", "2-4 3", "6-9 1", "11-16 1", "13-15 3", "10-20 1", "17-19 3"}
+	if !slices.Equal(got, want) {
+		t.Errorf("spans %q, want %q", got, want)
 	}
 }

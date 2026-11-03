@@ -84,7 +84,7 @@ func expressionCallOriginDepth(call *CallSite, text string, offset, line int, co
 				candidate := *call
 				candidate.HasSpan = false
 
-				count := expressionCallOriginDepth(&candidate, t.Value[span.start:span.end], offset+t.Offset+span.start, line+t.Line+spanLines.before(span.start), correctLine, depth+1)
+				count := expressionCallOriginDepth(&candidate, t.Value[span.start:span.end], offset+t.Offset+span.start, line+int(t.Line)+spanLines.before(span.start), correctLine, depth+1)
 				if count > 1 || count == 1 && found {
 					call.HasSpan = false
 					call.Line = originalLine
@@ -102,7 +102,7 @@ func expressionCallOriginDepth(call *CallSite, text string, offset, line int, co
 		declaration := identEq(previous.Value, "function")
 
 		previous = t
-		if t.Kind != TokIdent || !identEq(t.Value, call.FuncName) || !correctLine && line+t.Line != int(call.Line) || declaration || sc.PeekSkipComments().Kind != TokLParen {
+		if t.Kind != TokIdent || !identEq(t.Value, call.FuncName) || !correctLine && line+int(t.Line) != int(call.Line) || declaration || sc.PeekSkipComments().Kind != TokLParen {
 			continue
 		}
 
@@ -135,7 +135,7 @@ func expressionCallOriginDepth(call *CallSite, text string, offset, line int, co
 
 					call.HasSpan = true
 					if correctLine {
-						call.Line = conv.Uint32(line + t.Line)
+						call.Line = conv.Uint32(line + int(t.Line))
 					}
 
 					break

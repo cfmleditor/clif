@@ -56,11 +56,11 @@ func (pr *ParseResult) applyMemberBindings(hasBindings bool) {
 
 	writes := pr.collectionWrites()
 	ks := pr.writeKeys(writes)
-	locals, key, targets := ks.locals, ks.key, ks.targets
-	nodes := map[string]*collectionNode{}
-	identities := map[string]collectionWrite{}
-	dependencies := map[string][]memberDependency{}
-	writtenIn := map[string]map[string]bool{}
+	locals, key, targets, kt := ks.locals, ks.key, ks.targets, ks.kt
+	nodes := map[collKey]*collectionNode{}
+	identities := map[collKey]collectionWrite{}
+	dependencies := map[collKey][]memberDependency{}
+	writtenIn := map[collKey]map[string]bool{}
 
 	for i, w := range writes {
 		if w.element {
@@ -107,7 +107,7 @@ func (pr *ParseResult) applyMemberBindings(hasBindings bool) {
 		n.addSource(source)
 	}
 
-	descendants := memberDescendants(nodes)
+	descendants := memberDescendants(nodes, kt)
 
 	spans := newMemberSpans(nodes, identities, writes, targets)
 
@@ -121,7 +121,7 @@ func (pr *ParseResult) applyMemberBindings(hasBindings bool) {
 		if w.target == "" && w.unknown {
 			if !withheld[w.function] {
 				withheld[w.function] = true
-				withholdForClosure(nodes, writtenIn, w.function)
+				withholdForClosure(nodes, writtenIn, w.function, kt)
 			}
 
 			continue
@@ -144,8 +144,12 @@ func (pr *ParseResult) applyMemberBindings(hasBindings bool) {
 		}
 
 		parent := targets[i]
-		if w.element && (strings.EqualFold(w.target, "variables") || strings.EqualFold(w.target, "this")) {
-			parent = strings.ToLower(w.target)
+
+		switch {
+		case w.element && strings.EqualFold(w.target, "variables"):
+			parent = kt.fieldScope(idVariables)
+		case w.element && strings.EqualFold(w.target, "this"):
+			parent = kt.fieldScope(idThis)
 		}
 
 		spans.replaced(pr, descendants[parent], w.offset)
@@ -155,8 +159,12 @@ func (pr *ParseResult) applyMemberBindings(hasBindings bool) {
 
 	// In the order the members are first written. Ranging over nodes put a
 	// function's refs in a different order on every parse of the same text.
-	order := slices.SortedFunc(maps.Keys(nodes), func(a, b string) int {
-		return cmp.Or(cmp.Compare(identities[a].offset, identities[b].offset), strings.Compare(a, b))
+	order := slices.SortedFunc(maps.Keys(nodes), func(a, b collKey) int {
+		if c := cmp.Compare(identities[a].offset, identities[b].offset); c != 0 {
+			return c
+		}
+
+		return strings.Compare(kt.text(a), kt.text(b))
 	})
 
 	for _, identity := range order {
@@ -178,7 +186,7 @@ type memberSpans struct {
 	lastLine             map[*collectionNode]int // pr.lineAt(last[n]), worked out once
 }
 
-func newMemberSpans(nodes map[string]*collectionNode, identities map[string]collectionWrite, writes []collectionWrite, targets []string) *memberSpans {
+func newMemberSpans(nodes map[collKey]*collectionNode, identities map[collKey]collectionWrite, writes []collectionWrite, targets []collKey) *memberSpans {
 	s := &memberSpans{
 		first:   make(map[*collectionNode]int, len(nodes)),
 		last:    make(map[*collectionNode]int, len(nodes)),
@@ -240,7 +248,7 @@ func (s *memberSpans) replaced(pr *ParseResult, members []*collectionNode, offse
 
 // fileMemberRef files the ref for the member identity first written by w,
 // and, when its container is replaced at clearedAt, an untyped ref there.
-func (pr *ParseResult) fileMemberRef(identity string, w collectionWrite, component string, clearedAt int, cleared bool) {
+func (pr *ParseResult) fileMemberRef(identity collKey, w collectionWrite, component string, clearedAt int, cleared bool) {
 	name, scope, _ := MemberReceiverName(w.target)
 	ref := ComponentRef{Variable: strings.Clone(name), Component: component, URI: pr.URI, Line: conv.Uint32(pr.lineAt(w.offset)), This: scope == RefThis}
 	refs := []ComponentRef{ref}
@@ -251,7 +259,7 @@ func (pr *ParseResult) fileMemberRef(identity string, w collectionWrite, compone
 		refs = append(refs, ref)
 	}
 
-	if strings.Contains(identity, "\t") {
+	if identity.local() {
 		if pr.funcRefsMap == nil {
 			pr.funcRefsMap = map[string][]ComponentRef{}
 		}
@@ -266,13 +274,23 @@ func (pr *ParseResult) fileMemberRef(identity string, w collectionWrite, compone
 // that ends before a dot, so the members a write replaces are one lookup away.
 // Every write used to test every node's identity against its own key, which
 // made a component holding many members quadratic in them.
-func memberDescendants(nodes map[string]*collectionNode) map[string][]*collectionNode {
-	descendants := map[string][]*collectionNode{}
+func memberDescendants(nodes map[collKey]*collectionNode, kt *keyTable) map[collKey][]*collectionNode {
+	descendants := map[collKey][]*collectionNode{}
 
 	for identity, n := range nodes {
-		for i := range len(identity) {
-			if identity[i] == '.' {
-				descendants[identity[:i]] = append(descendants[identity[:i]], n)
+		// A field is also under its whole scope: the variables or this scope
+		// a write with a computed key replaces.
+		if !identity.local() {
+			scope := scopeLevel(identity)
+			descendants[scope] = append(descendants[scope], n)
+		}
+
+		name := kt.name(identity)
+
+		for i := range len(name) {
+			if name[i] == '.' {
+				prefix := kt.withName(identity, name[:i])
+				descendants[prefix] = append(descendants[prefix], n)
 			}
 		}
 	}
@@ -290,10 +308,9 @@ func memberDescendants(nodes map[string]*collectionNode) map[string][]*collectio
 // member in the file, so one closure in a ColdBox handler untyped
 // `prc.x = svc.get()` in every other action, and one in ColdBox's
 // Controller untyped every `services.x = new X()` its init() writes.
-func withholdForClosure(nodes map[string]*collectionNode, writtenIn map[string]map[string]bool, function string) {
+func withholdForClosure(nodes map[collKey]*collectionNode, writtenIn map[collKey]map[string]bool, function string, kt *keyTable) {
 	for identity, n := range nodes {
-		owner, _, local := strings.Cut(identity, "\t")
-		if function == "" || local && owner == function || !local && writtenIn[identity][function] {
+		if function == "" || kt.ownedBy(identity, function) || !identity.local() && writtenIn[identity][function] {
 			n.invalid = true
 		}
 	}
@@ -399,7 +416,7 @@ func concreteMemberRef(refs []ComponentRef, name string) bool {
 	return ref != nil && ref.Component != "" && !strings.HasPrefix(ref.Component, "$")
 }
 
-func (pr *ParseResult) memberValueSource(expression, function string, locals map[string]bool) ReturnSource {
+func (pr *ParseResult) memberValueSource(expression, function string, locals *localSet) ReturnSource {
 	// The legacy scalar-chain parser strips a receiver's last dot segment.
 	// Do not let a record read acquire the type of an unrelated scalar. A
 	// `new a.b.C( … )` has no receiver: its dots spell a component path, and
@@ -436,7 +453,7 @@ func (pr *ParseResult) memberValueSource(expression, function string, locals map
 		ref = firstRefIn(pr.ComponentRefs, name, scope)
 	}
 
-	if ref == nil && (hasPrefixFold(root, "arguments.") || hasPrefixFold(root, "local.") || locals[function+"\t"+strings.ToLower(name)]) {
+	if ref == nil && (hasPrefixFold(root, "arguments.") || hasPrefixFold(root, "local.") || locals.has(function, name)) {
 		return ReturnSource{}
 	}
 

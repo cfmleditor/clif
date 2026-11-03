@@ -89,7 +89,7 @@ func (pr *ParseResult) managedTagMetadata(region Region, metadata *ParseResult) 
 
 		tag := region.Text[tok.Offset : tok.Offset+end+1]
 		if strings.EqualFold(word.Value, "cfproperty") {
-			tp.parseCFProperty(tag, region.StartLine+tok.Line)
+			tp.parseCFProperty(tag, region.StartLine+int(tok.Line))
 		} else {
 			metadata.Accessors = metadata.Accessors || isTruthy(getAttr(tag, "accessors"))
 			metadata.Persistent = metadata.Persistent || isTruthy(getAttr(tag, "persistent"))

@@ -144,7 +144,7 @@ func (r *Resolver) findClosures(pr *parser.ParseResult, tokens []parser.Token) [
 			continue
 		}
 
-		span := closureSpan{start: tokens[body].Line, end: tokens[closeBrace].Line, from: tokens[body].Offset, to: tokens[closeBrace].Offset + 1, functionFrom: tokens[i].Offset}
+		span := closureSpan{start: int(tokens[body].Line), end: int(tokens[closeBrace].Line), from: tokens[body].Offset, to: tokens[closeBrace].Offset + 1, functionFrom: tokens[i].Offset}
 		span.params = paramNames(tokens[paramsFrom:paramsTo])
 		span.builder = r.isBuilderWhenTarget(tokens, i, pr, span.start)
 

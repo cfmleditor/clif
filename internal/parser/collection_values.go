@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-func wholeStructValues(f *FunctionDef, expressions []string, function string, key func(string, string) string, nodes map[string]*collectionNode) *CollectionValues {
+func wholeStructValues(f *FunctionDef, expressions []string, function string, key func(string, string) collKey, nodes map[collKey]*collectionNode) *CollectionValues {
 	var fold foldScratch
 	switch string(fold.lowerFold(f.ReturnType)) {
 	case "", "any", "struct":
@@ -50,12 +50,12 @@ func wholeStructValues(f *FunctionDef, expressions []string, function string, ke
 // Unknown calls receiving the whole struct can mutate it. This additional
 // veto applies to whole-struct contracts; existing indexed-return behavior is
 // retained. Whole aliases propagate escapes in both directions.
-func (pr *ParseResult) markCollectionEscapes(key func(string, string) string, nodes map[string]*collectionNode) {
+func (pr *ParseResult) markCollectionEscapes(key func(string, string) collKey, nodes map[collKey]*collectionNode, kt *keyTable) {
 	if len(nodes) == 0 {
 		return
 	}
 
-	names := collectionNames(nodes)
+	names := collectionNames(nodes, kt)
 
 	for i := range pr.Regions {
 		region := &pr.Regions[i]
@@ -88,7 +88,7 @@ func (pr *ParseResult) markCollectionEscapes(key func(string, string) string, no
 		pr.markCollectionArgumentEscape(write.expression, write.function, key, nodes, names)
 	}
 
-	queue := []string{}
+	queue := []collKey{}
 
 	for k, n := range nodes {
 		if n.escaped {
@@ -114,15 +114,11 @@ func (pr *ParseResult) markCollectionEscapes(key func(string, string) string, no
 // has no node, so the escape scans test this before building its key: on a
 // large component that test replaced a lowercased key and a map lookup for
 // every identifier in the file, which was most of what a parse cost.
-func collectionNames(nodes map[string]*collectionNode) map[string]struct{} {
+func collectionNames(nodes map[collKey]*collectionNode, kt *keyTable) map[string]struct{} {
 	names := map[string]struct{}{"variables": {}, "this": {}, "local": {}, "arguments": {}}
 
 	for identity := range nodes {
-		if _, rest, ok := strings.Cut(identity, "\t"); ok {
-			identity = rest
-		}
-
-		for name := range strings.SplitSeq(identity, ".") {
+		for name := range strings.SplitSeq(kt.name(identity), ".") {
 			names[name] = struct{}{}
 		}
 	}
@@ -146,7 +142,7 @@ func mayName(names map[string]struct{}, ident string) bool {
 // calls was read four times; now each call's list is a range on a stack, and
 // a target inside any open range escapes, read with the function of the
 // innermost call as before.
-func (pr *ParseResult) collectionCallEscapes(sc *Scanner, offset int, key func(string, string) string, nodes map[string]*collectionNode, names map[string]struct{}) {
+func (pr *ParseResult) collectionCallEscapes(sc *Scanner, offset int, key func(string, string) collKey, nodes map[collKey]*collectionNode, names map[string]struct{}) {
 	type call struct {
 		end      int // offset of the closing parenthesis
 		function string
@@ -184,7 +180,7 @@ func (pr *ParseResult) collectionCallEscapes(sc *Scanner, offset int, key func(s
 		}
 
 		cursor := *sc
-		cursor.Restore(ScannerState{pos: t.Offset, line: t.Line})
+		cursor.Restore(ScannerState{pos: t.Offset, line: int(t.Line)})
 
 		callee, element := collectionTarget(&cursor)
 		if len(open) > 0 && callee != "" && !element && mayName(names, t.Value) {
@@ -230,11 +226,11 @@ func collectionArgumentsEnd(sc *Scanner) int {
 	}
 }
 
-func (pr *ParseResult) markCollectionArgumentEscape(expression, function string, key func(string, string) string, nodes map[string]*collectionNode, names map[string]struct{}) {
+func (pr *ParseResult) markCollectionArgumentEscape(expression, function string, key func(string, string) collKey, nodes map[collKey]*collectionNode, names map[string]struct{}) {
 	pr.markCollectionArgumentEscapeDepth(expression, function, key, nodes, names, 0)
 }
 
-func (pr *ParseResult) markCollectionArgumentEscapeDepth(expression, function string, key func(string, string) string, nodes map[string]*collectionNode, names map[string]struct{}, depth int) {
+func (pr *ParseResult) markCollectionArgumentEscapeDepth(expression, function string, key func(string, string) collKey, nodes map[collKey]*collectionNode, names map[string]struct{}, depth int) {
 	if depth > 8 {
 		for _, n := range nodes {
 			n.escaped = true
@@ -266,7 +262,7 @@ func (pr *ParseResult) markCollectionArgumentEscapeDepth(expression, function st
 		}
 
 		cursor := *sc
-		cursor.Restore(ScannerState{pos: t.Offset, line: t.Line})
+		cursor.Restore(ScannerState{pos: t.Offset, line: int(t.Line)})
 
 		root, indexed := collectionTarget(&cursor)
 		if root != "" && !indexed {

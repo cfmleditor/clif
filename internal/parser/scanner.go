@@ -10,7 +10,7 @@ import (
 )
 
 // TokenKind classifies a lexical token.
-type TokenKind int
+type TokenKind uint8
 
 // TokenKind values produced by the scanner.
 const (
@@ -53,10 +53,12 @@ const (
 
 // Token is a lexical token with position info.
 type Token struct {
-	Kind   TokenKind
 	Value  string
 	Offset int // byte offset in source
-	Line   int // 0-based line number
+	// Line is the 0-based line number. An int32 beside Kind: a source is at
+	// most vfs.MaxFileSize bytes, and the two share one word.
+	Line int32
+	Kind TokenKind
 }
 
 // Scanner tokenizes CFML/CFScript source.
@@ -139,13 +141,13 @@ var tokenPool = sync.Pool{New: func() any { return new([]Token) }}
 // read src. Only NextSkipComments, PeekSkipComments, Save and Restore move
 // it; LastBlockComment is not kept.
 func newReplayScanner(src string, toks *[]Token) *Scanner {
-	return &Scanner{src: src, replay: toks, pos: (*toks)[0].Offset, line: int32((*toks)[0].Line)} //nolint:gosec // line counts are far below 2^31
+	return &Scanner{src: src, replay: toks, pos: (*toks)[0].Offset, line: (*toks)[0].Line}
 }
 
 // replayAt moves to the token at index i.
 func (s *Scanner) replayAt(i int) {
 	t := &(*s.replay)[i]
-	s.peekPos, s.pos, s.line = i, t.Offset, int32(t.Line) //nolint:gosec // line counts are far below 2^31
+	s.peekPos, s.pos, s.line = i, t.Offset, t.Line
 }
 
 // replayNext takes the token at the replay index.
@@ -178,6 +180,14 @@ func (s *Scanner) replaySeek(pos int) {
 	s.replayAt(min(i, len(toks)-1))
 }
 
+// reset makes s the scanner NewScanner(src) returns, whatever it was before.
+func (s *Scanner) reset(src string) {
+	*s = Scanner{src: src}
+	if strings.HasPrefix(src, bomUTF8) {
+		s.pos = len(bomUTF8)
+	}
+}
+
 // NewScanner creates a scanner for the given source.
 func NewScanner(src string) *Scanner {
 	// A UTF-8 BOM is an encoding marker, not a token. It is invisible in an
@@ -188,10 +198,8 @@ func NewScanner(src string) *Scanner {
 	// `<script>` inside a string literal came apart into regions parsed from
 	// the middle of an expression: 800 lines of ColdBox's HTMLHelperSpec with
 	// no function and almost no call found.
-	sc := &Scanner{src: src}
-	if strings.HasPrefix(src, bomUTF8) {
-		sc.pos = len(bomUTF8)
-	}
+	sc := &Scanner{}
+	sc.reset(src)
 
 	return sc
 }
@@ -256,14 +264,20 @@ func (s *Scanner) next() Token {
 	s.skipWhitespaceNoNewline()
 
 	if s.pos >= len(s.src) {
-		return Token{Kind: TokEOF, Offset: s.pos, Line: int(s.line)}
+		return Token{Kind: TokEOF, Offset: s.pos, Line: s.line}
 	}
 
 	start := s.pos
-	startLine := int(s.line)
+	startLine := s.line
 	ch := s.src[s.pos]
 
 	switch {
+	// Most tokens are identifiers, so this is the first test. Nothing below it
+	// but the last arms can take a letter, `_` or `$`, so the order is not
+	// observable.
+	case isIdentStart(ch):
+		return s.scanIdent(start, startLine)
+
 	case ch == '\n':
 		s.pos++
 		s.line++
@@ -284,9 +298,6 @@ func (s *Scanner) next() Token {
 
 	case isDigit(ch):
 		return s.scanNumber(start, startLine)
-
-	case isIdentStart(ch):
-		return s.scanIdent(start, startLine)
 
 	// Safe navigation. Emitting `?.` as a plain dot is what lets every chain
 	// walk in the parser see `svc?.save()` as `svc.save()` — the alternative is
@@ -440,7 +451,7 @@ func (s *Scanner) skipWhitespaceNoNewline() {
 	}
 }
 
-func (s *Scanner) scanCFComment(start, startLine int) Token {
+func (s *Scanner) scanCFComment(start int, startLine int32) Token {
 	s.pos += 5 // skip <!---
 	depth := 1
 
@@ -469,7 +480,7 @@ func (s *Scanner) scanCFComment(start, startLine int) Token {
 	return Token{Kind: TokCFComment, Value: s.src[start:s.pos], Offset: start, Line: startLine}
 }
 
-func (s *Scanner) scanBlockComment(start, startLine int) Token {
+func (s *Scanner) scanBlockComment(start int, startLine int32) Token {
 	s.pos += 2 // skip /*
 	for s.pos < len(s.src) {
 		if s.src[s.pos] == '*' && s.pos+1 < len(s.src) && s.src[s.pos+1] == '/' {
@@ -488,7 +499,7 @@ func (s *Scanner) scanBlockComment(start, startLine int) Token {
 	return Token{Kind: TokBlockComment, Value: s.src[start:s.pos], Offset: start, Line: startLine}
 }
 
-func (s *Scanner) scanLineComment(start, startLine int) Token {
+func (s *Scanner) scanLineComment(start int, startLine int32) Token {
 	s.pos += 2 // skip //
 
 	// A bare CR ends a line too. Five of the 5,629 corpus files use CR-only
@@ -513,7 +524,7 @@ func (s *Scanner) scanLineComment(start, startLine int) Token {
 // from stack exhaustion is what makes a cap necessary rather than tidy.
 const maxStringNesting = 32
 
-func (s *Scanner) scanString(start, startLine int) Token {
+func (s *Scanner) scanString(start int, startLine int32) Token {
 	// A `#` inside a string opens an expression, and a string may be opened
 	// inside *that*: `"#DayOfWeek("{ts '2000-1-1'}")#"` is one token, and
 	// closing it at the inner quote left `"#DayOfWeek("` — so the interpolation
@@ -660,7 +671,7 @@ func (s *Scanner) scanHashExpr(depth int) bool {
 	return false
 }
 
-func (s *Scanner) scanNumber(start, startLine int) Token {
+func (s *Scanner) scanNumber(start int, startLine int32) Token {
 	for s.pos < len(s.src) && (isDigit(s.src[s.pos]) || s.src[s.pos] == '.') {
 		s.pos++
 	}
@@ -668,12 +679,17 @@ func (s *Scanner) scanNumber(start, startLine int) Token {
 	return Token{Kind: TokNumber, Value: s.src[start:s.pos], Offset: start, Line: startLine}
 }
 
-func (s *Scanner) scanIdent(start, startLine int) Token {
-	for s.pos < len(s.src) && isIdentPart(s.src[s.pos]) {
-		s.pos++
+func (s *Scanner) scanIdent(start int, startLine int32) Token {
+	// On a local, so the loop keeps its position and the source in registers
+	// instead of reading and writing them through the receiver per byte.
+	src, pos := s.src, s.pos
+	for pos < len(src) && isIdentPart(src[pos]) {
+		pos++
 	}
 
-	return Token{Kind: TokIdent, Value: s.src[start:s.pos], Offset: start, Line: startLine}
+	s.pos = pos
+
+	return Token{Kind: TokIdent, Value: src[start:pos], Offset: start, Line: startLine}
 }
 
 // Rest returns the remaining unscanned source from current position.
@@ -686,10 +702,34 @@ func (s *Scanner) Rest() string {
 }
 
 func isDigit(ch byte) bool { return ch >= '0' && ch <= '9' }
-func isIdentStart(ch byte) bool {
-	return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || ch == '_' || ch == '$'
-}
-func isIdentPart(ch byte) bool { return isIdentStart(ch) || isDigit(ch) }
+
+// identBits classifies every byte once. An identifier is most of a script's
+// bytes and isIdentPart ran up to five range tests on each; this is one load.
+const (
+	identStartBit = 1 << iota
+	identPartBit
+)
+
+var identBits = func() [256]uint8 {
+	var table [256]uint8
+
+	for i := range table {
+		ch := byte(i)
+
+		if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || ch == '_' || ch == '$' {
+			table[i] |= identStartBit | identPartBit
+		}
+
+		if ch >= '0' && ch <= '9' {
+			table[i] |= identPartBit
+		}
+	}
+
+	return table
+}()
+
+func isIdentStart(ch byte) bool { return identBits[ch]&identStartBit != 0 }
+func isIdentPart(ch byte) bool  { return identBits[ch]&identPartBit != 0 }
 
 func charToKind(ch byte) TokenKind {
 	switch ch {

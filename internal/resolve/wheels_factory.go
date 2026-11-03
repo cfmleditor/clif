@@ -337,7 +337,7 @@ func factoryCallExpression(content, name string, line int) string {
 			return expression
 		}
 
-		if tok.Line != line || tok.Kind != parser.TokIdent || !strings.EqualFold(tok.Value, name) || sc.PeekSkipComments().Kind != parser.TokLParen {
+		if int(tok.Line) != line || tok.Kind != parser.TokIdent || !strings.EqualFold(tok.Value, name) || sc.PeekSkipComments().Kind != parser.TokLParen {
 			continue
 		}
 

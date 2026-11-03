@@ -185,7 +185,7 @@ func scriptStructure(text string, baseLine int, spans []Span) []Span {
 		case TokNewline, TokLineComment:
 			continue
 		case TokBlockComment, TokCFComment:
-			line := baseLine + tok.Line
+			line := baseLine + int(tok.Line)
 			if end := line + strings.Count(tok.Value, "\n"); end > line {
 				st.spans = append(st.spans, Span{Start: line, End: end, Kind: SpanComment})
 			}
@@ -194,7 +194,7 @@ func scriptStructure(text string, baseLine int, spans []Span) []Span {
 		default:
 		}
 
-		st.token(tok, baseLine+tok.Line)
+		st.token(tok, baseLine+int(tok.Line))
 	}
 }
 

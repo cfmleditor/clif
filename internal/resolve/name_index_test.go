@@ -124,7 +124,7 @@ func callSiteArgumentWalk(tokens []parser.Token, call *parser.CallSite, pos int,
 			continue
 		}
 
-		if tokens[i].Line != int(call.Line) {
+		if int(tokens[i].Line) != int(call.Line) {
 			continue
 		}
 

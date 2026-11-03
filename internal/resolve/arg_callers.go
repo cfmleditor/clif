@@ -549,13 +549,13 @@ func callSiteArgument(tokens []parser.Token, call *parser.CallSite, pos int, nam
 	// search: walking every token of the file for each call was quadratic
 	// in a file making thousands of calls. A call with a span is the token
 	// at its offset; one without is among its line's.
-	from := sort.Search(len(tokens), func(i int) bool { return tokens[i].Line >= int(call.Line) })
+	from := sort.Search(len(tokens), func(i int) bool { return int(tokens[i].Line) >= int(call.Line) })
 	if call.HasSpan {
 		from = sort.Search(len(tokens), func(i int) bool { return tokens[i].Offset >= int(call.StartByte) })
 	}
 
 	for i := from; i+1 < len(tokens); i++ {
-		if call.HasSpan && tokens[i].Offset != int(call.StartByte) || !call.HasSpan && tokens[i].Line != int(call.Line) {
+		if call.HasSpan && tokens[i].Offset != int(call.StartByte) || !call.HasSpan && int(tokens[i].Line) != int(call.Line) {
 			break
 		}
 

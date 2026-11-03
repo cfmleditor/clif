@@ -41,7 +41,7 @@ func (r *Resolver) returnsCriteriaList(fd *parser.FunctionDef) bool {
 		case tokens[i].Kind == parser.TokIdent && strings.EqualFold(tokens[i].Value, "return"):
 			stop := statementEnd(tokens, i+1, end)
 			// fnBody's token lines count from the function's first line.
-			if !criteriaList(tokens[i+1:stop], pr.Content, start, start+tokens[i].Line) {
+			if !criteriaList(tokens[i+1:stop], pr.Content, start, start+int(tokens[i].Line)) {
 				return false
 			}
 

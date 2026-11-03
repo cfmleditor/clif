@@ -5,7 +5,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"unicode/utf8"
 )
 
 type collectionWrite struct {
@@ -18,8 +17,8 @@ type collectionNode struct {
 	sources                        map[string]ReturnSource
 	structure, invalid, written    bool
 	structSeed, arraySeed, escaped bool
-	dependencies                   []string
-	aliases                        []string
+	dependencies                   []collKey
+	aliases                        []collKey
 }
 
 // collectionTarget reads static paths with at most one final subscript. The
@@ -118,8 +117,9 @@ func collectionReturnExpressions(calls []pendingCall, tagFile bool) map[string][
 	return returns
 }
 
-func (pr *ParseResult) collectionKeys(writes []collectionWrite) (map[string]bool, map[int]string, func(string, string) string) {
-	locals := map[string]bool{}
+func (pr *ParseResult) collectionKeys(writes []collectionWrite) (*localSet, map[int]string, func(string, string) collKey, *keyTable) {
+	kt := newKeyTable()
+	locals := &localSet{kt: kt, m: map[collKey]bool{}}
 
 	scopeKeys := map[int]string{}
 	for i := range pr.Scopes {
@@ -129,7 +129,7 @@ func (pr *ParseResult) collectionKeys(writes []collectionWrite) (map[string]bool
 	for i := range pr.Funcs {
 		f := &pr.Funcs[i]
 		for _, a := range f.Arguments {
-			locals[concatLower(scopeKeys[int(f.Line)], "\t", a.Name)] = true
+			locals.add(scopeKeys[int(f.Line)], a.Name)
 		}
 	}
 
@@ -140,71 +140,29 @@ func (pr *ParseResult) collectionKeys(writes []collectionWrite) (map[string]bool
 				target = target[len("local."):]
 			}
 
-			locals[concatLower(w.function, "\t", target)] = true
+			locals.add(w.function, target)
 		}
 	}
 
-	// The key is built lowercased in one allocation: lowercasing root first,
-	// then joining it, was a second string for every mixed-case name.
-	return locals, scopeKeys, func(root, function string) string {
+	return locals, scopeKeys, func(root, function string) collKey {
 		switch {
-		case hasPrefixFold(root, "variables.") || hasPrefixFold(root, "this."):
-			return concatLower("", "", root)
+		case hasPrefixFold(root, "variables."):
+			return kt.field(idVariables, root[len("variables."):])
+		case hasPrefixFold(root, "this."):
+			return kt.field(idThis, root[len("this."):])
 		case hasPrefixFold(root, "local."):
-			return concatLower(function, "\t", root[len("local."):])
+			return kt.local(function, root[len("local."):])
 		case hasPrefixFold(root, "arguments."):
-			return concatLower(function, "\t", root[len("arguments."):])
+			return kt.local(function, root[len("arguments."):])
 		}
 
 		base, _, _ := strings.Cut(root, ".")
-		if isLocalName(locals, function, base) {
-			return concatLower(function, "\t", root)
+		if locals.has(function, base) {
+			return kt.local(function, root)
 		}
 
-		return concatLower("variables.", "", root)
-	}
-}
-
-// concatLower is a + b + strings.ToLower(s) in one allocation, and a + b
-// when s is empty; s alone, uncopied, when a and b are empty and s has
-// nothing to lower. b is the separator a key puts after its function, which
-// joined to the function first was an allocation of its own for every key.
-func concatLower(a, b, s string) string {
-	upper := false
-
-	for i := range len(s) {
-		c := s[i]
-		if c >= utf8.RuneSelf {
-			return a + b + strings.ToLower(s)
-		}
-
-		upper = upper || c >= 'A' && c <= 'Z'
-	}
-
-	if !upper {
-		if a == "" && b == "" {
-			return s
-		}
-
-		return a + b + s
-	}
-
-	var buf strings.Builder
-
-	buf.Grow(len(a) + len(b) + len(s))
-	buf.WriteString(a)
-	buf.WriteString(b)
-
-	for i := range len(s) {
-		c := s[i]
-		if c >= 'A' && c <= 'Z' {
-			c += 'a' - 'A'
-		}
-
-		buf.WriteByte(c)
-	}
-
-	return buf.String()
+		return kt.field(idVariables, root)
+	}, kt
 }
 
 func (pr *ParseResult) applyCollectionReturns(calls []pendingCall) {
@@ -219,8 +177,8 @@ func (pr *ParseResult) applyCollectionReturns(calls []pendingCall) {
 	// the member pass, and building one lowercases a string and looks the
 	// name up among the locals.
 	ks := pr.writeKeys(writes)
-	locals, keys, key, targets := ks.locals, ks.scopeKeys, ks.key, ks.targets
-	roots := map[string]bool{}
+	locals, keys, key, targets, kt := ks.locals, ks.scopeKeys, ks.key, ks.targets, ks.kt
+	roots := map[collKey]bool{}
 
 	for i := range writes {
 		if w := &writes[i]; w.element || emptyCollection(w.expression) {
@@ -236,8 +194,8 @@ func (pr *ParseResult) applyCollectionReturns(calls []pendingCall) {
 		}
 	}
 
-	nodes := map[string]*collectionNode{}
-	node := func(k string) *collectionNode {
+	nodes := map[collKey]*collectionNode{}
+	node := func(k collKey) *collectionNode {
 		if nodes[k] == nil {
 			nodes[k] = &collectionNode{}
 		}
@@ -250,19 +208,19 @@ func (pr *ParseResult) applyCollectionReturns(calls []pendingCall) {
 	structNew := sync.OnceValue(func() bool { return pr.Declares("structNew") })
 
 	for i := range writes {
-		pr.recordCollectionWrite(writes[i], targets[i], roots, locals, key, node, structNew)
+		pr.recordCollectionWrite(writes[i], targets[i], roots, locals, key, node, structNew, kt)
 	}
 
-	invalidateClosureCollections(writes, pr.Scopes, nodes)
+	invalidateClosureCollections(writes, pr.Scopes, nodes, kt)
 
-	invalidateCollectionParents(writes, targets, nodes)
+	invalidateCollectionParents(writes, targets, nodes, kt)
 
 	// A collection argument may contain caller-supplied values even when its
 	// declaration has an empty-struct default.
 	for i := range pr.Funcs {
 		f := &pr.Funcs[i]
 		for _, arg := range f.Arguments {
-			if n := nodes[key("arguments."+arg.Name, keys[int(f.Line)])]; n != nil {
+			if n := nodes[kt.local(keys[int(f.Line)], arg.Name)]; n != nil {
 				n.invalid = true
 			}
 		}
@@ -283,7 +241,7 @@ func (pr *ParseResult) applyCollectionReturns(calls []pendingCall) {
 		if f.CollectionValues != nil && !escapes {
 			escapes = true
 
-			pr.markCollectionEscapes(key, nodes)
+			pr.markCollectionEscapes(key, nodes, kt)
 			f.CollectionValues = wholeStructValues(f, returns[keys[int(f.Line)]], keys[int(f.Line)], key, nodes)
 		}
 
@@ -295,7 +253,7 @@ func (pr *ParseResult) applyCollectionReturns(calls []pendingCall) {
 // that function's locals and every shared field, but do not let an unrelated
 // closure invalidate another named function's locals. Alias settlement carries
 // invalidation from shared fields back to any local collection exposed there.
-func invalidateClosureCollections(writes []collectionWrite, scopes []FuncScope, nodes map[string]*collectionNode) {
+func invalidateClosureCollections(writes []collectionWrite, scopes []FuncScope, nodes map[collKey]*collectionNode, kt *keyTable) {
 	functions := map[string]bool{}
 
 	for _, w := range writes {
@@ -318,9 +276,18 @@ func invalidateClosureCollections(writes []collectionWrite, scopes []FuncScope, 
 		end = max(end, scope.End)
 	}
 
+	// The scope ids of those functions. A function no key was built for has
+	// none, and no local to withhold.
+	owners := make(map[uint32]bool, len(functions))
+
+	for function := range functions {
+		if id, ok := kt.findLower(function); ok {
+			owners[id] = true
+		}
+	}
+
 	for k, n := range nodes {
-		function, _, local := strings.Cut(k, "\t")
-		if overlapping || !local || functions[function] {
+		if overlapping || !k.local() || owners[k.scopeID()] {
 			n.invalid = true
 		}
 	}
@@ -328,8 +295,8 @@ func invalidateClosureCollections(writes []collectionWrite, scopes []FuncScope, 
 
 // Walking each node's static ancestors avoids comparing every write to every
 // node. Dynamic writes into a scope invalidate any field in that scope.
-func invalidateCollectionParents(writes []collectionWrite, targets []string, nodes map[string]*collectionNode) {
-	parents := make(map[string]bool, len(writes))
+func invalidateCollectionParents(writes []collectionWrite, targets []collKey, nodes map[collKey]*collectionNode, kt *keyTable) {
+	parents := make(map[collKey]bool, len(writes))
 
 	for i := range writes {
 		w := &writes[i]
@@ -340,27 +307,31 @@ func invalidateCollectionParents(writes []collectionWrite, targets []string, nod
 		}
 
 		switch {
-		case strings.EqualFold(w.target, "variables"), strings.EqualFold(w.target, "this"):
-			parents[strings.ToLower(w.target)] = true
+		case strings.EqualFold(w.target, "variables"):
+			parents[kt.fieldScope(idVariables)] = true
+		case strings.EqualFold(w.target, "this"):
+			parents[kt.fieldScope(idThis)] = true
 		case strings.EqualFold(w.target, "local"), strings.EqualFold(w.target, "arguments"):
-			parents[w.function+"\t"] = true
+			parents[kt.localScope(w.function)] = true
 		}
 	}
 
 	for k, n := range nodes {
-		// k[:tab+1] is the function's key and its tab, spelled without
-		// concatenating one for every node.
-		if tab := strings.IndexByte(k, '\t'); tab >= 0 && parents[k[:tab+1]] {
+		// A local is also under its function's whole scope, and a field
+		// under the whole variables or this scope.
+		if parents[scopeLevel(k)] {
 			n.invalid = true
+
+			continue
 		}
 
 		for parent := k; ; {
-			index := strings.LastIndexByte(parent, '.')
-			if index < 0 {
+			above, _, found := strings.CutLast(kt.name(parent), ".")
+			if !found {
 				break
 			}
 
-			parent = parent[:index]
+			parent = kt.withName(parent, above)
 			if parents[parent] {
 				n.invalid = true
 
@@ -370,14 +341,14 @@ func invalidateCollectionParents(writes []collectionWrite, targets []string, nod
 	}
 }
 
-func (pr *ParseResult) recordCollectionWrite(w collectionWrite, target string, roots map[string]bool, locals map[string]bool, key func(string, string) string, node func(string) *collectionNode, structNew func() bool) {
+func (pr *ParseResult) recordCollectionWrite(w collectionWrite, target collKey, roots map[collKey]bool, locals *localSet, key func(string, string) collKey, node func(collKey) *collectionNode, structNew func() bool, kt *keyTable) {
 	for prefix := target; ; {
-		index := strings.LastIndexByte(prefix, '.')
-		if index < 0 {
+		parent, _, found := strings.CutLast(kt.name(prefix), ".")
+		if !found {
 			break
 		}
 
-		prefix = prefix[:index]
+		prefix = kt.withName(prefix, parent)
 		if roots[prefix] {
 			target = prefix
 			w.element = true
@@ -434,7 +405,7 @@ func (pr *ParseResult) recordCollectionWrite(w collectionWrite, target string, r
 	}
 }
 
-func (pr *ParseResult) applyCollectionFunction(f *FunctionDef, expressions []string, function string, key func(string, string) string, nodes map[string]*collectionNode) {
+func (pr *ParseResult) applyCollectionFunction(f *FunctionDef, expressions []string, function string, key func(string, string) collKey, nodes map[collKey]*collectionNode) {
 	combined := &collectionNode{}
 
 	candidate, invalid := false, false
@@ -546,8 +517,8 @@ func emptyCollectionAt(sc *Scanner) bool {
 // Element-copy dependencies are directed; whole aliases share writes.
 // A seed can ground a cycle, but an empty or
 // uninitialized source cannot acquire a type from a collection that reads it.
-func settleCollections(nodes map[string]*collectionNode) {
-	reverse := map[string][]string{}
+func settleCollections(nodes map[collKey]*collectionNode) {
+	reverse := map[collKey][]collKey{}
 
 	for key, n := range nodes {
 		if !n.written {
@@ -559,7 +530,7 @@ func settleCollections(nodes map[string]*collectionNode) {
 		}
 	}
 
-	queue := make([]string, 0, len(nodes))
+	queue := make([]collKey, 0, len(nodes))
 	for key := range nodes {
 		queue = append(queue, key)
 	}
@@ -731,10 +702,11 @@ func (pr *ParseResult) declaresFunction(name string) bool {
 
 // writeKeySet is collectionKeys' answer and each write's key.
 type writeKeySet struct {
-	locals    map[string]bool
+	locals    *localSet
 	scopeKeys map[int]string
-	key       func(string, string) string
-	targets   []string // key(w.target, w.function) for each write
+	key       func(string, string) collKey
+	kt        *keyTable
+	targets   []collKey // key(w.target, w.function) for each write
 }
 
 // writeKeys is collectionKeys for writes, with each write's key built once
@@ -744,8 +716,8 @@ func (pr *ParseResult) writeKeys(writes []collectionWrite) *writeKeySet {
 		return m.keys
 	}
 
-	locals, scopeKeys, key := pr.collectionKeys(writes)
-	ks := &writeKeySet{locals: locals, scopeKeys: scopeKeys, key: key, targets: make([]string, len(writes))}
+	locals, scopeKeys, key, kt := pr.collectionKeys(writes)
+	ks := &writeKeySet{locals: locals, scopeKeys: scopeKeys, key: key, kt: kt, targets: make([]collKey, len(writes))}
 
 	for i := range writes {
 		ks.targets[i] = key(writes[i].target, writes[i].function)
@@ -950,7 +922,7 @@ func scanExpressionWritesFrom(sc *Scanner, expression string, toks []Token) []ex
 		}
 
 		cursor = *sc
-		cursor.Restore(ScannerState{pos: t.Offset, line: t.Line})
+		cursor.Restore(ScannerState{pos: t.Offset, line: int(t.Line)})
 		root, element := collectionTarget(&cursor)
 
 		local := identEq(t.Value, "var")
@@ -1265,7 +1237,7 @@ func collectCollectionTag(ends *tagEnds, idx, offset int, functionAt func(int) s
 }
 
 // Only whole expressions can supply an element contract.
-func (pr *ParseResult) collectionValueSource(expression, function string, locals map[string]bool) ReturnSource {
+func (pr *ParseResult) collectionValueSource(expression, function string, locals *localSet) ReturnSource {
 	if !wholeCollectionValue(expression) {
 		return ReturnSource{}
 	}
@@ -1291,7 +1263,7 @@ func (pr *ParseResult) collectionValueSource(expression, function string, locals
 		switch {
 		case c.baseVar != "":
 			ref := firstRefIn(pr.funcRefsMap[function], c.baseVar, c.baseScope)
-			if ref == nil && c.baseScope == RefAny && locals[function+"\t"+strings.ToLower(c.baseVar)] {
+			if ref == nil && c.baseScope == RefAny && locals.has(function, c.baseVar) {
 				return ReturnSource{}
 			}
 
@@ -1490,32 +1462,6 @@ func (pr *ParseResult) hasTagRegion() bool {
 	}
 
 	return false
-}
-
-// isLocalName reports whether locals holds function + "\t" + base lowercased,
-// building the key on the stack: the lookup is asked for most writes in the
-// file on every reparse, and the key it built only to look up was a string
-// each time.
-func isLocalName(locals map[string]bool, function, base string) bool {
-	var buf [128]byte
-
-	if len(function)+1+len(base) > len(buf) {
-		return locals[concatLower(function, "\t", base)]
-	}
-
-	b := append(buf[:0], function...)
-	b = append(b, '\t')
-
-	for i := range len(base) {
-		c := base[i]
-		if c >= utf8.RuneSelf {
-			return locals[concatLower(function, "\t", base)]
-		}
-
-		b = append(b, toLowerByte(c))
-	}
-
-	return locals[string(b)]
 }
 
 // newlineEndsStatement reports whether t, the token after prev, starts a new
