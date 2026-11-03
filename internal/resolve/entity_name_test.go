@@ -61,3 +61,27 @@ func TestADeclaredEntityNameIsTheNearestDeclaration(t *testing.T) {
 		})
 	}
 }
+
+// TestAnEntityByFileNameIsNotHiddenByOneDeclaredElsewhere: appA declares
+// entityName="Author" on Writer.cfc, and appB has a plain persistent
+// Author.cfc. appB's entityNew( "Author" ) is its own Author.cfc, and was
+// appA's Writer.cfc while a declared name hid every file-named candidate.
+func TestAnEntityByFileNameIsNotHiddenByOneDeclaredElsewhere(t *testing.T) {
+	dir := t.TempDir()
+
+	writeFiles(t, dir, map[string]string{
+		"appA/model/Writer.cfc": `component persistent="true" entityName="Author" accessors="true" { property name="pen"; }`,
+		"appB/model/Author.cfc": `component persistent="true" accessors="true" { property name="quill"; }`,
+		"appB/model/books.cfc": `component {
+	function post(){
+		var a = entityNew( "Author" );
+		a.setQuill( 1 );
+		return a;
+	}
+}`,
+	})
+
+	expectReasons(t, reasonsWith(t, &Resolver{}, dir, "appB/model/books.cfc"), map[string]string{
+		"a.setQuill": "",
+	})
+}

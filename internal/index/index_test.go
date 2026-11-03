@@ -391,3 +391,40 @@ func TestAReindexReplacesAFilesEntity(t *testing.T) {
 		t.Fatalf("outside ORM scope, cbWriter is still declared by %v", got)
 	}
 }
+
+// TestADeclaredEntityDoesNotHideANearerOneByFileName: EntityCandidates
+// offered the declared entities alone whenever there were any, so an Author
+// declared by entityname in one application hid a plain persistent
+// Author.cfc in another, however near the caller.
+func TestADeclaredEntityDoesNotHideANearerOneByFileName(t *testing.T) {
+	idx := New()
+	declared, byFile := uri.URI("file:///a/Writer.cfc"), uri.URI("file:///b/Author.cfc")
+
+	idx.IndexFile(declared, `component persistent="true" entityName="Author" {}`)
+	idx.IndexFile(byFile, `component persistent="true" {}`)
+
+	if got := idx.EntityCandidates("author"); !slices.Equal(got, []uri.URI{declared, byFile}) {
+		t.Fatalf("Author's candidates are %v, want the declared one then the one by file name", got)
+	}
+}
+
+// TestRemovingAFolderDropsItsEntities: RemoveFilesUnder cleared a folder's
+// functions and refs but left its entities as candidates.
+func TestRemovingAFolderDropsItsEntities(t *testing.T) {
+	idx := New()
+	kept, gone, plain := uri.URI("file:///keep/Writer.cfc"), uri.URI("file:///gone/Writer.cfc"), uri.URI("file:///gone/Poet.cfc")
+
+	idx.IndexFile(kept, `component persistent="true" entityName="Author" {}`)
+	idx.IndexFile(gone, `component persistent="true" entityName="Author" {}`)
+	idx.IndexFile(plain, `component persistent="true" {}`)
+
+	idx.RemoveFilesUnder("file:///gone/")
+
+	if got := idx.EntityCandidates("author"); !slices.Equal(got, []uri.URI{kept}) {
+		t.Errorf("after removing /gone, Author's candidates are %v", got)
+	}
+
+	if got := idx.EntityCandidates("poet"); len(got) != 0 {
+		t.Errorf("after removing /gone, Poet's candidates are %v", got)
+	}
+}

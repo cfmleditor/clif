@@ -206,6 +206,27 @@ func TestTheEditorsEntityWritersAgree(t *testing.T) {
 	}
 }
 
+// TestABufferOutsideTheWorkspaceDeclaresNoEntity: a component opened from
+// another project is not indexed on save (reindexIfCFC), and its reparse must
+// not register its entity in the shared index either.
+func TestABufferOutsideTheWorkspaceDeclaresNoEntity(t *testing.T) {
+	workspace, elsewhere := t.TempDir(), t.TempDir()
+
+	path := filepath.Join(elsewhere, "Writer.cfc")
+	docURI := cfpath.ToURI(path)
+	text := "component persistent=\"true\" entityName=\"Author\" {}\n"
+	writeCFC(t, path, text)
+
+	srv := newTestServer()
+	srv.WorkspaceFolders = []string{workspace}
+
+	srv.reindexFromParseResult(docURI, parser.Parse(docURI, text))
+
+	if got := srv.index.EntityCandidates("Author"); len(got) != 0 {
+		t.Errorf("a buffer outside the workspace registered Author: %v", got)
+	}
+}
+
 // TestWatchedFileChangeSkipsOpenDocuments: the editor's buffer outranks disk.
 // A watcher event for an open file is either the editor's own save, which
 // didSave already handled, or an external change the editor will reload and

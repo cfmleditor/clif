@@ -665,7 +665,8 @@ func (idx *Index) indexParseResult(fileURI uri.URI, content string, pr *parser.P
 	// An ORM entity is named by its entityname attribute, which is often not
 	// its file's name: ContentBox's Author.cfc is cbAuthor, and
 	// entityNew( "cbAuthor" ) names it.
-	idx.setFileEntityLocked(uri.URI(strings.Clone(string(fileURI))), pr.Persistent, pr.EntityName())
+	persistent, entityName := entityOf(fileURI, pr)
+	idx.setFileEntityLocked(uri.URI(strings.Clone(string(fileURI))), persistent, entityName)
 
 	idx.setIncludesLocked(fileURI, parser.ExtractIncludes(content))
 
@@ -839,6 +840,30 @@ func (idx *Index) RemoveFilesUnder(prefix string) {
 			delete(idx.includes, key)
 			idx.includeGen++
 		}
+	}
+
+	// The folder's ORM entities, named and called after their files, which
+	// otherwise stay candidates for entityNew() in the folders left.
+	var entityFiles []uri.URI
+
+	for _, list := range idx.entities {
+		for _, u := range list {
+			if strings.HasPrefix(uriKey(u), fileKey) {
+				entityFiles = append(entityFiles, u)
+			}
+		}
+	}
+
+	for _, list := range idx.defaultEntities {
+		for _, u := range list {
+			if strings.HasPrefix(uriKey(u), fileKey) {
+				entityFiles = append(entityFiles, u)
+			}
+		}
+	}
+
+	for _, u := range entityFiles {
+		idx.setFileEntityLocked(u, false, "")
 	}
 }
 
@@ -1171,6 +1196,38 @@ func (idx *Index) SetFileEntity(fileURI uri.URI, persistent bool, entityName str
 	idx.mu.Unlock()
 }
 
+// IndexEntity records the ORM entity a parsed file declares (entityOf),
+// replacing what it declared before. It is how the editor records one for a
+// parse it made itself, by the rule the index applies to a parse it is handed,
+// so the two cannot disagree about a file: the editor once counted only a
+// component inside the Application's cfcLocation, and its reparse dropped what
+// its save had registered. A page declares no entity and never held one, so it
+// takes no lock.
+func (idx *Index) IndexEntity(fileURI uri.URI, pr *parser.ParseResult) {
+	if !isComponent(fileURI) {
+		return
+	}
+
+	persistent, entityName := entityOf(fileURI, pr)
+	idx.SetFileEntity(fileURI, persistent, entityName)
+}
+
+// entityOf is what a parsed file declares as an ORM entity: whether it is a
+// persistent component, and the entityname it gives, if any. The entityname
+// is read only for a persistent component, since reading it scans the header.
+func entityOf(fileURI uri.URI, pr *parser.ParseResult) (bool, string) {
+	if !pr.Persistent || !isComponent(fileURI) {
+		return false, ""
+	}
+
+	return true, pr.EntityName()
+}
+
+// isComponent reports whether fileURI names a .cfc.
+func isComponent(fileURI uri.URI) bool {
+	return strings.EqualFold(path.Ext(string(fileURI)), ".cfc")
+}
+
 // setFileEntityLocked is SetFileEntity with idx.mu held.
 func (idx *Index) setFileEntityLocked(fileURI uri.URI, persistent bool, entityName string) {
 	key := uriKey(fileURI)
@@ -1221,23 +1278,24 @@ func (idx *Index) dropEntitiesLocked(key string) {
 }
 
 // EntityCandidates are the files an ORM entity name may name: those whose
-// entityname it is, or else every persistent component called after it,
-// sorted, for the caller to choose the nearest.
+// entityname it is, then every persistent component called after it that
+// names none, each group sorted, for the caller to choose the nearest. Both
+// groups are offered because each application has its own entities: an
+// Author declared by entityname in one must not hide a plain Author.cfc
+// nearer the caller in another. Where the two are equally near, the declared
+// one comes first and wins.
 func (idx *Index) EntityCandidates(name string) []uri.URI {
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
 
 	name = strings.ToLower(name)
+	named := slices.Clone(idx.entities[name])
+	slices.Sort(named)
 
-	list := idx.entities[name]
-	if len(list) == 0 {
-		list = idx.defaultEntities[name]
-	}
+	byFile := slices.Clone(idx.defaultEntities[name])
+	slices.Sort(byFile)
 
-	out := slices.Clone(list)
-	slices.Sort(out)
-
-	return out
+	return append(named, byFile...)
 }
 
 // NamedEntities are the files whose entityname is name (case-insensitive),

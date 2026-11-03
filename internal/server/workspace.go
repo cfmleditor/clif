@@ -168,7 +168,7 @@ func mb(b uint64) string {
 
 // applyIndexResult writes one parsed file into the index: its signatures and
 // component refs, its this-scoped vars, and its ORM entity registration when
-// the component is persistent (recordEntity).
+// the component is persistent (Index.IndexEntity).
 //
 // This is the single definition of "what indexing a file means", called by the
 // startup walk (indexWorkspace, indexRoot) and by the watched-file handler. It
@@ -196,31 +196,7 @@ func (s *Server) applyIndexResult(fileURI uri.URI, pr *parser.ParseResult) {
 		s.index.SetDelegates(fileURI, nil)
 	}
 
-	s.recordEntity(fileURI, pr)
-}
-
-// recordEntity records the ORM entity a parsed component declares, replacing
-// what it declared before, so a file that renames its entity or stops being
-// persistent keeps nothing of the old one.
-//
-// It applies the rule IndexParsed applies, which the editor's save and the
-// resolver's lazy index go through for the same file: any persistent
-// component. It used to register only a component inside the Application's
-// cfcLocation, and once a re-index could drop as well as add, a component
-// outside it was registered by one writer and dropped by the other, so what
-// entityNew() named depended on which ran last. The CLI never applied the
-// scope either.
-func (s *Server) recordEntity(fileURI uri.URI, pr *parser.ParseResult) {
-	if !cfpath.IsCFCFile(string(fileURI)) {
-		return
-	}
-
-	name := ""
-	if pr.Persistent {
-		name = pr.EntityName()
-	}
-
-	s.index.SetFileEntity(fileURI, pr.Persistent, name)
+	s.index.IndexEntity(fileURI, pr)
 }
 
 // collectCFCFiles walks root and returns all .cfc file paths, by the rule the
