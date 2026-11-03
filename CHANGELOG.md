@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.6.0]
+
 ### Added
 
 - **The language server restarts itself after a crash.** The `clif` an editor starts now supervises the server as a child process and, if it dies (stack overflow, concurrent map write, out of memory), starts a new one and replays the session: initialize request, configuration, folders and open documents. Requests in flight get `ContentModified`; after five exits in three minutes it gives up. `CLIF_NO_SUPERVISOR=1` runs the server directly.
