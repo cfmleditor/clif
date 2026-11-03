@@ -132,3 +132,37 @@ func TestADeclaredEntityWinsATieWithOneByFileName(t *testing.T) {
 		"a.setPen": "",
 	})
 }
+
+// TestANestedApplicationsEntityIsNotTheCallers: a test application nested
+// under the caller's declares entityName="Author". It is under the caller's
+// application folder but has an Application.cfc of its own, so from the
+// outer application entityNew( "Author" ) is the outer one's Author.cfc, and
+// from inside the nested one it is the nested one's Writer.cfc.
+func TestANestedApplicationsEntityIsNotTheCallers(t *testing.T) {
+	dir := t.TempDir()
+	books := func(setter string) string {
+		return `component {
+	function post(){
+		var a = entityNew( "Author" );
+		a.` + setter + `( 1 );
+		return a;
+	}
+}`
+	}
+
+	writeFiles(t, dir, map[string]string{
+		"root/Application.cfc":                `component { this.ormEnabled = true; }`,
+		"root/models/Author.cfc":              `component persistent="true" accessors="true" { property name="quill"; }`,
+		"root/models/books.cfc":               books("setQuill"),
+		"root/tests/orm/Application.cfc":      `component { this.ormEnabled = true; }`,
+		"root/tests/orm/model/Writer.cfc":     `component persistent="true" entityName="Author" accessors="true" { property name="pen"; }`,
+		"root/tests/orm/specs/deep/books.cfc": books("setPen"),
+	})
+
+	expectReasons(t, reasonsWith(t, &Resolver{}, dir, "root/models/books.cfc"), map[string]string{
+		"a.setQuill": "",
+	})
+	expectReasons(t, reasonsWith(t, &Resolver{}, dir, "root/tests/orm/specs/deep/books.cfc"), map[string]string{
+		"a.setPen": "",
+	})
+}

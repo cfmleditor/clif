@@ -83,5 +83,7 @@ func (r *Resolver) slatwallGatewayReturn(path, method, baseDir string) string {
 		entity = "slatwall" + entity
 	}
 
-	return r.nearestOf(r.Index.NamedEntities(entity), baseDir)
+	named := r.Index.NamedEntities(entity)
+
+	return r.pickEntity(named, named, baseDir)
 }

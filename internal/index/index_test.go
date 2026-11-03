@@ -473,3 +473,30 @@ func TestRefreshEntityFollowsOnlyAFileItHolds(t *testing.T) {
 		t.Errorf("after the rename, Poet is declared by %v", got)
 	}
 }
+
+// TestRefreshEntityFollowsAFileThroughAnEditThatDropsIt: an edit that leaves
+// a component no entity, then one that restores it, registers it again.
+func TestRefreshEntityFollowsAFileThroughAnEditThatDropsIt(t *testing.T) {
+	idx := New()
+	held := uri.URI("file:///a/Writer.cfc")
+
+	idx.IndexFile(held, `component persistent="true" entityName="Author" {}`)
+	idx.RefreshEntity(held, parser.Parse(held, `component entityName="Author" {}`))
+
+	if got := idx.EntityCandidates("author"); len(got) != 0 {
+		t.Fatalf("no longer persistent, yet Author is declared by %v", got)
+	}
+
+	idx.RefreshEntity(held, parser.Parse(held, `component persistent="true" entityName="Author" {}`))
+
+	if got := idx.EntityCandidates("author"); !slices.Equal(got, []uri.URI{held}) {
+		t.Errorf("persistent again, Author is declared by %v", got)
+	}
+
+	idx.RemoveFile(held)
+	idx.RefreshEntity(held, parser.Parse(held, `component persistent="true" entityName="Author" {}`))
+
+	if got := idx.EntityCandidates("author"); len(got) != 0 {
+		t.Errorf("after the file's removal a refresh registered Author: %v", got)
+	}
+}

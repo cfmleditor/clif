@@ -538,7 +538,8 @@ func (r *Resolver) lastResortPath(component, baseDir string) string {
 	// An ORM entity by its entityname: entityNew( "cbAuthor" ) is the
 	// Author.cfc that declares that name.
 	if !strings.ContainsAny(component, "./") && r.Index != nil {
-		if p := r.nearestOf(r.Index.NamedEntities(component), baseDir); p != "" {
+		named := r.Index.NamedEntities(component)
+		if p := r.pickEntity(named, named, baseDir); p != "" {
 			return p
 		}
 	}
@@ -1258,11 +1259,21 @@ func (r *Resolver) nearestEntity(name, baseDir string) string {
 		return ""
 	}
 
+	return r.pickEntity(r.Index.NamedEntities(name), r.Index.EntityCandidates(name), baseDir)
+}
+
+// pickEntity is the entity file baseDir means among candidates: the nearest
+// of declared that belongs to the caller's own application (its nearest
+// Application.cfc is the caller's, so a nested application's entities are not
+// the caller's), else the nearest of candidates. Every lookup of an entity by
+// name goes through it, so entityNew(), a bare component name and Slatwall's
+// gateway methods agree about one.
+func (r *Resolver) pickEntity(declared, candidates []uri.URI, baseDir string) string {
 	if root := r.FindApplicationRoot(baseDir); root != "" {
 		var inApp []uri.URI
 
-		for _, u := range r.Index.NamedEntities(name) {
-			if under(cfpath.FromURI(string(u)), root) {
+		for _, u := range declared {
+			if r.FindApplicationRoot(filepath.Dir(cfpath.FromURI(string(u)))) == root {
 				inApp = append(inApp, u)
 			}
 		}
@@ -1272,7 +1283,7 @@ func (r *Resolver) nearestEntity(name, baseDir string) string {
 		}
 	}
 
-	return r.nearestOf(r.Index.EntityCandidates(name), baseDir)
+	return r.nearestOf(candidates, baseDir)
 }
 
 // nearestOf is the candidate nearest baseDir, the first among equals: sorted

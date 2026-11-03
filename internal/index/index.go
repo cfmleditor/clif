@@ -35,6 +35,10 @@ type Index struct {
 	// drops exactly its own.
 	entities    map[string][]uri.URI // lowercase entity name -> the files declaring it
 	entityNames map[string][]string  // lowercase URI -> the lowercase entity names it holds
+	// entityRead is every file whose entity the index has read from a parse,
+	// persistent or not, so RefreshEntity can follow a file the index took in
+	// even after an edit left it no entity for a while.
+	entityRead map[string]struct{} // lowercase URI
 	// defaultEntities holds persistent components that name no entityname,
 	// whose entity is called after the file: several applications in one
 	// workspace may each have one, so every candidate is kept.
@@ -85,6 +89,7 @@ func New() *Index {
 		beans:           make(map[string]string),
 		entities:        make(map[string][]uri.URI),
 		entityNames:     make(map[string][]string),
+		entityRead:      make(map[string]struct{}),
 		defaultEntities: make(map[string][]uri.URI),
 		includes:        make(map[string]fileIncludes),
 	}
@@ -667,6 +672,7 @@ func (idx *Index) indexParseResult(fileURI uri.URI, content string, pr *parser.P
 	// entityNew( "cbAuthor" ) names it.
 	persistent, entityName := entityOf(fileURI, pr)
 	idx.setFileEntityLocked(uri.URI(strings.Clone(string(fileURI))), persistent, entityName)
+	idx.entityRead[fk] = struct{}{}
 
 	idx.setIncludesLocked(fileURI, parser.ExtractIncludes(content))
 
@@ -762,6 +768,7 @@ func (idx *Index) RemoveFile(fileURI uri.URI) {
 	idx.setIncludesLocked(fileURI, nil)
 
 	idx.setFileEntityLocked(fileURI, false, "")
+	delete(idx.entityRead, uriKey(fileURI))
 }
 
 // RemoveFilesUnder removes all indexed entries whose URI starts with prefix.
@@ -870,6 +877,12 @@ func (idx *Index) RemoveFilesUnder(prefix string) {
 
 	for _, u := range entityFiles {
 		idx.setFileEntityLocked(u, false, "")
+	}
+
+	for key := range idx.entityRead {
+		if strings.HasPrefix(key, fileKey) {
+			delete(idx.entityRead, key)
+		}
 	}
 }
 
@@ -1210,20 +1223,20 @@ func (idx *Index) setFileEntity(fileURI uri.URI, persistent bool, entityName str
 // its save had registered. A page declares no entity and never held one, so it
 // takes no lock.
 func (idx *Index) IndexEntity(fileURI uri.URI, pr *parser.ParseResult) {
-	if !isComponent(fileURI) {
-		return
-	}
-
-	persistent, entityName := entityOf(fileURI, pr)
-	idx.setFileEntity(fileURI, persistent, entityName)
+	idx.indexEntity(fileURI, pr, false)
 }
 
-// RefreshEntity is IndexEntity for a file the index registered an entity for
-// already, and does nothing for one it did not. The editor uses it for a
+// RefreshEntity is IndexEntity for a file whose entity the index has read
+// before, and does nothing for one it has not. The editor uses it for a
 // component outside the workspace: a buffer opened from another project must
-// not add entities, but one the resolver's lazy index registered must follow
-// its edits, since that index never reads a file twice.
+// not add entities, but one the resolver's lazy index took in must follow its
+// edits, since that index never reads a file twice.
 func (idx *Index) RefreshEntity(fileURI uri.URI, pr *parser.ParseResult) {
+	idx.indexEntity(fileURI, pr, true)
+}
+
+// indexEntity is IndexEntity, or with onlyIfRead RefreshEntity.
+func (idx *Index) indexEntity(fileURI uri.URI, pr *parser.ParseResult, onlyIfRead bool) {
 	if !isComponent(fileURI) {
 		return
 	}
@@ -1234,21 +1247,12 @@ func (idx *Index) RefreshEntity(fileURI uri.URI, pr *parser.ParseResult) {
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
 
-	if idx.holdsEntityLocked(fileURI, key) {
-		idx.setFileEntityLocked(fileURI, persistent, entityName)
-	}
-}
-
-// holdsEntityLocked reports whether the file keyed key is registered as an
-// entity, by a name it declares or by its file name; idx.mu is held.
-func (idx *Index) holdsEntityLocked(fileURI uri.URI, key string) bool {
-	if len(idx.entityNames[key]) > 0 {
-		return true
+	if _, read := idx.entityRead[key]; onlyIfRead && !read {
+		return
 	}
 
-	byFile := strings.ToLower(strings.TrimSuffix(path.Base(string(fileURI)), path.Ext(string(fileURI))))
-
-	return slices.ContainsFunc(idx.defaultEntities[byFile], func(u uri.URI) bool { return uriKey(u) == key })
+	idx.setFileEntityLocked(fileURI, persistent, entityName)
+	idx.entityRead[key] = struct{}{}
 }
 
 // entityOf is what a parsed file declares as an ORM entity: whether it is a
