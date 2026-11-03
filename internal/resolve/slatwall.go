@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/parser"
-	cfpath "github.com/cfmleditor/clif/internal/path"
 )
 
 // Slatwall's services declare almost none of the methods called on them:
@@ -84,10 +83,5 @@ func (r *Resolver) slatwallGatewayReturn(path, method, baseDir string) string {
 		entity = "slatwall" + entity
 	}
 
-	u := r.Index.LookupEntity(entity)
-	if u == "" {
-		return ""
-	}
-
-	return cfpath.FromURI(string(u))
+	return r.nearestOf(r.Index.NamedEntities(entity), baseDir)
 }

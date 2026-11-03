@@ -217,7 +217,7 @@ func TestIndex_BeansAndEntities(t *testing.T) {
 
 	idx.SetEntity("User", uri.URI("file:///models/User.cfc"))
 
-	if got := idx.LookupEntity("user"); got != uri.URI("file:///models/User.cfc") {
+	if got := idx.NamedEntities("user"); len(got) != 1 || got[0] != uri.URI("file:///models/User.cfc") {
 		t.Errorf("expected case-insensitive entity lookup, got %q", got)
 	}
 }
@@ -306,5 +306,35 @@ func TestFindFilesByBasenameIsSorted(t *testing.T) {
 	paths := idx.FindFilesByBasename("widget")
 	if len(paths) != 10 || !slices.IsSorted(paths) {
 		t.Errorf("want 10 sorted paths, got %v", paths)
+	}
+}
+
+// Every file declaring an entity name is kept, sorted, and a re-index or a
+// removal drops only that file's own names.
+func TestEveryDeclarationOfAnEntityNameIsKept(t *testing.T) {
+	idx := New()
+	a, b := uri.URI("file:///b/Writer.cfc"), uri.URI("file:///a/Writer.cfc")
+
+	idx.IndexFile(a, `component persistent="true" entityName="Author" {}`)
+	idx.IndexFile(b, `component persistent="true" entityName="Author" {}`)
+
+	if got := idx.NamedEntities("author"); !slices.Equal(got, []uri.URI{b, a}) {
+		t.Fatalf("Author is declared by %v, want both, sorted", got)
+	}
+
+	idx.IndexFile(a, `component persistent="true" entityName="Writer" {}`)
+
+	if got := idx.NamedEntities("author"); !slices.Equal(got, []uri.URI{b}) {
+		t.Fatalf("after a re-index renamed one, Author is declared by %v", got)
+	}
+
+	if got := idx.NamedEntities("writer"); !slices.Equal(got, []uri.URI{a}) {
+		t.Fatalf("Writer is declared by %v", got)
+	}
+
+	idx.RemoveFile(b)
+
+	if got := idx.NamedEntities("author"); len(got) != 0 {
+		t.Fatalf("after its removal, Author is declared by %v", got)
 	}
 }
