@@ -2,6 +2,32 @@
 
 ## [Unreleased]
 
+### Added
+
+- **The language server restarts itself after a crash.** The `clif` an editor starts now supervises the server as a child process and, if it dies (stack overflow, concurrent map write, out of memory), starts a new one and replays the session: initialize request, configuration, folders and open documents. Requests in flight get `ContentModified`; after five exits in three minutes it gives up. `CLIF_NO_SUPERVISOR=1` runs the server directly.
+- **Framework support for Preside, CommandBox, Slatwall and ColdBox modules.** Preside and CommandBox checkouts are recognised and get their own request context, helpers, services and `getSingleton`/`getModel` id factories; Slatwall is recognised as a Mura plugin on FW/1 with its service conventions; each ColdBox application or module is read under its own conventions; `wirebox.system` maps to the WireBox CommandBox ships.
+- **CFML member functions** (`"abc".ucase()`, `arr.len()`) are known from the documentation sources' member details.
+- **The include graph reads computed includes** of a listed spec name and of a custom tag's `attributes.file`, so templates a runner includes by a constructed name are no longer unreachable.
+- **A literal HQL query is typed as an array of the entity it selects**, and a conditional assignment holds the types of all its branches. The code map draws an `instantiates` edge for every construction.
+- **`@arg.inject` constructor arguments and fields set through private setters are typed**, so `_getX().m()` resolves on services built that way.
+
+### Changed
+
+- **Folding is on by default** (`features.folding`).
+- **Scan and parse performance.** The batch scan holds a large workspace's source in its cache, cuts repeated work and memory in return lookups, and sizes a subcommand's memory from the machine's. The tag walk finds a tag's line with a cursor, reads short tags once, sizes its spans up front and reuses a single script parser for a tag file's expressions; tokens are 32 bytes and identifiers are classified with a table.
+- **Entity lookup is one rule.** An ORM entity name is recorded through one writer that keeps every file declaring it, and is picked by the caller's application root, in the editor and in batch scans alike.
+- Commands accept any spelling of a document URI. Snippets offer required arguments only.
+- tree-sitter-cfml is updated to v0.26.44.
+
+### Fixed
+
+- **A fatal data race in the shared caller index and three runaway parses** are fixed, and every worker goroutine the language server can reach recovers its own panics. Caller parsing no longer runs unboundedly ahead of argument inference.
+- A call in a string inside a tag condition is recorded once; a tag expression starting on the line after its name is read; a tag-syntax shared-scope assignment types its variable; a named argument on its own line is not an assignment; a comment line does not open an argument list.
+- Return types: a mutating array or struct member returns its container, a struct member can hold a dynamic or native value, a returned runtime path is dynamic, a bare return type is looked up above the declaring file last, and a factory caching under a key only it writes returns what it stores.
+- An `Application` file that names no application no longer ends the application-scope lookup, and a template reads a dynamic value its includer holds.
+- The code map keys its file cache on path as well as content, orders competing placeholders totally, and `graph` makes its paths absolute; `unresolved` indexes roots as absolute paths.
+- The formatter trims only ASCII whitespace from the edges of source.
+
 ## [0.5.3]
 
 ### Added
