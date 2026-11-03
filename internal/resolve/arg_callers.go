@@ -1139,7 +1139,12 @@ func (r *Resolver) parseCallers(files []string) (next func() (parsedFile, bool),
 		}, func() {}
 	}
 
-	out := make(chan parsedFile, len(files)) // a worker never blocks on a loop that stopped
+	// The parses handed over but not yet read are bounded: buffered for every
+	// file, the workers ran ahead of the loop and each scan worker inferring an
+	// argument held every candidate's parse at once, about a third of the live
+	// heap at a tassweb code map's peak. A worker waits for the loop to read, or
+	// gives up when it stops.
+	out := make(chan parsedFile, prefetchWorkers)
 	work := make(chan string)
 	done := make(chan struct{})
 
@@ -1148,7 +1153,11 @@ func (r *Resolver) parseCallers(files []string) (next func() (parsedFile, bool),
 	for range min(len(files), prefetchWorkers) {
 		wg.Go(func() {
 			for path := range work {
-				out <- parsedFile{path: path, pr: r.recoveredHandlerParse(path)}
+				select {
+				case out <- parsedFile{path: path, pr: r.recoveredHandlerParse(path)}:
+				case <-done:
+					return
+				}
 			}
 		})
 	}
