@@ -538,8 +538,8 @@ func (r *Resolver) lastResortPath(component, baseDir string) string {
 	// An ORM entity by its entityname: entityNew( "cbAuthor" ) is the
 	// Author.cfc that declares that name.
 	if !strings.ContainsAny(component, "./") && r.Index != nil {
-		if u := r.Index.LookupEntity(component); u != "" {
-			return cfpath.FromURI(string(u))
+		if p := r.nearestOf(r.Index.NamedEntities(component), baseDir); p != "" {
+			return p
 		}
 	}
 
@@ -1254,10 +1254,17 @@ func (r *Resolver) nearestEntity(name, baseDir string) string {
 		return ""
 	}
 
+	return r.nearestOf(r.Index.EntityCandidates(name), baseDir)
+}
+
+// nearestOf is the candidate nearest baseDir, the first among equals: sorted
+// candidates make that the lowest path, so the answer does not depend on the
+// order a parallel scan indexed them in.
+func (r *Resolver) nearestOf(candidates []uri.URI, baseDir string) string {
 	from := string(cfpath.ToURI(filepath.Join(baseDir, "x.cfc")))
 	best, bestDist := "", -1
 
-	for _, u := range r.Index.EntityCandidates(name) {
+	for _, u := range candidates {
 		if d := cfpath.URIDistance(from, string(u)); bestDist < 0 || d < bestDist {
 			best, bestDist = cfpath.FromURI(string(u)), d
 		}

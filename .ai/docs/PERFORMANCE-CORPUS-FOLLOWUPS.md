@@ -14,6 +14,44 @@ possible on synthetic input, and the ideas that were left for want of a corpus.
 The corpus setup (projects, commits, configs) is in
 [RESOLUTION-GAPS.md](RESOLUTION-GAPS.md) under "Measuring".
 
+## 0. Done on the corpus (2026-11-03)
+
+Sections 2 and 3 were run on an Apple M-series machine against `7749400`,
+over the 47 projects in `~/corpus` plus tassweb (21,620 files). Sections 5.1
+to 5.6 are still to do.
+
+- **2a, the parse dump: identical**, 399,436 lines in both modes.
+- **2b/2d, the CLI outputs: identical** for `unresolved --json`, `scan` and
+  `graph --format jsonl --level call` on all 48 projects, except Lucee's map.
+  That one differed between two runs of the *baseline* too: Lucee declares
+  `entityName="Author"` (and `Book`) in three test directories, and the index
+  kept one file per entity name, whichever indexed last. Fixed with the
+  measurement (`Index.NamedEntities`, `Resolver.nearestOf`;
+  `TestADeclaredEntityNameIsTheNearestDeclaration`); five builds of Lucee's
+  map are now byte-identical, and no other project's output moves.
+- **2c, `make gapcheck`: identical**, 3,961 files reported on both builds.
+- **2e, memory: unchanged**, 27 to 37MB peak parsing each of tassweb's six
+  largest components (1.8 to 2.8MB each) on both builds.
+- **3, throughput**, medians of 20 alternating runs of `BenchmarkCorpus`
+  (`-benchtime 3x`) over the whole corpus:
+
+  | | before | after |
+  |---|---:|---:|
+  | parse with calls | 5,244ms, 39.8 MB/s | 4,499ms, 46.4 MB/s (-14%) |
+  | parse allocations | 18.6M, 3,330MB | 14.4M, 2,652MB (-23%, -20%) |
+  | fold spans | 1,000ms, 208 MB/s | 763ms, 273 MB/s (-24%) |
+  | fold allocations | 0.33M, 115MB | 0.25M, 100MB |
+
+- **3, the tail**: the ten slowest files are all tassweb components, each
+  15 to 25% faster and none superlinear in its size. The slowest per byte is
+  `packages/enrolments/persist.cfc` (695KB, 60ms, 11.6 MB/s against 34 to 44
+  for its neighbours): profile that first for 5.4.
+
+A trap of this machine: the main checkout has an untracked `go.work` that
+uses a local `../tree-sitter-cfml`, so a binary built there parses with a
+development grammar and `scan` reports different errors. Build comparison
+binaries with `GOWORK=off`.
+
 ## 1. What changed, and what each change risks
 
 `7749400` is the commit before the series; build it as the baseline.

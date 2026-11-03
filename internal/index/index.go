@@ -28,7 +28,13 @@ type Index struct {
 	delegates map[string][]parser.Delegate                 // lowercase URI -> the WireBox delegations it declares; kept and dropped with extends
 	fileURIs  map[string]uri.URI                           // lowercase URI -> the file's URI as indexed, in its real case; kept with fileFuncs
 	beans     map[string]string                            // lowercase bean name -> dot-path
-	entities  map[string]uri.URI                           // lowercase entity name -> file URI
+	// entities holds every file declaring an entity name: several
+	// applications in one workspace may each declare one (Lucee's tests
+	// declare Author three times), and which file indexed last is not an
+	// answer. entityNames is each file's names, so a re-index or a removal
+	// drops exactly its own.
+	entities    map[string][]uri.URI // lowercase entity name -> the files declaring it
+	entityNames map[string][]string  // lowercase URI -> the lowercase entity names it holds
 	// defaultEntities holds persistent components that name no entityname,
 	// whose entity is called after the file: several applications in one
 	// workspace may each have one, so every candidate is kept.
@@ -77,7 +83,8 @@ func New() *Index {
 		delegates:       make(map[string][]parser.Delegate),
 		fileURIs:        make(map[string]uri.URI),
 		beans:           make(map[string]string),
-		entities:        make(map[string]uri.URI),
+		entities:        make(map[string][]uri.URI),
+		entityNames:     make(map[string][]string),
 		defaultEntities: make(map[string][]uri.URI),
 		includes:        make(map[string]fileIncludes),
 	}
@@ -658,8 +665,10 @@ func (idx *Index) indexParseResult(fileURI uri.URI, content string, pr *parser.P
 	// An ORM entity is named by its entityname attribute, which is often not
 	// its file's name: ContentBox's Author.cfc is cbAuthor, and
 	// entityNew( "cbAuthor" ) names it.
+	idx.dropEntitiesLocked(fk)
+
 	if name := pr.EntityName(); name != "" && pr.Persistent {
-		idx.entities[strings.ToLower(name)] = uri.URI(strings.Clone(string(fileURI)))
+		idx.addEntityLocked(name, uri.URI(strings.Clone(string(fileURI))))
 	} else if pr.Persistent {
 		name := strings.ToLower(strings.TrimSuffix(path.Base(string(fileURI)), path.Ext(string(fileURI))))
 		idx.defaultEntities[name] = append(idx.defaultEntities[name], uri.URI(strings.Clone(string(fileURI))))
@@ -760,11 +769,7 @@ func (idx *Index) RemoveFile(fileURI uri.URI) {
 	idx.setIncludesLocked(fileURI, nil)
 
 	key := uriKey(fileURI)
-	for name, u := range idx.entities {
-		if uriKey(u) == key {
-			delete(idx.entities, name)
-		}
-	}
+	idx.dropEntitiesLocked(key)
 
 	name := strings.ToLower(strings.TrimSuffix(path.Base(string(fileURI)), path.Ext(string(fileURI))))
 	if list := idx.defaultEntities[name]; len(list) > 0 {
@@ -1172,20 +1177,48 @@ func (idx *Index) LookupBean(name string) string {
 // SetEntity registers a persistent CFC as an ORM entity by name.
 func (idx *Index) SetEntity(name string, fileURI uri.URI) {
 	idx.mu.Lock()
-	idx.entities[strings.ToLower(name)] = fileURI
+	idx.addEntityLocked(name, fileURI)
 	idx.mu.Unlock()
 }
 
-// EntityCandidates are the files an ORM entity name may name: the one whose
+// addEntityLocked records that fileURI declares entity name; idx.mu is held.
+func (idx *Index) addEntityLocked(name string, fileURI uri.URI) {
+	name, key := strings.ToLower(name), uriKey(fileURI)
+
+	if !slices.ContainsFunc(idx.entities[name], func(u uri.URI) bool { return uriKey(u) == key }) {
+		idx.entities[name] = append(idx.entities[name], fileURI)
+	}
+
+	if !slices.Contains(idx.entityNames[key], name) {
+		idx.entityNames[key] = append(idx.entityNames[key], name)
+	}
+}
+
+// dropEntitiesLocked forgets the entity names the file keyed key declared;
+// idx.mu is held.
+func (idx *Index) dropEntitiesLocked(key string) {
+	for _, name := range idx.entityNames[key] {
+		list := slices.DeleteFunc(idx.entities[name], func(u uri.URI) bool { return uriKey(u) == key })
+		if len(list) == 0 {
+			delete(idx.entities, name)
+		} else {
+			idx.entities[name] = list
+		}
+	}
+
+	delete(idx.entityNames, key)
+}
+
+// EntityCandidates are the files an ORM entity name may name: those whose
 // entityname it is, or else every persistent component called after it,
 // sorted, for the caller to choose the nearest.
 func (idx *Index) EntityCandidates(name string) []uri.URI {
+	if out := idx.NamedEntities(name); len(out) > 0 {
+		return out
+	}
+
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
-
-	if u, ok := idx.entities[strings.ToLower(name)]; ok {
-		return []uri.URI{u}
-	}
 
 	out := slices.Clone(idx.defaultEntities[strings.ToLower(name)])
 	slices.Sort(out)
@@ -1193,12 +1226,16 @@ func (idx *Index) EntityCandidates(name string) []uri.URI {
 	return out
 }
 
-// LookupEntity returns the file URI for an ORM entity name (case-insensitive).
-func (idx *Index) LookupEntity(name string) uri.URI {
+// NamedEntities are the files whose entityname is name (case-insensitive),
+// sorted, for the caller to choose the nearest.
+func (idx *Index) NamedEntities(name string) []uri.URI {
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
 
-	return idx.entities[strings.ToLower(name)]
+	out := slices.Clone(idx.entities[strings.ToLower(name)])
+	slices.Sort(out)
+
+	return out
 }
 
 // FindFilesByBasename returns absolute file paths for all indexed CFC files whose

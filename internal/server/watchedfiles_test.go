@@ -102,7 +102,7 @@ func TestWatchedFileDeleteRemovesFromIndex(t *testing.T) {
 
 	// Asserted rather than assumed: if the fixture stopped registering an
 	// entity, the check below would pass for the wrong reason.
-	if srv.index.LookupEntity("Gone") == "" {
+	if len(srv.index.NamedEntities("Gone")) == 0 {
 		t.Fatal("precondition: Gone was not registered as an ORM entity")
 	}
 
@@ -116,7 +116,7 @@ func TestWatchedFileDeleteRemovesFromIndex(t *testing.T) {
 		t.Errorf("willVanish still indexed %d times after its file was deleted", got)
 	}
 
-	if srv.index.LookupEntity("Gone") != "" {
+	if len(srv.index.NamedEntities("Gone")) != 0 {
 		t.Error("ORM entity Gone still registered after its file was deleted")
 	}
 }

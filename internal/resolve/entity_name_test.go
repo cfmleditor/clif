@@ -32,3 +32,32 @@ func TestAnEntityNameIsTheEntityNotTheFileBesideTheCaller(t *testing.T) {
 		"q.setappBField": "",
 	})
 }
+
+// TestADeclaredEntityNameIsTheNearestDeclaration: Lucee's tests declare
+// entityName="Author" in three directories. The index kept one file per name,
+// the last indexed, so which one entityNew( "Author" ) named depended on the
+// order a parallel scan finished in, and one application read another's
+// entity whichever won.
+func TestADeclaredEntityNameIsTheNearestDeclaration(t *testing.T) {
+	dir := t.TempDir()
+	files := map[string]string{}
+
+	for _, app := range []string{"appA", "appB"} {
+		files[app+"/model/beans/Writer.cfc"] = `component persistent="true" entityName="Author" accessors="true" { property name="` + app + `Field"; }`
+		files[app+"/model/services/books.cfc"] = `component {
+	function post(){
+		var a = entityNew( "Author" );
+		a.set` + app + `Field( 1 );
+		return a;
+	}
+}`
+	}
+
+	writeFiles(t, dir, files)
+
+	for _, app := range []string{"appA", "appB"} {
+		expectReasons(t, reasonsWith(t, &Resolver{}, dir, app+"/model/services/books.cfc"), map[string]string{
+			"a.set" + app + "Field": "",
+		})
+	}
+}
