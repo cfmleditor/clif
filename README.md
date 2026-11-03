@@ -847,7 +847,7 @@ The same settings can also be supplied by your editor as LSP `initializationOpti
 | `completions` | No | `tagSnippets`, `functionSnippets`, `globalFunctionResolution`. All three default to `true`; set the block only to turn one off. |
 | `docBlock` | No | What `/**` expands to: `gap` (default `true`) puts a blank ` *` line between the hint and the tags, and `extra` is a list of `{ "name", "default", "types" }` tags added to every block (`types` limits them to `component`, `interface`, `function` or `property`). Inside a doc block, `@` completes the attributes of the tag being documented and a function's argument names. |
 | `references` | No | `textDocument/references` support, off by default. See below. |
-| `features` | No | Per-capability switches. `documentHighlight`, `watchedFiles` and `rangeFormatting` default to `true`; `folding` and `typeDefinition` default to `false` and are opt-in. See below. |
+| `features` | No | Per-capability switches. `documentHighlight`, `watchedFiles` and `rangeFormatting` default to `true`; `folding` defaults to `true`; `typeDefinition` defaults to `false` and is opt-in. See below. |
 | `check` | No | What `clif check` runs in CI and what fails it. See [Checks for CI](#checks-for-ci). |
 | `debug` | No | Enable debug logging (`zap.NewDevelopment`). Outputs verbose logs to stderr. |
 
@@ -1152,14 +1152,14 @@ there is nothing it could honestly do with `false` short of declining to format.
 
 Most capabilities the server adds are on by default and each can be switched off
 on its own, for when one misbehaves on a real workspace and the alternative is
-downgrading the binary. **`folding` and `typeDefinition` are the exceptions:
-they are off unless you ask for them.**
+downgrading the binary. **`typeDefinition` is the exception: it is off unless you
+ask for it.**
 
 ```json
 {
   "features": {
     "documentHighlight": true,
-    "folding": false,
+    "folding": true,
     "watchedFiles": true,
     "rangeFormatting": true,
     "typeDefinition": false
@@ -1170,15 +1170,14 @@ they are off unless you ask for them.**
 | Key | Default | Controls |
 |---|---|---|
 | `documentHighlight` | on | Shading the other occurrences of the identifier under the cursor. |
-| `folding` | **off** | Folding ranges for functions and comments; in CFScript every block, closure, literal, multi-line argument list and switch case; in markup every element, CF tag and `<cfelse>` branch. With it off the editor folds by indentation, as it did before the feature existed. |
+| `folding` | on | Folding ranges for functions and comments; in CFScript every block, closure, literal, multi-line argument list and switch case; in markup every element, CF tag and `<cfelse>` branch. With it off the editor folds by indentation. |
 | `watchedFiles` | on | Re-indexing files changed outside the editor. With it off the index reflects startup plus whatever you have had open, and `clif.reindex` is the way to refresh it. |
 | `rangeFormatting` | on | "Format Selection". Switching it off leaves whole-document formatting and format-on-save working. |
 | `typeDefinition` | **off** | "Go to Type Definition": from a variable, argument or property to the component it holds, or from a call to the component the function returns. The newest capability here, so it waits to be asked for. |
 | `outputContextInterpolation` | on | Reading `#...#` in a tag file's text only where ColdFusion evaluates it: inside `<cfoutput>`, `<cfquery>`, `<cfmail>` and `output="true"` functions, and in the attributes of CF and custom tags. Also reads a `.cfm` template with no CF tags as HTML rather than CFScript. Off, every pair of hashes in text is scanned, which finds calls in JavaScript, CSS and prose between two stray hashes. Unlike the others this changes what the parser reads, not what the server advertises. |
 
-`folding` is opt-in. An editor that is given folding ranges uses them in place of
-its own indentation folding, so it is a change to how every file folds. Turn it on
-with `{"features": {"folding": true}}`.
+An editor that is given folding ranges uses them in place of its own indentation
+folding. To go back to indentation folding, set `{"features": {"folding": false}}`.
 
 Set only the keys you want to change — the block is merged key by key, so naming
 one leaves the rest alone, and an editor's `initializationOptions` and a project's

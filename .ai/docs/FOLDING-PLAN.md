@@ -7,10 +7,9 @@ spanning more than one line: the scopes from the cached `ParseResult`, and
 tree-sitter folded that the parser does not, measured, and how each part can be
 added from the parser.
 
-`folding` stays off by default until enough of this lands (see
+`folding` is on by default since 2026-11-03 (see
 [§5](#5-when-to-switch-the-default-on)). An editor that is given folding ranges
-uses them *instead of* its own indentation folding, so switching folding on
-today trades a fold for every indented block for fewer, exact ones.
+uses them *instead of* its own indentation folding.
 
 ## 1. What is missing, measured
 
@@ -297,3 +296,8 @@ than a trade, and `config.foldingDefault` can become `true`.
 `featureDefaults` in `features_chain_test.go` states every default and has to
 change with it. That is a change to what every user sees, so it is left for its
 own decision.
+
+**Done 2026-11-03.** After #338, `BenchmarkCorpusStructure` folds the 47-project
+corpus plus tassweb at 273 MB/s (763ms for 21,620 files, against 1,000ms
+before; see PERFORMANCE-CORPUS-FOLLOWUPS.md §0), and `config.foldingDefault` is
+`true`. `{"features": {"folding": false}}` restores indentation folding.

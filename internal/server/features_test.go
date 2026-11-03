@@ -50,23 +50,23 @@ func TestFeaturesDefaultOnInCapabilities(t *testing.T) {
 	}
 }
 
-// TestFoldingIsNotAdvertisedUntilAskedFor. Folding is the one opt-in switch
-// here, so the editor must be told there is no provider and fall back to
-// folding by indentation — which is what it did before the feature existed.
-func TestFoldingIsNotAdvertisedUntilAskedFor(t *testing.T) {
+// TestFoldingIsAdvertisedUntilSwitchedOff. Folding is on by default, and
+// switching it off must un-advertise the provider so the editor falls back to
+// folding by indentation.
+func TestFoldingIsAdvertisedUntilSwitchedOff(t *testing.T) {
 	caps := initializeWithConfig(t, `{"formatting": {"enabled": true}}`).capabilities()
 
-	if providerOn(t, caps.FoldingRangeProvider) {
-		t.Error("foldingRange is advertised without being asked for")
+	if !providerOn(t, caps.FoldingRangeProvider) {
+		t.Error("foldingRange is not advertised by default")
 	}
 
-	on := initializeWithConfig(t, `{
+	off := initializeWithConfig(t, `{
 		"formatting": {"enabled": true},
-		"features": {"folding": true}
+		"features": {"folding": false}
 	}`).capabilities()
 
-	if !providerOn(t, on.FoldingRangeProvider) {
-		t.Error("foldingRange is still not advertised after being switched on")
+	if providerOn(t, off.FoldingRangeProvider) {
+		t.Error("foldingRange is still advertised after being switched off")
 	}
 }
 

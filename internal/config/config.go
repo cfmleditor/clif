@@ -433,11 +433,12 @@ type References struct {
 // block, so they keep their own top-level keys; `references` additionally
 // defaults *off*, since answering one request scans the whole workspace.
 //
-// `folding` defaults off as well. An editor given folding ranges uses them in
-// place of its own indentation folding, so switching it on changes how every
-// file folds; .ai/docs/FOLDING-PLAN.md §5 is the case for making it the default. An
-// editor that never asked for it loses nothing it had. Turn it on with
-// `{"features": {"folding": true}}`.
+// `folding` defaults on. It was opt-in while it cost a tree-sitter parse per
+// request; the parser's span pass replaced that, reproduces 93.9% of the
+// tree-sitter folds, and folds the whole corpus at 273 MB/s
+// (.ai/docs/FOLDING-PLAN.md §5). An editor given folding ranges uses them in
+// place of its own indentation folding, so `{"features": {"folding": false}}`
+// is the way back to that.
 type Features struct {
 	DocumentHighlight *bool `json:"documentHighlight"`
 	Folding           *bool `json:"folding"`
@@ -474,7 +475,7 @@ type Features struct {
 	OutputContextInterpolation *bool `json:"outputContextInterpolation"`
 	// TypeDefinition answers textDocument/typeDefinition: go to the component
 	// a variable, argument or property holds, or a called function returns.
-	// Off by default, like folding: it is new, and an editor that has not
+	// Off by default: it is new, and an editor that has not
 	// asked for it loses nothing it had. Turn it on with
 	// `{"features": {"typeDefinition": true}}`.
 	TypeDefinition *bool `json:"typeDefinition"`
@@ -492,16 +493,16 @@ type ResolvedFeatures struct {
 	TypeDefinition             bool
 }
 
-// foldingDefault is off. Named rather than inlined so the tests that assert the
+// foldingDefault is on. Named rather than inlined so the tests that assert the
 // defaults read the same constant the resolver does, instead of restating it.
-const foldingDefault = false
+const foldingDefault = true
 
 // typeDefinitionDefault is off, and named for the same reason.
 const typeDefinitionDefault = false
 
 // ResolveFeatures applies the defaults for a `features` block: absent means
-// every feature is on except folding and typeDefinition, which are opt-in for
-// the reasons the type above gives.
+// every feature is on except typeDefinition, which is opt-in for the reason
+// the type above gives.
 //
 // As with ResolveCompletions, the defaults live here so that every path to a
 // Server agrees on them. A path that skipped this and took the zero value
