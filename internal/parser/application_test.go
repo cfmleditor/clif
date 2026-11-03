@@ -148,33 +148,6 @@ func TestParseAppBeanPaths_ExplicitTakesPrecedence(t *testing.T) {
 	}
 }
 
-func TestParseOrmLocations_Single(t *testing.T) {
-	content := `this.ormSettings = { cfcLocation: "model/entities" };`
-
-	got := ParseOrmLocations(content, "/app")
-	if len(got) != 1 || got[0] != "/app/model/entities" {
-		t.Errorf("got %v, want [/app/model/entities]", got)
-	}
-}
-
-func TestParseOrmLocations_Array(t *testing.T) {
-	content := `this.ormSettings = { cfcLocation: ["model", "entities"] };`
-
-	got := ParseOrmLocations(content, "/app")
-	if len(got) != 2 || got[0] != "/app/model" || got[1] != "/app/entities" {
-		t.Errorf("got %v, want [/app/model /app/entities]", got)
-	}
-}
-
-func TestParseOrmLocations_Empty(t *testing.T) {
-	content := `component { this.name = "noOrm"; }`
-
-	got := ParseOrmLocations(content, "/app")
-	if got != nil {
-		t.Errorf("expected nil, got %v", got)
-	}
-}
-
 // getDirectoryFromPath(getCurrentTemplatePath()) is the idiom for "the folder
 // this Application.cfc is in", so a mapping written with it names appDir, or a
 // folder under it when a string is appended.

@@ -215,7 +215,8 @@ func TestIndex_BeansAndEntities(t *testing.T) {
 		t.Errorf("expected empty string for unknown bean, got %q", got)
 	}
 
-	idx.SetEntity("User", uri.URI("file:///models/User.cfc"))
+	user := uri.URI("file:///models/User.cfc")
+	idx.IndexEntity(user, parser.Parse(user, `component persistent="true" entityName="User" {}`))
 
 	if got := idx.NamedEntities("user"); len(got) != 1 || got[0] != uri.URI("file:///models/User.cfc") {
 		t.Errorf("expected case-insensitive entity lookup, got %q", got)
@@ -336,5 +337,205 @@ func TestEveryDeclarationOfAnEntityNameIsKept(t *testing.T) {
 
 	if got := idx.NamedEntities("author"); len(got) != 0 {
 		t.Fatalf("after its removal, Author is declared by %v", got)
+	}
+}
+
+// TestAReindexReplacesAFilesEntity: each re-index of a persistent component
+// named after its file appended it again, and one that went on to declare an
+// entityname, or stopped being persistent, stayed a candidate under its file
+// name. The editor's IndexEntity must replace in the same way, and must not
+// file the file's name as a declared entityname.
+func TestAReindexReplacesAFilesEntity(t *testing.T) {
+	idx := New()
+	author := uri.URI("file:///app/Author.cfc")
+
+	for range 3 {
+		idx.IndexFile(author, `component persistent="true" {}`)
+	}
+
+	if got := idx.EntityCandidates("author"); !slices.Equal(got, []uri.URI{author}) {
+		t.Fatalf("after three re-indexes, Author's candidates are %v", got)
+	}
+
+	idx.IndexFile(author, `component persistent="true" entityName="cbAuthor" {}`)
+
+	if got := idx.EntityCandidates("author"); len(got) != 0 {
+		t.Fatalf("Author.cfc declares cbAuthor, yet Author's candidates are %v", got)
+	}
+
+	idx.IndexFile(author, `component {}`)
+
+	if got := idx.EntityCandidates("cbauthor"); len(got) != 0 {
+		t.Fatalf("Author.cfc is no longer persistent, yet cbAuthor's candidates are %v", got)
+	}
+
+	idx.IndexEntity(author, parser.Parse(author, `component persistent="true" entityName="cbAuthor" {}`))
+	idx.IndexEntity(author, parser.Parse(author, `component persistent="true" entityName="cbAuthor" {}`))
+
+	if got := idx.NamedEntities("author"); len(got) != 0 {
+		t.Fatalf("the file's name was filed as a declared entity name: %v", got)
+	}
+
+	idx.IndexEntity(author, parser.Parse(author, `component persistent="true" entityName="cbWriter" {}`))
+
+	if got := idx.NamedEntities("cbauthor"); len(got) != 0 {
+		t.Fatalf("after renaming its entity, cbAuthor is still declared by %v", got)
+	}
+
+	if got := idx.NamedEntities("cbwriter"); !slices.Equal(got, []uri.URI{author}) {
+		t.Fatalf("cbWriter is declared by %v", got)
+	}
+
+	idx.IndexEntity(author, parser.Parse(author, `component entityName="cbWriter" {}`))
+
+	if got := idx.EntityCandidates("cbwriter"); len(got) != 0 {
+		t.Fatalf("outside ORM scope, cbWriter is still declared by %v", got)
+	}
+}
+
+// TestADeclaredEntityDoesNotHideANearerOneByFileName: EntityCandidates
+// offered the declared entities alone whenever there were any, so an Author
+// declared by entityname in one application hid a plain persistent
+// Author.cfc in another, however near the caller.
+func TestADeclaredEntityDoesNotHideANearerOneByFileName(t *testing.T) {
+	idx := New()
+	declared, byFile := uri.URI("file:///a/Writer.cfc"), uri.URI("file:///b/Author.cfc")
+
+	idx.IndexFile(declared, `component persistent="true" entityName="Author" {}`)
+	idx.IndexFile(byFile, `component persistent="true" {}`)
+
+	if got := idx.EntityCandidates("author"); !slices.Equal(got, []uri.URI{declared, byFile}) {
+		t.Fatalf("Author's candidates are %v, want the declared one then the one by file name", got)
+	}
+}
+
+// TestRemovingAFolderDropsItsEntities: RemoveFilesUnder cleared a folder's
+// functions and refs but left its entities as candidates.
+func TestRemovingAFolderDropsItsEntities(t *testing.T) {
+	idx := New()
+	kept, gone, plain := uri.URI("file:///keep/Writer.cfc"), uri.URI("file:///gone/Writer.cfc"), uri.URI("file:///gone/Poet.cfc")
+
+	idx.IndexFile(kept, `component persistent="true" entityName="Author" {}`)
+	idx.IndexFile(gone, `component persistent="true" entityName="Author" {}`)
+	idx.IndexFile(plain, `component persistent="true" {}`)
+
+	idx.RemoveFilesUnder("file:///gone/")
+
+	if got := idx.EntityCandidates("author"); !slices.Equal(got, []uri.URI{kept}) {
+		t.Errorf("after removing /gone, Author's candidates are %v", got)
+	}
+
+	if got := idx.EntityCandidates("poet"); len(got) != 0 {
+		t.Errorf("after removing /gone, Poet's candidates are %v", got)
+	}
+}
+
+// TestRemovingAFolderLeavesItsSibling: removing /work/app must not take
+// /work/app2 with it.
+func TestRemovingAFolderLeavesItsSibling(t *testing.T) {
+	idx := New()
+	sibling := uri.URI("file:///work/app2/Writer.cfc")
+
+	idx.IndexFile(uri.URI("file:///work/app/Writer.cfc"), `component persistent="true" entityName="Author" { function f() {} }`)
+	idx.IndexFile(sibling, `component persistent="true" entityName="Author" { function f() {} }`)
+
+	idx.RemoveFilesUnder("file:///work/app")
+
+	if got := idx.EntityCandidates("author"); !slices.Equal(got, []uri.URI{sibling}) {
+		t.Errorf("after removing /work/app, Author's candidates are %v", got)
+	}
+
+	if !idx.HasFile(sibling) {
+		t.Error("removing /work/app removed /work/app2's file")
+	}
+}
+
+// TestRefreshEntityFollowsOnlyAFileItHolds: RefreshEntity adds nothing for a
+// file the index holds no entity for, and replaces one it does.
+func TestRefreshEntityFollowsOnlyAFileItHolds(t *testing.T) {
+	idx := New()
+	held, stray := uri.URI("file:///a/Writer.cfc"), uri.URI("file:///b/Writer.cfc")
+
+	idx.IndexFile(held, `component persistent="true" entityName="Author" {}`)
+
+	idx.RefreshEntity(stray, parser.Parse(stray, `component persistent="true" entityName="Poet" {}`))
+
+	if got := idx.EntityCandidates("poet"); len(got) != 0 {
+		t.Fatalf("a file the index held no entity for registered Poet: %v", got)
+	}
+
+	idx.RefreshEntity(held, parser.Parse(held, `component persistent="true" entityName="Poet" {}`))
+
+	if got := idx.EntityCandidates("author"); len(got) != 0 {
+		t.Errorf("after the rename, Author is declared by %v", got)
+	}
+
+	if got := idx.EntityCandidates("poet"); !slices.Equal(got, []uri.URI{held}) {
+		t.Errorf("after the rename, Poet is declared by %v", got)
+	}
+}
+
+// TestRefreshEntityFollowsAFileThroughAnEditThatDropsIt: an edit that leaves
+// a component no entity, then one that restores it, registers it again.
+func TestRefreshEntityFollowsAFileThroughAnEditThatDropsIt(t *testing.T) {
+	idx := New()
+	held := uri.URI("file:///a/Writer.cfc")
+
+	idx.IndexFile(held, `component persistent="true" entityName="Author" {}`)
+	idx.RefreshEntity(held, parser.Parse(held, `component entityName="Author" {}`))
+
+	if got := idx.EntityCandidates("author"); len(got) != 0 {
+		t.Fatalf("no longer persistent, yet Author is declared by %v", got)
+	}
+
+	idx.RefreshEntity(held, parser.Parse(held, `component persistent="true" entityName="Author" {}`))
+
+	if got := idx.EntityCandidates("author"); !slices.Equal(got, []uri.URI{held}) {
+		t.Errorf("persistent again, Author is declared by %v", got)
+	}
+
+	idx.RemoveFile(held)
+	idx.RefreshEntity(held, parser.Parse(held, `component persistent="true" entityName="Author" {}`))
+
+	if got := idx.EntityCandidates("author"); len(got) != 0 {
+		t.Errorf("after the file's removal a refresh registered Author: %v", got)
+	}
+}
+
+// TestOnlyComponentsAreRecordedAsRead: entityRead exists for RefreshEntity,
+// which only asks about components, so a page is never recorded.
+func TestOnlyComponentsAreRecordedAsRead(t *testing.T) {
+	idx := New()
+
+	idx.IndexFile(uri.URI("file:///a/page.cfm"), `<cfoutput>hi</cfoutput>`)
+	idx.IndexFile(uri.URI("file:///a/Plain.cfc"), `component {}`)
+
+	if _, ok := idx.entityRead[uriKey(uri.URI("file:///a/page.cfm"))]; ok {
+		t.Error("a page was recorded as an entity read")
+	}
+
+	if _, ok := idx.entityRead[uriKey(uri.URI("file:///a/Plain.cfc"))]; !ok {
+		t.Error("a component was not recorded as read")
+	}
+}
+
+// TestEntityChoicesSplitsTheDeclaredOnes: declared is exactly the files
+// declaring the name, sorted, and the prefix of all.
+func TestEntityChoicesSplitsTheDeclaredOnes(t *testing.T) {
+	idx := New()
+	b, a, plain := uri.URI("file:///b/Writer.cfc"), uri.URI("file:///a/Writer.cfc"), uri.URI("file:///c/Author.cfc")
+
+	idx.IndexFile(b, `component persistent="true" entityName="Author" {}`)
+	idx.IndexFile(plain, `component persistent="true" {}`)
+	idx.IndexFile(a, `component persistent="true" entityName="Author" {}`)
+
+	declared, all := idx.EntityChoices("author")
+
+	if !slices.Equal(declared, []uri.URI{a, b}) {
+		t.Errorf("declared is %v", declared)
+	}
+
+	if !slices.Equal(all, []uri.URI{a, b, plain}) {
+		t.Errorf("all is %v", all)
 	}
 }

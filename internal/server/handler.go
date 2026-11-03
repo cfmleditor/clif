@@ -734,16 +734,14 @@ func (s *Server) reindexFromParseResult(docURI uri.URI, pr *parser.ParseResult) 
 	// parse already holds both.
 	s.index.SetExtends(docURI, pr.Extends)
 	s.index.SetDelegates(docURI, pr.Delegates)
-	// Only register as entity if within ORM scope and workspace
-	if cfpath.IsCFCFile(string(docURI)) && pr.Persistent {
-		filePath := docURI.Path()
-		if s.isOrmPath(filePath) {
-			s.index.SetEntity(cfpath.CfcNameFromURI(string(docURI)), docURI)
-
-			if name := pr.EntityName(); name != "" {
-				s.index.SetEntity(name, docURI)
-			}
-		}
+	// The entity by the index's own rule. A component outside the workspace,
+	// which reindexIfCFC does not index either, adds none (an open file from
+	// another project would otherwise name entities for every client), but
+	// one the resolver registered follows the buffer.
+	if !cfpath.IsCFCFile(string(docURI)) || len(s.WorkspaceFolders) == 0 || s.isIncludedPath(string(docURI)) {
+		s.index.IndexEntity(docURI, pr)
+	} else {
+		s.index.RefreshEntity(docURI, pr)
 	}
 }
 

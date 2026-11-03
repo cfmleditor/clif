@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
 
 	"go.lsp.dev/protocol"
@@ -102,7 +103,7 @@ func TestWatchedFileDeleteRemovesFromIndex(t *testing.T) {
 
 	// Asserted rather than assumed: if the fixture stopped registering an
 	// entity, the check below would pass for the wrong reason.
-	if len(srv.index.NamedEntities("Gone")) == 0 {
+	if len(srv.index.EntityCandidates("Gone")) == 0 {
 		t.Fatal("precondition: Gone was not registered as an ORM entity")
 	}
 
@@ -116,8 +117,128 @@ func TestWatchedFileDeleteRemovesFromIndex(t *testing.T) {
 		t.Errorf("willVanish still indexed %d times after its file was deleted", got)
 	}
 
-	if len(srv.index.NamedEntities("Gone")) != 0 {
+	if len(srv.index.EntityCandidates("Gone")) != 0 {
 		t.Error("ORM entity Gone still registered after its file was deleted")
+	}
+}
+
+// TestARenamedEntityIsNotKeptUnderItsOldName: the server registered an
+// entity with SetEntity on every index and never dropped one, so a file whose
+// entityname changed stayed registered under the old name, and its file name
+// was filed as a declared entity name beside it.
+func TestARenamedEntityIsNotKeptUnderItsOldName(t *testing.T) {
+	dir := t.TempDir()
+
+	writeCFC(t, filepath.Join(dir, "Application.cfc"), "component {\n\tthis.ormEnabled = true;\n}\n")
+
+	path := filepath.Join(dir, "Writer.cfc")
+	writeCFC(t, path, "component persistent=\"true\" entityName=\"Author\" {}\n")
+
+	srv := newTestServer()
+	srv.WorkspaceFolders = []string{dir}
+	srv.indexWorkspace()
+
+	if len(srv.index.NamedEntities("Author")) != 1 {
+		t.Fatal("precondition: Author was not registered as an ORM entity")
+	}
+
+	if got := srv.index.NamedEntities("Writer"); len(got) != 0 {
+		t.Errorf("the file's name was registered as a declared entity name: %v", got)
+	}
+
+	writeCFC(t, path, "component persistent=\"true\" entityName=\"Poet\" {}\n")
+	srv.applyWatchedFileChanges([]protocol.FileEvent{fileEvent(path, protocol.FileChangeTypeChanged)})
+
+	if got := srv.index.NamedEntities("Author"); len(got) != 0 {
+		t.Errorf("Author still registered to %v after the file renamed its entity", got)
+	}
+
+	if len(srv.index.NamedEntities("Poet")) != 1 {
+		t.Error("Poet was not registered after the rename")
+	}
+}
+
+// TestTheEditorsEntityWritersAgree: an open buffer's reparse
+// (reindexFromParseResult) and its save (reindexIfCFC, through IndexParsed)
+// both record the file's entity. The reparse registered one only inside the
+// Application's cfcLocation and, once it could drop as well as add, dropped
+// what the save had just registered, so a persistent component outside that
+// location came and went with the order the two ran in. It must also replace
+// a renamed entity and never file the file's own name as a declared one.
+func TestTheEditorsEntityWritersAgree(t *testing.T) {
+	dir := t.TempDir()
+
+	writeCFC(t, filepath.Join(dir, "Application.cfc"),
+		"component {\n\tthis.ormEnabled = true;\n\tthis.ormSettings = { cfcLocation = \"models\" };\n}\n")
+
+	if err := os.MkdirAll(filepath.Join(dir, "other"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+
+	path := filepath.Join(dir, "other", "Writer.cfc")
+	docURI := cfpath.ToURI(path)
+	text := "component persistent=\"true\" entityName=\"Author\" {}\n"
+	writeCFC(t, path, text)
+
+	srv := newTestServer()
+	srv.WorkspaceFolders = []string{dir}
+
+	srv.reindexIfCFC(docURI, text)
+	srv.reindexFromParseResult(docURI, parser.Parse(docURI, text))
+
+	if got := srv.index.NamedEntities("Author"); len(got) != 1 {
+		t.Fatalf("after a save and a reparse, Author is declared by %v, want Writer.cfc", got)
+	}
+
+	if got := srv.index.NamedEntities("Writer"); len(got) != 0 {
+		t.Errorf("the file's name was registered as a declared entity name: %v", got)
+	}
+
+	renamed := "component persistent=\"true\" entityName=\"Poet\" {}\n"
+	srv.reindexFromParseResult(docURI, parser.Parse(docURI, renamed))
+
+	if got := srv.index.NamedEntities("Author"); len(got) != 0 {
+		t.Errorf("Author still registered to %v after the buffer renamed its entity", got)
+	}
+
+	if len(srv.index.NamedEntities("Poet")) != 1 {
+		t.Error("Poet was not registered after the buffer renamed its entity")
+	}
+}
+
+// TestABufferOutsideTheWorkspaceDeclaresNoEntity: a component opened from
+// another project is not indexed on save (reindexIfCFC), and its reparse must
+// not register its entity in the shared index either.
+func TestABufferOutsideTheWorkspaceDeclaresNoEntity(t *testing.T) {
+	workspace, elsewhere := t.TempDir(), t.TempDir()
+
+	path := filepath.Join(elsewhere, "Writer.cfc")
+	docURI := cfpath.ToURI(path)
+	text := "component persistent=\"true\" entityName=\"Author\" {}\n"
+	writeCFC(t, path, text)
+
+	srv := newTestServer()
+	srv.WorkspaceFolders = []string{workspace}
+
+	srv.reindexFromParseResult(docURI, parser.Parse(docURI, text))
+
+	if got := srv.index.EntityCandidates("Author"); len(got) != 0 {
+		t.Errorf("a buffer outside the workspace registered Author: %v", got)
+	}
+
+	// One the resolver's lazy index registered follows the buffer, since that
+	// index never reads the file again.
+	srv.index.IndexFile(docURI, text)
+
+	renamed := "component persistent=\"true\" entityName=\"Poet\" {}\n"
+	srv.reindexFromParseResult(docURI, parser.Parse(docURI, renamed))
+
+	if got := srv.index.EntityCandidates("Author"); len(got) != 0 {
+		t.Errorf("a lazily indexed file outside the workspace kept Author after its buffer renamed it: %v", got)
+	}
+
+	if got := srv.index.EntityCandidates("Poet"); len(got) != 1 {
+		t.Errorf("a lazily indexed file outside the workspace did not take Poet: %v", got)
 	}
 }
 

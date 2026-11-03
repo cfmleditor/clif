@@ -1145,7 +1145,7 @@ Declared in `Server.capabilities()` (`internal/server/server.go`):
   whole-line match, because the parser also records the variables a component ref flows into
   (`report = myCtrl.getReport()` is a ref to myCtrl's component on a line that never names it).
 - **`features`** (`config.Features`/`ResolvedFeatures`) switches off individual capabilities.
-  Four default to **on** and are opt-outs. **`folding`** (`config.foldingDefault`) was opt-in
+  Every switch but `typeDefinition` defaults **on**, as an opt-out. **`folding`** (`config.foldingDefault`) was opt-in
   while it was expensive, and is on since the span pass covers 93.9% of what the tree-sitter
   version folded and folds the corpus at 273 MB/s (`.ai/docs/FOLDING-PLAN.md` §5).
   **`typeDefinition` defaults off** (`config.typeDefinitionDefault`), as the newest capability. The fields are `*bool` for the reason the `completions` block documents — a

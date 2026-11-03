@@ -538,7 +538,8 @@ func (r *Resolver) lastResortPath(component, baseDir string) string {
 	// An ORM entity by its entityname: entityNew( "cbAuthor" ) is the
 	// Author.cfc that declares that name.
 	if !strings.ContainsAny(component, "./") && r.Index != nil {
-		if p := r.nearestOf(r.Index.NamedEntities(component), baseDir); p != "" {
+		named := r.Index.NamedEntities(component)
+		if p := r.pickEntity(named, named, baseDir); p != "" {
 			return p
 		}
 	}
@@ -1246,15 +1247,60 @@ func (r *Resolver) declaredExtendsOf(cfcPath string, cfcURI uri.URI) (string, bo
 	return ext, true
 }
 
-// nearestEntity is the file an ORM entity name names from baseDir: the one
-// whose entityname it is, else the persistent component called after it
-// nearest baseDir, the lowest path among equals.
+// nearestEntity is the file an ORM entity name names from baseDir. A file in
+// the caller's own application declaring it as its entityname comes first,
+// the nearest of them: within one application a declared name is the entity,
+// and a nearer persistent component merely called the same is not. Otherwise
+// it is the nearest of every candidate, declared or called after the file,
+// so one application's declaration does not hide another's component; a
+// declared one wins a tie (EntityCandidates lists them first).
 func (r *Resolver) nearestEntity(name, baseDir string) string {
 	if r.Index == nil {
 		return ""
 	}
 
-	return r.nearestOf(r.Index.EntityCandidates(name), baseDir)
+	declared, all := r.Index.EntityChoices(name)
+
+	return r.pickEntity(declared, all, baseDir)
+}
+
+// pickEntity is the entity file baseDir means among candidates (declared is
+// the subset declaring the name as their entityname). Within the caller's own
+// application, the one whose nearest Application.cfc is the caller's, so a
+// nested application's entities are not the caller's: the nearest declared
+// one, else the nearest of any. Otherwise the nearest of every candidate.
+// Every lookup of an entity by name goes through it, so entityNew(), a bare
+// component name and Slatwall's gateway methods agree about one.
+func (r *Resolver) pickEntity(declared, candidates []uri.URI, baseDir string) string {
+	if len(candidates) == 0 {
+		return ""
+	}
+
+	if root := r.FindApplicationRoot(baseDir); root != "" {
+		for _, group := range [][]uri.URI{declared, candidates} {
+			if p := r.nearestOf(r.inApplication(group, root), baseDir); p != "" {
+				return p
+			}
+		}
+	}
+
+	return r.nearestOf(candidates, baseDir)
+}
+
+// inApplication is the files of list whose nearest Application.cfc is in
+// root, compared as every path here is (cfpath.SamePath, ignoring case): a
+// root walked from an editor's URI and one from a path can spell one folder
+// differently, a Windows drive letter or a case-insensitive volume.
+func (r *Resolver) inApplication(list []uri.URI, root string) []uri.URI {
+	var out []uri.URI
+
+	for _, u := range list {
+		if cfpath.SamePath(r.FindApplicationRoot(filepath.Dir(cfpath.FromURI(string(u)))), root) {
+			out = append(out, u)
+		}
+	}
+
+	return out
 }
 
 // nearestOf is the candidate nearest baseDir, the first among equals: sorted
