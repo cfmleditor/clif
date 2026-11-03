@@ -1145,10 +1145,10 @@ Declared in `Server.capabilities()` (`internal/server/server.go`):
   whole-line match, because the parser also records the variables a component ref flows into
   (`report = myCtrl.getReport()` is a ref to myCtrl's component on a line that never names it).
 - **`features`** (`config.Features`/`ResolvedFeatures`) switches off individual capabilities.
-  Three default to **on** and are opt-outs; **`folding` defaults off** and is opt-in
-  (`config.foldingDefault`), as it has been since it was expensive; it now covers 93.9% of what
-  the tree-sitter version folded, and switching the default is `.ai/docs/FOLDING-PLAN.md` §5. **`typeDefinition` defaults off** too (`config.typeDefinitionDefault`), as
-  the newest capability. The fields are `*bool` for the reason the `completions` block documents — a
+  Four default to **on** and are opt-outs. **`folding`** (`config.foldingDefault`) was opt-in
+  while it was expensive, and is on since the span pass covers 93.9% of what the tree-sitter
+  version folded and folds the corpus at 273 MB/s (`.ai/docs/FOLDING-PLAN.md` §5).
+  **`typeDefinition` defaults off** (`config.typeDefinitionDefault`), as the newest capability. The fields are `*bool` for the reason the `completions` block documents — a
   defaults-true flag as a plain bool cannot tell "turned off" from "not mentioned", so naming one
   key would switch off its siblings. `mergeFeatures` unions key by key for the same reason
   `mergeFormatting` does. `featureDefaults` in `features_chain_test.go` states every default and
@@ -1637,7 +1637,7 @@ the user-facing view and all `formatting` defaults.
 | `linting.minSeverity` | Least severe CFLint level reported, on CFLint's own scale (`FATAL`…`COSMETIC`); unset reports everything. See below |
 | `check` | What `clif check` runs (`checks`, default `["cflint"]`) and, per check, `maxFindings`, `baseline` and (cflint) `minSeverity`. Merged key by key (`mergeCheck`); `config.ResolveCheck` |
 | `references.enabled` | Answer `textDocument/references` (off by default; see the LSP surface above) |
-| `features` | Per-capability switches: `documentHighlight`, `watchedFiles`, `rangeFormatting` default **on** (opt-outs, for when one misbehaves); `folding` defaults **off** (opt-in; see `.ai/docs/FOLDING-PLAN.md` §5 on switching it); `typeDefinition` defaults **off** (opt-in while new). See below |
+| `features` | Per-capability switches: `documentHighlight`, `watchedFiles`, `rangeFormatting` and `folding` default **on** (opt-outs, for when one misbehaves); `typeDefinition` defaults **off** (opt-in while new). See below |
 | `completions` | `tagSnippets`, `functionSnippets`, `globalFunctionResolution` |
 | `debug` | Verbose zap development logging to stderr. Without it `Debug` records are dropped before anything is formatted, and never reach the client as `window/logMessage` (`TestDebugRecordsNeedTheDebugFlag`) |
 

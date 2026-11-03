@@ -138,17 +138,17 @@ func TestFeaturesDefaultToOn(t *testing.T) {
 	check(t, "Resolve", reflect.ValueOf(Resolve(&JSON{}, t.TempDir()).Features))
 }
 
-// TestFoldingIsOptIn states folding's default on its own, so that flipping it
-// back is a deliberate edit to a test that says what it is for rather than a
-// number changing inside a table.
-func TestFoldingIsOptIn(t *testing.T) {
-	if Resolve(&JSON{}, t.TempDir()).Features.Folding {
-		t.Error("folding is on for a config that does not mention it; it is opt-in")
+// TestFoldingIsOnByDefault states folding's default on its own, so that
+// flipping it back is a deliberate edit to a test that says what it is for
+// rather than a number changing inside a table.
+func TestFoldingIsOnByDefault(t *testing.T) {
+	if !Resolve(&JSON{}, t.TempDir()).Features.Folding {
+		t.Error("folding is off for a config that does not mention it; it is on by default")
 	}
 
-	on := true
-	if !Resolve(&JSON{Features: &Features{Folding: &on}}, t.TempDir()).Features.Folding {
-		t.Error("folding stayed off despite being asked for")
+	off := false
+	if Resolve(&JSON{Features: &Features{Folding: &off}}, t.TempDir()).Features.Folding {
+		t.Error("folding stayed on despite being switched off")
 	}
 }
 
@@ -156,8 +156,8 @@ func TestFoldingIsOptIn(t *testing.T) {
 // plain bools, naming one switch would read the rest back as false and turn
 // them all off — the defect the completions block was fixed for.
 func TestSettingOneFeatureLeavesTheOthersOn(t *testing.T) {
-	// documentHighlight rather than folding: folding is off by default, so
-	// setting it to false would assert nothing.
+	// documentHighlight rather than typeDefinition: typeDefinition is off by
+	// default, so setting it to false would assert nothing.
 	off := false
 	resolved := Resolve(&JSON{Features: &Features{DocumentHighlight: &off}}, t.TempDir()).Features
 
