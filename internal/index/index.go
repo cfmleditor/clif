@@ -1160,13 +1160,6 @@ func (idx *Index) LookupBean(name string) string {
 	return idx.beans[strings.ToLower(name)]
 }
 
-// SetEntity registers a persistent CFC as an ORM entity by name.
-func (idx *Index) SetEntity(name string, fileURI uri.URI) {
-	idx.mu.Lock()
-	idx.addEntityLocked(name, fileURI)
-	idx.mu.Unlock()
-}
-
 // SetFileEntity records what ORM entity fileURI declares, replacing what it
 // declared before: entityName when it names one, else an entity called after
 // the file, and nothing when the component is not persistent. The editor's

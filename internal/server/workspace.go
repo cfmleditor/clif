@@ -1,11 +1,9 @@
 package server
 
 import (
-	"path/filepath"
 	"runtime"
 	"runtime/debug"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -170,7 +168,7 @@ func mb(b uint64) string {
 
 // applyIndexResult writes one parsed file into the index: its signatures and
 // component refs, its this-scoped vars, and its ORM entity registration when
-// the component is persistent and sits in ORM scope.
+// the component is persistent (recordEntity).
 //
 // This is the single definition of "what indexing a file means", called by the
 // startup walk (indexWorkspace, indexRoot) and by the watched-file handler. It
@@ -178,7 +176,7 @@ func mb(b uint64) string {
 // lets a later hop be added to one and forgotten at the others — a file picked
 // up by a watcher would then be indexed differently from the identical file
 // that happened to exist at startup.
-func (s *Server) applyIndexResult(fileURI uri.URI, path string, pr *parser.ParseResult) {
+func (s *Server) applyIndexResult(fileURI uri.URI, pr *parser.ParseResult) {
 	s.index.IndexFileFromResult(fileURI, pr.Funcs, pr.ComponentRefs)
 	s.index.SetThisVars(fileURI, pr.ThisVars())
 	s.index.SetIncludes(fileURI, parser.ExtractIncludes(pr.Content))
@@ -198,32 +196,31 @@ func (s *Server) applyIndexResult(fileURI uri.URI, path string, pr *parser.Parse
 		s.index.SetDelegates(fileURI, nil)
 	}
 
-	s.index.SetFileEntity(fileURI, pr.Persistent && s.isOrmPath(path), pr.EntityName())
+	s.recordEntity(fileURI, pr)
 }
 
-// isOrmPath returns true if the file path is within the ORM entity scope.
-// If cfcLocation is defined in Application.cfc, the file must be under one of those dirs.
-// Otherwise, the file must be under the Application.cfc directory.
-func (s *Server) isOrmPath(filePath string) bool {
-	dir := filepath.Dir(filePath)
-
-	appDir := s.getResolver().FindApplicationRoot(dir)
-	if appDir == "" {
-		return false
+// recordEntity records the ORM entity a parsed component declares, replacing
+// what it declared before, so a file that renames its entity or stops being
+// persistent keeps nothing of the old one.
+//
+// It applies the rule IndexParsed applies, which the editor's save and the
+// resolver's lazy index go through for the same file: any persistent
+// component. It used to register only a component inside the Application's
+// cfcLocation, and once a re-index could drop as well as add, a component
+// outside it was registered by one writer and dropped by the other, so what
+// entityNew() named depended on which ran last. The CLI never applied the
+// scope either.
+func (s *Server) recordEntity(fileURI uri.URI, pr *parser.ParseResult) {
+	if !cfpath.IsCFCFile(string(fileURI)) {
+		return
 	}
 
-	ormDirs := cfpath.LoadOrmLocations(appDir)
-	if len(ormDirs) > 0 {
-		for _, ormDir := range ormDirs {
-			if strings.HasPrefix(filePath, ormDir+string(filepath.Separator)) || strings.HasPrefix(filePath, ormDir) {
-				return true
-			}
-		}
-
-		return false
+	name := ""
+	if pr.Persistent {
+		name = pr.EntityName()
 	}
-	// No cfcLocation — allow anything under the Application.cfc root
-	return strings.HasPrefix(filePath, appDir)
+
+	s.index.SetFileEntity(fileURI, pr.Persistent, name)
 }
 
 // collectCFCFiles walks root and returns all .cfc file paths, by the rule the
@@ -263,7 +260,7 @@ func (s *Server) indexRoot(root string) {
 			continue
 		}
 
-		s.applyIndexResult(fileURI, path, s.parseContentForIndex(fileURI, string(data)))
+		s.applyIndexResult(fileURI, s.parseContentForIndex(fileURI, string(data)))
 	}
 }
 
@@ -325,7 +322,7 @@ func (s *Server) applyIndexResultRecovered(fileURI uri.URI, file string, pr *par
 		}
 	}()
 
-	s.applyIndexResult(fileURI, file, pr)
+	s.applyIndexResult(fileURI, pr)
 
 	return true
 }

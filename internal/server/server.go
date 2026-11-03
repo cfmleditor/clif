@@ -407,7 +407,7 @@ func (s *Server) flushReparse(docURI uri.URI) {
 // The resolver and the two cached resolver forms below are rebuilt lazily and
 // discarded wholesale by invalidateResolver when config changes, so they are
 // written from whichever goroutine happens to ask first. That is not only the
-// LSP read goroutine: indexWorkspace reaches one through isOrmPath, and
+// LSP read goroutine: indexWorkspace reaches one through its parses, and
 // didSave's cache rebuild reaches one through parseContent, both on their own
 // goroutines. Unguarded, two of them build competing resolvers, and a rebuild
 // racing invalidateResolver can hand back the nil it just stored. safeGo's

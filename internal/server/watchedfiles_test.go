@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
 
 	"go.lsp.dev/protocol"
@@ -154,6 +155,54 @@ func TestARenamedEntityIsNotKeptUnderItsOldName(t *testing.T) {
 
 	if len(srv.index.NamedEntities("Poet")) != 1 {
 		t.Error("Poet was not registered after the rename")
+	}
+}
+
+// TestTheEditorsEntityWritersAgree: an open buffer's reparse
+// (reindexFromParseResult) and its save (reindexIfCFC, through IndexParsed)
+// both record the file's entity. The reparse registered one only inside the
+// Application's cfcLocation and, once it could drop as well as add, dropped
+// what the save had just registered, so a persistent component outside that
+// location came and went with the order the two ran in. It must also replace
+// a renamed entity and never file the file's own name as a declared one.
+func TestTheEditorsEntityWritersAgree(t *testing.T) {
+	dir := t.TempDir()
+
+	writeCFC(t, filepath.Join(dir, "Application.cfc"),
+		"component {\n\tthis.ormEnabled = true;\n\tthis.ormSettings = { cfcLocation = \"models\" };\n}\n")
+
+	if err := os.MkdirAll(filepath.Join(dir, "other"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+
+	path := filepath.Join(dir, "other", "Writer.cfc")
+	docURI := cfpath.ToURI(path)
+	text := "component persistent=\"true\" entityName=\"Author\" {}\n"
+	writeCFC(t, path, text)
+
+	srv := newTestServer()
+	srv.WorkspaceFolders = []string{dir}
+
+	srv.reindexIfCFC(docURI, text)
+	srv.reindexFromParseResult(docURI, parser.Parse(docURI, text))
+
+	if got := srv.index.NamedEntities("Author"); len(got) != 1 {
+		t.Fatalf("after a save and a reparse, Author is declared by %v, want Writer.cfc", got)
+	}
+
+	if got := srv.index.NamedEntities("Writer"); len(got) != 0 {
+		t.Errorf("the file's name was registered as a declared entity name: %v", got)
+	}
+
+	renamed := "component persistent=\"true\" entityName=\"Poet\" {}\n"
+	srv.reindexFromParseResult(docURI, parser.Parse(docURI, renamed))
+
+	if got := srv.index.NamedEntities("Author"); len(got) != 0 {
+		t.Errorf("Author still registered to %v after the buffer renamed its entity", got)
+	}
+
+	if len(srv.index.NamedEntities("Poet")) != 1 {
+		t.Error("Poet was not registered after the buffer renamed its entity")
 	}
 }
 

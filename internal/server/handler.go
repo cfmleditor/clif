@@ -734,11 +734,7 @@ func (s *Server) reindexFromParseResult(docURI uri.URI, pr *parser.ParseResult) 
 	// parse already holds both.
 	s.index.SetExtends(docURI, pr.Extends)
 	s.index.SetDelegates(docURI, pr.Delegates)
-	// An entity only within ORM scope. Set on every re-index, not only when
-	// persistent, so a file that renames its entity or stops declaring one
-	// drops what it registered before.
-	entity := cfpath.IsCFCFile(string(docURI)) && pr.Persistent && s.isOrmPath(docURI.Path())
-	s.index.SetFileEntity(docURI, entity, pr.EntityName())
+	s.recordEntity(docURI, pr)
 }
 
 // resolverRefs scans content for assignments whose RHS matches a component resolver.

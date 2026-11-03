@@ -215,7 +215,7 @@ func TestIndex_BeansAndEntities(t *testing.T) {
 		t.Errorf("expected empty string for unknown bean, got %q", got)
 	}
 
-	idx.SetEntity("User", uri.URI("file:///models/User.cfc"))
+	idx.SetFileEntity(uri.URI("file:///models/User.cfc"), true, "User")
 
 	if got := idx.NamedEntities("user"); len(got) != 1 || got[0] != uri.URI("file:///models/User.cfc") {
 		t.Errorf("expected case-insensitive entity lookup, got %q", got)

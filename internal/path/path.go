@@ -220,48 +220,6 @@ func LoadAppBeanPaths(appDir string) map[string]string {
 	return m
 }
 
-// ParseOrmLocations delegates to parser.ParseOrmLocations.
-func ParseOrmLocations(content string, appDir string) []string {
-	return parser.ParseOrmLocations(content, appDir)
-}
-
-// LoadOrmLocations returns cached ORM cfcLocation paths for appDir.
-func LoadOrmLocations(appDir string) []string {
-	appMappingsCacheMu.RLock()
-
-	key := appDir + "|orm"
-	if m, ok := appMappingsCache[key]; ok {
-		appMappingsCacheMu.RUnlock()
-
-		out := make([]string, 0, len(m))
-		for _, v := range m {
-			out = append(out, v)
-		}
-
-		return out
-	}
-
-	appMappingsCacheMu.RUnlock()
-
-	content := readApplicationFile(appDir)
-	if content == nil {
-		return nil
-	}
-
-	locs := parser.ParseOrmLocations(string(content), appDir)
-
-	m := make(map[string]string, len(locs))
-	for i, l := range locs {
-		m[string(rune('0'+i))] = l
-	}
-
-	appMappingsCacheMu.Lock()
-	appMappingsCache[key] = m
-	appMappingsCacheMu.Unlock()
-
-	return locs
-}
-
 // ResolvePath resolves a CFML dot-path (e.g. "models.User") to an absolute
 // .cfc file path. It checks mappings first (matching the first segment, case-insensitively),
 // then falls back to resolving relative to baseDir. CFML component paths are conventionally

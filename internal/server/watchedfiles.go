@@ -244,7 +244,7 @@ func (s *Server) applyWatchedFileChange(ev protocol.FileEvent) watchedOutcome {
 		return watchedSkipped
 	}
 
-	s.applyIndexResult(fileURI, path, s.parseContentForIndex(fileURI, string(data)))
+	s.applyIndexResult(fileURI, s.parseContentForIndex(fileURI, string(data)))
 	s.dropFileCaches(fileURI)
 
 	return watchedIndexed
