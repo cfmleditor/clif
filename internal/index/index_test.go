@@ -518,3 +518,24 @@ func TestOnlyComponentsAreRecordedAsRead(t *testing.T) {
 		t.Error("a component was not recorded as read")
 	}
 }
+
+// TestEntityChoicesSplitsTheDeclaredOnes: declared is exactly the files
+// declaring the name, sorted, and the prefix of all.
+func TestEntityChoicesSplitsTheDeclaredOnes(t *testing.T) {
+	idx := New()
+	b, a, plain := uri.URI("file:///b/Writer.cfc"), uri.URI("file:///a/Writer.cfc"), uri.URI("file:///c/Author.cfc")
+
+	idx.IndexFile(b, `component persistent="true" entityName="Author" {}`)
+	idx.IndexFile(plain, `component persistent="true" {}`)
+	idx.IndexFile(a, `component persistent="true" entityName="Author" {}`)
+
+	declared, all := idx.EntityChoices("author")
+
+	if !slices.Equal(declared, []uri.URI{a, b}) {
+		t.Errorf("declared is %v", declared)
+	}
+
+	if !slices.Equal(all, []uri.URI{a, b, plain}) {
+		t.Errorf("all is %v", all)
+	}
+}

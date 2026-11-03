@@ -1324,17 +1324,28 @@ func (idx *Index) dropEntitiesLocked(key string) {
 // nearer the caller in another. Where the two are equally near, the declared
 // one comes first and wins.
 func (idx *Index) EntityCandidates(name string) []uri.URI {
+	_, all := idx.EntityChoices(name)
+
+	return all
+}
+
+// EntityChoices is EntityCandidates with the declared ones split out
+// (declared is a prefix of all), read under one lock so the two cannot
+// disagree when a file is re-indexed between two reads.
+func (idx *Index) EntityChoices(name string) (declared, all []uri.URI) {
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
 
 	name = strings.ToLower(name)
-	named := slices.Clone(idx.entities[name])
-	slices.Sort(named)
+	named, byFile := idx.entities[name], idx.defaultEntities[name]
 
-	byFile := slices.Clone(idx.defaultEntities[name])
-	slices.Sort(byFile)
+	all = make([]uri.URI, 0, len(named)+len(byFile))
+	all = append(all, named...)
+	slices.Sort(all)
+	all = append(all, byFile...)
+	slices.Sort(all[len(named):])
 
-	return append(named, byFile...)
+	return all[:len(named):len(named)], all
 }
 
 // NamedEntities are the files whose entityname is name (case-insensitive),

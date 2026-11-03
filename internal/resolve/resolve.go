@@ -1259,7 +1259,9 @@ func (r *Resolver) nearestEntity(name, baseDir string) string {
 		return ""
 	}
 
-	return r.pickEntity(r.Index.NamedEntities(name), r.Index.EntityCandidates(name), baseDir)
+	declared, all := r.Index.EntityChoices(name)
+
+	return r.pickEntity(declared, all, baseDir)
 }
 
 // pickEntity is the entity file baseDir means among candidates (declared is
