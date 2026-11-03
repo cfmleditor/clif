@@ -734,11 +734,14 @@ func (s *Server) reindexFromParseResult(docURI uri.URI, pr *parser.ParseResult) 
 	// parse already holds both.
 	s.index.SetExtends(docURI, pr.Extends)
 	s.index.SetDelegates(docURI, pr.Delegates)
-	// The entity by the index's own rule. Not for a component outside the
-	// workspace, which reindexIfCFC does not index either: an open file from
-	// another project would otherwise name entities for every client.
+	// The entity by the index's own rule. A component outside the workspace,
+	// which reindexIfCFC does not index either, adds none (an open file from
+	// another project would otherwise name entities for every client), but
+	// one the resolver registered follows the buffer.
 	if !cfpath.IsCFCFile(string(docURI)) || len(s.WorkspaceFolders) == 0 || s.isIncludedPath(string(docURI)) {
 		s.index.IndexEntity(docURI, pr)
+	} else {
+		s.index.RefreshEntity(docURI, pr)
 	}
 }
 

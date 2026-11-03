@@ -215,7 +215,7 @@ func TestIndex_BeansAndEntities(t *testing.T) {
 		t.Errorf("expected empty string for unknown bean, got %q", got)
 	}
 
-	idx.SetFileEntity(uri.URI("file:///models/User.cfc"), true, "User")
+	idx.setFileEntity(uri.URI("file:///models/User.cfc"), true, "User")
 
 	if got := idx.NamedEntities("user"); len(got) != 1 || got[0] != uri.URI("file:///models/User.cfc") {
 		t.Errorf("expected case-insensitive entity lookup, got %q", got)
@@ -342,7 +342,7 @@ func TestEveryDeclarationOfAnEntityNameIsKept(t *testing.T) {
 // TestAReindexReplacesAFilesEntity: each re-index of a persistent component
 // named after its file appended it again, and one that went on to declare an
 // entityname, or stopped being persistent, stayed a candidate under its file
-// name. The editor's SetFileEntity must replace in the same way, and must not
+// name. The editor's IndexEntity must replace in the same way, and must not
 // file the file's name as a declared entityname.
 func TestAReindexReplacesAFilesEntity(t *testing.T) {
 	idx := New()
@@ -368,14 +368,14 @@ func TestAReindexReplacesAFilesEntity(t *testing.T) {
 		t.Fatalf("Author.cfc is no longer persistent, yet cbAuthor's candidates are %v", got)
 	}
 
-	idx.SetFileEntity(author, true, "cbAuthor")
-	idx.SetFileEntity(author, true, "cbAuthor")
+	idx.setFileEntity(author, true, "cbAuthor")
+	idx.setFileEntity(author, true, "cbAuthor")
 
 	if got := idx.NamedEntities("author"); len(got) != 0 {
 		t.Fatalf("the file's name was filed as a declared entity name: %v", got)
 	}
 
-	idx.SetFileEntity(author, true, "cbWriter")
+	idx.setFileEntity(author, true, "cbWriter")
 
 	if got := idx.NamedEntities("cbauthor"); len(got) != 0 {
 		t.Fatalf("after renaming its entity, cbAuthor is still declared by %v", got)
@@ -385,7 +385,7 @@ func TestAReindexReplacesAFilesEntity(t *testing.T) {
 		t.Fatalf("cbWriter is declared by %v", got)
 	}
 
-	idx.SetFileEntity(author, false, "cbWriter")
+	idx.setFileEntity(author, false, "cbWriter")
 
 	if got := idx.EntityCandidates("cbwriter"); len(got) != 0 {
 		t.Fatalf("outside ORM scope, cbWriter is still declared by %v", got)
@@ -426,5 +426,50 @@ func TestRemovingAFolderDropsItsEntities(t *testing.T) {
 
 	if got := idx.EntityCandidates("poet"); len(got) != 0 {
 		t.Errorf("after removing /gone, Poet's candidates are %v", got)
+	}
+}
+
+// TestRemovingAFolderLeavesItsSibling: removing /work/app must not take
+// /work/app2 with it.
+func TestRemovingAFolderLeavesItsSibling(t *testing.T) {
+	idx := New()
+	sibling := uri.URI("file:///work/app2/Writer.cfc")
+
+	idx.IndexFile(uri.URI("file:///work/app/Writer.cfc"), `component persistent="true" entityName="Author" { function f() {} }`)
+	idx.IndexFile(sibling, `component persistent="true" entityName="Author" { function f() {} }`)
+
+	idx.RemoveFilesUnder("file:///work/app")
+
+	if got := idx.EntityCandidates("author"); !slices.Equal(got, []uri.URI{sibling}) {
+		t.Errorf("after removing /work/app, Author's candidates are %v", got)
+	}
+
+	if !idx.HasFile(sibling) {
+		t.Error("removing /work/app removed /work/app2's file")
+	}
+}
+
+// TestRefreshEntityFollowsOnlyAFileItHolds: RefreshEntity adds nothing for a
+// file the index holds no entity for, and replaces one it does.
+func TestRefreshEntityFollowsOnlyAFileItHolds(t *testing.T) {
+	idx := New()
+	held, stray := uri.URI("file:///a/Writer.cfc"), uri.URI("file:///b/Writer.cfc")
+
+	idx.IndexFile(held, `component persistent="true" entityName="Author" {}`)
+
+	idx.RefreshEntity(stray, parser.Parse(stray, `component persistent="true" entityName="Poet" {}`))
+
+	if got := idx.EntityCandidates("poet"); len(got) != 0 {
+		t.Fatalf("a file the index held no entity for registered Poet: %v", got)
+	}
+
+	idx.RefreshEntity(held, parser.Parse(held, `component persistent="true" entityName="Poet" {}`))
+
+	if got := idx.EntityCandidates("author"); len(got) != 0 {
+		t.Errorf("after the rename, Author is declared by %v", got)
+	}
+
+	if got := idx.EntityCandidates("poet"); !slices.Equal(got, []uri.URI{held}) {
+		t.Errorf("after the rename, Poet is declared by %v", got)
 	}
 }

@@ -225,6 +225,21 @@ func TestABufferOutsideTheWorkspaceDeclaresNoEntity(t *testing.T) {
 	if got := srv.index.EntityCandidates("Author"); len(got) != 0 {
 		t.Errorf("a buffer outside the workspace registered Author: %v", got)
 	}
+
+	// One the resolver's lazy index registered follows the buffer, since that
+	// index never reads the file again.
+	srv.index.IndexFile(docURI, text)
+
+	renamed := "component persistent=\"true\" entityName=\"Poet\" {}\n"
+	srv.reindexFromParseResult(docURI, parser.Parse(docURI, renamed))
+
+	if got := srv.index.EntityCandidates("Author"); len(got) != 0 {
+		t.Errorf("a lazily indexed file outside the workspace kept Author after its buffer renamed it: %v", got)
+	}
+
+	if got := srv.index.EntityCandidates("Poet"); len(got) != 1 {
+		t.Errorf("a lazily indexed file outside the workspace did not take Poet: %v", got)
+	}
 }
 
 // TestWatchedFileChangeSkipsOpenDocuments: the editor's buffer outranks disk.

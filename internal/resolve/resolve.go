@@ -1246,12 +1246,30 @@ func (r *Resolver) declaredExtendsOf(cfcPath string, cfcURI uri.URI) (string, bo
 	return ext, true
 }
 
-// nearestEntity is the file an ORM entity name names from baseDir: the one
-// whose entityname it is, else the persistent component called after it
-// nearest baseDir, the lowest path among equals.
+// nearestEntity is the file an ORM entity name names from baseDir. A file in
+// the caller's own application declaring it as its entityname comes first,
+// the nearest of them: within one application a declared name is the entity,
+// and a nearer persistent component merely called the same is not. Otherwise
+// it is the nearest of every candidate, declared or called after the file,
+// so one application's declaration does not hide another's component; a
+// declared one wins a tie (EntityCandidates lists them first).
 func (r *Resolver) nearestEntity(name, baseDir string) string {
 	if r.Index == nil {
 		return ""
+	}
+
+	if root := r.FindApplicationRoot(baseDir); root != "" {
+		var inApp []uri.URI
+
+		for _, u := range r.Index.NamedEntities(name) {
+			if under(cfpath.FromURI(string(u)), root) {
+				inApp = append(inApp, u)
+			}
+		}
+
+		if p := r.nearestOf(inApp, baseDir); p != "" {
+			return p
+		}
 	}
 
 	return r.nearestOf(r.Index.EntityCandidates(name), baseDir)

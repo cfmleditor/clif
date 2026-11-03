@@ -776,6 +776,12 @@ func (idx *Index) RemoveFile(fileURI uri.URI) {
 // name buckets through exactly these maps — reconciling a view no writer
 // maintains.
 func (idx *Index) RemoveFilesUnder(prefix string) {
+	// A folder's files are those under it: without the separator, removing
+	// /work/app removed /work/app2 as well.
+	if !strings.HasSuffix(prefix, "/") {
+		prefix += "/"
+	}
+
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
 
@@ -1185,12 +1191,12 @@ func (idx *Index) LookupBean(name string) string {
 	return idx.beans[strings.ToLower(name)]
 }
 
-// SetFileEntity records what ORM entity fileURI declares, replacing what it
+// setFileEntity records what ORM entity fileURI declares, replacing what it
 // declared before: entityName when it names one, else an entity called after
-// the file, and nothing when the component is not persistent. The editor's
-// re-index goes through it as the batch index does, so a file that renames its
-// entity, or stops being one, does not keep its old registration.
-func (idx *Index) SetFileEntity(fileURI uri.URI, persistent bool, entityName string) {
+// the file, and nothing when the component is not persistent. Outside the
+// index a file's entity is recorded through IndexEntity or RefreshEntity, which
+// read both from a parse by one rule (entityOf).
+func (idx *Index) setFileEntity(fileURI uri.URI, persistent bool, entityName string) {
 	idx.mu.Lock()
 	idx.setFileEntityLocked(fileURI, persistent, entityName)
 	idx.mu.Unlock()
@@ -1209,7 +1215,40 @@ func (idx *Index) IndexEntity(fileURI uri.URI, pr *parser.ParseResult) {
 	}
 
 	persistent, entityName := entityOf(fileURI, pr)
-	idx.SetFileEntity(fileURI, persistent, entityName)
+	idx.setFileEntity(fileURI, persistent, entityName)
+}
+
+// RefreshEntity is IndexEntity for a file the index registered an entity for
+// already, and does nothing for one it did not. The editor uses it for a
+// component outside the workspace: a buffer opened from another project must
+// not add entities, but one the resolver's lazy index registered must follow
+// its edits, since that index never reads a file twice.
+func (idx *Index) RefreshEntity(fileURI uri.URI, pr *parser.ParseResult) {
+	if !isComponent(fileURI) {
+		return
+	}
+
+	persistent, entityName := entityOf(fileURI, pr)
+	key := uriKey(fileURI)
+
+	idx.mu.Lock()
+	defer idx.mu.Unlock()
+
+	if idx.holdsEntityLocked(fileURI, key) {
+		idx.setFileEntityLocked(fileURI, persistent, entityName)
+	}
+}
+
+// holdsEntityLocked reports whether the file keyed key is registered as an
+// entity, by a name it declares or by its file name; idx.mu is held.
+func (idx *Index) holdsEntityLocked(fileURI uri.URI, key string) bool {
+	if len(idx.entityNames[key]) > 0 {
+		return true
+	}
+
+	byFile := strings.ToLower(strings.TrimSuffix(path.Base(string(fileURI)), path.Ext(string(fileURI))))
+
+	return slices.ContainsFunc(idx.defaultEntities[byFile], func(u uri.URI) bool { return uriKey(u) == key })
 }
 
 // entityOf is what a parsed file declares as an ORM entity: whether it is a
@@ -1228,7 +1267,7 @@ func isComponent(fileURI uri.URI) bool {
 	return strings.EqualFold(path.Ext(string(fileURI)), ".cfc")
 }
 
-// setFileEntityLocked is SetFileEntity with idx.mu held.
+// setFileEntityLocked is setFileEntity with idx.mu held.
 func (idx *Index) setFileEntityLocked(fileURI uri.URI, persistent bool, entityName string) {
 	key := uriKey(fileURI)
 	idx.dropEntitiesLocked(key)

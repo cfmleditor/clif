@@ -85,3 +85,50 @@ func TestAnEntityByFileNameIsNotHiddenByOneDeclaredElsewhere(t *testing.T) {
 		"a.setQuill": "",
 	})
 }
+
+// TestADeclaredEntityInTheCallersApplicationOutranksANearerFile: within one
+// application the entity is the component declaring the name, not a nearer
+// persistent component that merely shares it.
+func TestADeclaredEntityInTheCallersApplicationOutranksANearerFile(t *testing.T) {
+	dir := t.TempDir()
+
+	writeFiles(t, dir, map[string]string{
+		"app/Application.cfc":       `component { this.ormEnabled = true; }`,
+		"app/models/orm/Writer.cfc": `component persistent="true" entityName="Author" accessors="true" { property name="pen"; }`,
+		"app/legacy/Author.cfc":     `component persistent="true" accessors="true" { property name="quill"; }`,
+		"app/legacy/books.cfc": `component {
+	function post(){
+		var a = entityNew( "Author" );
+		a.setPen( 1 );
+		return a;
+	}
+}`,
+	})
+
+	expectReasons(t, reasonsWith(t, &Resolver{}, dir, "app/legacy/books.cfc"), map[string]string{
+		"a.setPen": "",
+	})
+}
+
+// TestADeclaredEntityWinsATieWithOneByFileName: with no application to
+// decide, a declared entity and a component called after the name, equally
+// near the caller, resolve to the declared one.
+func TestADeclaredEntityWinsATieWithOneByFileName(t *testing.T) {
+	dir := t.TempDir()
+
+	writeFiles(t, dir, map[string]string{
+		"x/Writer.cfc": `component persistent="true" entityName="Author" accessors="true" { property name="pen"; }`,
+		"y/Author.cfc": `component persistent="true" accessors="true" { property name="quill"; }`,
+		"z/books.cfc": `component {
+	function post(){
+		var a = entityNew( "Author" );
+		a.setPen( 1 );
+		return a;
+	}
+}`,
+	})
+
+	expectReasons(t, reasonsWith(t, &Resolver{}, dir, "z/books.cfc"), map[string]string{
+		"a.setPen": "",
+	})
+}
