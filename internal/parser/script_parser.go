@@ -107,7 +107,7 @@ type pendingCall struct {
 
 func newScriptParser(src, fileURI string, baseLine int, resolvers []Resolver) *scriptParser {
 	return &scriptParser{
-		sc:         NewScanner(src),
+		sc:         NewScanner(blankNonScript(src)),
 		fileURI:    fileURI,
 		baseLine:   baseLine,
 		baseOffset: -1,
@@ -4435,7 +4435,7 @@ type globalScriptParser struct {
 // scanner reads interpolated strings the way scriptParser's does — otherwise
 // the two variable scans would tokenise the same file differently.
 func newGlobalScriptParser(src string, baseLine int, scopes []FuncScope) *globalScriptParser {
-	sc := NewScanner(src)
+	sc := NewScanner(blankNonScript(src))
 	sc.interpStrings = true
 
 	return &globalScriptParser{
