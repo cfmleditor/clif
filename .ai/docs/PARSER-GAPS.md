@@ -688,11 +688,20 @@ written on, so a committed known-issues report will show line-number churn on
 the next regeneration and nothing else.
 
 What is left, apart from the 331 deliberate ones, is 13 files: 11 calls only the
-grammar sees and 13 only the parser. The grammar's are mostly `text`, `get`,
-`set`, `view` and `button` in `.cfm` pages (interpolation the output-context
-rules decline), and the parser's are script-syntax tags the grammar reads as
-something else (`cfmail`, `cfhttp`, `cfloop`), a `this[]` marker and a few
-Java-object methods (`getTable`, `getTextColumnType`).
+grammar sees and 13 only the parser. Looked at so far, not all explained:
+
+- **Parser-only, understood:** `cfmail(`, `cfhttp(` and `cfloop(` are script-syntax
+  tags the grammar reads as tag nodes; `#getTable()#` in the SQL text of a
+  query is a call the parser finds in the string and the injected SQL grammar
+  does not; and the `this[]` marker is the parser's own (see "Bracket-indexed
+  chain segments" in CLAUDE.md).
+- **Grammar-only, a real miss:** `#ETH.text( "` followed by markup over several
+  lines, in `.cfm` pages already inside `<cfoutput>` (ContentBox's
+  `email_templates/author_welcome.cfm` and `comment_notification.cfm`). Not
+  investigated; the `#…#` span holds a string with `<p>` in it, which is the
+  case the tag walk's span rules (§3.10, §3.11) are tuned around.
+- **Grammar-only, not looked at:** `get`/`set`/`view`/`button`/`buildLink` and
+  `encodeForHtmlAttribute` in a few more ContentBox `.cfm` views, and `r`.
 
 ## 5. What would change these decisions
 
