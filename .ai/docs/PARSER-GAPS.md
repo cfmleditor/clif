@@ -647,16 +647,18 @@ Three causes, none of them a wrong answer about code that runs:
 `make gapcheck` over ColdBox, TestBox, FW/1 and ContentBox (1,896 files; Lucee
 and cfmleditor not included) after the 0.6.0 work:
 
-| | Start | Oracle keyed on the name | Walkers fixed |
-|---|---:|---:|---:|
-| Files where the two disagree (line and name) | 370 | 414 | **169** |
-| Grammar-only, line-keyed | 2,576 | 2,015 | **342** |
-| Parser-only, line-keyed | 2,247 | 1,686 | **13** |
-| Grammar-only / parser-only, by name | 342 / 13 | 342 / 13 | 342 / 13 |
+| | Start | Oracle keyed on the name | Walkers fixed | Spans, `default` |
+|---|---:|---:|---:|---:|
+| Files where the two disagree (line and name) | 370 | 414 | 169 | **164** |
+| Grammar-only, line-keyed | 2,576 | 2,015 | 342 | **331** |
+| Parser-only, line-keyed | 2,247 | 1,686 | 13 | **13** |
+| Grammar-only / parser-only, by name | 342 / 13 | 342 / 13 | 342 / 13 | **331 / 13** |
 
-Line-keyed now equals name-keyed: no file differs by line alone. By name, 331 of
-the 342 grammar-only calls are the deliberate `createObject` / `entityLoad` /
-`entityNew` / `entityLoadByPK` of §4.1. What was left was lines, in two parts.
+Line-keyed now equals name-keyed: no file differs by line alone. The 331
+grammar-only calls that remain are exactly the deliberate `createObject` /
+`entityLoad` / `entityNew` / `entityLoadByPK` of §4.1, so nothing else the
+grammar sees is missing from these four projects. What was left, before the last
+column, was lines, in two parts.
 
 - **The oracle keyed a call on its node's first row**, so every hop of a chain
   written a call per line got the chain's first line, where the parser gives a
@@ -706,32 +708,55 @@ over — the one after it (`divider` in the test).
 
 `callSpanEnd` closes a span the way CFML does, through its strings
 (`matchingHash`), but only for a span that **opens as a call** (a name or dotted
-name, then `(`), whose strings **all close**, and that **holds no CF tag**. Those
-are the three ways the earlier, wider attempt lost tags (§3.10): a CSS colour, an
-id selector, a jQuery `'#search'` and prose hashes never open as a call, an unclosed
-quote leaves the markup after it as markup, and a span is never stepped across a
-`<cfif>`. Everything else is paired as before.
+name, then `(`), whose strings **all close**, and that **holds no CF tag**, and
+only when the walk's own test has **declined** the span, so the common span costs
+what it always did. Those are the three ways the earlier, wider attempt lost tags
+(§3.10): a CSS colour, an id selector, a jQuery `'#search'` and prose hashes never
+open as a call, an unclosed quote leaves the markup after it as markup, and a span
+is never stepped across a `<cfif>`.
 `TestAnInterpolatedCallMayHoldProseAndEscapedHashes` has a case for each, and the
 two guards pass with and without the change.
 
-Per file, over both corpora: seven files improved (ContentBox's two email templates,
-two admin and installer views; Lucee's `admin.search.cfm`,
-`resources.component.list.cfm` and `services.datasource.list.cfm`), none got worse,
-and 6,438 files are otherwise byte-for-byte what they were. `unresolved` over the four
-projects: nothing removed, one finding added — a `cb.r( … )` in a string in a
-`#html.button( … )#` span, reported as the file's eight other `cb.r(…)` calls are.
+#### A hash span may hold a hash span, and `default` may name a variable
 
-What is left in the four projects, apart from the 331 deliberate ones, is 9 files:
-6 calls only the grammar sees and 13 only the parser.
+The last two calls the grammar saw and the parser did not, in ColdBox's CacheBox
+report page and ContentBox's entries view, were two more causes:
 
-- **Parser-only, understood:** `cfmail(`, `cfhttp(` and `cfloop(` are script-syntax
-  tags the grammar reads as tag nodes; `#getTable()#` in the SQL text of a
-  query is a call the parser finds in the string and the injected SQL grammar
-  does not; and the `this[]` marker is the parser's own (see "Bracket-indexed
-  chain segments" in CLAUDE.md).
-- **Grammar-only, not looked at:** `set`/`get` in ColdBox's
-  `tests/specs/cache/report/index.cfm`, and `buildLink` and
-  `encodeForHtmlAttribute` in ContentBox's `views/entries/index.cfm`.
+- **`default.get( "Test" )`** and `default.set( … )`: the cache is held in a
+  variable named `default`, which is also the keyword of a `switch` label, so every
+  walker turned it away. A switch's `default` is followed by a colon, so a dot
+  after it is a name, and `operatorWordIsName` — which already lets `mod` and the
+  comparison words name a receiver — takes it. (`TestAnOperatorWordCanNameAReceiver`.)
+- **`href="#event.buildLink( prc.x & "?t=" & #encodeForHTMLAttribute( id )# )#"`**:
+  a hash expression holding a hash expression of its own, outside any string,
+  which CFML allows in an argument list. `matchingHash` closed the span at the first
+  hash outside a string, which is the inner opener, in the middle of an open
+  parenthesis; the fragment `event.buildLink( … & ` has no closing paren and
+  neither call was recorded. An expression cannot end inside a call, so a hash
+  met with a parenthesis open (counted outside strings) opens a span of its own and
+  the closing hash is the one after it, to `maxHashNesting` deep, else no span.
+  (`TestAHashSpanMayHoldAHashSpanOfItsOwn`.)
+
+Per file over both corpora, both changes together: two ContentBox/ColdBox files
+gain their six calls and nothing else changes in 6,438. `unresolved` over the four
+projects does not move: the new calls resolve.
+
+**Cost.** A file where every line carries three call-shaped spans (a worst case; a
+real one has far fewer) parses 0.2–3.3% slower than before this PR's span work,
+over 40 interleaved samples: minimum +1.2%, p10 +0.2%, p25 +3.3%, median +3.2%.
+The first version of the walk change ran its scan on every call-shaped span and
+measured +10–13%; asking it only of a span the old test declined, and skipping the
+paren count for a span with no `(` in it, is what brought it down.
+
+What is left in the four projects, apart from the 331 deliberate ones, is the 13
+calls only the parser records, none of them a call the grammar misses:
+
+- `cfmail(`, `cfhttp(` and `cfloop(` are script-syntax tags the grammar reads as
+  tag nodes;
+- `#getTable()#` in the SQL text of a query is a call the parser finds in the
+  string and the injected SQL grammar does not;
+- and the `this[]` marker is the parser's own (see "Bracket-indexed chain
+  segments" in CLAUDE.md).
 
 ## 5. What would change these decisions
 

@@ -115,6 +115,58 @@ func TestAnInterpolatedCallMayHoldProseAndEscapedHashes(t *testing.T) {
 	}
 }
 
+// A hash expression may hold hash expressions of its own, outside any string:
+//
+//	href="#event.buildLink( prc.xehEditor & "?t=" & #encodeForHTMLAttribute( id )# )#"
+//
+// ContentBox writes its admin links that way. The span was closed at the first
+// hash outside a string, which here is the *inner* opener, in the middle of an
+// open parenthesis, so the fragment `event.buildLink( … & ` had no closing
+// paren and neither call was recorded. An expression cannot end inside a call:
+// a hash met with a parenthesis open is another span's opening.
+func TestAHashSpanMayHoldAHashSpanOfItsOwn(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		src  string
+		want []string
+	}{
+		{
+			"a nested call, as the admin links write it",
+			"<cfoutput>\n<a href=\"#event.buildLink( prc.x & \"?t=\" & #encodeForHTMLAttribute( id )# )#\">x</a>\n#ETH.divider()#\n</cfoutput>",
+			[]string{"buildLink", "divider", "encodeForHTMLAttribute"},
+		},
+		{
+			"a nested plain value",
+			"<cfoutput>\n#ETH.heading( \"a\" & #name# & \"b\" )#\n#ETH.divider()#\n</cfoutput>",
+			[]string{"divider", "heading"},
+		},
+		{
+			"two levels",
+			"<cfoutput>\n#a.f( 1 & #b.g( 2 & #c.h()# )# )#\n#ETH.divider()#\n</cfoutput>",
+			[]string{"divider", "f", "g", "h"},
+		},
+		{
+			// Adjacent spans close at their own hash: the parenthesis is shut.
+			"adjacent spans are still two",
+			"<cfoutput>\n#a.f( 1 )##b.g( 2 )#\n#ETH.divider()#\n</cfoutput>",
+			[]string{"divider", "f", "g"},
+		},
+		{
+			// The parenthesis never closes, so no hash can be nested in it and the
+			// markup after the opener is still markup.
+			"an open parenthesis that never shuts",
+			"<div>#foo( x\n<cfif len( q )>\n</cfif>\n#y#\n",
+			[]string{"len"},
+		},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if got := tagFileCalls(t, c.src); !slices.Equal(got, c.want) {
+				t.Errorf("got %v want %v", got, c.want)
+			}
+		})
+	}
+}
+
 // The rule loses tags rather than finding calls whenever it pairs hashes that
 // were never a span. Each case here is reduced from a file the corpus reported
 // as newly broken while that guard was missing, and each fails without it —

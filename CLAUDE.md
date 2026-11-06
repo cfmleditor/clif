@@ -624,7 +624,9 @@ the *formatter*, not the parser.
 - **A word operator followed by a dot is a name** (`operatorWordIsName`): `mod.generate()` is a
   call on a variable called `mod`, which cfwheels' CLI specs hold their module in. `isKeyword`
   turned every token loop away from it and the call was recorded bare. The rule is in each place
-  a keyword is refused before a receiver is read; `TestAnOperatorWordCanNameAReceiver`.
+  a keyword is refused before a receiver is read; `TestAnOperatorWordCanNameAReceiver`. So is
+  `default`: a switch's label is followed by a colon, and ColdBox's CacheBox report page holds its
+  cache in a variable of that name (`default.get( "Test" )`).
 - **A line break ends a statement where CFScript lets it** (`newlineEndsStatement`): when the
   line's last token could end an expression and the next line starts with a word that is not an
   operator, the folding scan's rule. A collection write's value (`expressionEnds`) and a
@@ -2691,10 +2693,17 @@ that holds no CF tag is closed through its strings. `#ETH.text( "Don't <b>x</b>
 `"` separately, so an apostrophe in prose unbalanced it, and the next hash is the
 first half of the `##` — and the call after it was lost with the hashes it
 mis-paired. Each of the three conditions is one of the ways the wider attempt lost
-tags; `TestAnInterpolatedCallMayHoldProseAndEscapedHashes` has a case for each and
+tags, and it is asked only of a span the walk's own test declined, which is what
+keeps the common span at its old cost (the first version asked every call-shaped
+span and parsed a span-dense file 10-13% slower);
+`TestAnInterpolatedCallMayHoldProseAndEscapedHashes` has a case for each and
 the two guard shapes (a colour, an unclosed string) beside them. Checked per file
 over ColdBox, TestBox, FW/1, ContentBox and Lucee (6,438 files): seven improved,
-none changed otherwise.
+none changed otherwise. **The call scan's `matchingHash` also lets a span hold a
+span of its own**: a hash met outside a string with a parenthesis still open is
+another span's opening, so `#event.buildLink( a & #encodeForHTMLAttribute( id )# )#`
+is one span and both calls are found (`matchingHashAt`, to `maxHashNesting` deep;
+`TestAHashSpanMayHoldAHashSpanOfItsOwn`).
 
 `interpolatedSpans` follows CFML's *nesting* instead — a string inside a span may
 hold a span (`#html.elixirPath( root='#cb.themeRoot()#/inc' )#`), which is what

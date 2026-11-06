@@ -2090,6 +2090,29 @@ func interpolatedSpans(s string) []hashSpan {
 // reads CFScript this way; this is the same rule for the text a tag parser
 // hands over.
 func matchingHash(s string, from int) int {
+	return matchingHashAt(s, from, 0)
+}
+
+// maxHashNesting bounds how many spans may sit inside one another. Real code
+// goes one deep; the bound is what keeps a run of unclosed `#f(` from costing
+// more than a few hash scans each.
+const maxHashNesting = 4
+
+// matchingHashAt is matchingHash for a span nested level deep.
+//
+// A hash met outside a string with a parenthesis still open does not close the
+// span, because an expression cannot end inside a call: it opens another span,
+// which CFML allows to stand in an argument list,
+//
+//	#event.buildLink( prc.xehEditor & "?t=" & #encodeForHTMLAttribute( id )# )#
+//
+// and the closing hash is the one after that span, with the parentheses shut.
+// Counted in the text outside strings only, since a string may hold any
+// parenthesis. A span nested past maxHashNesting, or one that never closes, is
+// no span: -1.
+func matchingHashAt(s string, from, level int) int {
+	depth := 0 // parentheses open outside a string
+
 	// Both scans are IndexByte: a quote before the next `#` is what makes
 	// nesting possible, and only then is there anything to step over. A span
 	// with no quote in it — which is nearly all of them — costs the same two
@@ -2104,8 +2127,31 @@ func matchingHash(s string, from int) int {
 
 		q := indexQuote(s[i:end])
 		if q < 0 {
-			return end
+			// Nearly every span, `#user.name#`, holds no call at all.
+			if depth == 0 && strings.IndexByte(s[i:end], '(') < 0 {
+				return end
+			}
+
+			depth += parenBalance(s[i:end])
+			if depth <= 0 {
+				return end
+			}
+
+			if level >= maxHashNesting {
+				return -1
+			}
+
+			inner := matchingHashAt(s, end+1, level+1)
+			if inner < 0 {
+				return -1
+			}
+
+			i = inner + 1
+
+			continue
 		}
+
+		depth += parenBalance(s[i : i+q])
 
 		j := skipQuotedIn(s, i+q)
 		if j < 0 {
@@ -2114,6 +2160,22 @@ func matchingHash(s string, from int) int {
 
 		i = j + 1
 	}
+}
+
+// parenBalance is the number of `(` in s less the number of `)`.
+func parenBalance(s string) int {
+	n := 0
+
+	for i := range len(s) {
+		switch s[i] {
+		case '(':
+			n++
+		case ')':
+			n--
+		}
+	}
+
+	return n
 }
 
 // indexQuote returns the offset of the first single or double quote, or -1.
@@ -5539,6 +5601,10 @@ func (p *scriptParser) parseStandaloneNew() {
 // operator, the receiver was dropped and the call recorded as a bare one. A
 // dot after the word is what decides it: an operand never starts with one
 // but a number, `x mod .5`, and a chain needs a name after the dot.
+//
+// `default` is the same case with a different keyword: the label of a switch is
+// followed by a colon, so a dot after it is a variable, which ColdBox's CacheBox
+// report page names its cache (`default.get( "Test" )`).
 func operatorWordIsName(tok, next Token) bool {
 	if next.Kind != TokDot {
 		return false
@@ -5546,7 +5612,7 @@ func operatorWordIsName(tok, next Token) bool {
 
 	var buf foldScratch
 	switch string(buf.lowerFold(tok.Value)) {
-	case "and", "or", "not", "eq", "neq", "lt", "gt", "lte", "gte", "mod":
+	case "and", "or", "not", "eq", "neq", "lt", "gt", "lte", "gte", "mod", "default":
 		return true
 	}
 

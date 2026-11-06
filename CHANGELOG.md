@@ -5,6 +5,7 @@
 ### Fixed
 
 - **A call written over several lines in a `#...#` span is found when its string holds an apostrophe or an escaped hash.** `#ETH.text( "<p>Don't</p>… ##f2dede …" )#` was split at its first `<`, which lost that call and the one after it. ContentBox's email templates are written this way; seven files across ColdBox, ContentBox and Lucee gain calls, and one new `unresolved` finding appears in ContentBox, for a call the parser had been missing.
+- **Calls on a variable named `default`, and in a hash expression that holds another one, are found.** `default.get( "Test" )` was read as the `switch` keyword and its receiver dropped; `#event.buildLink( a & #encodeForHTMLAttribute( id )# )#` was closed at the inner hash, in the middle of the call, which lost both calls. Neither adds an `unresolved` finding over ColdBox, TestBox, FW/1 or ContentBox.
 - **A call in a chain written a call per line is reported on the line its name is on**, not the line the chain began on: the calls after `command( … )`, a scope's first call (`variables.print` then `.line()`), a receiver alone on its line, the hops after `createObject( … )` or `new X()`, and a call after a `]`. Findings in `unresolved` and `explain` move to the line the call is written on, and two ColdBox findings disappear that were caused by the old line (a call put before the assignment that types its variable). A committed known-issues report shows line-number churn the next time it is regenerated.
 
 ## [0.6.0]

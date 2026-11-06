@@ -308,18 +308,6 @@ func nextTagStart(s string) int {
 			continue
 		}
 
-		// A span that opens as a call is closed the way CFML closes it, through
-		// the strings it holds. Everything below pairs the next two hashes, which
-		// is right for a hash that was never a span and wrong for one that was:
-		// `#ETH.text( "<p>Don't</p><i style='color: ##f2dede'>" )#` has a `##`
-		// inside its string, and its apostrophes unbalance the quote count that
-		// declines a span, so either splits it at its first `<`.
-		if end := callSpanEnd(s, at); end >= 0 {
-			pos = end + 1
-
-			continue
-		}
-
 		// The next '#', not matchingHash: the two scans legitimately differ,
 		// because they optimise different errors. A wrong span here costs a
 		// *tag* — everything between the hashes stops being markup — so this
@@ -341,6 +329,18 @@ func nextTagStart(s string) int {
 
 		body := s[at+1 : spanEnd]
 		if !looksLikeCallSpan(body) {
+			// Declined, but it may have been a span after all: one that opens as
+			// a call is closed the way CFML closes it, through its strings.
+			// `#ETH.text( "<p>Don't</p><i style='color: ##f2dede'>" )#` has a
+			// `##` inside its string, which pairs with the opening hash here,
+			// and apostrophes that unbalance the quote count. Only a declined
+			// span is asked, so the common one costs what it always did.
+			if end := callSpanEnd(s, at); end >= 0 {
+				pos = end + 1
+
+				continue
+			}
+
 			if i := strings.IndexByte(body, '<'); i >= 0 {
 				return at + 1 + i
 			}
@@ -400,22 +400,23 @@ func opensAsCall(s string) bool {
 // holdsCFTag reports whether s contains the start or end of a CF tag, `<cf` or
 // `</cf` in any case.
 func holdsCFTag(s string) bool {
-	for i := range len(s) {
-		if s[i] != '<' {
-			continue
+	for {
+		i := strings.IndexByte(s, '<')
+		if i < 0 {
+			return false
 		}
 
-		j := i + 1
-		if j < len(s) && s[j] == '/' {
-			j++
+		s = s[i+1:]
+
+		j := 0
+		if s != "" && s[0] == '/' {
+			j = 1
 		}
 
-		if j+1 < len(s) && (s[j] == 'c' || s[j] == 'C') && (s[j+1] == 'f' || s[j+1] == 'F') {
+		if len(s) > j+1 && (s[j] == 'c' || s[j] == 'C') && (s[j+1] == 'f' || s[j+1] == 'F') {
 			return true
 		}
 	}
-
-	return false
 }
 
 // parse scans through tag-based CFML extracting definitions.
