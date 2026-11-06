@@ -1273,7 +1273,18 @@ func (p *scriptParser) parse() {
 			// declared a variable called `extends`.
 			p.parseComponentAttrs()
 		case "property":
-			p.parseProperty(tok)
+			// A declaration is followed by a name or a type. `for( property in
+			// x )`, `property == y` and `f( property )` are a variable, and
+			// reading them as a declaration swallowed everything up to the
+			// next semicolon.
+			switch next := p.sc.PeekSkipComments(); {
+			case startsPropertyDecl(next):
+				p.parseProperty(tok)
+			case next.Kind == TokLParen:
+				p.recordBareCallAndChain(tok)
+			default:
+				p.checkAssignRef(tok)
+			}
 		case "var":
 			p.parseVarDecl(tok)
 		case "local":
@@ -4490,6 +4501,14 @@ func (p *globalScriptParser) parse() {
 		case "function", "public", "private", "remote", "package":
 			// skip function declarations
 		case "property":
+			// The same test as scriptParser.parse's, which the two scans must
+			// share: only a declaration is skipped.
+			if !startsPropertyDecl(p.sc.PeekSkipComments()) {
+				p.parsePlain(tok, wasLT)
+
+				break
+			}
+
 			// skip property declaration tokens until semicolon
 			for {
 				t := p.sc.NextSkipComments()
@@ -5647,6 +5666,23 @@ func operatorWordIsName(tok, next Token) bool {
 	}
 
 	return false
+}
+
+// startsPropertyDecl reports whether the token after a `property` keyword makes
+// it a declaration: a name, or a type before one. Anything else — an operator
+// word such as `in`, a bracket, `=`, `.` — leaves `property` a variable.
+func startsPropertyDecl(next Token) bool {
+	if next.Kind != TokIdent {
+		return false
+	}
+
+	var buf foldScratch
+	switch string(buf.lowerFold(next.Value)) {
+	case "in", "and", "or", "not", "eq", "neq", "lt", "gt", "lte", "gte", "mod", "is", "contains", "xor", "eqv", "imp":
+		return false
+	}
+
+	return true
 }
 
 // operatorWordIsNameStr is operatorWordIsName for text: s begins with the
