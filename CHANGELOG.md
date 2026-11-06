@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **`unresolved` is up to 19% faster** on component-heavy workspaces (ColdBox 19%, ContentBox 7.5%): three rules that asked a question of a file's text with a regular expression over the whole file (does it declare a function of this name, does it assign this variable, what is this function's body) now find the name and check around it. The output is byte-identical on ColdBox, TestBox, FW/1, ContentBox and Lucee.
+
 ### Fixed
 
 - **A call written over several lines in a `#...#` span is found when its string holds an apostrophe or an escaped hash.** `#ETH.text( "<p>Don't</p>… ##f2dede …" )#` was split at its first `<`, which lost that call and the one after it. ContentBox's email templates are written this way; seven files across ColdBox, ContentBox and Lucee gain calls, and one new `unresolved` finding appears in ContentBox, for a call the parser had been missing.

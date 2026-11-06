@@ -2481,6 +2481,28 @@ empty server cannot see. Pin the shape, not the clock, when it matters:
 `TestIndexFileFromResultDoesNotScaleWithIndexSize` compares allocations at
 two index sizes, so it fails on the regression rather than on a busy runner.
 
+**A rule that asks a question of a file's text finds the name, not the whole file**
+(`internal/resolve/text_rules.go`). `hasWrittenFunc`, `setsName` and `functionBodyNamed` were
+regular expressions run over the whole text, once per call site and name; the literal prefilter
+in front of each (`mentions`) passes whenever the name is in the file, which for `init` or `get` is
+nearly always, and a case-insensitive alternation then ran an automaton over every byte.
+Profiled with `CLIF_CPUPROFILE` over a real `unresolved` scan, 27.5% of ColdBox's CPU and 29.4% of
+ContentBox's sat in stacks with a `regexp` frame, compiling only 3-4% of it. They are scanners now
+that find the name with `parser.IndexFoldFrom` and check what stands before and after it, and
+`unresolved` is **byte-identical** on ColdBox, TestBox, FW/1, ContentBox and Lucee; the regexp share
+fell to 10.2% and 21.9%, and a scan to 19% and 7.5% less wall time (interleaved, 12 runs). Three
+things keep that true, each with a test: the expression is **kept as the reference**
+(`writesFunctionRegex`, `assignsNameRegex`, `functionBodyNamedRegex`) and
+`TestTheTextScannersAreTheExpressionsTheyReplace` compares both on 60,000 random texts drawn from the
+tokens the expressions care about, including `\v`, which RE2's `\s` leaves out, and asserts it sees
+a match in a real share of them; a **name that is not plain** (non-ASCII, whitespace, `>`) takes the
+expression; and ASCII case folding only, as `mentions` already was. The test was checked against
+planted bugs (a dropped `\b`, `==` as an assignment, `\v` as space, a case-sensitive prefix): all
+caught. **Do this to the next one the same way**; what is left in a profile, by CPU in ContentBox:
+`moduleActions`, `renderSites`, `addMaps`, `lastMemberAssignmentAt`, `boundEntityUncached`,
+`quotedNameLines`, `coldboxErrorHosts`, `includedUDFs`, `helpersIn`. The parser (script and tag)
+and the editor's completion, keystroke, symbol and folding handlers have no regexp frame at all.
+
 **Search for the entries you are holding; do not sweep the bucket for them.**
 Both index writers on the keystroke path — `removeFileEntries` on every
 re-index, `ShiftLines` under the write lock on every edit that changes a line

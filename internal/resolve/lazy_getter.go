@@ -89,6 +89,51 @@ func (r *Resolver) lazyGetterReturn(fd *parser.FunctionDef) string {
 // content, or between its <cffunction> tag and </cffunction>, with its
 // <cfargument> tags removed; "" when there is not exactly one.
 func functionBodyNamed(content, name string) string {
+	if !plainName(name) {
+		return functionBodyNamedRegex(content, name)
+	}
+
+	if bodies := tagFunctionBodiesNamed(content, name, 2); len(bodies) == 1 {
+		return strings.TrimSpace(argumentTagRe.ReplaceAllString(bodies[0], ""))
+	}
+
+	opens := scriptFunctionOpens(content, name, 2)
+	if len(opens) != 1 {
+		return ""
+	}
+
+	return braceBody(content[opens[0]:])
+}
+
+// braceBody is the text between the first '{' of rest and its matching '}',
+// trimmed, or "" when there is not one.
+func braceBody(rest string) string {
+	open := strings.IndexByte(rest, '{')
+	if open < 0 {
+		return ""
+	}
+
+	depth := 0
+
+	for i := open; i < len(rest); i++ {
+		switch rest[i] {
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return strings.TrimSpace(rest[open+1 : i])
+			}
+		}
+	}
+
+	return ""
+}
+
+// functionBodyNamedRegex is functionBodyNamed as the expressions it replaces,
+// for a name the scanners do not take, and the reference they are tested
+// against.
+func functionBodyNamedRegex(content, name string) string {
 	tag := regexp.MustCompile(`(?is)<cffunction\b[^>]*\bname\s*=\s*["']` + regexp.QuoteMeta(name) + `["'][^>]*>(.*?)</cffunction>`)
 	if all := tag.FindAllStringSubmatch(content, 2); len(all) == 1 {
 		return strings.TrimSpace(argumentTagRe.ReplaceAllString(all[0][1], ""))
