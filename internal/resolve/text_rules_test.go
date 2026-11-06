@@ -545,3 +545,26 @@ func TestTheMemberAssignmentScannerIsTheExpressionItReplaces(t *testing.T) {
 		t.Errorf("the expression matched %d times: the generator does not exercise it", hits)
 	}
 }
+
+// allTokens remembers its answer, so a text asked for twice is tokenized once.
+// What it hands out is shared: its capacity is its length, so an append copies
+// rather than writing into the memory, and the callers that edit tokens copy first.
+func TestAllTokensIsRememberedAndShared(t *testing.T) {
+	text := "function f() {\n\tx = 1;\n\n\ty = 2;\n\treturn x + y;\n}\n// a comment long enough to pass the minimum\n"
+
+	first := allTokens(text)
+	if len(first) == 0 || &first[0] != &allTokens(text)[0] {
+		t.Fatal("the same text was tokenized twice")
+	}
+
+	if cap(first) != len(first) {
+		t.Errorf("cap %d beyond len %d: an append would write into the memory", cap(first), len(first))
+	}
+
+	before := slices.Clone(first)
+	_ = significantTokens(text)
+
+	if !slices.Equal(first, before) {
+		t.Error("significantTokens edited the remembered tokens")
+	}
+}

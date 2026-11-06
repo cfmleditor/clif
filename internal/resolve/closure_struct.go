@@ -420,7 +420,7 @@ func (r *Resolver) closureStructHops(fd *parser.FunctionDef, comp, hop string, c
 
 func significantTokens(text string) []parser.Token {
 	all := allTokens(text)
-	out := all[:0]
+	out := make([]parser.Token, 0, len(all))
 
 	for _, t := range all {
 		if t.Kind != parser.TokNewline {

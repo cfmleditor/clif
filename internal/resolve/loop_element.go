@@ -341,7 +341,63 @@ func tagLoops(content string) []loopSpan {
 	return out
 }
 
+// allTokens is the tokens of content with comments skipped. The slice is shared:
+// the same text is asked for again and again (a scan of ContentBox tokenized 16MB
+// of text for 4.3MB of distinct text, a function body once per expression read
+// from it), so the answer is kept and handed out, and a caller that edits what
+// it is given copies first (significantTokens and invokeArgument do). Its
+// capacity is its length, so an append copies too.
 func allTokens(content string) []parser.Token {
+	if len(content) < minMemoTokenText {
+		return tokenize(content)
+	}
+
+	tokenMemo.mu.Lock()
+	tokens, ok := tokenMemo.byText[content]
+	tokenMemo.mu.Unlock()
+
+	if ok {
+		return tokens
+	}
+
+	tokens = slices.Clip(tokenize(content))
+
+	tokenMemo.mu.Lock()
+	defer tokenMemo.mu.Unlock()
+
+	if tokenMemo.held+len(tokens) > maxMemoTokens {
+		// Everything is dropped at once: cheaper than ordering them, and the
+		// text asked for next is the text still being worked on.
+		clear(tokenMemo.byText)
+		tokenMemo.held = 0
+	}
+
+	if _, dup := tokenMemo.byText[content]; !dup {
+		tokenMemo.byText[content] = tokens
+		tokenMemo.held += len(tokens)
+	}
+
+	return tokens
+}
+
+const (
+	// minMemoTokenText is the shortest text worth remembering: a short window
+	// tokenizes faster than the map hashes it.
+	minMemoTokenText = 64
+	// maxMemoTokens bounds the memo, about 20 MB of tokens.
+	maxMemoTokens = 1 << 19
+)
+
+// tokenMemo is allTokens' memory, keyed by the text. A key shares the bytes of
+// the file it was cut from, so holding one holds that file's text until the
+// memo is cleared.
+var tokenMemo = struct {
+	mu     sync.Mutex
+	byText map[string][]parser.Token
+	held   int
+}{byText: map[string][]parser.Token{}}
+
+func tokenize(content string) []parser.Token {
 	sc := parser.NewScanner(content)
 
 	// About one token per six bytes of CFML: sized up front, a file's tokens
