@@ -568,3 +568,29 @@ func TestAllTokensIsRememberedAndShared(t *testing.T) {
 		t.Error("significantTokens edited the remembered tokens")
 	}
 }
+
+// splitStatements cuts at semicolons and block braces, keeps a struct literal's
+// braces inside its statement, and returns windows onto the tokens it was given.
+func TestSplitStatementsReturnsWindowsOntoItsInput(t *testing.T) {
+	body := allTokens("a = 1; if (x) { b = 2; } c = { k: 1, j: { z: 2 } }; return c")
+
+	var got []string
+
+	for _, st := range splitStatements(body) {
+		var words []string
+		for _, tk := range st {
+			words = append(words, tk.Value)
+		}
+
+		got = append(got, strings.Join(words, " "))
+
+		if cap(st) != len(st) {
+			t.Errorf("statement %q has capacity %d beyond its length %d", got[len(got)-1], cap(st), len(st))
+		}
+	}
+
+	want := []string{"a = 1", "if ( x )", "b = 2", "c = { k : 1 , j : { z : 2 } }", "return c"}
+	if !slices.Equal(got, want) {
+		t.Errorf("statements = %q, want %q", got, want)
+	}
+}

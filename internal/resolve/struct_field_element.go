@@ -211,17 +211,25 @@ func returnedLocal(body []parser.Token) (string, bool) {
 	return name, name != ""
 }
 
+// splitStatements cuts body into statements at its semicolons and braces. A
+// statement is a window onto body (capacity clipped), not a copy of its tokens.
 func splitStatements(body []parser.Token) [][]parser.Token {
 	var (
 		out   [][]parser.Token
-		cur   []parser.Token
+		start int // the first token of the statement being read
 		depth int // inside a struct literal, whose braces are not blocks
 	)
 
-	for _, t := range body {
-		if depth > 0 {
-			cur = append(cur, t)
+	end := func(i int) {
+		if i > start {
+			out = append(out, body[start:i:i])
+		}
 
+		start = i + 1
+	}
+
+	for i, t := range body {
+		if depth > 0 {
 			switch t.Kind {
 			case parser.TokLBrace:
 				depth++
@@ -235,27 +243,21 @@ func splitStatements(body []parser.Token) [][]parser.Token {
 
 		switch t.Kind {
 		case parser.TokLBrace:
-			if n := len(cur); n > 0 && (cur[n-1].Kind == parser.TokEquals || cur[n-1].Kind == parser.TokColon || cur[n-1].Kind == parser.TokLParen || cur[n-1].Kind == parser.TokComma) {
+			if n := i - start; n > 0 && (body[i-1].Kind == parser.TokEquals || body[i-1].Kind == parser.TokColon || body[i-1].Kind == parser.TokLParen || body[i-1].Kind == parser.TokComma) {
 				depth = 1
-
-				cur = append(cur, t)
 
 				continue
 			}
 
-			fallthrough
+			end(i)
 		case parser.TokSemicolon, parser.TokRBrace:
-			if len(cur) > 0 {
-				out = append(out, cur)
-				cur = nil
-			}
+			end(i)
 		default:
-			cur = append(cur, t)
 		}
 	}
 
-	if len(cur) > 0 {
-		out = append(out, cur)
+	if len(body) > start {
+		out = append(out, body[start:len(body):len(body)])
 	}
 
 	return out
