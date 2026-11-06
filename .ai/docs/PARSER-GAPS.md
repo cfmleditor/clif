@@ -687,21 +687,51 @@ then `scopeNames.each( … )`). 315 findings moved to the line their call is
 written on, so a committed known-issues report will show line-number churn on
 the next regeneration and nothing else.
 
-What is left, apart from the 331 deliberate ones, is 13 files: 11 calls only the
-grammar sees and 13 only the parser. Looked at so far, not all explained:
+**The same check on Lucee** (4,542 `.cfc`/`.cfm` files, the corpus's largest): 431
+files differ, 885 calls only the grammar sees and 206 only the parser, and again
+line-keyed equals name-keyed, so the line work holds there too. Most of Lucee's
+grammar-only calls are the deliberate `createObject` family and the parser-only ones
+are its script-syntax tags; neither has been counted apart.
+
+#### A call-shaped span is closed through its strings
+
+`#ETH.text( "<p>Don't</p><i style='color: ##f2dede'>…" )#`, written over several
+lines inside `<cfoutput>`, was lost two ways, both in `nextTagStart` and not in
+the call scan: `looksLikeCallSpan` wants an even count of `"` and of `'`
+*separately*, so an apostrophe in prose inside a double-quoted string made a
+well-formed span look like stray hashes; and the walk closed a span at the next
+hash whatever string it was in, so the `##` of `##f2dede` ended it early. Either
+split the span at its first `<`, losing the call and — through the hashes left
+over — the one after it (`divider` in the test).
+
+`callSpanEnd` closes a span the way CFML does, through its strings
+(`matchingHash`), but only for a span that **opens as a call** (a name or dotted
+name, then `(`), whose strings **all close**, and that **holds no CF tag**. Those
+are the three ways the earlier, wider attempt lost tags (§3.10): a CSS colour, an
+id selector, a jQuery `'#search'` and prose hashes never open as a call, an unclosed
+quote leaves the markup after it as markup, and a span is never stepped across a
+`<cfif>`. Everything else is paired as before.
+`TestAnInterpolatedCallMayHoldProseAndEscapedHashes` has a case for each, and the
+two guards pass with and without the change.
+
+Per file, over both corpora: seven files improved (ContentBox's two email templates,
+two admin and installer views; Lucee's `admin.search.cfm`,
+`resources.component.list.cfm` and `services.datasource.list.cfm`), none got worse,
+and 6,438 files are otherwise byte-for-byte what they were. `unresolved` over the four
+projects: nothing removed, one finding added — a `cb.r( … )` in a string in a
+`#html.button( … )#` span, reported as the file's eight other `cb.r(…)` calls are.
+
+What is left in the four projects, apart from the 331 deliberate ones, is 9 files:
+6 calls only the grammar sees and 13 only the parser.
 
 - **Parser-only, understood:** `cfmail(`, `cfhttp(` and `cfloop(` are script-syntax
   tags the grammar reads as tag nodes; `#getTable()#` in the SQL text of a
   query is a call the parser finds in the string and the injected SQL grammar
   does not; and the `this[]` marker is the parser's own (see "Bracket-indexed
   chain segments" in CLAUDE.md).
-- **Grammar-only, a real miss:** `#ETH.text( "` followed by markup over several
-  lines, in `.cfm` pages already inside `<cfoutput>` (ContentBox's
-  `email_templates/author_welcome.cfm` and `comment_notification.cfm`). Not
-  investigated; the `#…#` span holds a string with `<p>` in it, which is the
-  case the tag walk's span rules (§3.10, §3.11) are tuned around.
-- **Grammar-only, not looked at:** `get`/`set`/`view`/`button`/`buildLink` and
-  `encodeForHtmlAttribute` in a few more ContentBox `.cfm` views, and `r`.
+- **Grammar-only, not looked at:** `set`/`get` in ColdBox's
+  `tests/specs/cache/report/index.cfm`, and `buildLink` and
+  `encodeForHtmlAttribute` in ContentBox's `views/entries/index.cfm`.
 
 ## 5. What would change these decisions
 

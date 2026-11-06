@@ -2684,6 +2684,18 @@ interpolate only inside `<cfoutput>` and in a tag's attributes and the walk
 tracks neither, so these are heuristics — chosen so that being wrong costs a
 call rather than a tag.
 
+**One narrow case follows the nesting in the walk too** (`callSpanEnd`): a span that
+*opens as a call* (a name or dotted name, then `(`), whose strings all close and
+that holds no CF tag is closed through its strings. `#ETH.text( "Don't <b>x</b>
+##f2dede" )#` was split at its `<` twice over — the quote-parity test counts `'` and
+`"` separately, so an apostrophe in prose unbalanced it, and the next hash is the
+first half of the `##` — and the call after it was lost with the hashes it
+mis-paired. Each of the three conditions is one of the ways the wider attempt lost
+tags; `TestAnInterpolatedCallMayHoldProseAndEscapedHashes` has a case for each and
+the two guard shapes (a colour, an unclosed string) beside them. Checked per file
+over ColdBox, TestBox, FW/1, ContentBox and Lucee (6,438 files): seven improved,
+none changed otherwise.
+
 `interpolatedSpans` follows CFML's *nesting* instead — a string inside a span may
 hold a span (`#html.elixirPath( root='#cb.themeRoot()#/inc' )#`), which is what
 `Scanner.scanHashExpr` already does for CFScript. **Do not make the tag walk

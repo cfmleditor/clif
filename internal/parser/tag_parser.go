@@ -308,6 +308,18 @@ func nextTagStart(s string) int {
 			continue
 		}
 
+		// A span that opens as a call is closed the way CFML closes it, through
+		// the strings it holds. Everything below pairs the next two hashes, which
+		// is right for a hash that was never a span and wrong for one that was:
+		// `#ETH.text( "<p>Don't</p><i style='color: ##f2dede'>" )#` has a `##`
+		// inside its string, and its apostrophes unbalance the quote count that
+		// declines a span, so either splits it at its first `<`.
+		if end := callSpanEnd(s, at); end >= 0 {
+			pos = end + 1
+
+			continue
+		}
+
 		// The next '#', not matchingHash: the two scans legitimately differ,
 		// because they optimise different errors. A wrong span here costs a
 		// *tag* — everything between the hashes stops being markup — so this
@@ -336,6 +348,74 @@ func nextTagStart(s string) int {
 
 		pos = spanEnd + 1
 	}
+}
+
+// callSpanEnd returns the index of the hash closing the span that the hash at
+// s[at] opens, when that span is a call written through its strings, and -1
+// when the walk should pair hashes as it always has.
+//
+// It is narrow on purpose, because the walk loses tags, not calls, when it
+// steps over something that was never a span (see nextTagStart's second rule):
+//
+//   - the hash must open as a call, a name or dotted name and then `(`. A CSS
+//     colour, an id selector, a jQuery `'#search'` and prose hashes never do, so
+//     none of them reach the quote-aware scan that ran too far in markup;
+//   - every string in it must close, which matchingHash reports as -1 when one
+//     does not, leaving the markup after an unclosed quote as markup;
+//   - it must not hold a CF tag. An expression does not, and a span that would
+//     run across `<cfif …>` has swallowed real tags, whatever its quotes say.
+func callSpanEnd(s string, at int) int {
+	if !opensAsCall(s[at+1:]) {
+		return -1
+	}
+
+	end := matchingHash(s, at+1)
+	if end < 0 || holdsCFTag(s[at:end]) {
+		return -1
+	}
+
+	return end
+}
+
+// opensAsCall reports whether s begins with a name or dotted name and then `(`,
+// allowing space before the parenthesis: `ETH.text(`, `local.svc.get (`.
+func opensAsCall(s string) bool {
+	i := 0
+
+	for i < len(s) && (isIdentByte(s[i]) || s[i] == '.') {
+		i++
+	}
+
+	if i == 0 || s[0] == '.' || s[0] >= '0' && s[0] <= '9' {
+		return false
+	}
+
+	for i < len(s) && (s[i] == ' ' || s[i] == '\t') {
+		i++
+	}
+
+	return i < len(s) && s[i] == '('
+}
+
+// holdsCFTag reports whether s contains the start or end of a CF tag, `<cf` or
+// `</cf` in any case.
+func holdsCFTag(s string) bool {
+	for i := range len(s) {
+		if s[i] != '<' {
+			continue
+		}
+
+		j := i + 1
+		if j < len(s) && s[j] == '/' {
+			j++
+		}
+
+		if j+1 < len(s) && (s[j] == 'c' || s[j] == 'C') && (s[j+1] == 'f' || s[j+1] == 'F') {
+			return true
+		}
+	}
+
+	return false
 }
 
 // parse scans through tag-based CFML extracting definitions.
