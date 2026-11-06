@@ -647,35 +647,46 @@ Three causes, none of them a wrong answer about code that runs:
 `make gapcheck` over ColdBox, TestBox, FW/1 and ContentBox (1,896 files; Lucee
 and cfmleditor not included) after the 0.6.0 work:
 
-| | Count |
-|---|---:|
-| Call sites the grammar sees and the parser misses, **by method name** | 342 |
-| …of those, the deliberate `createObject` / `entityLoad` / `entityNew` / `entityLoadByPK` (§4.1) | 331 |
-| Sites the parser records and the grammar does not, by name | 13 |
-| Files where the two disagree **by line and name** | 414 (21.8%) |
+| | Before | Oracle keyed on the name | Walkers fixed |
+|---|---:|---:|---:|
+| Files where the two disagree by line and name | 370 | 414 | **172** |
+| Grammar-only, line-keyed | 2,576 | 2,015 | **349** |
+| Parser-only, line-keyed | 2,247 | 1,686 | **20** |
+| Grammar-only, by name | 342 | 342 | 342 |
+| Parser-only, by name | 13 | 13 | 13 |
 
-By name the two agree to within about a dozen calls. The line-keyed disagreement
-is almost all lines, in two parts:
+By name the two agree to within about a dozen calls: 331 of the 342 grammar-only
+calls are the deliberate `createObject` / `entityLoad` / `entityNew` /
+`entityLoadByPK` of §4.1. What was left was lines, in two parts.
 
 - **The oracle keyed a call on its node's first row**, so every hop of a chain
-  written a call per line got the chain's first line, where the parser (since
-  the chain-continuation change) gives a hop its own name's line. The oracle now
-  keys on the row of the method name (`methodOf` returns the node). That took
-  the line-keyed counts from 2,576 / 2,247 to 2,015 / 1,686, with the name-keyed
-  counts unchanged. The number of disagreeing files went *up*, from 370 to 414:
-  a hop the parser leaves on the chain's first line used to match the oracle's
-  first-line key by accident, and now shows as the parser's mistake it is.
-- **The parser still puts some hops on the chain's first line**: the first call
-  after a receiver written on the line above (`variables.print` then `.line()`
-  on the next), and any hop after an argument list that spans lines
-  (`.params( … )` then `.run()`). `scopedChainCall` passes `scopeTok.Line` to
-  `recordChainFromScope`, and the other chain walkers pass the statement's first
-  token the same way.
+  written a call per line got the chain's first line, where the parser gives a
+  hop its own name's line. The oracle now keys on the row of the method name
+  (`methodOf` returns the node). On its own that took the disagreeing files
+  *up*, 370 to 414: a hop the parser left on the chain's first line used to
+  match the first-line key by accident.
+- **The parser stamped some calls with the line a chain began on.** A call is
+  on the line its name is written on, and these walkers did not agree:
+  `recordBareCallAndChain` (every hop after a bare call, `command( … )` then
+  `.params( … )` then `.run()`), `scopedChainCall` and `recordScopedMemberCall`
+  (a scope's first call, `variables.print` then `.line()`, `return this` then
+  `.toInstant()`), `checkBareCall` and the three unscoped assignment forms
+  (`walkChain` now reports the line of the last name it walked) when the
+  receiver stands alone on its line, and `scanChainedCalls` (the hops after
+  `createObject( … )` or `new X()`). Only the call's own line moved: a ref's and
+  a pending call's line is still the statement's.
+  `TestAChainedCallIsOnTheLineItsNameIsWrittenOn` has a case for each.
 
-Not fixed, on purpose: call lines are written into the known-issues reports and
-`explain` output, so moving them churns every committed baseline. Do it with a
-`make resolution-report BASELINE=…` run over the corpus and the baselines
-regenerated in the same change.
+`unresolved` before and after, over the same four projects, with line numbers
+set aside: no finding added, two removed, both ColdBox's — a call the old line
+put before the assignment that types its variable (`var modLocations = [ … ]`
+without a semicolon, then `modLocations.addAll( … )`; `var scopeNames = [ … ]`
+then `scopeNames.each( … )`). 315 findings moved to the line their call is
+written on, so a committed known-issues report will show line-number churn on
+the next regeneration and nothing else.
+
+What is left, apart from the 331 deliberate ones, is 17 files: 18 calls only the
+grammar places and 20 only the parser, in shapes not yet looked at.
 
 ## 5. What would change these decisions
 

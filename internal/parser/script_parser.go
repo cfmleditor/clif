@@ -585,7 +585,7 @@ func (p *scriptParser) recordBareCallAndChain(tok Token) (alone string) {
 				FuncName:  funcName,
 				Component: comp,
 				Chain:     hops,
-				Line:      conv.Uint32(p.baseLine + int(tok.Line)),
+				Line:      conv.Uint32(p.baseLine + int(methTok.Line)),
 				Caller:    caller,
 				Resolved:  comp != "",
 			})
@@ -990,13 +990,13 @@ func (p *scriptParser) checkVarRHS(varName string, line int) {
 	var fullChain chainBuilder
 	fullChain.reset(rhs.Value)
 
-	prevIdent, lastIdent, ok := p.walkChain(&fullChain, rhs.Value, Token{Line: conv.Int32(line)})
+	prevIdent, lastIdent, lastLine, ok := p.walkChain(&fullChain, rhs, Token{Line: conv.Int32(line)})
 	if !ok {
 		return
 	}
 
 	if p.sc.PeekSkipComments().Kind == TokLParen {
-		p.recordCallFromChain(fullChain.String(), line)
+		p.recordCallFromChain(fullChain.String(), int(lastLine))
 
 		if comp := p.tryResolveCall(fullChain.String()); comp != "" {
 			rest := p.recordChainContinuation(receiverOf(fullChain.String()), lastIdent, comp, line)
@@ -1048,7 +1048,7 @@ func (p *scriptParser) recordScopedMemberCall(scopeTok, nameTok Token) {
 
 	call := CallSite{
 		FuncName: nameTok.Value,
-		Line:     conv.Uint32(p.baseLine + int(scopeTok.Line)),
+		Line:     conv.Uint32(p.baseLine + int(nameTok.Line)),
 		Caller:   caller,
 	}
 
@@ -1294,7 +1294,7 @@ func (p *scriptParser) parse() {
 		case "import":
 			p.parseImport()
 		case "new":
-			p.parseStandaloneNew(tok)
+			p.parseStandaloneNew()
 		case "catch":
 			p.parseCatchVar()
 		case "throw":
@@ -2675,7 +2675,7 @@ func (p *scriptParser) handleBodyToken(tok Token, depth int, afterLT bool) {
 
 		p.checkReturnComponent()
 	case "new":
-		p.parseStandaloneNew(tok)
+		p.parseStandaloneNew()
 	case "function", "public", "private", "remote", "package":
 		// Nested function — skip its entire body
 		p.skipNestedFunction(tok, depth)
@@ -2749,7 +2749,7 @@ func (p *scriptParser) checkReturnComponent() {
 			p.skipParens()
 		}
 
-		p.scanChainedCalls(comp, int(peek.Line))
+		p.scanChainedCalls(comp)
 	case "createobject":
 		p.sc.NextSkipComments()
 
@@ -2758,7 +2758,7 @@ func (p *scriptParser) checkReturnComponent() {
 			p.sc.NextSkipComments()
 		}
 
-		p.scanChainedCalls(comp, int(peek.Line))
+		p.scanChainedCalls(comp)
 	case "entitynew":
 		p.sc.NextSkipComments()
 
@@ -2767,7 +2767,7 @@ func (p *scriptParser) checkReturnComponent() {
 			p.sc.NextSkipComments()
 		}
 
-		p.scanChainedCalls(comp, int(peek.Line))
+		p.scanChainedCalls(comp)
 	default:
 		bareThis := identEq(peek.Value, "this") && p.returnsBareThis()
 		scopedVar, scope := p.returnedScopedVar()
@@ -3416,12 +3416,12 @@ func (p *scriptParser) parseBodyScopedVar(scopeTok Token, scope Scope) {
 				var fullChain chainBuilder
 				fullChain.reset(rhs.Value)
 
-				prevIdent, lastIdent, ok := p.walkChain(&fullChain, rhs.Value, scopeTok)
+				prevIdent, lastIdent, lastLine, ok := p.walkChain(&fullChain, rhs, scopeTok)
 				if !ok {
 					return
 				}
 
-				p.assignFromChain(nameTok.Value, &fullChain, prevIdent, lastIdent, int(scopeTok.Line))
+				p.assignFromChain(nameTok.Value, &fullChain, prevIdent, lastIdent, int(scopeTok.Line), int(lastLine))
 			}
 		}
 	}
@@ -3760,12 +3760,12 @@ func (p *scriptParser) checkAssignRef(tok Token) {
 			var fullChain chainBuilder
 			fullChain.reset(rhs.Value)
 
-			prevIdent, lastIdent, ok := p.walkChain(&fullChain, rhs.Value, tok)
+			prevIdent, lastIdent, lastLine, ok := p.walkChain(&fullChain, rhs, tok)
 			if !ok {
 				return
 			}
 
-			p.assignFromChain(tok.Value, &fullChain, prevIdent, lastIdent, int(tok.Line))
+			p.assignFromChain(tok.Value, &fullChain, prevIdent, lastIdent, int(tok.Line), int(lastLine))
 		}
 	}
 
@@ -3918,6 +3918,10 @@ func (p *scriptParser) scopedChainCall(scopeTok, nameTok Token) {
 	fullChain.writeDot()
 	fullChain.writeString(nameTok.Value)
 
+	// The call is on the line of the name it is made on, the last one walked:
+	// a chain written a name to a line is not on its first line.
+	callLine := nameTok.Line
+
 	for {
 		switch p.sc.PeekSkipComments().Kind {
 		case TokLBracket:
@@ -3939,6 +3943,8 @@ func (p *scriptParser) scopedChainCall(scopeTok, nameTok Token) {
 				fullChain.writeDot()
 				fullChain.writeString(next.Value)
 
+				callLine = next.Line
+
 				continue
 			}
 		default:
@@ -3949,7 +3955,7 @@ func (p *scriptParser) scopedChainCall(scopeTok, nameTok Token) {
 
 	switch p.sc.PeekSkipComments().Kind {
 	case TokLParen:
-		p.recordChainFromScope(fullChain.String(), int(scopeTok.Line))
+		p.recordChainFromScope(fullChain.String(), int(callLine))
 	case TokEquals:
 		if chain := strings.Split(fullChain.String(), "."); len(chain) > 2 {
 			p.checkMemberSet(chain, int(scopeTok.Line))
@@ -3961,14 +3967,14 @@ func (p *scriptParser) scopedChainCall(scopeTok, nameTok Token) {
 // assignFromChain types varName from the chain on the right of its `=`: a
 // call's resolved component, else a pending call for resolvePendingCalls; a
 // whole argument value or configured expression when it is not a call.
-func (p *scriptParser) assignFromChain(varName string, c *chainBuilder, prevIdent, lastIdent string, line int) {
+func (p *scriptParser) assignFromChain(varName string, c *chainBuilder, prevIdent, lastIdent string, line, callLine int) {
 	if p.sc.PeekSkipComments().Kind != TokLParen {
 		p.assignNonCall(varName, c.String(), line)
 
 		return
 	}
 
-	p.recordCallFromChain(c.String(), line)
+	p.recordCallFromChain(c.String(), callLine)
 
 	if comp := p.tryResolveCall(c.String()); comp != "" {
 		rest := p.recordChainContinuation(receiverOf(c.String()), lastIdent, comp, line)
@@ -4019,39 +4025,43 @@ func (p *scriptParser) assignNonCall(varName, chain string, line int) {
 // elsewhere. A `::` makes what was walked a component, not a receiver: the
 // static call is recorded against staticTok (see parseStaticCall) and the
 // walk reports the statement consumed, as does a bracket index that does not
-// close. Otherwise it reports the last two identifiers walked.
-func (p *scriptParser) walkChain(c *chainBuilder, first string, staticTok Token) (prevIdent, lastIdent string, ok bool) {
-	lastIdent = first
+// close. Otherwise it reports the last two identifiers walked and the line the
+// last one is on, which is the line of a call made on it: a chain written a
+// name to a line is not on its first line.
+func (p *scriptParser) walkChain(c *chainBuilder, first Token, staticTok Token) (prevIdent, lastIdent string, lastLine int32, ok bool) {
+	lastIdent = first.Value
+	lastLine = first.Line
 
 	for {
 		switch p.sc.PeekSkipComments().Kind {
 		case TokLBracket:
 			if !p.skipBracketIndex() {
-				return prevIdent, lastIdent, false
+				return prevIdent, lastIdent, lastLine, false
 			}
 
 			c.writeString("[]")
 		case TokDoubleColon:
 			p.recordStaticCall(c.String(), staticTok)
 
-			return prevIdent, lastIdent, false
+			return prevIdent, lastIdent, lastLine, false
 		case TokDot:
 			p.sc.NextSkipComments() // consume .
 
 			next := p.sc.PeekSkipComments()
 			if next.Kind != TokIdent {
-				return prevIdent, lastIdent, true
+				return prevIdent, lastIdent, lastLine, true
 			}
 
 			p.sc.NextSkipComments()
 
 			prevIdent = lastIdent
 			lastIdent = next.Value
+			lastLine = next.Line
 
 			c.writeDot()
 			c.writeString(next.Value)
 		default:
-			return prevIdent, lastIdent, true
+			return prevIdent, lastIdent, lastLine, true
 		}
 	}
 }
@@ -4093,6 +4103,7 @@ func (p *scriptParser) checkMemberSet(identChain []string, line int) {
 func (p *scriptParser) checkBareCall(tok Token) {
 	// Walk the leading dot chain of plain identifiers: a.b.c
 	identChain := []string{tok.Value}
+	callLine := tok.Line
 
 chainWalk:
 	for {
@@ -4118,6 +4129,7 @@ chainWalk:
 			p.sc.NextSkipComments()
 
 			identChain = append(identChain, next.Value)
+			callLine = next.Line
 		case TokDoubleColon:
 			// `models.Foo::bar()`. Everything walked so far is the component,
 			// not a receiver — see parseStaticCall.
@@ -4148,7 +4160,7 @@ chainWalk:
 	call := CallSite{
 		FuncName: funcName,
 		Variable: varName,
-		Line:     conv.Uint32(p.baseLine + int(tok.Line)),
+		Line:     conv.Uint32(p.baseLine + int(callLine)),
 		Caller:   caller,
 	}
 
@@ -4186,7 +4198,7 @@ func (p *scriptParser) parseNewRef(varName string, line int) {
 		p.skipParens()
 
 		if component != "" {
-			hops = p.scanChainedCalls(component, line)
+			hops = p.scanChainedCalls(component)
 		}
 	}
 
@@ -4207,7 +4219,7 @@ func (p *scriptParser) parseCreateObjectRef(varName string, line int) {
 	}
 
 	if comp != "" {
-		hops := p.scanChainedCalls(comp, line)
+		hops := p.scanChainedCalls(comp)
 		p.addRef(&ComponentRef{
 			Variable: varName, Component: comp, ChainRest: hops,
 			URI: uriFromString(p.fileURI), Line: conv.Uint32(p.baseLine + line),
@@ -4223,8 +4235,9 @@ func (p *scriptParser) parseCreateObjectRef(varName string, line int) {
 // constructed component and nothing else, so in
 // createObject("java", "FirebaseOptions").builder().setCredentials(c) the
 // setCredentials call was checked against FirebaseOptions rather than against
-// what builder() returns.
-func (p *scriptParser) scanChainedCalls(component string, line int) []string {
+// what builder() returns. A hop is on the line its name is written on, not the
+// line the constructor began on.
+func (p *scriptParser) scanChainedCalls(component string) []string {
 	caller := ""
 	if p.inFunc != "" && len(p.funcs) > 0 {
 		caller = p.currentFunc().Name
@@ -4255,7 +4268,7 @@ func (p *scriptParser) scanChainedCalls(component string, line int) []string {
 			FuncName:  methTok.Value,
 			Component: component,
 			Chain:     chainSoFar(chain),
-			Line:      conv.Uint32(p.baseLine + line),
+			Line:      conv.Uint32(p.baseLine + int(methTok.Line)),
 			Caller:    caller,
 			Resolved:  true,
 		})
@@ -5494,7 +5507,7 @@ func unquote(s string) string {
 // dot-path and constructor args so the scanner doesn't mis-parse the path as a
 // variable.method() call site. Any chained `.method()` calls after the constructor
 // are recorded as resolved call sites against the instantiated component.
-func (p *scriptParser) parseStandaloneNew(newTok Token) {
+func (p *scriptParser) parseStandaloneNew() {
 	if p.sc.PeekSkipComments().Kind != TokIdent {
 		return
 	}
@@ -5511,7 +5524,7 @@ func (p *scriptParser) parseStandaloneNew(newTok Token) {
 		return
 	}
 
-	p.scanChainedCalls(component, int(newTok.Line))
+	p.scanChainedCalls(component)
 }
 
 // operatorWordIsName reports whether tok, a word operator, is a variable's

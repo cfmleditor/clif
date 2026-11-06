@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **A call in a chain written a call per line is reported on the line its name is on**, not the line the chain began on: the calls after `command( … )`, a scope's first call (`variables.print` then `.line()`), a receiver alone on its line, and the hops after `createObject( … )` or `new X()`. Findings in `unresolved` and `explain` move to the line the call is written on, and two ColdBox findings disappear that were caused by the old line (a call put before the assignment that types its variable). A committed known-issues report shows line-number churn the next time it is regenerated.
+
 ## [0.6.0]
 
 ### Added
