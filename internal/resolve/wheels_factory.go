@@ -59,7 +59,7 @@ func (r *Resolver) wheelsFactoryReturnFor(def *parser.FunctionDef, expression, b
 		return ""
 	}
 
-	source := r.sourceInfo(def.URI.Path()).methods[strings.ToLower(def.Name)]
+	source := r.sourceMethods(def.URI.Path())[strings.ToLower(def.Name)]
 
 	original := r.wheelsPlanFunc(global, def.Name)
 	if original != nil && original.URI == def.URI {
@@ -209,7 +209,7 @@ func (r *Resolver) wheelsConstructedFactory(args [][]parser.Token, baseDir strin
 		return ""
 	}
 
-	methods := r.sourceInfo(def.URI.Path()).methods
+	methods := r.sourceMethods(def.URI.Path())
 	if wheelsReturnsMapper(strings.ToLower(def.Name), methods) {
 		return file
 	}
@@ -304,7 +304,7 @@ func (r *Resolver) wheelsFixedMapperReturn(def *parser.FunctionDef) string {
 		return ""
 	}
 
-	body := r.sourceInfo(def.URI.Path()).methods["mapper"].body
+	body := r.sourceMethods(def.URI.Path())["mapper"].body
 	if body != wheelsTokens(`return application[$appKey()].mapper.$draw(argumentCollection=arguments);`) {
 		return ""
 	}

@@ -137,11 +137,11 @@ func (r *Resolver) wheelsLiteralBinding(binder, alias, dir string) string {
 	}
 
 	fd := &pr.Funcs[0]
-	if !strings.EqualFold(fd.Name, "configure") || len(fd.Arguments) != 1 || !strings.EqualFold(fd.Arguments[0].Name, "injector") || !source.methods["configure"].public || !source.methods["configure"].literalDefaults {
+	if !strings.EqualFold(fd.Name, "configure") || len(fd.Arguments) != 1 || !strings.EqualFold(fd.Arguments[0].Name, "injector") || !source.methodMap()["configure"].public || !source.methodMap()["configure"].literalDefaults {
 		return ""
 	}
 
-	tokens := allTokens(source.methods["configure"].body)
+	tokens := allTokens(source.methodMap()["configure"].body)
 	bindings := map[string]string{}
 
 	for i := 0; i < len(tokens); {

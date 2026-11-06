@@ -17,7 +17,7 @@ func (r *Resolver) wheelsModelReturn(global string, def *parser.FunctionDef, arg
 		return ""
 	}
 
-	if r.sourceInfo(def.URI.Path()).methods["model"].body != wheelsTokens(wheelsModelFactory) {
+	if r.sourceMethods(def.URI.Path())["model"].body != wheelsTokens(wheelsModelFactory) {
 		return ""
 	}
 
@@ -30,13 +30,13 @@ func (r *Resolver) wheelsModelReturn(global string, def *parser.FunctionDef, arg
 	}
 	for method, body := range map[string]string{"$createModelClass": wheelsCreateModelClass, "$cachedModelLookup": wheelsCachedModelLookup} {
 		fd := helper(method)
-		if fd == nil || r.sourceInfo(fd.URI.Path()).methods[strings.ToLower(method)].body != wheelsTokens(body) {
+		if fd == nil || r.sourceMethods(fd.URI.Path())[strings.ToLower(method)].body != wheelsTokens(body) {
 			return ""
 		}
 	}
 
 	rootFactory := helper("$createObjectFromRoot")
-	if rootFactory == nil || !wheelsRootFactoryMatches(r.sourceInfo(rootFactory.URI.Path()).methods["$createobjectfromroot"].body) {
+	if rootFactory == nil || !wheelsRootFactoryMatches(r.sourceMethods(rootFactory.URI.Path())["$createobjectfromroot"].body) {
 		return ""
 	}
 

@@ -214,7 +214,7 @@ func (r *Resolver) wheelsWrapperHost(tokens []parser.Token, i int, caller, wrapp
 // wheelsIncludeWrapperPinned reports whether global declares wrapper, and the
 // two methods it calls, as pinned.
 func (r *Resolver) wheelsIncludeWrapperPinned(global, wrapper string) bool {
-	methods := r.sourceInfo(global).methods
+	methods := r.sourceMethods(global)
 
 	resolveBody := methods["$resolveglobalincludetemplate"].body
 

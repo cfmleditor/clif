@@ -18,7 +18,7 @@ func (r *Resolver) wheelsTestGlobalFunc(chain []string, name string) *parser.Fun
 		}
 
 		for _, child := range chain[:at] {
-			if _, overridden := r.sourceInfo(child).methods["$bindapplicationhelpers"]; overridden {
+			if _, overridden := r.sourceMethods(child)["$bindapplicationhelpers"]; overridden {
 				return nil
 			}
 		}
@@ -87,7 +87,7 @@ const wheelsTestBinder = `
 // the pseudo-constructor itself, followed only by named method declarations;
 // a matching string, closure or unused method is not startup evidence.
 func wheelsTestBinds(source *sourceInfo) bool {
-	if source.methods["init"].body == wheelsTokens(`$bindApplicationHelpers();return this;`) && source.methods["$bindapplicationhelpers"].body == wheelsTokens(wheelsTestBinder) {
+	if source.methodMap()["init"].body == wheelsTokens(`$bindApplicationHelpers();return this;`) && source.methodMap()["$bindapplicationhelpers"].body == wheelsTokens(wheelsTestBinder) {
 		return true
 	}
 

@@ -2904,7 +2904,7 @@ func (r *Resolver) returnComponentOf(fd *parser.FunctionDef, depth int, budget *
 		// A final mode dispatch has no context-free component return. The
 		// caller must select its branch before a partial parser inference can
 		// supply one of the alternatives as if it were unconditional.
-		if r.sourceInfo(fd.URI.Path()).methods[strings.ToLower(fd.Name)].selfDefaultParam != "" {
+		if r.hasSelfDefaultParam(fd) {
 			return ""
 		}
 

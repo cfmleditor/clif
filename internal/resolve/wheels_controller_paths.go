@@ -48,14 +48,14 @@ func (r *Resolver) wheelsControllerReturn(global string, controller *parser.Func
 		return ""
 	}
 
-	source := r.sourceInfo(controller.URI.Path()).methods
+	source := r.sourceMethods(controller.URI.Path())
 	if !strings.Contains(source["controller"].body, wheelsTokens(`execute = "$createControllerClass"`)) ||
 		!strings.Contains(source["controller"].body, wheelsTokens(`local.rv = local.rv.$createControllerObject(arguments.params);`)) {
 		return ""
 	}
 
 	create := r.wheelsPlanFunc(global, "$createControllerClass")
-	if create == nil || r.sourceInfo(create.URI.Path()).methods["$createcontrollerclass"].body != wheelsTokens(wheelsCreateControllerClass) {
+	if create == nil || r.sourceMethods(create.URI.Path())["$createcontrollerclass"].body != wheelsTokens(wheelsCreateControllerClass) {
 		return ""
 	}
 
