@@ -642,6 +642,41 @@ Three causes, none of them a wrong answer about code that runs:
   CLAUDE.md: the tag parser matches tags wherever they look like tags.
 - **The grammar's own gaps**, as in §3.6's `expandPath` case.
 
+### 4.4 A chained call's line — measured on four projects, November 2026
+
+`make gapcheck` over ColdBox, TestBox, FW/1 and ContentBox (1,896 files; Lucee
+and cfmleditor not included) after the 0.6.0 work:
+
+| | Count |
+|---|---:|
+| Call sites the grammar sees and the parser misses, **by method name** | 342 |
+| …of those, the deliberate `createObject` / `entityLoad` / `entityNew` / `entityLoadByPK` (§4.1) | 331 |
+| Sites the parser records and the grammar does not, by name | 13 |
+| Files where the two disagree **by line and name** | 414 (21.8%) |
+
+By name the two agree to within about a dozen calls. The line-keyed disagreement
+is almost all lines, in two parts:
+
+- **The oracle keyed a call on its node's first row**, so every hop of a chain
+  written a call per line got the chain's first line, where the parser (since
+  the chain-continuation change) gives a hop its own name's line. The oracle now
+  keys on the row of the method name (`methodOf` returns the node). That took
+  the line-keyed counts from 2,576 / 2,247 to 2,015 / 1,686, with the name-keyed
+  counts unchanged. The number of disagreeing files went *up*, from 370 to 414:
+  a hop the parser leaves on the chain's first line used to match the oracle's
+  first-line key by accident, and now shows as the parser's mistake it is.
+- **The parser still puts some hops on the chain's first line**: the first call
+  after a receiver written on the line above (`variables.print` then `.line()`
+  on the next), and any hop after an argument list that spans lines
+  (`.params( … )` then `.run()`). `scopedChainCall` passes `scopeTok.Line` to
+  `recordChainFromScope`, and the other chain walkers pass the statement's first
+  token the same way.
+
+Not fixed, on purpose: call lines are written into the known-issues reports and
+`explain` output, so moving them churns every committed baseline. Do it with a
+`make resolution-report BASELINE=…` run over the corpus and the baselines
+regenerated in the same change.
+
 ## 5. What would change these decisions
 
 - **The declaration axis** — §3.15 was found by asking the grammar which *names*
