@@ -66,9 +66,9 @@ func (r *Resolver) wheelsObjectIntegrates(path string) bool {
 
 	loader := strings.ReplaceAll(`local.plan = $componentIntegrationPlan(arguments.path); local.overrideSet = $mixinOverrideSet("controller"); local.iEnd = ArrayLen(local.plan); for (local.i = 1; local.i <= local.iEnd; local.i++) { $integrateFunctions(local.plan[local.i].publicMethods, local.overrideSet); }`, `"controller"`, `"`+kind+`"`)
 
-	return source.methods["init"].body == wheelsTokens(init) &&
-		source.methods["$integratecomponents"].body == wheelsTokens(loader) &&
-		source.methods["$integratefunctions"].body == wheelsTokens(wheelsControllerCopy)
+	return source.methodMap()["init"].body == wheelsTokens(init) &&
+		source.methodMap()["$integratecomponents"].body == wheelsTokens(loader) &&
+		source.methodMap()["$integratefunctions"].body == wheelsTokens(wheelsControllerCopy)
 }
 
 // wheelsObjectExtendsGlobal reports whether chain[at], the Controller,
@@ -98,7 +98,7 @@ func (r *Resolver) wheelsMixinHostFunc(pr *parser.ParseResult, name string, call
 
 	// Model helper context is proved only inside a copied public body.
 	// Parameter defaults and private helper bodies need separate binding evidence.
-	if pkg == "model" && (len(caller) == 0 || caller[0] == "" || !r.sourceInfo(file).methods[strings.ToLower(caller[0])].public) {
+	if pkg == "model" && (len(caller) == 0 || caller[0] == "" || !r.sourceMethods(file)[strings.ToLower(caller[0])].public) {
 		return nil
 	}
 
@@ -171,7 +171,7 @@ func (r *Resolver) extendsOfPath(path string) string {
 
 func (r *Resolver) wheelsObjectInheritsLoader(descendants []string) bool {
 	for _, path := range descendants {
-		methods := r.sourceInfo(path).methods
+		methods := r.sourceMethods(path)
 		if _, ok := methods["$integratecomponents"]; ok {
 			return false
 		}
@@ -319,7 +319,7 @@ func (r *Resolver) wheelsObjectPackageFunc(path, lookup string) *parser.Function
 				return nil
 			}
 
-			method, ok := r.sourceInfo(file).methods[strings.ToLower(lookup)]
+			method, ok := r.sourceMethods(file)[strings.ToLower(lookup)]
 			if !ok || !method.public {
 				continue
 			}

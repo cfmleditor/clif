@@ -38,7 +38,7 @@ var (
 
 // helperSet caches the application helpers for one set of config files.
 type helperSet struct {
-	key       string
+	key       [][]string
 	templates []string
 }
 
@@ -202,13 +202,13 @@ func (r *Resolver) applicationHelpers() []string {
 
 	presides := r.presideRoots()
 
-	key := strings.Join(modules, "\x00") + "\x01" + strings.Join(apps, "\x00") + "\x01" + strings.Join(presides, "\x00")
+	key := [][]string{modules, apps, presides}
 
 	r.mu.RLock()
 	cached := r.helpers
 	r.mu.RUnlock()
 
-	if cached != nil && cached.key == key {
+	if cached != nil && slices.EqualFunc(cached.key, key, slices.Equal) {
 		return cached.templates
 	}
 
@@ -277,6 +277,12 @@ func (r *Resolver) helpersIn(configFile string, re *regexp.Regexp, base string) 
 		return nil
 	}
 
+	// Both settings this is asked for hold the word, and most config files do
+	// not: asking first skips an expression over the whole file.
+	if !mentions(string(data), "applicationHelper") {
+		return nil
+	}
+
 	m := re.FindSubmatch(data)
 	if m == nil {
 		return nil
@@ -309,6 +315,10 @@ func (r *Resolver) helpersIn(configFile string, re *regexp.Regexp, base string) 
 func (r *Resolver) includedUDFs(moduleConfig string) []string {
 	data, err := r.fs().ReadFile(moduleConfig)
 	if err != nil {
+		return nil
+	}
+
+	if !mentions(string(data), "includeUDF(") {
 		return nil
 	}
 

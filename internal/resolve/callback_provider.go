@@ -90,17 +90,7 @@ func (r *Resolver) callbackParameterComponent(variable string, pr *parser.ParseR
 		return ""
 	}
 
-	calls := pr.AllCalls()
-
-	var provider *parser.CallSite
-
-	for i := range calls {
-		c := &calls[i]
-		if c.HasSpan && int(c.StartByte) < closure.functionFrom && int(c.EndByte) >= closure.to && (provider == nil || c.EndByte-c.StartByte < provider.EndByte-provider.StartByte) {
-			provider = c
-		}
-	}
-
+	provider := pr.InnermostCallAround(closure.functionFrom, closure.to)
 	if provider == nil {
 		return ""
 	}

@@ -37,7 +37,7 @@ func (r *Resolver) wheelsMapperFunc(path, name string) (*parser.FunctionDef, boo
 
 	var found *parser.FunctionDef
 
-	methods := maps.Clone(source.methods)
+	methods := maps.Clone(source.methodMap())
 	seenMethods := make(map[string]bool)
 
 	for _, entry := range entries {
@@ -48,7 +48,7 @@ func (r *Resolver) wheelsMapperFunc(path, name string) (*parser.FunctionDef, boo
 		file := filepath.Join(folder, entry.Name())
 		// The loader's metadata scan is nonrecursive and reads this component's
 		// public functions. Do not import includes, inherited or private methods.
-		fileMethods := r.sourceInfo(file).methods
+		fileMethods := r.sourceMethods(file)
 		for key := range fileMethods {
 			method := fileMethods[key]
 			if !method.public {
@@ -99,7 +99,7 @@ func (r *Resolver) wheelsMapperFunc(path, name string) (*parser.FunctionDef, boo
 	if found == nil && !strings.EqualFold(name, "get") && !strings.EqualFold(name, "controller") {
 		// Global is copied first, before mapper package methods. Only add its
 		// otherwise missing public API; included UDFs require the Adobe fallback.
-		if _, own := source.methods[strings.ToLower(name)]; !own {
+		if _, own := source.methodMap()[strings.ToLower(name)]; !own {
 			def := r.wheelsPlanFunc(global, name)
 			if def != nil && (samePath(def.URI.Path(), global) || strings.Contains(copyBody, wheelsTokens(wheelsGlobalIncludeCopy))) {
 				found = def
@@ -119,8 +119,8 @@ func (r *Resolver) wheelsIntegrationPlan(global string) bool {
 		return false
 	}
 
-	planBody := r.sourceInfo(plan.URI.Path()).methods["$componentintegrationplan"].body
-	builderBody := r.sourceInfo(builder.URI.Path()).methods["$buildcomponentintegrationplan"].body
+	planBody := r.sourceMethods(plan.URI.Path())["$componentintegrationplan"].body
+	builderBody := r.sourceMethods(builder.URI.Path())["$buildcomponentintegrationplan"].body
 	// Both the producer and consumer must agree on publicMethods. Comments and
 	// quoted descriptions cannot supply this evidence: token boundaries are kept.
 	for _, evidence := range []string{
@@ -149,7 +149,7 @@ func (r *Resolver) wheelsIntegrationPlan(global string) bool {
 func (r *Resolver) wheelsPlanFunc(global, name string) *parser.FunctionDef {
 	var found *parser.FunctionDef
 
-	_, own := r.sourceInfo(global).methods[strings.ToLower(name)]
+	_, own := r.sourceMethods(global)[strings.ToLower(name)]
 	if own {
 		for _, def := range r.EnsureIndexed(global) {
 			if strings.EqualFold(def.Name, name) {
@@ -162,7 +162,7 @@ func (r *Resolver) wheelsPlanFunc(global, name string) *parser.FunctionDef {
 		found = r.includedFunc(global, name)
 	}
 
-	if found == nil || !r.sourceInfo(found.URI.Path()).methods[strings.ToLower(name)].public {
+	if found == nil || !r.sourceMethods(found.URI.Path())[strings.ToLower(name)].public {
 		return nil
 	}
 
@@ -186,7 +186,6 @@ type wheelsMethod struct {
 type sourceInfo struct {
 	associations map[string]parser.FunctionDef
 	content      string
-	methods      map[string]wheelsMethod
 	producers    *producerPlans
 	derived      *sourceDerived // facts read from content on first use
 
@@ -248,7 +247,7 @@ func (r *Resolver) sourceInfo(path string) sourceInfo {
 
 	result := cached
 	if !ok || cached.content != content {
-		result = sourceInfo{associations: wheelsAssociations(content), content: content, methods: wheelsMethods(content), producers: newProducerPlans(content), derived: &sourceDerived{}}
+		result = sourceInfo{associations: wheelsAssociations(content), content: content, producers: newProducerPlans(content), derived: &sourceDerived{}}
 	}
 
 	result.size, result.modTime, result.gen = info.Size(), info.ModTime(), gen
@@ -266,8 +265,43 @@ type sourceDerived struct {
 	startup       []parser.StartupVariableAssignment
 	fieldsOnce    sync.Once
 	fields        variablesReferences
+	methodsOnce   sync.Once
+	methods       map[string]wheelsMethod
 	tagBodiesOnce sync.Once
 	tagBodies     map[string]string
+}
+
+// methodMap is the source's function bodies (wheelsMethods), read once per
+// source on first use: most sources are never asked for one, and reading them
+// copies every body.
+func (s *sourceInfo) methodMap() map[string]wheelsMethod {
+	if s.derived == nil {
+		return wheelsMethods(s.content)
+	}
+
+	s.derived.methodsOnce.Do(func() { s.derived.methods = wheelsMethods(s.content) })
+
+	return s.derived.methods
+}
+
+// hasSelfDefaultParam reports whether fd's body ends in a dispatch on a
+// parameter defaulting to "self" (defaultSelfReturnModes). That needs the string
+// "self" in the file, so a file without it is not asked for its function bodies,
+// which every return lookup would otherwise read.
+func (r *Resolver) hasSelfDefaultParam(fd *parser.FunctionDef) bool {
+	source := r.sourceInfo(fd.URI.Path())
+	if !mentions(source.content, `"self"`) && !mentions(source.content, `'self'`) {
+		return false
+	}
+
+	return source.methodMap()[strings.ToLower(fd.Name)].selfDefaultParam != ""
+}
+
+// sourceMethods is sourceInfo(path)'s function bodies.
+func (r *Resolver) sourceMethods(path string) map[string]wheelsMethod {
+	source := r.sourceInfo(path)
+
+	return source.methodMap()
 }
 
 // requestWriteCounts is how many statements in the source write each request
@@ -659,12 +693,12 @@ func (r *Resolver) wheelsMapperSetup(path string) (wheelsMapperLoader, bool) {
 	}
 
 	source := r.sourceInfo(path)
-	if source.methods["init"].body != wheelsTokens(`local.globalComponent = createObject("wheels.Global"); $integrateFunctions(local.globalComponent); $integrateComponents("wheels.mapper"); return this;`) ||
-		source.methods["$integratecomponents"].body != wheelsTokens(`local.plan = $componentIntegrationPlan(arguments.path); local.iEnd = ArrayLen(local.plan); for (local.i = 1; local.i <= local.iEnd; local.i++) { $integrateFunctions(local.plan[local.i].instance, local.plan[local.i].publicMethods); }`) {
+	if source.methodMap()["init"].body != wheelsTokens(`local.globalComponent = createObject("wheels.Global"); $integrateFunctions(local.globalComponent); $integrateComponents("wheels.mapper"); return this;`) ||
+		source.methodMap()["$integratecomponents"].body != wheelsTokens(`local.plan = $componentIntegrationPlan(arguments.path); local.iEnd = ArrayLen(local.plan); for (local.i = 1; local.i <= local.iEnd; local.i++) { $integrateFunctions(local.plan[local.i].instance, local.plan[local.i].publicMethods); }`) {
 		return wheelsMapperLoader{}, false
 	}
 
-	copyBody := source.methods["$integratefunctions"].body
+	copyBody := source.methodMap()["$integratefunctions"].body
 	if !strings.HasPrefix(copyBody, wheelsTokens(`if (ArrayLen(arguments.publicMethods)) { local.iEnd = ArrayLen(arguments.publicMethods); for (local.i = 1; local.i <= local.iEnd; local.i++) { local.m = arguments.publicMethods[local.i]; variables[local.m.name] = local.m.ref; this[local.m.name] = local.m.ref; } return; }`)) {
 		return wheelsMapperLoader{}, false
 	}

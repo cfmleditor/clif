@@ -201,21 +201,39 @@ func quotedNameLines(content, name string) []int {
 		return nil
 	}
 
-	re := compiledPattern(`(?i)\b` + regexp.QuoteMeta(name) + `["']`)
-	matches := re.FindAllStringIndex(content, -1)
+	var starts []int
+	if plainName(name) {
+		starts = quotedNameStarts(content, name)
+	} else {
+		starts = quotedNameStartsRegex(content, name)
+	}
 
 	// Lines are counted on from the last match, not from the top each time.
-	out := make([]int, 0, len(matches))
+	out := make([]int, 0, len(starts))
 	line, from := 0, 0
 
-	for _, m := range matches {
-		line += strings.Count(content[from:m[0]], "\n")
-		from = m[0]
+	for _, start := range starts {
+		line += strings.Count(content[from:start], "\n")
+		from = start
 
 		out = append(out, line)
 	}
 
 	return out
+}
+
+// quotedNameStartsRegex is quotedNameStarts as the expression it replaces, for a
+// name the scanner does not take, and the reference it is tested against.
+func quotedNameStartsRegex(content, name string) []int {
+	re := compiledPattern(`(?i)\b` + regexp.QuoteMeta(name) + `["']`)
+	matches := re.FindAllStringIndex(content, -1)
+	starts := make([]int, 0, len(matches))
+
+	for _, m := range matches {
+		starts = append(starts, m[0])
+	}
+
+	return starts
 }
 
 var (
@@ -289,6 +307,14 @@ func (r *Resolver) initArgDeclared(pr *parser.ParseResult, param string) string 
 	return r.bareArgumentComponent(arg.Type, pr)
 }
 
+// lineWritesNameRegex is lineWritesName as the expression it replaces, for a name
+// the scanner does not take, and the reference it is tested against.
+func lineWritesNameRegex(line, name string) bool {
+	q := regexp.QuoteMeta(name)
+
+	return compiledPattern(`(?i)(?:(?:^|[^\w.])(?:variables\.)?` + q + `\s*=[^=])|(?:\bset` + q + `\s*\()`).MatchString(line)
+}
+
 // hasWrittenFunc reports whether pr's source declares a function called name,
 // as opposed to one generated for a property.
 func hasWrittenFunc(pr *parser.ParseResult, name string) bool {
@@ -296,7 +322,17 @@ func hasWrittenFunc(pr *parser.ParseResult, name string) bool {
 		return false
 	}
 
-	return compiledPattern(`(?i)\bfunction\s+` + regexp.QuoteMeta(name) + `\s*\(|<cffunction[^>]+name\s*=\s*["']` + regexp.QuoteMeta(name) + `["']`).MatchString(pr.Content)
+	if plainName(name) {
+		return writesFunction(pr.Content, name)
+	}
+
+	return writesFunctionRegex(pr.Content, name)
+}
+
+// writesFunctionRegex is writesFunction as the expression it replaces, for a name
+// the scanner does not take, and the reference the scanner is tested against.
+func writesFunctionRegex(content, name string) bool {
+	return compiledPattern(`(?i)\bfunction\s+` + regexp.QuoteMeta(name) + `\s*\(|<cffunction[^>]+name\s*=\s*["']` + regexp.QuoteMeta(name) + `["']`).MatchString(content)
 }
 
 // initStoredArg is the init argument p when every write to name in pr is
@@ -313,8 +349,13 @@ func initStoredArg(pr *parser.ParseResult, name string) string {
 		return ""
 	}
 
-	q := regexp.QuoteMeta(name)
-	write := compiledPattern(`(?i)(?:(?:^|[^\w.])(?:variables\.)?` + q + `\s*=[^=])|(?:\bset` + q + `\s*\()`)
+	plain := plainName(name)
+	write := func(line string) bool { return lineWritesNameRegex(line, name) }
+
+	if plain {
+		write = func(line string) bool { return lineWritesName(line, name) }
+	}
+
 	param := ""
 
 	i := -1
@@ -323,7 +364,7 @@ func initStoredArg(pr *parser.ParseResult, name string) string {
 		i++
 		line = strings.TrimSuffix(line, "\n")
 
-		if !mentions(line, name) || !write.MatchString(line) {
+		if !mentions(line, name) || !write(line) {
 			continue
 		}
 

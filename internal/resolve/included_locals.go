@@ -202,6 +202,16 @@ func setsName(content, name string) bool {
 		return false
 	}
 
+	if plainName(name) {
+		return assignsName(content, name)
+	}
+
+	return assignsNameRegex(content, name)
+}
+
+// assignsNameRegex is assignsName as the expression it replaces, for a name the
+// scanner does not take, and the reference the scanner is tested against.
+func assignsNameRegex(content, name string) bool {
 	q := regexp.QuoteMeta(name)
 	re := compiledPattern(`(?i)(?:^|[^\w.$])(?:local\.|variables\.)?` + q + `\s*(?:[-+*/&]?=[^=]|\+\+|--)` +
 		`|\bvar\s+` + q + `\b` +

@@ -45,7 +45,11 @@ type tagParser struct {
 	closeKnown bool
 	endsReady  bool  // ends is built over p.src
 	chainDepth uint8 // chained assignments being parsed; see maxChainedAssignments
-	output     *outputState
+	// rhsLead is the line breaks between the <cfset> tag's line and the first
+	// character of its value, which trimming the value drops: a call that opens
+	// the value is on that many lines below the tag.
+	rhsLead int
+	output  *outputState
 	// collectionTags are the offsets of the tags the walk met that can hold a
 	// collection write (collectionTagName), for collectWrites.
 	collectionTags []int
@@ -329,12 +333,93 @@ func nextTagStart(s string) int {
 
 		body := s[at+1 : spanEnd]
 		if !looksLikeCallSpan(body) {
+			// Declined, but it may have been a span after all: one that opens as
+			// a call is closed the way CFML closes it, through its strings.
+			// `#ETH.text( "<p>Don't</p><i style='color: ##f2dede'>" )#` has a
+			// `##` inside its string, which pairs with the opening hash here,
+			// and apostrophes that unbalance the quote count. Only a declined
+			// span is asked, so the common one costs what it always did.
+			if end := callSpanEnd(s, at); end >= 0 {
+				pos = end + 1
+
+				continue
+			}
+
 			if i := strings.IndexByte(body, '<'); i >= 0 {
 				return at + 1 + i
 			}
 		}
 
 		pos = spanEnd + 1
+	}
+}
+
+// callSpanEnd returns the index of the hash closing the span that the hash at
+// s[at] opens, when that span is a call written through its strings, and -1
+// when the walk should pair hashes as it always has.
+//
+// It is narrow on purpose, because the walk loses tags, not calls, when it
+// steps over something that was never a span (see nextTagStart's second rule):
+//
+//   - the hash must open as a call, a name or dotted name and then `(`. A CSS
+//     colour, an id selector, a jQuery `'#search'` and prose hashes never do, so
+//     none of them reach the quote-aware scan that ran too far in markup;
+//   - every string in it must close, which matchingHash reports as -1 when one
+//     does not, leaving the markup after an unclosed quote as markup;
+//   - it must not hold a CF tag. An expression does not, and a span that would
+//     run across `<cfif …>` has swallowed real tags, whatever its quotes say.
+func callSpanEnd(s string, at int) int {
+	if !opensAsCall(s[at+1:]) {
+		return -1
+	}
+
+	end := matchingHash(s, at+1)
+	if end < 0 || holdsCFTag(s[at:end]) {
+		return -1
+	}
+
+	return end
+}
+
+// opensAsCall reports whether s begins with a name or dotted name and then `(`,
+// allowing space before the parenthesis: `ETH.text(`, `local.svc.get (`.
+func opensAsCall(s string) bool {
+	i := 0
+
+	for i < len(s) && (isIdentByte(s[i]) || s[i] == '.') {
+		i++
+	}
+
+	if i == 0 || s[0] == '.' || s[0] >= '0' && s[0] <= '9' {
+		return false
+	}
+
+	for i < len(s) && (s[i] == ' ' || s[i] == '\t') {
+		i++
+	}
+
+	return i < len(s) && s[i] == '('
+}
+
+// holdsCFTag reports whether s contains the start or end of a CF tag, `<cf` or
+// `</cf` in any case.
+func holdsCFTag(s string) bool {
+	for {
+		i := strings.IndexByte(s, '<')
+		if i < 0 {
+			return false
+		}
+
+		s = s[i+1:]
+
+		j := 0
+		if s != "" && s[0] == '/' {
+			j = 1
+		}
+
+		if len(s) > j+1 && (s[j] == 'c' || s[j] == 'C') && (s[j+1] == 'f' || s[j+1] == 'F') {
+			return true
+		}
 	}
 }
 
@@ -425,7 +510,7 @@ func (p *tagParser) parse() {
 // merges what it found, returning the offset just past its close.
 func (p *tagParser) parseNestedScript(idx int) int {
 	bodyStart := idx + 10
-	closeIdx := indexCFTag(p.src[bodyStart:], "/cfscript>")
+	closeIdx := cfscriptClose(p.src[bodyStart:])
 
 	var bodyEnd int
 
@@ -1228,7 +1313,7 @@ func (p *tagParser) setAssign(inner string, line int) {
 				p.markVarLocal(name)
 			}
 
-			p.checkSetRHSStr(rhs, name, line)
+			p.checkSetRHSLead(rest, rhs, name, line)
 		}
 	case hasPrefixFold(inner, "arguments."):
 		rest := inner[10:]
@@ -1236,7 +1321,7 @@ func (p *tagParser) setAssign(inner string, line int) {
 		name, rhs := splitAssign(rest)
 		if name != "" {
 			p.vars = append(p.vars, VarDef{Name: name, Scope: ScopeArguments, Line: conv.Uint32(line)})
-			p.checkSetRHSStr(rhs, name, line)
+			p.checkSetRHSLead(rest, rhs, name, line)
 		}
 	case hasPrefixFold(inner, "this."):
 		rest := inner[5:]
@@ -1245,7 +1330,7 @@ func (p *tagParser) setAssign(inner string, line int) {
 		if name != "" {
 			p.vars = append(p.vars, VarDef{Name: name, Scope: ScopeThis, Line: conv.Uint32(line)})
 			p.forceGlobal, p.refThis = true, true
-			p.checkSetRHSStr(rhs, name, line)
+			p.checkSetRHSLead(rest, rhs, name, line)
 			p.forceGlobal, p.refThis = false, false
 		}
 	case hasPrefixFold(inner, "variables."):
@@ -1255,7 +1340,7 @@ func (p *tagParser) setAssign(inner string, line int) {
 		if name != "" {
 			p.vars = append(p.vars, VarDef{Name: name, Scope: ScopeVariables, Line: conv.Uint32(line)})
 			p.forceGlobal = true
-			p.checkSetRHSStr(rhs, name, line)
+			p.checkSetRHSLead(rest, rhs, name, line)
 			p.forceGlobal = false
 		}
 	case p.parseReadOnlyScopeSet(inner, line):
@@ -1278,7 +1363,7 @@ func (p *tagParser) setAssign(inner string, line int) {
 				}
 
 				p.forceGlobal = !isLocal
-				p.checkSetRHSStr(rhs, name, line)
+				p.checkSetRHSLead(inner, rhs, name, line)
 				p.forceGlobal = false
 			}
 		}
@@ -1576,8 +1661,35 @@ func skipAttrValue(tag string, i int) int {
 func (p *tagParser) checkSetRHS(rest, varName string, line int) {
 	// Find = and check what's after it
 	if _, after, ok := strings.Cut(rest, "="); ok {
-		p.checkSetRHSStr(strings.TrimSpace(after), varName, line)
+		p.checkSetRHSLead(rest, strings.TrimSpace(after), varName, line)
 	}
+}
+
+// checkSetRHSLead is checkSetRHSStr for a value split off rest, the text of the
+// tag after the part that named the variable, with the value's own line.
+func (p *tagParser) checkSetRHSLead(rest, rhs, varName string, line int) {
+	saved := p.rhsLead
+	p.rhsLead = leadLines(rest, rhs)
+
+	p.checkSetRHSStr(rhs, varName, line)
+
+	p.rhsLead = saved
+}
+
+// leadLines is the number of line breaks in rest before the value rhs that
+// follows its first "=".
+func leadLines(rest, rhs string) int {
+	eq := strings.IndexByte(rest, '=')
+	if eq < 0 || rhs == "" {
+		return 0
+	}
+
+	i := strings.Index(rest[eq+1:], rhs)
+	if i < 0 {
+		return 0
+	}
+
+	return strings.Count(rest[:eq+1+i], "\n")
 }
 
 func (p *tagParser) checkSetRHSStr(rhs, varName string, line int) {
@@ -1883,7 +1995,7 @@ func (p *tagParser) methodCallRHS(rhs, baseVar, varName string, line int) {
 			Variable:  varChain,
 			Component: comp,
 			Resolved:  comp != "",
-			Line:      conv.Uint32(line),
+			Line:      conv.Uint32(line + p.rhsLead),
 			Caller:    p.currentCaller(),
 		})
 	}
@@ -1932,7 +2044,7 @@ func (p *tagParser) funcCallRHS(rhs string, paren int, varName string, line int)
 	if p.extractCalls {
 		p.addCall(&CallSite{
 			FuncName: funcName,
-			Line:     conv.Uint32(line),
+			Line:     conv.Uint32(line + p.rhsLead),
 			Caller:   p.currentCaller(),
 		})
 	}

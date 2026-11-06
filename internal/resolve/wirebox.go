@@ -27,7 +27,7 @@ import (
 
 // wireboxWorkspace is that knowledge, for one set of configuration files.
 type wireboxWorkspace struct {
-	key        string
+	key        [][]string
 	namespaces map[string][]string // lowercased namespace -> module directories
 	modelRoots map[string][]string // eligible auto-mapped roots in those modules
 	cfmappings map[string]string   // lowercased cfmapping -> module directory
@@ -59,13 +59,13 @@ func (r *Resolver) wirebox() *wireboxWorkspace {
 		}
 	}
 
-	key := strings.Join(modules, "\x00") + "\x01" + strings.Join(binders, "\x00")
+	key := [][]string{modules, binders}
 
 	r.mu.RLock()
 	cached := r.wb
 	r.mu.RUnlock()
 
-	if cached != nil && cached.key == key {
+	if cached != nil && slices.EqualFunc(cached.key, key, slices.Equal) {
 		return cached
 	}
 
@@ -136,6 +136,11 @@ func (r *Resolver) wirebox() *wireboxWorkspace {
 
 // addMaps records every `map( id ).to( path )` in src.
 func (wb *wireboxWorkspace) addMaps(src, dir string) {
+	// `map( "id" ).to( "path" )`: a file without both words holds none.
+	if !mentions(src, "map(") || !mentions(src, "to(") {
+		return
+	}
+
 	for _, m := range binderMapRe.FindAllStringSubmatch(src, -1) {
 		id := strings.ToLower(strings.TrimSpace(m[1]))
 		if _, ok := wb.ids[id]; !ok {

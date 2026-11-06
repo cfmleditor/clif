@@ -278,7 +278,7 @@ func abstractReturnValue(ret string) producerValue {
 // parameter, when that decides it: unknown for a mode defaulted to anything
 // but a literal, the receiver when the call selects the self mode.
 func (e *producerEvaluation) selfModeReturn(fd *parser.FunctionDef, receiver string, arguments map[string]producerValue) (producerValue, bool) {
-	source := e.resolver.sourceInfo(fd.URI.Path()).methods[strings.ToLower(fd.Name)]
+	source := e.resolver.sourceMethods(fd.URI.Path())[strings.ToLower(fd.Name)]
 	if source.selfDefaultParam != "" && !source.literalDefaults {
 		return producerUnknown(), true
 	}
@@ -1989,7 +1989,7 @@ func (r *Resolver) producerIgnoresArguments(fd *parser.FunctionDef) bool {
 		return false
 	}
 
-	if r.sourceInfo(fd.URI.Path()).methods[strings.ToLower(fd.Name)].selfDefaultParam != "" {
+	if r.hasSelfDefaultParam(fd) {
 		return false
 	}
 

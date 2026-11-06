@@ -22,7 +22,7 @@ func ApplicationSections(content string) (constructor string, methods map[string
 		}
 	}
 
-	return string(masked), methods
+	return maskedText(masked, content), methods
 }
 
 // ApplicationConstructor is ApplicationSections' constructor alone. Most
@@ -30,6 +30,16 @@ func ApplicationSections(content string) (constructor string, methods map[string
 // file for every function it finds (94% of a FW/1 scan's peak heap).
 func ApplicationConstructor(content string) string {
 	masked, _ := applicationScan(content)
+
+	return maskedText(masked, content)
+}
+
+// maskedText is masked as a string: content itself when nothing was blanked,
+// which saves copying a file that declares no function.
+func maskedText(masked []byte, content string) string {
+	if string(masked) == content {
+		return content
+	}
 
 	return string(masked)
 }
@@ -100,14 +110,25 @@ type appSection struct {
 // projection is content with everything outside the section blanked but its
 // line breaks, so lines and offsets still read as the file's.
 func (s appSection) projection(content string) string {
-	projection := []byte(content)
-	for i := range projection {
-		if (i < s.start || i >= s.end) && projection[i] != '\n' && projection[i] != '\r' {
-			projection[i] = ' '
+	var b strings.Builder
+
+	b.Grow(len(content))
+
+	blank := func(text string) {
+		for i := range len(text) {
+			if c := text[i]; c == '\n' || c == '\r' {
+				b.WriteByte(c)
+			} else {
+				b.WriteByte(' ')
+			}
 		}
 	}
 
-	return string(projection)
+	blank(content[:s.start])
+	b.WriteString(content[s.start:s.end])
+	blank(content[s.end:])
+
+	return b.String()
 }
 
 // applicationScan is content with every function blanked (the constructor),

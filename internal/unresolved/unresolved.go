@@ -436,14 +436,17 @@ func plural(n int, one, many string) string {
 // starts: base may be further up it, in a component the file never names.
 func missingBaseCall(file, content, extends, base string, unchecked int) Call {
 	line := uint32(0)
-	lowerExtends := strings.ToLower(extends)
 
-	for i, l := range strings.Split(content, "\n") {
-		if l = strings.ToLower(l); strings.Contains(l, "extends") && strings.Contains(l, lowerExtends) {
+	i := 0
+
+	for l := range strings.Lines(content) {
+		if parser.IndexFold(l, "extends") >= 0 && parser.IndexFold(l, extends) >= 0 {
 			line = conv.Uint32(i)
 
 			break
 		}
+
+		i++
 	}
 
 	noun := plural(unchecked, "call", "calls")

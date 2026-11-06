@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **`unresolved` is up to 22% faster** on component-heavy workspaces (ColdBox 22%, ContentBox 14%): three rules that asked a question of a file's text with a regular expression over the whole file (does it declare a function of this name, does it assign this variable, what is this function's body) now find the name and check around it, and a handful more skip a file that lacks the one word every match needs, or find the name directly. A third batch finds the fixed word each remaining expression starts with and tries the original expression only there (render and view calls, action starts, interceptor announces, the FW/1 view call, `prc.response` writes, `customErrorTemplate`), a further 4–9% on ColdBox and ContentBox. The output is byte-identical on ColdBox, TestBox, FW/1, ContentBox and Lucee.
+
+### Fixed
+
+- **A `<cfset>` whose value starts on a later line is no longer recorded twice.** `<cfset var m =` then `array(…)` on the next line recorded the call on the tag's line as well as its own, because the value was trimmed before its line was counted. Lucee's `menu.cfm` and `ext.providers.cfm` were the two files it showed in, against the tree-sitter grammar.
+- **`unresolved` no longer reports SQL as unresolved calls.** SQL in a triple-backtick island (`query ds {``` … ```}` or a `<cfquery>` in one) and the body of a `java { … }` block were read as script, so `VARCHAR(255)`, `sum(x)` and a Java method signature were recorded as calls: 16 findings over Lucee's tests ("`to_char` not found in extends chain"). A call written in a `#…#` inside that SQL is still a call.
+- **A call in a property default or a component attribute is found** (`property name="u" default="#createUUID()#"`, `component hint="#now()#"`), as is one in a script that follows a string holding `</cfscript>`, and `for( property in x )` is a loop over a variable and not a property declaration.
+- **A call written over several lines in a `#...#` span is found when its string holds an apostrophe or an escaped hash.** `#ETH.text( "<p>Don't</p>… ##f2dede …" )#` was split at its first `<`, which lost that call and the one after it. ContentBox's email templates are written this way; seven files across ColdBox, ContentBox and Lucee gain calls, and one new `unresolved` finding appears in ContentBox, for a call the parser had been missing.
+- **Calls on a variable named `default`, and in a hash expression that holds another one, are found.** `default.get( "Test" )` was read as the `switch` keyword and its receiver dropped; `#event.buildLink( a & #encodeForHTMLAttribute( id )# )#` was closed at the inner hash, in the middle of the call, which lost both calls. Neither adds an `unresolved` finding over ColdBox, TestBox, FW/1 or ContentBox.
+- **A call in a chain written a call per line is reported on the line its name is on**, not the line the chain began on: the calls after `command( … )`, a scope's first call (`variables.print` then `.line()`), a receiver alone on its line, the hops after `createObject( … )` or `new X()`, and a call after a `]`. Findings in `unresolved` and `explain` move to the line the call is written on, and two ColdBox findings disappear that were caused by the old line (a call put before the assignment that types its variable). A committed known-issues report shows line-number churn the next time it is regenerated.
+
 ## [0.6.0]
 
 ### Added

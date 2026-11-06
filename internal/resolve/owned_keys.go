@@ -182,9 +182,9 @@ func (r *Resolver) prefixComponent(prefix string) string {
 // prefix stores, or "".
 func (r *Resolver) prefixFactoryIn(file, prefix string) string {
 	source := r.sourceInfo(file)
-	names := make([]string, 0, len(source.methods))
+	names := make([]string, 0, len(source.methodMap()))
 
-	for name := range source.methods {
+	for name := range source.methodMap() {
 		names = append(names, name)
 	}
 
@@ -427,7 +427,7 @@ func ownedStatementEnd(tokens []parser.Token, from int) int {
 // functionSource is the body of the file's function name: a script
 // function's, or the text between a <cffunction name="…"> and its close.
 func functionSource(source *sourceInfo, name string) string {
-	if m, ok := source.methods[strings.ToLower(name)]; ok && m.body != "" {
+	if m, ok := source.methodMap()[strings.ToLower(name)]; ok && m.body != "" {
 		return m.body
 	}
 

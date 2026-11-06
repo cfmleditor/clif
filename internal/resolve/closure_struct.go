@@ -2,6 +2,7 @@ package resolve
 
 import (
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/docs"
@@ -420,7 +421,14 @@ func (r *Resolver) closureStructHops(fd *parser.FunctionDef, comp, hop string, c
 
 func significantTokens(text string) []parser.Token {
 	all := allTokens(text)
-	out := all[:0]
+
+	// Comment-skipping drops newlines, so there is usually nothing to filter and
+	// the shared slice is the answer. Callers read it and do not edit it.
+	if !slices.ContainsFunc(all, func(t parser.Token) bool { return t.Kind == parser.TokNewline }) {
+		return all
+	}
+
+	out := make([]parser.Token, 0, len(all))
 
 	for _, t := range all {
 		if t.Kind != parser.TokNewline {

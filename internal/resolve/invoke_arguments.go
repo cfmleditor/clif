@@ -2,6 +2,7 @@ package resolve
 
 import (
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/conv"
@@ -36,6 +37,8 @@ func (r *Resolver) invokeArgument(call *parser.CallSite, pr *parser.ParseResult,
 	if len(tokens) < 3 || tokens[1].Kind != parser.TokLParen {
 		return nil, false, false, true
 	}
+
+	tokens = slices.Clone(tokens) // allTokens' answer is shared
 
 	for i := range tokens {
 		tokens[i].Offset += int(call.StartByte)

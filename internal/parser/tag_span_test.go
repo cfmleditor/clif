@@ -64,6 +64,109 @@ func TestMarkupInsideAnInterpolatedSpanDoesNotSplitIt(t *testing.T) {
 	}
 }
 
+// A call written in a span keeps its markup whatever else the string holds. The
+// walk stepped over a span only when its quotes had an even count of each kind
+// *separately*, so an apostrophe in prose inside a double-quoted string
+// (`Don't`, `href='…'`) made a well-formed span look like two stray hashes and
+// the walk split it at the first `<`; and it closed a span at the next hash
+// whatever string it was in, so the `##` that writes a literal `#` in
+// `style='color: ##f2dede'` ended the span early. ContentBox's email templates
+// are written this way: `#ETH.text( "<p>…</p>" )#` over several lines.
+func TestAnInterpolatedCallMayHoldProseAndEscapedHashes(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		src  string
+		want []string
+	}{
+		{
+			"an apostrophe in the string",
+			"<cfoutput>\n#ETH.text( \"\n  Don't want <a href='@u@'>x</a>.\n\" )#\n\n#ETH.divider()#\n</cfoutput>",
+			[]string{"divider", "text"},
+		},
+		{
+			"an escaped hash in the string",
+			"<cfoutput>\n#ETH.text( \"\n  <div style='color: ##f2dede'>x</div>\n\" )#\n\n#ETH.divider()#\n</cfoutput>",
+			[]string{"divider", "text"},
+		},
+		{
+			"both, as the email templates write them",
+			"<cfoutput>\n#ETH.text( \"\n  <p>Don't</p><div style='color: ##f2dede'>x</div>\n\" )#\n\n#ETH.divider()#\n</cfoutput>",
+			[]string{"divider", "text"},
+		},
+		{
+			// The string never closes, so there is no span to step over and the
+			// markup after it is still markup: the `<cfif>` is found.
+			"a call-shaped hash whose string never closes",
+			"<div>#foo( \"x\n<b>y</b>\n<cfif len( q )>\n</cfif>\n",
+			[]string{"len"},
+		},
+		{
+			// A span that would run across a real CF tag is not one expression.
+			"a span is never stepped across a CF tag",
+			"<div>#foo( \"x</div>\n<cfif len( q )>\n</cfif>\n<p>y\" )#\n",
+			[]string{"len"},
+		},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if got := tagFileCalls(t, c.src); !slices.Equal(got, c.want) {
+				t.Errorf("got %v want %v", got, c.want)
+			}
+		})
+	}
+}
+
+// A hash expression may hold hash expressions of its own, outside any string:
+//
+//	href="#event.buildLink( prc.xehEditor & "?t=" & #encodeForHTMLAttribute( id )# )#"
+//
+// ContentBox writes its admin links that way. The span was closed at the first
+// hash outside a string, which here is the *inner* opener, in the middle of an
+// open parenthesis, so the fragment `event.buildLink( … & ` had no closing
+// paren and neither call was recorded. An expression cannot end inside a call:
+// a hash met with a parenthesis open is another span's opening.
+func TestAHashSpanMayHoldAHashSpanOfItsOwn(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		src  string
+		want []string
+	}{
+		{
+			"a nested call, as the admin links write it",
+			"<cfoutput>\n<a href=\"#event.buildLink( prc.x & \"?t=\" & #encodeForHTMLAttribute( id )# )#\">x</a>\n#ETH.divider()#\n</cfoutput>",
+			[]string{"buildLink", "divider", "encodeForHTMLAttribute"},
+		},
+		{
+			"a nested plain value",
+			"<cfoutput>\n#ETH.heading( \"a\" & #name# & \"b\" )#\n#ETH.divider()#\n</cfoutput>",
+			[]string{"divider", "heading"},
+		},
+		{
+			"two levels",
+			"<cfoutput>\n#a.f( 1 & #b.g( 2 & #c.h()# )# )#\n#ETH.divider()#\n</cfoutput>",
+			[]string{"divider", "f", "g", "h"},
+		},
+		{
+			// Adjacent spans close at their own hash: the parenthesis is shut.
+			"adjacent spans are still two",
+			"<cfoutput>\n#a.f( 1 )##b.g( 2 )#\n#ETH.divider()#\n</cfoutput>",
+			[]string{"divider", "f", "g"},
+		},
+		{
+			// The parenthesis never closes, so no hash can be nested in it and the
+			// markup after the opener is still markup.
+			"an open parenthesis that never shuts",
+			"<div>#foo( x\n<cfif len( q )>\n</cfif>\n#y#\n",
+			[]string{"len"},
+		},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if got := tagFileCalls(t, c.src); !slices.Equal(got, c.want) {
+				t.Errorf("got %v want %v", got, c.want)
+			}
+		})
+	}
+}
+
 // The rule loses tags rather than finding calls whenever it pairs hashes that
 // were never a span. Each case here is reduced from a file the corpus reported
 // as newly broken while that guard was missing, and each fails without it —

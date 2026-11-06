@@ -92,8 +92,8 @@ func collect(n *sitter.Node, src []byte, rowOffset uint32, opaque map[uint]bool)
 		}
 
 		if isCallKind(n.Kind()) {
-			if m := methodOf(n, src); m != "" {
-				out = append(out, Call{Line: conv.Uint32FromUint(n.StartPosition().Row) + rowOffset, Method: m})
+			if m, at := methodOf(n, src); m != "" {
+				out = append(out, Call{Line: conv.Uint32FromUint(at.StartPosition().Row) + rowOffset, Method: m})
 			}
 		}
 
@@ -121,34 +121,38 @@ func isCallKind(kind string) bool {
 
 // methodOf names what a call is to: the property of a member expression, the
 // identifier of a bare call, or — for a query_expression — the keyword the
-// grammar consumed before its own children start.
-func methodOf(n *sitter.Node, src []byte) string {
+// grammar consumed before its own children start. It also returns the node
+// that name was read from, because that node's row is the call's line: the
+// parser puts a hop of a chain written a call per line on the line of its own
+// name, while the call node starts on the chain's first line, so keying on the
+// call node reported every such hop as a disagreement.
+func methodOf(n *sitter.Node, src []byte) (string, *sitter.Node) {
 	if n.Kind() == "query_expression" {
 		// Its first child is the unnamed keyword itself.
 		if c := n.Child(0); c != nil {
-			return strings.ToLower(text(c, src))
+			return strings.ToLower(text(c, src)), c
 		}
 
-		return ""
+		return "", nil
 	}
 
 	fn := n.NamedChild(0)
 	if fn == nil {
-		return ""
+		return "", nil
 	}
 
 	switch fn.Kind() {
 	case "identifier":
-		return strings.ToLower(text(fn, src))
+		return strings.ToLower(text(fn, src)), fn
 	case "member_expression":
 		last := fn.NamedChild(fn.NamedChildCount() - 1)
 		if last == nil {
-			return ""
+			return "", nil
 		}
 
-		return strings.ToLower(text(last, src))
+		return strings.ToLower(text(last, src)), last
 	default:
-		return ""
+		return "", nil
 	}
 }
 

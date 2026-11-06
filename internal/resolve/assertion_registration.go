@@ -30,7 +30,7 @@ func (r *Resolver) registeredAssertion(comp string, call *parser.CallSite, pr *p
 	}
 
 	source := r.sourceInfo(registrar.URI.Path())
-	api := source.methods["addassertions"]
+	api := source.methodMap()["addassertions"]
 
 	contract := wheelsTokens(`if(isStruct(arguments.assertions)){structAppend(this.$assert,arguments.assertions,true);return this;}`)
 	if !api.public || !api.literalDefaults || !strings.HasPrefix(api.body, contract) {
@@ -57,7 +57,7 @@ func (r *Resolver) registeredAssertion(comp string, call *parser.CallSite, pr *p
 		return nil
 	}
 
-	method := r.sourceInfo(hook.URI.Path()).methods["beforetests"]
+	method := r.sourceMethods(hook.URI.Path())["beforetests"]
 	if !method.public || !method.literalDefaults {
 		return nil
 	}
@@ -303,8 +303,8 @@ func assertionProviderStable(source *sourceInfo) bool {
 		return false
 	}
 
-	for name := range source.methods {
-		method := source.methods[name]
+	for name := range source.methodMap() {
+		method := source.methodMap()[name]
 		if name == "addassertions" {
 			continue
 		}

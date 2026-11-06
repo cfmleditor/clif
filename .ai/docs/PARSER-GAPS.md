@@ -642,6 +642,176 @@ Three causes, none of them a wrong answer about code that runs:
   CLAUDE.md: the tag parser matches tags wherever they look like tags.
 - **The grammar's own gaps**, as in §3.6's `expandPath` case.
 
+### 4.4 A chained call's line — measured on four projects, November 2026
+
+`make gapcheck` over ColdBox, TestBox, FW/1 and ContentBox (1,896 files; Lucee
+and cfmleditor not included) after the 0.6.0 work:
+
+| | Start | Oracle keyed on the name | Walkers fixed | Spans, `default` |
+|---|---:|---:|---:|---:|
+| Files where the two disagree (line and name) | 370 | 414 | 169 | **164** |
+| Grammar-only, line-keyed | 2,576 | 2,015 | 342 | **331** |
+| Parser-only, line-keyed | 2,247 | 1,686 | 13 | **13** |
+| Grammar-only / parser-only, by name | 342 / 13 | 342 / 13 | 342 / 13 | **331 / 13** |
+
+Line-keyed now equals name-keyed: no file differs by line alone. The 331
+grammar-only calls that remain are exactly the deliberate `createObject` /
+`entityLoad` / `entityNew` / `entityLoadByPK` of §4.1, so nothing else the
+grammar sees is missing from these four projects. What was left, before the last
+column, was lines, in two parts.
+
+- **The oracle keyed a call on its node's first row**, so every hop of a chain
+  written a call per line got the chain's first line, where the parser gives a
+  hop its own name's line. The oracle now keys on the row of the method name
+  (`methodOf` returns the node). On its own that took the disagreeing files
+  *up*, 370 to 414: a hop the parser left on the chain's first line used to
+  match the first-line key by accident.
+- **The parser stamped some calls with the line a chain began on.** A call is
+  on the line its name is written on, and eleven places did not agree:
+  `recordBareCallAndChain` (every hop after a bare call, `command( … )` then
+  `.params( … )` then `.run()`); `scopedChainCall`, `recordScopedMemberCall`
+  and `parseScopedVar` (a scope's first call, `variables.print` then `.line()`,
+  `return this` then `.toInstant()`); `checkBareCall`, `walkChain` for the three
+  assignment forms, and `parse()`'s own dot-chain walk (a receiver alone on its
+  line, in a function and outside one — a `<cfscript>` of a tag file runs the
+  second); `scanChainedCalls` (the hops after `createObject( … )` or `new X()`);
+  and `recordLiteralMemberCall` (a call after a `]` or a string,
+  `getData()[ k ]` then `.map( … )`). Only the call's own line moved: a ref's and
+  a pending call's line is still the statement's.
+  `TestAChainedCallIsOnTheLineItsNameIsWrittenOn` and its two neighbours have a
+  case for each.
+
+`unresolved` before and after, over the same four projects, with line numbers
+set aside: no finding added, two removed, both ColdBox's — a call the old line
+put before the assignment that types its variable (`var modLocations = [ … ]`
+without a semicolon, then `modLocations.addAll( … )`; `var scopeNames = [ … ]`
+then `scopeNames.each( … )`). 315 findings moved to the line their call is
+written on, so a committed known-issues report will show line-number churn on
+the next regeneration and nothing else.
+
+**The same check on Lucee** (4,542 `.cfc`/`.cfm` files, the corpus's largest): 431
+files differ, 885 calls only the grammar sees and 206 only the parser, and again
+line-keyed equals name-keyed, so the line work holds there too. Most of Lucee's
+grammar-only calls are the deliberate `createObject` family and the parser-only ones
+are its script-syntax tags; neither has been counted apart.
+
+#### A call-shaped span is closed through its strings
+
+`#ETH.text( "<p>Don't</p><i style='color: ##f2dede'>…" )#`, written over several
+lines inside `<cfoutput>`, was lost two ways, both in `nextTagStart` and not in
+the call scan: `looksLikeCallSpan` wants an even count of `"` and of `'`
+*separately*, so an apostrophe in prose inside a double-quoted string made a
+well-formed span look like stray hashes; and the walk closed a span at the next
+hash whatever string it was in, so the `##` of `##f2dede` ended it early. Either
+split the span at its first `<`, losing the call and — through the hashes left
+over — the one after it (`divider` in the test).
+
+`callSpanEnd` closes a span the way CFML does, through its strings
+(`matchingHash`), but only for a span that **opens as a call** (a name or dotted
+name, then `(`), whose strings **all close**, and that **holds no CF tag**, and
+only when the walk's own test has **declined** the span, so the common span costs
+what it always did. Those are the three ways the earlier, wider attempt lost tags
+(§3.10): a CSS colour, an id selector, a jQuery `'#search'` and prose hashes never
+open as a call, an unclosed quote leaves the markup after it as markup, and a span
+is never stepped across a `<cfif>`.
+`TestAnInterpolatedCallMayHoldProseAndEscapedHashes` has a case for each, and the
+two guards pass with and without the change.
+
+#### A hash span may hold a hash span, and `default` may name a variable
+
+The last two calls the grammar saw and the parser did not, in ColdBox's CacheBox
+report page and ContentBox's entries view, were two more causes:
+
+- **`default.get( "Test" )`** and `default.set( … )`: the cache is held in a
+  variable named `default`, which is also the keyword of a `switch` label, so every
+  walker turned it away. A switch's `default` is followed by a colon, so a dot
+  after it is a name, and `operatorWordIsName` — which already lets `mod` and the
+  comparison words name a receiver — takes it. (`TestAnOperatorWordCanNameAReceiver`.)
+- **`href="#event.buildLink( prc.x & "?t=" & #encodeForHTMLAttribute( id )# )#"`**:
+  a hash expression holding a hash expression of its own, outside any string,
+  which CFML allows in an argument list. `matchingHash` closed the span at the first
+  hash outside a string, which is the inner opener, in the middle of an open
+  parenthesis; the fragment `event.buildLink( … & ` has no closing paren and
+  neither call was recorded. An expression cannot end inside a call, so a hash
+  met with a parenthesis open (counted outside strings) opens a span of its own and
+  the closing hash is the one after it, to `maxHashNesting` deep, else no span.
+  (`TestAHashSpanMayHoldAHashSpanOfItsOwn`.)
+
+Per file over both corpora, both changes together: two ContentBox/ColdBox files
+gain their six calls and nothing else changes in 6,438. `unresolved` over the four
+projects does not move: the new calls resolve.
+
+**Cost.** A file where every line carries three call-shaped spans (a worst case; a
+real one has far fewer) parses 0.2–3.3% slower than before this PR's span work,
+over 40 interleaved samples: minimum +1.2%, p10 +0.2%, p25 +3.3%, median +3.2%.
+The first version of the walk change ran its scan on every call-shaped span and
+measured +10–13%; asking it only of a span the old test declined, and skipping the
+paren count for a span with no `(` in it, is what brought it down.
+
+What is left in the four projects, apart from the 331 deliberate ones, is the 13
+calls only the parser records, none of them a call the grammar misses:
+
+- `cfmail(`, `cfhttp(` and `cfloop(` are script-syntax tags the grammar reads as
+  tag nodes;
+- `#getTable()#` in the SQL text of a query is a call the parser finds in the
+  string and the injected SQL grammar does not;
+- and the `this[]` marker is the parser's own (see "Bracket-indexed chain
+  segments" in CLAUDE.md).
+
+### 4.5 All six corpora, and what is left — November 2026
+
+`make gapcheck` over Lucee, ContentBox, ColdBox, FW/1, TestBox and the cfmleditor
+repository (6,454 files; the six the file began with, with TestBox's and cfmleditor's
+own as separate directories):
+
+| | Start of this round | Now |
+|---|---:|---:|
+| Files where the two disagree | 597 | **574** |
+| Grammar-only | 1,220 | **1,159** |
+| …of which the deliberate `createObject` / `entityLoad` / `entityNew` / `entityLoadByPK` (§4.1) | 1,157 | 1,157 |
+| …of which anything else | 63 | **2** |
+| Parser-only | 219 | **198** |
+
+Per file, 23 files improved and none got worse. Four gaps closed, each in its own commit with a
+test that fails without it:
+
+- **A call in `#…#` in a component's or a property's attribute** (`property name="u"
+  default="#createUUID()#"`, `component hint="#now()#"`, and the unquoted `default=#f()#`): both readers
+  consumed the tokens to learn the name and the type and never looked inside a string. 13 Lucee files, 28
+  calls. (`TestACallInAComponentOrPropertyAttributeIsRecorded`.)
+- **`property` as a variable** (`for( property in langs ) { … }`) was read as a declaration and swallowed
+  tokens up to the next semicolon, in the parse and in the global variable scan. A declaration is followed
+  by a name or a type. (`TestPropertyAsAVariableIsNotADeclaration`.)
+- **A closing `</cfscript>` inside a string** ended the script early, in all three places that look for
+  the end (`cfscriptClose`). Walked with the script scanner only when a `<cfscript>` opener precedes the
+  first closer or a second closer follows with no opener between, which an ordinary file never has.
+  (`TestACloseTagInAStringDoesNotEndTheScript`.)
+- **Non-script text read as script**: SQL in a triple-backtick island (`query ds {``` … ```}` and a
+  `<cfquery>` in an island) and a `java { … }` block. `blankNonScript` blanks it before the scan, byte for
+  byte, keeping newlines and the expression in each `#…#`. These were the only *phantom* calls, 21 of them,
+  and they produced **16 findings in `unresolved` over Lucee** (`VARCHAR`, `to_char`, `XMLELEMENT`, `sqrt`,
+  `CAST`: "not found in extends chain"). (`TestTextInAScriptIsNotScript`.)
+
+Two grammar-only calls are left, both **deliberate**:
+
+- `list.each((value) => if(value < 0) throw(…))` (Lucee `LDEV1819/test2.cfm`): the grammar reads `if(` as a
+  call, because an arrow function's body is an expression; the source is not valid CFML.
+- `x ?: throw( … )` (Lucee `LDEV5085/AntiSamyService.cfc`): the grammar reads `throw` in expression position
+  as a call. The parser treats `throw` as the statement keyword wherever it stands and records no call;
+  `throw` is a built-in, so nothing is reported for it. Telling `?: throw(` from `case 1: throw(` needs the
+  previous token, which the body loop does not carry, for one call in 6,454 files.
+
+The 198 parser-only calls were read at their sources by name, and none is a phantom:
+
+- 100 are script-syntax tags the grammar reads as tag nodes (`cfloop(`, `cfhttp(`, `cfquery(`, `cfdocument(`,
+  `cfmail(` …).
+- 64 are in six files the grammar fails to parse at all (`clif scan` reports them), so it cannot see them.
+- 10 are `<h#field.getLevel()#>`: a hash expression in a tag *name*, which the grammar does not read.
+- The rest are calls the grammar's SQL injection or tag grammar hides: `#getTable()#` and
+  `#preserveSingleQuotes( … )#` in SQL strings, `directory=#getTempDirectory()#` and
+  `id="ld#ucFirst(k)#"` in the attributes of a tag in an island, a multi-line `<cfset x = array(…)>` and
+  `<cfreturn result.trim()>`, and the parser's own `this[]` / `arr[]` markers.
+
 ## 5. What would change these decisions
 
 - **The declaration axis** — §3.15 was found by asking the grammar which *names*

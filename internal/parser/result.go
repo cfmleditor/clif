@@ -3876,6 +3876,61 @@ func (pr *ParseResult) AllCalls() []CallSite {
 	return all
 }
 
+// InnermostCallAround is the call with the shortest source span that starts
+// before functionFrom and ends at or after to: the call a callback written in
+// that range is an argument of. It is what a walk of AllCalls for the shortest
+// enclosing span finds, without building and sorting a copy of every call in
+// the file; spans of equal length are told apart by AllCalls' own order (line,
+// then variable, then name). The result is a copy, or nil.
+func (pr *ParseResult) InnermostCallAround(functionFrom, to int) *CallSite {
+	if !pr.extractCalls {
+		return nil
+	}
+
+	var best *CallSite
+
+	consider := func(calls []CallSite) {
+		for i := range calls {
+			c := &calls[i]
+			if !c.HasSpan || int(c.StartByte) >= functionFrom || int(c.EndByte) < to {
+				continue
+			}
+
+			if best == nil || c.EndByte-c.StartByte < best.EndByte-best.StartByte ||
+				c.EndByte-c.StartByte == best.EndByte-best.StartByte && callsInAllCallsOrder(c, best) {
+				best = c
+			}
+		}
+	}
+
+	consider(pr.Calls)
+
+	for _, calls := range pr.funcCallsMap {
+		consider(calls)
+	}
+
+	if best == nil {
+		return nil
+	}
+
+	found := *best
+
+	return &found
+}
+
+// callsInAllCallsOrder reports whether a sorts before b in AllCalls.
+func callsInAllCallsOrder(a, b *CallSite) bool {
+	if a.Line != b.Line {
+		return a.Line < b.Line
+	}
+
+	if a.Variable != b.Variable {
+		return a.Variable < b.Variable
+	}
+
+	return a.FuncName < b.FuncName
+}
+
 // CallsNamed is AllCalls' answer restricted to calls whose name is one of
 // names (compared case-insensitively), in the same order. Argument inference
 // asks it for each untyped argument of each caller file, and taking AllCalls
@@ -4004,17 +4059,7 @@ func (pr *ParseResult) callsAt(names []string) []callAt {
 // sortCallsLikeAllCalls orders calls by line, then variable, then name, as
 // AllCalls returns them.
 func sortCallsLikeAllCalls(all []CallSite) {
-	sort.SliceStable(all, func(i, j int) bool {
-		if all[i].Line != all[j].Line {
-			return all[i].Line < all[j].Line
-		}
-
-		if all[i].Variable != all[j].Variable {
-			return all[i].Variable < all[j].Variable
-		}
-
-		return all[i].FuncName < all[j].FuncName
-	})
+	sort.SliceStable(all, func(i, j int) bool { return callsInAllCallsOrder(&all[i], &all[j]) })
 }
 
 // funcCallsUncached parses a function body on-demand to extract call sites.

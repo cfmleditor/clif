@@ -134,7 +134,7 @@ func (r *Resolver) argumentHolds(file, fn, expression string, methods map[string
 		break
 	}
 
-	if depth > 0 || r.sourceInfo(file).methods[strings.ToLower(fn)].public {
+	if depth > 0 || r.sourceMethods(file)[strings.ToLower(fn)].public {
 		return ""
 	}
 

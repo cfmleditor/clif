@@ -86,14 +86,17 @@ func (r *Resolver) boundEntityUncached(path string) string {
 			return ""
 		}
 
-		if m := superInitEntityRe.FindSubmatch(data); m != nil {
-			return strings.TrimSpace(string(m[1]))
-		}
+		// Both expressions need `super.init(`, which most components lack.
+		if mentions(string(data), "super.init(") {
+			if m := superInitEntityRe.FindSubmatch(data); m != nil {
+				return strings.TrimSpace(string(m[1]))
+			}
 
-		if m := superInitArgRe.FindSubmatch(data); m != nil {
-			// The service binds whatever its own init() was handed, so the
-			// answer is the argument's default, and nothing without one.
-			return initArgumentDefault(data, string(m[1]))
+			if m := superInitArgRe.FindSubmatch(data); m != nil {
+				// The service binds whatever its own init() was handed, so the
+				// answer is the argument's default, and nothing without one.
+				return initArgumentDefault(data, string(m[1]))
+			}
 		}
 
 		ext, ok := r.extendsOf(path, cfpath.ToURI(path))

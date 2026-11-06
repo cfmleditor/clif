@@ -797,7 +797,7 @@ func splitCFScriptBlocks(content string) ([]Region, []int32) {
 		}
 
 		bodyStart := openIdx + 10 // len("<cfscript>")
-		closeIdx := indexCFTag(content[bodyStart:], "/cfscript>")
+		closeIdx := cfscriptClose(content[bodyStart:])
 
 		if closeIdx < 0 {
 			add(RegionScript, bodyStart, len(content))
@@ -910,6 +910,49 @@ func indexCFTag(s, suffix string) int {
 	}
 
 	return -1
+}
+
+// cfscriptClose is the offset of the `</cfscript>` that ends a <cfscript> body
+// which starts at the beginning of body, or -1 when there is none.
+//
+// It is indexCFTag's answer except in one case: a string in the script holds the
+// closing tag (Lucee's tests write `var c = "<cfscript>a=1;</cfscript>"`), and
+// the first closer found is inside it. That case has a mark an ordinary file
+// lacks, either of two: a `<cfscript>` opener before the first closer, since the
+// tag does not nest, or a second closer after it with no new opener between.
+// Only then is the body walked with the script scanner, whose string token hides
+// a closer inside it. A walk that finds no closer, an unclosed string, say,
+// gives the first one back, as the scan always did.
+func cfscriptClose(body string) int {
+	first := indexCFTag(body, "/cfscript>")
+	if first < 0 {
+		return first
+	}
+
+	if indexCFTag(body[:first], "cfscript>") < 0 {
+		rest := body[first+len("</cfscript>"):]
+
+		second := indexCFTag(rest, "/cfscript>")
+		if second < 0 || indexCFTag(rest[:second], "cfscript>") >= 0 {
+			return first
+		}
+	}
+
+	sc := NewScanner(body)
+	sc.interpStrings = true
+
+	for {
+		tok := sc.NextSkipComments()
+		if tok.Kind == TokEOF {
+			return first
+		}
+
+		if tok.Kind == TokLT {
+			if at := tok.Offset; at+len("</cfscript>") <= len(body) && strings.EqualFold(body[at:at+len("</cfscript>")], "</cfscript>") {
+				return at
+			}
+		}
+	}
 }
 
 func findFuncScope(line int, scopes []FuncScope) FuncScope {

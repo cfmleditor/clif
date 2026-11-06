@@ -48,8 +48,8 @@ func (r *Resolver) coldboxErrorHosts(file string) []includeHost {
 
 		named := false
 
-		for _, m := range customErrorTemplateRe.FindAllStringSubmatch(text, -1) {
-			if cfpath.SamePath(r.IncludePath(m[1], config), file) {
+		for _, value := range customErrorTemplateValues(text) {
+			if cfpath.SamePath(r.IncludePath(value, config), file) {
 				named = true
 			}
 		}

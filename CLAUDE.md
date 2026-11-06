@@ -409,6 +409,31 @@ the *formatter*, not the parser.
   receiver and no chain is indistinguishable from a bare call to a function named
   g. 26,014 hops over the corpus. `super::m()` is `super.m()`, not a static call
   on a component named super.
+- **A call is on the line its name is written on**, whatever chain it ends. Eleven
+  places stamped a call with the line the chain *began* on instead — every hop
+  after a bare call, a scope's first call (in a function and at the top level),
+  an unscoped receiver alone on its line (`walkChain` reports the last name's
+  line for the three assignment forms; `checkBareCall` and `parse()`'s own
+  dot-chain walk track it), the hops after `createObject( … )` or `new X()`, and
+  a call on a literal or after a `]`. Only the call's own line moves: a ref's and
+  a pending call's stays the statement's, which is what typing reads. Moving 315
+  findings' lines over the four-project corpus removed two false positives (a
+  call put before the assignment that types its variable) and added none; the
+  known-issues reports show line churn on regeneration. `make gapcheck` keys the
+  grammar's call on its method name's row for the same reason
+  (`TestAChainedCallIsOnTheLineItsNameIsWrittenOn`, .ai/docs/PARSER-GAPS.md §4.4).
+- **Text that is not script is not scanned as script, and an attribute is an expression.**
+  `blankNonScript` (`islands.go`) blanks SQL in a triple-backtick island (`query ds {``` … ```}`, and a
+  `<cfquery>` inside any island) and the body of a `java { … }` block before the scan, in both script scans,
+  byte for byte and keeping newlines and the expression in each `#…#`; read as code, `VARCHAR(255)` and
+  `sum(x)` were calls, 16 findings over Lucee. A property's and a component's attribute strings go through
+  `scanInterpolation` (`default="#createUUID()#"`, `hint="#now()#"`), and an unquoted `default=#f()#` is read
+  between its two `TokHash` tokens. `property` is a declaration only when `startsPropertyDecl` says a name or
+  a type follows (`for( property in x )` is a variable), in the parse and in the global scan alike.
+  **`cfscriptClose` finds the end of a `<cfscript>` body for all three places that look**, and walks it with
+  the script scanner only when a `<cfscript>` opener precedes the first closer or a second closer follows
+  with no opener between, so a string holding `</cfscript>` does not end it. .ai/docs/PARSER-GAPS.md §4.5
+  has the six-corpus numbers, the four gaps and the two deliberate differences left.
 - **A bracket index is an expression, and `skipBracketIndex` mirrored the *old*
   `skipParens`** — it discarded its group a token at a time. `sorted[ sorted.len() ]`
   and `arr[ f() ]` recorded nothing at all, and `g( arr[ f() ] )` only `g`: the
@@ -611,7 +636,9 @@ the *formatter*, not the parser.
 - **A word operator followed by a dot is a name** (`operatorWordIsName`): `mod.generate()` is a
   call on a variable called `mod`, which cfwheels' CLI specs hold their module in. `isKeyword`
   turned every token loop away from it and the call was recorded bare. The rule is in each place
-  a keyword is refused before a receiver is read; `TestAnOperatorWordCanNameAReceiver`.
+  a keyword is refused before a receiver is read; `TestAnOperatorWordCanNameAReceiver`. So is
+  `default`: a switch's label is followed by a colon, and ColdBox's CacheBox report page holds its
+  cache in a variable of that name (`default.get( "Test" )`).
 - **A line break ends a statement where CFScript lets it** (`newlineEndsStatement`): when the
   line's last token could end an expression and the next line starts with a word that is not an
   operator, the folding scan's rule. A collection write's value (`expressionEnds`) and a
@@ -2466,6 +2493,54 @@ empty server cannot see. Pin the shape, not the clock, when it matters:
 `TestIndexFileFromResultDoesNotScaleWithIndexSize` compares allocations at
 two index sizes, so it fails on the regression rather than on a busy runner.
 
+**A rule that asks a question of a file's text finds the name, not the whole file**
+(`internal/resolve/text_rules.go`). `hasWrittenFunc`, `setsName` and `functionBodyNamed` were
+regular expressions run over the whole text, once per call site and name; the literal prefilter
+in front of each (`mentions`) passes whenever the name is in the file, which for `init` or `get` is
+nearly always, and a case-insensitive alternation then ran an automaton over every byte.
+Profiled with `CLIF_CPUPROFILE` over a real `unresolved` scan, 27.5% of ColdBox's CPU and 29.4% of
+ContentBox's sat in stacks with a `regexp` frame, compiling only 3-4% of it. They are scanners now
+that find the name with `parser.IndexFoldFrom` and check what stands before and after it, and
+`unresolved` is **byte-identical** on ColdBox, TestBox, FW/1, ContentBox and Lucee; the regexp share
+fell to 10.2% and 21.9%, and a scan to 19% and 7.5% less wall time (interleaved, 12 runs). Three
+things keep that true, each with a test: the expression is **kept as the reference**
+(`writesFunctionRegex`, `assignsNameRegex`, `functionBodyNamedRegex`) and
+`TestTheTextScannersAreTheExpressionsTheyReplace` compares both on 60,000 random texts drawn from the
+tokens the expressions care about, including `\v`, which RE2's `\s` leaves out, and asserts it sees
+a match in a real share of them; a **name that is not plain** (non-ASCII, whitespace, `>`) takes the
+expression; and ASCII case folding only, as `mentions` already was. The test was checked against
+planted bugs (a dropped `\b`, `==` as an assignment, `\v` as space, a case-sensitive prefix): all
+caught. **Do this to the next one the same way**; what is left in a profile, by CPU in ContentBox:
+`moduleActions`, `renderSites`, `addMaps`, `lastMemberAssignmentAt`, `boundEntityUncached`,
+`quotedNameLines`, `coldboxErrorHosts`, `includedUDFs`, `helpersIn`. The parser (script and tag)
+and the editor's completion, keystroke, symbol and folding handlers have no regexp frame at all.
+
+A second batch did the same two ways. Where an expression has a **literal every match must hold**
+(`super.init(`, `map(` and `to(`, `includeUDF(`, `applicationHelper`), `mentions` asks first and the
+expression is skipped for a file without it: safe by construction, and held by
+`TestEveryPrefilterLiteralIsHeldByEveryMatchOfItsExpression`, which fails on a literal an expression does
+not need. Where the expression is a name beside a few characters, a scanner takes its place
+(`quotedNameStarts`, `renderStarts`), differential-tested like the first three. Regexp share of CPU after
+both batches: ColdBox 27.5% to 5.0%, ContentBox 29.4% to 14.7%; a scan is 22% and 14% faster, measured
+interleaved over 16 runs; and `unresolved` stays byte-identical on all five workspaces. What is left, by CPU
+in ContentBox: `moduleActions`, `lastMemberAssignmentAt` (multiline, with a lazy group and a `\s*` that
+crosses lines: reproduce it exactly or not at all), `coldboxErrorHosts`, `interceptSitesIn`.
+
+A third batch keeps the original expression as the matcher and replaces only the search for where a
+match can start (`anchorStart`, `matchesAt` in `text_rules.go`): a scanner finds the fixed word each
+expression opens with (`wordStarts`, `wordCallStarts`, `renderStarts`), and the expression, recompiled
+as `\A…`, is run at each candidate alone. `matchesAt` keeps `FindAll`'s leftmost, non-overlapping
+rule, and `anchorStart` panics on a pattern it does not recognise, so a changed expression cannot
+silently stop being anchored. `TestTheAnchoredExpressionsMatchWhatTheyReplace` compares submatch
+indices with the unanchored expression on random text built from each expression's pieces, with a
+floor on how often it matches; planted bugs (a dropped word boundary, an empty capture, a `==` taken
+as an assignment, a lost `variables.` prefix) fail it. `unresolved` stays byte-identical on all
+five workspaces; 4-9% faster on ColdBox and ContentBox (interleaved, 10 runs). `lastMemberAssignmentAt`
+is anchored the same way (`memberAssignMatches`): its `^\s*` crosses lines and `<cfset` and `arguments.`
+are optional, so the candidates are every line start in the whitespace before the written `container.name`,
+both with and without the `<cfset`, and the expression decides at each.
+`TestTheMemberAssignmentScannerIsTheExpressionItReplaces` holds it to the expression.
+
 **Search for the entries you are holding; do not sweep the bucket for them.**
 Both index writers on the keystroke path — `removeFileEntries` on every
 re-index, `ShiftLines` under the write lock on every edit that changes a line
@@ -2670,6 +2745,25 @@ does not either, so `$( '#search' ).typeahead(` stays a jQuery selector. Hashes
 interpolate only inside `<cfoutput>` and in a tag's attributes and the walk
 tracks neither, so these are heuristics — chosen so that being wrong costs a
 call rather than a tag.
+
+**One narrow case follows the nesting in the walk too** (`callSpanEnd`): a span that
+*opens as a call* (a name or dotted name, then `(`), whose strings all close and
+that holds no CF tag is closed through its strings. `#ETH.text( "Don't <b>x</b>
+##f2dede" )#` was split at its `<` twice over — the quote-parity test counts `'` and
+`"` separately, so an apostrophe in prose unbalanced it, and the next hash is the
+first half of the `##` — and the call after it was lost with the hashes it
+mis-paired. Each of the three conditions is one of the ways the wider attempt lost
+tags, and it is asked only of a span the walk's own test declined, which is what
+keeps the common span at its old cost (the first version asked every call-shaped
+span and parsed a span-dense file 10-13% slower);
+`TestAnInterpolatedCallMayHoldProseAndEscapedHashes` has a case for each and
+the two guard shapes (a colour, an unclosed string) beside them. Checked per file
+over ColdBox, TestBox, FW/1, ContentBox and Lucee (6,438 files): seven improved,
+none changed otherwise. **The call scan's `matchingHash` also lets a span hold a
+span of its own**: a hash met outside a string with a parenthesis still open is
+another span's opening, so `#event.buildLink( a & #encodeForHTMLAttribute( id )# )#`
+is one span and both calls are found (`matchingHashAt`, to `maxHashNesting` deep;
+`TestAHashSpanMayHoldAHashSpanOfItsOwn`).
 
 `interpolatedSpans` follows CFML's *nesting* instead — a string inside a span may
 hold a span (`#html.elixirPath( root='#cb.themeRoot()#/inc' )#`), which is what

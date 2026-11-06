@@ -133,8 +133,8 @@ func (r *Resolver) moduleActions(dir string) map[string]renderers {
 	out := map[string]renderers{}
 	name := strings.ToLower(filepath.Base(dir))
 
-	calls := func(content string, visit func(view string, m []int)) {
-		for _, m := range renderCallRe.FindAllStringSubmatchIndex(content, -1) {
+	calls := func(content string, starts []int, visit func(view string, m []int)) {
+		for _, m := range renderCallMatches(content, starts) {
 			if mod := renderModRe.FindStringSubmatch(content[m[4]:m[5]]); mod != nil && !strings.EqualFold(mod[1], name) {
 				continue
 			}
@@ -154,7 +154,8 @@ func (r *Resolver) moduleActions(dir string) map[string]renderers {
 		// The actions and line breaks of the handler, found once: each render
 		// used to search everything above it for its action and count lines
 		// from the top, quadratic in the handler's length.
-		actions := actionStartRe.FindAllStringSubmatchIndex(content, -1)
+		actions := actionStartMatches(content)
+		starts := renderStarts(content)
 		lines := newLineIndex(content)
 		actionBefore := func(at int) []int {
 			i := sort.Search(len(actions), func(i int) bool { return actions[i][1] > at })
@@ -165,7 +166,7 @@ func (r *Resolver) moduleActions(dir string) map[string]renderers {
 			return actions[i-1]
 		}
 
-		for _, m := range computedRenderRe.FindAllStringSubmatchIndex(content, -1) {
+		for _, m := range computedRenderMatches(content, starts) {
 			if mod := renderModRe.FindStringSubmatch(content[m[6]:m[7]]); mod != nil && !strings.EqualFold(mod[1], name) {
 				continue
 			}
@@ -195,7 +196,7 @@ func (r *Resolver) moduleActions(dir string) map[string]renderers {
 			}
 		}
 
-		calls(content, func(view string, m []int) {
+		calls(content, starts, func(view string, m []int) {
 			last := actionBefore(m[0])
 			if last == nil {
 				return
@@ -228,7 +229,7 @@ func (r *Resolver) moduleActions(dir string) map[string]renderers {
 
 		parent := strings.ToLower(strings.TrimSuffix(filepath.ToSlash(rel), filepath.Ext(rel)))
 
-		calls(text, func(view string, _ []int) {
+		calls(text, renderStarts(text), func(view string, _ []int) {
 			entry := out[view]
 			entry.parents = append(entry.parents, parentView{name: parent, file: file})
 			out[view] = entry
@@ -449,7 +450,7 @@ func lastMemberAssignmentAt(body, container, name string) (string, int, bool) {
 		return "", 0, false
 	}
 
-	all := memberAssignRe(container, name).FindAllStringSubmatchIndex(body, -1)
+	all := memberAssignMatches(body, container, name)
 	if len(all) == 0 {
 		return "", 0, false
 	}

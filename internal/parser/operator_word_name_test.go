@@ -18,6 +18,18 @@ func TestAnOperatorWordCanNameAReceiver(t *testing.T) {
 		{"argument", `component { function run() { f(mod.generate(p)); } }`},
 		{"component level", `component { mod.generate(p); }`},
 		{"comparison word", `component { function run() { eq.generate(p); } }`},
+		// `default` is a keyword for the label of a switch, which a colon
+		// follows; a dot after it is a variable, as ColdBox's CacheBox report
+		// page names its cache `default`.
+		{"default statement", `component { function run() { default.generate(p); } }`},
+		{"default assignment", `component { function run() { x = default.generate(p); } }`},
+		{"default var", `component { function run() { var x = default.generate(p); } }`},
+		{"default return", `component { function run() { return default.generate(p); } }`},
+		{"default argument", `component { function run() { f(default.generate(p)); } }`},
+		{"default in a closure", `component { function run() { it("x", () => { default.generate(p); }); } }`},
+		{"default component level", `component { default.generate(p); }`},
+		{"default in a loop", `component { function run() { for (x = 1; x lt 3; x++) { default.generate(x); } } }`},
+		{"tag", `<cfcomponent><cffunction name="run"><cfset default.generate(p)><cfset x = default.generate(1)></cffunction></cfcomponent>`},
 		{"tag", `<cfcomponent><cffunction name="run"><cfset mod.generate(p)><cfset x = mod.generate(1)></cffunction></cfcomponent>`},
 		{"tag", `<cfcomponent><cffunction name="run"><cfset x = mod.generate(1)><cfset mod.generate(p)></cffunction></cfcomponent>`},
 	}
