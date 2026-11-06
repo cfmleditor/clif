@@ -2526,6 +2526,18 @@ interleaved over 16 runs; and `unresolved` stays byte-identical on all five work
 in ContentBox: `moduleActions`, `lastMemberAssignmentAt` (multiline, with a lazy group and a `\s*` that
 crosses lines: reproduce it exactly or not at all), `coldboxErrorHosts`, `interceptSitesIn`.
 
+A third batch keeps the original expression as the matcher and replaces only the search for where a
+match can start (`anchorStart`, `matchesAt` in `text_rules.go`): a scanner finds the fixed word each
+expression opens with (`wordStarts`, `wordCallStarts`, `renderStarts`), and the expression, recompiled
+as `\A…`, is run at each candidate alone. `matchesAt` keeps `FindAll`'s leftmost, non-overlapping
+rule, and `anchorStart` panics on a pattern it does not recognise, so a changed expression cannot
+silently stop being anchored. `TestTheAnchoredExpressionsMatchWhatTheyReplace` compares submatch
+indices with the unanchored expression on random text built from each expression's pieces, with a
+floor on how often it matches; planted bugs (a dropped word boundary, an empty capture, a `==` taken
+as an assignment, a lost `variables.` prefix) fail it. `unresolved` stays byte-identical on all
+five workspaces; 4-9% faster on ColdBox and ContentBox (interleaved, 10 runs). `lastMemberAssignmentAt`
+stays on its expression: it is multiline with a lazy group, and reproducing it exactly is the risk.
+
 **Search for the entries you are holding; do not sweep the bucket for them.**
 Both index writers on the keystroke path — `removeFileEntries` on every
 re-index, `ShiftLines` under the write lock on every edit that changes a line
