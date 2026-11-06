@@ -22,7 +22,7 @@ func ApplicationSections(content string) (constructor string, methods map[string
 		}
 	}
 
-	return string(masked), methods
+	return maskedText(masked, content), methods
 }
 
 // ApplicationConstructor is ApplicationSections' constructor alone. Most
@@ -30,6 +30,16 @@ func ApplicationSections(content string) (constructor string, methods map[string
 // file for every function it finds (94% of a FW/1 scan's peak heap).
 func ApplicationConstructor(content string) string {
 	masked, _ := applicationScan(content)
+
+	return maskedText(masked, content)
+}
+
+// maskedText is masked as a string: content itself when nothing was blanked,
+// which saves copying a file that declares no function.
+func maskedText(masked []byte, content string) string {
+	if string(masked) == content {
+		return content
+	}
 
 	return string(masked)
 }

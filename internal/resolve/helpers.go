@@ -38,7 +38,7 @@ var (
 
 // helperSet caches the application helpers for one set of config files.
 type helperSet struct {
-	key       string
+	key       [][]string
 	templates []string
 }
 
@@ -202,13 +202,13 @@ func (r *Resolver) applicationHelpers() []string {
 
 	presides := r.presideRoots()
 
-	key := strings.Join(modules, "\x00") + "\x01" + strings.Join(apps, "\x00") + "\x01" + strings.Join(presides, "\x00")
+	key := [][]string{modules, apps, presides}
 
 	r.mu.RLock()
 	cached := r.helpers
 	r.mu.RUnlock()
 
-	if cached != nil && cached.key == key {
+	if cached != nil && slices.EqualFunc(cached.key, key, slices.Equal) {
 		return cached.templates
 	}
 
