@@ -422,6 +422,18 @@ the *formatter*, not the parser.
   known-issues reports show line churn on regeneration. `make gapcheck` keys the
   grammar's call on its method name's row for the same reason
   (`TestAChainedCallIsOnTheLineItsNameIsWrittenOn`, .ai/docs/PARSER-GAPS.md §4.4).
+- **Text that is not script is not scanned as script, and an attribute is an expression.**
+  `blankNonScript` (`islands.go`) blanks SQL in a triple-backtick island (`query ds {``` … ```}`, and a
+  `<cfquery>` inside any island) and the body of a `java { … }` block before the scan, in both script scans,
+  byte for byte and keeping newlines and the expression in each `#…#`; read as code, `VARCHAR(255)` and
+  `sum(x)` were calls, 16 findings over Lucee. A property's and a component's attribute strings go through
+  `scanInterpolation` (`default="#createUUID()#"`, `hint="#now()#"`), and an unquoted `default=#f()#` is read
+  between its two `TokHash` tokens. `property` is a declaration only when `startsPropertyDecl` says a name or
+  a type follows (`for( property in x )` is a variable), in the parse and in the global scan alike.
+  **`cfscriptClose` finds the end of a `<cfscript>` body for all three places that look**, and walks it with
+  the script scanner only when a `<cfscript>` opener precedes the first closer or a second closer follows
+  with no opener between, so a string holding `</cfscript>` does not end it. .ai/docs/PARSER-GAPS.md §4.5
+  has the six-corpus numbers, the four gaps and the two deliberate differences left.
 - **A bracket index is an expression, and `skipBracketIndex` mirrored the *old*
   `skipParens`** — it discarded its group a token at a time. `sorted[ sorted.len() ]`
   and `arr[ f() ]` recorded nothing at all, and `g( arr[ f() ] )` only `g`: the
@@ -2502,6 +2514,17 @@ caught. **Do this to the next one the same way**; what is left in a profile, by 
 `moduleActions`, `renderSites`, `addMaps`, `lastMemberAssignmentAt`, `boundEntityUncached`,
 `quotedNameLines`, `coldboxErrorHosts`, `includedUDFs`, `helpersIn`. The parser (script and tag)
 and the editor's completion, keystroke, symbol and folding handlers have no regexp frame at all.
+
+A second batch did the same two ways. Where an expression has a **literal every match must hold**
+(`super.init(`, `map(` and `to(`, `includeUDF(`, `applicationHelper`), `mentions` asks first and the
+expression is skipped for a file without it: safe by construction, and held by
+`TestEveryPrefilterLiteralIsHeldByEveryMatchOfItsExpression`, which fails on a literal an expression does
+not need. Where the expression is a name beside a few characters, a scanner takes its place
+(`quotedNameStarts`, `renderStarts`), differential-tested like the first three. Regexp share of CPU after
+both batches: ColdBox 27.5% to 5.0%, ContentBox 29.4% to 14.7%; a scan is 22% and 14% faster, measured
+interleaved over 16 runs; and `unresolved` stays byte-identical on all five workspaces. What is left, by CPU
+in ContentBox: `moduleActions`, `lastMemberAssignmentAt` (multiline, with a lazy group and a `\s*` that
+crosses lines: reproduce it exactly or not at all), `coldboxErrorHosts`, `interceptSitesIn`.
 
 **Search for the entries you are holding; do not sweep the bucket for them.**
 Both index writers on the keystroke path — `removeFileEntries` on every

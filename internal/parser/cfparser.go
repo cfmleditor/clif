@@ -948,7 +948,7 @@ func cfscriptClose(body string) int {
 		}
 
 		if tok.Kind == TokLT {
-			if at := int(tok.Offset); at+len("</cfscript>") <= len(body) && strings.EqualFold(body[at:at+len("</cfscript>")], "</cfscript>") {
+			if at := tok.Offset; at+len("</cfscript>") <= len(body) && strings.EqualFold(body[at:at+len("</cfscript>")], "</cfscript>") {
 				return at
 			}
 		}

@@ -758,6 +758,60 @@ calls only the parser records, none of them a call the grammar misses:
 - and the `this[]` marker is the parser's own (see "Bracket-indexed chain
   segments" in CLAUDE.md).
 
+### 4.5 All six corpora, and what is left — November 2026
+
+`make gapcheck` over Lucee, ContentBox, ColdBox, FW/1, TestBox and the cfmleditor
+repository (6,454 files; the six the file began with, with TestBox's and cfmleditor's
+own as separate directories):
+
+| | Start of this round | Now |
+|---|---:|---:|
+| Files where the two disagree | 597 | **574** |
+| Grammar-only | 1,220 | **1,159** |
+| …of which the deliberate `createObject` / `entityLoad` / `entityNew` / `entityLoadByPK` (§4.1) | 1,157 | 1,157 |
+| …of which anything else | 63 | **2** |
+| Parser-only | 219 | **198** |
+
+Per file, 23 files improved and none got worse. Four gaps closed, each in its own commit with a
+test that fails without it:
+
+- **A call in `#…#` in a component's or a property's attribute** (`property name="u"
+  default="#createUUID()#"`, `component hint="#now()#"`, and the unquoted `default=#f()#`): both readers
+  consumed the tokens to learn the name and the type and never looked inside a string. 13 Lucee files, 28
+  calls. (`TestACallInAComponentOrPropertyAttributeIsRecorded`.)
+- **`property` as a variable** (`for( property in langs ) { … }`) was read as a declaration and swallowed
+  tokens up to the next semicolon, in the parse and in the global variable scan. A declaration is followed
+  by a name or a type. (`TestPropertyAsAVariableIsNotADeclaration`.)
+- **A closing `</cfscript>` inside a string** ended the script early, in all three places that look for
+  the end (`cfscriptClose`). Walked with the script scanner only when a `<cfscript>` opener precedes the
+  first closer or a second closer follows with no opener between, which an ordinary file never has.
+  (`TestACloseTagInAStringDoesNotEndTheScript`.)
+- **Non-script text read as script**: SQL in a triple-backtick island (`query ds {``` … ```}` and a
+  `<cfquery>` in an island) and a `java { … }` block. `blankNonScript` blanks it before the scan, byte for
+  byte, keeping newlines and the expression in each `#…#`. These were the only *phantom* calls, 21 of them,
+  and they produced **16 findings in `unresolved` over Lucee** (`VARCHAR`, `to_char`, `XMLELEMENT`, `sqrt`,
+  `CAST`: "not found in extends chain"). (`TestTextInAScriptIsNotScript`.)
+
+Two grammar-only calls are left, both **deliberate**:
+
+- `list.each((value) => if(value < 0) throw(…))` (Lucee `LDEV1819/test2.cfm`): the grammar reads `if(` as a
+  call, because an arrow function's body is an expression; the source is not valid CFML.
+- `x ?: throw( … )` (Lucee `LDEV5085/AntiSamyService.cfc`): the grammar reads `throw` in expression position
+  as a call. The parser treats `throw` as the statement keyword wherever it stands and records no call;
+  `throw` is a built-in, so nothing is reported for it. Telling `?: throw(` from `case 1: throw(` needs the
+  previous token, which the body loop does not carry, for one call in 6,454 files.
+
+The 198 parser-only calls were read at their sources by name, and none is a phantom:
+
+- 100 are script-syntax tags the grammar reads as tag nodes (`cfloop(`, `cfhttp(`, `cfquery(`, `cfdocument(`,
+  `cfmail(` …).
+- 64 are in six files the grammar fails to parse at all (`clif scan` reports them), so it cannot see them.
+- 10 are `<h#field.getLevel()#>`: a hash expression in a tag *name*, which the grammar does not read.
+- The rest are calls the grammar's SQL injection or tag grammar hides: `#getTable()#` and
+  `#preserveSingleQuotes( … )#` in SQL strings, `directory=#getTempDirectory()#` and
+  `id="ld#ucFirst(k)#"` in the attributes of a tag in an island, a multi-line `<cfset x = array(…)>` and
+  `<cfreturn result.trim()>`, and the parser's own `this[]` / `arr[]` markers.
+
 ## 5. What would change these decisions
 
 - **The declaration axis** — §3.15 was found by asking the grammar which *names*

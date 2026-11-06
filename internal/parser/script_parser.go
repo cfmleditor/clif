@@ -1273,18 +1273,7 @@ func (p *scriptParser) parse() {
 			// declared a variable called `extends`.
 			p.parseComponentAttrs()
 		case "property":
-			// A declaration is followed by a name or a type. `for( property in
-			// x )`, `property == y` and `f( property )` are a variable, and
-			// reading them as a declaration swallowed everything up to the
-			// next semicolon.
-			switch next := p.sc.PeekSkipComments(); {
-			case startsPropertyDecl(next):
-				p.parseProperty(tok)
-			case next.Kind == TokLParen:
-				p.recordBareCallAndChain(tok)
-			default:
-				p.checkAssignRef(tok)
-			}
+			p.parsePropertyWord(tok)
 		case "var":
 			p.parseVarDecl(tok)
 		case "local":
@@ -1405,6 +1394,21 @@ func (p *scriptParser) parse() {
 
 	if p.extractLinks {
 		p.extractAllLinks()
+	}
+}
+
+// parsePropertyWord handles the word `property`. A declaration is followed by a
+// name or a type; `for( property in x )`, `property == y` and `f( property )` are
+// a variable, and reading them as a declaration swallowed everything up to the
+// next semicolon.
+func (p *scriptParser) parsePropertyWord(tok Token) {
+	switch next := p.sc.PeekSkipComments(); {
+	case startsPropertyDecl(next):
+		p.parseProperty(tok)
+	case next.Kind == TokLParen:
+		p.recordBareCallAndChain(tok)
+	default:
+		p.checkAssignRef(tok)
 	}
 }
 
