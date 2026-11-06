@@ -132,7 +132,7 @@ func outputContext(content string) (spans [][2]int, prefixes []string) {
 		case kind == outputScript && !closing:
 			// A script body holds no tag text, and a "<cfoutput" in a string
 			// there is not a tag.
-			if c := indexCFTag(content[tagEnd:], "/cfscript>"); c >= 0 {
+			if c := cfscriptClose(content[tagEnd:]); c >= 0 {
 				pos = tagEnd + c
 
 				continue

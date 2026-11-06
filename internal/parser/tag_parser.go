@@ -506,7 +506,7 @@ func (p *tagParser) parse() {
 // merges what it found, returning the offset just past its close.
 func (p *tagParser) parseNestedScript(idx int) int {
 	bodyStart := idx + 10
-	closeIdx := indexCFTag(p.src[bodyStart:], "/cfscript>")
+	closeIdx := cfscriptClose(p.src[bodyStart:])
 
 	var bodyEnd int
 
