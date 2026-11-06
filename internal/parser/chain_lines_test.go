@@ -1,6 +1,8 @@
 package parser
 
 import (
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -152,5 +154,31 @@ func checkChainLines(t *testing.T, src string, want ...string) {
 		if !seen[name] {
 			t.Errorf("no call recorded for %s", name)
 		}
+	}
+}
+
+// A <cfset> whose value starts on a later line than the tag: the call that opens
+// the value is on the line it is written on, and is recorded once. The text
+// after the "=" was trimmed before the line was counted, so the call was stamped
+// on the tag's line as well as its own — 1 extra `array` in Lucee's menu.cfm and
+// one in ext.providers.cfm.
+func TestACallOpeningAMultiLineSetValueIsOnItsOwnLine(t *testing.T) {
+	src := "<cffunction name=\"f\">\n<cfset var m = \n\tarray(\n\t\tstruct(\n\t\t\taction:\"o\",label:a.b,\n\t\t\tchildren:array(\n\t\t\t\tstruct(action:\"\",label:a.c)\n\t\t\t)\n\t\t)\n\t)>\n</cffunction>\n"
+
+	src += "<cffunction name=\"g\">\n<cfset hasData = \n\tStructKeyExists( d, u ) and\n\t!isSimpleValue( d[ u ] )/>\n</cffunction>\n"
+
+	want := []string{"array:2", "struct:3", "array:5", "struct:6", "structkeyexists:13", "issimplevalue:14"}
+
+	var got []string
+
+	for _, c := range ParseWithOptions("file:///x.cfm", src, &ParseOptions{ExtractCalls: true}).AllCalls() {
+		got = append(got, strings.ToLower(c.FuncName)+":"+strconv.Itoa(int(c.Line)))
+	}
+
+	slices.Sort(got)
+	slices.Sort(want)
+
+	if !slices.Equal(got, want) {
+		t.Errorf("calls = %v, want %v", got, want)
 	}
 }

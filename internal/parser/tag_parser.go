@@ -45,7 +45,11 @@ type tagParser struct {
 	closeKnown bool
 	endsReady  bool  // ends is built over p.src
 	chainDepth uint8 // chained assignments being parsed; see maxChainedAssignments
-	output     *outputState
+	// rhsLead is the line breaks between the <cfset> tag's line and the first
+	// character of its value, which trimming the value drops: a call that opens
+	// the value is on that many lines below the tag.
+	rhsLead int
+	output  *outputState
 	// collectionTags are the offsets of the tags the walk met that can hold a
 	// collection write (collectionTagName), for collectWrites.
 	collectionTags []int
@@ -1309,7 +1313,7 @@ func (p *tagParser) setAssign(inner string, line int) {
 				p.markVarLocal(name)
 			}
 
-			p.checkSetRHSStr(rhs, name, line)
+			p.checkSetRHSLead(rest, rhs, name, line)
 		}
 	case hasPrefixFold(inner, "arguments."):
 		rest := inner[10:]
@@ -1317,7 +1321,7 @@ func (p *tagParser) setAssign(inner string, line int) {
 		name, rhs := splitAssign(rest)
 		if name != "" {
 			p.vars = append(p.vars, VarDef{Name: name, Scope: ScopeArguments, Line: conv.Uint32(line)})
-			p.checkSetRHSStr(rhs, name, line)
+			p.checkSetRHSLead(rest, rhs, name, line)
 		}
 	case hasPrefixFold(inner, "this."):
 		rest := inner[5:]
@@ -1326,7 +1330,7 @@ func (p *tagParser) setAssign(inner string, line int) {
 		if name != "" {
 			p.vars = append(p.vars, VarDef{Name: name, Scope: ScopeThis, Line: conv.Uint32(line)})
 			p.forceGlobal, p.refThis = true, true
-			p.checkSetRHSStr(rhs, name, line)
+			p.checkSetRHSLead(rest, rhs, name, line)
 			p.forceGlobal, p.refThis = false, false
 		}
 	case hasPrefixFold(inner, "variables."):
@@ -1336,7 +1340,7 @@ func (p *tagParser) setAssign(inner string, line int) {
 		if name != "" {
 			p.vars = append(p.vars, VarDef{Name: name, Scope: ScopeVariables, Line: conv.Uint32(line)})
 			p.forceGlobal = true
-			p.checkSetRHSStr(rhs, name, line)
+			p.checkSetRHSLead(rest, rhs, name, line)
 			p.forceGlobal = false
 		}
 	case p.parseReadOnlyScopeSet(inner, line):
@@ -1359,7 +1363,7 @@ func (p *tagParser) setAssign(inner string, line int) {
 				}
 
 				p.forceGlobal = !isLocal
-				p.checkSetRHSStr(rhs, name, line)
+				p.checkSetRHSLead(inner, rhs, name, line)
 				p.forceGlobal = false
 			}
 		}
@@ -1657,8 +1661,35 @@ func skipAttrValue(tag string, i int) int {
 func (p *tagParser) checkSetRHS(rest, varName string, line int) {
 	// Find = and check what's after it
 	if _, after, ok := strings.Cut(rest, "="); ok {
-		p.checkSetRHSStr(strings.TrimSpace(after), varName, line)
+		p.checkSetRHSLead(rest, strings.TrimSpace(after), varName, line)
 	}
+}
+
+// checkSetRHSLead is checkSetRHSStr for a value split off rest, the text of the
+// tag after the part that named the variable, with the value's own line.
+func (p *tagParser) checkSetRHSLead(rest, rhs, varName string, line int) {
+	saved := p.rhsLead
+	p.rhsLead = leadLines(rest, rhs)
+
+	p.checkSetRHSStr(rhs, varName, line)
+
+	p.rhsLead = saved
+}
+
+// leadLines is the number of line breaks in rest before the value rhs that
+// follows its first "=".
+func leadLines(rest, rhs string) int {
+	eq := strings.IndexByte(rest, '=')
+	if eq < 0 || rhs == "" {
+		return 0
+	}
+
+	i := strings.Index(rest[eq+1:], rhs)
+	if i < 0 {
+		return 0
+	}
+
+	return strings.Count(rest[:eq+1+i], "\n")
 }
 
 func (p *tagParser) checkSetRHSStr(rhs, varName string, line int) {
@@ -1964,7 +1995,7 @@ func (p *tagParser) methodCallRHS(rhs, baseVar, varName string, line int) {
 			Variable:  varChain,
 			Component: comp,
 			Resolved:  comp != "",
-			Line:      conv.Uint32(line),
+			Line:      conv.Uint32(line + p.rhsLead),
 			Caller:    p.currentCaller(),
 		})
 	}
@@ -2013,7 +2044,7 @@ func (p *tagParser) funcCallRHS(rhs string, paren int, varName string, line int)
 	if p.extractCalls {
 		p.addCall(&CallSite{
 			FuncName: funcName,
-			Line:     conv.Uint32(line),
+			Line:     conv.Uint32(line + p.rhsLead),
 			Caller:   p.currentCaller(),
 		})
 	}

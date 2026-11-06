@@ -8,6 +8,7 @@
 
 ### Fixed
 
+- **A `<cfset>` whose value starts on a later line is no longer recorded twice.** `<cfset var m =` then `array(…)` on the next line recorded the call on the tag's line as well as its own, because the value was trimmed before its line was counted. Lucee's `menu.cfm` and `ext.providers.cfm` were the two files it showed in, against the tree-sitter grammar.
 - **`unresolved` no longer reports SQL as unresolved calls.** SQL in a triple-backtick island (`query ds {``` … ```}` or a `<cfquery>` in one) and the body of a `java { … }` block were read as script, so `VARCHAR(255)`, `sum(x)` and a Java method signature were recorded as calls: 16 findings over Lucee's tests ("`to_char` not found in extends chain"). A call written in a `#…#` inside that SQL is still a call.
 - **A call in a property default or a component attribute is found** (`property name="u" default="#createUUID()#"`, `component hint="#now()#"`), as is one in a script that follows a string holding `</cfscript>`, and `for( property in x )` is a loop over a variable and not a property declaration.
 - **A call written over several lines in a `#...#` span is found when its string holds an apostrophe or an escaped hash.** `#ETH.text( "<p>Don't</p>… ##f2dede …" )#` was split at its first `<`, which lost that call and the one after it. ContentBox's email templates are written this way; seven files across ColdBox, ContentBox and Lucee gain calls, and one new `unresolved` finding appears in ContentBox, for a call the parser had been missing.
