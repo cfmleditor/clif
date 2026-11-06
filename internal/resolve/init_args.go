@@ -307,6 +307,14 @@ func (r *Resolver) initArgDeclared(pr *parser.ParseResult, param string) string 
 	return r.bareArgumentComponent(arg.Type, pr)
 }
 
+// lineWritesNameRegex is lineWritesName as the expression it replaces, for a name
+// the scanner does not take, and the reference it is tested against.
+func lineWritesNameRegex(line, name string) bool {
+	q := regexp.QuoteMeta(name)
+
+	return compiledPattern(`(?i)(?:(?:^|[^\w.])(?:variables\.)?` + q + `\s*=[^=])|(?:\bset` + q + `\s*\()`).MatchString(line)
+}
+
 // hasWrittenFunc reports whether pr's source declares a function called name,
 // as opposed to one generated for a property.
 func hasWrittenFunc(pr *parser.ParseResult, name string) bool {
@@ -341,8 +349,13 @@ func initStoredArg(pr *parser.ParseResult, name string) string {
 		return ""
 	}
 
-	q := regexp.QuoteMeta(name)
-	write := compiledPattern(`(?i)(?:(?:^|[^\w.])(?:variables\.)?` + q + `\s*=[^=])|(?:\bset` + q + `\s*\()`)
+	plain := plainName(name)
+	write := func(line string) bool { return lineWritesNameRegex(line, name) }
+
+	if plain {
+		write = func(line string) bool { return lineWritesName(line, name) }
+	}
+
 	param := ""
 
 	i := -1
@@ -351,7 +364,7 @@ func initStoredArg(pr *parser.ParseResult, name string) string {
 		i++
 		line = strings.TrimSuffix(line, "\n")
 
-		if !mentions(line, name) || !write.MatchString(line) {
+		if !mentions(line, name) || !write(line) {
 			continue
 		}
 

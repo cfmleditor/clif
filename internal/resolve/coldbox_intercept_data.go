@@ -206,8 +206,8 @@ func interceptSitesIn(content, file string) []interceptSite {
 
 	lines := newLineIndex(content)
 
-	for _, m := range interceptStartRe.FindAllStringIndex(content, -1) {
-		tokens := significantTokens(content[m[0]:min(len(content), m[0]+renderWindow)])
+	for _, start := range interceptStarts(content) {
+		tokens := significantTokens(content[start:min(len(content), start+renderWindow)])
 		if len(tokens) < 2 || tokens[1].Kind != parser.TokLParen {
 			continue
 		}
@@ -217,7 +217,7 @@ func interceptSitesIn(content, file string) []interceptSite {
 			continue
 		}
 
-		site := interceptSite{file: file, line: lines.lineOf(m[0])}
+		site := interceptSite{file: file, line: lines.lineOf(start)}
 
 		for i, piece := range producerSplit(tokens[2:end]) {
 			if len(piece) == 0 {

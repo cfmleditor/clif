@@ -4,7 +4,7 @@
 
 ### Changed
 
-- **`unresolved` is up to 22% faster** on component-heavy workspaces (ColdBox 22%, ContentBox 14%): three rules that asked a question of a file's text with a regular expression over the whole file (does it declare a function of this name, does it assign this variable, what is this function's body) now find the name and check around it, and a handful more skip a file that lacks the one word every match needs, or find the name directly. The output is byte-identical on ColdBox, TestBox, FW/1, ContentBox and Lucee.
+- **`unresolved` is up to 22% faster** on component-heavy workspaces (ColdBox 22%, ContentBox 14%): three rules that asked a question of a file's text with a regular expression over the whole file (does it declare a function of this name, does it assign this variable, what is this function's body) now find the name and check around it, and a handful more skip a file that lacks the one word every match needs, or find the name directly. A third batch finds the fixed word each remaining expression starts with and tries the original expression only there (render and view calls, action starts, interceptor announces, the FW/1 view call, `prc.response` writes, `customErrorTemplate`), a further 4–9% on ColdBox and ContentBox. The output is byte-identical on ColdBox, TestBox, FW/1, ContentBox and Lucee.
 
 ### Fixed
 

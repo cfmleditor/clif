@@ -138,12 +138,14 @@ func (r *Resolver) fw1Includers(app string) map[string][]string {
 
 		seen := map[string]bool{}
 
-		for _, m := range fw1ViewCallRe.FindAllSubmatch(data, -1) {
-			if len(m[1]) > 0 && !strings.EqualFold(string(m[1]), filepath.Base(app)) {
+		text := string(data)
+
+		for _, m := range fw1ViewCallMatches(text) {
+			if m[2] >= 0 && m[3] > m[2] && !strings.EqualFold(text[m[2]:m[3]], filepath.Base(app)) {
 				continue
 			}
 
-			view := strings.ToLower(strings.Trim(string(m[2]), "/"))
+			view := strings.ToLower(strings.Trim(text[m[4]:m[5]], "/"))
 			if !seen[view] {
 				seen[view] = true
 				out[view] = append(out[view], file)

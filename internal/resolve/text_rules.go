@@ -1,6 +1,8 @@
 package resolve
 
 import (
+	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/parser"
@@ -433,4 +435,194 @@ func renderStarts(s string) []int {
 	}
 
 	return starts
+}
+
+// Expressions that begin with a fixed word are run at the places that word is,
+// not at every byte of the file. The scanner says where to try; the expression,
+// compiled to begin with \A, says what it matches there, so its captures, its
+// laziness and its alternation order are the original's and cannot drift.
+
+// anchorStart is re with its leading `\b` replaced by `\A`. The pattern must
+// begin with a flag group and a `\b`; any other shape panics at start-up, which
+// is when a change to one of the patterns would otherwise go unnoticed.
+func anchorStart(re *regexp.Regexp) *regexp.Regexp {
+	p := re.String()
+
+	end := strings.IndexByte(p, ')')
+	if !strings.HasPrefix(p, "(?") || end < 0 || !strings.HasPrefix(p[end+1:], `\b`) {
+		panic("anchorStart: " + p + " does not begin with a flag group and \\b")
+	}
+
+	return regexp.MustCompile(p[:end+1] + `\A` + p[end+3:])
+}
+
+// matchesAt is re.FindAllStringSubmatchIndex(s, -1) for an expression whose
+// anchored form is re, given every offset it can match at in order: the
+// leftmost matches that do not overlap, with indices in s.
+func matchesAt(re *regexp.Regexp, s string, starts []int) [][]int {
+	var out [][]int
+
+	lastEnd := 0
+
+	for _, start := range starts {
+		if start < lastEnd {
+			continue
+		}
+
+		m := re.FindStringSubmatchIndex(s[start:])
+		if m == nil {
+			continue
+		}
+
+		for i := range m {
+			if m[i] >= 0 {
+				m[i] += start
+			}
+		}
+
+		out = append(out, m)
+		lastEnd = m[1]
+	}
+
+	return out
+}
+
+// wordStarts returns the offsets of word in s on a word boundary, in order.
+func wordStarts(s, word string) []int {
+	var starts []int
+
+	for o := nextFold(s, word, 0); o >= 0; o = nextFold(s, word, o+1) {
+		if startsWord(s, o) {
+			starts = append(starts, o)
+		}
+	}
+
+	return starts
+}
+
+// wordCallStarts returns the offsets in s of `\b(?:word|…)\s*\(`, in order and
+// once each.
+func wordCallStarts(s string, words ...string) []int {
+	var starts []int
+
+	for _, word := range words {
+		for _, o := range wordStarts(s, word) {
+			if open := skipRegexSpace(s, o+len(word)); open < len(s) && s[open] == '(' {
+				starts = append(starts, o)
+			}
+		}
+	}
+
+	slices.Sort(starts)
+
+	return slices.Compact(starts)
+}
+
+var (
+	renderCallAt       = anchorStart(renderCallRe)
+	computedRenderAt   = anchorStart(computedRenderRe)
+	actionStartAt      = anchorStart(actionStartRe)
+	fw1ViewCallAt      = anchorStart(fw1ViewCallRe)
+	prcResponseWriteAt = anchorStart(prcResponseWriteRe)
+)
+
+// renderCallMatches, computedRenderMatches and actionStartMatches are the
+// FindAllStringSubmatchIndex of renderCallRe, computedRenderRe and actionStartRe
+// over content. starts are renderStarts(content) for the first two.
+func renderCallMatches(content string, starts []int) [][]int {
+	return matchesAt(renderCallAt, content, starts)
+}
+
+func computedRenderMatches(content string, starts []int) [][]int {
+	return matchesAt(computedRenderAt, content, starts)
+}
+
+func actionStartMatches(content string) [][]int {
+	return matchesAt(actionStartAt, content, wordStarts(content, "function"))
+}
+
+// interceptStarts are the offsets of interceptStartRe's matches in s.
+func interceptStarts(s string) []int {
+	var starts []int
+
+	lastEnd := 0
+
+	for _, o := range wordCallStarts(s, "announce", "announceInterception", "processState") {
+		if o < lastEnd {
+			continue
+		}
+
+		starts = append(starts, o)
+		lastEnd = o + 1
+	}
+
+	return starts
+}
+
+// fw1ViewCallMatches is fw1ViewCallRe.FindAllStringSubmatchIndex(s, -1).
+func fw1ViewCallMatches(s string) [][]int {
+	return matchesAt(fw1ViewCallAt, s, wordCallStarts(s, "view"))
+}
+
+// writesPrcResponse reports whether prcResponseWriteRe matches s.
+func writesPrcResponse(s string) bool {
+	return len(matchesAt(prcResponseWriteAt, s, wordStarts(s, "prc"))) > 0
+}
+
+// customErrorTemplateValues are the captures of
+// `customErrorTemplate\s*[:=]\s*["']([^"'#]+)["']` over s, in order.
+func customErrorTemplateValues(s string) []string {
+	var out []string
+
+	const word = "customErrorTemplate"
+
+	for o := nextFold(s, word, 0); o >= 0; o = nextFold(s, word, o+1) {
+		i := skipRegexSpace(s, o+len(word))
+		if i >= len(s) || s[i] != ':' && s[i] != '=' {
+			continue
+		}
+
+		i = skipRegexSpace(s, i+1)
+		if i >= len(s) || s[i] != '"' && s[i] != '\'' {
+			continue
+		}
+
+		start := i + 1
+		end := start
+
+		for end < len(s) && s[end] != '"' && s[end] != '\'' && s[end] != '#' {
+			end++
+		}
+
+		if end > start && end < len(s) && (s[end] == '"' || s[end] == '\'') {
+			out = append(out, s[start:end])
+			o = end
+		}
+	}
+
+	return out
+}
+
+// lineWritesName is the expression initStoredArg asks of one line,
+// `(?:^|[^\w.])(?:variables\.)?NAME\s*=[^=]|\bsetNAME\s*\(`, for a plain name.
+func lineWritesName(line, name string) bool {
+	for o := nextFold(line, name, 0); o >= 0; o = nextFold(line, name, o+1) {
+		if j := skipRegexSpace(line, o+len(name)); j+1 < len(line) && line[j] == '=' && line[j+1] != '=' {
+			if o == 0 || !isWordByte(line[o-1]) && line[o-1] != '.' {
+				return true
+			}
+
+			if p := o - len("variables."); p >= 0 && foldAt(line, p, "variables.") && (p == 0 || !isWordByte(line[p-1]) && line[p-1] != '.') {
+				return true
+			}
+		}
+
+		if o >= 3 && foldAt(line, o-3, "set") && startsWord(line, o-3) {
+			if open := skipRegexSpace(line, o+len(name)); open < len(line) && line[open] == '(' {
+				return true
+			}
+		}
+	}
+
+	return false
 }

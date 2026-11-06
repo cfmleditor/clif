@@ -362,3 +362,145 @@ func TestTheNameAndRenderScannersAreTheExpressionsTheyReplace(t *testing.T) {
 		t.Errorf("the generator found %d render starts and %d quoted names: it does not exercise them", renderHits, nameHits)
 	}
 }
+
+func pickText(r *rand.Rand, pieces []string, most int) string {
+	var b strings.Builder
+
+	for range 1 + r.Intn(most) {
+		b.WriteString(pieces[r.Intn(len(pieces))])
+	}
+
+	return b.String()
+}
+
+// The expressions that begin with a fixed word are run at the places that word
+// is. Each is compared with the expression it stands for on text built from the
+// expression's own pieces — its word in either case and beside what almost makes
+// a match — and the comparison is of the submatch indices, so a capture that
+// moved is a failure too.
+func TestTheAnchoredExpressionsMatchWhatTheyReplace(t *testing.T) {
+	r := rand.New(rand.NewSource(13))
+
+	render := []string{
+		"view", "View", "setView", "renderView", "RENDERVIEW", "xview", "preview", "view (", "view(", "\n", " ", "\t", "\v", "(", ")", ",", "\"", "'", "/", ".",
+		"home/index", "x.y", "a-b", "view=", "view = ", "module=\"m\"", "module = 'x'", "#variables.v#", "#variables.", "#", "/sub/page", "data", "=", ";", "{", "}",
+		`view("home/index")`, `renderView( view = "x/y", module="m" )`, `setView('/a.b/c-d')`, `View ( "p" , x )`, `view("#variables.v#/sub")`, `renderView( view="#variables.handler#/x/" )`, `view("a")view("b")`, `xview("q")`,
+		"function", "FUNCTION", "functions", "xfunction", "function ", "function  run(", "function\tinit (", "function (", "function run", "function _x1(",
+	}
+	intercept := []string{
+		"announce", "ANNOUNCE", "announceInterception", "AnnounceInterception", "processState", "processstate", "announces", "xannounce", "(", " (", "\n(", "\v(", ")", ",",
+		"\"", "'", " ", "\n", "x", "state", "data", "{", "}", "=",
+	}
+	fw1 := []string{
+		"view", "View", "xview", "views", "(", " (", ")", ",", "\"", "'", ":", "path", "path=", "path = ", "mod:", "a-b:", "x/y", "z", "/", " ", "\n", "\t", "_", ".",
+		`view("a/b")`, `view( path = 'mod:x/y' , z)`, `view("m-n:p/q",`, `View ( "p" )`, `xview("q")`, `view("a b")`, `view(path="x")`,
+	}
+	prc := []string{
+		"prc", "PRC", "xprc", "prcs", ".", " . ", "response", "Response", "[", "]", "\"", "'", "=", "==", " ", "\n", "x", "(", ")", ".response", "[\"response\"]", "['response']", "prc.response =",
+	}
+	cet := []string{
+		"customErrorTemplate", "CUSTOMERRORTEMPLATE", "customErrorTemplates", "xcustomErrorTemplate", ":", "=", " : ", " = ", "\"", "'", "/error.cfm", "x", "#", "#x#", "\n", ",", "{", "}", ";", "a b",
+	}
+
+	var hits [6]int
+
+	for range 40000 {
+		text := pickText(r, render, 14)
+
+		if want, got := renderCallRe.FindAllStringSubmatchIndex(text, -1), renderCallMatches(text, renderStarts(text)); !slices.EqualFunc(want, got, slices.Equal) {
+			t.Fatalf("renderCallMatches(%q) = %v, the expression says %v", text, got, want)
+		} else {
+			hits[0] += len(want)
+		}
+
+		if want, got := computedRenderRe.FindAllStringSubmatchIndex(text, -1), computedRenderMatches(text, renderStarts(text)); !slices.EqualFunc(want, got, slices.Equal) {
+			t.Fatalf("computedRenderMatches(%q) = %v, the expression says %v", text, got, want)
+		} else {
+			hits[1] += len(want)
+		}
+
+		if want, got := actionStartRe.FindAllStringSubmatchIndex(text, -1), actionStartMatches(text); !slices.EqualFunc(want, got, slices.Equal) {
+			t.Fatalf("actionStartMatches(%q) = %v, the expression says %v", text, got, want)
+		} else {
+			hits[2] += len(want)
+		}
+
+		text = pickText(r, intercept, 12)
+
+		var wantStarts []int
+		for _, m := range interceptStartRe.FindAllStringIndex(text, -1) {
+			wantStarts = append(wantStarts, m[0])
+		}
+
+		if got := interceptStarts(text); !slices.Equal(wantStarts, got) {
+			t.Fatalf("interceptStarts(%q) = %v, the expression says %v", text, got, wantStarts)
+		} else {
+			hits[3] += len(wantStarts)
+		}
+
+		text = pickText(r, fw1, 14)
+
+		if want, got := fw1ViewCallRe.FindAllStringSubmatchIndex(text, -1), fw1ViewCallMatches(text); !slices.EqualFunc(want, got, slices.Equal) {
+			t.Fatalf("fw1ViewCallMatches(%q) = %v, the expression says %v", text, got, want)
+		} else {
+			hits[4] += len(want)
+		}
+
+		text = pickText(r, prc, 10)
+
+		if want, got := prcResponseWriteRe.MatchString(text), writesPrcResponse(text); want != got {
+			t.Fatalf("writesPrcResponse(%q) = %v, the expression says %v", text, got, want)
+		} else if want {
+			hits[5]++
+		}
+
+		text = pickText(r, cet, 12)
+
+		var wantValues []string
+		for _, m := range customErrorTemplateRe.FindAllStringSubmatch(text, -1) {
+			wantValues = append(wantValues, m[1])
+		}
+
+		if got := customErrorTemplateValues(text); !slices.Equal(wantValues, got) {
+			t.Fatalf("customErrorTemplateValues(%q) = %q, the expression says %q", text, got, wantValues)
+		}
+	}
+
+	for i, n := range hits {
+		if n < 300 {
+			t.Errorf("expression %d matched %d times: the generator does not exercise it", i, n)
+		}
+	}
+}
+
+// initStoredArg's per-line test, and the scanner for it, on the lines of an
+// init() as they are written.
+func TestTheLineWriteScannerIsTheExpressionItReplaces(t *testing.T) {
+	r := rand.New(rand.NewSource(17))
+
+	pieces := []string{
+		"variables.", "VARIABLES.", "arguments.", "this.", "local.", "set", "SET", "x", "X", "xx", "$", "_", ".", "=", "==", "===", "!=", "<=", " ", "\t", "\v", "(", ")",
+		";", "1", "\"", "'", ",", "name", "getX(", "setX(", "setx (", "SetX\t(", "x =", "x=", "x==", "x = arguments.p", "variables.x = arguments.p;",
+	}
+
+	var hits int
+
+	for range 60000 {
+		name := scannerNames[r.Intn(len(scannerNames))]
+		line := pickText(r, pieces, 10)
+
+		if r.Intn(3) == 0 {
+			line += strings.Repeat(" ", r.Intn(2)) + name + pickText(r, pieces, 4)
+		}
+
+		if want, got := lineWritesNameRegex(line, name), lineWritesName(line, name); want != got {
+			t.Fatalf("lineWritesName(%q, %q) = %v, the expression says %v", line, name, got, want)
+		} else if want {
+			hits++
+		}
+	}
+
+	if hits < 300 {
+		t.Errorf("the expression matched %d lines: the generator does not exercise it", hits)
+	}
+}
