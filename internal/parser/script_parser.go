@@ -1148,6 +1148,8 @@ func (p *scriptParser) parseScopedVar(tok Token, scope Scope) {
 			fullChain.writeDot()
 			fullChain.writeString(nameTok.Value)
 
+			callLine := nameTok.Line
+
 			for p.sc.PeekSkipComments().Kind == TokDot {
 				p.sc.NextSkipComments()
 
@@ -1157,13 +1159,15 @@ func (p *scriptParser) parseScopedVar(tok Token, scope Scope) {
 
 					fullChain.writeDot()
 					fullChain.writeString(next.Value)
+
+					callLine = next.Line
 				} else {
 					break
 				}
 			}
 
 			if p.sc.PeekSkipComments().Kind == TokLParen {
-				p.recordChainFromScope(fullChain.String(), int(tok.Line))
+				p.recordChainFromScope(fullChain.String(), int(callLine))
 			}
 		}
 
@@ -1314,6 +1318,7 @@ func (p *scriptParser) parse() {
 				retVal.reset(tok.Value)
 
 				lastIdent := tok.Value
+				lastLine := tok.Line
 				prevIdent := ""
 
 				for p.sc.PeekSkipComments().Kind == TokDot {
@@ -1325,6 +1330,7 @@ func (p *scriptParser) parse() {
 
 						prevIdent = lastIdent
 						lastIdent = seg.Value
+						lastLine = seg.Line
 
 						retVal.writeDot()
 						retVal.writeString(seg.Value)
@@ -1353,7 +1359,7 @@ func (p *scriptParser) parse() {
 					call := CallSite{
 						FuncName: funcName,
 						Variable: varName,
-						Line:     conv.Uint32(p.baseLine + line),
+						Line:     conv.Uint32(p.baseLine + int(lastLine)),
 					}
 					// This dispatch also handles script islands seeded with a tag
 					// function scope. Capture identity while the opening parenthesis
@@ -1947,7 +1953,7 @@ func (p *scriptParser) handleLiteralToken(tok Token) {
 	}
 
 	if isLiteralReceiver(tok.Kind) && p.sc.PeekSkipComments().Kind == TokDot {
-		p.recordLiteralMemberCall(tok)
+		p.recordLiteralMemberCall()
 	}
 }
 
@@ -2162,7 +2168,7 @@ func isLiteralReceiver(k TokenKind) bool {
 // is an edge to it that does not exist. The component is `$any`, the existing
 // spelling for "genuinely dynamic", so the method-exists check is skipped the
 // way it is for any other value whose type is not static.
-func (p *scriptParser) recordLiteralMemberCall(recv Token) {
+func (p *scriptParser) recordLiteralMemberCall() {
 	caller := ""
 	if p.inFunc != "" && len(p.funcs) > 0 {
 		caller = p.currentFunc().Name
@@ -2185,7 +2191,7 @@ func (p *scriptParser) recordLiteralMemberCall(recv Token) {
 		p.addCall(&CallSite{
 			FuncName:  methTok.Value,
 			Component: "$any",
-			Line:      conv.Uint32(p.baseLine + int(recv.Line)),
+			Line:      conv.Uint32(p.baseLine + int(methTok.Line)),
 			Caller:    caller,
 			Resolved:  true,
 		})

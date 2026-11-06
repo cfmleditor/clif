@@ -409,17 +409,18 @@ the *formatter*, not the parser.
   receiver and no chain is indistinguishable from a bare call to a function named
   g. 26,014 hops over the corpus. `super::m()` is `super.m()`, not a static call
   on a component named super.
-- **A call is on the line its name is written on**, whatever chain it ends. Eight
-  walkers stamped a call with the line the chain *began* on instead — every hop
-  after a bare call, a scope's first call, an unscoped receiver alone on its line
-  (`walkChain` reports the last name's line for the three assignment forms and
-  `checkBareCall` tracks it), and the hops after `createObject( … )` or `new X()`.
-  Only the call's own line moves: a ref's and a pending call's stays the
-  statement's, which is what typing reads. Moving 315 findings' lines over the
-  four-project corpus removed two false positives (a call put before the
-  assignment that types its variable) and added none; the known-issues reports
-  show line churn on regeneration. `make gapcheck` keys the grammar's call on its
-  method name's row for the same reason
+- **A call is on the line its name is written on**, whatever chain it ends. Eleven
+  places stamped a call with the line the chain *began* on instead — every hop
+  after a bare call, a scope's first call (in a function and at the top level),
+  an unscoped receiver alone on its line (`walkChain` reports the last name's
+  line for the three assignment forms; `checkBareCall` and `parse()`'s own
+  dot-chain walk track it), the hops after `createObject( … )` or `new X()`, and
+  a call on a literal or after a `]`. Only the call's own line moves: a ref's and
+  a pending call's stays the statement's, which is what typing reads. Moving 315
+  findings' lines over the four-project corpus removed two false positives (a
+  call put before the assignment that types its variable) and added none; the
+  known-issues reports show line churn on regeneration. `make gapcheck` keys the
+  grammar's call on its method name's row for the same reason
   (`TestAChainedCallIsOnTheLineItsNameIsWrittenOn`, .ai/docs/PARSER-GAPS.md §4.4).
 - **A bracket index is an expression, and `skipBracketIndex` mirrored the *old*
   `skipParens`** — it discarded its group a token at a time. `sorted[ sorted.len() ]`

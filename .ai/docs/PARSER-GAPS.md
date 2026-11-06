@@ -647,17 +647,16 @@ Three causes, none of them a wrong answer about code that runs:
 `make gapcheck` over ColdBox, TestBox, FW/1 and ContentBox (1,896 files; Lucee
 and cfmleditor not included) after the 0.6.0 work:
 
-| | Before | Oracle keyed on the name | Walkers fixed |
+| | Start | Oracle keyed on the name | Walkers fixed |
 |---|---:|---:|---:|
-| Files where the two disagree by line and name | 370 | 414 | **172** |
-| Grammar-only, line-keyed | 2,576 | 2,015 | **349** |
-| Parser-only, line-keyed | 2,247 | 1,686 | **20** |
-| Grammar-only, by name | 342 | 342 | 342 |
-| Parser-only, by name | 13 | 13 | 13 |
+| Files where the two disagree (line and name) | 370 | 414 | **169** |
+| Grammar-only, line-keyed | 2,576 | 2,015 | **342** |
+| Parser-only, line-keyed | 2,247 | 1,686 | **13** |
+| Grammar-only / parser-only, by name | 342 / 13 | 342 / 13 | 342 / 13 |
 
-By name the two agree to within about a dozen calls: 331 of the 342 grammar-only
-calls are the deliberate `createObject` / `entityLoad` / `entityNew` /
-`entityLoadByPK` of §4.1. What was left was lines, in two parts.
+Line-keyed now equals name-keyed: no file differs by line alone. By name, 331 of
+the 342 grammar-only calls are the deliberate `createObject` / `entityLoad` /
+`entityNew` / `entityLoadByPK` of §4.1. What was left was lines, in two parts.
 
 - **The oracle keyed a call on its node's first row**, so every hop of a chain
   written a call per line got the chain's first line, where the parser gives a
@@ -666,16 +665,19 @@ calls are the deliberate `createObject` / `entityLoad` / `entityNew` /
   *up*, 370 to 414: a hop the parser left on the chain's first line used to
   match the first-line key by accident.
 - **The parser stamped some calls with the line a chain began on.** A call is
-  on the line its name is written on, and these walkers did not agree:
+  on the line its name is written on, and eleven places did not agree:
   `recordBareCallAndChain` (every hop after a bare call, `command( … )` then
-  `.params( … )` then `.run()`), `scopedChainCall` and `recordScopedMemberCall`
-  (a scope's first call, `variables.print` then `.line()`, `return this` then
-  `.toInstant()`), `checkBareCall` and the three unscoped assignment forms
-  (`walkChain` now reports the line of the last name it walked) when the
-  receiver stands alone on its line, and `scanChainedCalls` (the hops after
-  `createObject( … )` or `new X()`). Only the call's own line moved: a ref's and
+  `.params( … )` then `.run()`); `scopedChainCall`, `recordScopedMemberCall`
+  and `parseScopedVar` (a scope's first call, `variables.print` then `.line()`,
+  `return this` then `.toInstant()`); `checkBareCall`, `walkChain` for the three
+  assignment forms, and `parse()`'s own dot-chain walk (a receiver alone on its
+  line, in a function and outside one — a `<cfscript>` of a tag file runs the
+  second); `scanChainedCalls` (the hops after `createObject( … )` or `new X()`);
+  and `recordLiteralMemberCall` (a call after a `]` or a string,
+  `getData()[ k ]` then `.map( … )`). Only the call's own line moved: a ref's and
   a pending call's line is still the statement's.
-  `TestAChainedCallIsOnTheLineItsNameIsWrittenOn` has a case for each.
+  `TestAChainedCallIsOnTheLineItsNameIsWrittenOn` and its two neighbours have a
+  case for each.
 
 `unresolved` before and after, over the same four projects, with line numbers
 set aside: no finding added, two removed, both ColdBox's — a call the old line
@@ -685,8 +687,12 @@ then `scopeNames.each( … )`). 315 findings moved to the line their call is
 written on, so a committed known-issues report will show line-number churn on
 the next regeneration and nothing else.
 
-What is left, apart from the 331 deliberate ones, is 17 files: 18 calls only the
-grammar places and 20 only the parser, in shapes not yet looked at.
+What is left, apart from the 331 deliberate ones, is 13 files: 11 calls only the
+grammar sees and 13 only the parser. The grammar's are mostly `text`, `get`,
+`set`, `view` and `button` in `.cfm` pages (interpolation the output-context
+rules decline), and the parser's are script-syntax tags the grammar reads as
+something else (`cfmail`, `cfhttp`, `cfloop`), a `this[]` marker and a few
+Java-object methods (`getTable`, `getTextColumnType`).
 
 ## 5. What would change these decisions
 
