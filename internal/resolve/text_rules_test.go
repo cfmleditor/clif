@@ -504,3 +504,44 @@ func TestTheLineWriteScannerIsTheExpressionItReplaces(t *testing.T) {
 		t.Errorf("the expression matched %d lines: the generator does not exercise it", hits)
 	}
 }
+
+// lastMemberAssignmentAt's search, on text built from the expression's pieces:
+// the prefixes it allows, whitespace that crosses lines, and what ends a line.
+func TestTheMemberAssignmentScannerIsTheExpressionItReplaces(t *testing.T) {
+	r := rand.New(rand.NewSource(23))
+
+	pieces := []string{
+		"prc.x", "PRC.X", "prc.xy", "xprc.x", "arguments.", "ARGUMENTS.", "<cfset", "<CFSET", "<cfset ", "<cfset\n", "<cfsetprc.x", " ", "  ", "\t", "\n", "\n\n", "\r\n", "\v", "\f",
+		"=", " = ", "==", "x", "1", "new A()", "f(", ")", ";", "/>", ">", "\"", "# ", "foo.bar", "variables.", "rc.x", "= \n", "\n= ",
+	}
+	assign := []string{
+		"prc.x = new A();", "<cfset prc.x = f(1)>", "  arguments.prc.x = 2;\n", "\tprc.x=x /> ", "<cfset  arguments.prc.x = y>\n", "prc.x ==1", "prc.x =\n3", "prc.x\n= 4;",
+	}
+
+	var hits int
+
+	for range 40000 {
+		var parts []string
+
+		for range 1 + r.Intn(10) {
+			if r.Intn(4) == 0 {
+				parts = append(parts, assign[r.Intn(len(assign))])
+			} else {
+				parts = append(parts, pieces[r.Intn(len(pieces))])
+			}
+		}
+
+		text := strings.Join(parts, "")
+		want := memberAssignRe("prc", "x").FindAllStringSubmatchIndex(text, -1)
+
+		if got := memberAssignMatches(text, "prc", "x"); !slices.EqualFunc(want, got, slices.Equal) {
+			t.Fatalf("memberAssignMatches(%q) = %v, the expression says %v", text, got, want)
+		}
+
+		hits += len(want)
+	}
+
+	if hits < 2000 {
+		t.Errorf("the expression matched %d times: the generator does not exercise it", hits)
+	}
+}

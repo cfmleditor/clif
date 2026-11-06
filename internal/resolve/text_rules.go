@@ -626,3 +626,67 @@ func lineWritesName(line, name string) bool {
 
 	return false
 }
+
+// memberAssignMatches is memberAssignRe(container, name).FindAllStringSubmatchIndex(body, -1).
+//
+// The expression opens with `^\s*(?:<cfset\s+)?(?:arguments\.)?`, and `\s*` crosses
+// lines, so a match may begin at any line start in the whitespace before the
+// optional prefixes. For each place `container.name` is written, those line starts
+// are the candidates, and the expression, anchored with \A, decides at each. A
+// name that is not plain takes the expression.
+func memberAssignMatches(body, container, name string) [][]int {
+	if !plainName(container) || !plainName(name) {
+		return memberAssignRe(container, name).FindAllStringSubmatchIndex(body, -1)
+	}
+
+	return matchesAt(memberAssignAnchored(container, name), body, memberAssignStarts(body, container+"."+name))
+}
+
+// memberAssignAnchored is memberAssignRe with its leading `^` replaced by \A.
+func memberAssignAnchored(container, name string) *regexp.Regexp {
+	p := memberAssignRe(container, name).String()
+
+	const head = `(?im)^`
+
+	if !strings.HasPrefix(p, head) {
+		panic("memberAssignAnchored: " + p + " does not begin with " + head)
+	}
+
+	return compiledPattern(`(?im)\A` + p[len(head):])
+}
+
+// memberAssignStarts are the offsets, in order, at which a match of
+// memberAssignRe for the written text target can begin.
+func memberAssignStarts(body, target string) []int {
+	var starts []int
+
+	for o := nextFold(body, target, 0); o >= 0; o = nextFold(body, target, o+1) {
+		i := o
+		if i >= len("arguments.") && foldAt(body, i-len("arguments."), "arguments.") {
+			i -= len("arguments.")
+		}
+
+		cfset := -1
+		if j := skipSpaceBack(body, i); j < i && j >= len("<cfset") && foldAt(body, j-len("<cfset"), "<cfset") {
+			cfset = j - len("<cfset")
+		}
+
+		// The <cfset is optional, so the line starts before it count as well as
+		// those before the written text itself.
+		for _, end := range []int{i, cfset} {
+			if end < 0 {
+				continue
+			}
+
+			for q := skipSpaceBack(body, end); q <= end; q++ {
+				if q == 0 || body[q-1] == '\n' {
+					starts = append(starts, q)
+				}
+			}
+		}
+	}
+
+	slices.Sort(starts)
+
+	return slices.Compact(starts)
+}

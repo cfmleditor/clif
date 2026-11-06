@@ -2536,7 +2536,10 @@ indices with the unanchored expression on random text built from each expression
 floor on how often it matches; planted bugs (a dropped word boundary, an empty capture, a `==` taken
 as an assignment, a lost `variables.` prefix) fail it. `unresolved` stays byte-identical on all
 five workspaces; 4-9% faster on ColdBox and ContentBox (interleaved, 10 runs). `lastMemberAssignmentAt`
-stays on its expression: it is multiline with a lazy group, and reproducing it exactly is the risk.
+is anchored the same way (`memberAssignMatches`): its `^\s*` crosses lines and `<cfset` and `arguments.`
+are optional, so the candidates are every line start in the whitespace before the written `container.name`,
+both with and without the `<cfset`, and the expression decides at each.
+`TestTheMemberAssignmentScannerIsTheExpressionItReplaces` holds it to the expression.
 
 **Search for the entries you are holding; do not sweep the bucket for them.**
 Both index writers on the keystroke path — `removeFileEntries` on every

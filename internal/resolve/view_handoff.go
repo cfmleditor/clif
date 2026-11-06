@@ -450,7 +450,7 @@ func lastMemberAssignmentAt(body, container, name string) (string, int, bool) {
 		return "", 0, false
 	}
 
-	all := memberAssignRe(container, name).FindAllStringSubmatchIndex(body, -1)
+	all := memberAssignMatches(body, container, name)
 	if len(all) == 0 {
 		return "", 0, false
 	}
