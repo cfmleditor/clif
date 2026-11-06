@@ -376,3 +376,61 @@ func assignsName(s, name string) bool {
 
 	return false
 }
+
+// quotedNameStarts returns the offsets of the non-overlapping matches of
+// `\bNAME["']` in s: the name, on a word boundary, with a quote straight after.
+func quotedNameStarts(s, name string) []int {
+	var starts []int
+
+	lastEnd := 0
+
+	for o := nextFold(s, name, 0); o >= 0; o = nextFold(s, name, o+1) {
+		end := o + len(name)
+		if end >= len(s) || s[end] != '"' && s[end] != '\'' || o < lastEnd {
+			continue
+		}
+
+		if isWordByte(name[0]) != (o > 0 && isWordByte(s[o-1])) {
+			starts = append(starts, o)
+			lastEnd = end + 1
+		}
+	}
+
+	return starts
+}
+
+// renderStarts returns the offsets of the non-overlapping matches of
+// `\b(?:setView|renderView|view)\s*\(` in s, which is where each starts and not
+// where the word view does: the caller reads the call's name from it.
+func renderStarts(s string) []int {
+	var starts []int
+
+	lastEnd := 0
+
+	for v := nextFold(s, "view", 0); v >= 0; v = nextFold(s, "view", v+1) {
+		open := skipRegexSpace(s, v+len("view"))
+		if open >= len(s) || s[open] != '(' {
+			continue
+		}
+
+		start := v
+
+		switch {
+		case v >= 6 && foldAt(s, v-6, "render") && startsWord(s, v-6):
+			start = v - 6
+		case v >= 3 && foldAt(s, v-3, "set") && startsWord(s, v-3):
+			start = v - 3
+		case !startsWord(s, v):
+			continue
+		}
+
+		if start < lastEnd {
+			continue
+		}
+
+		starts = append(starts, start)
+		lastEnd = open + 1
+	}
+
+	return starts
+}

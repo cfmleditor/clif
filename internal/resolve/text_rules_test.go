@@ -2,6 +2,7 @@ package resolve
 
 import (
 	"math/rand"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -234,4 +235,130 @@ func TestTheTextScannersOnTheirOwnShapes(t *testing.T) {
 			}
 		}
 	})
+}
+
+// A literal tested before an expression is a promise: every match of the
+// expression holds it. If one did not, a file the expression would have matched
+// is skipped, quietly. The text here is built from whole matches of each
+// expression, the same cut short, in the other case and run together, so that
+// matches occur and the promise is tried where it is most likely to break.
+func TestEveryPrefilterLiteralIsHeldByEveryMatchOfItsExpression(t *testing.T) {
+	type pair struct {
+		name    string
+		re      func(string) bool
+		literal string
+	}
+
+	pairs := []pair{
+		{"superInitEntityRe", superInitEntityRe.MatchString, "super.init("},
+		{"superInitArgRe", superInitArgRe.MatchString, "super.init("},
+		{"binderMapRe map", binderMapRe.MatchString, "map("},
+		{"binderMapRe to", binderMapRe.MatchString, "to("},
+		{"includeUDFRe", includeUDFRe.MatchString, "includeUDF("},
+		{"moduleHelperRe", moduleHelperRe.MatchString, "applicationHelper"},
+		{"appHelperRe", appHelperRe.MatchString, "applicationHelper"},
+	}
+
+	pieces := []string{
+		"super.init( entityName = \"cbContent\" )", "SUPER.INIT(\"x\")", "super.init( arguments.entity, a )", "super.init(entity)", "super.init (x)",
+		"super . init(", "super.init", "super.initx(", "supper.init(",
+		"binder.map( \"a\" ).to( \"b.C\" )", "MAP(\"a\").TO(\"b\")", "map( 'a' )\n.\nto( 'b' )", "map(\"a\")", ".to(\"b\")", "map (\"a\").to(\"b\")",
+		"includeUDF( \"#moduleMapping#/helpers.cfm\" )", "INCLUDEUDF(udflibrary=\"#moduleMapping#/x\")", "includeUDF", "include UDF(",
+		"this.applicationHelper = [ \"a.cfm\" ]", "THIS.APPLICATIONHELPER=[\"a\"]", "applicationHelper : \"x\"", "applicationHelper = 'x'", "applicationHelpers=", "application Helper =",
+		"{", "}", "(", ")", ",", ".", "\"", "'", "=", ":", "[", "]", "#", "\n", " ", "x", "entityName", "arguments.", "return ", "function ",
+	}
+
+	r := rand.New(rand.NewSource(7))
+	matched := map[string]int{}
+
+	for range 40000 {
+		var b strings.Builder
+
+		for range 1 + r.Intn(6) {
+			b.WriteString(pieces[r.Intn(len(pieces))])
+
+			if r.Intn(3) == 0 {
+				b.WriteByte(" \n"[r.Intn(2)])
+			}
+		}
+
+		text := b.String()
+
+		for _, p := range pairs {
+			if p.re(text) {
+				matched[p.name]++
+
+				if !mentions(text, p.literal) {
+					t.Fatalf("%s matches %q, which does not hold the literal %q its prefilter asks for", p.name, text, p.literal)
+				}
+			}
+		}
+	}
+
+	for _, p := range pairs {
+		if matched[p.name] < 100 {
+			t.Errorf("%s matched in only %d texts: the generator does not exercise it", p.name, matched[p.name])
+		}
+	}
+}
+
+// quotedNameStarts and renderStarts are held to their expressions the same way,
+// on text drawn from what each looks for: the name or the call, beside quotes,
+// brackets and the words that almost make one.
+func TestTheNameAndRenderScannersAreTheExpressionsTheyReplace(t *testing.T) {
+	r := rand.New(rand.NewSource(11))
+
+	renderPieces := []string{
+		"view", "View", "VIEW", "setView", "SETVIEW", "renderView", "RenderView", "set", "render", "xview", "preview", "setrenderView", "renderset",
+		"(", " (", "\n(", "\t(", "\v(", ")", "\"", "'", "/", ".", "_", "$", "1", " ", "\n", "event.", "return ", "views", "viewer(",
+	}
+	namePieces := []string{"x", "X", "name", "Name", "xname", "name1", "_name", "$name", "name_", "\"", "'", "\"\"", " ", "\n", "=", "(", ")", ".", "-", "é"}
+
+	var renderHits, nameHits int
+
+	for range 50000 {
+		var b strings.Builder
+
+		for range 1 + r.Intn(10) {
+			b.WriteString(renderPieces[r.Intn(len(renderPieces))])
+		}
+
+		text := b.String()
+
+		var want []int
+		for _, m := range renderStartRe.FindAllStringIndex(text, -1) {
+			want = append(want, m[0])
+		}
+
+		got := renderStarts(text)
+		if len(want) != len(got) || (len(want) > 0 && !slices.Equal(want, got)) {
+			t.Fatalf("renderStarts(%q) = %v, the expression says %v", text, got, want)
+		}
+
+		renderHits += len(want)
+
+		name := scannerNames[r.Intn(len(scannerNames))]
+
+		b.Reset()
+
+		for range 1 + r.Intn(12) {
+			if r.Intn(2) == 0 {
+				b.WriteString(name)
+			} else {
+				b.WriteString(namePieces[r.Intn(len(namePieces))])
+			}
+		}
+
+		text = b.String()
+
+		if want, got := quotedNameStartsRegex(text, name), quotedNameStarts(text, name); !slices.Equal(want, got) {
+			t.Fatalf("quotedNameStarts(%q, %q) = %v, the expression says %v", text, name, got, want)
+		} else {
+			nameHits += len(want)
+		}
+	}
+
+	if renderHits < 2000 || nameHits < 2000 {
+		t.Errorf("the generator found %d render starts and %d quoted names: it does not exercise them", renderHits, nameHits)
+	}
 }

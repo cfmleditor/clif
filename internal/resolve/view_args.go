@@ -231,6 +231,8 @@ func (r *Resolver) viewArgSites(module string) map[string][]viewArgSite {
 	return sites
 }
 
+// renderStartRe is what renderStarts finds, as an expression: the reference it is
+// tested against.
 var renderStartRe = regexp.MustCompile(`(?i)\b(?:setView|renderView|view)\s*\(`)
 
 // renderWindow bounds the text tokenized for one render call, so a page is not
@@ -244,9 +246,9 @@ func renderSites(content, file, module string) map[string][]viewArgSite {
 
 	lines := newLineIndex(content)
 
-	for _, m := range renderStartRe.FindAllStringIndex(content, -1) {
-		window := content[m[0]:min(len(content), m[0]+renderWindow)]
-		base := lines.lineOf(m[0])
+	for _, start := range renderStarts(content) {
+		window := content[start:min(len(content), start+renderWindow)]
+		base := lines.lineOf(start)
 
 		tokens := significantTokens(window)
 		if len(tokens) < 2 || !slices.Contains(viewRenderNames, strings.ToLower(tokens[0].Value)) || tokens[1].Kind != parser.TokLParen {

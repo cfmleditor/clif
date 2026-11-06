@@ -277,6 +277,12 @@ func (r *Resolver) helpersIn(configFile string, re *regexp.Regexp, base string) 
 		return nil
 	}
 
+	// Both settings this is asked for hold the word, and most config files do
+	// not: asking first skips an expression over the whole file.
+	if !mentions(string(data), "applicationHelper") {
+		return nil
+	}
+
 	m := re.FindSubmatch(data)
 	if m == nil {
 		return nil
@@ -309,6 +315,10 @@ func (r *Resolver) helpersIn(configFile string, re *regexp.Regexp, base string) 
 func (r *Resolver) includedUDFs(moduleConfig string) []string {
 	data, err := r.fs().ReadFile(moduleConfig)
 	if err != nil {
+		return nil
+	}
+
+	if !mentions(string(data), "includeUDF(") {
 		return nil
 	}
 

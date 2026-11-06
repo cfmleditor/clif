@@ -136,6 +136,11 @@ func (r *Resolver) wirebox() *wireboxWorkspace {
 
 // addMaps records every `map( id ).to( path )` in src.
 func (wb *wireboxWorkspace) addMaps(src, dir string) {
+	// `map( "id" ).to( "path" )`: a file without both words holds none.
+	if !mentions(src, "map(") || !mentions(src, "to(") {
+		return
+	}
+
 	for _, m := range binderMapRe.FindAllStringSubmatch(src, -1) {
 		id := strings.ToLower(strings.TrimSpace(m[1]))
 		if _, ok := wb.ids[id]; !ok {
