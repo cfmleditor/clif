@@ -1412,10 +1412,29 @@ func (p *scriptParser) parseProperty(startTok Token) {
 	// Collect tokens until semicolon or EOF
 	var tokens []Token
 
+	inHash := false // between the hashes of an unquoted `default=#f()#`
+
 	for {
 		tok := p.sc.NextSkipComments()
 		if tok.Kind == TokEOF || tok.Kind == TokSemicolon {
 			break
+		}
+
+		// `default="#createUUID()#"`: a property's attribute is an expression,
+		// and a call written in it is a call.
+		if tok.Kind == TokString {
+			p.scanInterpolation(tok)
+		}
+
+		// The same written without quotes, `default=#createUUID()#`, is the
+		// hashes as tokens. A name met between them is the start of an
+		// expression, which the argument scan reads whole.
+		if tok.Kind == TokHash {
+			inHash = !inHash
+		} else if inHash && tok.Kind == TokIdent {
+			p.scanNestedCall(tok)
+
+			continue
 		}
 
 		tokens = append(tokens, tok)
@@ -1502,6 +1521,12 @@ func (p *scriptParser) parseComponentAttrs() {
 
 		p.sc.NextSkipComments()
 
+		// `component hint="prefix-#now()#"`: the value of an attribute this
+		// does not read is still an expression.
+		if tok.Kind == TokString {
+			p.scanInterpolation(tok)
+		}
+
 		if tok.Kind != TokIdent {
 			continue
 		}
@@ -1562,7 +1587,12 @@ func (p *scriptParser) attrValue() (Token, bool) {
 
 	p.sc.NextSkipComments()
 
-	return p.sc.NextSkipComments(), true
+	val := p.sc.NextSkipComments()
+	if val.Kind == TokString {
+		p.scanInterpolation(val)
+	}
+
+	return val, true
 }
 
 func (p *scriptParser) parseAccessModified(accessTok Token) {
