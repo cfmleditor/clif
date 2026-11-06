@@ -28,27 +28,44 @@ func blankNonScript(src string) string {
 		return src
 	}
 
-	b := []byte(src)
+	lb := &lazyBytes{src: src}
 	changed := false
 
 	if island {
-		changed = blankIslands(b, src) || changed
+		changed = blankIslands(lb, src) || changed
 	}
 
 	if island || java {
-		changed = blankJavaBlocks(b, src) || changed
+		changed = blankJavaBlocks(lb, src) || changed
 	}
 
 	if !changed {
 		return src
 	}
 
-	return string(b)
+	return string(lb.b)
+}
+
+// lazyBytes is src as a writable copy made on the first write. A file that
+// mentions "java" (createObject( "java", … ) is everywhere) almost never holds a
+// block to blank, and copying it twice to find that out was most of this
+// function's cost.
+type lazyBytes struct {
+	src string
+	b   []byte
+}
+
+func (l *lazyBytes) get() []byte {
+	if l.b == nil {
+		l.b = []byte(l.src)
+	}
+
+	return l.b
 }
 
 // blankIslands blanks the SQL in the triple-backtick islands of src: the whole
 // body of a script `query { … }`, and the body of each <cfquery> in any island.
-func blankIslands(b []byte, src string) bool {
+func blankIslands(b *lazyBytes, src string) bool {
 	changed := false
 
 	for open := strings.Index(src, "```"); open >= 0; {
@@ -105,7 +122,7 @@ func opensScriptQuery(src string, open int) bool {
 
 // blankQueryBodies blanks the text between each <cfquery …> and </cfquery> in
 // src[from:to], and reports whether it blanked any.
-func blankQueryBodies(b []byte, src string, from, to int) bool {
+func blankQueryBodies(b *lazyBytes, src string, from, to int) bool {
 	changed := false
 
 	for pos := from; pos < to; {
@@ -145,8 +162,9 @@ func blankQueryBodies(b []byte, src string, from, to int) bool {
 // blankKeepingExpressions replaces the bytes of src[from:to] with spaces, except
 // newlines and the expression inside each #...# span, which is left to be read
 // as the script it is. The hashes themselves go.
-func blankKeepingExpressions(b []byte, src string, from, to int) {
+func blankKeepingExpressions(lb *lazyBytes, src string, from, to int) {
 	spans := interpolatedSpans(src[from:to])
+	b := lb.get()
 	next := 0
 
 	for i := from; i < to; i++ {
@@ -166,7 +184,7 @@ func blankKeepingExpressions(b []byte, src string, from, to int) {
 
 // blankJavaBlocks blanks the body of each `java { … }` block in src, and reports
 // whether it blanked any.
-func blankJavaBlocks(b []byte, src string) bool {
+func blankJavaBlocks(lb *lazyBytes, src string) bool {
 	changed := false
 
 	for pos := 0; pos < len(src); {
@@ -194,6 +212,8 @@ func blankJavaBlocks(b []byte, src string) bool {
 		if closeAt < 0 {
 			continue
 		}
+
+		b := lb.get()
 
 		for i := open + 1; i < closeAt; i++ {
 			if b[i] != '\n' && b[i] != '\r' {

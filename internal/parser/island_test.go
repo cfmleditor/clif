@@ -3,6 +3,7 @@ package parser
 import (
 	"slices"
 	"testing"
+	"unsafe"
 )
 
 // Lucee lets a script hold text that is not script: a triple-backtick island,
@@ -63,5 +64,19 @@ func TestTextInAScriptIsNotScript(t *testing.T) {
 				t.Errorf("got %v want %v", got, c.want)
 			}
 		})
+	}
+}
+
+// A file that mentions java but holds no java block is returned as it came, not
+// copied: createObject( "java", … ) is in most of a Lucee workspace.
+func TestAFileWithNothingToBlankIsNotCopied(t *testing.T) {
+	src := "component {\n\tfunction f() {\n\t\treturn createObject( \"java\", \"java.util.HashMap\" ).init();\n\t}\n}\n"
+
+	if got := blankNonScript(src); unsafe.StringData(got) != unsafe.StringData(src) {
+		t.Fatal("the source was copied though nothing in it was blanked")
+	}
+
+	if n := testing.AllocsPerRun(20, func() { _ = blankNonScript(src) }); n != 0 {
+		t.Errorf("blankNonScript allocated %v times for a file with nothing to blank", n)
 	}
 }
