@@ -3,6 +3,7 @@ package resolve
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/cfmleditor/clif/internal/index"
@@ -184,5 +185,58 @@ func TestIncludeThroughARootVariableReachesTheTemplate(t *testing.T) {
 
 	if got := r.IncludePath("#application.baseUrl#/lib/helper.cfm", filepath.Join(dir, "index.cfm")); !cfpath.SamePath(got, filepath.Join(dir, "lib", "helper.cfm")) {
 		t.Errorf("IncludePath through a root variable = %q", got)
+	}
+}
+
+// An included template runs in its includer's variables scope, so
+// `variables.helper` in it is what the includer set as `variables.helper`, as
+// the unscoped `helper` already was. TestBox's HTML reporters set
+// variables.helper and render every partial through an include: 108 findings.
+func TestAVariablesScopedReceiverInAnIncludedTemplateIsTheIncluders(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "partials"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+
+	files := map[string]string{
+		"Helper.cfc": `component { function safeId(){} }`,
+		"Base.cfc": `component {
+	function run() {
+		variables.helper = new Helper();
+		include "layout.cfm";
+	}
+	private string function renderPartial( required string name ) {
+		include "partials/#arguments.name#.cfm";
+	}
+}`,
+		"layout.cfm":     `<cfoutput>#variables.helper.safeId( 1 )# #variables.helper.nopeLayout()#</cfoutput>`,
+		"partials/p.cfm": `<cfoutput>#variables.helper.nopePartial()#</cfoutput><cfset variables.own = 1>#variables.own.nothing()#`,
+		"Alone.cfm":      `<cfoutput>#variables.helper.safeId( 1 )#</cfoutput>`,
+	}
+
+	r := &Resolver{FS: vfs.OS{}, Index: index.New()}
+
+	for name, body := range files {
+		p := filepath.Join(dir, filepath.FromSlash(name))
+		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		r.Index.IndexFile(cfpath.ToURI(p), body)
+	}
+
+	got := reasonsWith(t, r, dir, "layout.cfm")
+
+	if got["variables.helper.safeId"] != "" {
+		t.Errorf("variables.helper.safeId in an included template: %q, want it typed by the includer", got["variables.helper.safeId"])
+	}
+
+	if got["variables.helper.nopeLayout"] == "" || got["variables.helper.nopeLayout"] == "variable 'variables.helper' has no component ref" {
+		t.Errorf("variables.helper.nopeLayout: %q, want a method missing from Helper", got["variables.helper.nopeLayout"])
+	}
+
+	// A template nothing includes has no includer to ask.
+	if alone := reasonsWith(t, r, dir, "Alone.cfm"); !strings.Contains(alone["variables.helper.safeId"], "no component ref") {
+		t.Errorf("a template nothing includes was typed: %q", alone["variables.helper.safeId"])
 	}
 }
