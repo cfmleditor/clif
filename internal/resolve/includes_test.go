@@ -436,3 +436,42 @@ func TestAMemberOfAStructOrAQueryIsDynamic(t *testing.T) {
 		t.Error("columnList is a string: a method no string has was accepted")
 	}
 }
+
+// An argument every caller passes a dynamic value is dynamic.
+func TestAnArgumentEveryCallerPassesADynamicValueIsDynamic(t *testing.T) {
+	dir := t.TempDir()
+	body := `component {
+	function a() {
+		var x = createObject( "java", "x.Y" ).make();
+		use( x );
+		use( createObject( "java", "x.Y" ).other() );
+	}
+	function b() {
+		use( someUnknownThing() );
+	}
+	private function use( o ) {
+		o.anything();
+	}
+	private function onlyDynamic( p ) {
+		p.anything();
+	}
+	function c() {
+		var z = createObject( "java", "x.Y" ).make();
+		onlyDynamic( z );
+	}
+}`
+
+	if err := os.WriteFile(filepath.Join(dir, "G.cfc"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got := reasonsWith(t, &Resolver{InferArgsFiles: cfmlFilesIn(t, dir)}, dir, "G.cfc")
+
+	if got["p.anything"] != "" {
+		t.Errorf("p.anything: %q, want it accepted: its one caller passes a dynamic value", got["p.anything"])
+	}
+
+	if got["o.anything"] == "" {
+		t.Errorf("o.anything was accepted though one caller passes a value nothing is known of")
+	}
+}
