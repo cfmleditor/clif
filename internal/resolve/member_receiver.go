@@ -73,7 +73,7 @@ func (r *Resolver) nativeMember(variable string, line uint32, caller string, pr 
 	var answer string
 
 	switch comp {
-	case nativetype.Type("struct"):
+	case nativetype.Type("struct"), "$any":
 		answer = "$any"
 	case nativetype.Type("query"), "$builtin.querynew", "$builtin.queryexecute":
 		switch strings.ToLower(key) {

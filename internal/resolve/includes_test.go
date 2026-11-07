@@ -416,6 +416,8 @@ func TestAMemberOfAStructOrAQueryIsDynamic(t *testing.T) {
 		q.a[ 1 ].anything();
 		q.columnList.uCase();
 		q.columnList.noSuchStringMember();
+		var d = createObject( "java", "x.Y" ).make();
+		d.prop.anything();
 	}
 }`
 
@@ -426,7 +428,7 @@ func TestAMemberOfAStructOrAQueryIsDynamic(t *testing.T) {
 	r := &Resolver{FS: vfs.OS{}, Index: index.New()}
 	got := reasonsWith(t, r, dir, "M.cfc")
 
-	for _, k := range []string{"s.x.anything", "q.a.anything", "q.a.anything", "q.columnList.uCase"} {
+	for _, k := range []string{"s.x.anything", "q.a.anything", "q.a.anything", "q.columnList.uCase", "d.prop.anything"} {
 		if got[k] != "" {
 			t.Errorf("%s: %q, want it accepted", k, got[k])
 		}
