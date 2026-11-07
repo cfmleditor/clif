@@ -9,6 +9,7 @@
 
 ### Fixed
 
+- **More framework names are typed by convention.** ContentBox: `prc.author`, `page`/`prc.page`, `entry`/`prc.entry`, `oCategory` and `prc.CBHelper` (ContentBox 981 to 775). Mura: `request.contentBean`, `request.userBean`, `attributes.contentBean` and `configBean` (Masa 1,151 to 1,051). None added. `thisAuthor` was tried and left out: ContentBox's old patch scripts call methods the current Author lacks.
 - **The ContentBox preset types `site`, `author` and `category` by name.** As an argument or a local they are the Site, Author and Category entities; `content` is left alone, since it is a Page, an Entry or a ContentStore. ContentBox 94 fewer; none added.
 - **The Mura preset types a bean by the name Mura's managers give it.** `contentBean`, `feedBean` and `userBean` as an argument or a local (`feedManager.allowFeed( feedBean )`) are the beans, as `rc.contentBean` already was; 45 parameters of that spelling carried 564 of Masa's findings. Masa 221 fewer.
 - **A variable assigned the result of a function that declares no return type is not reported.** `var item = helper( x ); item.go()` with `helper()` untyped and no return to infer holds whatever it returns, as `x = svc.get()` already did for a method; the run accepts calls on it (`ClassifyReasonIn`, so `CanResolveCall` and its negative-control tests keep the reason, and `explain` says what the report does). Masa 191, Lucee 61, ContentBox 28, ColdBox 23 fewer; none added.

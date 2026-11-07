@@ -257,9 +257,12 @@ var frameworkPresets = map[string]frameworkPreset{
 	"contentbox": {
 		resolvers: []Resolver{
 			variableResolver(contentboxModels+"system.CBHelper", "cb"),
-			variableResolver(contentboxModels+"security.Author", "prc.oCurrentAuthor", "prc.oAuthor", "author"),
+			variableResolver(contentboxModels+"security.Author", "prc.oCurrentAuthor", "prc.oAuthor", "author", "prc.author"),
 			variableResolver(contentboxModels+"system.Site", "prc.oCurrentSite", "prc.oSite", "site"),
-			variableResolver(contentboxModels+"content.Category", "category"),
+			variableResolver(contentboxModels+"content.Category", "category", "oCategory"),
+			variableResolver(contentboxModels+"content.Page", "prc.page", "page"),
+			variableResolver(contentboxModels+"content.Entry", "prc.entry", "entry"),
+			variableResolver(contentboxModels+"system.CBHelper", "prc.CBHelper"),
 			// Whichever kind of content the request is about: a method only a
 			// page has, hasParent(), is not missing from an entry's content.
 			variableResolver(contentboxModels+"content.BaseContent|"+contentboxModels+"content.Entry|"+
@@ -303,7 +306,7 @@ var frameworkPresets = map[string]frameworkPreset{
 			variableResolver("mura.MuraScope", "$", "m", "mura", "rc.$", "rc.m", "application.mura"),
 			// Standard startup installs these application objects. Custom
 			// manager/factory replacements can override the preset rules.
-			variableResolver("mura.configBean", "application.configBean"),
+			variableResolver("mura.configBean", "application.configBean", "configBean"),
 			variableResolver("mura.resourceBundle.resourceBundleFactory", "application.rbFactory"),
 			variableResolver("mura.settings.settingsManager", "application.settingsManager"),
 			variableResolver("mura.bean.beanFactory", "application.serviceFactory"),
@@ -331,10 +334,10 @@ var frameworkPresets = map[string]frameworkPreset{
 			variableResolver("mura.dashboard.dashboardManager", "application.dashboardManager"),
 			variableResolver("mura.autoUpdater.autoUpdater", "application.autoUpdater"),
 			// Standard admin controllers populate these request context beans.
-			variableResolver("mura.content.contentBean", "rc.contentBean", "contentBean"),
+			variableResolver("mura.content.contentBean", "rc.contentBean", "contentBean", "request.contentBean", "attributes.contentBean"),
 			variableResolver("mura.settings.settingsBean", "rc.siteBean"),
 			variableResolver("mura.content.feed.feedBean", "rc.feedBean", "feedBean"),
-			variableResolver("mura.user.userBean", "rc.userBean", "userBean"),
+			variableResolver("mura.user.userBean", "rc.userBean", "userBean", "request.userBean"),
 			variableResolver("mura.category.categoryBean", "rc.categoryBean"),
 			variableResolver("mura.email.emailBean", "rc.emailBean"),
 			variableResolver("mura.mailinglist.mailinglistBean", "rc.listBean"),
