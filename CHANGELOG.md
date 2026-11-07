@@ -9,6 +9,7 @@
 
 ### Fixed
 
+- **An argument passed a loop variable or an element of a collection is typed by the collection.** `for ( var row in entityLoad("X") ) { save( row ); }` and `save( found[ 1 ] )` passed what the collection holds to the caller index, which typed only plain variables, so the callee's `arguments.thing.m()` was "no component ref". Galaxie Blog's `Bookings.toStruct( entity )` accounted for 54 findings (618 to 564); ContentBox loses 5 and no workspace gains one.
 - **A `<cfset>` whose value starts on a later line is no longer recorded twice.** `<cfset var m =` then `array(…)` on the next line recorded the call on the tag's line as well as its own, because the value was trimmed before its line was counted. Lucee's `menu.cfm` and `ext.providers.cfm` were the two files it showed in, against the tree-sitter grammar.
 - **`unresolved` no longer reports SQL as unresolved calls.** SQL in a triple-backtick island (`query ds {``` … ```}` or a `<cfquery>` in one) and the body of a `java { … }` block were read as script, so `VARCHAR(255)`, `sum(x)` and a Java method signature were recorded as calls: 16 findings over Lucee's tests ("`to_char` not found in extends chain"). A call written in a `#…#` inside that SQL is still a call.
 - **A call in a property default or a component attribute is found** (`property name="u" default="#createUUID()#"`, `component hint="#now()#"`), as is one in a script that follows a string holding `</cfscript>`, and `for( property in x )` is a loop over a variable and not a property declaration.

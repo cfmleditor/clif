@@ -16,6 +16,10 @@ make gapcheck CORPUS=/abs/path/to/Galaxie-Blog            # parser vs grammar, p
 make corpus CORPUS=/abs/path/to/Galaxie-Blog BASELINE=<an earlier report>
 ```
 
+**2026-11-07 update:** the count is **564** with the current build (618 before the argument fix below; the 746 below was
+measured with clif#325). `Bookings.toStruct( entity )`'s `e` (45 of the `e` row) was an argument passed a loop variable and an
+element read (`found[ 1 ]`), neither of which `argumentExprComponent` typed; both are now typed from the collection they come from.
+
 ## 1. Unresolved calls: 746
 
 Counts are from `unresolved --json` with the build that has clif#325 (879 before it, 3,752 before any of this work).

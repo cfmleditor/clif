@@ -848,6 +848,12 @@ func (r *Resolver) argumentExprComponentSource(expr []parser.Token, line uint32,
 
 		comp, _ := r.receiverComponentD(name, line, caller, "", pr, dir, nil, next)
 		if comp == "" {
+			// The variable of a loop around the call holds the loop's elements:
+			// `for ( var e in found ) { save( e ); }` passes what found holds.
+			comp = r.loopElement(&parser.CallSite{Variable: name, Line: line}, pr, dir, nil)
+		}
+
+		if comp == "" {
 			// A configured resolver types a name too (prc.oCurrentSite).
 			comp, _, _ = parser.ResolveFromCallMatch(name, r.Resolvers)
 		}
@@ -884,6 +890,21 @@ func (r *Resolver) argumentExprComponentSource(expr []parser.Token, line uint32,
 		}
 
 		return dotted
+	}
+
+	// An element read, `found[ 1 ]` or `rows[ i ]`, is an element of the
+	// collection it indexes, as the same read assigned to a variable is.
+	if exactKeyedReadRe.MatchString(text) {
+		start := 0
+		if scope, ok := enclosingScope(pr, line); ok {
+			start = scope.Start
+		}
+
+		if comp := r.elementOf(text, int(line), start, caller, pr, dir, next.depth, ""); comp != "" && !strings.HasPrefix(comp, "$") {
+			return comp
+		}
+
+		return ""
 	}
 
 	return r.typeCallExpr(text, line, caller, pr, dir, next, false)
