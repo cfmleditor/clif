@@ -31,3 +31,21 @@ func TestUndocumentedFunctionsAreNotDocumented(t *testing.T) {
 		}
 	}
 }
+
+func TestBuiltinReturnObjectsKeepTheirJavaMembers(t *testing.T) {
+	for _, tc := range [][2]string{
+		{"xmlparse", "createCDATASection"},
+		{"xmlnew", "getDocumentURI"},
+		{"fileopen", "getStatus"},
+		{"imagenew", "drawBeveledRect"},
+		{"imageread", "writeBase64"},
+	} {
+		if !LookupBuiltinMethod(tc[0], tc[1]) {
+			t.Errorf("%s.%s not accepted", tc[0], tc[1])
+		}
+	}
+
+	if LookupBuiltinMethod("xmlparse", "noSuchMethod") {
+		t.Error("an unknown xml member was accepted")
+	}
+}

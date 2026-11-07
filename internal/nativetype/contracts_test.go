@@ -210,3 +210,57 @@ func TestAQueryAcceptsItsJavaMethods(t *testing.T) {
 		t.Errorf("getRecordCount lost its type: %q", r)
 	}
 }
+
+func TestMoreBuiltinResultsAreTyped(t *testing.T) {
+	for name, want := range map[string]string{
+		"getCanonicalPath": Type("string"), "structKeyList": Type("string"), "sanitizeHtml": Type("string"),
+		"lsNumberFormat": Type("string"), "createTime": Type("date"), "extensionList": Type("query"),
+		"querySlice": Type("query"), "getComponentMetadata": Type("struct"),
+	} {
+		if got := Producer(name); got != want {
+			t.Errorf("%s: %q, want %q", name, got, want)
+		}
+	}
+}
+
+func TestGetTimeZoneIsAJavaTimeZone(t *testing.T) {
+	if Producer("getTimeZone") != Type("timezone") {
+		t.Fatal("getTimeZone is not a timezone")
+	}
+
+	if r, ok := Method(Type("timezone"), "getDefault"); !ok || r != Type("timezone") {
+		t.Errorf("getDefault: %q %v", r, ok)
+	}
+
+	if _, ok := Method(Type("timezone"), "notAMethod"); ok {
+		t.Error("an unknown TimeZone method was accepted")
+	}
+}
+
+func TestJavaTimeZonedMembersAreAccepted(t *testing.T) {
+	for _, tc := range [][2]string{{"zoneddatetime", "getYear"}, {"zoneddatetime", "getMonthValue"}, {"zoneddatetime", "minusDays"}} {
+		if _, ok := Method(Type(tc[0]), tc[1]); !ok {
+			t.Errorf("%s.%s not accepted", tc[0], tc[1])
+		}
+	}
+}
+
+func TestJDKMembersOfDurationDateClassAndArrayAreAccepted(t *testing.T) {
+	for _, tc := range [][2]string{{"duration", "toDaysPart"}, {"date", "setMinutes"}, {"date", "clone"}, {"class", "getDeclaredField"}, {"array", "clone"}, {"list", "clone"}} {
+		if _, ok := Method(Type(tc[0]), tc[1]); !ok {
+			t.Errorf("%s.%s not accepted", tc[0], tc[1])
+		}
+	}
+
+	if r, _ := Method(Type("class"), "getName"); r != Type("string") {
+		t.Errorf("getName lost its type: %q", r)
+	}
+}
+
+func TestLuceeFactoryAndServletMembersAreAccepted(t *testing.T) {
+	for _, tc := range [][2]string{{"lucee.pagecontext", "getServlet"}, {"lucee.pagecontext", "hasCFSession"}, {"lucee.config", "getConfigServerImpl"}, {"lucee.factory", "getServlet"}} {
+		if _, ok := Method(Type(tc[0]), tc[1]); !ok {
+			t.Errorf("%s.%s not accepted", tc[0], tc[1])
+		}
+	}
+}

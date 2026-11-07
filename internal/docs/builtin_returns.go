@@ -17,6 +17,7 @@ var builtinReturnObjects = map[string]*BuiltinObject{
 	"fileopen": {Methods: []string{
 		"close", "readline", "readbinary", "read", "write", "writeline",
 		"seek", "iseof", "setencoding", "getpath",
+		"getresource", "getmode", "getstatus", "getsize", "getmetadata",
 	}},
 	// Spreadsheet object
 	"spreadsheetnew": {Methods: []string{
@@ -47,6 +48,7 @@ var builtinReturnObjects = map[string]*BuiltinObject{
 	}},
 	// Image object
 	"imageread": {Methods: []string{
+		"drawbeveledrect", "rotatedrawingaxis", "sheardrawingaxis", "copy", "writebase64", "getimagebytes", "clearrect",
 		"resize", "scaletofit", "crop", "rotate", "flip", "transpose",
 		"blur", "sharpen", "grayscale", "negative", "overlay",
 		"setdrawingcolor", "setdrawingstroke", "setdrawingtransparency",
@@ -57,6 +59,7 @@ var builtinReturnObjects = map[string]*BuiltinObject{
 		"addborder", "setantialiasing", "setbackgroundcolor",
 	}},
 	"imagenew": {Methods: []string{
+		"drawbeveledrect", "rotatedrawingaxis", "sheardrawingaxis", "copy", "writebase64", "getimagebytes", "clearrect",
 		"resize", "scaletofit", "crop", "rotate", "flip", "transpose",
 		"blur", "sharpen", "grayscale", "negative", "overlay",
 		"setdrawingcolor", "setdrawingstroke", "setdrawingtransparency",
@@ -98,10 +101,24 @@ var builtinReturnObjects = map[string]*BuiltinObject{
 	}},
 	// XML object
 	"xmlparse": {Methods: []string{
+		"createcdatasection", "createelement", "createtextnode", "createcomment", "createattribute",
+		"getdocumenturi", "getxmlversion", "getxmlstandalone", "getstricterrorchecking", "gettextcontent",
+		"getdocumentelement", "getelementsbytagname", "getelementbyid", "importnode", "adoptnode",
+		"appendchild", "removechild", "replacechild", "insertbefore", "clonenode", "getfirstchild",
+		"getlastchild", "getchildnodes", "getattributes", "getnodename", "getnodevalue", "getnodetype",
+		"getparentnode", "haschildnodes", "normalize", "getdoctype", "getimplementation", "getxmlencoding",
+		"setxmlversion", "setxmlstandalone", "setdocumenturi",
 		"search", "transform", "tostring", "getnode",
 		"xmlroot", "xmlchildren", "xmlattributes", "xmltext",
 	}},
 	"xmlnew": {Methods: []string{
+		"createcdatasection", "createelement", "createtextnode", "createcomment", "createattribute",
+		"getdocumenturi", "getxmlversion", "getxmlstandalone", "getstricterrorchecking", "gettextcontent",
+		"getdocumentelement", "getelementsbytagname", "getelementbyid", "importnode", "adoptnode",
+		"appendchild", "removechild", "replacechild", "insertbefore", "clonenode", "getfirstchild",
+		"getlastchild", "getchildnodes", "getattributes", "getnodename", "getnodevalue", "getnodetype",
+		"getparentnode", "haschildnodes", "normalize", "getdoctype", "getimplementation", "getxmlencoding",
+		"setxmlversion", "setxmlstandalone", "setdocumenturi",
 		"search", "transform", "tostring", "getnode",
 		"xmlroot", "xmlchildren", "xmlattributes", "xmltext",
 	}},
