@@ -45,7 +45,7 @@ var hqlEntityRe = regexp.MustCompile(`(?is)^\s*(?:select\s+(\w+)\s+)?from\s+([A-
 // required, as for entityLoad.
 func (r *Resolver) queriedEntityElement(arguments, baseDir string) string {
 	pieces := producerSplit(producerTokens(arguments))
-	if len(pieces) < 1 || len(pieces) > 2 || len(pieces[0]) != 1 || pieces[0][0].Kind != parser.TokString || strings.Contains(pieces[0][0].Value, "#") {
+	if len(pieces) < 1 || len(pieces) > 2 || len(pieces[0]) != 1 || pieces[0][0].Kind != parser.TokString {
 		return ""
 	}
 
@@ -56,7 +56,21 @@ func (r *Resolver) queriedEntityElement(arguments, baseDir string) string {
 		}
 	}
 
-	match := hqlEntityRe.FindStringSubmatch(strings.Trim(pieces[0][0].Value, "\"'"))
+	query := strings.Trim(pieces[0][0].Value, "\"'")
+
+	// A computed part (`WHERE #column# = :id`) is evaluated before the query
+	// is sent, so it changes the entity only if it is in the FROM clause: the
+	// entity is read from the text before the first one, and must end in a
+	// space there, since the computed part could continue a name.
+	if hash := strings.IndexByte(query, '#'); hash >= 0 {
+		if hash == 0 || !isRegexSpace(query[hash-1]) {
+			return ""
+		}
+
+		query = query[:hash]
+	}
+
+	match := hqlEntityRe.FindStringSubmatch(query)
 	if match == nil {
 		return ""
 	}

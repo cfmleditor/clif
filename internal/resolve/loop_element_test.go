@@ -191,3 +191,23 @@ func TestALiteralHQLQueryTypesTheEntitiesItReturns(t *testing.T) {
 		"unregistered.ready": "variable 'unregistered' has no component ref", "notEntity.ready": "variable 'notEntity' has no component ref",
 	})
 }
+
+// A computed part in the WHERE of a literal HQL query is evaluated before the
+// query is sent, so the entity the FROM names is still what the rows are; one
+// in the FROM clause (or one that could continue the entity's name) is not.
+func TestAComputedPartAfterTheFromClauseKeepsTheQueriedEntity(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{
+		"models/Item.cfc": `component persistent="true" entityname="LoadedItem" { function ready(){} }`,
+		"Use.cfc": `component { function run(string col){
+   for(var a in ormExecuteQuery("FROM LoadedItem WHERE #col# = :id", {id=1})){ a.ready(); a.missingA(); }
+   for(var b in ormExecuteQuery("FROM Loaded#col# WHERE x = :id", {id=1})){ b.ready(); }
+   for(var c in ormExecuteQuery("FROM #col# WHERE x = :id", {id=1})){ c.ready(); }
+   for(var d in ormExecuteQuery("FROM LoadedItem i JOIN i.children c WHERE #col# = :id", {id=1})){ d.ready(); }
+  } }`,
+	})
+	expectReasons(t, reasonsWith(t, &Resolver{}, dir, "Use.cfc"), map[string]string{
+		"a.ready": "", "a.missingA": "method 'missingA' not found in Item",
+		"b.ready": "variable 'b' has no component ref", "c.ready": "variable 'c' has no component ref", "d.ready": "variable 'd' has no component ref",
+	})
+}
