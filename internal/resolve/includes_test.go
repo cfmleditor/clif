@@ -589,3 +589,106 @@ func TestAUseAfterABranchHoldsEveryAssignmentThatReachesIt(t *testing.T) {
 		t.Errorf("y.onlyA: %q, want the assignment that always runs to decide", got["y.onlyA"])
 	}
 }
+
+// The same holds in tags, in a template and in a <cffunction>, where blocks are
+// the bodies of <cfif>, <cfelse>, <cfloop> and <cfcase>.
+func TestAUseAfterATagBranchHoldsEveryAssignmentThatReachesIt(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{
+		"A.cfc": `component { function onlyA(){} }`,
+		"B.cfc": `component { function onlyB(){} }`,
+		"page.cfm": `<cfset x = new A()>
+<cfif c>
+	<cfset x = new B()>
+</cfif>
+<cfset x.onlyA()>
+<cfset x.onlyB()>
+<cfset x.neither()>
+<cfset y = new A()>
+<cfset y = new B()>
+<cfset y.onlyA()>
+<cfset z = new A()>
+<cfswitch expression="#c#">
+	<cfcase value="1"><cfset z = new B()></cfcase>
+</cfswitch>
+<cfset z.onlyA()>`,
+		"Tags.cfc": `<cfcomponent>
+<cffunction name="run">
+<cfset var w = new A()>
+<cfif c>
+	<cfset w = new B()>
+<cfelse>
+	<cfset var q = 1>
+</cfif>
+<cfset w.onlyA()>
+<cfset w.onlyB()>
+<cfset w.neither()>
+</cffunction>
+</cfcomponent>`,
+	})
+
+	page := reasonsInCFM(t, dir, "page.cfm")
+
+	for _, k := range []string{"x.onlyA", "x.onlyB", "z.onlyA"} {
+		if page[k] != "" {
+			t.Errorf("page %s: %q, want it accepted: both assignments reach it", k, page[k])
+		}
+	}
+
+	if !strings.Contains(page["x.neither"], "A|B") {
+		t.Errorf("page x.neither: %q, want it reported against A|B", page["x.neither"])
+	}
+
+	if !strings.Contains(page["y.onlyA"], "not found in B") {
+		t.Errorf("page y.onlyA: %q, want the assignment that always runs to decide", page["y.onlyA"])
+	}
+
+	tags := reasonsWith(t, &Resolver{}, dir, "Tags.cfc")
+
+	if tags["w.onlyA"] != "" || tags["w.onlyB"] != "" || !strings.Contains(tags["w.neither"], "A|B") {
+		t.Errorf("a <cffunction> branch: onlyA %q, onlyB %q, neither %q", tags["w.onlyA"], tags["w.onlyB"], tags["w.neither"])
+	}
+}
+
+// When a branch may leave the variable holding something nothing types, the
+// answer stays the component: a member function of a built-in type is accepted
+// on it, and any other method is checked against it.
+func TestAUseAfterABranchThatAssignsAnUntypedValue(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{
+		"A.cfc": `component { function onlyA(){} }`,
+		"Use.cfc": `component {
+	function run( c ) {
+		var x = new A();
+		if ( c ) {
+			x = "text";
+		}
+		x.len();
+		x.neither();
+		x.onlyA();
+	}
+}`,
+		"page.cfm": `<cfset x = new A()>
+<cfif c>
+	<cfset x = "text">
+</cfif>
+<cfset x.len()>
+<cfset x.neither()>`,
+	})
+
+	got := reasonsWith(t, &Resolver{}, dir, "Use.cfc")
+
+	if got["x.len"] != "" || got["x.onlyA"] != "" {
+		t.Errorf("script: len %q, onlyA %q, want both accepted", got["x.len"], got["x.onlyA"])
+	}
+
+	if !strings.Contains(got["x.neither"], "not found in A") {
+		t.Errorf("script x.neither: %q, want it checked against A", got["x.neither"])
+	}
+
+	page := reasonsInCFM(t, dir, "page.cfm")
+
+	if page["x.len"] != "" || !strings.Contains(page["x.neither"], "not found in A") {
+		t.Errorf("page: len %q, neither %q", page["x.len"], page["x.neither"])
+	}
+}

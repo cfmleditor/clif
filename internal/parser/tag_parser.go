@@ -2563,7 +2563,35 @@ func (p *tagParser) lookupComponentRef(varName string, atLine int) string {
 		return ""
 	}
 
+	// A variable assigned more than once before the call may hold any of the
+	// assignments a branch lets through; the resolver reads them all.
+	if p.assignedBefore(lookupVar, atLine) > 1 {
+		return ""
+	}
+
 	return ref.Component
+}
+
+// assignedBefore counts the refs of name made before line, in the function
+// being parsed and at the top level.
+func (p *tagParser) assignedBefore(name string, line int) int {
+	n := 0
+
+	count := func(refs []ComponentRef) {
+		for i := range refs {
+			if int(refs[i].Line) < line && strings.EqualFold(refs[i].Variable, name) {
+				n++
+			}
+		}
+	}
+
+	if p.inFunc != "" {
+		count(p.funcRefs[p.inFunc])
+	}
+
+	count(p.componentRefs)
+
+	return n
 }
 
 // assignedSince is assignedBetween(p.pendingCalls, name, from, to), through

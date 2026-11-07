@@ -4173,7 +4173,7 @@ func funcScopedRefFor(pr *parser.ParseResult, line uint32, name string, in parse
 		}
 
 		if scopeIndex < len(pr.Scopes) {
-			return reachingUnion(pr, scope.Start, name, line, refs, wide)
+			return reachingUnion(pr, scope.Start, name, line, namedRefs(refs, name), wide)
 		}
 
 		return wide
@@ -4305,6 +4305,20 @@ func fileLevelRefFor(pr *parser.ParseResult, line uint32, name string, scope par
 	}
 
 	if best != nil {
+		if topLevelLine(pr, line) {
+			return reachingUnion(pr, 0, name, line, func() []*parser.ComponentRef {
+				found := make([]*parser.ComponentRef, 0, len(named))
+
+				for _, i := range named {
+					if ref := &pr.ComponentRefs[i]; scope.Admits(ref) {
+						found = append(found, ref)
+					}
+				}
+
+				return found
+			}, best)
+		}
+
 		return best
 	}
 
@@ -4646,4 +4660,32 @@ func nativeArgumentFamily(declared string) string {
 	}
 
 	return ""
+}
+
+// topLevelLine reports whether line is outside every function of pr: a
+// template's own code, whose assignments run in the order they are written.
+func topLevelLine(pr *parser.ParseResult, line uint32) bool {
+	for i := range pr.Scopes {
+		if int(line) >= pr.Scopes[i].Start && int(line) <= pr.Scopes[i].End {
+			return false
+		}
+	}
+
+	return true
+}
+
+// namedRefs is a lookup of the refs for name among refs, run only if the union
+// of reaching assignments needs them.
+func namedRefs(refs []parser.ComponentRef, name string) func() []*parser.ComponentRef {
+	return func() []*parser.ComponentRef {
+		var found []*parser.ComponentRef
+
+		for i := range refs {
+			if strings.EqualFold(refs[i].Variable, name) {
+				found = append(found, &refs[i])
+			}
+		}
+
+		return found
+	}
 }
