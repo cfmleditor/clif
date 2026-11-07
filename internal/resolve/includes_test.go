@@ -140,3 +140,49 @@ func TestLuceeSourceMappingConnectsIncludedHelpers(t *testing.T) {
 	t.Cleanup(cfpath.InvalidateAppMappingsCache)
 	expectReasons(t, reasonsWith(t, &Resolver{}, dir, "test/tickets/Example.cfc"), map[string]string{"stable": "", "sortable": "", "absent": "no qualifier, not in file"})
 }
+
+// An include written `#application.baseUrl#/lib/helper.cfm` names the template
+// from the application's root: the variable holds the path the site is
+// installed under. Galaxie Blog writes every include so, and 67 bare calls to
+// functions its page.cfm declares were "no qualifier, not in file".
+func TestIncludeThroughARootVariableReachesTheTemplate(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "lib"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+
+	files := map[string]string{
+		"Application.cfc": `<cfcomponent></cfcomponent>`,
+		"index.cfm":       `<cfinclude template="#application.baseUrl#/lib/helper.cfm"><cfinclude template="#application.baseUrl#/lib/view.cfm">`,
+		"lib/helper.cfm":  `<cffunction name="helperFn"></cffunction>`,
+		"lib/view.cfm":    `<cfset x = 1>`,
+		"other.cfm":       `<cfinclude template="#call()#/lib/helper.cfm"><cfinclude template="#application.baseUrl#helper.cfm">`,
+	}
+
+	r := &Resolver{FS: vfs.OS{}, Index: index.New()}
+
+	for name, body := range files {
+		p := filepath.Join(dir, filepath.FromSlash(name))
+		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		r.Index.IndexFile(cfpath.ToURI(p), body)
+	}
+
+	// view.cfm is included beside helper.cfm, so it sees what helper.cfm declares.
+	if _, reason := bareCall(t, r, filepath.Join(dir, "lib", "view.cfm"), "helperFn"); reason != "" {
+		t.Errorf("helperFn() from view.cfm: %s", reason)
+	}
+
+	// A call, or a variable not followed by a slash, is no root.
+	for _, raw := range []string{"#call()#/lib/helper.cfm", "#application.baseUrl#helper.cfm"} {
+		if got := r.IncludePath(raw, filepath.Join(dir, "other.cfm")); got != "" {
+			t.Errorf("IncludePath(%q) = %q, want none", raw, got)
+		}
+	}
+
+	if got := r.IncludePath("#application.baseUrl#/lib/helper.cfm", filepath.Join(dir, "index.cfm")); !cfpath.SamePath(got, filepath.Join(dir, "lib", "helper.cfm")) {
+		t.Errorf("IncludePath through a root variable = %q", got)
+	}
+}

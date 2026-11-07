@@ -169,9 +169,68 @@ func includePathAt(s string, j int) (start, end int, ok bool) {
 	return j + 1, k, true
 }
 
+// RootVariablePath is the rooted path left of p when it begins with one plain
+// root variable and a slash, `#application.baseUrl#/common/function/page.cfm`:
+// the variable holds the application's root (see namesARoot), which is how a site installed under a
+// path (Galaxie Blog) writes every include, and what follows names the template
+// from that root. Only a plain variable counts, not a call or an expression;
+// the rest of the path is literal.
+func RootVariablePath(p string) (string, bool) {
+	if len(p) < len("#x#/y") || p[0] != '#' {
+		return "", false
+	}
+
+	end := strings.IndexByte(p[1:], '#')
+	if end < 1 {
+		return "", false
+	}
+
+	name, rest := p[1:1+end], p[2+end:]
+	if len(rest) < 2 || rest[0] != '/' || strings.ContainsAny(rest, "#*\\") {
+		return "", false
+	}
+
+	for i := range len(name) {
+		if c := name[i]; !isIdentPart(c) && c != '.' {
+			return "", false
+		}
+	}
+
+	if !namesARoot(name) {
+		return "", false
+	}
+
+	return rest, true
+}
+
+// namesARoot reports whether the last segment of a variable's name says it
+// holds the application's root: baseUrl, basePath, appRoot, webRoot, rootDir.
+// `#dynamicDir#/page.cfm` is some directory a variable computes, which is not
+// read as a root.
+func namesARoot(name string) bool {
+	if i := strings.LastIndexByte(name, '.'); i >= 0 {
+		name = name[i+1:]
+	}
+
+	name = strings.ToLower(name)
+	for _, suffix := range []string{"url", "path", "dir", "uri"} {
+		if trimmed := strings.TrimSuffix(name, suffix); trimmed != "" {
+			name = trimmed
+
+			break
+		}
+	}
+
+	return strings.HasSuffix(name, "root") || strings.HasSuffix(name, "base") && !strings.HasSuffix(name, "database")
+}
+
 // isComputedPath reports whether p is a computed path an include may name:
 // computedNameGlob's, listedNameGlob's or AttributeInclude's.
 func isComputedPath(p string) bool {
+	if _, ok := RootVariablePath(p); ok {
+		return true
+	}
+
 	if _, ok := computedNameGlob(p); ok {
 		return true
 	}
