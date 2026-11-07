@@ -52,8 +52,8 @@ function show( item ){
 
 	page := filepath.Join(dir, "page.cfm")
 
-	plain := Scan(vfs.OS{}, paths, []string{page}, &Options{WorkspaceFolders: []string{dir}})
-	annotated := Scan(vfs.OS{}, paths, []string{page}, &Options{WorkspaceFolders: []string{dir}, Candidates: true})
+	plain := Scan(vfs.OS{}, paths, []string{page}, &Options{WorkspaceFolders: []string{dir}, keepUntypedHops: true})
+	annotated := Scan(vfs.OS{}, paths, []string{page}, &Options{WorkspaceFolders: []string{dir}, Candidates: true, keepUntypedHops: true})
 
 	if len(plain.Calls) != len(annotated.Calls) {
 		t.Fatalf("candidates changed the findings: %d without, %d with", len(plain.Calls), len(annotated.Calls))

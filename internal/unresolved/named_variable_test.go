@@ -23,17 +23,17 @@ func TestAReceiverNamedLikeTheOnlyComponentIsThatComponent(t *testing.T) {
 	}
 
 	files := []string{
-		write("AddressBean.cfc", "component { function getCity() {} }"),
-		write("Use.cfc", "component {\n function go( addressBean, oAddressBean, c ) {\n addressBean.getCity();\n oAddressBean.getCity();\n addressBean.getNothing();\n c.getCity();\n }\n}"),
+		write("AddressBean.cfc", "component { function findCity() {} }"),
+		write("Use.cfc", "component {\n function go( addressBean, oAddressBean, c ) {\n addressBean.findCity();\n oAddressBean.findCity();\n addressBean.findNothing();\n c.findCity();\n }\n}"),
 	}
 
 	got := Scan(vfs.OS{}, files, nil, &Options{WorkspaceFolders: []string{dir}})
 	if len(got.Calls) != 2 {
-		t.Fatalf("want getNothing and the one-letter c reported, got %+v", got.Calls)
+		t.Fatalf("want findNothing and the one-letter c reported, got %+v", got.Calls)
 	}
 
 	for _, c := range got.Calls {
-		if c.Function == "getCity" && c.Variable != "c" {
+		if c.Function == "findCity" && c.Variable != "c" {
 			t.Fatal(c)
 		}
 	}
@@ -104,6 +104,37 @@ func TestNativeAndDistinctiveMembersOfAnUntypedReceiver(t *testing.T) {
 
 	for _, c := range got.Calls {
 		if c.Function != "process" && c.Function != "sharedDistinctiveName" {
+			t.Fatal(c)
+		}
+	}
+}
+
+// An accessor-shaped call (verb and a capitalised property) or a Java iterator
+// method on a receiver nothing types is a bean or Java call. A name that is no
+// accessor (`get` alone, `getter`, `settle`) and a method missing from a typed
+// receiver are still reported.
+func TestAnAccessorOnAnUntypedReceiverIsABeanCall(t *testing.T) {
+	dir := t.TempDir()
+
+	src := "component {\n function go( thing ) {\n var typed = new Known();\n thing.getTitle();\n thing.setType( 1 );\n thing.isLoaded();\n thing.hasNext();\n thing.getter();\n thing.settle();\n typed.getMissing();\n }\n}"
+	use := filepath.Join(dir, "Use.cfc")
+	known := filepath.Join(dir, "Known.cfc")
+
+	for f, s := range map[string]string{use: src, known: "component { function other() {} }"} {
+		if err := os.WriteFile(f, []byte(s), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	got := Scan(vfs.OS{}, []string{use, known}, nil, &Options{WorkspaceFolders: []string{dir}})
+
+	want := map[string]bool{"getter": true, "settle": true, "getMissing": true}
+	if len(got.Calls) != len(want) {
+		t.Fatalf("want %v reported, got %+v", want, got.Calls)
+	}
+
+	for _, c := range got.Calls {
+		if !want[c.Function] {
 			t.Fatal(c)
 		}
 	}

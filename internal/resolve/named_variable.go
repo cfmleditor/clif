@@ -213,3 +213,34 @@ func (r *Resolver) isDistinctiveMember(call *parser.CallSite, reason string) boo
 
 	return strings.EqualFold(filepath.Ext(file), ".cfc") && !frameworkapi.IsStub(file)
 }
+
+// javaIdioms are the methods of the Java collection and iterator interfaces a
+// CFML page calls on whatever a Java call handed it.
+var javaIdioms = map[string]bool{
+	"hasnext": true, "next": true, "hasprevious": true, "previous": true, "iterator": true,
+	"listiterator": true, "toarray": true, "containskey": true, "containsvalue": true, "getclass": true,
+}
+
+// isBeanAccessorOfUnknown reports whether a call on a receiver nothing types
+// is an accessor (`getName`, `setType`, `isLoaded`, `hasErrors`: the verb and a
+// capitalised property) or a Java iterator method. Such a name is how a Java
+// bean, a generated getter and a mock all answer, and no component declares it
+// here, so it is not a call a missing declaration can contradict.
+func isBeanAccessorOfUnknown(call *parser.CallSite, reason string) bool {
+	if !noRefReceiver(call, reason) {
+		return false
+	}
+
+	if javaIdioms[strings.ToLower(call.FuncName)] {
+		return true
+	}
+
+	name := call.FuncName
+	for _, verb := range []string{"get", "set", "is", "has"} {
+		if len(name) > len(verb)+2 && strings.HasPrefix(name, verb) && unicode.IsUpper(rune(name[len(verb)])) {
+			return true
+		}
+	}
+
+	return false
+}

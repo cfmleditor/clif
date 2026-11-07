@@ -108,7 +108,7 @@ func TestSpeculativeNativeFamiliesAreSeparateAndReversible(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	opt := &Options{WorkspaceFolders: []string{dir}}
+	opt := &Options{WorkspaceFolders: []string{dir}, keepUntypedHops: true}
 	strict := Scan(vfs.OS{}, []string{file}, nil, opt)
 	opt.SpeculativeNative = true
 
