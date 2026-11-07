@@ -9,6 +9,7 @@
 
 ### Fixed
 
+- **`<cfinclude template="dir/#file#">` after a `<cfdirectory action="list" filter="*.cfm">` is every template in `dir`.** Galaxie's updater lists `installer/updates` into a query and includes each migration, whose helpers (`addToLog`, `ensureColumns`) the includer declares. Galaxie 21 fewer.
 - **A property of a dynamic value is dynamic as a receiver, not only as an assignment.** `result.str.getClass()` where `result` is what a `returnVariable` or a Java call left. ColdBox 34, Lucee 38, ContentBox 28 fewer.
 - **A class in a framework's own namespace the bundled stubs lack is dynamic, not a component that does not exist.** `coldbox.system.orm.hibernate.util.ORMUtilFactory` is ColdBox's; the stubs hold the API the presets need and no more. ContentBox 54, TestBox 8, ColdBox 11 fewer.
 - **BoxLang's `println`, `cache` and `getBoxRuntime` are built-in functions.** ColdBox's BoxLang providers and TestBox's BoxLang coverage generator call them from a `.cfc`. ColdBox 38, TestBox 4, Fw/1 2 fewer.
