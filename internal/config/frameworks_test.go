@@ -209,6 +209,12 @@ func TestEveryPresetResolverMatchesItsOwnNames(t *testing.T) {
 		{"mura", "application.autoUpdater", "mura.autoUpdater.autoUpdater"},
 		{"mura", "application.autoUpdaterX", ""},
 		{"mura", "arguments.rc.contentBean", "mura.content.contentBean"},
+		// A bean Mura's managers take is named for what it is.
+		{"mura", "arguments.contentBean", "mura.content.contentBean"},
+		{"mura", "arguments.feedBean", "mura.content.feed.feedBean"},
+		{"mura", "userBean", "mura.user.userBean"},
+		{"mura", "oUserBean", ""},
+		{"mura", "arguments.contentBeanX", ""},
 		{"mura", "rc.siteBean", "mura.settings.settingsBean"},
 		{"mura", "rc.feedBean", "mura.content.feed.feedBean"},
 		{"mura", "rc.userBean", "mura.user.userBean"},

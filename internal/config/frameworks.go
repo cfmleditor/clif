@@ -330,10 +330,10 @@ var frameworkPresets = map[string]frameworkPreset{
 			variableResolver("mura.dashboard.dashboardManager", "application.dashboardManager"),
 			variableResolver("mura.autoUpdater.autoUpdater", "application.autoUpdater"),
 			// Standard admin controllers populate these request context beans.
-			variableResolver("mura.content.contentBean", "rc.contentBean"),
+			variableResolver("mura.content.contentBean", "rc.contentBean", "contentBean"),
 			variableResolver("mura.settings.settingsBean", "rc.siteBean"),
-			variableResolver("mura.content.feed.feedBean", "rc.feedBean"),
-			variableResolver("mura.user.userBean", "rc.userBean"),
+			variableResolver("mura.content.feed.feedBean", "rc.feedBean", "feedBean"),
+			variableResolver("mura.user.userBean", "rc.userBean", "userBean"),
 			variableResolver("mura.category.categoryBean", "rc.categoryBean"),
 			variableResolver("mura.email.emailBean", "rc.emailBean"),
 			variableResolver("mura.mailinglist.mailinglistBean", "rc.listBean"),
