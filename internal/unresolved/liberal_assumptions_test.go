@@ -55,7 +55,9 @@ function known(){var x=new Other();x.absent();}
 		files = append(files, file)
 	}
 
-	opt := &Options{WorkspaceFolders: []string{dir}}
+	// The fixture copies a component ten times, which makes its methods shared;
+	// this test is about ranking, so it keeps the untyped policies off.
+	opt := &Options{WorkspaceFolders: []string{dir}, keepUntypedHops: true}
 	strict := Scan(vfs.OS{}, files, nil, opt)
 	opt.SpeculativeRanked = true
 

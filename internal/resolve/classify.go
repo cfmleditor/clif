@@ -101,6 +101,8 @@ func (r *Resolver) ClassifyReasonIn(call *parser.CallSite, reason string, opt Cl
 		return Builtin, ""
 	case r.assignedFromUntypedFunction(call, reason, pr, baseDir):
 		return Accepted, ""
+	case !opt.KeepUntypedHops && r.isSharedMemberCall(call, reason):
+		return Accepted, ""
 	}
 
 	if base, ok := MissingBaseOf(reason); ok {
@@ -129,6 +131,23 @@ func (r *Resolver) isUndeclaredMemberCall(call *parser.CallSite, reason string) 
 	}
 
 	return IsBuiltin(call.FuncName) && r.Index != nil && r.Index.CountFunctions(call.FuncName) == 0
+}
+
+// sharedMemberFiles is how many components must declare a method for a call of
+// it on an untyped receiver to be taken as a call on one of them.
+const sharedMemberFiles = 5
+
+// isSharedMemberCall reports whether a call on a receiver nothing is known of
+// is of a method that many components of the workspace declare (`getValue`,
+// `validate`, `getErrors`): a duck-typed call on one of those components, which
+// nothing in the source says which. Unlike a method no component declares, it
+// can be a real call, and the receiver is as untyped as `x = svc.get()` makes it.
+func (r *Resolver) isSharedMemberCall(call *parser.CallSite, reason string) bool {
+	if call.Variable == "" || len(call.Chain) > 0 || !strings.HasSuffix(reason, "' has no component ref") || !strings.HasPrefix(reason, "variable '") {
+		return false
+	}
+
+	return r.Index != nil && r.Index.CountFunctions(call.FuncName) >= sharedMemberFiles
 }
 
 // Describe says, in a line, what a batch report does with a call of this
