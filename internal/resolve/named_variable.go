@@ -174,3 +174,42 @@ func (r *Resolver) namedComponentDeclares(call *parser.CallSite, reason string) 
 
 	return r.componentNamedLikeVariable(call.Variable, call) != ""
 }
+
+// noRefReceiver reports whether reason is a receiver the source never typed,
+// for a call made on it directly.
+func noRefReceiver(call *parser.CallSite, reason string) bool {
+	return call.Variable != "" && len(call.Chain) == 0 && strings.HasPrefix(reason, "variable '") && strings.HasSuffix(reason, "' has no component ref")
+}
+
+// isNativeMemberOfUnknown reports whether a call on an untyped receiver is of a
+// member function the engine gives a struct, array, string or query
+// (`keyExists`, `isEmpty`), though a component or two declares one of that name
+// as well: the receiver is far more likely the native value than that
+// component. Names five or more components declare are the shared-member rule's.
+func (r *Resolver) isNativeMemberOfUnknown(call *parser.CallSite, reason string) bool {
+	return noRefReceiver(call, reason) && (IsMemberFunction(call.FuncName) || parser.IsMemberMethod(call.FuncName))
+}
+
+// minDistinctiveName is the length of a method name, in characters, that is
+// specific enough to say which component it belongs to.
+const minDistinctiveName = 10
+
+// isDistinctiveMember reports whether a call on an untyped receiver is of a
+// distinctive method (two words or more, ten characters or more, not a
+// built-in) that exactly one component of the workspace declares. A name that
+// specific is not shared by chance, so the receiver is that component or
+// something that quacks like it; a generic name (`get`, `process`) says nothing.
+func (r *Resolver) isDistinctiveMember(call *parser.CallSite, reason string) bool {
+	if !noRefReceiver(call, reason) || len(call.FuncName) < minDistinctiveName || len(camelWords(call.FuncName)) < 2 || IsBuiltin(call.FuncName) || r.Index == nil {
+		return false
+	}
+
+	defs := r.Index.Lookup(call.FuncName)
+	if len(defs) != 1 {
+		return false
+	}
+
+	file := cfpath.FromURI(string(defs[0].URI))
+
+	return strings.EqualFold(filepath.Ext(file), ".cfc") && !frameworkapi.IsStub(file)
+}

@@ -193,7 +193,7 @@ func TestSpeculativePrimitiveFallbackPreservesCFCAndGroupBoundaries(t *testing.T
 	}
 
 	for _, cfc := range []bool{false, true} {
-		opt := &Options{WorkspaceFolders: []string{dir}, SpeculativeNative: true, Speculative: cfc}
+		opt := &Options{WorkspaceFolders: []string{dir}, SpeculativeNative: true, Speculative: cfc, keepUntypedHops: true}
 
 		rep := Scan(vfs.OS{}, files, nil, opt)
 		if len(rep.SpeculativeConnections) != 1 || rep.SpeculativeConnections[0].Caller != "unique" {
