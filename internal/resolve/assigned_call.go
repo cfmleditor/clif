@@ -31,6 +31,9 @@ const maxAssignedDepth = 3
 // optional deep-copy flag: the copy of a component is an instance of it.
 var duplicateRe = regexp.MustCompile(`(?i)^duplicate\s*\(\s*([A-Za-z_][\w.]*)\s*(?:,\s*(?:true|false)\s*)?\)$`)
 
+// propertyChainRe is a dotted name of two or more segments, no call or index.
+var propertyChainRe = regexp.MustCompile(`^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+$`)
+
 // lookupCtx is what a receiver lookup carries beyond the variable: how many
 // assignments deep it is (assignedFromCall), and, when the view handoff is
 // reading a handler action on behalf of one subclass, that leaf: the base's
@@ -293,6 +296,15 @@ func (r *Resolver) assignedShape(variable, rhs string, line, evalLine uint32, ev
 	if branches, ok := ternaryBranches(rhs); ok {
 		if comp := r.assignedTernary(variable, branches, evalLine, evalCaller, pr, baseDir, tr, ctx); comp != "" {
 			return comp
+		}
+	}
+
+	// `x = dynamic.prop`: a property of a dynamic value is dynamic.
+	if prefix, _, ok := strings.CutLast(rhs, "."); ok && propertyChainRe.MatchString(rhs) {
+		if held, _ := r.receiverComponentD(prefix, evalLine, evalCaller, "", pr, baseDir, nil, lookupCtx{depth: ctx.depth + 1, leaf: ctx.leaf, callers: ctx.callers}); held == "$any" {
+			tr.addf("resolved %q to \"$any\": it is assigned a property of %q, which is dynamic", variable, prefix)
+
+			return "$any"
 		}
 	}
 
@@ -596,6 +608,8 @@ func callChain(rhs string) (receiver string, calls []chainCall, ok bool) {
 			return "", nil, false
 		}
 
+		// `?.` is the same call, made only when the receiver is not null.
+		s = strings.TrimPrefix(s, "?")
 		if !strings.HasPrefix(s, ".") {
 			return "", nil, false
 		}

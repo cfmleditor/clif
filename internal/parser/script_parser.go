@@ -5835,11 +5835,32 @@ func propertyAttributeValue(tokens []Token, start int) string {
 
 func (p *scriptParser) recordBuiltinAssignment(variable, receiver, method, expression string, line int) {
 	comp := p.builtinReturnLookup(method)
-	if comp == "" || receiver != "" || strings.HasPrefix(comp, NativeTypePrefix) {
+	// A call the chain goes on from is typed by walking the chain, which a
+	// pending call does: the ref below would leave `.getResponse()` in
+	// `getPageContext().getResponse()` a call nothing is known to be made on.
+	if comp == "" || receiver != "" || strings.HasPrefix(comp, NativeTypePrefix) || p.chainFollowsCall() {
 		p.addPendingCall(variable, receiver, method, expression, line)
 
 		return
 	}
 
 	p.addRef(&ComponentRef{Variable: variable, Component: comp, URI: uriFromString(p.fileURI), Line: conv.Uint32(p.baseLine + line)})
+}
+
+// chainFollowsCall reports whether the call whose "(" the scanner is about to
+// read is followed by `.`, `?.` or `[`, without moving the scanner.
+func (p *scriptParser) chainFollowsCall() bool {
+	open := p.sc.PeekSkipComments()
+	if open.Kind != TokLParen {
+		return false
+	}
+
+	end := skipCallGroup(p.sc.src, open.Offset)
+	if end < 0 {
+		return false
+	}
+
+	end = skipSpace(p.sc.src, end)
+
+	return end < len(p.sc.src) && (p.sc.src[end] == '.' || p.sc.src[end] == '[' || strings.HasPrefix(p.sc.src[end:], "?."))
 }

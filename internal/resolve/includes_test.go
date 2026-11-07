@@ -279,6 +279,18 @@ func TestALocalAssignedAStructLiteralIsAStruct(t *testing.T) {
 		var a = { "x": 1, "f": ( v ) => { return v; } };
 		a.copy().append( { "k": 1 } );
 		a.noSuchMemberOfAStruct();
+		var m = {
+			x : 1,
+			y : [
+				1, 2
+			]
+		};
+		m.copy();
+		var l = [
+			1,
+			2
+		];
+		l.len();
 		variables.settings.provider();
 	}
 }`
@@ -292,6 +304,10 @@ func TestALocalAssignedAStructLiteralIsAStruct(t *testing.T) {
 
 	if got["a.copy"] != "" || got["a.copy.append"] != "" {
 		t.Errorf("struct members on a literal were reported: %v", got)
+	}
+
+	if got["m.copy"] != "" || got["l.len"] != "" {
+		t.Errorf("a literal written over several lines was not read whole: %v", got)
 	}
 
 	if !strings.Contains(got["a.noSuchMemberOfAStruct"], "native.struct") {
@@ -339,6 +355,13 @@ func TestAVariableAssignedFromACallOnADynamicValueIsDynamic(t *testing.T) {
 	function run() {
 		var s = application.svc.setup();
 		s.anything();
+		var u = application.svc?.setup();
+		u.anything();
+		var g = isNull( application.svc ) ? "" : application.svc.thing();
+		g.anything();
+		var a = application.svc.items;
+		a.anything();
+
 	}
 }`,
 	}
@@ -351,7 +374,7 @@ func TestAVariableAssignedFromACallOnADynamicValueIsDynamic(t *testing.T) {
 
 	r := &Resolver{FS: vfs.OS{}, Index: index.New()}
 
-	if got := reasonsWith(t, r, dir, "D.cfc"); got["s.anything"] != "" {
+	if got := reasonsWith(t, r, dir, "D.cfc"); got["s.anything"] != "" || got["u.anything"] != "" || got["g.anything"] != "" || got["a.anything"] != "" {
 		t.Errorf("s.anything: %q, want it accepted", got["s.anything"])
 	}
 }

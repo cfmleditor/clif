@@ -491,3 +491,24 @@ func TestTagCfsetOfAJavaStaticFactoryIsTyped(t *testing.T) {
 		t.Error("s was not given a component")
 	}
 }
+
+// `var x = builtin().member()`: the chain after a builtin whose return the
+// resolver knows is walked from that return, not left as a bare call.
+func TestAChainAfterATypedBuiltinKeepsItsReceiver(t *testing.T) {
+	pr := ParseWithOptions(testURI, "component {\n function run() {\n  var resp = getPageContext().getResponse();\n }\n}", &ParseOptions{
+		ExtractCalls: true,
+		BuiltinReturnLookup: func(n string) string {
+			if n == "getPageContext" {
+				return "$any"
+			}
+
+			return ""
+		},
+	})
+
+	for _, c := range pr.AllCalls() {
+		if c.FuncName == "getResponse" && len(c.Chain) == 0 && c.Component == "" {
+			t.Errorf("getResponse was recorded as a bare call: %+v", c)
+		}
+	}
+}

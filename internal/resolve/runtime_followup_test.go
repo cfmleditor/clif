@@ -45,8 +45,12 @@ func TestRuntimeFollowupChainsAndCallbacks(t *testing.T) {
 		}
 	}
 
-	generic := reasonsWith(t, &Resolver{}, dir, "Use.cfc")
-	if reason := generic["pc.getCurrentPageSource.getMapping.getVirtual.len"]; reason == "" {
-		t.Fatal("generic engine borrowed Lucee PageContext")
+	// On an engine not known to be Lucee getPageContext() is documented to
+	// return `any`: dynamic, so nothing is claimed of it and nothing on it is
+	// rejected. It must not be Lucee's PageContext, whose contract would
+	// reject a method Adobe's has.
+	generic := reasonsWithOptions(t, &Resolver{}, dir, "Use.cfc", nil)
+	if reason := generic["pc.getCurrentPageSource.getMapping.getVirtual.len"]; reason != "" {
+		t.Fatalf("generic engine rejected a call on the page context: %q", reason)
 	}
 }

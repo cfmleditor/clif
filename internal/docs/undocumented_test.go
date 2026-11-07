@@ -50,3 +50,13 @@ func TestBuiltinReturnObjectsKeepTheirJavaMembers(t *testing.T) {
 		t.Error("an unknown xml member was accepted")
 	}
 }
+
+func TestABuiltinDocumentedToReturnAnyIsDynamic(t *testing.T) {
+	if got := LookupBuiltinReturnComponent("cacheGetSession"); got != "$any" {
+		t.Errorf("cacheGetSession: %q, want $any", got)
+	}
+
+	if got := LookupBuiltinReturnComponent("arrayLen"); got == "$any" {
+		t.Errorf("arrayLen is documented to return a number, not any")
+	}
+}

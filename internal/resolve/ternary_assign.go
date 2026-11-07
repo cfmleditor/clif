@@ -106,7 +106,7 @@ func unwrapParens(s string) string {
 func (r *Resolver) assignedTernary(variable string, branches []string, line uint32, caller string, pr *parser.ParseResult, baseDir string, tr *callTrace, ctx lookupCtx) string {
 	var comps []string
 
-	dynamic := false
+	dynamic, unknown := false, false
 
 	for _, branch := range branches {
 		// A null holds no component, and a branch naming the variable keeps
@@ -122,13 +122,15 @@ func (r *Resolver) assignedTernary(variable string, branches []string, line uint
 		case comp == "$any":
 			dynamic = true
 		case comp == "" || strings.HasPrefix(comp, "$"):
-			return ""
+			unknown = true
 		default:
 			comps = append(comps, strings.Split(comp, "|")...)
 		}
 	}
 
-	if len(comps) == 0 && !dynamic {
+	// A branch nothing is known of leaves the conditional unknown, unless
+	// another is dynamic: whatever the first holds, the dynamic one covers it.
+	if unknown && !dynamic || len(comps) == 0 && !dynamic {
 		return ""
 	}
 
