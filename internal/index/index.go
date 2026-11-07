@@ -48,6 +48,8 @@ type Index struct {
 	// from all of them — the resolver's reverse map — can tell when to rebuild.
 	includeGen uint64
 
+	shape atomic.Uint64 // see ShapeGeneration
+
 	// extenders is ExtendersByName's answer at the generation it was built.
 	extenders struct {
 		mu     sync.Mutex
@@ -73,6 +75,14 @@ func (m *writeCountingMutex) Lock() {
 // Generation reports a counter that moves whenever anything in the index may
 // have changed. It never moves for reads.
 func (idx *Index) Generation() uint64 { return idx.mu.writes.Load() }
+
+// ShapeGeneration moves whenever a file is added to or dropped from the index or
+// what a file extends is recorded or forgotten, and for no other write. An
+// answer that depends only on which components exist and what each extends
+// (the leaf subclasses under a base) stays valid across the writes that do
+// not move it, which are most of them during a scan: variables, includes,
+// functions of files already known.
+func (idx *Index) ShapeGeneration() uint64 { return idx.shape.Load() }
 
 // fileIncludes is one file's cfinclude paths as written, with the file's own
 // URI: resolving a relative path needs its directory in its real case.
@@ -672,6 +682,7 @@ func (idx *Index) indexParseResult(fileURI uri.URI, content string, pr *parser.P
 	fk := uriKey(fileURI)
 	idx.thisVars[fk] = thisVars
 	idx.extends[fk] = strings.Clone(pr.Extends)
+	idx.shape.Add(1)
 	idx.delegates[fk] = cloneDelegates(pr.Delegates)
 
 	// An ORM entity is named by its entityname attribute, which is often not
@@ -697,6 +708,7 @@ func (idx *Index) indexParseResult(fileURI uri.URI, content string, pr *parser.P
 
 	idx.fileFuncs[fk] = fileDefs
 	idx.fileURIs[fk] = uri.URI(strings.Clone(string(fileURI)))
+	idx.shape.Add(1)
 
 	fileRefsList := make([]*parser.ComponentRef, 0, len(refs))
 
@@ -746,6 +758,7 @@ func (idx *Index) IndexFileFromResult(fileURI uri.URI, funcs []parser.FunctionDe
 
 	idx.fileFuncs[fk] = fileDefs
 	idx.fileURIs[fk] = uri.URI(strings.Clone(string(fileURI)))
+	idx.shape.Add(1)
 
 	fileRefsList := make([]*parser.ComponentRef, 0, len(refs))
 
@@ -835,6 +848,7 @@ func (idx *Index) RemoveFilesUnder(prefix string) {
 		if strings.HasPrefix(key, fileKey) {
 			delete(idx.fileFuncs, key)
 			delete(idx.fileURIs, key)
+			idx.shape.Add(1)
 			delete(idx.fileRefs, key)
 			delete(idx.thisVars, key)
 			delete(idx.scopeRefs, key)
@@ -928,6 +942,7 @@ func (idx *Index) removeFileEntries(fileURI uri.URI) {
 	// self-invalidating: a re-index of any kind forgets it, and the next
 	// lookup re-establishes it from the file as it now stands.
 	delete(idx.extends, key)
+	idx.shape.Add(1)
 	delete(idx.delegates, key)
 
 	// Grouped by bucket, not pooled into one set of everything this file
@@ -949,6 +964,7 @@ func (idx *Index) removeFileEntries(fileURI uri.URI) {
 
 	delete(idx.fileFuncs, key)
 	delete(idx.fileURIs, key)
+	idx.shape.Add(1)
 
 	for name, group := range groupRefsByVariable(idx.fileRefs[key]) {
 		if filtered := dropEntries(idx.comprefs[name], group); len(filtered) == 0 {
@@ -1470,13 +1486,14 @@ func (idx *Index) FilesExtendingName(name string) []string {
 // A walk that asks for a name per component (leafSubclasses over Lucee's
 // thousands of test cases) otherwise scans the whole map for each.
 //
-// The map is kept until the index next changes and shared: callers read it and
+// The map is kept until a file is added or dropped or an extends changes
+// (ShapeGeneration), and shared: callers read it and
 // do not edit it.
 func (idx *Index) ExtendersByName() map[string][]string {
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
 
-	gen := idx.Generation()
+	gen := idx.ShapeGeneration()
 
 	idx.extenders.mu.Lock()
 	defer idx.extenders.mu.Unlock()
@@ -1519,6 +1536,7 @@ func (idx *Index) SetExtends(fileURI uri.URI, extends string) {
 	defer idx.mu.Unlock()
 
 	idx.extends[uriKey(fileURI)] = strings.Clone(extends)
+	idx.shape.Add(1)
 }
 
 // DelegatesForFile returns the WireBox delegations a file declares, and

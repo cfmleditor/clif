@@ -114,7 +114,7 @@ func (r *Resolver) leafSubclasses(base string) []string {
 		scope = "view:" + r.mappingsKey
 	}
 
-	key := pathKey(base) + "\x00" + strconv.FormatUint(r.Index.Generation(), 10)
+	key := pathKey(base) + "\x00" + strconv.FormatUint(r.Index.ShapeGeneration(), 10)
 
 	o.mu.RLock()
 	leaves, ok := o.leafSubs[scope][key]
