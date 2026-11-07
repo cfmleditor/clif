@@ -79,3 +79,55 @@ func TestAFieldOnlyEverAnEmptyCollectionIsThatCollection(t *testing.T) {
 		})
 	}
 }
+
+// A field written a literal with entries is a struct or an array as much as
+// one written empty, so a key of it is a value of no shape, and a method no
+// struct has is still not answered.
+func TestAFieldWrittenOnlyLiteralsIsThatCollection(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{
+		"Route.cfc": `component {
+	function init() {
+		variables.route = { "name" : "x", "headers" : {}, "verbs" : [ "GET" ] };
+		variables.list = [ 1, 2 ];
+		return this;
+	}
+	function run() {
+		variables.route.headers.append( { a : 1 } );
+		variables.route.verbs.len();
+		variables.list.len();
+		variables.route.someKeyFunction();
+	}
+}`,
+	})
+
+	got := reasonsWith(t, &Resolver{}, dir, "Route.cfc")
+
+	for _, k := range []string{"variables.route.headers.append", "variables.route.verbs.len", "variables.list.len"} {
+		if got[k] != "" {
+			t.Errorf("%s: %q, want it accepted", k, got[k])
+		}
+	}
+
+	if !strings.Contains(got["variables.route.someKeyFunction"], "no component ref") {
+		t.Errorf("a method no struct has was answered: %q", got["variables.route.someKeyFunction"])
+	}
+}
+
+// cborm's list() answers an array of the service's entity once it is told
+// asQuery = false, and a query otherwise.
+func TestAListOfAnEntityServiceIsAnArrayOfTheEntityWhenNotAQuery(t *testing.T) {
+	if !returnsEntityArray("list", "sortOrder = \"role\", asQuery = false") || !returnsEntityArray("list", "asQuery=false") {
+		t.Error("list( asQuery = false ) is an array of the entity")
+	}
+
+	for _, c := range [][2]string{{"list", "sortOrder = \"role\""}, {"list", "asQuery = true"}, {"list", "asQuery = false, properties = \"a\""}, {"get", "asQuery = false"}} {
+		if returnsEntityArray(c[0], c[1]) {
+			t.Errorf("%s( %s ) is not an array of the entity", c[0], c[1])
+		}
+	}
+
+	if !returnsEntityArray("findAllWhere", "criteria = x") || !returnsEntityArray("getAll", "") || returnsEntityArray("getAll", "properties = \"a\"") {
+		t.Error("getAll and findAllWhere")
+	}
+}

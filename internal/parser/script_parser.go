@@ -3200,7 +3200,14 @@ func (p *scriptParser) skipInlineComponentAttrs() bool {
 // disk — the parser has no filesystem and guessing would produce a confident
 // wrong path, so a wildcard import is left to resolve as it did.
 func (p *scriptParser) parseImport() {
-	path := p.readDottedPath(p.sc.NextSkipComments())
+	tok := p.sc.NextSkipComments()
+	if tok.Kind == TokString {
+		p.parseQuotedImport(unquote(tok.Value))
+
+		return
+	}
+
+	path := p.readDottedPath(tok)
 	if path == "" {
 		return
 	}
@@ -3219,6 +3226,22 @@ func (p *scriptParser) parseImport() {
 	}
 
 	p.imports[strings.ToLower(last)] = path
+}
+
+// parseQuotedImport records `import "com.x.Class";`. The quoted form is how
+// Lucee brings in a Java class (the component's javaSettings supply its jar),
+// which the parser cannot see, so the bare name is a value of unknown shape.
+func (p *scriptParser) parseQuotedImport(path string) {
+	_, last, ok := strings.CutLast(path, ".")
+	if !ok || last == "" || last == "*" {
+		return
+	}
+
+	if p.imports == nil {
+		p.imports = make(map[string]string, 4)
+	}
+
+	p.imports[strings.ToLower(last)] = "$any"
 }
 
 // applyImport rewrites a bare component name that an import brought into scope.
@@ -4021,6 +4044,13 @@ func (p *scriptParser) addPendingCall(varName, prevIdent, lastIdent, chain strin
 		rebinds:    rebinds(varName, recv),
 	})
 	p.pendingCalls[len(p.pendingCalls)-1].rest = p.continueChainCalls(receiverOf(chain), lastIdent, line)
+
+	// An index on the end of the chain reads an element of what the chain
+	// returns, which is not what it returns: the assignment is untyped.
+	if p.sc.PeekSkipComments().Kind == TokLBracket {
+		last := &p.pendingCalls[len(p.pendingCalls)-1]
+		last.rest = append(last.rest, ElementHop)
+	}
 }
 
 // scopedChainCall records `scope.name.a.b(…)`, a call on a scoped variable
@@ -5314,8 +5344,19 @@ func looksLikeTagAttrs(sc *Scanner) bool {
 // caught by the `function` case that runs before this one.
 func (p *scriptParser) parseScriptTagAttrs() {
 	for looksLikeTagAttrs(p.sc) {
-		p.sc.NextSkipComments() // attribute name
-		p.sc.NextSkipComments() // =
+		name := p.sc.NextSkipComments() // attribute name
+		p.sc.NextSkipComments()         // =
+
+		// `invoke component=… method=… returnVariable="local.result"` assigns
+		// what the method returns, which nothing here describes.
+		if value := p.sc.PeekSkipComments(); value.Kind == TokString && identEq(name.Value, "returnVariable") {
+			if variable := strings.TrimPrefix(unquote(value.Value), "local."); isDottedIdentText(variable) {
+				p.addRef(&ComponentRef{
+					Variable: variable, Component: "$any",
+					URI: uriFromString(p.fileURI), Line: conv.Uint32(p.baseLine + int(name.Line)),
+				})
+			}
+		}
 
 		if !p.skipTagAttrValue() {
 			return
@@ -5812,7 +5853,10 @@ func propertyAttributeValue(tokens []Token, start int) string {
 
 func (p *scriptParser) recordBuiltinAssignment(variable, receiver, method, expression string, line int) {
 	comp := p.builtinReturnLookup(method)
-	if comp == "" || receiver != "" || strings.HasPrefix(comp, NativeTypePrefix) {
+	// A call the chain goes on from is typed by walking the chain, which a
+	// pending call does: the ref below would leave `.getResponse()` in
+	// `getPageContext().getResponse()` a call nothing is known to be made on.
+	if comp == "" || receiver != "" || strings.HasPrefix(comp, NativeTypePrefix) || p.chainFollowsCall() {
 		p.addPendingCall(variable, receiver, method, expression, line)
 
 		return
@@ -5820,3 +5864,27 @@ func (p *scriptParser) recordBuiltinAssignment(variable, receiver, method, expre
 
 	p.addRef(&ComponentRef{Variable: variable, Component: comp, URI: uriFromString(p.fileURI), Line: conv.Uint32(p.baseLine + line)})
 }
+
+// chainFollowsCall reports whether the call whose "(" the scanner is about to
+// read is followed by `.`, `?.` or `[`, without moving the scanner.
+func (p *scriptParser) chainFollowsCall() bool {
+	open := p.sc.PeekSkipComments()
+	if open.Kind != TokLParen {
+		return false
+	}
+
+	end := skipCallGroup(p.sc.src, open.Offset)
+	if end < 0 {
+		return false
+	}
+
+	end = skipSpace(p.sc.src, end)
+
+	return end < len(p.sc.src) && (p.sc.src[end] == '.' || p.sc.src[end] == '[' || strings.HasPrefix(p.sc.src[end:], "?."))
+}
+
+// ElementHop is the chain entry for an index read on what the chain before it
+// returns. No component declares a method of that name, so a hop walk that
+// reaches it from a typed component finds nothing, and from a dynamic value
+// keeps the value dynamic.
+const ElementHop = "[]"

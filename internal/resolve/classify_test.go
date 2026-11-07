@@ -1,6 +1,7 @@
 package resolve
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -38,7 +39,7 @@ func TestIsBuiltin(t *testing.T) {
 func TestClassifyCallIsTheOneDecision(t *testing.T) {
 	dir := t.TempDir()
 	r := &Resolver{FS: vfs.OS{}, Index: index.New(), WorkspaceFolders: []string{dir}}
-	r.Index.IndexFile(cfpath.ToURI(filepath.Join(dir, "Defs.cfc")), `component { function definedSomewhereXyz(){} }`)
+	r.Index.IndexFile(cfpath.ToURI(filepath.Join(dir, "Defs.cfc")), `component { function definedSomewhereXyz(){} function toQuery(){} }`)
 
 	pr := &parser.ParseResult{}
 
@@ -47,10 +48,14 @@ func TestClassifyCallIsTheOneDecision(t *testing.T) {
 		opt  ClassifyOptions
 		want Verdict
 	}{
-		"bare builtin":          {call: parser.CallSite{FuncName: "append"}, want: Builtin},
-		"member function":       {call: parser.CallSite{FuncName: "arrayAppend"}, want: Builtin},
-		"chained builtin name":  {call: parser.CallSite{FuncName: "trim", Chain: []string{"f"}}, want: Unresolved},
-		"receiver, same name":   {call: parser.CallSite{FuncName: "trim", Variable: "x"}, want: Unresolved},
+		"bare builtin":         {call: parser.CallSite{FuncName: "append"}, want: Builtin},
+		"member function":      {call: parser.CallSite{FuncName: "arrayAppend"}, want: Builtin},
+		"chained builtin name": {call: parser.CallSite{FuncName: "trim", Chain: []string{"f"}}, want: Unresolved},
+		// A receiver nothing is known of, called by a member function's name no
+		// component declares, can only be that member function; one a
+		// component does declare may be that component's.
+		"receiver, same name":   {call: parser.CallSite{FuncName: "trim", Variable: "x"}, want: Builtin},
+		"receiver, declared":    {call: parser.CallSite{FuncName: "toQuery", Variable: "x"}, want: Unresolved},
 		"not a builtin":         {call: parser.CallSite{FuncName: "someUserFunctionXyz"}, want: Unresolved},
 		"global def, not asked": {call: parser.CallSite{FuncName: "definedSomewhereXyz"}, want: Unresolved},
 		"global def, asked":     {call: parser.CallSite{FuncName: "definedSomewhereXyz"}, opt: ClassifyOptions{GlobalDefs: true}, want: GlobalDef},
@@ -88,5 +93,69 @@ func TestExplanationEndsWithWhatTheReportDoes(t *testing.T) {
 
 	if got := MissingBase.Describe("coldbox.system.Base"); !strings.Contains(got, "coldbox.system.Base") || !strings.Contains(got, "once per file") {
 		t.Errorf("missing-base description: %q", got)
+	}
+}
+
+// TestAnUntypedHopIsAcceptedAsDynamic: `svc.get().foo()` with get() declaring no
+// return type is as dynamic as `x = svc.get(); x.foo()`, which the run accepts.
+func TestAnUntypedHopIsAcceptedAsDynamic(t *testing.T) {
+	r := &Resolver{FS: vfs.OS{}, Index: index.New()}
+	call := &parser.CallSite{FuncName: "foo", Variable: "svc", Chain: []string{"get"}}
+
+	reason := "method 'get' in Svc has no component return type (chain to 'foo')"
+	if v, _ := r.ClassifyReason(call, reason, ClassifyOptions{}); v != Accepted {
+		t.Errorf("an untyped hop: verdict %v, want accepted", v)
+	}
+
+	if v, _ := r.ClassifyReason(call, "method 'foo' not found in Svc", ClassifyOptions{}); v != Unresolved {
+		t.Errorf("a missing method: verdict %v, want unresolved", v)
+	}
+}
+
+// TestAVariableAssignedFromAnUntypedFunctionIsAccepted: `x = helper()` where
+// helper() declares no return type and gives none to infer holds whatever it
+// returns, as `x = svc.get()` does for an untyped get(): the run accepts calls
+// on it. A function with a return type, or one nothing declares, is not that.
+func TestAVariableAssignedFromAnUntypedFunctionIsAccepted(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{
+		"Use.cfc": `component {
+	function helper( a ) { var r = something( a ); return r; }
+	string function typed() { return "a"; }
+	function run() {
+		var x = helper( 1 );
+		x.zorkify();
+		var y = typed();
+		y.zorkify();
+		var z = notDeclared();
+		z.zorkify();
+	}
+}`,
+	})
+
+	r := &Resolver{FS: vfs.OS{}, Index: index.New(), WorkspaceFolders: []string{dir}}
+	file := filepath.Join(dir, "Use.cfc")
+	got := map[string]Verdict{}
+
+	content, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	pr := r.ParseFile(file, string(content), BatchSpec())
+	r.Index.IndexParsed(cfpath.ToURI(file), string(content), pr)
+
+	for _, c := range pr.AllCalls() {
+		if c.Variable != "" {
+			got[c.Variable] = r.ClassifyCall(&c, pr, dir, ClassifyOptions{}).Verdict
+		}
+	}
+
+	if got["x"] != Accepted {
+		t.Errorf("x: verdict %v, want accepted", got["x"])
+	}
+
+	if got["z"] != Unresolved {
+		t.Errorf("z: verdict %v, want unresolved", got["z"])
 	}
 }

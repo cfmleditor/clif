@@ -27,6 +27,13 @@ import (
 
 const maxAssignedDepth = 3
 
+// duplicateRe is a whole duplicate( name ) of a plain or scoped name, with the
+// optional deep-copy flag: the copy of a component is an instance of it.
+var duplicateRe = regexp.MustCompile(`(?i)^duplicate\s*\(\s*([A-Za-z_][\w.]*)\s*(?:,\s*(?:true|false)\s*)?\)$`)
+
+// propertyChainRe is a dotted name of two or more segments, no call or index.
+var propertyChainRe = regexp.MustCompile(`^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+$`)
+
 // lookupCtx is what a receiver lookup carries beyond the variable: how many
 // assignments deep it is (assignedFromCall), and, when the view handoff is
 // reading a handler action on behalf of one subclass, that leaf: the base's
@@ -69,6 +76,16 @@ func (r *Resolver) assignedKeyedElement(variable, rhs string, line uint32, calle
 	}
 
 	comp := r.elementOf(rhs, int(line), 0, caller, pr, baseDir, depth+1, leaf)
+
+	if comp == "" {
+		// An element of a value that is itself dynamic is dynamic:
+		// `msg = messages[ 1 ]` where messages is a Java list's result.
+		if held, _ := r.receiverComponentD(k[1], line, caller, "", pr, baseDir, nil, lookupCtx{depth: depth + 1, leaf: leaf}); held == "$any" {
+			tr.addf("resolved %q to \"$any\": it is assigned an element of %q, which is dynamic", variable, k[1])
+
+			return "$any"
+		}
+	}
 
 	if comp != "" {
 		tr.addf("resolved %q to %q: it is assigned the keyed element %q, whose collection's elements are %q", variable, rhs, rhs, comp)
@@ -184,7 +201,7 @@ func (r *Resolver) assignedFromCall(variable string, line uint32, caller string,
 		return comp
 	}
 
-	if native := nativeLiteral(rhs); native != "" {
+	if native := reachingLiteral(rhs, evalCaller == caller, container, pr.Content, name, start, at, int(line)); native != "" {
 		if container == "" && !scoped && evalCaller == caller {
 			if output, written := r.literalQueryOutput(pr, name, at, int(line), caller, baseDir, ctx.call); written {
 				native = output
@@ -214,14 +231,7 @@ func (r *Resolver) assignedFromCall(variable string, line uint32, caller string,
 	// typed as that name is at the line (Masa's form builder reads the
 	// resource bundle factory a startup template assigns).
 	if aliasRe.MatchString(rhs) && !strings.EqualFold(rhs, variable) && !strings.EqualFold(rhs, name) {
-		comp, _ := r.receiverComponentD(rhs, evalLine, evalCaller, "", pr, baseDir, nil, lookupCtx{depth: depth + 1, leaf: ctx.leaf, callers: ctx.callers})
-		if comp != "" && !strings.HasPrefix(comp, "$") && !strings.HasPrefix(comp, "$builtin.") {
-			tr.addf("resolved %q to %q: it is assigned %s", variable, comp, rhs)
-
-			return comp
-		}
-
-		return ""
+		return r.aliasedComponent(variable, rhs, evalLine, evalCaller, pr, baseDir, tr, lookupCtx{depth: depth + 1, leaf: ctx.leaf, callers: ctx.callers})
 	}
 
 	recv, calls, isCall := callChain(rhs)
@@ -261,11 +271,43 @@ func (r *Resolver) assignedFromCall(variable string, line uint32, caller string,
 // component registry recipe fills; or an element read under a key the
 // assignment spells. "" when it is none of them, or holds nothing known.
 func (r *Resolver) assignedShape(variable, rhs string, line, evalLine uint32, evalCaller string, pr *parser.ParseResult, baseDir string, tr *callTrace, ctx lookupCtx) string {
+	// `copy = duplicate( orig )` is a copy of orig, an instance of the same
+	// component: it is typed as orig is at the line.
+	if m := duplicateRe.FindStringSubmatch(rhs); m != nil && !strings.EqualFold(m[1], variable) && !strings.EqualFold(m[1], strings.TrimPrefix(strings.ToLower(variable), "local.")) {
+		// A function written onto either one (`orig.injected = function(){}`) is
+		// a member the component does not declare, and the duplicate carries
+		// it: Lucee's mixin tests. Such a pair has members the component does
+		// not declare, so it is dynamic rather than the component.
+		if r.membersWrittenOn(pr, line, m[1], variable) {
+			tr.addf("resolved %q to \"$any\": it is a duplicate of %s and a function was written onto one of them", variable, m[1])
+
+			return "$any"
+		}
+
+		comp, _ := r.receiverComponentD(m[1], evalLine, evalCaller, "", pr, baseDir, nil, lookupCtx{depth: ctx.depth + 1, leaf: ctx.leaf, callers: ctx.callers})
+		if comp != "" && !strings.HasPrefix(comp, "$") {
+			tr.addf("resolved %q to %q: it is a duplicate of %s", variable, comp, m[1])
+
+			return comp
+		}
+
+		return ""
+	}
+
 	// `x = cond ? a : b`. Without an answer the rules below may still read
 	// it: an element read that falls back to null is the registry's.
 	if branches, ok := ternaryBranches(rhs); ok {
 		if comp := r.assignedTernary(variable, branches, evalLine, evalCaller, pr, baseDir, tr, ctx); comp != "" {
 			return comp
+		}
+	}
+
+	// `x = dynamic.prop`: a property of a dynamic value is dynamic.
+	if prefix, _, ok := strings.CutLast(rhs, "."); ok && propertyChainRe.MatchString(rhs) {
+		if held, _ := r.receiverComponentD(prefix, evalLine, evalCaller, "", pr, baseDir, nil, lookupCtx{depth: ctx.depth + 1, leaf: ctx.leaf, callers: ctx.callers}); held == "$any" {
+			tr.addf("resolved %q to \"$any\": it is assigned a property of %q, which is dynamic", variable, prefix)
+
+			return "$any"
 		}
 	}
 
@@ -319,6 +361,11 @@ func (r *Resolver) typeCallExpr(rhs string, line uint32, caller string, pr *pars
 	// registry family is a receiver the walk itself answers: the chain past
 	// it runs on the element the family proves, dynamic as it is.
 	for i, c := range calls {
+		// A call on a dynamic value returns a dynamic value.
+		if dynamic && comp == "$any" {
+			return "$any"
+		}
+
 		if comp == "" || strings.HasPrefix(comp, "$") && !strings.HasPrefix(comp, "$builtin.") && !strings.HasPrefix(comp, familyPrefix) {
 			return ""
 		}
@@ -564,6 +611,8 @@ func callChain(rhs string) (receiver string, calls []chainCall, ok bool) {
 			return "", nil, false
 		}
 
+		// `?.` is the same call, made only when the receiver is not null.
+		s = strings.TrimPrefix(s, "?")
 		if !strings.HasPrefix(s, ".") {
 			return "", nil, false
 		}
@@ -987,4 +1036,59 @@ func declarationsSize(m map[string][]localDeclaration) int {
 	}
 
 	return n
+}
+
+// membersWrittenOn reports whether the function holding line assigns a member
+// (`name.member = …`) of either name before it: the component then has a member
+// its source does not declare.
+func (r *Resolver) membersWrittenOn(pr *parser.ParseResult, line uint32, names ...string) bool {
+	start := 0
+	if scope, ok := enclosingScope(pr, line); ok {
+		start = scope.Start
+	}
+
+	text := sourceText(pr.Content, start, int(line)+1)
+
+	for _, name := range names {
+		name = strings.TrimPrefix(strings.ToLower(name), "local.")
+		if !plainName(name) || strings.Contains(name, ".") {
+			continue
+		}
+
+		if compiledPattern(`(?i)\b` + regexp.QuoteMeta(name) + `\s*(?:\.\s*\w+|\[[^\]]*\])\s*=[^=]`).MatchString(text) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// aliasedComponent is what `variable = rhs` holds when rhs is a name: the
+// component the name is typed as, or dynamic when it is.
+func (r *Resolver) aliasedComponent(variable, rhs string, line uint32, caller string, pr *parser.ParseResult, baseDir string, tr *callTrace, ctx lookupCtx) string {
+	comp, _ := r.receiverComponentD(rhs, line, caller, "", pr, baseDir, nil, ctx)
+	if comp == "$any" || (comp != "" && !strings.HasPrefix(comp, "$") && !strings.HasPrefix(comp, "$builtin.")) {
+		tr.addf("resolved %q to %q: it is assigned %s", variable, comp, rhs)
+
+		return comp
+	}
+
+	return ""
+}
+
+// reachingLiteral is the native type of a literal assignment's right-hand side
+// that holds at line, or "": a struct literal is claimed of a local only (a
+// field may have grown a closure key since), and none where another path may
+// reach the use with another value.
+func reachingLiteral(rhs string, sameFunction bool, container, content, name string, start, at, line int) string {
+	native := nativeLiteral(rhs)
+	if native == "" || !sameFunction && strings.HasPrefix(strings.TrimSpace(rhs), "{") {
+		return ""
+	}
+
+	if container == "" && at >= 0 && nativeClaimMayNotReach(content, name, start, at, line) {
+		return ""
+	}
+
+	return native
 }

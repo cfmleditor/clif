@@ -430,8 +430,9 @@ func (r *Resolver) inferArgument(fd *parser.FunctionDef, pos int, file string, c
 	budget := callerFileBudget{limit: r.CallerInferenceLimits.MaxCallerFiles}
 
 	var (
-		comps []string
-		sites int
+		comps   []string
+		sites   int
+		dynamic bool
 	)
 
 	// Files are read in the order their parses finish: the answer does not
@@ -495,15 +496,20 @@ func (r *Resolver) inferArgument(fd *parser.FunctionDef, pos int, file string, c
 				return ""
 			}
 
-			comp := r.argumentExprComponent(expr, call.Line, call.Caller, hpr, dir, ctx)
-			if comp == "" && forwardedArg(expr) {
+			comp, kind := r.callerArgumentAnswer(expr, call, hpr, dir, ctx)
+
+			switch kind {
+			case answerForwarded:
 				sites--
 
 				continue
-			}
+			case answerDynamic:
+				dynamic = true
 
-			if comp == "" {
+				continue
+			case answerNone:
 				return ""
+			case answerTyped:
 			}
 
 			comps = r.appendArgumentComponents(comps, comp, dir)
@@ -514,9 +520,64 @@ func (r *Resolver) inferArgument(fd *parser.FunctionDef, pos int, file string, c
 		return ""
 	}
 
+	// A caller passing a dynamic value makes the argument one: whatever the
+	// others pass, it can be that.
+	if dynamic {
+		return "$any"
+	}
+
 	slices.Sort(comps)
 
 	return strings.Join(comps, "|")
+}
+
+// callerAnswer says how one caller's argument was read.
+type callerAnswer int
+
+const (
+	answerTyped callerAnswer = iota
+	answerForwarded
+	answerDynamic
+	answerNone
+)
+
+// callerArgumentAnswer is the component one call passes, or how it was left:
+// forwarded (the caller's own argument, typed by its callers), dynamic, or not
+// known.
+func (r *Resolver) callerArgumentAnswer(expr []parser.Token, call *parser.CallSite, hpr *parser.ParseResult, dir string, ctx lookupCtx) (string, callerAnswer) {
+	comp := r.argumentExprComponent(expr, call.Line, call.Caller, hpr, dir, ctx)
+
+	switch {
+	case comp != "":
+		return comp, answerTyped
+	case forwardedArg(expr):
+		return "", answerForwarded
+	case r.argumentExprIsDynamic(expr, call.Line, call.Caller, hpr, dir, ctx):
+		return "", answerDynamic
+	}
+
+	return "", answerNone
+}
+
+// argumentExprIsDynamic reports whether a caller's argument expression is a
+// dynamic value: a name typed `$any`, or a call on one.
+func (r *Resolver) argumentExprIsDynamic(expr []parser.Token, line uint32, caller string, pr *parser.ParseResult, dir string, ctx lookupCtx) bool {
+	expr = producerUnwrap(expr)
+	if len(expr) == 0 {
+		return false
+	}
+
+	next := lookupCtx{depth: ctx.depth + 1, callers: ctx.callers}
+
+	if path := producerPath(expr); path != "" {
+		comp, _ := r.receiverComponentD(strings.ReplaceAll(producerText(expr), " ", ""), line, caller, "", pr, dir, nil, next)
+
+		return comp == "$any"
+	}
+
+	text := strings.ReplaceAll(strings.ReplaceAll(producerText(expr), " . ", "."), " (", "(")
+
+	return r.typeCallExpr(text, line, caller, pr, dir, next, true) == "$any"
 }
 
 // appendArgumentComponents keeps the union of the proven caller alternatives.

@@ -4,6 +4,7 @@ package nativetype
 // This is a return contract, not an engine/version availability check. Dynamic
 // results and byte-oriented producers (charsetDecode, toBinary) are excluded.
 var stringProducers = map[string]bool{
+	"getcanonicalpath": true, "structkeylist": true, "sanitizehtml": true, "lsnumberformat": true,
 	"left":                 true,
 	"right":                true,
 	"mid":                  true,

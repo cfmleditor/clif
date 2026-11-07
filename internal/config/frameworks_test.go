@@ -10,6 +10,24 @@ import (
 // TestColdBoxImplicitBases: a file that extends nothing is given the base its
 // place in a ColdBox app implies — a directory anywhere in its path, the
 // deepest winning, and the right extension; a file rule only for that file.
+func TestContentBoxEmailTemplatesAreRenderedByTheRenderer(t *testing.T) {
+	implicit := ImplicitExtends([]string{"coldbox", "contentbox"})
+
+	for path, want := range map[string]string{
+		"/cb/modules/contentbox/email_templates/page_new.cfm": "coldbox.system.web.Renderer",
+		"/cb/modules/contentbox/email_templates/Mailer.cfc":   "", // only a template
+		"/cb/modules/contentbox/other/page_new.cfm":           "",
+	} {
+		if got := implicit(path); got != want {
+			t.Errorf("%s: %q, want %q", path, got, want)
+		}
+	}
+
+	if got := ImplicitExtends([]string{"coldbox"})("/cb/email_templates/x.cfm"); got != "" {
+		t.Errorf("without the contentbox preset an email template has no base, got %q", got)
+	}
+}
+
 func TestColdBoxImplicitBases(t *testing.T) {
 	implicit := ImplicitExtends([]string{"coldbox"})
 
@@ -209,6 +227,25 @@ func TestEveryPresetResolverMatchesItsOwnNames(t *testing.T) {
 		{"mura", "application.autoUpdater", "mura.autoUpdater.autoUpdater"},
 		{"mura", "application.autoUpdaterX", ""},
 		{"mura", "arguments.rc.contentBean", "mura.content.contentBean"},
+		{"contentbox", "arguments.site", "contentbox.models.system.Site"},
+		{"contentbox", "author", "contentbox.models.security.Author"},
+		{"contentbox", "arguments.category", "contentbox.models.content.Category"},
+		{"contentbox", "siteX", ""},
+		{"contentbox", "prc.author", "contentbox.models.security.Author"},
+		{"contentbox", "prc.CBHelper", "contentbox.models.system.CBHelper"},
+		{"contentbox", "arguments.page", "contentbox.models.content.Page"},
+		{"contentbox", "prc.entry", "contentbox.models.content.Entry"},
+		{"contentbox", "oCategory", "contentbox.models.content.Category"},
+		{"mura", "request.contentBean", "mura.content.contentBean"},
+		{"mura", "request.userBean", "mura.user.userBean"},
+		{"mura", "attributes.contentBean", "mura.content.contentBean"},
+		{"mura", "arguments.configBean", "mura.configBean"},
+		// A bean Mura's managers take is named for what it is.
+		{"mura", "arguments.contentBean", "mura.content.contentBean"},
+		{"mura", "arguments.feedBean", "mura.content.feed.feedBean"},
+		{"mura", "userBean", "mura.user.userBean"},
+		{"mura", "oUserBean", ""},
+		{"mura", "arguments.contentBeanX", ""},
 		{"mura", "rc.siteBean", "mura.settings.settingsBean"},
 		{"mura", "rc.feedBean", "mura.content.feed.feedBean"},
 		{"mura", "rc.userBean", "mura.user.userBean"},

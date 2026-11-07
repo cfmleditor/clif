@@ -27,7 +27,7 @@ func TestSpeculativeCandidatesRequireOptInAndExposeWrongOrigin(t *testing.T) {
 		files = append(files, p)
 	}
 
-	opt := &Options{WorkspaceFolders: []string{dir}, InferArgs: true}
+	opt := &Options{WorkspaceFolders: []string{dir}, InferArgs: true, keepUntypedHops: true}
 	strict := Scan(vfs.OS{}, files, nil, opt)
 	opt.Speculative = true
 
@@ -108,7 +108,7 @@ func TestSpeculativeNativeFamiliesAreSeparateAndReversible(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	opt := &Options{WorkspaceFolders: []string{dir}}
+	opt := &Options{WorkspaceFolders: []string{dir}, keepUntypedHops: true}
 	strict := Scan(vfs.OS{}, []string{file}, nil, opt)
 	opt.SpeculativeNative = true
 
@@ -147,7 +147,7 @@ func TestSpeculativePrimitiveFallbackIsOptInAndExposesWrongOrigin(t *testing.T) 
 		files = append(files, file)
 	}
 
-	opt := &Options{WorkspaceFolders: []string{dir}, InferArgs: true}
+	opt := &Options{WorkspaceFolders: []string{dir}, InferArgs: true, keepUntypedHops: true}
 	strict := Scan(vfs.OS{}, files, nil, opt)
 	opt.SpeculativeNative = true
 
@@ -193,7 +193,7 @@ func TestSpeculativePrimitiveFallbackPreservesCFCAndGroupBoundaries(t *testing.T
 	}
 
 	for _, cfc := range []bool{false, true} {
-		opt := &Options{WorkspaceFolders: []string{dir}, SpeculativeNative: true, Speculative: cfc}
+		opt := &Options{WorkspaceFolders: []string{dir}, SpeculativeNative: true, Speculative: cfc, keepUntypedHops: true}
 
 		rep := Scan(vfs.OS{}, files, nil, opt)
 		if len(rep.SpeculativeConnections) != 1 || rep.SpeculativeConnections[0].Caller != "unique" {

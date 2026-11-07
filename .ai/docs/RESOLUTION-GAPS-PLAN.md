@@ -4,6 +4,50 @@ Updated 2026-10-04 through the current resolution/performance branch; status
 refreshed 2026-10-18 (see below). Historical measurements below retain the
 commit or PR against which they were made.
 
+## 2026-11-07 re-rank, over every corpus project
+
+Build of clif#347 (`main` at 6481e63), the "presets" configs of `RESOLUTION-GAPS.md` (Masa with `masacms.json`, Galaxie Blog
+with none, Lucee `{}`). Totals: Lucee 2,191, Masa 2,304, ColdBox 1,433, ContentBox 1,456, TestBox 524, Galaxie Blog 264,
+FW/1 239: **8,411**, of which 6,273 are "no component ref". **The old priority 1 (MuraScope, `$`) is 97 findings now.**
+The largest receivers are small beside the totals: no one receiver is over 130, so the long tail is most of it.
+
+Ranked by what a source-proven rule could remove for the effort, one example each (all read with `clif explain`):
+
+| # | Family | n measured | What is needed | Risk |
+|---|---|---:|---|---|
+| 1 | **`duplicate( x )` returns what `x` is** (Lucee `copy`, `dup`: `var copy = duplicate( orig )`). **Done: 76 removed in Lucee, none added** (`assignedShape`; a pair with a member written onto either name is not typed) | 84 in Lucee alone | a rule beside the builtin return types: the call is typed by its first argument when that is typed, and unknown otherwise | low: CFML's own contract, no new guess |
+| 2 | ~~FW/1 view `rc.X`~~ (`<cfset local.user = rc.user>` in a view) | 32 in FW/1 | **Read after ranking: blocked.** `rc.user` is written in the controllers by `userService.get( id )` and by `getBeanFactory().getBean( "userBean" )`, so the writers do not agree and the soundness rule leaves it unknown. Not a gap in the machinery | high, as 5 |
+| 3 | ~~ColdBox integration specs, `var e = this.get( "main/index" )`~~ | 43 in ColdBox | **Traced after ranking: unknown on purpose.** `get()` returns `variables.request( … )`, which returns `this.execute( … )`; `execute()` adds members to the RequestContext it returns (`getRenderedContent()` and two more, attached at run time), and `producerAugmentsReturn` withholds such a return so that those calls are not reported as missing. The documented `@return coldbox.system.context.RequestContext` is also a wrong path. Nothing to fix | none: by design |
+| 4 | **TestBox reporter partials, `variables.helper`** | 108 in TestBox | **Done: 108 removed in TestBox, 12 in Masa, none added.** Not a reporter mechanism: an included template's `variables.X` is its includer's `X`, and only the unscoped spelling was read (`includerHeld`) | low |
+| 5 | Mura display-object and feed arguments (`arguments.item`, `arguments.feedBean`, `arguments.contentBean`) | about 320 in Masa | every caller must type the argument alike; the callers pass beans of several kinds | high: relaxing the rule types wrong methods |
+| 6 | ContentBox `arguments.content`, `item`, `args.menuItem` | about 100 | arguments whose callers pass entities of more than one kind | high, as 5 |
+| 7 | Long tail (Lucee `messages[ 1 ]`, ColdBox executors `variables.native`, `mapping` loop over a field array) | the rest | one rule each | varies |
+
+The first three are the cheap ones: general, source-proven, about 160 findings between them. 4 is next; 5 and 6 are the
+volume but are held back by the soundness rule (an argument is typed only when every caller types it alike), which is the
+design and should not be relaxed. The earlier list in this file ranked by a count that has since fallen by an order of
+magnitude; this table replaces its ordering, not its descriptions.
+
+## 2026-11-07 status refresh: Masa, configured
+
+Measured with `scripts/corpus/masacms.json` as `.clif.json` at Masa 7.6.1 (`6963831`), the pinned commit, with the build of
+clif#347: **2,304** unresolved (the configured table below says 12,288 for an older build). The `$` receivers that
+made gap 3 priority 1 (3,362) are **97** (`$` 81, `rc.$` 16); what is left of them is test specs and views whose scope is a
+local `$` assigned from an untyped argument. So gap 3 is no longer the largest family. By receiver, the largest now:
+
+| Receiver | n | Where | Why it stays unknown |
+|---|---:|---|---|
+| `arguments.item` | 128 | `dsp_content_list.cfm` 68, `dsp_meta_list.cfm` 60 | a display object's argument, typed only when every `dspObject_include` caller types it |
+| `arguments.feedBean` | 113 | `feedGateway.cfc` | forwarded from `feedManager.getFeed( feedBean )`, whose callers do not all type it |
+| `entity` | 106 | `jsonApiUtility.cfc` 79 | a loop or argument over `getBean( entityName )`, dynamic |
+| `arguments.contentBean` | 79 | `contentUtility.cfc` 54, `contentManager.cfc` 24 | an argument whose callers pass beans of more than one kind |
+| `request.contentBean` | 40 | `toolbar.cfm` 37 | three writers (`contentHTMLExporter`, two in `jsonApiUtility`), one of which writes an untyped argument; every writer must agree |
+| `attributes.bean` | 46 | `filetools.cfm` 32, `fileselector.cfm` 14 | a custom tag's attribute; callers not all typed |
+
+Each of these is held back by the rule that an argument, request key or attribute is typed only when every caller or writer
+types it the same way. Relaxing that rule would type more and report wrong methods; the rule is the design, not a gap. The
+remaining work is per family, source-proven, and small per family. Nothing here was changed.
+
 ## 2026-10-18 status refresh
 
 The code-to-code replay of the seven candidate-list scans (a binary at the

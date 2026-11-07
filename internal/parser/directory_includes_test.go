@@ -58,3 +58,23 @@ func TestIncludeSitesSayWhereEachIncludeIs(t *testing.T) {
 		t.Fatalf("ExtractIncludes: %q", paths)
 	}
 }
+
+// A <cfdirectory> listing of *.cfm beside an include of `dir/#file#` makes the
+// include every template in dir, when the file spells that directory.
+func TestACfdirectoryListingMakesAComputedIncludeAGlob(t *testing.T) {
+	src := `<cfcomponent>
+<cfset variables.updates = variables.root & "installer/updates/">
+<cffunction name="run">
+<cfdirectory action="list" directory="#variables.updates#" name="scripts" filter="*.cfm">
+<cfinclude template="../../installer/updates/#migration.file#">
+</cffunction>
+</cfcomponent>`
+
+	if got := ExtractIncludes(src); !slices.Equal(got, []string{"../../installer/updates/*.cfm"}) {
+		t.Errorf("got %v", got)
+	}
+
+	if got := ExtractIncludes(strings.Replace(src, `filter="*.cfm"`, `filter="*.txt"`, 1)); len(got) != 0 {
+		t.Errorf("a listing of other files made a glob: %v", got)
+	}
+}

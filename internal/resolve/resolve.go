@@ -135,6 +135,7 @@ type pathCaches struct {
 	ownedKeys           map[string]string                   // file and function → what its owned-key factory returns (ownedKeyReturn)
 	keyPrefixes         map[string]string                   // literal key prefix → what every factory spelling it stores, "" when they differ (prefixComponent)
 	handlerCache        map[string]*parser.ParseResult      // handler path → its parse (handlerParse)
+	templateNames       map[string][]string                 // template file name → its paths, for a computed include (templatesNamed)
 	uniqueNames         *uniqueNameCache                    // bare component name → its only file (uniqueComponentNamed)
 	fw1ActionCache      map[string][]fw1Action              // controllers dir + section.item → its actions (fw1Actions)
 	fw1IncluderCache    map[string]map[string][]string      // application dir → view → the views rendering it (fw1Includers)
@@ -2692,6 +2693,13 @@ func (r *Resolver) missingChainHop(comp, softComp, hop, funcName string, pr *par
 			return ""
 		}
 
+		if frameworkapi.NamespaceOf(comp) != "" {
+			tr.addf("%q is in the %s namespace and the bundled stubs do not hold it — the rest of the chain is dynamic", comp, frameworkapi.NamespaceOf(comp))
+			tr.hit(TargetDynamic, comp, nil)
+
+			return ""
+		}
+
 		return "component '" + displayComponent(comp) + "' does not exist (chain hop '" + hop + "' to '" + funcName + "')"
 	}
 
@@ -3573,6 +3581,16 @@ func (r *Resolver) missingMethod(comp, softComp string, call *parser.CallSite, p
 			return ""
 		}
 
+		// Nor a class in a framework's own namespace the bundled stubs lack:
+		// the stubs hold the API the presets need, so their silence is not
+		// the framework's.
+		if frameworkapi.NamespaceOf(comp) != "" {
+			tr.addf("%q is in the %s namespace and the bundled stubs do not hold it — accepted as dynamic", comp, frameworkapi.NamespaceOf(comp))
+			tr.hit(TargetDynamic, comp, nil)
+
+			return ""
+		}
+
 		// Nor one the engine provides: `new Query()` is Lucee's or Adobe's
 		// own component, whose methods are the engine's to answer for.
 		if _, ok := engineComponent(comp); ok {
@@ -3873,6 +3891,17 @@ func (r *Resolver) argumentHolderType(variable, name string, arg *parser.Argumen
 		return arg.Type, false
 	}
 
+	// An argument declared a native type (query, struct, array, string…) holds
+	// one, which the engine enforces: a method that type's contract has is
+	// accepted, as it is on a local of the type.
+	if native := nativeArgumentFamily(arg.Type); native != "" {
+		if _, ok := nativetype.Method(nativetype.Type(native), funcName); ok {
+			tr.addf("resolved %q to %q via its declared type %q", variable, nativetype.Type(native), arg.Type)
+
+			return nativetype.Type(native), false
+		}
+	}
+
 	// A bare type is read as a bare return type is (namedType).
 	// `required Duration otherDuration` was left untyped, so every call on
 	// the argument was unresolved.
@@ -4125,10 +4154,8 @@ func funcScopedRefFor(pr *parser.ParseResult, line uint32, name string, in parse
 			// An unknown later store cannot inherit a prior runtime interface.
 			// Recovery is statement-line based; same-line and branch dominance
 			// need a separate byte-aware flow proof.
-			if strings.HasPrefix(ref.Component, parser.NativeTypePrefix) {
-				if nativeReassignedAt(pr.Content, name, int(ref.Line)+1, int(line)) {
-					continue
-				}
+			if strings.HasPrefix(ref.Component, parser.NativeTypePrefix) && nativeRefMissesUse(pr.Content, name, scope.Start, int(ref.Line), int(line)) {
+				continue
 			}
 
 			switch {
@@ -4144,6 +4171,10 @@ func funcScopedRefFor(pr *parser.ParseResult, line uint32, name string, in parse
 
 		if closure != nil {
 			return closure
+		}
+
+		if scopeIndex < len(pr.Scopes) {
+			return reachingUnion(pr, scope.Start, name, line, namedRefs(refs, name), wide)
 		}
 
 		return wide
@@ -4275,6 +4306,20 @@ func fileLevelRefFor(pr *parser.ParseResult, line uint32, name string, scope par
 	}
 
 	if best != nil {
+		if topLevelLine(pr, line) {
+			return reachingUnion(pr, 0, name, line, func() []*parser.ComponentRef {
+				found := make([]*parser.ComponentRef, 0, len(named))
+
+				for _, i := range named {
+					if ref := &pr.ComponentRefs[i]; scope.Admits(ref) {
+						found = append(found, ref)
+					}
+				}
+
+				return found
+			}, best)
+		}
+
 		return best
 	}
 
@@ -4601,4 +4646,47 @@ func (r *Resolver) unevaluatedReturn(fd *parser.FunctionDef, depth int, budget *
 	}
 
 	return ""
+}
+
+// nativeArgumentFamily is the nativetype family a declared argument type
+// names, or "" for a component or a type with no contract.
+func nativeArgumentFamily(declared string) string {
+	switch t := strings.ToLower(strings.TrimSpace(declared)); t {
+	case "query", "struct", "array", "string", "numeric", "boolean", "date", "datetime":
+		if t == "datetime" {
+			return "date"
+		}
+
+		return t
+	}
+
+	return ""
+}
+
+// topLevelLine reports whether line is outside every function of pr: a
+// template's own code, whose assignments run in the order they are written.
+func topLevelLine(pr *parser.ParseResult, line uint32) bool {
+	for i := range pr.Scopes {
+		if int(line) >= pr.Scopes[i].Start && int(line) <= pr.Scopes[i].End {
+			return false
+		}
+	}
+
+	return true
+}
+
+// namedRefs is a lookup of the refs for name among refs, run only if the union
+// of reaching assignments needs them.
+func namedRefs(refs []parser.ComponentRef, name string) func() []*parser.ComponentRef {
+	return func() []*parser.ComponentRef {
+		var found []*parser.ComponentRef
+
+		for i := range refs {
+			if strings.EqualFold(refs[i].Variable, name) {
+				found = append(found, &refs[i])
+			}
+		}
+
+		return found
+	}
 }

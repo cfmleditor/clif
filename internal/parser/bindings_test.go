@@ -363,6 +363,9 @@ func TestImportQualifiesABareComponentName(t *testing.T) {
 		{"import models.User;\ncomponent { function go() { var u = new other.User(); } }", "other.User"},
 		{"import models.*;\ncomponent { function go() { var u = new User(); } }", "User"},
 		{"component { function go() { var u = new User(); } }", "User"},
+
+		// The quoted form brings in a Java class the parser cannot see.
+		{"import \"com.x.User\";\ncomponent { function go() { var u = new User(); } }", "$any"},
 	}
 
 	for _, c := range cases {
@@ -465,5 +468,85 @@ func TestANestedFunctionScopeEndsAtItsOwnBrace(t *testing.T) {
 	want := []FuncScope{{Name: "run", Start: 1, End: 6}, {Name: "setup", Start: 2, End: 4}}
 	if !slices.Equal(pr.Scopes, want) {
 		t.Errorf("got %v want %v", pr.Scopes, want)
+	}
+}
+
+// A tag `<cfset>` of a Java object's static factory is typed as the script
+// form is: the native type, then the hops.
+func TestTagCfsetOfAJavaStaticFactoryIsTyped(t *testing.T) {
+	src := "<cfcomponent><cffunction name=\"a\"><cfset var s = createObject(\"java\", \"java.time.Instant\").parse(\"x\")></cffunction></cfcomponent>"
+	pr := Parse(testURI, src)
+
+	var got string
+
+	for _, sc := range pr.Scopes {
+		for _, r := range pr.FuncComponentRefs(sc.Start, sc.End) {
+			if r.Variable == "s" {
+				got = r.Component
+			}
+		}
+	}
+
+	if got == "" {
+		t.Error("s was not given a component")
+	}
+}
+
+// `var x = builtin().member()`: the chain after a builtin whose return the
+// resolver knows is walked from that return, not left as a bare call.
+func TestAChainAfterATypedBuiltinKeepsItsReceiver(t *testing.T) {
+	pr := ParseWithOptions(testURI, "component {\n function run() {\n  var resp = getPageContext().getResponse();\n }\n}", &ParseOptions{
+		ExtractCalls: true,
+		BuiltinReturnLookup: func(n string) string {
+			if n == "getPageContext" {
+				return "$any"
+			}
+
+			return ""
+		},
+	})
+
+	for _, c := range pr.AllCalls() {
+		if c.FuncName == "getResponse" && len(c.Chain) == 0 && c.Component == "" {
+			t.Errorf("getResponse was recorded as a bare call: %+v", c)
+		}
+	}
+}
+
+func TestTagCfsetOfAnUnknownJavaFactoryIsDynamic(t *testing.T) {
+	src := "<cfcomponent><cffunction name=\"a\"><cfset var f = createObject(\"java\", \"java.text.NumberFormat\").getCurrencyInstance(\"x\")></cffunction></cfcomponent>"
+	pr := Parse(testURI, src)
+
+	var got string
+
+	for _, sc := range pr.Scopes {
+		for _, r := range pr.FuncComponentRefs(sc.Start, sc.End) {
+			if r.Variable == "f" {
+				got = r.Component
+			}
+		}
+	}
+
+	if got != "$any" {
+		t.Errorf("f: %q, want $any", got)
+	}
+}
+
+func TestScriptInvokeReturnVariableIsDynamic(t *testing.T) {
+	src := "component {\n function run() {\n  invoke component=\"a.B\" method=\"m\" returnVariable=\"local.result\" {\n   invokeargument name=\"x\" value=1;\n  }\n  result.go();\n }\n}"
+	pr := Parse(testURI, src)
+
+	var got string
+
+	for _, sc := range pr.Scopes {
+		for _, r := range pr.FuncComponentRefs(sc.Start, sc.End) {
+			if r.Variable == "result" {
+				got = r.Component
+			}
+		}
+	}
+
+	if got != "$any" {
+		t.Errorf("result: %q, want $any", got)
 	}
 }

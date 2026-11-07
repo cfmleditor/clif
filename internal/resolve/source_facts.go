@@ -161,7 +161,9 @@ func joinAssignmentLine(rhs, line string, tag bool) (string, bool) {
 	code := withoutTrailingComment(rhs, tag)
 
 	switch {
-	case strings.Count(code, "(") > strings.Count(code, ")"):
+	case strings.Count(code, "(") > strings.Count(code, ")"),
+		strings.Count(code, "{") > strings.Count(code, "}"),
+		strings.Count(code, "[") > strings.Count(code, "]"):
 		return strings.TrimSpace(code + " " + next), true
 	case strings.HasSuffix(code, "?") || strings.HasSuffix(code, ":") && !strings.HasSuffix(code, "::") ||
 		strings.HasPrefix(next, "?") || strings.HasPrefix(next, ":") && !strings.HasPrefix(next, "::"):

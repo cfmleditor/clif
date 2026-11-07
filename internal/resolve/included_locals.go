@@ -36,6 +36,13 @@ func (r *Resolver) includerHeld(variable string, pr *parser.ParseResult, tr *cal
 		name = variable[len(variable)-len(rest):]
 	}
 
+	// `variables.helper` in an included template is the includer's variables
+	// scope, which is where the includer sets `helper`: TestBox's reporters
+	// set variables.helper and every partial they render reads it so.
+	if len(name) > len("variables.") && strings.EqualFold(name[:len("variables.")], "variables.") {
+		name = name[len("variables."):]
+	}
+
 	// A name, or a member of one: an FW/1 view's partial reads rc.contentBean
 	// as the view including it holds it.
 	base, member, dotted := strings.Cut(name, ".")

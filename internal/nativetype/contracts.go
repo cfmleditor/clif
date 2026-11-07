@@ -4,6 +4,7 @@ package nativetype
 
 import (
 	"maps"
+	"slices"
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/parser"
@@ -25,11 +26,13 @@ func Producer(name string) string {
 		return Type("hibernatesession")
 	case "ormgetsessionfactory":
 		return Type("sessionfactory")
+	case "gettimezone":
+		return Type("timezone")
 	case "arraynew":
 		return Type("array")
 	case "structnew":
 		return Type("struct")
-	case "now", "createdatetime", "createdate", "parsedatetime", "dateadd":
+	case "now", "createdatetime", "createdate", "createtime", "parsedatetime", "dateadd":
 		return Type("date")
 	}
 
@@ -193,12 +196,13 @@ var contracts = map[string]map[string]string{
 		methods("$any", "getidentifiertype getpropertytype getpropertynullability getpropertylaziness getversionproperty getmappedclass getnaturalidentifierproperties getpropertyvalues getpropertyindex"),
 		methods(Type("string"), "getentityname getidentifierpropertyname"), methods("$any", "getpropertynames getpropertytypes"), methods("$any", "getidentifier getpropertyvalue")),
 	"hibernatequery": contract(methods(Type("hibernatequery"), "setparameter setparameterlist setmaxresults setfirstresult settimeout setcacheable setcacheregion"), methods(Type("list"), "list getresultlist"), methods("$any", "uniqueresult getsingleresult"), methods(Type("numeric"), "executeupdate")),
+	"timezone":       contract(methods(Type("timezone"), "getdefault gettimezone"), methods(Type("void"), "setdefault setid setrawoffset"), methods(Type("string"), "getid getdisplayname"), methods(Type("numeric"), "getrawoffset getoffset getdstsavings"), methods(Type("boolean"), "usedaylighttime indaylighttime hassamerules observesdaylighttime"), methods(Type("array"), "getavailableids")),
 	"date":           contract(methods(Type("instant"), "toinstant"), methods(Type("numeric"), "gettime getyear getmonth getdate getday gethours getminutes getseconds compareto"), methods(Type("boolean"), "before after"), methods(Type("string"), "format")),
 	"instant":        contract(methods(Type("instant"), "now parse ofepochmilli ofepochsecond plus minus plusseconds plusmillis minusseconds minusmillis truncatedto"), methods(Type("zoneddatetime"), "atzone"), methods(Type("offsetdatetime"), "atoffset"), methods(Type("numeric"), "toepochmilli getepochsecond getnano")),
 	"localdatetime":  contract(methods(Type("localdatetime"), "now of parse ofinstant ofepochsecond plus minus plusdays plushours plusminutes plusseconds plusmonths plusyears minusdays minushours minusminutes minusseconds minusmonths minusyears with withhour withminute withsecond withnano withdayofmonth withdayofyear withmonth withyear truncatedto"), methods(Type("localdate"), "tolocaldate"), methods(Type("localtime"), "tolocaltime"), methods(Type("zoneddatetime"), "atzone"), methods(Type("offsetdatetime"), "atoffset"), methods(Type("instant"), "toinstant"), methods(Type("string"), "format"), methods(Type("numeric"), "getyear getmonthvalue getdayofmonth getdayofyear gethour getminute getsecond getnano compareto")),
 	"localdate":      contract(methods(Type("localdate"), "now of parse plusdays plusmonths plusyears minusdays minusmonths minusyears with withdayofmonth withmonth withyear"), methods(Type("localdatetime"), "attime"), methods("$any", "atstartofday"), methods(Type("numeric"), "getyear getmonthvalue getdayofmonth getdayofyear toepochday compareto"), methods(Type("string"), "format")),
 	"localtime":      contract(methods(Type("localtime"), "now of parse plushours plusminutes plusseconds withhour withminute withsecond"), methods(Type("numeric"), "gethour getminute getsecond getnano compareto"), methods(Type("string"), "format")),
-	"zoneddatetime":  contract(methods(Type("zoneddatetime"), "now of parse ofinstant plusdays plushours plusminutes plusseconds with withhour withminute withsecond withnano withzoneSameInstant withzoneSameLocal"), methods(Type("localdatetime"), "tolocaldatetime"), methods(Type("localdate"), "tolocaldate"), methods(Type("localtime"), "tolocaltime"), methods(Type("instant"), "toinstant"), methods(Type("zoneid"), "getzone getoffset"), methods(Type("string"), "format")),
+	"zoneddatetime":  contract(methods(Type("zoneddatetime"), "now of parse ofinstant plusdays plushours plusminutes plusseconds with withhour withminute withsecond withnano withzoneSameInstant withzoneSameLocal"), methods(Type("localdatetime"), "tolocaldatetime"), methods(Type("localdate"), "tolocaldate"), methods(Type("localtime"), "tolocaltime"), methods(Type("instant"), "toinstant"), methods(Type("zoneid"), "getzone getoffset"), methods(Type("string"), "format"), methods(Type("numeric"), "getyear getmonthvalue getdayofmonth getdayofyear gethour getminute getsecond getnano toepochsecond"), methods("$any", "getmonth getdayofweek"), methods(Type("zoneddatetime"), "minusdays minushours minusminutes minusseconds plusmonths plusyears minusmonths minusyears plusweeks minusweeks")),
 	"offsetdatetime": contract(methods(Type("offsetdatetime"), "now of parse ofinstant plusdays plushours plusminutes plusseconds with withoffsetsameinstant"), methods(Type("localdatetime"), "tolocaldatetime"), methods(Type("instant"), "toinstant"), methods(Type("zoneddatetime"), "tozoneddatetime"), methods(Type("string"), "format")),
 	"zoneid":         contract(methods(Type("zoneid"), "of systemdefault ofhours ofhoursminutes"), methods(Type("string"), "getid")),
 	"duration":       contract(methods(Type("duration"), "ofdays ofhours ofminutes ofseconds ofmillis between parse plus minus"), methods(Type("numeric"), "todays tohours tominutes toseconds tomillis getseconds getnano"), methods(Type("boolean"), "iszero isnegative")),
@@ -396,4 +400,23 @@ func init() {
 	contracts["iterator.pool"] = contract(methods(Type("boolean"), "hasnext"), methods(Type("pool"), "next"))
 	contracts["pool"] = contract(methods(Type("numeric"), "getnumactive getnumidle getmaxidle getminidle getmaxwaitmillis"), methods(Type("datasource"), "getfactory"))
 	contracts["datasource"] = methods(Type("datasource"), "getdatasource")
+}
+
+// Types lists the native and Java types whose contract has a public method of
+// this name, sorted: the answer to "what could a value that answers this be",
+// for a receiver the source never typed.
+func Types(method string) []string {
+	m := strings.ToLower(method)
+
+	var out []string
+
+	for name, methods := range contracts {
+		if _, ok := methods[m]; ok {
+			out = append(out, name)
+		}
+	}
+
+	slices.Sort(out)
+
+	return out
 }

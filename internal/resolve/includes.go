@@ -29,6 +29,10 @@ type includeGraph struct {
 	// graph is shared by every caller of the resolver, so it has a lock.
 	mu     sync.Mutex
 	scopes map[string][]string
+
+	// declared is the set of function names the included templates declare,
+	// built on first use (templateDeclares).
+	declared map[string]bool
 }
 
 // pathKey is the spelling a file is compared under: cleaned and lowercased,
@@ -129,6 +133,10 @@ func (r *Resolver) includePathUncached(raw, baseDir string) string {
 func (r *Resolver) includeTargets(raw, fromFile string) []string {
 	if attr, ok := parser.AttributeInclude(raw); ok {
 		return r.attributeIncludeTargets(attr, fromFile)
+	}
+
+	if name, ok := parser.ComputedPrefixTemplate(raw); ok {
+		return r.templatesNamed(name)
 	}
 
 	dir, pattern, glob := strings.Cut(raw, "/*")
@@ -342,4 +350,86 @@ func (r *Resolver) scopeFunc(p, funcName string) *parser.FunctionDef {
 	}
 
 	return nil
+}
+
+// templateDeclares reports whether a template that something includes declares
+// a function called name. A bare call no file or chain answers may be to such a
+// function: Masa defines parseXML in backport/lucee.cfm, which the application
+// includes, and its components call it. Which scope an include lands in is a
+// runtime fact, so this says only that the function exists in included code.
+func (r *Resolver) templateDeclares(name string) bool {
+	g := r.includes()
+	if g == nil {
+		return false
+	}
+
+	g.mu.Lock()
+	declared := g.declared
+	g.mu.Unlock()
+
+	if declared == nil {
+		declared = map[string]bool{}
+
+		for key := range g.rev {
+			p := g.paths[key]
+			if p == "" {
+				continue
+			}
+
+			if ext := strings.ToLower(filepath.Ext(p)); ext != ".cfm" && ext != ".cfml" {
+				continue
+			}
+
+			// Parsed as a scan parses it: the index holds a template by the
+			// component-only spec, which reads none of its functions.
+			text, err := r.readText(p)
+			if err != nil {
+				continue
+			}
+
+			funcs := r.ParseFile(p, text, BatchSpec()).Funcs
+			for i := range funcs {
+				declared[strings.ToLower(funcs[i].Name)] = true
+			}
+		}
+
+		g.mu.Lock()
+		g.declared = declared
+		g.mu.Unlock()
+	}
+
+	return declared[strings.ToLower(name)]
+}
+
+// maxNamedTemplates is how many templates may answer to one computed include's
+// file name before the include is left unread: a name two or three files share
+// is a choice the application makes at run time, a dozen is no answer.
+const maxNamedTemplates = 3
+
+// templatesNamed is the workspace's templates with this file name, when there
+// are few enough to be the one the include means. The listing is one walk per
+// resolver and index generation, made only when such an include exists.
+func (r *Resolver) templatesNamed(name string) []string {
+	o := r.owner()
+
+	o.mu.Lock()
+	if o.templateNames == nil {
+		o.templateNames = map[string][]string{}
+
+		for _, f := range cfpath.CollectCFML(r.fs(), r.WorkspaceFolders) {
+			if strings.EqualFold(filepath.Ext(f), ".cfm") {
+				key := strings.ToLower(filepath.Base(f))
+				o.templateNames[key] = append(o.templateNames[key], f)
+			}
+		}
+	}
+
+	found := o.templateNames[strings.ToLower(name)]
+	o.mu.Unlock()
+
+	if len(found) == 0 || len(found) > maxNamedTemplates {
+		return nil
+	}
+
+	return slices.Clone(found)
 }

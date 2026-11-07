@@ -33,6 +33,16 @@ Earlier today: the count was **564** with the current build (618 before the argu
 measured with clif#325). `Bookings.toStruct( entity )`'s `e` (45 of the `e` row) was an argument passed a loop variable and an
 element read (`found[ 1 ]`), neither of which `argumentExprComponent` typed; both are now typed from the collection they come from.
 
+**What the largest of the remaining 264 are** (looked at after #347; counts from `unresolved --json`):
+
+| Cluster | n | Cause |
+|---|---:|---|
+| `setup`, `scenes`, `editor`, `owner`-like objects in `ProxyController.cfc` / `AdminHome.cfc` | about 30 | `application.blog.getSetup()` and kin return `variables.setupObj`, created with `createObject( "component", len( application.baseProxyUrl ) ? application.baseComponentPath & ".common.cfc.Setup" : "common.cfc.Setup" )`: a path computed from application settings. Not a resolver gap; a project that wants these typed adds an `expressionMappings` entry or a `componentResolvers` entry for `getSetup()` and kin. |
+| `queryObj` in `cfJson.cfc` | 7 | a `query` argument called with Lucee's Java methods (`getColumnlist( false )`). No stub for them. |
+| `item.post` in `TestUtility.cfc` | 12 | not looked at. |
+| `arguments.graphics`, `graphics`, `point` in `captchaService.cfc` | about 35 | Java 2D objects (`createObject( "java", "java.awt.Graphics2D" )`-family): the same shape as the `StringBuilder` case, but with no native type to name, so they are dynamic only where the chain starts at a `createObject( "java" )`. Not looked at beyond that. |
+| the remaining "no qualifier" | 35 | `addToLog` 9, `ensureColumns` 4, `formatRSSOffset` 4, `getUserId` 3, `formatAtomDate` 3: not traced since the include fix; some may be genuinely missing. |
+
 ## 1. Unresolved calls: 746
 
 Counts are from `unresolved --json` with the build that has clif#325 (879 before it, 3,752 before any of this work).

@@ -1,6 +1,9 @@
 package parser
 
-import "strings"
+import (
+	"path"
+	"strings"
+)
 
 // The scanners here read the include and directory-listing forms by hand. They
 // were regular expressions, and the include scan runs over every file the
@@ -239,6 +242,10 @@ func isComputedPath(p string) bool {
 		return true
 	}
 
+	if _, ok := ComputedPrefixTemplate(p); ok {
+		return true
+	}
+
 	_, ok := AttributeInclude(p)
 
 	return ok
@@ -398,4 +405,24 @@ func listingIncludeAt(s string) (prefix, query string, end int, ok bool) {
 	})
 
 	return prefix, query, end, ok
+}
+
+// ComputedPrefixTemplate reads an include whose directory is one computed span
+// and whose file name is a literal template: `#backportdir#lucee.cfm` is a
+// template called lucee.cfm in whatever directory the variable holds. It
+// returns the file name. Masa includes its engine backports this way.
+func ComputedPrefixTemplate(p string) (string, bool) {
+	if len(p) < len("#x#a.cfm") || p[0] != '#' || strings.Count(p, "#") != 2 {
+		return "", false
+	}
+
+	end := strings.LastIndexByte(p, '#')
+
+	span, name := p[1:end], p[end+1:]
+	if span == "" || strings.ContainsAny(span, " \t\"'()/\\") || name == "" || strings.ContainsAny(name, "/\\*") ||
+		!strings.EqualFold(path.Ext(name), ".cfm") {
+		return "", false
+	}
+
+	return name, true
 }
