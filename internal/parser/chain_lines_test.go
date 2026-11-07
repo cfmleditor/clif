@@ -182,3 +182,48 @@ func TestACallOpeningAMultiLineSetValueIsOnItsOwnLine(t *testing.T) {
 		t.Errorf("calls = %v, want %v", got, want)
 	}
 }
+
+// <cfset x = createObject( "java", "…" ).init() > is the Java object, as the
+// script form and the form without init() are: dynamicCall looks at the last
+// call of the expression, which was init, so only the other two were typed.
+// 89 "no component ref" in Galaxie Blog, 6 each in TestBox and ColdBox.
+func TestATagCreateObjectJavaInitIsTheObject(t *testing.T) {
+	src := "<cfcomponent>\n<cffunction name=\"f\">\n" +
+		"<cfset var a = createObject( \"java\", \"java.lang.StringBuilder\" ).init()>\n" +
+		"<cfset var b = createObject( \"java\", \"java.io.File\" ).init( \"x\" )>\n" +
+		"<cfset var c = createObject( \"java\", \"java.lang.StringBuilder\" )>\n" +
+		"<cfset var d = createObject( \"component\", \"pkg.Thing\" ).init()>\n" +
+		"<cfset var e = someFactory().init()>\n" +
+		"</cffunction>\n</cfcomponent>\n"
+
+	pr := ParseWithOptions("file:///x.cfc", src, &ParseOptions{ExtractCalls: true})
+
+	if len(pr.Scopes) != 1 {
+		t.Fatalf("scopes = %v, want the one function", pr.Scopes)
+	}
+
+	got := map[string]string{}
+	for _, ref := range pr.FuncComponentRefs(pr.Scopes[0].Start, pr.Scopes[0].End) {
+		got[ref.Variable] = ref.Component
+	}
+
+	if got["a"] != NativeTypePrefix+"stringbuilder" {
+		t.Errorf("a = %q, want the native StringBuilder", got["a"])
+	}
+
+	if got["b"] != "$any" {
+		t.Errorf("b = %q, want $any (a Java object with no stub)", got["b"])
+	}
+
+	if got["c"] != NativeTypePrefix+"stringbuilder" {
+		t.Errorf("c = %q, want the native StringBuilder", got["c"])
+	}
+
+	if got["d"] != "pkg.Thing" {
+		t.Errorf("d = %q, want pkg.Thing", got["d"])
+	}
+
+	if got["e"] != "" {
+		t.Errorf("e = %q, want no component for a call to a function", got["e"])
+	}
+}

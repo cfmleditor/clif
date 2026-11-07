@@ -1734,12 +1734,14 @@ func (p *tagParser) checkSetRHSStr(rhs, varName string, line int) {
 				Variable: varName, Component: comp, ChainRest: trailingCalls(rhs),
 				URI: uriFromString(p.fileURI), Line: conv.Uint32(line),
 			})
-		} else if comp := p.resolveCall(rhs); comp != "" {
+		} else if object := withoutInit(rhs); p.resolveCall(object) != "" {
 			// Not only when resolvers are configured: with none, resolveCall
 			// still answers through dynamicCall, which makes an unstubbed Java
-			// object dynamic, as the script parser always has.
+			// object dynamic, as the script parser always has. The init() on
+			// the end hands back the object it was called on, so the object is
+			// what is asked about: dynamicCall looks at a chain's last call.
 			p.addRef(&ComponentRef{
-				Variable: varName, Component: comp, ChainRest: trailingCalls(rhs),
+				Variable: varName, Component: p.resolveCall(object), ChainRest: trailingCalls(object),
 				URI: uriFromString(p.fileURI), Line: conv.Uint32(line),
 			})
 		}
@@ -1819,6 +1821,17 @@ func (p *tagParser) callsOnResolvedReceiver(rhs, comp string) []string {
 	}
 
 	return methods
+}
+
+// withoutInit is expr without a final .init( … ) call made directly on a
+// createObject( … ), which returns the object it is called on; any other
+// expression is returned as it is.
+func withoutInit(expr string) string {
+	if receiver, method := callReceiver(expr); strings.EqualFold(method, "init") && hasPrefixFold(strings.TrimSpace(receiver), "createobject(") {
+		return strings.TrimSpace(receiver)
+	}
+
+	return expr
 }
 
 // callReceiver splits `<receiver>.m(args)` into receiver and m, or returns

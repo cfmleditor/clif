@@ -16,7 +16,10 @@ make gapcheck CORPUS=/abs/path/to/Galaxie-Blog            # parser vs grammar, p
 make corpus CORPUS=/abs/path/to/Galaxie-Blog BASELINE=<an earlier report>
 ```
 
-**2026-11-07 update:** the count is **564** with the current build (618 before the argument fix below; the 746 below was
+**2026-11-07 update:** the count is **475** (618 before; 89 of the difference is the `html` receiver below, a tag-syntax
+`createObject( "java", … ).init()` that was not typed).
+
+Earlier today: the count was **564** with the current build (618 before the argument fix below; the 746 below was
 measured with clif#325). `Bookings.toStruct( entity )`'s `e` (45 of the `e` row) was an argument passed a loop variable and an
 element read (`found[ 1 ]`), neither of which `argumentExprComponent` typed; both are now typed from the collection they come from.
 
