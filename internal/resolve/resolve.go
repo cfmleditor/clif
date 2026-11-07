@@ -2692,6 +2692,13 @@ func (r *Resolver) missingChainHop(comp, softComp, hop, funcName string, pr *par
 			return ""
 		}
 
+		if frameworkapi.NamespaceOf(comp) != "" {
+			tr.addf("%q is in the %s namespace and the bundled stubs do not hold it — the rest of the chain is dynamic", comp, frameworkapi.NamespaceOf(comp))
+			tr.hit(TargetDynamic, comp, nil)
+
+			return ""
+		}
+
 		return "component '" + displayComponent(comp) + "' does not exist (chain hop '" + hop + "' to '" + funcName + "')"
 	}
 
@@ -3568,6 +3575,16 @@ func (r *Resolver) missingMethod(comp, softComp string, call *parser.CallSite, p
 		// module not being installed.
 		if r.uninstalledModule(comp) {
 			tr.addf("%q is a module's model and no such module is in the workspace — accepted as dynamic", comp)
+			tr.hit(TargetDynamic, comp, nil)
+
+			return ""
+		}
+
+		// Nor a class in a framework's own namespace the bundled stubs lack:
+		// the stubs hold the API the presets need, so their silence is not
+		// the framework's.
+		if frameworkapi.NamespaceOf(comp) != "" {
+			tr.addf("%q is in the %s namespace and the bundled stubs do not hold it — accepted as dynamic", comp, frameworkapi.NamespaceOf(comp))
 			tr.hit(TargetDynamic, comp, nil)
 
 			return ""

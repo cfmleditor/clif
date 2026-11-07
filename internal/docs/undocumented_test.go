@@ -11,7 +11,7 @@ func TestLuceeUndocumentedFunctionsAreBuiltins(t *testing.T) {
 		"Struct":         true,
 		"sessionTouch":   true,
 		"dumpStruct":     true,
-		"MongoDBConnect": true, "LuceeAIHas": true,
+		"MongoDBConnect": true, "LuceeAIHas": true, "println": true, "cache": true,
 		"arrayLen":  true,  // documented
 		"cfhttp":    true,  // a tag called as a function
 		"structure": false, // not a function at all

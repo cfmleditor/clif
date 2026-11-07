@@ -475,3 +475,31 @@ func TestAnArgumentEveryCallerPassesADynamicValueIsDynamic(t *testing.T) {
 		t.Errorf("o.anything was accepted though one caller passes a value nothing is known of")
 	}
 }
+
+// A class in a framework's own namespace the bundled stubs lack is the stubs'
+// gap, not a component that does not exist.
+func TestAFrameworkClassTheStubsLackIsDynamic(t *testing.T) {
+	dir := t.TempDir()
+	body := `component {
+	function run() {
+		var a = new coldbox.system.orm.hibernate.util.NotInTheStubsXyz();
+		a.anything();
+		var b = new vendor.missing.Thing();
+		b.anything();
+	}
+}`
+
+	if err := os.WriteFile(filepath.Join(dir, "F.cfc"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got := reasonsWith(t, &Resolver{}, dir, "F.cfc")
+
+	if got["a.anything"] != "" {
+		t.Errorf("a.anything: %q, want it accepted", got["a.anything"])
+	}
+
+	if !strings.Contains(got["b.anything"], "does not exist") {
+		t.Errorf("b.anything: %q, want a component that does not exist", got["b.anything"])
+	}
+}
