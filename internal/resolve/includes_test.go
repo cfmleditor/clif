@@ -240,3 +240,29 @@ func TestAVariablesScopedReceiverInAnIncludedTemplateIsTheIncluders(t *testing.T
 		t.Errorf("a template nothing includes was typed: %q", alone["variables.helper.safeId"])
 	}
 }
+
+// A local that aliases a name the file holds as a Java class (a quoted
+// import) is as dynamic as the name.
+func TestAnAliasOfAnImportedJavaClassIsDynamic(t *testing.T) {
+	dir := t.TempDir()
+	body := `component {
+	import "com.x.Server";
+	function run() {
+		application.srv = new Server();
+		var s = application.srv;
+		s.start();
+	}
+}`
+	p := filepath.Join(dir, "T.cfc")
+
+	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	r := &Resolver{FS: vfs.OS{}, Index: index.New()}
+	r.Index.IndexFile(cfpath.ToURI(p), body)
+
+	if got := reasonsWith(t, r, dir, "T.cfc"); got["s.start"] != "" {
+		t.Errorf("s.start: %q, want it accepted", got["s.start"])
+	}
+}

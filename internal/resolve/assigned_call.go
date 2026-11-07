@@ -218,14 +218,7 @@ func (r *Resolver) assignedFromCall(variable string, line uint32, caller string,
 	// typed as that name is at the line (Masa's form builder reads the
 	// resource bundle factory a startup template assigns).
 	if aliasRe.MatchString(rhs) && !strings.EqualFold(rhs, variable) && !strings.EqualFold(rhs, name) {
-		comp, _ := r.receiverComponentD(rhs, evalLine, evalCaller, "", pr, baseDir, nil, lookupCtx{depth: depth + 1, leaf: ctx.leaf, callers: ctx.callers})
-		if comp != "" && !strings.HasPrefix(comp, "$") && !strings.HasPrefix(comp, "$builtin.") {
-			tr.addf("resolved %q to %q: it is assigned %s", variable, comp, rhs)
-
-			return comp
-		}
-
-		return ""
+		return r.aliasedComponent(variable, rhs, evalLine, evalCaller, pr, baseDir, tr, lookupCtx{depth: depth + 1, leaf: ctx.leaf, callers: ctx.callers})
 	}
 
 	recv, calls, isCall := callChain(rhs)
@@ -1036,4 +1029,17 @@ func (r *Resolver) membersWrittenOn(pr *parser.ParseResult, line uint32, names .
 	}
 
 	return false
+}
+
+// aliasedComponent is what `variable = rhs` holds when rhs is a name: the
+// component the name is typed as, or dynamic when it is.
+func (r *Resolver) aliasedComponent(variable, rhs string, line uint32, caller string, pr *parser.ParseResult, baseDir string, tr *callTrace, ctx lookupCtx) string {
+	comp, _ := r.receiverComponentD(rhs, line, caller, "", pr, baseDir, nil, ctx)
+	if comp == "$any" || (comp != "" && !strings.HasPrefix(comp, "$") && !strings.HasPrefix(comp, "$builtin.")) {
+		tr.addf("resolved %q to %q: it is assigned %s", variable, comp, rhs)
+
+		return comp
+	}
+
+	return ""
 }

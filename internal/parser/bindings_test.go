@@ -363,6 +363,9 @@ func TestImportQualifiesABareComponentName(t *testing.T) {
 		{"import models.User;\ncomponent { function go() { var u = new other.User(); } }", "other.User"},
 		{"import models.*;\ncomponent { function go() { var u = new User(); } }", "User"},
 		{"component { function go() { var u = new User(); } }", "User"},
+
+		// The quoted form brings in a Java class the parser cannot see.
+		{"import \"com.x.User\";\ncomponent { function go() { var u = new User(); } }", "$any"},
 	}
 
 	for _, c := range cases {

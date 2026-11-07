@@ -171,3 +171,42 @@ func TestNumericContractsCoverMemberFunctionSyntax(t *testing.T) {
 		}
 	}
 }
+
+// Members of Lucee's PageContext and configuration interfaces that no contract
+// types are accepted with an erased result; typed ones keep their type, and a
+// name the interfaces do not declare is still not a method.
+func TestLuceeAPIMembersAreAcceptedAndKeepTheirTypes(t *testing.T) {
+	for _, tc := range []struct{ component, method, want string }{
+		{"lucee.pagecontext", "getId", "$any"},
+		{"lucee.pagecontext", "getCFID", "$any"},
+		{"lucee.pagecontext", "getConfig", Type("lucee.config")},
+		{"lucee.config", "getMavenDir", "$any"},
+		{"lucee.config", "getApplicationPageSource", "$any"},
+		{"lucee.config", "getJDBCDriverById", Type("lucee.jdbcdriver")},
+	} {
+		if got, ok := Method(Type(tc.component), tc.method); !ok || got != tc.want {
+			t.Errorf("%s.%s = %q, %v; want %q", tc.component, tc.method, got, ok, tc.want)
+		}
+	}
+
+	for _, tc := range []struct{ component, method string }{
+		{"lucee.pagecontext", "notAMethodOfPageContext"},
+		{"lucee.config", "notAMethodOfConfig"},
+	} {
+		if got, ok := Method(Type(tc.component), tc.method); ok {
+			t.Errorf("%s.%s was accepted as %q", tc.component, tc.method, got)
+		}
+	}
+}
+
+func TestAQueryAcceptsItsJavaMethods(t *testing.T) {
+	for _, m := range []string{"getName", "getSql", "go", "getColumnCount", "getMeta"} {
+		if _, ok := Method(Type("query"), m); !ok {
+			t.Errorf("query.%s not accepted", m)
+		}
+	}
+
+	if r, _ := Method(Type("query"), "getRecordCount"); r != Type("numeric") {
+		t.Errorf("getRecordCount lost its type: %q", r)
+	}
+}

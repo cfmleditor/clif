@@ -3200,7 +3200,14 @@ func (p *scriptParser) skipInlineComponentAttrs() bool {
 // disk — the parser has no filesystem and guessing would produce a confident
 // wrong path, so a wildcard import is left to resolve as it did.
 func (p *scriptParser) parseImport() {
-	path := p.readDottedPath(p.sc.NextSkipComments())
+	tok := p.sc.NextSkipComments()
+	if tok.Kind == TokString {
+		p.parseQuotedImport(unquote(tok.Value))
+
+		return
+	}
+
+	path := p.readDottedPath(tok)
 	if path == "" {
 		return
 	}
@@ -3219,6 +3226,22 @@ func (p *scriptParser) parseImport() {
 	}
 
 	p.imports[strings.ToLower(last)] = path
+}
+
+// parseQuotedImport records `import "com.x.Class";`. The quoted form is how
+// Lucee brings in a Java class (the component's javaSettings supply its jar),
+// which the parser cannot see, so the bare name is a value of unknown shape.
+func (p *scriptParser) parseQuotedImport(path string) {
+	_, last, ok := strings.CutLast(path, ".")
+	if !ok || last == "" || last == "*" {
+		return
+	}
+
+	if p.imports == nil {
+		p.imports = make(map[string]string, 4)
+	}
+
+	p.imports[strings.ToLower(last)] = "$any"
 }
 
 // applyImport rewrites a bare component name that an import brought into scope.
