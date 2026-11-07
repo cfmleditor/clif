@@ -9,6 +9,7 @@
 
 ### Fixed
 
+- **`<cfinvoke component="#application.jsoupComponentPath#">` invokes a component by path.** The attribute takes a path or an object; a name ending in `Path` holds the first, and was called as an object. Galaxie 10 fewer.
 - **`<cfinclude template="dir/#file#">` after a `<cfdirectory action="list" filter="*.cfm">` is every template in `dir`.** Galaxie's updater lists `installer/updates` into a query and includes each migration, whose helpers (`addToLog`, `ensureColumns`) the includer declares. Galaxie 21 fewer.
 - **A property of a dynamic value is dynamic as a receiver, not only as an assignment.** `result.str.getClass()` where `result` is what a `returnVariable` or a Java call left. ColdBox 34, Lucee 38, ContentBox 28 fewer.
 - **A class in a framework's own namespace the bundled stubs lack is dynamic, not a component that does not exist.** `coldbox.system.orm.hibernate.util.ORMUtilFactory` is ColdBox's; the stubs hold the API the presets need and no more. ContentBox 54, TestBox 8, ColdBox 11 fewer.

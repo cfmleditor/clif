@@ -1430,6 +1430,13 @@ func invokeExpression(component, method string) string {
 			return ""
 		}
 
+		// The attribute is a component path or an object. A name ending in
+		// Path holds the first (application.jsoupComponentPath), and the
+		// component it names is whatever the path computes.
+		if strings.HasSuffix(strings.ToLower(expr), "path") {
+			return `createObject("component", ` + expr + `).` + method + "()"
+		}
+
 		return expr + "." + method + "()"
 	}
 
