@@ -16,7 +16,9 @@ make gapcheck CORPUS=/abs/path/to/Galaxie-Blog            # parser vs grammar, p
 make corpus CORPUS=/abs/path/to/Galaxie-Blog BASELINE=<an earlier report>
 ```
 
-**2026-11-07 update:** the count is **272** (74 more were includes written `#application.baseUrl#/…`, which the include scan did
+**2026-11-07 update:** the count is **264** (8 more were `Payments.paymentsFor`'s `FROM Payment WHERE #column# = :id`).
+
+Earlier today: **272** (74 more were includes written `#application.baseUrl#/…`, which the include scan did
 not read: `RootVariablePath`).
 
 Earlier today: **346** (29 more were `Setup.getOwner()`, a function returning `entityLoadByPK`).
