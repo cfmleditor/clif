@@ -9,6 +9,7 @@
 
 ### Fixed
 
+- **A native type is claimed of a variable only where its assignment is the one that reaches the use, and an index on the end of a chain reads an element.** `var out = ""; if ( c ) { out = []; } out.x()` was an array whatever `c` was; the assignment now has to be one that dominates the use, or the only one in the function. And `list()[ 1 ]`, `getRoutes().filter( … )[ 1 ]` were typed as the collection they index, which made an element of an array of routes an array. A variable declared a native type by a function's return is not typed from it: a function declared `struct` returns components often enough (Wheels' `$mapper`) that the claim is unsound.
 - **`<cfinvoke component="#application.jsoupComponentPath#">` invokes a component by path.** The attribute takes a path or an object; a name ending in `Path` holds the first, and was called as an object. Galaxie 10 fewer.
 - **`<cfinclude template="dir/#file#">` after a `<cfdirectory action="list" filter="*.cfm">` is every template in `dir`.** Galaxie's updater lists `installer/updates` into a query and includes each migration, whose helpers (`addToLog`, `ensureColumns`) the includer declares. Galaxie 21 fewer.
 - **A property of a dynamic value is dynamic as a receiver, not only as an assignment.** `result.str.getClass()` where `result` is what a `returnVariable` or a Java call left. ColdBox 34, Lucee 38, ContentBox 28 fewer.

@@ -505,3 +505,48 @@ func TestAFrameworkClassTheStubsLackIsDynamic(t *testing.T) {
 		t.Errorf("b.anything: %q, want a component that does not exist", got["b.anything"])
 	}
 }
+
+// A native type is claimed of a variable only where its assignment is the one
+// that reaches the use: not when the assignment sits in a block that has
+// closed before the use and the variable was assigned before it. And an index
+// on the end of a chain reads an element, not the collection.
+func TestAFlowAwareNativeClaim(t *testing.T) {
+	dir := t.TempDir()
+	body := `component {
+	array function list() { return []; }
+	function run() {
+		var once = [];
+		once.noSuchArrayMemberXyz();
+		var out = "";
+		if ( 1 ) {
+			out = [];
+		}
+		out.noSuchArrayMemberXyz();
+		var kept = "";
+		if ( 1 ) {
+			kept = [];
+			kept.noSuchArrayMemberXyz();
+		}
+		var el = list()[ 1 ];
+		el.anything();
+	}
+}`
+
+	if err := os.WriteFile(filepath.Join(dir, "FL.cfc"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got := reasonsWith(t, &Resolver{}, dir, "FL.cfc")
+
+	if strings.Contains(got["out.noSuchArrayMemberXyz"], "native.array") {
+		t.Errorf("out was claimed an array though the empty string may reach: %q", got["out.noSuchArrayMemberXyz"])
+	}
+
+	if !strings.Contains(got["kept.noSuchArrayMemberXyz"], "native.array") {
+		t.Errorf("kept: %q, want the array its own block assigned it", got["kept.noSuchArrayMemberXyz"])
+	}
+
+	if got["el.anything"] != "" {
+		t.Errorf("el.anything: %q, an element read is not the collection", got["el.anything"])
+	}
+}

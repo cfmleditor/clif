@@ -4044,6 +4044,13 @@ func (p *scriptParser) addPendingCall(varName, prevIdent, lastIdent, chain strin
 		rebinds:    rebinds(varName, recv),
 	})
 	p.pendingCalls[len(p.pendingCalls)-1].rest = p.continueChainCalls(receiverOf(chain), lastIdent, line)
+
+	// An index on the end of the chain reads an element of what the chain
+	// returns, which is not what it returns: the assignment is untyped.
+	if p.sc.PeekSkipComments().Kind == TokLBracket {
+		last := &p.pendingCalls[len(p.pendingCalls)-1]
+		last.rest = append(last.rest, ElementHop)
+	}
 }
 
 // scopedChainCall records `scope.name.a.b(…)`, a call on a scoped variable
@@ -5875,3 +5882,9 @@ func (p *scriptParser) chainFollowsCall() bool {
 
 	return end < len(p.sc.src) && (p.sc.src[end] == '.' || p.sc.src[end] == '[' || strings.HasPrefix(p.sc.src[end:], "?."))
 }
+
+// ElementHop is the chain entry for an index read on what the chain before it
+// returns. No component declares a method of that name, so a hop walk that
+// reaches it from a typed component finds nothing, and from a dynamic value
+// keeps the value dynamic.
+const ElementHop = "[]"

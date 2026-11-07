@@ -4153,10 +4153,8 @@ func funcScopedRefFor(pr *parser.ParseResult, line uint32, name string, in parse
 			// An unknown later store cannot inherit a prior runtime interface.
 			// Recovery is statement-line based; same-line and branch dominance
 			// need a separate byte-aware flow proof.
-			if strings.HasPrefix(ref.Component, parser.NativeTypePrefix) {
-				if nativeReassignedAt(pr.Content, name, int(ref.Line)+1, int(line)) {
-					continue
-				}
+			if strings.HasPrefix(ref.Component, parser.NativeTypePrefix) && nativeRefMissesUse(pr.Content, name, scope.Start, int(ref.Line), int(line)) {
+				continue
 			}
 
 			switch {

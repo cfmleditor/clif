@@ -201,7 +201,7 @@ func (r *Resolver) assignedFromCall(variable string, line uint32, caller string,
 		return comp
 	}
 
-	if native := nativeLiteral(rhs); native != "" && (evalCaller == caller || !strings.HasPrefix(strings.TrimSpace(rhs), "{")) {
+	if native := reachingLiteral(rhs, evalCaller == caller, container, pr.Content, name, start, at, int(line)); native != "" {
 		if container == "" && !scoped && evalCaller == caller {
 			if output, written := r.literalQueryOutput(pr, name, at, int(line), caller, baseDir, ctx.call); written {
 				native = output
@@ -1074,4 +1074,21 @@ func (r *Resolver) aliasedComponent(variable, rhs string, line uint32, caller st
 	}
 
 	return ""
+}
+
+// reachingLiteral is the native type of a literal assignment's right-hand side
+// that holds at line, or "": a struct literal is claimed of a local only (a
+// field may have grown a closure key since), and none where another path may
+// reach the use with another value.
+func reachingLiteral(rhs string, sameFunction bool, container, content, name string, start, at, line int) string {
+	native := nativeLiteral(rhs)
+	if native == "" || !sameFunction && strings.HasPrefix(strings.TrimSpace(rhs), "{") {
+		return ""
+	}
+
+	if container == "" && at >= 0 && nativeClaimMayNotReach(content, name, start, at, line) {
+		return ""
+	}
+
+	return native
 }
