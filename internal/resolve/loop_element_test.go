@@ -162,7 +162,7 @@ func TestALiteralHQLQueryTypesTheEntitiesItReturns(t *testing.T) {
    for(var lineJoined in ormExecuteQuery("FROM QueriedItem i
 	JOIN i.parent p")){ lineJoined.ready(); }
    for(var unique in ormExecuteQuery("FROM QueriedItem", {}, true)){ unique.ready(); }
-   for(var computed in ormExecuteQuery("FROM QueriedItem WHERE id = #id#")){ computed.ready(); }
+   for(var computed in ormExecuteQuery("FROM #name# WHERE id = :id")){ computed.ready(); }
    for(var unregistered in ormExecuteQuery("FROM NotRegistered")){ unregistered.ready(); }
    for(var notEntity in ormExecuteQuery("FROM Plain")){ notEntity.ready(); }
   } }`,
@@ -189,5 +189,25 @@ func TestALiteralHQLQueryTypesTheEntitiesItReturns(t *testing.T) {
 		"lineJoined.ready": "variable 'lineJoined' has no component ref",
 		"unique.ready":     "variable 'unique' has no component ref", "computed.ready": "variable 'computed' has no component ref",
 		"unregistered.ready": "variable 'unregistered' has no component ref", "notEntity.ready": "variable 'notEntity' has no component ref",
+	})
+}
+
+// A computed part in the WHERE of a literal HQL query is evaluated before the
+// query is sent, so the entity the FROM names is still what the rows are; one
+// in the FROM clause (or one that could continue the entity's name) is not.
+func TestAComputedPartAfterTheFromClauseKeepsTheQueriedEntity(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{
+		"models/Item.cfc": `component persistent="true" entityname="LoadedItem" { function ready(){} }`,
+		"Use.cfc": `component { function run(string col){
+   for(var a in ormExecuteQuery("FROM LoadedItem WHERE #col# = :id", {id=1})){ a.ready(); a.missingA(); }
+   for(var b in ormExecuteQuery("FROM Loaded#col# WHERE x = :id", {id=1})){ b.ready(); }
+   for(var c in ormExecuteQuery("FROM #col# WHERE x = :id", {id=1})){ c.ready(); }
+   for(var d in ormExecuteQuery("FROM LoadedItem i JOIN i.children c WHERE #col# = :id", {id=1})){ d.ready(); }
+  } }`,
+	})
+	expectReasons(t, reasonsWith(t, &Resolver{}, dir, "Use.cfc"), map[string]string{
+		"a.ready": "", "a.missingA": "method 'missingA' not found in Item",
+		"b.ready": "variable 'b' has no component ref", "c.ready": "variable 'c' has no component ref", "d.ready": "variable 'd' has no component ref",
 	})
 }

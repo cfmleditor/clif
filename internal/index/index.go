@@ -2,6 +2,7 @@
 package index
 
 import (
+	"hash/maphash"
 	"net/url"
 	"path"
 	"slices"
@@ -47,6 +48,15 @@ type Index struct {
 	// includeGen counts changes to includes, so a reader that derives something
 	// from all of them — the resolver's reverse map — can tell when to rebuild.
 	includeGen uint64
+
+	shape atomic.Uint64 // see ShapeGeneration
+
+	// extenders is ExtendersByName's answer at the generation it was built.
+	extenders struct {
+		mu     sync.Mutex
+		gen    uint64
+		byName map[string][]Extender
+	}
 }
 
 // writeCountingMutex counts every write lock taken, so a reader caching an
@@ -66,6 +76,14 @@ func (m *writeCountingMutex) Lock() {
 // Generation reports a counter that moves whenever anything in the index may
 // have changed. It never moves for reads.
 func (idx *Index) Generation() uint64 { return idx.mu.writes.Load() }
+
+// ShapeGeneration moves whenever a file is added to or dropped from the index or
+// what a file extends is recorded or forgotten, and for no other write. An
+// answer that depends only on which components exist and what each extends
+// (the leaf subclasses under a base) stays valid across the writes that do
+// not move it, which are most of them during a scan: variables, includes,
+// functions of files already known.
+func (idx *Index) ShapeGeneration() uint64 { return idx.shape.Load() }
 
 // fileIncludes is one file's cfinclude paths as written, with the file's own
 // URI: resolving a relative path needs its directory in its real case.
@@ -319,8 +337,10 @@ func keepRefs(entries []*parser.ComponentRef, keep func(*parser.ComponentRef) bo
 
 // uriKey returns a lowercase URI for case-insensitive comparison on case-insensitive filesystems.
 func uriKey(u uri.URI) string {
-	s := string(u)
+	return uriKeys.key(string(u))
+}
 
+func uriKeyUncached(s string) string {
 	// Percent-escapes are decoded so that the two ways this codebase builds a
 	// file URI land on one key. Indexing goes through uri.File, which escapes:
 	// a workspace under "/My Documents" is stored as "file:///My%20Documents/…".
@@ -665,6 +685,7 @@ func (idx *Index) indexParseResult(fileURI uri.URI, content string, pr *parser.P
 	fk := uriKey(fileURI)
 	idx.thisVars[fk] = thisVars
 	idx.extends[fk] = strings.Clone(pr.Extends)
+	idx.shape.Add(1)
 	idx.delegates[fk] = cloneDelegates(pr.Delegates)
 
 	// An ORM entity is named by its entityname attribute, which is often not
@@ -690,6 +711,7 @@ func (idx *Index) indexParseResult(fileURI uri.URI, content string, pr *parser.P
 
 	idx.fileFuncs[fk] = fileDefs
 	idx.fileURIs[fk] = uri.URI(strings.Clone(string(fileURI)))
+	idx.shape.Add(1)
 
 	fileRefsList := make([]*parser.ComponentRef, 0, len(refs))
 
@@ -739,6 +761,7 @@ func (idx *Index) IndexFileFromResult(fileURI uri.URI, funcs []parser.FunctionDe
 
 	idx.fileFuncs[fk] = fileDefs
 	idx.fileURIs[fk] = uri.URI(strings.Clone(string(fileURI)))
+	idx.shape.Add(1)
 
 	fileRefsList := make([]*parser.ComponentRef, 0, len(refs))
 
@@ -828,6 +851,7 @@ func (idx *Index) RemoveFilesUnder(prefix string) {
 		if strings.HasPrefix(key, fileKey) {
 			delete(idx.fileFuncs, key)
 			delete(idx.fileURIs, key)
+			idx.shape.Add(1)
 			delete(idx.fileRefs, key)
 			delete(idx.thisVars, key)
 			delete(idx.scopeRefs, key)
@@ -921,6 +945,7 @@ func (idx *Index) removeFileEntries(fileURI uri.URI) {
 	// self-invalidating: a re-index of any kind forgets it, and the next
 	// lookup re-establishes it from the file as it now stands.
 	delete(idx.extends, key)
+	idx.shape.Add(1)
 	delete(idx.delegates, key)
 
 	// Grouped by bucket, not pooled into one set of everything this file
@@ -942,6 +967,7 @@ func (idx *Index) removeFileEntries(fileURI uri.URI) {
 
 	delete(idx.fileFuncs, key)
 	delete(idx.fileURIs, key)
+	idx.shape.Add(1)
 
 	for name, group := range groupRefsByVariable(idx.fileRefs[key]) {
 		if filtered := dropEntries(idx.comprefs[name], group); len(filtered) == 0 {
@@ -1457,6 +1483,61 @@ func (idx *Index) FilesExtendingName(name string) []string {
 	return out
 }
 
+// Extender is a file and what it extends, as the index records it.
+type Extender struct {
+	URI     string
+	Extends string
+}
+
+// ExtendersByName groups every file by the last segment of what it extends,
+// lowercased, each group sorted as FilesExtendingName sorts it: the answer to
+// FilesExtendingName for every name at once, in one pass over the extends map.
+// A walk that asks for a name per component (leafSubclasses over Lucee's
+// thousands of test cases) otherwise scans the whole map for each.
+//
+// The map is kept until a file is added or dropped or an extends changes
+// (ShapeGeneration), and shared: callers read it and
+// do not edit it.
+func (idx *Index) ExtendersByName() map[string][]Extender {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+
+	gen := idx.ShapeGeneration()
+
+	idx.extenders.mu.Lock()
+	defer idx.extenders.mu.Unlock()
+
+	if idx.extenders.byName != nil && idx.extenders.gen == gen {
+		return idx.extenders.byName
+	}
+
+	out := map[string][]Extender{}
+
+	for key, ext := range idx.extends {
+		if ext == "" {
+			continue
+		}
+
+		last := ext
+		if _, after, ok := strings.CutLast(ext, "."); ok {
+			last = after
+		}
+
+		if u, ok := idx.fileURIs[key]; ok {
+			name := strings.ToLower(last)
+			out[name] = append(out[name], Extender{URI: string(u), Extends: ext})
+		}
+	}
+
+	for _, files := range out {
+		slices.SortFunc(files, func(a, b Extender) int { return strings.Compare(a.URI, b.URI) })
+	}
+
+	idx.extenders.byName, idx.extenders.gen = out, gen
+
+	return out
+}
+
 // SetExtends records what a file extends, for a reader that had to work it out.
 // The value is cloned: see IndexFile.
 func (idx *Index) SetExtends(fileURI uri.URI, extends string) {
@@ -1464,6 +1545,7 @@ func (idx *Index) SetExtends(fileURI uri.URI, extends string) {
 	defer idx.mu.Unlock()
 
 	idx.extends[uriKey(fileURI)] = strings.Clone(extends)
+	idx.shape.Add(1)
 }
 
 // DelegatesForFile returns the WireBox delegations a file declares, and
@@ -1576,4 +1658,51 @@ func (idx *Index) ForEachInclude(fn func(fileURI uri.URI, paths []string)) uint6
 	}
 
 	return idx.includeGen
+}
+
+// uriKeys remembers uriKey's answers. The key is asked for on every index
+// lookup, and for a URI with a capital in it (most workspaces) computing it
+// decodes and lowercases a new string each time: 13% of a Lucee scan. The
+// answer depends only on the URI, so it is shared by every index; when a shard
+// holds too many it starts again.
+var uriKeys uriKeyMemo
+
+const (
+	uriKeyShards   = 64
+	maxURIKeyShard = 2048
+)
+
+type uriKeyMemo struct {
+	seed   maphash.Seed
+	once   sync.Once
+	shards [uriKeyShards]struct {
+		mu sync.RWMutex
+		m  map[string]string
+	}
+}
+
+func (c *uriKeyMemo) key(s string) string {
+	c.once.Do(func() { c.seed = maphash.MakeSeed() })
+
+	sh := &c.shards[maphash.String(c.seed, s)%uriKeyShards]
+
+	sh.mu.RLock()
+	k, ok := sh.m[s]
+	sh.mu.RUnlock()
+
+	if ok {
+		return k
+	}
+
+	k = uriKeyUncached(s)
+
+	sh.mu.Lock()
+	if sh.m == nil || len(sh.m) >= maxURIKeyShard {
+		sh.m = make(map[string]string, 256)
+	}
+
+	sh.m[s] = k
+	sh.mu.Unlock()
+
+	return k
 }

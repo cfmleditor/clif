@@ -75,3 +75,19 @@ func TestAComputedIncludeOfAListedNameOrATagAttribute(t *testing.T) {
 		})
 	}
 }
+
+// A path that begins with one plain variable and a slash is read, as the path
+// from the application's root; a call, a variable with no slash after it and a
+// second span are not.
+func TestAnIncludeThroughARootVariableIsRead(t *testing.T) {
+	src := `<cfinclude template="#application.baseUrl#/lib/a.cfm">` + "\n" +
+		`<cfinclude template="#getBase()#/lib/b.cfm">` + "\n" +
+		`<cfinclude template="#application.baseUrl#lib/c.cfm">` + "\n" +
+		`<cfinclude template="#application.baseUrl#/lib/#page#.cfm">` + "\n" +
+		`<cfinclude template="/lib/d.cfm">` + "\n"
+
+	got := ExtractIncludes(src)
+	if len(got) != 2 || got[0] != "#application.baseUrl#/lib/a.cfm" || got[1] != "/lib/d.cfm" {
+		t.Errorf("includes = %q", got)
+	}
+}

@@ -2,9 +2,11 @@ package path
 
 import (
 	"io/fs"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/cfmleditor/clif/internal/vfs"
@@ -206,5 +208,34 @@ func TestResolvePath_AMappingNameWithSeveralSegments(t *testing.T) {
 
 	if got, want := ResolvePath("modules.Base", t.TempDir(), mappings), filepath.Join(dir, "tests", "_modules", "Base.cfc"); got != want {
 		t.Errorf("single: got %q, want %q", got, want)
+	}
+}
+
+// cleaned is filepath.Clean for every path, including the ones it must leave to it.
+func TestCleanedIsFilepathClean(t *testing.T) {
+	pieces := []string{"/", "a", "B", ".", "..", "...", ".git", "x.cfc", "//", "/./", "/../", " ", "a b", "", "~", "-", "\\"}
+	r := rand.New(rand.NewSource(5))
+
+	clean := 0
+
+	for range 50000 {
+		var b strings.Builder
+
+		for range 1 + r.Intn(7) {
+			b.WriteString(pieces[r.Intn(len(pieces))])
+		}
+
+		p := b.String()
+		if got, want := cleaned(p), filepath.Clean(p); got != want {
+			t.Fatalf("cleaned(%q) = %q, filepath.Clean says %q", p, got, want)
+		}
+
+		if filepath.Clean(p) == p {
+			clean++
+		}
+	}
+
+	if clean < 2000 {
+		t.Errorf("only %d of the paths were already clean: the generator does not exercise the fast path", clean)
 	}
 }

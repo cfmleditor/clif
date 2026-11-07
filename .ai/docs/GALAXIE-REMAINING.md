@@ -16,6 +16,23 @@ make gapcheck CORPUS=/abs/path/to/Galaxie-Blog            # parser vs grammar, p
 make corpus CORPUS=/abs/path/to/Galaxie-Blog BASELINE=<an earlier report>
 ```
 
+**2026-11-07 update:** the count is **264** (8 more were `Payments.paymentsFor`'s `FROM Payment WHERE #column# = :id`).
+
+Earlier today: **272** (74 more were includes written `#application.baseUrl#/…`, which the include scan did
+not read: `RootVariablePath`).
+
+Earlier today: **346** (29 more were `Setup.getOwner()`, a function returning `entityLoadByPK`).
+
+Earlier today: **375** (100 more are functions returning `found[ 1 ]` of an entity array, `Shop.cfc`'s
+`loadOrder` and its kin: `elementReturn`).
+
+Earlier today: **475** (618 before; 89 of the difference is the `html` receiver below, a tag-syntax
+`createObject( "java", … ).init()` that was not typed).
+
+Earlier today: the count was **564** with the current build (618 before the argument fix below; the 746 below was
+measured with clif#325). `Bookings.toStruct( entity )`'s `e` (45 of the `e` row) was an argument passed a loop variable and an
+element read (`found[ 1 ]`), neither of which `argumentExprComponent` typed; both are now typed from the collection they come from.
+
 ## 1. Unresolved calls: 746
 
 Counts are from `unresolved --json` with the build that has clif#325 (879 before it, 3,752 before any of this work).

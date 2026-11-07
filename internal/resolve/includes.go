@@ -44,6 +44,10 @@ func pathKey(p string) string {
 // by the first segment.
 func (r *Resolver) IncludePath(raw, fromFile string) string {
 	raw = strings.TrimSpace(raw)
+	if rooted, ok := parser.RootVariablePath(raw); ok {
+		raw = rooted
+	}
+
 	if raw == "" || strings.Contains(raw, "#") || strings.Contains(raw, "://") {
 		return ""
 	}

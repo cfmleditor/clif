@@ -865,7 +865,21 @@ func SamePath(a, b string) bool {
 		return false
 	}
 
-	return strings.EqualFold(filepath.Clean(a), filepath.Clean(b))
+	return strings.EqualFold(cleaned(a), cleaned(b))
+}
+
+// cleaned is filepath.Clean(p), without the pass over p when p is already
+// clean, which is nearly every path the resolver compares: SamePath was 17% of
+// a code-map build of Lucee, nearly all of it Clean returning its argument.
+// Only a path with no empty segment, no segment starting with a dot and no
+// trailing separator is taken as clean, and only where the separator is "/".
+func cleaned(p string) string {
+	if filepath.Separator == '/' && p != "" && p[0] != '.' && p[len(p)-1] != '/' &&
+		!strings.Contains(p, "//") && !strings.Contains(p, "/.") {
+		return p
+	}
+
+	return filepath.Clean(p)
 }
 
 // CfcNameFromURI extracts the CFC filename without extension from a URI.

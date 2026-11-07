@@ -739,3 +739,51 @@ func TestParseCallersRunsABoundedWayAhead(t *testing.T) {
 		t.Errorf("after one file was read, %d of %d were parsed; want at most %d", got, len(files), limit)
 	}
 }
+
+// A caller's loop variable, and an element read off a collection, are typed
+// as they are for a call written in the caller (loopElement, elementOf), so an
+// argument passed one of them is what the collection holds. Galaxie Blog's
+// Bookings.toStruct( entity ) was passed both and reported 54 "no component ref".
+func TestAnArgumentPassedALoopVariableOrAnElementIsTypedByItsCollection(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{
+		"models/Item.cfc": `component persistent="true" entityname="LoadedItem" { function loopM(){} function elemM(){} }`,
+		"Svc.cfc": `component {
+function viaLoop(){
+	for ( var row in entityLoad("LoadedItem") ) {
+		useLoop( row );
+	}
+}
+function viaElement(){
+	var found = entityLoad("LoadedItem");
+	return useElement( found[ 1 ] );
+}
+function viaUntyped(){
+	for ( var row in unknownList() ) {
+		useUntyped( row );
+	}
+}
+private function useLoop( required thing ){ arguments.thing.loopM(); arguments.thing.noLoop(); }
+private function useElement( required thing ){ arguments.thing.elemM(); arguments.thing.noElem(); }
+private function useUntyped( required thing ){ arguments.thing.untypedM(); }
+}`,
+	})
+
+	got := reasonsWith(t, &Resolver{InferArgsFiles: cfmlFilesIn(t, dir)}, dir, "Svc.cfc")
+
+	for _, k := range []string{"arguments.thing.loopM", "arguments.thing.elemM"} {
+		if got[k] != "" {
+			t.Errorf("%s: %q, want it resolved", k, got[k])
+		}
+	}
+
+	for _, k := range []string{"arguments.thing.noLoop", "arguments.thing.noElem"} {
+		if !strings.Contains(got[k], "not found in Item") {
+			t.Errorf("%s: %q, want a method missing from Item", k, got[k])
+		}
+	}
+
+	if !strings.Contains(got["arguments.thing.untypedM"], "no component ref") {
+		t.Errorf("an untyped collection's element was typed: %q", got["arguments.thing.untypedM"])
+	}
+}

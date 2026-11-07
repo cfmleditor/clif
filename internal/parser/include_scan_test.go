@@ -12,8 +12,10 @@ import (
 // The expressions the include scanners replaced, and the scan built on them as
 // it was, kept as the reference the scanners must agree with.
 var (
-	refIncludeTagAt       = regexp.MustCompile(`^(?i)<cfinclude\b[^>]*?\btemplate\s*=\s*["']([^"'#]+|(?:[^"'#*\\/][^"'#*\\]*/)?#[^"'#/]+#\.cfm|[^"'#*\\/][^"'#*\\]*/#[^"'#/]+#|#attributes\.\w+#)["']`)
-	refIncludeScriptAt    = regexp.MustCompile(`^(?i)(?:cf)?include\s*\(?\s*(?:template\s*=\s*)?["']([^"'#]+|(?:[^"'#*\\/][^"'#*\\]*/)?#[^"'#/]+#\.cfm|[^"'#*\\/][^"'#*\\]*/#[^"'#/]+#|#attributes\.\w+#)["']`)
+	refIncludeTagAt    = regexp.MustCompile(`^(?i)<cfinclude\b[^>]*?\btemplate\s*=\s*["']([^"'#]+|(?:[^"'#*\\/][^"'#*\\]*/)?#[^"'#/]+#\.cfm|[^"'#*\\/][^"'#*\\]*/#[^"'#/]+#|#attributes\.\w+#|#[\w.]+#/[^"'#*\\]+)["']`)
+	refIncludeScriptAt = regexp.MustCompile(`^(?i)(?:cf)?include\s*\(?\s*(?:template\s*=\s*)?["']([^"'#]+|(?:[^"'#*\\/][^"'#*\\]*/)?#[^"'#/]+#\.cfm|[^"'#*\\/][^"'#*\\]*/#[^"'#/]+#|#attributes\.\w+#|#[\w.]+#/[^"'#*\\]+)["']`)
+	// refRootForm is the shape RootVariablePath narrows by the variable's name.
+	refRootForm           = regexp.MustCompile(`^#[\w.]+#/[^#*\\]+$`)
 	refDirectoryListing   = regexp.MustCompile(`(?is)<cfdirectory\b[^>]*>`)
 	refListingAttr        = regexp.MustCompile(`(?i)\b([a-z]+)\s*=\s*["']([^"']*)["']`)
 	refListingDir         = regexp.MustCompile(`(?i)^#\s*getDirectoryFromPath\s*\(\s*getCurrentTemplatePath\s*\(\s*\)\s*\)\s*#([\w./-]+?)/?$`)
@@ -39,6 +41,10 @@ func includeSitesRegexp(content string) []IncludeSite {
 		}
 
 		p := strings.TrimSpace(content[start+m[2] : start+m[3]])
+		if _, rooted := RootVariablePath(p); !rooted && refRootForm.MatchString(p) {
+			continue
+		}
+
 		if glob, ok := computedNameGlob(p); ok {
 			p = glob
 		} else if glob, dir, ok := listedNameGlob(p); ok {
@@ -194,6 +200,9 @@ var includeSamples = map[string]string{
 	"tag computed name":        `<cfinclude template="pages/#x.y#.cfm">`,
 	"tag computed name upper":  `<cfinclude template="#x#.CFM">`,
 	"tag computed directory":   `<cfinclude template="#x#/a.cfm">`,
+	"tag root variable":        `<cfinclude template="#application.baseUrl#/lib/a.cfm">`,
+	"script root variable":     `include "#variables.rootPath#/lib/a.cfm"; include "#dynamicDir#/b.cfm";`,
+	"root variable and a span": `<cfinclude template="#application.baseUrl#/lib/#page#.cfm">`,
 	"tag computed mapping":     `<cfinclude template="/m/#x#.cfm">`,
 	"tag computed part":        `<cfinclude template="page_#x#.cfm">`,
 	"tag computed two":         `<cfinclude template="#x##y#.cfm">`,
