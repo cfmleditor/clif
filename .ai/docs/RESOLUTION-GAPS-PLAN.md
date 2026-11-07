@@ -4,6 +4,30 @@ Updated 2026-10-04 through the current resolution/performance branch; status
 refreshed 2026-10-18 (see below). Historical measurements below retain the
 commit or PR against which they were made.
 
+## 2026-11-07 re-rank, over every corpus project
+
+Build of clif#347 (`main` at 6481e63), the "presets" configs of `RESOLUTION-GAPS.md` (Masa with `masacms.json`, Galaxie Blog
+with none, Lucee `{}`). Totals: Lucee 2,191, Masa 2,304, ColdBox 1,433, ContentBox 1,456, TestBox 524, Galaxie Blog 264,
+FW/1 239: **8,411**, of which 6,273 are "no component ref". **The old priority 1 (MuraScope, `$`) is 97 findings now.**
+The largest receivers are small beside the totals: no one receiver is over 130, so the long tail is most of it.
+
+Ranked by what a source-proven rule could remove for the effort, one example each (all read with `clif explain`):
+
+| # | Family | n measured | What is needed | Risk |
+|---|---|---:|---|---|
+| 1 | **`duplicate( x )` returns what `x` is** (Lucee `copy`, `dup`: `var copy = duplicate( orig )`) | 84 in Lucee alone | a rule beside the builtin return types: the call is typed by its first argument when that is typed, and unknown otherwise | low: CFML's own contract, no new guess |
+| 2 | **FW/1 view `rc.X`** (`<cfset local.user = rc.user>` in a view) | 32 in FW/1 | the existing `fw1ViewRc` machinery, extended to an assignment the view makes from `rc.X` | low: the controller write is the proof |
+| 3 | **ColdBox integration specs, `var e = this.get( "main/index" )`** | 43 in ColdBox | the integration base's `get`/`post`/`delete` return a RequestContext: a stub doc return or a rule | low if the stub documents it |
+| 4 | **TestBox reporter partials, `variables.helper`** | 108 in TestBox | a reporter component sets `variables.helper`; the partial templates it renders run in its scope | medium: a framework mechanism of its own |
+| 5 | Mura display-object and feed arguments (`arguments.item`, `arguments.feedBean`, `arguments.contentBean`) | about 320 in Masa | every caller must type the argument alike; the callers pass beans of several kinds | high: relaxing the rule types wrong methods |
+| 6 | ContentBox `arguments.content`, `item`, `args.menuItem` | about 100 | arguments whose callers pass entities of more than one kind | high, as 5 |
+| 7 | Long tail (Lucee `messages[ 1 ]`, ColdBox executors `variables.native`, `mapping` loop over a field array) | the rest | one rule each | varies |
+
+The first three are the cheap ones: general, source-proven, about 160 findings between them. 4 is next; 5 and 6 are the
+volume but are held back by the soundness rule (an argument is typed only when every caller types it alike), which is the
+design and should not be relaxed. The earlier list in this file ranked by a count that has since fallen by an order of
+magnitude; this table replaces its ordering, not its descriptions.
+
 ## 2026-11-07 status refresh: Masa, configured
 
 Measured with `scripts/corpus/masacms.json` as `.clif.json` at Masa 7.6.1 (`6963831`), the pinned commit, with the build of
