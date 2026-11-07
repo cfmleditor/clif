@@ -787,3 +787,66 @@ private function useUntyped( required thing ){ arguments.thing.untypedM(); }
 		t.Errorf("an untyped collection's element was typed: %q", got["arguments.thing.untypedM"])
 	}
 }
+
+// duplicate( x ) is a copy of x: an instance of the same component. Lucee's
+// duplicate tests (`var copy = duplicate( orig )`) were 76 "no component ref".
+// A function written onto either one is a member the source does not declare
+// and the copy carries, so such a pair is not typed; a copy of nothing typed
+// is not either.
+func TestADuplicateOfAComponentIsThatComponent(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{
+		"Item.cfc": `component { function ready(){} }`,
+		"Use.cfc": `component {
+	function plain() {
+		var orig = new Item();
+		var copy = duplicate( orig );
+		copy.ready();
+		copy.missingCopy();
+		var deep = duplicate( orig, true );
+		deep.ready();
+	}
+	function mixin() {
+		var orig = new Item();
+		orig.injected = function() { return 1; };
+		var copy = duplicate( orig );
+		copy.injected();
+	}
+	function mixinOnCopy() {
+		var orig = new Item();
+		var copy = duplicate( orig );
+		copy.added = function() { return 1; };
+		copy.added();
+	}
+	function untyped() {
+		var orig = makeSomething();
+		var copy = duplicate( orig );
+		copy.anything();
+		var literal = duplicate( { a = 1 } );
+		literal.anything2();
+	}
+}`,
+	})
+
+	got := reasonsWith(t, &Resolver{}, dir, "Use.cfc")
+
+	if got["copy.ready"] != "" || got["deep.ready"] != "" {
+		t.Errorf("a duplicate was not typed: copy.ready %q, deep.ready %q", got["copy.ready"], got["deep.ready"])
+	}
+
+	if !strings.Contains(got["copy.missingCopy"], "not found in Item") {
+		t.Errorf("copy.missingCopy: %q, want a method missing from Item", got["copy.missingCopy"])
+	}
+
+	for _, k := range []string{"copy.injected", "copy.added"} {
+		if got[k] != "" {
+			t.Errorf("%s: %q, want a duplicate with a function written onto it accepted", k, got[k])
+		}
+	}
+
+	for _, k := range []string{"copy.anything", "literal.anything2"} {
+		if !strings.Contains(got[k], "no component ref") {
+			t.Errorf("%s: %q, want an untyped duplicate", k, got[k])
+		}
+	}
+}

@@ -603,7 +603,7 @@ func (r *Resolver) methodElement(comp, method, arguments, baseDir string) string
 	// cborm: a service bound to an entity returns an array of it from getAll(),
 	// and structs when asked for some of its properties; and from a finder of
 	// its own built on a criteria list() (returnsCriteriaList).
-	if strings.EqualFold(method, "getAll") && !strings.Contains(strings.ToLower(arguments), "properties") || r.returnsCriteriaList(fd) {
+	if returnsEntityArray(method, arguments) || r.returnsCriteriaList(fd) {
 		if entity := r.boundEntity(r.ComponentPath(comp, baseDir)); entity != "" {
 			return r.withSubclasses(r.ComponentPath(entity, baseDir))
 		}
@@ -794,3 +794,24 @@ func isScopeWord(s string) bool {
 		return false
 	}
 }
+
+// returnsEntityArray reports whether a cborm service call hands back an array
+// of its entity: getAll() unless it asks for properties, findAllWhere(), and
+// list() once it is told asQuery = false (it answers a query otherwise).
+func returnsEntityArray(method, arguments string) bool {
+	lower := strings.ToLower(arguments)
+
+	switch strings.ToLower(method) {
+	case "getall":
+		return !strings.Contains(lower, "properties")
+	case "findallwhere":
+		return true
+	case "list":
+		return asQueryFalseRe.MatchString(lower) && !strings.Contains(lower, "properties")
+	}
+
+	return false
+}
+
+// asQueryFalseRe finds `asQuery = false` among a call's arguments.
+var asQueryFalseRe = regexp.MustCompile(`\basquery\s*[=:]\s*(?:false|no|0)\b`)

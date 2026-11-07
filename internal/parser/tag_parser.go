@@ -1430,6 +1430,13 @@ func invokeExpression(component, method string) string {
 			return ""
 		}
 
+		// The attribute is a component path or an object. A name ending in
+		// Path holds the first (application.jsoupComponentPath), and the
+		// component it names is whatever the path computes.
+		if strings.HasSuffix(strings.ToLower(expr), "path") {
+			return `createObject("component", ` + expr + `).` + method + "()"
+		}
+
 		return expr + "." + method + "()"
 	}
 
@@ -1736,6 +1743,10 @@ func (p *tagParser) checkSetRHSStr(rhs, varName string, line int) {
 
 	case hasPrefixFold(rhs, "createobject("):
 		comp := extractCreateObjectArg(rhs[13:])
+		if comp == "" {
+			comp, _ = nativeJavaHead(rhs)
+		}
+
 		if comp != "" {
 			p.addRef(&ComponentRef{
 				Variable: varName, Component: comp, ChainRest: trailingCalls(rhs),
@@ -1749,6 +1760,13 @@ func (p *tagParser) checkSetRHSStr(rhs, varName string, line int) {
 			// what is asked about: dynamicCall looks at a chain's last call.
 			p.addRef(&ComponentRef{
 				Variable: varName, Component: p.resolveCall(object), ChainRest: trailingCalls(object),
+				URI: uriFromString(p.fileURI), Line: conv.Uint32(line),
+			})
+		} else if _, java := nativeJavaHead(rhs); java {
+			// A Java class nothing describes is a dynamic value, as the
+			// script parser reads it.
+			p.addRef(&ComponentRef{
+				Variable: varName, Component: "$any",
 				URI: uriFromString(p.fileURI), Line: conv.Uint32(line),
 			})
 		}
@@ -2545,7 +2563,35 @@ func (p *tagParser) lookupComponentRef(varName string, atLine int) string {
 		return ""
 	}
 
+	// A variable assigned more than once before the call may hold any of the
+	// assignments a branch lets through; the resolver reads them all.
+	if p.assignedBefore(lookupVar, atLine) > 1 {
+		return ""
+	}
+
 	return ref.Component
+}
+
+// assignedBefore counts the refs of name made before line, in the function
+// being parsed and at the top level.
+func (p *tagParser) assignedBefore(name string, line int) int {
+	n := 0
+
+	count := func(refs []ComponentRef) {
+		for i := range refs {
+			if int(refs[i].Line) < line && strings.EqualFold(refs[i].Variable, name) {
+				n++
+			}
+		}
+	}
+
+	if p.inFunc != "" {
+		count(p.funcRefs[p.inFunc])
+	}
+
+	count(p.componentRefs)
+
+	return n
 }
 
 // assignedSince is assignedBetween(p.pendingCalls, name, from, to), through
@@ -3293,4 +3339,28 @@ func untypedValueText(rhs string) bool {
 
 	return strings.EqualFold(word, "true") || strings.EqualFold(word, "false") ||
 		strings.EqualFold(word, "arguments") && len(rhs) > len(word) && rhs[len(word)] == '.'
+}
+
+// nativeJavaHead is the native type of `createObject( "java", "java.time.Instant" )`
+// at the head of rhs when a call chain follows it, and whether the head is a
+// Java object at all. The script parser types the same chain through
+// dynamicCall.
+func nativeJavaHead(rhs string) (native string, java bool) {
+	if !strings.Contains(rhs[13:], ").") {
+		return "", false
+	}
+
+	sc := NewScanner(rhs[13:]) // past the opening parenthesis
+
+	first := sc.NextSkipComments()
+	if first.Kind != TokString || !strings.EqualFold(unquote(first.Value), "java") || sc.NextSkipComments().Kind != TokComma {
+		return "", false
+	}
+
+	class := sc.NextSkipComments()
+	if class.Kind != TokString || sc.NextSkipComments().Kind != TokRParen {
+		return "", false
+	}
+
+	return NativeJavaComponent(unquote(class.Value)), true
 }

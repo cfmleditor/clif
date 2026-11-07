@@ -221,6 +221,24 @@ func emptyCollectionAt(tokens []parser.Token, i int) string {
 		return i < len(tokens) && tokens[i].Kind == parser.TokIdent && strings.EqualFold(tokens[i].Value, name) && at(i+1, parser.TokLParen)
 	}
 
+	// A literal written with entries is as much a struct or an array as an
+	// empty one: what is asked of the field is what it is, not what it holds.
+	if at(i, parser.TokLBrace) || at(i, parser.TokLBracket) {
+		closer := parser.TokRBrace
+		if tokens[i].Kind == parser.TokLBracket {
+			closer = parser.TokRBracket
+		}
+
+		if end := producerGroupEnd(tokens, i, tokens[i].Kind, closer); end > i {
+			switch nativeLiteralTokens(tokens[i : end+1]) {
+			case nativetype.Type("struct"):
+				return "struct"
+			case nativetype.Type("array"):
+				return "array"
+			}
+		}
+	}
+
 	switch {
 	case at(i, parser.TokLBrace) && at(i+1, parser.TokRBrace):
 		return "struct"

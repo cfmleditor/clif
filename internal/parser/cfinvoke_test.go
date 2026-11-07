@@ -113,3 +113,9 @@ func TestInvokeExpression(t *testing.T) {
 		}
 	}
 }
+
+func TestInvokeExpressionOfAPathHoldingNameIsDynamic(t *testing.T) {
+	if got := invokeExpression("#application.jsoupComponentPath#", "go"); got != `createObject("component", application.jsoupComponentPath).go()` {
+		t.Errorf("got %q", got)
+	}
+}

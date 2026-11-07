@@ -26,7 +26,7 @@ func TestEachColdBoxAppIsReadUnderItsOwnConventions(t *testing.T) {
 		"apps/shop/handlers/Cart.cfc":    `component { function add( event, rc, prc ){ event.setView( "cart" ); } }`,
 		"modules/feeds/ModuleConfig.cfc": `component { function configure(){} }`,
 		"modules/feeds/build/Build.cfc":  `component { function init(){ variables.cwd = getCWD(); } function run(){ print.line( "x" ).toConsole(); } }`,
-		"loose/Page.cfc":                 `component { function f( event ){ event.getValue( "x" ); } }`,
+		"loose/Page.cfc":                 `component { function f( event ){ event.looseThing( "x" ); } }`,
 	}
 
 	var sources []string
@@ -66,7 +66,7 @@ func TestEachColdBoxAppIsReadUnderItsOwnConventions(t *testing.T) {
 
 	// A file under no application keeps the project's reading, which here is
 	// none: its `event` is not ColdBox's.
-	if !got["getValue"] {
+	if !got["looseThing"] {
 		t.Error("a file outside every application was read as ColdBox")
 	}
 }

@@ -17,6 +17,7 @@ var builtinReturnObjects = map[string]*BuiltinObject{
 	"fileopen": {Methods: []string{
 		"close", "readline", "readbinary", "read", "write", "writeline",
 		"seek", "iseof", "setencoding", "getpath",
+		"getresource", "getmode", "getstatus", "getsize", "getmetadata",
 	}},
 	// Spreadsheet object
 	"spreadsheetnew": {Methods: []string{
@@ -47,6 +48,7 @@ var builtinReturnObjects = map[string]*BuiltinObject{
 	}},
 	// Image object
 	"imageread": {Methods: []string{
+		"drawbeveledrect", "rotatedrawingaxis", "sheardrawingaxis", "copy", "writebase64", "getimagebytes", "clearrect",
 		"resize", "scaletofit", "crop", "rotate", "flip", "transpose",
 		"blur", "sharpen", "grayscale", "negative", "overlay",
 		"setdrawingcolor", "setdrawingstroke", "setdrawingtransparency",
@@ -57,6 +59,7 @@ var builtinReturnObjects = map[string]*BuiltinObject{
 		"addborder", "setantialiasing", "setbackgroundcolor",
 	}},
 	"imagenew": {Methods: []string{
+		"drawbeveledrect", "rotatedrawingaxis", "sheardrawingaxis", "copy", "writebase64", "getimagebytes", "clearrect",
 		"resize", "scaletofit", "crop", "rotate", "flip", "transpose",
 		"blur", "sharpen", "grayscale", "negative", "overlay",
 		"setdrawingcolor", "setdrawingstroke", "setdrawingtransparency",
@@ -98,10 +101,24 @@ var builtinReturnObjects = map[string]*BuiltinObject{
 	}},
 	// XML object
 	"xmlparse": {Methods: []string{
+		"createcdatasection", "createelement", "createtextnode", "createcomment", "createattribute",
+		"getdocumenturi", "getxmlversion", "getxmlstandalone", "getstricterrorchecking", "gettextcontent",
+		"getdocumentelement", "getelementsbytagname", "getelementbyid", "importnode", "adoptnode",
+		"appendchild", "removechild", "replacechild", "insertbefore", "clonenode", "getfirstchild",
+		"getlastchild", "getchildnodes", "getattributes", "getnodename", "getnodevalue", "getnodetype",
+		"getparentnode", "haschildnodes", "normalize", "getdoctype", "getimplementation", "getxmlencoding",
+		"setxmlversion", "setxmlstandalone", "setdocumenturi",
 		"search", "transform", "tostring", "getnode",
 		"xmlroot", "xmlchildren", "xmlattributes", "xmltext",
 	}},
 	"xmlnew": {Methods: []string{
+		"createcdatasection", "createelement", "createtextnode", "createcomment", "createattribute",
+		"getdocumenturi", "getxmlversion", "getxmlstandalone", "getstricterrorchecking", "gettextcontent",
+		"getdocumentelement", "getelementsbytagname", "getelementbyid", "importnode", "adoptnode",
+		"appendchild", "removechild", "replacechild", "insertbefore", "clonenode", "getfirstchild",
+		"getlastchild", "getchildnodes", "getattributes", "getnodename", "getnodevalue", "getnodetype",
+		"getparentnode", "haschildnodes", "normalize", "getdoctype", "getimplementation", "getxmlencoding",
+		"setxmlversion", "setxmlstandalone", "setdocumenturi",
 		"search", "transform", "tostring", "getnode",
 		"xmlroot", "xmlchildren", "xmlattributes", "xmltext",
 	}},
@@ -116,6 +133,12 @@ func LookupBuiltinReturnComponent(funcName string) string {
 
 	if _, ok := builtinReturnObjects[strings.ToLower(funcName)]; ok {
 		return "$builtin." + strings.ToLower(funcName)
+	}
+
+	// A function documented to return `any` returns a value of no shape the
+	// documentation gives: dynamic, as a factory's result is.
+	if e, ok := LookupFunction(funcName); ok && strings.EqualFold(e.Returns, "any") && !anyIsNarrower[strings.ToLower(funcName)] {
+		return "$any"
 	}
 
 	return ""
@@ -183,4 +206,12 @@ func LookupBuiltinMethodReturn(component, method string) (string, bool) {
 	}
 
 	return "", false
+}
+
+// anyIsNarrower are the functions documented to return `any` whose result is
+// in fact the shape of an argument or one of a short list, so the resolver
+// reads them itself (createObject, duplicate) or deliberately leaves a call on
+// their result diagnosed (deserializeJSON, directoryList).
+var anyIsNarrower = map[string]bool{
+	"createobject": true, "duplicate": true, "deserializejson": true, "directorylist": true,
 }

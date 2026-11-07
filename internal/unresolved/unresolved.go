@@ -67,6 +67,7 @@ type Options struct {
 	methodTargets       bool
 	SpeculativeRanked   bool // opt-in unique best receiver-role candidate
 	AssumeOpenWorld     bool // classify unproven runtime connections separately
+	keepUntypedHops     bool // set by the open-world pass: report a call chained on an untyped method, to be assumed
 	receiverRoles       bool
 	unlimitedCandidates bool
 	SpeculativeNative   bool // opt-in native family guesses, then primitive-family fallback
@@ -124,6 +125,7 @@ func Scan(fsys vfs.FS, files, targets []string, opt *Options) Report {
 		closed := *opt
 		closed.SpeculativeMethods = false
 		closed.AssumeOpenWorld = false
+		closed.keepUntypedHops = opt.AssumeOpenWorld
 		closed.Candidates = true
 		closed.methodTargets = true
 		rep := Scan(fsys, files, targets, &closed)
@@ -139,6 +141,7 @@ func Scan(fsys vfs.FS, files, targets []string, opt *Options) Report {
 	if opt.AssumeOpenWorld {
 		closed := *opt
 		closed.AssumeOpenWorld = false
+		closed.keepUntypedHops = true
 		rep := Scan(fsys, files, targets, &closed)
 		classifyOpenWorld(&rep, opt.Verbose)
 
@@ -308,7 +311,7 @@ func scanFile(fsys vfs.FS, resolver *resolve.Resolver, file string, opt *Options
 	for i := range calls {
 		call := &calls[i]
 
-		c := resolver.ClassifyCall(call, pr, baseDir, resolve.ClassifyOptions{GlobalDefs: opt.GlobalDefs})
+		c := resolver.ClassifyCall(call, pr, baseDir, resolve.ClassifyOptions{GlobalDefs: opt.GlobalDefs, KeepUntypedHops: opt.AssumeOpenWorld || opt.keepUntypedHops})
 
 		switch c.Verdict {
 		case resolve.Accepted:

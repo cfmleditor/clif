@@ -22,6 +22,8 @@ type Logger = log.Logger
 // ParseResult caches a single parse of a file. It extracts function signatures
 // and component refs eagerly, but defers function body parsing until requested.
 type ParseResult struct {
+	imports map[string]string // from the file's `import`, for a function body parsed later
+
 	URI                 uri.URI
 	Content             string
 	Regions             []Region
@@ -622,6 +624,10 @@ func (pr *ParseResult) mergeScriptRegion(r *Region, tagScopes []FuncScope, open 
 	pr.ComponentRefs = append(pr.ComponentRefs, sp.componentRefs...)
 	pr.Scopes = append(pr.Scopes, sp.scopes...)
 	pr.Properties = append(pr.Properties, sp.properties...)
+
+	if len(sp.imports) > 0 {
+		pr.imports = maps.Clone(sp.imports)
+	}
 
 	// Merge function-scoped refs from script parser
 	for k, refs := range sp.funcRefs {
@@ -3533,6 +3539,7 @@ func (pr *ParseResult) funcRefsUncached(funcStart, funcEnd int) ([]ComponentRef,
 		sp.resolverSet = pr.resolverSet
 		sp.extractLinks = true
 		sp.argumentTypes = pr.argumentTypeLookup()
+		sp.imports = pr.imports
 		sp.parse()
 		sp.componentRefs, sp.funcRefs = pr.typeBodyPendingCalls(sp.componentRefs, sp.funcRefs, sp.pendingCalls)
 		refs = sp.componentRefs

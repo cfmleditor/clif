@@ -36,7 +36,7 @@ func TestBuiltinCollectionProducers(t *testing.T) {
 		}
 	}
 
-	for _, name := range []string{"value.ready", "settings.s3.keyArray", "matches.absent", "unknown.keyArray", "listing.len"} {
+	for _, name := range []string{"value.ready", "matches.absent", "unknown.keyArray", "listing.len"} {
 		if reason, ok := got[name]; !ok || reason == "" {
 			t.Errorf("%s must remain diagnosed: %q present=%v", name, reason, ok)
 		}

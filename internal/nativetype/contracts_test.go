@@ -171,3 +171,96 @@ func TestNumericContractsCoverMemberFunctionSyntax(t *testing.T) {
 		}
 	}
 }
+
+// Members of Lucee's PageContext and configuration interfaces that no contract
+// types are accepted with an erased result; typed ones keep their type, and a
+// name the interfaces do not declare is still not a method.
+func TestLuceeAPIMembersAreAcceptedAndKeepTheirTypes(t *testing.T) {
+	for _, tc := range []struct{ component, method, want string }{
+		{"lucee.pagecontext", "getId", "$any"},
+		{"lucee.pagecontext", "getCFID", "$any"},
+		{"lucee.pagecontext", "getConfig", Type("lucee.config")},
+		{"lucee.config", "getMavenDir", "$any"},
+		{"lucee.config", "getApplicationPageSource", "$any"},
+		{"lucee.config", "getJDBCDriverById", Type("lucee.jdbcdriver")},
+	} {
+		if got, ok := Method(Type(tc.component), tc.method); !ok || got != tc.want {
+			t.Errorf("%s.%s = %q, %v; want %q", tc.component, tc.method, got, ok, tc.want)
+		}
+	}
+
+	for _, tc := range []struct{ component, method string }{
+		{"lucee.pagecontext", "notAMethodOfPageContext"},
+		{"lucee.config", "notAMethodOfConfig"},
+	} {
+		if got, ok := Method(Type(tc.component), tc.method); ok {
+			t.Errorf("%s.%s was accepted as %q", tc.component, tc.method, got)
+		}
+	}
+}
+
+func TestAQueryAcceptsItsJavaMethods(t *testing.T) {
+	for _, m := range []string{"getName", "getSql", "go", "getColumnCount", "getMeta"} {
+		if _, ok := Method(Type("query"), m); !ok {
+			t.Errorf("query.%s not accepted", m)
+		}
+	}
+
+	if r, _ := Method(Type("query"), "getRecordCount"); r != Type("numeric") {
+		t.Errorf("getRecordCount lost its type: %q", r)
+	}
+}
+
+func TestMoreBuiltinResultsAreTyped(t *testing.T) {
+	for name, want := range map[string]string{
+		"getCanonicalPath": Type("string"), "structKeyList": Type("string"), "sanitizeHtml": Type("string"),
+		"lsNumberFormat": Type("string"), "createTime": Type("date"), "extensionList": Type("query"),
+		"querySlice": Type("query"), "getComponentMetadata": Type("struct"),
+	} {
+		if got := Producer(name); got != want {
+			t.Errorf("%s: %q, want %q", name, got, want)
+		}
+	}
+}
+
+func TestGetTimeZoneIsAJavaTimeZone(t *testing.T) {
+	if Producer("getTimeZone") != Type("timezone") {
+		t.Fatal("getTimeZone is not a timezone")
+	}
+
+	if r, ok := Method(Type("timezone"), "getDefault"); !ok || r != Type("timezone") {
+		t.Errorf("getDefault: %q %v", r, ok)
+	}
+
+	if _, ok := Method(Type("timezone"), "notAMethod"); ok {
+		t.Error("an unknown TimeZone method was accepted")
+	}
+}
+
+func TestJavaTimeZonedMembersAreAccepted(t *testing.T) {
+	for _, tc := range [][2]string{{"zoneddatetime", "getYear"}, {"zoneddatetime", "getMonthValue"}, {"zoneddatetime", "minusDays"}} {
+		if _, ok := Method(Type(tc[0]), tc[1]); !ok {
+			t.Errorf("%s.%s not accepted", tc[0], tc[1])
+		}
+	}
+}
+
+func TestJDKMembersOfDurationDateClassAndArrayAreAccepted(t *testing.T) {
+	for _, tc := range [][2]string{{"duration", "toDaysPart"}, {"date", "setMinutes"}, {"date", "clone"}, {"class", "getDeclaredField"}, {"array", "clone"}, {"list", "clone"}} {
+		if _, ok := Method(Type(tc[0]), tc[1]); !ok {
+			t.Errorf("%s.%s not accepted", tc[0], tc[1])
+		}
+	}
+
+	if r, _ := Method(Type("class"), "getName"); r != Type("string") {
+		t.Errorf("getName lost its type: %q", r)
+	}
+}
+
+func TestLuceeFactoryAndServletMembersAreAccepted(t *testing.T) {
+	for _, tc := range [][2]string{{"lucee.pagecontext", "getServlet"}, {"lucee.pagecontext", "hasCFSession"}, {"lucee.config", "getConfigServerImpl"}, {"lucee.factory", "getServlet"}} {
+		if _, ok := Method(Type(tc[0]), tc[1]); !ok {
+			t.Errorf("%s.%s not accepted", tc[0], tc[1])
+		}
+	}
+}

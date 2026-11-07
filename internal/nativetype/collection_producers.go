@@ -17,5 +17,6 @@ var collectionProducers = map[string]string{
 	"structfilter": "struct", "structmap": "struct", "structtosorted": "struct",
 	"getapplicationsettings": "struct", "getapplicationmetadata": "struct",
 	"gethttprequestdata": "struct", "gethttprequestheaders": "struct",
+	"extensionlist": "query", "queryslice": "query", "getcomponentmetadata": "struct",
 	"gettaglist": "struct", "gettagdata": "struct", "directoryinfo": "struct",
 }

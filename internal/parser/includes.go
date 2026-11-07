@@ -421,6 +421,10 @@ func listsTemplates(content, dir string) bool {
 		return false
 	}
 
+	if listsTemplatesByTag(content, dir) {
+		return true
+	}
+
 	const call = "directoryList"
 
 	for i := indexFold(content, call); i >= 0; i = indexFoldFrom(content, call, i+len(call)) {
@@ -507,4 +511,53 @@ func AttributeInclude(p string) (string, bool) {
 	}
 
 	return strings.ToLower(name), true
+}
+
+// listsTemplatesByTag reports whether content lists templates with a
+// <cfdirectory action="list" filter="*.cfm"> and spells the include's
+// directory, less any leading `../`, somewhere in its text: Galaxie's
+// updater builds the directory from a variable (`root & "installer/updates/"`)
+// and includes `../../installer/updates/#migration.file#` for each file found.
+func listsTemplatesByTag(content, dir string) bool {
+	tail := strings.TrimLeft(dir, "./")
+	if tail == "" {
+		return false
+	}
+
+	const tag = "<cfdirectory"
+
+	for i := indexFold(content, tag); i >= 0; i = indexFoldFrom(content, tag, i+len(tag)) {
+		end := tagEndIndex(content[i:])
+		if end < 0 {
+			continue
+		}
+
+		attrs := content[i : i+end]
+		if hasWordFold(attrs, "list") && (strings.Contains(attrs, `"*.cfm"`) || strings.Contains(attrs, `'*.cfm'`)) &&
+			!hasWordFold(attrs, "recurse") && spellsDirectory(content, tail) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// spellsDirectory reports whether content writes tail as the start of a string
+// outside a <cfinclude> or <cfdirectory> tag: the line that builds the
+// directory the listing reads, not the include or the listing themselves.
+func spellsDirectory(content, tail string) bool {
+	for i := indexFold(content, tail); i >= 0; i = indexFoldFrom(content, tail, i+1) {
+		if i == 0 || (content[i-1] != '"' && content[i-1] != '\'') {
+			continue
+		}
+
+		open := strings.LastIndexByte(content[:i], '<')
+		if open >= 0 && (hasPrefixFold(content[open:], "<cfinclude") || hasPrefixFold(content[open:], "<cfdirectory")) {
+			continue
+		}
+
+		return true
+	}
+
+	return false
 }
