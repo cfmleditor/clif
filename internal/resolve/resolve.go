@@ -4172,6 +4172,10 @@ func funcScopedRefFor(pr *parser.ParseResult, line uint32, name string, in parse
 			return closure
 		}
 
+		if scopeIndex < len(pr.Scopes) {
+			return reachingUnion(pr, scope.Start, name, line, refs, wide)
+		}
+
 		return wide
 	}
 

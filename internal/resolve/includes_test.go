@@ -550,3 +550,42 @@ func TestAFlowAwareNativeClaim(t *testing.T) {
 		t.Errorf("el.anything: %q, an element read is not the collection", got["el.anything"])
 	}
 }
+
+// A variable assigned in a branch may hold what it held before: a use after
+// the branch is checked against both, and one nothing conditional reaches is
+// checked against the assignment that always runs.
+func TestAUseAfterABranchHoldsEveryAssignmentThatReachesIt(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{
+		"A.cfc": `component { function onlyA(){} }`,
+		"B.cfc": `component { function onlyB(){} }`,
+		"Use.cfc": `component {
+	function run( c ) {
+		var x = new A();
+		if ( c ) {
+			x = new B();
+		}
+		x.onlyA();
+		x.onlyB();
+		x.neither();
+		var y = new A();
+		y = new B();
+		y.onlyA();
+	}
+}`,
+	})
+
+	got := reasonsWith(t, &Resolver{}, dir, "Use.cfc")
+
+	if got["x.onlyA"] != "" || got["x.onlyB"] != "" {
+		t.Errorf("a method either alternative has was reported: onlyA %q, onlyB %q", got["x.onlyA"], got["x.onlyB"])
+	}
+
+	if !strings.Contains(got["x.neither"], "not found in") || !strings.Contains(got["x.neither"], "|") {
+		t.Errorf("x.neither: %q, want a method neither has reported against both", got["x.neither"])
+	}
+
+	if !strings.Contains(got["y.onlyA"], "not found in B") {
+		t.Errorf("y.onlyA: %q, want the assignment that always runs to decide", got["y.onlyA"])
+	}
+}
