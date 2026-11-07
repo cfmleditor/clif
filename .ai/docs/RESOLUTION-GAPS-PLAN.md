@@ -15,7 +15,7 @@ Ranked by what a source-proven rule could remove for the effort, one example eac
 
 | # | Family | n measured | What is needed | Risk |
 |---|---|---:|---|---|
-| 1 | **`duplicate( x )` returns what `x` is** (Lucee `copy`, `dup`: `var copy = duplicate( orig )`) | 84 in Lucee alone | a rule beside the builtin return types: the call is typed by its first argument when that is typed, and unknown otherwise | low: CFML's own contract, no new guess |
+| 1 | **`duplicate( x )` returns what `x` is** (Lucee `copy`, `dup`: `var copy = duplicate( orig )`). **Done: 76 removed in Lucee, none added** (`assignedShape`; a pair with a member written onto either name is not typed) | 84 in Lucee alone | a rule beside the builtin return types: the call is typed by its first argument when that is typed, and unknown otherwise | low: CFML's own contract, no new guess |
 | 2 | **FW/1 view `rc.X`** (`<cfset local.user = rc.user>` in a view) | 32 in FW/1 | the existing `fw1ViewRc` machinery, extended to an assignment the view makes from `rc.X` | low: the controller write is the proof |
 | 3 | **ColdBox integration specs, `var e = this.get( "main/index" )`** | 43 in ColdBox | the integration base's `get`/`post`/`delete` return a RequestContext: a stub doc return or a rule | low if the stub documents it |
 | 4 | **TestBox reporter partials, `variables.helper`** | 108 in TestBox | a reporter component sets `variables.helper`; the partial templates it renders run in its scope | medium: a framework mechanism of its own |

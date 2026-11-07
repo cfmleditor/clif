@@ -27,6 +27,10 @@ import (
 
 const maxAssignedDepth = 3
 
+// duplicateRe is a whole duplicate( name ) of a plain or scoped name, with the
+// optional deep-copy flag: the copy of a component is an instance of it.
+var duplicateRe = regexp.MustCompile(`(?i)^duplicate\s*\(\s*([A-Za-z_][\w.]*)\s*(?:,\s*(?:true|false)\s*)?\)$`)
+
 // lookupCtx is what a receiver lookup carries beyond the variable: how many
 // assignments deep it is (assignedFromCall), and, when the view handoff is
 // reading a handler action on behalf of one subclass, that leaf: the base's
@@ -261,6 +265,26 @@ func (r *Resolver) assignedFromCall(variable string, line uint32, caller string,
 // component registry recipe fills; or an element read under a key the
 // assignment spells. "" when it is none of them, or holds nothing known.
 func (r *Resolver) assignedShape(variable, rhs string, line, evalLine uint32, evalCaller string, pr *parser.ParseResult, baseDir string, tr *callTrace, ctx lookupCtx) string {
+	// `copy = duplicate( orig )` is a copy of orig, an instance of the same
+	// component: it is typed as orig is at the line.
+	if m := duplicateRe.FindStringSubmatch(rhs); m != nil && !strings.EqualFold(m[1], variable) && !strings.EqualFold(m[1], strings.TrimPrefix(strings.ToLower(variable), "local.")) {
+		// A function written onto either one (`orig.injected = function(){}`) is
+		// a member the component does not declare, and the duplicate carries
+		// it: Lucee's mixin tests. Such a pair is not typed.
+		if r.membersWrittenOn(pr, line, m[1], variable) {
+			return ""
+		}
+
+		comp, _ := r.receiverComponentD(m[1], evalLine, evalCaller, "", pr, baseDir, nil, lookupCtx{depth: ctx.depth + 1, leaf: ctx.leaf, callers: ctx.callers})
+		if comp != "" && !strings.HasPrefix(comp, "$") {
+			tr.addf("resolved %q to %q: it is a duplicate of %s", variable, comp, m[1])
+
+			return comp
+		}
+
+		return ""
+	}
+
 	// `x = cond ? a : b`. Without an answer the rules below may still read
 	// it: an element read that falls back to null is the registry's.
 	if branches, ok := ternaryBranches(rhs); ok {
@@ -987,4 +1011,29 @@ func declarationsSize(m map[string][]localDeclaration) int {
 	}
 
 	return n
+}
+
+// membersWrittenOn reports whether the function holding line assigns a member
+// (`name.member = …`) of either name before it: the component then has a member
+// its source does not declare.
+func (r *Resolver) membersWrittenOn(pr *parser.ParseResult, line uint32, names ...string) bool {
+	start := 0
+	if scope, ok := enclosingScope(pr, line); ok {
+		start = scope.Start
+	}
+
+	text := sourceText(pr.Content, start, int(line)+1)
+
+	for _, name := range names {
+		name = strings.TrimPrefix(strings.ToLower(name), "local.")
+		if !plainName(name) || strings.Contains(name, ".") {
+			continue
+		}
+
+		if compiledPattern(`(?i)\b` + regexp.QuoteMeta(name) + `\s*(?:\.\s*\w+|\[[^\]]*\])\s*=[^=]`).MatchString(text) {
+			return true
+		}
+	}
+
+	return false
 }
