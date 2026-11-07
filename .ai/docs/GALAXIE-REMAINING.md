@@ -16,7 +16,9 @@ make gapcheck CORPUS=/abs/path/to/Galaxie-Blog            # parser vs grammar, p
 make corpus CORPUS=/abs/path/to/Galaxie-Blog BASELINE=<an earlier report>
 ```
 
-**2026-11-07 update:** the count is **375** (100 more are functions returning `found[ 1 ]` of an entity array, `Shop.cfc`'s
+**2026-11-07 update:** the count is **346** (29 more were `Setup.getOwner()`, a function returning `entityLoadByPK`).
+
+Earlier today: **375** (100 more are functions returning `found[ 1 ]` of an entity array, `Shop.cfc`'s
 `loadOrder` and its kin: `elementReturn`).
 
 Earlier today: **475** (618 before; 89 of the difference is the `html` receiver below, a tag-syntax

@@ -2881,6 +2881,19 @@ func (p *scriptParser) checkReturnComponent() {
 		}
 
 		p.scanChainedCalls(comp)
+	case "entityloadbypk":
+		// The entity named by the first argument, or none; the primary key
+		// after it is read as the argument list it is.
+		p.sc.NextSkipComments()
+
+		comp = p.readEntityNewComponent()
+		if p.sc.PeekSkipComments().Kind == TokComma {
+			p.skipParenBody()
+		} else if p.sc.PeekSkipComments().Kind == TokRParen {
+			p.sc.NextSkipComments()
+		}
+
+		p.scanChainedCalls(comp)
 	default:
 		bareThis := identEq(peek.Value, "this") && p.returnsBareThis()
 		scopedVar, scope := p.returnedScopedVar()

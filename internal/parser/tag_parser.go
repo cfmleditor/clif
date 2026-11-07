@@ -1526,6 +1526,13 @@ func (p *tagParser) parseCFReturn(tag string, line, idx int) {
 		if comp != "" && (named || sc.NextSkipComments().Kind == TokEOF) {
 			f.ReturnComponent = unionReturn(f.ReturnComponent, comp)
 		}
+	case hasPrefixFold(returned, "entitynew("), hasPrefixFold(returned, "entityloadbypk("):
+		// An entity, or none (entityLoadByPK finds nothing): as the same
+		// call assigned to a variable is typed.
+		open := strings.IndexByte(returned, '(') + 1
+		if comp := entityRef(extractEntityNewArg(returned[open:])); comp != "" {
+			f.ReturnComponent = unionReturn(f.ReturnComponent, comp)
+		}
 	case strings.EqualFold(returned, "this"):
 		f.returnVar = returnsThis
 	default:
