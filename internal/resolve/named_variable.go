@@ -1,10 +1,13 @@
 package resolve
 
 import (
+	"path/filepath"
 	"strings"
 	"unicode"
 
+	"github.com/cfmleditor/clif/internal/frameworkapi"
 	"github.com/cfmleditor/clif/internal/parser"
+	cfpath "github.com/cfmleditor/clif/internal/path"
 )
 
 // minNamedVariable is the shortest variable name taken as a component's name:
@@ -26,7 +29,9 @@ func (r *Resolver) componentNamedLikeVariable(variable string, call *parser.Call
 		return ""
 	}
 
-	for _, candidate := range []string{name, withoutObjectPrefix(name)} {
+	// The name itself, then without an object prefix: each candidate a unique
+	// component that declares the method.
+	for _, candidate := range namedCandidates(name) {
 		file := r.uniqueComponentNamed(candidate)
 		if file == "" {
 			continue
@@ -39,7 +44,95 @@ func (r *Resolver) componentNamedLikeVariable(variable string, call *parser.Call
 		return ""
 	}
 
-	return ""
+	return r.fewDeclarersNamedLike(name, call.FuncName)
+}
+
+// genericWords are the words of a name that say nothing about which component
+// it is: sharing one with a component's name is no evidence.
+var genericWords = map[string]bool{
+	"bean": true, "service": true, "manager": true, "object": true, "model": true, "base": true, "abstract": true,
+	"item": true, "data": true, "info": true, "this": true, "that": true, "current": true, "result": true,
+	"value": true, "list": true, "args": true, "instance": true, "target": true, "config": true,
+}
+
+// camelWords splits a name at its capitals: `thisAuthorBean` is this, author, bean.
+func camelWords(name string) []string {
+	var words []string
+
+	start := 0
+
+	for i := 1; i < len(name); i++ {
+		if unicode.IsUpper(rune(name[i])) && !unicode.IsUpper(rune(name[i-1])) {
+			words = append(words, strings.ToLower(name[start:i]))
+			start = i
+		}
+	}
+
+	return append(words, strings.ToLower(name[start:]))
+}
+
+// namedCandidates are the component names a variable may be called after: the
+// name, and the name without its object prefix.
+func namedCandidates(name string) []string {
+	out := []string{name}
+	if bare := withoutObjectPrefix(name); bare != name {
+		out = append(out, bare)
+	}
+
+	return out
+}
+
+// maxFewDeclarers is how many components may declare a method for it to say
+// which component a receiver is.
+const maxFewDeclarers = 4
+
+// fewDeclarersNamedLike is the one component, of the few that declare the
+// method, whose name shares a meaningful word with the variable's
+// (`settings.getSiteEmail()` with only Setup and SiteSettings declaring it).
+// Two components that share a word is no answer. The method is the evidence
+// and the name the check that it is not coincidence.
+func (r *Resolver) fewDeclarersNamedLike(name, method string) string {
+	if r.Index == nil {
+		return ""
+	}
+
+	defs := r.Index.Lookup(method)
+	if len(defs) == 0 || len(defs) > maxFewDeclarers {
+		return ""
+	}
+
+	vars := map[string]bool{}
+
+	for _, w := range camelWords(withoutObjectPrefix(name)) {
+		if len(w) >= minNamedVariable && !genericWords[w] {
+			vars[w] = true
+		}
+	}
+
+	found := ""
+
+	for _, d := range defs {
+		if d.URI == "" || !strings.EqualFold(filepath.Ext(cfpath.FromURI(string(d.URI))), ".cfc") || frameworkapi.IsStub(cfpath.FromURI(string(d.URI))) {
+			continue
+		}
+
+		file := cfpath.FromURI(string(d.URI))
+		base := strings.TrimSuffix(filepath.Base(file), filepath.Ext(file))
+
+		for _, w := range camelWords(base) {
+			if !vars[w] {
+				continue
+			}
+
+			if found != "" && !cfpath.SamePath(found, file) {
+				return ""
+			}
+
+			found = file
+		}
+	}
+
+	return found
 }
 
 // variableBaseName is the name a variable is known by: `arguments.x` and
@@ -47,7 +140,7 @@ func (r *Resolver) componentNamedLikeVariable(variable string, call *parser.Call
 func variableBaseName(variable string) string {
 	name := variable
 
-	for _, scope := range []string{"arguments.", "variables.", "local."} {
+	for _, scope := range []string{"arguments.", "variables.", "local.", "prc.", "rc.", "args.", "request.", "attributes."} {
 		if rest, ok := strings.CutPrefix(strings.ToLower(name), scope); ok {
 			name = name[len(name)-len(rest):]
 

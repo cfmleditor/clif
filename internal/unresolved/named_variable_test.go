@@ -38,3 +38,40 @@ func TestAReceiverNamedLikeTheOnlyComponentIsThatComponent(t *testing.T) {
 		}
 	}
 }
+
+// A method few components declare says which one when the receiver's name
+// shares a word with it. Two candidates, a generic word and a method nobody
+// declares are not answers.
+func TestANameSharingAWordWithTheOnlyDeclarerIsThatComponent(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, src string) string {
+		f := filepath.Join(dir, name)
+		if err := os.WriteFile(f, []byte(src), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		return f
+	}
+
+	files := []string{
+		write("Author.cfc", "component { function getEmail() {} }"),
+		write("BaseContent.cfc", "component { function hasCategories() {} }"),
+		write("PageThing.cfc", "component { function twin() {} }"),
+		write("PageOther.cfc", "component { function twin() {} }"),
+		write("Use.cfc", "component {\n function go( thisAuthor, content, pageHolder, bean ) {\n thisAuthor.getEmail();\n content.hasCategories();\n pageHolder.twin();\n bean.hasCategories();\n content.nothingDeclaresThis();\n }\n}"),
+	}
+
+	got := Scan(vfs.OS{}, files, nil, &Options{WorkspaceFolders: []string{dir}})
+
+	want := map[string]bool{"twin": true, "nothingDeclaresThis": true, "hasCategories": true}
+
+	if len(got.Calls) != 3 {
+		t.Fatalf("want the ambiguous, the generic-named and the undeclared call reported, got %+v", got.Calls)
+	}
+
+	for _, c := range got.Calls {
+		if !want[c.Function] || c.Function == "hasCategories" && c.Variable != "bean" {
+			t.Fatal(c)
+		}
+	}
+}
