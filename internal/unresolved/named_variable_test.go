@@ -157,3 +157,30 @@ func TestAJavaOrNativeMethodNoComponentDeclaresIsAcceptedOnAnUntypedReceiver(t *
 		t.Fatalf("want only frobnicateWidget reported, got %+v", got.Calls)
 	}
 }
+
+// A function an included template declares is callable from a component the
+// include graph never reaches: Masa defines parseXML in a backport template its
+// application includes by a computed directory (`#backportdir#lucee.cfm`) and
+// its components call it bare. A function declared nowhere is still reported.
+func TestABareCallToAFunctionAnIncludedTemplateDeclaresIsAccepted(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, src string) string {
+		f := filepath.Join(dir, name)
+		if err := os.WriteFile(f, []byte(src), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		return f
+	}
+
+	files := []string{
+		write("backport.cfm", "<cfscript>\ninclude '#backportdir#lucee.cfm';\n</cfscript>"),
+		write("lucee.cfm", "<cfscript>\nfunction parseXML( s ) { return xmlParse( s ); }\n</cfscript>"),
+	}
+	files = append(files, write("Tool.cfc", "component {\n function go() {\n return parseXML( 'x' ) & nowhereDeclared();\n }\n}"))
+
+	got := Scan(vfs.OS{}, files, files, &Options{WorkspaceFolders: []string{dir}, InferArgs: true})
+	if len(got.Calls) != 1 || got.Calls[0].Function != "nowhereDeclared" {
+		t.Fatalf("want only nowhereDeclared reported, got %+v", got.Calls)
+	}
+}

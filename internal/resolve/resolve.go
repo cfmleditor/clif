@@ -135,6 +135,7 @@ type pathCaches struct {
 	ownedKeys           map[string]string                   // file and function → what its owned-key factory returns (ownedKeyReturn)
 	keyPrefixes         map[string]string                   // literal key prefix → what every factory spelling it stores, "" when they differ (prefixComponent)
 	handlerCache        map[string]*parser.ParseResult      // handler path → its parse (handlerParse)
+	templateNames       map[string][]string                 // template file name → its paths, for a computed include (templatesNamed)
 	uniqueNames         *uniqueNameCache                    // bare component name → its only file (uniqueComponentNamed)
 	fw1ActionCache      map[string][]fw1Action              // controllers dir + section.item → its actions (fw1Actions)
 	fw1IncluderCache    map[string]map[string][]string      // application dir → view → the views rendering it (fw1Includers)

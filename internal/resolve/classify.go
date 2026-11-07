@@ -107,6 +107,8 @@ func (r *Resolver) ClassifyReasonIn(call *parser.CallSite, reason string, opt Cl
 		return Accepted, ""
 	case !opt.KeepUntypedHops && r.isNativeMemberOfUnknown(call, reason):
 		return Builtin, ""
+	case !opt.KeepUntypedHops && r.isTemplateFunctionCall(call, reason):
+		return Accepted, ""
 	case !opt.KeepUntypedHops && r.isDistinctiveMember(call, reason):
 		return Accepted, ""
 	case !opt.KeepUntypedHops && isBeanAccessorOfUnknown(call, reason):
@@ -249,4 +251,12 @@ func declaresNoReturnType(fd *parser.FunctionDef) bool {
 	}
 
 	return false
+}
+
+// isTemplateFunctionCall reports whether a bare call nothing answers is of a
+// function an included template declares (`parseXML` in a backport template the
+// application includes): it exists in code the application runs, in a scope the
+// include graph cannot place.
+func (r *Resolver) isTemplateFunctionCall(call *parser.CallSite, reason string) bool {
+	return call.Variable == "" && len(call.Chain) == 0 && strings.Contains(reason, "no qualifier") && r.templateDeclares(call.FuncName)
 }

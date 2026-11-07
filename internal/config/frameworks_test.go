@@ -10,6 +10,24 @@ import (
 // TestColdBoxImplicitBases: a file that extends nothing is given the base its
 // place in a ColdBox app implies — a directory anywhere in its path, the
 // deepest winning, and the right extension; a file rule only for that file.
+func TestContentBoxEmailTemplatesAreRenderedByTheRenderer(t *testing.T) {
+	implicit := ImplicitExtends([]string{"coldbox", "contentbox"})
+
+	for path, want := range map[string]string{
+		"/cb/modules/contentbox/email_templates/page_new.cfm": "coldbox.system.web.Renderer",
+		"/cb/modules/contentbox/email_templates/Mailer.cfc":   "", // only a template
+		"/cb/modules/contentbox/other/page_new.cfm":           "",
+	} {
+		if got := implicit(path); got != want {
+			t.Errorf("%s: %q, want %q", path, got, want)
+		}
+	}
+
+	if got := ImplicitExtends([]string{"coldbox"})("/cb/email_templates/x.cfm"); got != "" {
+		t.Errorf("without the contentbox preset an email template has no base, got %q", got)
+	}
+}
+
 func TestColdBoxImplicitBases(t *testing.T) {
 	implicit := ImplicitExtends([]string{"coldbox"})
 

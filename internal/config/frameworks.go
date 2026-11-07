@@ -255,6 +255,11 @@ var frameworkPresets = map[string]frameworkPreset{
 	// ContentBox, on top of the coldbox preset: the CB helper its themes and
 	// views call, and what its request interceptors put in prc.
 	"contentbox": {
+		// ContentBox renders its notification emails from inside the Renderer,
+		// as it does a view: getInstance() in them is the framework's.
+		bases: []implicitBase{
+			{dir: "email_templates", ext: ".cfm", component: coldboxSystem + "web.Renderer"},
+		},
 		resolvers: []Resolver{
 			variableResolver(contentboxModels+"system.CBHelper", "cb"),
 			variableResolver(contentboxModels+"security.Author", "prc.oCurrentAuthor", "prc.oAuthor", "author", "prc.author"),
