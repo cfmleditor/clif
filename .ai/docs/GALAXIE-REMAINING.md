@@ -16,7 +16,10 @@ make gapcheck CORPUS=/abs/path/to/Galaxie-Blog            # parser vs grammar, p
 make corpus CORPUS=/abs/path/to/Galaxie-Blog BASELINE=<an earlier report>
 ```
 
-**2026-11-07 update:** the count is **475** (618 before; 89 of the difference is the `html` receiver below, a tag-syntax
+**2026-11-07 update:** the count is **375** (100 more are functions returning `found[ 1 ]` of an entity array, `Shop.cfc`'s
+`loadOrder` and its kin: `elementReturn`).
+
+Earlier today: **475** (618 before; 89 of the difference is the `html` receiver below, a tag-syntax
 `createObject( "java", … ).init()` that was not typed).
 
 Earlier today: the count was **564** with the current build (618 before the argument fix below; the 746 below was

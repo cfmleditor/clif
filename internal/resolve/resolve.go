@@ -4582,12 +4582,17 @@ func (r *Resolver) returnViaComponent(fd *parser.FunctionDef, depth int, budget 
 }
 
 // unevaluatedReturn is what fd returns when evaluating its body gave no
-// answer: what the call it returns returns (returnViaComponent), or "$any"
+// answer: what the call it returns returns (returnViaComponent), the element
+// of a collection it returns (elementReturn), or "$any"
 // when the parse found a branch returning no component (a string or an
 // argument passed through), which no choice of the caller's arguments makes
 // a component on every path.
 func (r *Resolver) unevaluatedReturn(fd *parser.FunctionDef, depth int, budget *int) string {
 	if ret := r.returnViaComponent(fd, depth, budget); ret != "" {
+		return ret
+	}
+
+	if ret := r.elementReturn(fd); ret != "" {
 		return ret
 	}
 
