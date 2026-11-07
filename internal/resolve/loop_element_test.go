@@ -162,7 +162,7 @@ func TestALiteralHQLQueryTypesTheEntitiesItReturns(t *testing.T) {
    for(var lineJoined in ormExecuteQuery("FROM QueriedItem i
 	JOIN i.parent p")){ lineJoined.ready(); }
    for(var unique in ormExecuteQuery("FROM QueriedItem", {}, true)){ unique.ready(); }
-   for(var computed in ormExecuteQuery("FROM QueriedItem WHERE id = #id#")){ computed.ready(); }
+   for(var computed in ormExecuteQuery("FROM #name# WHERE id = :id")){ computed.ready(); }
    for(var unregistered in ormExecuteQuery("FROM NotRegistered")){ unregistered.ready(); }
    for(var notEntity in ormExecuteQuery("FROM Plain")){ notEntity.ready(); }
   } }`,
