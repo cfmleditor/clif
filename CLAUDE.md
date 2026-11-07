@@ -802,7 +802,9 @@ pieces, each used by every command that resolves in bulk:
   own negative-control tests and `explain`'s trace keep the reason: a chain hop whose method
   declares no return type (`isUntypedHop`, accepted as dynamic, as `x = svc.get()` is) and a
   member-function name called on a receiver with no ref when no workspace component declares
-  that name (`isUndeclaredMemberCall`, a builtin). The map had its own copy that hid a call as a builtin when it had a chain
+  that name (`isUndeclaredMemberCall`, a builtin), and a receiver assigned the result of a
+  function declaring no return type with none to infer (`assignedFromUntypedFunction`, accepted
+  as dynamic). The map had its own copy that hid a call as a builtin when it had a chain
   (`f().len()`) and by a shorter list of names, which is why it stayed a few dozen to a hundred
   calls from `unresolved` after everything else matched. `resolve.IsBuiltin` is the one list.
 - `explainEnv` (`cmd/clif/explain.go`) is the CLI's and the MCP tool's explain, built with the

@@ -1,6 +1,7 @@
 package resolve
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -108,5 +109,53 @@ func TestAnUntypedHopIsAcceptedAsDynamic(t *testing.T) {
 
 	if v, _ := r.ClassifyReason(call, "method 'foo' not found in Svc", ClassifyOptions{}); v != Unresolved {
 		t.Errorf("a missing method: verdict %v, want unresolved", v)
+	}
+}
+
+// TestAVariableAssignedFromAnUntypedFunctionIsAccepted: `x = helper()` where
+// helper() declares no return type and gives none to infer holds whatever it
+// returns, as `x = svc.get()` does for an untyped get(): the run accepts calls
+// on it. A function with a return type, or one nothing declares, is not that.
+func TestAVariableAssignedFromAnUntypedFunctionIsAccepted(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{
+		"Use.cfc": `component {
+	function helper( a ) { var r = something( a ); return r; }
+	string function typed() { return "a"; }
+	function run() {
+		var x = helper( 1 );
+		x.go();
+		var y = typed();
+		y.go();
+		var z = notDeclared();
+		z.go();
+	}
+}`,
+	})
+
+	r := &Resolver{FS: vfs.OS{}, Index: index.New(), WorkspaceFolders: []string{dir}}
+	file := filepath.Join(dir, "Use.cfc")
+	got := map[string]Verdict{}
+
+	content, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	pr := r.ParseFile(file, string(content), BatchSpec())
+	r.Index.IndexParsed(cfpath.ToURI(file), string(content), pr)
+
+	for _, c := range pr.AllCalls() {
+		if c.Variable != "" {
+			got[c.Variable] = r.ClassifyCall(&c, pr, dir, ClassifyOptions{}).Verdict
+		}
+	}
+
+	if got["x"] != Accepted {
+		t.Errorf("x: verdict %v, want accepted", got["x"])
+	}
+
+	if got["z"] != Unresolved {
+		t.Errorf("z: verdict %v, want unresolved", got["z"])
 	}
 }

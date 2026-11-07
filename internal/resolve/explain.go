@@ -87,7 +87,7 @@ func (r *Resolver) WriteExplanation(w io.Writer, file string, line int, calls []
 
 		// What the report does with the call: the same classification
 		// unresolved and the code map make, from the reason just printed.
-		verdict, base := r.ClassifyReason(call, reason, ClassifyOptions{})
+		verdict, base := r.ClassifyReasonIn(call, reason, ClassifyOptions{}, pr, baseDir)
 		_, _ = fmt.Fprintf(w, "  report: %s\n", verdict.Describe(base))
 	}
 }

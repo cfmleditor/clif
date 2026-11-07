@@ -67,7 +67,7 @@ func (r *Resolver) ClassifyCall(call *parser.CallSite, pr *parser.ParseResult, b
 		c.Reason = r.CanResolveCall(call, pr, baseDir)
 	}
 
-	c.Verdict, c.Base = r.ClassifyReason(call, c.Reason, opt)
+	c.Verdict, c.Base = r.ClassifyReasonIn(call, c.Reason, opt, pr, baseDir)
 
 	// A call set aside for its reason alone is accepted as dynamic.
 	if c.Verdict == Accepted && c.Reason != "" && opt.WantTarget {
@@ -82,6 +82,12 @@ func (r *Resolver) ClassifyCall(call *parser.CallSite, pr *parser.ParseResult, b
 // is the verdict. It is the half of [Resolver.ClassifyCall] after the
 // resolver, for a caller that holds the reason already, as explain does.
 func (r *Resolver) ClassifyReason(call *parser.CallSite, reason string, opt ClassifyOptions) (Verdict, string) {
+	return r.ClassifyReasonIn(call, reason, opt, nil, "")
+}
+
+// ClassifyReasonIn is ClassifyReason for a call whose file is at hand: with it
+// a variable can be traced to the assignment that made it.
+func (r *Resolver) ClassifyReasonIn(call *parser.CallSite, reason string, opt ClassifyOptions, pr *parser.ParseResult, baseDir string) (Verdict, string) {
 	switch {
 	case reason == "":
 		return Accepted, ""
@@ -93,6 +99,8 @@ func (r *Resolver) ClassifyReason(call *parser.CallSite, reason string, opt Clas
 		return Accepted, ""
 	case r.isUndeclaredMemberCall(call, reason):
 		return Builtin, ""
+	case r.assignedFromUntypedFunction(call, reason, pr, baseDir):
+		return Accepted, ""
 	}
 
 	if base, ok := MissingBaseOf(reason); ok {
@@ -166,4 +174,50 @@ var memberFuncSet = func() map[string]bool {
 // IsMemberFunction reports whether name is a documented member function.
 func IsMemberFunction(name string) bool {
 	return memberFuncSet[strings.ToLower(name)]
+}
+
+// assignedFromUntypedFunction reports whether the receiver nothing is known of
+// was assigned the result of a call to a function of the file or its bases
+// that declares no return type and whose body gives none to infer: what it
+// returns is as dynamic as what `x = svc.get()` gives x when get() is untyped,
+// which the same run accepts.
+func (r *Resolver) assignedFromUntypedFunction(call *parser.CallSite, reason string, pr *parser.ParseResult, baseDir string) bool {
+	if pr == nil || call.Variable == "" || !strings.HasSuffix(reason, "' has no component ref") || !strings.HasPrefix(reason, "variable '") {
+		return false
+	}
+
+	name := strings.TrimPrefix(call.Variable, "local.")
+	if name == "" || strings.ContainsAny(name, ".[(") {
+		return false
+	}
+
+	start := 0
+	if scope, ok := enclosingScope(pr, call.Line); ok {
+		start = scope.Start
+	}
+
+	rhs, _, ok := localAssignmentAt(pr.Content, name, start, int(call.Line)+1)
+	if !ok {
+		return false
+	}
+
+	receiver, calls, ok := callChain(rhs)
+	if !ok || receiver != "" || len(calls) != 1 || !pr.URI.IsFile() {
+		return false
+	}
+
+	fd := r.ResolveFunc(pr.URI.Path(), calls[0].name, baseDir)
+
+	return fd != nil && declaresNoReturnType(fd) && fd.ReturnComponent == "" && fd.DocReturn == "" && len(fd.ReturnSources) == 0
+}
+
+// declaresNoReturnType reports whether fd declares no return type or `any`:
+// it may return anything, and nothing here says what.
+func declaresNoReturnType(fd *parser.FunctionDef) bool {
+	switch strings.ToLower(strings.TrimSpace(fd.ReturnType)) {
+	case "", "any":
+		return true
+	}
+
+	return false
 }
