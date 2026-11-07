@@ -470,3 +470,24 @@ func TestANestedFunctionScopeEndsAtItsOwnBrace(t *testing.T) {
 		t.Errorf("got %v want %v", pr.Scopes, want)
 	}
 }
+
+// A tag `<cfset>` of a Java object's static factory is typed as the script
+// form is: the native type, then the hops.
+func TestTagCfsetOfAJavaStaticFactoryIsTyped(t *testing.T) {
+	src := "<cfcomponent><cffunction name=\"a\"><cfset var s = createObject(\"java\", \"java.time.Instant\").parse(\"x\")></cffunction></cfcomponent>"
+	pr := Parse(testURI, src)
+
+	var got string
+
+	for _, sc := range pr.Scopes {
+		for _, r := range pr.FuncComponentRefs(sc.Start, sc.End) {
+			if r.Variable == "s" {
+				got = r.Component
+			}
+		}
+	}
+
+	if got == "" {
+		t.Error("s was not given a component")
+	}
+}

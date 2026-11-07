@@ -9,6 +9,10 @@
 
 ### Fixed
 
+- **A call on a dynamic value returns a dynamic value.** `setup = application.blog.getSetup()` where `application.blog` is built from a computed path was accepted at the call and then left `setup` untyped, so every call on `setup` was a finding. It is dynamic now, as the parse already makes the same assignment when it can see the receiver. Galaxie 40, Masa 29, Lucee 43, ContentBox 26, ColdBox 10 fewer; none added.
+- **A tag `<cfset x = createObject( "java", "java.time.Instant" ).parse( … )>` is typed as the script form is.** The tag parser typed `createObject( "java", … )` only when nothing followed it. Galaxie 18 fewer.
+- **A struct literal assigned to a local is a struct.** `var a = { "x": 1 }; a.copy().append( {} )` was "no component ref" while `structNew()` and `[]` were typed. A field set to `{}` in another function is still not claimed, since a key may have been given a closure since. `{ts '…'}` and its siblings are not structs. Lucee 49, ColdBox 11 fewer; two Lucee tests that call a method no struct has (`str.tokey()`) are now reported, rightly.
+- **An element of a dynamic value is dynamic** (`msg = messages[ 1 ]`), **and so are the Lucee extension functions** `MongoDBConnect`, `MongoDBID`, `LuceeAIHas`, `LuceeAIGetMetaData` and `LuceeInquiryAISession`, which no docs source lists. Lucee 25 fewer.
 - **`getTimeZone()` is a `java.util.TimeZone`, and a java.time `ZonedDateTime` answers its getters.** `tz.getDefault()`, `tz.setDefault( tz )`, `tz.getDisplayName()` and `zdt.getYear()` were "no component ref" or not found. Lucee 17, Galaxie 3 fewer.
 - **A date, a `Duration`, a `Class` and an array answer their JDK methods.** A CFML date is a `java.util.Date` (`setMinutes`, `clone`), `Duration.toDaysPart`, `Class.getDeclaredField` and `array.clone()` are accepted with an erased result; a name a contract already types keeps its type. ColdBox 9, Lucee 16 fewer.
 - **The rest of a page context's servlet API and a config's server API.** `getServlet`, `hasCFSession`, `getPageSources`, `getConfigServerImpl` and their neighbours, from `javax.servlet.jsp.PageContext` and `lucee.runtime.config.ConfigServer`. Lucee 21 fewer.

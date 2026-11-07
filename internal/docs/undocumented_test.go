@@ -7,13 +7,14 @@ import "testing"
 // it 137 times, each reported as a call to a function nobody declared.
 func TestLuceeUndocumentedFunctionsAreBuiltins(t *testing.T) {
 	for name, want := range map[string]bool{
-		"struct":       true,
-		"Struct":       true,
-		"sessionTouch": true,
-		"dumpStruct":   true,
-		"arrayLen":     true,  // documented
-		"cfhttp":       true,  // a tag called as a function
-		"structure":    false, // not a function at all
+		"struct":         true,
+		"Struct":         true,
+		"sessionTouch":   true,
+		"dumpStruct":     true,
+		"MongoDBConnect": true, "LuceeAIHas": true,
+		"arrayLen":  true,  // documented
+		"cfhttp":    true,  // a tag called as a function
+		"structure": false, // not a function at all
 	} {
 		if got := IsBuiltinFunction(name); got != want {
 			t.Errorf("IsBuiltinFunction(%q) = %v, want %v", name, got, want)

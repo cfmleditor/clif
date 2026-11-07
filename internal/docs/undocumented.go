@@ -32,6 +32,9 @@ var undocumentedFunctions = func() map[string]bool {
 		"systemExitClean", "systemExitHas", "systemExitScan",
 		// newer than the docs
 		"createPageContext", "sessionTouch",
+		// defined by a Lucee extension or module rather than the core library:
+		// the MongoDB extension and the AI module, which Lucee's own tests call.
+		"MongoDBConnect", "MongoDBID", "LuceeAIHas", "LuceeAIGetMetaData", "LuceeInquiryAISession",
 	}
 
 	m := make(map[string]bool, len(names))

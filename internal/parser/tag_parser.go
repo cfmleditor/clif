@@ -1736,6 +1736,10 @@ func (p *tagParser) checkSetRHSStr(rhs, varName string, line int) {
 
 	case hasPrefixFold(rhs, "createobject("):
 		comp := extractCreateObjectArg(rhs[13:])
+		if comp == "" {
+			comp = nativeJavaHead(rhs)
+		}
+
 		if comp != "" {
 			p.addRef(&ComponentRef{
 				Variable: varName, Component: comp, ChainRest: trailingCalls(rhs),
@@ -3293,4 +3297,27 @@ func untypedValueText(rhs string) bool {
 
 	return strings.EqualFold(word, "true") || strings.EqualFold(word, "false") ||
 		strings.EqualFold(word, "arguments") && len(rhs) > len(word) && rhs[len(word)] == '.'
+}
+
+// nativeJavaHead is the native type of `createObject( "java", "java.time.Instant" )`
+// at the head of rhs, when a call chain follows it: the script parser types the
+// same chain through dynamicCall. "" for any other head.
+func nativeJavaHead(rhs string) string {
+	if !strings.Contains(rhs[13:], ").") {
+		return ""
+	}
+
+	sc := NewScanner(rhs[13:]) // past the opening parenthesis
+
+	first := sc.NextSkipComments()
+	if first.Kind != TokString || !strings.EqualFold(unquote(first.Value), "java") || sc.NextSkipComments().Kind != TokComma {
+		return ""
+	}
+
+	class := sc.NextSkipComments()
+	if class.Kind != TokString || sc.NextSkipComments().Kind != TokRParen {
+		return ""
+	}
+
+	return NativeJavaComponent(unquote(class.Value))
 }

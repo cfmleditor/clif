@@ -68,6 +68,10 @@ func nativeLiteral(expression string) string {
 		}
 	}
 
+	if tokens[0].Kind == parser.TokLBrace && producerGroupEnd(tokens, 0, parser.TokLBrace, parser.TokRBrace) == len(tokens)-1 && !isTemporalLiteral(tokens) {
+		return nativetype.Type("struct")
+	}
+
 	if tokens[0].Kind == parser.TokLBracket && producerGroupEnd(tokens, 0, parser.TokLBracket, parser.TokRBracket) == len(tokens)-1 {
 		// Square brackets also delimit ordered structs. Inspect the first
 		// entry's separator, not colons/equals inside nested array values or
@@ -85,4 +89,19 @@ func nativeLiteral(expression string) string {
 	}
 
 	return ""
+}
+
+// isTemporalLiteral reports whether a brace group is CFML's `{ts '…'}`,
+// `{d '…'}`, `{t '…'}` or `{fn …}` escape rather than a struct.
+func isTemporalLiteral(tokens []parser.Token) bool {
+	if len(tokens) < 3 || tokens[1].Kind != parser.TokIdent {
+		return false
+	}
+
+	switch strings.ToLower(tokens[1].Value) {
+	case "ts", "d", "t", "fn":
+		return tokens[2].Kind != parser.TokColon && tokens[2].Kind != parser.TokEquals && tokens[2].Kind != parser.TokComma
+	}
+
+	return false
 }

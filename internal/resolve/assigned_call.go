@@ -74,6 +74,16 @@ func (r *Resolver) assignedKeyedElement(variable, rhs string, line uint32, calle
 
 	comp := r.elementOf(rhs, int(line), 0, caller, pr, baseDir, depth+1, leaf)
 
+	if comp == "" {
+		// An element of a value that is itself dynamic is dynamic:
+		// `msg = messages[ 1 ]` where messages is a Java list's result.
+		if held, _ := r.receiverComponentD(k[1], line, caller, "", pr, baseDir, nil, lookupCtx{depth: depth + 1, leaf: leaf}); held == "$any" {
+			tr.addf("resolved %q to \"$any\": it is assigned an element of %q, which is dynamic", variable, k[1])
+
+			return "$any"
+		}
+	}
+
 	if comp != "" {
 		tr.addf("resolved %q to %q: it is assigned the keyed element %q, whose collection's elements are %q", variable, rhs, rhs, comp)
 	}
@@ -188,7 +198,7 @@ func (r *Resolver) assignedFromCall(variable string, line uint32, caller string,
 		return comp
 	}
 
-	if native := nativeLiteral(rhs); native != "" {
+	if native := nativeLiteral(rhs); native != "" && (evalCaller == caller || !strings.HasPrefix(strings.TrimSpace(rhs), "{")) {
 		if container == "" && !scoped && evalCaller == caller {
 			if output, written := r.literalQueryOutput(pr, name, at, int(line), caller, baseDir, ctx.call); written {
 				native = output
@@ -336,6 +346,11 @@ func (r *Resolver) typeCallExpr(rhs string, line uint32, caller string, pr *pars
 	// registry family is a receiver the walk itself answers: the chain past
 	// it runs on the element the family proves, dynamic as it is.
 	for i, c := range calls {
+		// A call on a dynamic value returns a dynamic value.
+		if dynamic && comp == "$any" {
+			return "$any"
+		}
+
 		if comp == "" || strings.HasPrefix(comp, "$") && !strings.HasPrefix(comp, "$builtin.") && !strings.HasPrefix(comp, familyPrefix) {
 			return ""
 		}

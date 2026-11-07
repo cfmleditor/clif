@@ -266,3 +266,92 @@ func TestAnAliasOfAnImportedJavaClassIsDynamic(t *testing.T) {
 		t.Errorf("s.start: %q, want it accepted", got["s.start"])
 	}
 }
+
+// A local assigned a struct literal is a struct, whatever keys the literal
+// has; a field set to one in another function may have grown a closure key.
+func TestALocalAssignedAStructLiteralIsAStruct(t *testing.T) {
+	dir := t.TempDir()
+	body := `component {
+	function init() {
+		variables.settings = {};
+	}
+	function run() {
+		var a = { "x": 1, "f": ( v ) => { return v; } };
+		a.copy().append( { "k": 1 } );
+		a.noSuchMemberOfAStruct();
+		variables.settings.provider();
+	}
+}`
+
+	if err := os.WriteFile(filepath.Join(dir, "S.cfc"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	r := &Resolver{FS: vfs.OS{}, Index: index.New()}
+	got := reasonsWith(t, r, dir, "S.cfc")
+
+	if got["a.copy"] != "" || got["a.copy.append"] != "" {
+		t.Errorf("struct members on a literal were reported: %v", got)
+	}
+
+	if !strings.Contains(got["a.noSuchMemberOfAStruct"], "native.struct") {
+		t.Errorf("a non-member on a literal struct: %q", got["a.noSuchMemberOfAStruct"])
+	}
+
+	if strings.Contains(got["variables.settings.provider"], "native.struct") {
+		t.Errorf("a field set to {} in another function was checked as a plain struct: %q", got["variables.settings.provider"])
+	}
+}
+
+// An element of a value that is dynamic is dynamic.
+func TestAnElementOfADynamicValueIsDynamic(t *testing.T) {
+	dir := t.TempDir()
+	body := `component {
+	function run() {
+		var holder = createObject( "java", "x.Y" ).make();
+		var list = holder.items();
+		var first = list[ 1 ];
+		first.anything();
+	}
+}`
+
+	if err := os.WriteFile(filepath.Join(dir, "E.cfc"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	r := &Resolver{FS: vfs.OS{}, Index: index.New()}
+
+	if got := reasonsWith(t, r, dir, "E.cfc"); got["first.anything"] != "" {
+		t.Errorf("first.anything: %q, want it accepted", got["first.anything"])
+	}
+}
+
+// A variable assigned from a call on a dynamic value is dynamic.
+func TestAVariableAssignedFromACallOnADynamicValueIsDynamic(t *testing.T) {
+	dir := t.TempDir()
+	files := map[string]string{
+		"Application.cfc": `component {
+	function onApplicationStart() {
+		application.svc = createObject( "component", variables.root & ".Svc" );
+	}
+}`,
+		"D.cfc": `component {
+	function run() {
+		var s = application.svc.setup();
+		s.anything();
+	}
+}`,
+	}
+
+	for name, body := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	r := &Resolver{FS: vfs.OS{}, Index: index.New()}
+
+	if got := reasonsWith(t, r, dir, "D.cfc"); got["s.anything"] != "" {
+		t.Errorf("s.anything: %q, want it accepted", got["s.anything"])
+	}
+}
