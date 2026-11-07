@@ -512,3 +512,41 @@ func TestAChainAfterATypedBuiltinKeepsItsReceiver(t *testing.T) {
 		}
 	}
 }
+
+func TestTagCfsetOfAnUnknownJavaFactoryIsDynamic(t *testing.T) {
+	src := "<cfcomponent><cffunction name=\"a\"><cfset var f = createObject(\"java\", \"java.text.NumberFormat\").getCurrencyInstance(\"x\")></cffunction></cfcomponent>"
+	pr := Parse(testURI, src)
+
+	var got string
+
+	for _, sc := range pr.Scopes {
+		for _, r := range pr.FuncComponentRefs(sc.Start, sc.End) {
+			if r.Variable == "f" {
+				got = r.Component
+			}
+		}
+	}
+
+	if got != "$any" {
+		t.Errorf("f: %q, want $any", got)
+	}
+}
+
+func TestScriptInvokeReturnVariableIsDynamic(t *testing.T) {
+	src := "component {\n function run() {\n  invoke component=\"a.B\" method=\"m\" returnVariable=\"local.result\" {\n   invokeargument name=\"x\" value=1;\n  }\n  result.go();\n }\n}"
+	pr := Parse(testURI, src)
+
+	var got string
+
+	for _, sc := range pr.Scopes {
+		for _, r := range pr.FuncComponentRefs(sc.Start, sc.End) {
+			if r.Variable == "result" {
+				got = r.Component
+			}
+		}
+	}
+
+	if got != "$any" {
+		t.Errorf("result: %q, want $any", got)
+	}
+}

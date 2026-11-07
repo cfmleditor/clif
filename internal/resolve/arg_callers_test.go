@@ -839,8 +839,8 @@ func TestADuplicateOfAComponentIsThatComponent(t *testing.T) {
 	}
 
 	for _, k := range []string{"copy.injected", "copy.added"} {
-		if got[k] != "" && !strings.Contains(got[k], "no component ref") {
-			t.Errorf("%s was reported as a method missing from the component: %q", k, got[k])
+		if got[k] != "" {
+			t.Errorf("%s: %q, want a duplicate with a function written onto it accepted", k, got[k])
 		}
 	}
 

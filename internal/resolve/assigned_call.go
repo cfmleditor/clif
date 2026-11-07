@@ -276,9 +276,12 @@ func (r *Resolver) assignedShape(variable, rhs string, line, evalLine uint32, ev
 	if m := duplicateRe.FindStringSubmatch(rhs); m != nil && !strings.EqualFold(m[1], variable) && !strings.EqualFold(m[1], strings.TrimPrefix(strings.ToLower(variable), "local.")) {
 		// A function written onto either one (`orig.injected = function(){}`) is
 		// a member the component does not declare, and the duplicate carries
-		// it: Lucee's mixin tests. Such a pair is not typed.
+		// it: Lucee's mixin tests. Such a pair has members the component does
+		// not declare, so it is dynamic rather than the component.
 		if r.membersWrittenOn(pr, line, m[1], variable) {
-			return ""
+			tr.addf("resolved %q to \"$any\": it is a duplicate of %s and a function was written onto one of them", variable, m[1])
+
+			return "$any"
 		}
 
 		comp, _ := r.receiverComponentD(m[1], evalLine, evalCaller, "", pr, baseDir, nil, lookupCtx{depth: ctx.depth + 1, leaf: ctx.leaf, callers: ctx.callers})

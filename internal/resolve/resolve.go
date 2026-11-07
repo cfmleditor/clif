@@ -3873,6 +3873,17 @@ func (r *Resolver) argumentHolderType(variable, name string, arg *parser.Argumen
 		return arg.Type, false
 	}
 
+	// An argument declared a native type (query, struct, array, string…) holds
+	// one, which the engine enforces: a method that type's contract has is
+	// accepted, as it is on a local of the type.
+	if native := nativeArgumentFamily(arg.Type); native != "" {
+		if _, ok := nativetype.Method(nativetype.Type(native), funcName); ok {
+			tr.addf("resolved %q to %q via its declared type %q", variable, nativetype.Type(native), arg.Type)
+
+			return nativetype.Type(native), false
+		}
+	}
+
 	// A bare type is read as a bare return type is (namedType).
 	// `required Duration otherDuration` was left untyped, so every call on
 	// the argument was unresolved.
@@ -4598,6 +4609,21 @@ func (r *Resolver) unevaluatedReturn(fd *parser.FunctionDef, depth int, budget *
 
 	if fd.ReturnsUntyped && fd.ReturnComponent == "$any" {
 		return "$any"
+	}
+
+	return ""
+}
+
+// nativeArgumentFamily is the nativetype family a declared argument type
+// names, or "" for a component or a type with no contract.
+func nativeArgumentFamily(declared string) string {
+	switch t := strings.ToLower(strings.TrimSpace(declared)); t {
+	case "query", "struct", "array", "string", "numeric", "boolean", "date", "datetime":
+		if t == "datetime" {
+			return "date"
+		}
+
+		return t
 	}
 
 	return ""

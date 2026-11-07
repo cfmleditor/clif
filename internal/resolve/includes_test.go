@@ -378,3 +378,61 @@ func TestAVariableAssignedFromACallOnADynamicValueIsDynamic(t *testing.T) {
 		t.Errorf("s.anything: %q, want it accepted", got["s.anything"])
 	}
 }
+
+// An argument declared a native type holds one: a method that type's contract
+// has is accepted, one it lacks is not.
+func TestAnArgumentOfADeclaredNativeTypeAnswersItsContract(t *testing.T) {
+	dir := t.TempDir()
+	body := `component {
+	function run( required query q, array a, string s ) {
+		q.getMeta();
+		q.getRecordCount();
+		a.len();
+		s.getBytes();
+	}
+}`
+
+	if err := os.WriteFile(filepath.Join(dir, "N.cfc"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	r := &Resolver{FS: vfs.OS{}, Index: index.New()}
+	got := reasonsWith(t, r, dir, "N.cfc")
+
+	if got["q.getMeta"] != "" || got["q.getRecordCount"] != "" || got["a.len"] != "" {
+		t.Errorf("methods of a declared native argument were reported: %v", got)
+	}
+}
+
+// A struct's value and a query's column are of no shape the source gives.
+func TestAMemberOfAStructOrAQueryIsDynamic(t *testing.T) {
+	dir := t.TempDir()
+	body := `component {
+	function run() {
+		var s = { x : 1 };
+		s.x.anything();
+		var q = queryNew( "a,b" );
+		q.a.anything();
+		q.a[ 1 ].anything();
+		q.columnList.uCase();
+		q.columnList.noSuchStringMember();
+	}
+}`
+
+	if err := os.WriteFile(filepath.Join(dir, "M.cfc"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	r := &Resolver{FS: vfs.OS{}, Index: index.New()}
+	got := reasonsWith(t, r, dir, "M.cfc")
+
+	for _, k := range []string{"s.x.anything", "q.a.anything", "q.a.anything", "q.columnList.uCase"} {
+		if got[k] != "" {
+			t.Errorf("%s: %q, want it accepted", k, got[k])
+		}
+	}
+
+	if got["q.columnList.noSuchStringMember"] == "" {
+		t.Error("columnList is a string: a method no string has was accepted")
+	}
+}

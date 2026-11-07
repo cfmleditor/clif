@@ -9,6 +9,9 @@
 
 ### Fixed
 
+- **A struct's value and a query's column are dynamic.** `settings.provider.get()` and `qry.name.len()` were "no component ref"; `qry.columnList` is a string and `qry.recordCount` a number. ColdBox 46, Lucee 59, Masa 12, Fw/1 8 fewer.
+- **An argument declared `query`, `struct`, `array`, `string`, `numeric`, `boolean` or `date` answers that type's contract**, as a local of the type does. `queryObj.getMeta()` on a `type="query"` argument was "no component ref". ColdBox 20, TestBox 11 fewer.
+- **A duplicate with a function written onto it is dynamic**, not untyped, and **a tag `<cfset x = createObject( "java", "any.Class" ).factory()>` is dynamic** when nothing describes the class, as the script form is. **Script `invoke … returnVariable="x"`** assigns a dynamic value. Lucee 62, Galaxie 10, Masa 6 fewer.
 - **A built-in function documented to return `any` returns a dynamic value.** `deserializeJSON`, `cacheGetSession`, `evaluate`, `getPageContext` (on an engine not known to be Lucee) and the rest were "no component ref" at every call on their result; they are `$any` like a factory's, and the chain after one (`getPageContext().getResponse()`) keeps its receiver. `createObject`, `duplicate`, `deserializeJSON` and `directoryList` are left as they were. Across the corpus about 250 fewer, none added. The test that a generic engine must not borrow Lucee's PageContext now says the same thing differently: nothing is claimed of it and nothing on it is rejected.
 - **A literal written over several lines is read whole.** `var a = {` with its keys on the lines below was typed from its first line alone, so only a one-line literal was ever a struct or an array. ColdBox 40, Lucee 47, ContentBox 12 fewer.
 - **A property of a dynamic value, and a conditional with a dynamic branch, are dynamic.** `x = application.svc.items`, `x = cond ? "" : application.svc.thing()`, and `x = application.svc?.thing()`. Lucee 16, ColdBox 5, ContentBox 2 fewer.

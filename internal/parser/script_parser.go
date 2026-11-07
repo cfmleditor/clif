@@ -5337,8 +5337,19 @@ func looksLikeTagAttrs(sc *Scanner) bool {
 // caught by the `function` case that runs before this one.
 func (p *scriptParser) parseScriptTagAttrs() {
 	for looksLikeTagAttrs(p.sc) {
-		p.sc.NextSkipComments() // attribute name
-		p.sc.NextSkipComments() // =
+		name := p.sc.NextSkipComments() // attribute name
+		p.sc.NextSkipComments()         // =
+
+		// `invoke component=… method=… returnVariable="local.result"` assigns
+		// what the method returns, which nothing here describes.
+		if value := p.sc.PeekSkipComments(); value.Kind == TokString && identEq(name.Value, "returnVariable") {
+			if variable := strings.TrimPrefix(unquote(value.Value), "local."); isDottedIdentText(variable) {
+				p.addRef(&ComponentRef{
+					Variable: variable, Component: "$any",
+					URI: uriFromString(p.fileURI), Line: conv.Uint32(p.baseLine + int(name.Line)),
+				})
+			}
+		}
 
 		if !p.skipTagAttrValue() {
 			return

@@ -1737,7 +1737,7 @@ func (p *tagParser) checkSetRHSStr(rhs, varName string, line int) {
 	case hasPrefixFold(rhs, "createobject("):
 		comp := extractCreateObjectArg(rhs[13:])
 		if comp == "" {
-			comp = nativeJavaHead(rhs)
+			comp, _ = nativeJavaHead(rhs)
 		}
 
 		if comp != "" {
@@ -1753,6 +1753,13 @@ func (p *tagParser) checkSetRHSStr(rhs, varName string, line int) {
 			// what is asked about: dynamicCall looks at a chain's last call.
 			p.addRef(&ComponentRef{
 				Variable: varName, Component: p.resolveCall(object), ChainRest: trailingCalls(object),
+				URI: uriFromString(p.fileURI), Line: conv.Uint32(line),
+			})
+		} else if _, java := nativeJavaHead(rhs); java {
+			// A Java class nothing describes is a dynamic value, as the
+			// script parser reads it.
+			p.addRef(&ComponentRef{
+				Variable: varName, Component: "$any",
 				URI: uriFromString(p.fileURI), Line: conv.Uint32(line),
 			})
 		}
@@ -3300,24 +3307,25 @@ func untypedValueText(rhs string) bool {
 }
 
 // nativeJavaHead is the native type of `createObject( "java", "java.time.Instant" )`
-// at the head of rhs, when a call chain follows it: the script parser types the
-// same chain through dynamicCall. "" for any other head.
-func nativeJavaHead(rhs string) string {
+// at the head of rhs when a call chain follows it, and whether the head is a
+// Java object at all. The script parser types the same chain through
+// dynamicCall.
+func nativeJavaHead(rhs string) (native string, java bool) {
 	if !strings.Contains(rhs[13:], ").") {
-		return ""
+		return "", false
 	}
 
 	sc := NewScanner(rhs[13:]) // past the opening parenthesis
 
 	first := sc.NextSkipComments()
 	if first.Kind != TokString || !strings.EqualFold(unquote(first.Value), "java") || sc.NextSkipComments().Kind != TokComma {
-		return ""
+		return "", false
 	}
 
 	class := sc.NextSkipComments()
 	if class.Kind != TokString || sc.NextSkipComments().Kind != TokRParen {
-		return ""
+		return "", false
 	}
 
-	return NativeJavaComponent(unquote(class.Value))
+	return NativeJavaComponent(unquote(class.Value)), true
 }
