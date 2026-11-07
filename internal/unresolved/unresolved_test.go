@@ -338,7 +338,7 @@ func TestReportUsesManagedSetterDependencies(t *testing.T) {
 		files = append(files, file)
 	}
 
-	rep := Scan(vfs.OS{}, files, nil, &Options{BeanPaths: map[string]string{"": filepath.Join(dir, "beans")}, WorkspaceFolders: []string{dir}})
+	rep := Scan(vfs.OS{}, files, nil, &Options{BeanPaths: map[string]string{"": filepath.Join(dir, "beans")}, WorkspaceFolders: []string{dir}, keepUntypedHops: true})
 	if len(rep.Calls) != 3 {
 		t.Fatalf("want missing method, sibling parameter and unmanaged field errors, got %+v", rep.Calls)
 	}
@@ -444,11 +444,11 @@ func TestReportUsesDI1LifetimeForInjectionOnly(t *testing.T) {
 		files = append(files, file)
 	}
 
-	rep := Scan(vfs.OS{}, files, nil, &Options{BeanPaths: map[string]string{"": filepath.Join(dir, "model")}, WorkspaceFolders: []string{dir}, Resolvers: []parser.Resolver{{Match: `getBean("$1")`, Resolve: "$1", Prefix: "getBean"}}})
-	// c.getUser().run() chains on a method declaring no return type, which
-	// the run accepts as dynamic, so the two findings are the transient
-	// field's and the missing singleton method.
-	if len(rep.Calls) != 2 {
+	rep := Scan(vfs.OS{}, files, nil, &Options{BeanPaths: map[string]string{"": filepath.Join(dir, "model")}, WorkspaceFolders: []string{dir}, keepUntypedHops: true, Resolvers: []parser.Resolver{{Match: `getBean("$1")`, Resolve: "$1", Prefix: "getBean"}}})
+	// The strict view (the untyped policies off), so the transient field named
+	// like a component is still a finding: the transient field's, the missing
+	// singleton method and the chain on getUser(), which declares no return type.
+	if len(rep.Calls) != 3 {
 		t.Fatalf("want one unknown transient field and one missing singleton method: %+v", rep.Calls)
 	}
 
@@ -488,7 +488,7 @@ func TestReportUsesDI1ConstructorDependencies(t *testing.T) {
 		files = append(files, file)
 	}
 
-	rep := Scan(vfs.OS{}, files, nil, &Options{BeanPaths: map[string]string{"": filepath.Join(dir, "model")}, WorkspaceFolders: []string{dir}})
+	rep := Scan(vfs.OS{}, files, nil, &Options{BeanPaths: map[string]string{"": filepath.Join(dir, "model")}, WorkspaceFolders: []string{dir}, keepUntypedHops: true})
 	if len(rep.Calls) != 2 {
 		t.Fatalf("want missing method and sibling argument only: %+v", rep.Calls)
 	}

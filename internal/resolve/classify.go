@@ -103,6 +103,8 @@ func (r *Resolver) ClassifyReasonIn(call *parser.CallSite, reason string, opt Cl
 		return Accepted, ""
 	case !opt.KeepUntypedHops && r.isSharedMemberCall(call, reason):
 		return Accepted, ""
+	case !opt.KeepUntypedHops && r.namedComponentDeclares(call, reason):
+		return Accepted, ""
 	}
 
 	if base, ok := MissingBaseOf(reason); ok {
