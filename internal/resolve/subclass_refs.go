@@ -145,24 +145,33 @@ func (r *Resolver) leafSubclasses(base string) []string {
 }
 
 func (r *Resolver) leafSubclassesUncached(base string) []string {
+	// One pass over the extends map answers every name below. Asked per
+	// component, FilesExtendingName scanned the whole map each time, and the
+	// walk checked each file against the list so far by cleaning both paths:
+	// 98% of a Lucee scan (110 s), whose test cases are thousands of leaves
+	// under one base.
+	extenders := r.Index.ExtendersByName()
+
+	extending := func(path string) []string {
+		return extenders[strings.ToLower(strings.TrimSuffix(filepath.Base(path), filepath.Ext(path)))]
+	}
+
 	all := []string{base}
+	seen := map[string]bool{pathKey(base): true}
 
 	for i := 0; i < len(all) && len(all) <= maxSubclasses; i++ {
 		parent := all[i]
-		name := strings.TrimSuffix(filepath.Base(parent), filepath.Ext(parent))
 
-		subs := r.Index.FilesExtendingName(name)
-		slices.Sort(subs)
-
-		for _, u := range subs {
+		for _, u := range extending(parent) {
 			sub := cfpath.FromURI(u)
 
-			if slices.ContainsFunc(all, func(p string) bool { return cfpath.SamePath(p, sub) }) {
+			if seen[pathKey(sub)] {
 				continue
 			}
 
 			if r.descendsFrom(sub, parent) {
 				all = append(all, sub)
+				seen[pathKey(sub)] = true
 			}
 		}
 	}
@@ -170,11 +179,9 @@ func (r *Resolver) leafSubclassesUncached(base string) []string {
 	var leaves []string
 
 	for _, c := range all[1:] {
-		name := strings.TrimSuffix(filepath.Base(c), filepath.Ext(c))
-
 		extended := false
 
-		for _, u := range r.Index.FilesExtendingName(name) {
+		for _, u := range extending(c) {
 			if r.descendsFrom(cfpath.FromURI(u), c) {
 				extended = true
 

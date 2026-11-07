@@ -1,6 +1,8 @@
 package index
 
 import (
+	"slices"
+	"strings"
 	"testing"
 
 	"go.lsp.dev/uri"
@@ -68,5 +70,59 @@ func TestExtendsIsForgottenWithTheRestOfTheFile(t *testing.T) {
 
 	if ext, ok := idx.ExtendsForFile(u); ok {
 		t.Errorf("extends survived a re-index as (%q, true); it would answer for a parse that no longer exists", ext)
+	}
+}
+
+// ExtendersByName is FilesExtendingName for every name at once.
+func TestExtendersByNameAnswersAsFilesExtendingNameDoes(t *testing.T) {
+	idx := New()
+
+	files := map[string]string{
+		"file:///w/A.cfc":     "component extends=\"x.Base\" {}",
+		"file:///w/B.cfc":     "component extends=\"base\" {}",
+		"file:///w/C.cfc":     "component extends=\"y.z.BASE\" {}",
+		"file:///w/D.cfc":     "component extends=\"Other\" {}",
+		"file:///w/E.cfc":     "component {}",
+		"file:///w/sub/F.cfc": "component extends=\"a.Other\" {}",
+	}
+
+	for u, content := range files {
+		idx.IndexFile(uri.URI(u), content)
+	}
+
+	got := idx.ExtendersByName()
+	if len(got) != 2 {
+		t.Fatalf("groups = %v, want base and other", got)
+	}
+
+	for _, name := range []string{"base", "Base", "OTHER", "other", "missing"} {
+		if want := idx.FilesExtendingName(name); !slices.Equal(got[strings.ToLower(name)], want) {
+			t.Errorf("ExtendersByName[%q] = %v, FilesExtendingName says %v", name, got[strings.ToLower(name)], want)
+		}
+	}
+
+	if len(got["base"]) != 3 {
+		t.Errorf("base is extended by %v, want three files", got["base"])
+	}
+}
+
+// The grouping is kept until the index changes, and then read again.
+func TestExtendersByNameFollowsTheIndex(t *testing.T) {
+	idx := New()
+	idx.IndexFile(uri.URI("file:///w/A.cfc"), "component extends=\"Base\" {}")
+
+	first := idx.ExtendersByName()
+	if len(first["base"]) != 1 {
+		t.Fatalf("base is extended by %v, want one file", first["base"])
+	}
+
+	if again := idx.ExtendersByName(); len(again) != len(first) || len(again["base"]) != 1 {
+		t.Errorf("a second ask changed the answer: %v", again)
+	}
+
+	idx.IndexFile(uri.URI("file:///w/B.cfc"), "component extends=\"Base\" {}")
+
+	if got := idx.ExtendersByName(); len(got["base"]) != 2 {
+		t.Errorf("after indexing another extender, base is extended by %v, want two files", got["base"])
 	}
 }

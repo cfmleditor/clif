@@ -47,6 +47,13 @@ type Index struct {
 	// includeGen counts changes to includes, so a reader that derives something
 	// from all of them — the resolver's reverse map — can tell when to rebuild.
 	includeGen uint64
+
+	// extenders is ExtendersByName's answer at the generation it was built.
+	extenders struct {
+		mu     sync.Mutex
+		gen    uint64
+		byName map[string][]string
+	}
 }
 
 // writeCountingMutex counts every write lock taken, so a reader caching an
@@ -1453,6 +1460,54 @@ func (idx *Index) FilesExtendingName(name string) []string {
 	}
 
 	slices.Sort(out)
+
+	return out
+}
+
+// ExtendersByName groups every file by the last segment of what it extends,
+// lowercased, each group sorted as FilesExtendingName sorts it: the answer to
+// FilesExtendingName for every name at once, in one pass over the extends map.
+// A walk that asks for a name per component (leafSubclasses over Lucee's
+// thousands of test cases) otherwise scans the whole map for each.
+//
+// The map is kept until the index next changes and shared: callers read it and
+// do not edit it.
+func (idx *Index) ExtendersByName() map[string][]string {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+
+	gen := idx.Generation()
+
+	idx.extenders.mu.Lock()
+	defer idx.extenders.mu.Unlock()
+
+	if idx.extenders.byName != nil && idx.extenders.gen == gen {
+		return idx.extenders.byName
+	}
+
+	out := map[string][]string{}
+
+	for key, ext := range idx.extends {
+		if ext == "" {
+			continue
+		}
+
+		last := ext
+		if _, after, ok := strings.CutLast(ext, "."); ok {
+			last = after
+		}
+
+		if u, ok := idx.fileURIs[key]; ok {
+			name := strings.ToLower(last)
+			out[name] = append(out[name], string(u))
+		}
+	}
+
+	for _, files := range out {
+		slices.Sort(files)
+	}
+
+	idx.extenders.byName, idx.extenders.gen = out, gen
 
 	return out
 }
