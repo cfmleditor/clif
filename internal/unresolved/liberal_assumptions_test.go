@@ -123,7 +123,9 @@ function returns(){var f=new Factory();f.make().ready();}
 		t.Fatalf("%+v", open)
 	}
 
-	if open.Resolved != strict.Resolved || len(open.Calls)+len(open.AssumedCalls) != len(strict.Calls) || open.Indexed != strict.Indexed || open.Scanned != strict.Scanned {
+	// The open-world pass keeps a call chained on an untyped method, which the
+	// strict run no longer reports, so it may hold more evidence than strict.
+	if open.Resolved > strict.Resolved || len(open.Calls)+len(open.AssumedCalls) < len(strict.Calls) || open.Indexed != strict.Indexed || open.Scanned != strict.Scanned {
 		t.Fatal("lost coverage or inflated resolutions")
 	}
 

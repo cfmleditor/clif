@@ -445,8 +445,11 @@ func TestReportUsesDI1LifetimeForInjectionOnly(t *testing.T) {
 	}
 
 	rep := Scan(vfs.OS{}, files, nil, &Options{BeanPaths: map[string]string{"": filepath.Join(dir, "model")}, WorkspaceFolders: []string{dir}, Resolvers: []parser.Resolver{{Match: `getBean("$1")`, Resolve: "$1", Prefix: "getBean"}}})
-	if len(rep.Calls) != 3 {
-		t.Fatalf("want two unknown transient fields and one missing singleton method: %+v", rep.Calls)
+	// c.getUser().run() chains on a method declaring no return type, which
+	// the run accepts as dynamic, so the two findings are the transient
+	// field's and the missing singleton method.
+	if len(rep.Calls) != 2 {
+		t.Fatalf("want one unknown transient field and one missing singleton method: %+v", rep.Calls)
 	}
 
 	for _, call := range rep.Calls {

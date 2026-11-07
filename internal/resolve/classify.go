@@ -32,6 +32,10 @@ const (
 type ClassifyOptions struct {
 	// GlobalDefs accepts a bare call that any indexed file defines.
 	GlobalDefs bool
+	// KeepUntypedHops reports a call chained on a method that declares no
+	// return type, as the open-world mode sets such calls apart as assumed
+	// rather than leaving them out.
+	KeepUntypedHops bool
 	// WantTarget also records where an accepted call landed. It allocates a
 	// recorder per call, so a run that only counts leaves it off.
 	WantTarget bool
@@ -65,6 +69,11 @@ func (r *Resolver) ClassifyCall(call *parser.CallSite, pr *parser.ParseResult, b
 
 	c.Verdict, c.Base = r.ClassifyReason(call, c.Reason, opt)
 
+	// A call set aside for its reason alone is accepted as dynamic.
+	if c.Verdict == Accepted && c.Reason != "" && opt.WantTarget {
+		c.Target = CallTarget{Kind: TargetDynamic, FuncName: call.FuncName, Line: call.Line}
+	}
+
 	return c
 }
 
@@ -80,6 +89,10 @@ func (r *Resolver) ClassifyReason(call *parser.CallSite, reason string, opt Clas
 		return Builtin, ""
 	case opt.GlobalDefs && r.Index.CountFunctions(call.FuncName) > 0:
 		return GlobalDef, ""
+	case !opt.KeepUntypedHops && isUntypedHop(reason):
+		return Accepted, ""
+	case r.isUndeclaredMemberCall(call, reason):
+		return Builtin, ""
 	}
 
 	if base, ok := MissingBaseOf(reason); ok {
@@ -87,6 +100,27 @@ func (r *Resolver) ClassifyReason(call *parser.CallSite, reason string, opt Clas
 	}
 
 	return Unresolved, ""
+}
+
+// isUntypedHop reports whether reason is a chain hop whose method declares no
+// return type: `svc.get().foo()` with get() untyped. What it returns is as
+// dynamic as `x = svc.get()` makes x, which the same run accepts, so the run
+// does not report the chained form.
+func isUntypedHop(reason string) bool {
+	return strings.HasPrefix(reason, "method '") && strings.Contains(reason, " has no component return type (chain to '")
+}
+
+// isUndeclaredMemberCall reports whether a call on a receiver nothing is known
+// of is by the name of a member function the engine's own types have, which no
+// component the workspace holds declares: it can only be that member function,
+// of whatever value the receiver is. `listenerChain.len()` and
+// `registry.keyExists( k )` name no component to check.
+func (r *Resolver) isUndeclaredMemberCall(call *parser.CallSite, reason string) bool {
+	if call.Variable == "" || !strings.HasSuffix(reason, "' has no component ref") || !strings.HasPrefix(reason, "variable '") {
+		return false
+	}
+
+	return IsBuiltin(call.FuncName) && r.Index != nil && r.Index.CountFunctions(call.FuncName) == 0
 }
 
 // Describe says, in a line, what a batch report does with a call of this
