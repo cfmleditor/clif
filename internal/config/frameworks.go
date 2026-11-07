@@ -257,8 +257,9 @@ var frameworkPresets = map[string]frameworkPreset{
 	"contentbox": {
 		resolvers: []Resolver{
 			variableResolver(contentboxModels+"system.CBHelper", "cb"),
-			variableResolver(contentboxModels+"security.Author", "prc.oCurrentAuthor", "prc.oAuthor"),
-			variableResolver(contentboxModels+"system.Site", "prc.oCurrentSite", "prc.oSite"),
+			variableResolver(contentboxModels+"security.Author", "prc.oCurrentAuthor", "prc.oAuthor", "author"),
+			variableResolver(contentboxModels+"system.Site", "prc.oCurrentSite", "prc.oSite", "site"),
+			variableResolver(contentboxModels+"content.Category", "category"),
 			// Whichever kind of content the request is about: a method only a
 			// page has, hasParent(), is not missing from an entry's content.
 			variableResolver(contentboxModels+"content.BaseContent|"+contentboxModels+"content.Entry|"+
