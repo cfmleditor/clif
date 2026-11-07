@@ -4,6 +4,26 @@ Updated 2026-10-04 through the current resolution/performance branch; status
 refreshed 2026-10-18 (see below). Historical measurements below retain the
 commit or PR against which they were made.
 
+## 2026-11-07 status refresh: Masa, configured
+
+Measured with `scripts/corpus/masacms.json` as `.clif.json` at Masa 7.6.1 (`6963831`), the pinned commit, with the build of
+clif#347: **2,304** unresolved (the configured table below says 12,288 for an older build). The `$` receivers that
+made gap 3 priority 1 (3,362) are **97** (`$` 81, `rc.$` 16); what is left of them is test specs and views whose scope is a
+local `$` assigned from an untyped argument. So gap 3 is no longer the largest family. By receiver, the largest now:
+
+| Receiver | n | Where | Why it stays unknown |
+|---|---:|---|---|
+| `arguments.item` | 128 | `dsp_content_list.cfm` 68, `dsp_meta_list.cfm` 60 | a display object's argument, typed only when every `dspObject_include` caller types it |
+| `arguments.feedBean` | 113 | `feedGateway.cfc` | forwarded from `feedManager.getFeed( feedBean )`, whose callers do not all type it |
+| `entity` | 106 | `jsonApiUtility.cfc` 79 | a loop or argument over `getBean( entityName )`, dynamic |
+| `arguments.contentBean` | 79 | `contentUtility.cfc` 54, `contentManager.cfc` 24 | an argument whose callers pass beans of more than one kind |
+| `request.contentBean` | 40 | `toolbar.cfm` 37 | three writers (`contentHTMLExporter`, two in `jsonApiUtility`), one of which writes an untyped argument; every writer must agree |
+| `attributes.bean` | 46 | `filetools.cfm` 32, `fileselector.cfm` 14 | a custom tag's attribute; callers not all typed |
+
+Each of these is held back by the rule that an argument, request key or attribute is typed only when every caller or writer
+types it the same way. Relaxing that rule would type more and report wrong methods; the rule is the design, not a gap. The
+remaining work is per family, source-proven, and small per family. Nothing here was changed.
+
 ## 2026-10-18 status refresh
 
 The code-to-code replay of the seven candidate-list scans (a binary at the
