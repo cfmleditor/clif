@@ -52,7 +52,11 @@ func (r *Resolver) BuiltinReturnLookupFor(file string) func(string) string {
 // nativeLiteral describes a whole literal expression. Expression suffixes are
 // rejected so a literal followed by a call is not mistaken for that call's result.
 func nativeLiteral(expression string) string {
-	tokens := producerUnwrap(producerTokens(expression))
+	return nativeLiteralTokens(producerUnwrap(producerTokens(expression)))
+}
+
+// nativeLiteralTokens is nativeLiteral over the tokens of the expression.
+func nativeLiteralTokens(tokens []parser.Token) string {
 	if len(tokens) == 0 {
 		return ""
 	}
