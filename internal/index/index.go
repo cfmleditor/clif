@@ -2,6 +2,7 @@
 package index
 
 import (
+	"hash/maphash"
 	"net/url"
 	"path"
 	"slices"
@@ -54,7 +55,7 @@ type Index struct {
 	extenders struct {
 		mu     sync.Mutex
 		gen    uint64
-		byName map[string][]string
+		byName map[string][]Extender
 	}
 }
 
@@ -336,7 +337,10 @@ func keepRefs(entries []*parser.ComponentRef, keep func(*parser.ComponentRef) bo
 
 // uriKey returns a lowercase URI for case-insensitive comparison on case-insensitive filesystems.
 func uriKey(u uri.URI) string {
-	s := string(u)
+	return uriKeys.key(string(u))
+}
+
+func uriKeyUncached(s string) string {
 
 	// Percent-escapes are decoded so that the two ways this codebase builds a
 	// file URI land on one key. Indexing goes through uri.File, which escapes:
@@ -1480,6 +1484,12 @@ func (idx *Index) FilesExtendingName(name string) []string {
 	return out
 }
 
+// Extender is a file and what it extends, as the index records it.
+type Extender struct {
+	URI     string
+	Extends string
+}
+
 // ExtendersByName groups every file by the last segment of what it extends,
 // lowercased, each group sorted as FilesExtendingName sorts it: the answer to
 // FilesExtendingName for every name at once, in one pass over the extends map.
@@ -1489,7 +1499,7 @@ func (idx *Index) FilesExtendingName(name string) []string {
 // The map is kept until a file is added or dropped or an extends changes
 // (ShapeGeneration), and shared: callers read it and
 // do not edit it.
-func (idx *Index) ExtendersByName() map[string][]string {
+func (idx *Index) ExtendersByName() map[string][]Extender {
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
 
@@ -1502,7 +1512,7 @@ func (idx *Index) ExtendersByName() map[string][]string {
 		return idx.extenders.byName
 	}
 
-	out := map[string][]string{}
+	out := map[string][]Extender{}
 
 	for key, ext := range idx.extends {
 		if ext == "" {
@@ -1516,12 +1526,12 @@ func (idx *Index) ExtendersByName() map[string][]string {
 
 		if u, ok := idx.fileURIs[key]; ok {
 			name := strings.ToLower(last)
-			out[name] = append(out[name], string(u))
+			out[name] = append(out[name], Extender{URI: string(u), Extends: ext})
 		}
 	}
 
 	for _, files := range out {
-		slices.Sort(files)
+		slices.SortFunc(files, func(a, b Extender) int { return strings.Compare(a.URI, b.URI) })
 	}
 
 	idx.extenders.byName, idx.extenders.gen = out, gen
@@ -1649,4 +1659,51 @@ func (idx *Index) ForEachInclude(fn func(fileURI uri.URI, paths []string)) uint6
 	}
 
 	return idx.includeGen
+}
+
+// uriKeys remembers uriKey's answers. The key is asked for on every index
+// lookup, and for a URI with a capital in it (most workspaces) computing it
+// decodes and lowercases a new string each time: 13% of a Lucee scan. The
+// answer depends only on the URI, so it is shared by every index; when a shard
+// holds too many it starts again.
+var uriKeys uriKeyMemo
+
+const (
+	uriKeyShards   = 64
+	maxUriKeyShard = 2048
+)
+
+type uriKeyMemo struct {
+	seed   maphash.Seed
+	once   sync.Once
+	shards [uriKeyShards]struct {
+		mu sync.RWMutex
+		m  map[string]string
+	}
+}
+
+func (c *uriKeyMemo) key(s string) string {
+	c.once.Do(func() { c.seed = maphash.MakeSeed() })
+
+	sh := &c.shards[maphash.String(c.seed, s)%uriKeyShards]
+
+	sh.mu.RLock()
+	k, ok := sh.m[s]
+	sh.mu.RUnlock()
+
+	if ok {
+		return k
+	}
+
+	k = uriKeyUncached(s)
+
+	sh.mu.Lock()
+	if sh.m == nil || len(sh.m) >= maxUriKeyShard {
+		sh.m = make(map[string]string, 256)
+	}
+
+	sh.m[s] = k
+	sh.mu.Unlock()
+
+	return k
 }

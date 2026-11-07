@@ -238,7 +238,32 @@ func (r *Resolver) commonBase(targets []string) string {
 // descendsFrom reports whether the component at path extends the one at
 // ancestor, directly or through its chain.
 func (r *Resolver) descendsFrom(path, ancestor string) bool {
-	for range 16 {
+	return r.descendsFromWithin(path, ancestor, 16)
+}
+
+// descendsFromDeclared is descendsFrom for a file whose own extends attribute
+// the caller already holds (the index lists it beside the file): the first link
+// is read from declared instead of looking the file up again.
+func (r *Resolver) descendsFromDeclared(path, declared, ancestor string) bool {
+	ext := r.extendsFor(declared, path)
+	if ext == "" {
+		return false
+	}
+
+	next := r.ComponentPath(ext, filepath.Dir(path))
+	if next == "" || cfpath.SamePath(next, path) {
+		return false
+	}
+
+	if cfpath.SamePath(next, ancestor) {
+		return true
+	}
+
+	return r.descendsFromWithin(next, ancestor, 15)
+}
+
+func (r *Resolver) descendsFromWithin(path, ancestor string, links int) bool {
+	for range links {
 		ext, ok := r.extendsOf(path, cfpath.ToURI(path))
 		if !ok || ext == "" {
 			return false

@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/cfmleditor/clif/internal/index"
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
 )
@@ -152,7 +153,7 @@ func (r *Resolver) leafSubclassesUncached(base string) []string {
 	// under one base.
 	extenders := r.Index.ExtendersByName()
 
-	extending := func(path string) []string {
+	extending := func(path string) []index.Extender {
 		return extenders[strings.ToLower(strings.TrimSuffix(filepath.Base(path), filepath.Ext(path)))]
 	}
 
@@ -162,14 +163,14 @@ func (r *Resolver) leafSubclassesUncached(base string) []string {
 	for i := 0; i < len(all) && len(all) <= maxSubclasses; i++ {
 		parent := all[i]
 
-		for _, u := range extending(parent) {
-			sub := cfpath.FromURI(u)
+		for _, e := range extending(parent) {
+			sub := cfpath.FromURI(e.URI)
 
 			if seen[pathKey(sub)] {
 				continue
 			}
 
-			if r.descendsFrom(sub, parent) {
+			if r.descendsFromDeclared(sub, e.Extends, parent) {
 				all = append(all, sub)
 				seen[pathKey(sub)] = true
 			}
@@ -181,8 +182,8 @@ func (r *Resolver) leafSubclassesUncached(base string) []string {
 	for _, c := range all[1:] {
 		extended := false
 
-		for _, u := range extending(c) {
-			if r.descendsFrom(cfpath.FromURI(u), c) {
+		for _, e := range extending(c) {
+			if r.descendsFromDeclared(cfpath.FromURI(e.URI), e.Extends, c) {
 				extended = true
 
 				break

@@ -2,6 +2,7 @@ package index
 
 import (
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -96,8 +97,13 @@ func TestExtendersByNameAnswersAsFilesExtendingNameDoes(t *testing.T) {
 	}
 
 	for _, name := range []string{"base", "Base", "OTHER", "other", "missing"} {
-		if want := idx.FilesExtendingName(name); !slices.Equal(got[strings.ToLower(name)], want) {
-			t.Errorf("ExtendersByName[%q] = %v, FilesExtendingName says %v", name, got[strings.ToLower(name)], want)
+		var uris []string
+		for _, e := range got[strings.ToLower(name)] {
+			uris = append(uris, e.URI)
+		}
+
+		if want := idx.FilesExtendingName(name); !slices.Equal(uris, want) {
+			t.Errorf("ExtendersByName[%q] = %v, FilesExtendingName says %v", name, uris, want)
 		}
 	}
 
@@ -124,5 +130,38 @@ func TestExtendersByNameFollowsTheIndex(t *testing.T) {
 
 	if got := idx.ExtendersByName(); len(got["base"]) != 2 {
 		t.Errorf("after indexing another extender, base is extended by %v, want two files", got["base"])
+	}
+}
+
+// uriKey's memory answers as the computation does, for a URI asked for again and
+// for one asked for first, and stays bounded.
+func TestURIKeyMemoryAnswersAsTheComputationDoes(t *testing.T) {
+	inputs := []string{
+		"file:///My%20Documents/Sub/A.cfc", "file:///My Documents/Sub/A.cfc", "file:///a/B.CFC", "file:///a/b.cfc",
+		"file:///%zz/bad", "", "untitled:Untitled-1", "file:///C%3A/Users/X/y.cfc",
+	}
+
+	for range 2 {
+		for _, in := range inputs {
+			if got, want := uriKey(uri.URI(in)), uriKeyUncached(in); got != want {
+				t.Errorf("uriKey(%q) = %q, want %q", in, got, want)
+			}
+		}
+	}
+
+	for i := range uriKeyShards * maxUriKeyShard * 2 {
+		_ = uriKey(uri.URI("file:///bulk/File" + strconv.Itoa(i) + ".cfc"))
+	}
+
+	for i := range uriKeys.shards {
+		sh := &uriKeys.shards[i]
+
+		sh.mu.RLock()
+		n := len(sh.m)
+		sh.mu.RUnlock()
+
+		if n > maxUriKeyShard {
+			t.Fatalf("shard %d holds %d keys, over the %d it is held to", i, n, maxUriKeyShard)
+		}
 	}
 }
