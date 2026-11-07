@@ -341,7 +341,6 @@ func uriKey(u uri.URI) string {
 }
 
 func uriKeyUncached(s string) string {
-
 	// Percent-escapes are decoded so that the two ways this codebase builds a
 	// file URI land on one key. Indexing goes through uri.File, which escapes:
 	// a workspace under "/My Documents" is stored as "file:///My%20Documents/…".
@@ -1670,7 +1669,7 @@ var uriKeys uriKeyMemo
 
 const (
 	uriKeyShards   = 64
-	maxUriKeyShard = 2048
+	maxURIKeyShard = 2048
 )
 
 type uriKeyMemo struct {
@@ -1698,7 +1697,7 @@ func (c *uriKeyMemo) key(s string) string {
 	k = uriKeyUncached(s)
 
 	sh.mu.Lock()
-	if sh.m == nil || len(sh.m) >= maxUriKeyShard {
+	if sh.m == nil || len(sh.m) >= maxURIKeyShard {
 		sh.m = make(map[string]string, 256)
 	}
 

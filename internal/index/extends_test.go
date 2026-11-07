@@ -149,7 +149,7 @@ func TestURIKeyMemoryAnswersAsTheComputationDoes(t *testing.T) {
 		}
 	}
 
-	for i := range uriKeyShards * maxUriKeyShard * 2 {
+	for i := range uriKeyShards * maxURIKeyShard * 2 {
 		_ = uriKey(uri.URI("file:///bulk/File" + strconv.Itoa(i) + ".cfc"))
 	}
 
@@ -160,8 +160,8 @@ func TestURIKeyMemoryAnswersAsTheComputationDoes(t *testing.T) {
 		n := len(sh.m)
 		sh.mu.RUnlock()
 
-		if n > maxUriKeyShard {
-			t.Fatalf("shard %d holds %d keys, over the %d it is held to", i, n, maxUriKeyShard)
+		if n > maxURIKeyShard {
+			t.Fatalf("shard %d holds %d keys, over the %d it is held to", i, n, maxURIKeyShard)
 		}
 	}
 }
