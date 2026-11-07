@@ -111,6 +111,8 @@ func (r *Resolver) ClassifyReasonIn(call *parser.CallSite, reason string, opt Cl
 		return Accepted, ""
 	case !opt.KeepUntypedHops && isBeanAccessorOfUnknown(call, reason):
 		return Accepted, ""
+	case !opt.KeepUntypedHops && r.isKnownNativeMember(call, reason):
+		return Accepted, ""
 	}
 
 	if base, ok := MissingBaseOf(reason); ok {

@@ -101,7 +101,7 @@ func TestNativeLiteralInitializerDoesNotTypeUnknownLoopElement(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rep := Scan(vfs.OS{}, []string{file}, nil, &Options{WorkspaceFolders: []string{dir}})
+	rep := Scan(vfs.OS{}, []string{file}, nil, &Options{WorkspaceFolders: []string{dir}, keepUntypedHops: true})
 	if len(rep.Calls) != 1 || !strings.Contains(rep.Calls[0].Reason, "no component ref") {
 		t.Fatalf("initializer leaked into loop: %+v", rep.Calls)
 	}

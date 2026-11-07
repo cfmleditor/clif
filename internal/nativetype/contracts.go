@@ -4,6 +4,7 @@ package nativetype
 
 import (
 	"maps"
+	"slices"
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/parser"
@@ -399,4 +400,23 @@ func init() {
 	contracts["iterator.pool"] = contract(methods(Type("boolean"), "hasnext"), methods(Type("pool"), "next"))
 	contracts["pool"] = contract(methods(Type("numeric"), "getnumactive getnumidle getmaxidle getminidle getmaxwaitmillis"), methods(Type("datasource"), "getfactory"))
 	contracts["datasource"] = methods(Type("datasource"), "getdatasource")
+}
+
+// Types lists the native and Java types whose contract has a public method of
+// this name, sorted: the answer to "what could a value that answers this be",
+// for a receiver the source never typed.
+func Types(method string) []string {
+	m := strings.ToLower(method)
+
+	var out []string
+
+	for name, methods := range contracts {
+		if _, ok := methods[m]; ok {
+			out = append(out, name)
+		}
+	}
+
+	slices.Sort(out)
+
+	return out
 }

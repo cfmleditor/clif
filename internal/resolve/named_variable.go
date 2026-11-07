@@ -6,6 +6,7 @@ import (
 	"unicode"
 
 	"github.com/cfmleditor/clif/internal/frameworkapi"
+	"github.com/cfmleditor/clif/internal/nativetype"
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
 )
@@ -243,4 +244,19 @@ func isBeanAccessorOfUnknown(call *parser.CallSite, reason string) bool {
 	}
 
 	return false
+}
+
+// isKnownNativeMember reports whether a call on an untyped receiver is of a
+// method that no component of the workspace declares but a native CFML type or
+// a Java class the project models does (`getTimeZone`, `entrySet`,
+// `deleteOnExit`): the receiver is such a value, as the method names it.
+// Methods the contracts mark as the engine's own are already taken as native
+// members; this is the Java side, from the same tables that type a
+// `createObject( "java", … )` result.
+func (r *Resolver) isKnownNativeMember(call *parser.CallSite, reason string) bool {
+	if !noRefReceiver(call, reason) || r.Index == nil || r.Index.CountFunctions(call.FuncName) != 0 {
+		return false
+	}
+
+	return nativetype.JDKMember(call.FuncName) || len(nativetype.Types(call.FuncName)) > 0
 }

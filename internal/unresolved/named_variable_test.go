@@ -139,3 +139,21 @@ func TestAnAccessorOnAnUntypedReceiverIsABeanCall(t *testing.T) {
 		}
 	}
 }
+
+// A method no component declares is accepted on an untyped receiver when a
+// native CFML type's contract or a JDK class has it (`entrySet`, `getCause`,
+// `toURI`); a name neither knows stays reported.
+func TestAJavaOrNativeMethodNoComponentDeclaresIsAcceptedOnAnUntypedReceiver(t *testing.T) {
+	dir := t.TempDir()
+	use := filepath.Join(dir, "Use.cfc")
+
+	src := "component {\n function go( thing ) {\n thing.entrySet();\n thing.getCause();\n thing.toURI();\n thing.frobnicateWidget();\n }\n}"
+	if err := os.WriteFile(use, []byte(src), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got := Scan(vfs.OS{}, []string{use}, nil, &Options{WorkspaceFolders: []string{dir}})
+	if len(got.Calls) != 1 || got.Calls[0].Function != "frobnicateWidget" {
+		t.Fatalf("want only frobnicateWidget reported, got %+v", got.Calls)
+	}
+}

@@ -124,11 +124,11 @@ func TestAVariableAssignedFromAnUntypedFunctionIsAccepted(t *testing.T) {
 	string function typed() { return "a"; }
 	function run() {
 		var x = helper( 1 );
-		x.go();
+		x.zorkify();
 		var y = typed();
-		y.go();
+		y.zorkify();
 		var z = notDeclared();
-		z.go();
+		z.zorkify();
 	}
 }`,
 	})

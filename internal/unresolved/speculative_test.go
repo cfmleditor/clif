@@ -27,7 +27,7 @@ func TestSpeculativeCandidatesRequireOptInAndExposeWrongOrigin(t *testing.T) {
 		files = append(files, p)
 	}
 
-	opt := &Options{WorkspaceFolders: []string{dir}, InferArgs: true}
+	opt := &Options{WorkspaceFolders: []string{dir}, InferArgs: true, keepUntypedHops: true}
 	strict := Scan(vfs.OS{}, files, nil, opt)
 	opt.Speculative = true
 
@@ -147,7 +147,7 @@ func TestSpeculativePrimitiveFallbackIsOptInAndExposesWrongOrigin(t *testing.T) 
 		files = append(files, file)
 	}
 
-	opt := &Options{WorkspaceFolders: []string{dir}, InferArgs: true}
+	opt := &Options{WorkspaceFolders: []string{dir}, InferArgs: true, keepUntypedHops: true}
 	strict := Scan(vfs.OS{}, files, nil, opt)
 	opt.SpeculativeNative = true
 

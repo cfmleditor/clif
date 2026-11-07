@@ -2,7 +2,7 @@
 
 Seven corpora (Galaxie, TestBox, FW/1, ColdBox, ContentBox, Lucee, MasaCMS), measured
 with `clif unresolved --json` and `unresolved-diff`. 8,215 findings when the long-tail
-work began; **1,346** after the fixes below. This note classifies those 4,214 by the
+work began; **1314** after the fixes below. This note classifies those 4,214 by the
 information that would resolve each one, so the next piece of work can be picked by
 yield and risk. The scripts that produced the numbers are not committed; the method is
 under "How to reproduce".
