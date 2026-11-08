@@ -15,6 +15,8 @@
 
 ### Fixed
 
+- **`mergeTagRegion` is 80 lines, not 135.** Setting up a tag parser for a region (`newRegionTagParser`) and moving what it found from the region's lines to the file's (`mergeTagFindings`: links, function links, function refs, pending calls) are methods of their own. A test written first covers the merges nothing reached (links and function links after a script block splits a tag function, and the refs and function on their file lines); `gapcheck` and the parser tests pass and `unresolved` is byte-identical on all seven corpora.
+
 - **`extractSignatures` is 56 lines, not 141.** The tag functions' scopes (`tagFunctionScopes`), the parse of each region (`mergeRegions`), the merge of the scopes the regions missed (`addTagScopes`) and the second half of a full parse (`settleSignatures`) are methods of their own. The function was covered but for its recover line. `gapcheck` and the parser tests pass and `unresolved` is byte-identical on all seven corpora.
 
 - **`indexWorkspace` is 93 lines, not 141.** Where the components come from (`workspaceCFCFiles`: the globs, else the folders, else the editor's roots) and the read of one file for the index (`parseForIndex`: not one the editor has open, not unreadable, not binary) are functions of their own. Two tests written first cover what none reached (each source, and each reason a file is skipped); the open-document and binary ones fail with their check removed.

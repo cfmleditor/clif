@@ -688,10 +688,10 @@ func (pr *ParseResult) mergeScriptRegion(r *Region, tagScopes []FuncScope, open 
 	return sp.pendingCalls
 }
 
-// mergeTagRegion parses a tag region and merges what it found into pr, with
-// its lines and function keys moved from region-relative to file lines,
-// returning its pending calls for resolvePendingCalls.
-func (pr *ParseResult) mergeTagRegion(r *Region, tagScopes []FuncScope, open *openLocals) []pendingCall {
+// newRegionTagParser is a tag parser set up to read region r of the file: the
+// result's resolvers and lookups, the file's tag function scopes, the output
+// state the tag regions share, and the flow blocks at the region's offset.
+func (pr *ParseResult) newRegionTagParser(r *Region, tagScopes []FuncScope) *tagParser {
 	tp := newTagParser(r.Text, string(pr.URI))
 	tp.resolvers = pr.Resolvers
 	tp.resolverSet = pr.resolverSet
@@ -707,6 +707,62 @@ func (pr *ParseResult) mergeTagRegion(r *Region, tagScopes []FuncScope, open *op
 	if pr.flow != nil {
 		tp.flow = pr.flow.region(r.Offset, conv.Uint32(r.StartLine))
 	}
+
+	return tp
+}
+
+// mergeTagFindings adds the links, function links, function refs and pending
+// calls a region's tag parser found, with their lines and function keys moved
+// from the region's to the file's by the region's start line.
+func (pr *ParseResult) mergeTagFindings(tp *tagParser, startLine int) {
+	// Merge links from tag parser
+	if startLine > 0 {
+		for i := range tp.links {
+			tp.links[i].Line += conv.Uint32(startLine)
+		}
+	}
+
+	pr.Links = append(pr.Links, tp.links...)
+	for k, links := range tp.funcLinks {
+		if startLine > 0 {
+			k = shiftFuncKey(k, startLine)
+
+			for i := range links {
+				links[i].Line += conv.Uint32(startLine)
+			}
+		}
+
+		pr.funcLinksMap = appendKeyed(pr.funcLinksMap, k, links)
+	}
+
+	// Merge function-scoped refs from tag parser
+	for k, refs := range tp.funcRefs {
+		// Offset the key and ref lines by region start line
+		if startLine > 0 {
+			k = shiftFuncKey(k, startLine)
+
+			for i := range refs {
+				refs[i].Line += conv.Uint32(startLine)
+			}
+		}
+
+		pr.funcRefsMap = appendKeyed(pr.funcRefsMap, k, refs)
+	}
+
+	// Collect pending calls from tag parser (offset lines and funcKey)
+	for i := range tp.pendingCalls {
+		tp.pendingCalls[i].line += conv.Uint32(startLine)
+		if startLine > 0 && tp.pendingCalls[i].funcKey != "" {
+			tp.pendingCalls[i].funcKey = shiftFuncKey(tp.pendingCalls[i].funcKey, startLine)
+		}
+	}
+}
+
+// mergeTagRegion parses a tag region and merges what it found into pr, with
+// its lines and function keys moved from region-relative to file lines,
+// returning its pending calls for resolvePendingCalls.
+func (pr *ParseResult) mergeTagRegion(r *Region, tagScopes []FuncScope, open *openLocals) []pendingCall {
+	tp := pr.newRegionTagParser(r, tagScopes)
 
 	// If this region starts partway through a function whose opening
 	// <cffunction> tag was in an earlier region (interrupted by a
@@ -766,47 +822,7 @@ func (pr *ParseResult) mergeTagRegion(r *Region, tagScopes []FuncScope, open *op
 	pr.Properties = append(pr.Properties, tp.properties...)
 	pr.keepRegionFacts(r, tp)
 
-	// Merge links from tag parser
-	if r.StartLine > 0 {
-		for i := range tp.links {
-			tp.links[i].Line += conv.Uint32(r.StartLine)
-		}
-	}
-
-	pr.Links = append(pr.Links, tp.links...)
-	for k, links := range tp.funcLinks {
-		if r.StartLine > 0 {
-			k = shiftFuncKey(k, r.StartLine)
-
-			for i := range links {
-				links[i].Line += conv.Uint32(r.StartLine)
-			}
-		}
-
-		pr.funcLinksMap = appendKeyed(pr.funcLinksMap, k, links)
-	}
-
-	// Merge function-scoped refs from tag parser
-	for k, refs := range tp.funcRefs {
-		// Offset the key and ref lines by region start line
-		if r.StartLine > 0 {
-			k = shiftFuncKey(k, r.StartLine)
-
-			for i := range refs {
-				refs[i].Line += conv.Uint32(r.StartLine)
-			}
-		}
-
-		pr.funcRefsMap = appendKeyed(pr.funcRefsMap, k, refs)
-	}
-
-	// Collect pending calls from tag parser (offset lines and funcKey)
-	for i := range tp.pendingCalls {
-		tp.pendingCalls[i].line += conv.Uint32(r.StartLine)
-		if r.StartLine > 0 && tp.pendingCalls[i].funcKey != "" {
-			tp.pendingCalls[i].funcKey = shiftFuncKey(tp.pendingCalls[i].funcKey, r.StartLine)
-		}
-	}
+	pr.mergeTagFindings(tp, r.StartLine)
 
 	pr.mergeTagCalls(tp, r.StartLine)
 
