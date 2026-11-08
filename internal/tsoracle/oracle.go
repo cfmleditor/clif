@@ -97,14 +97,39 @@ func collect(n *sitter.Node, src []byte, rowOffset uint32, opaque map[uint]bool)
 			}
 		}
 
-		for i := range int(n.NamedChildCount()) {
-			walk(n.NamedChild(uint(i)))
-		}
+		eachNamedChild(n, walk)
 	}
 
 	walk(n)
 
 	return out
+}
+
+// eachNamedChild visits the named children of n in order, with a cursor.
+//
+// Reading them as n.NamedChild(i) for each i is quadratic in the child count:
+// the binding finds child i by walking the siblings before it. A flat node with
+// hundreds of thousands of children — a binary file saved as .cfm parses to
+// about 0.35 named nodes per byte under the root — took 620ms at 32KB and, by
+// that growth, half an hour at the 1.7MB zip in MasaCMS, which ended the
+// differential run at its timeout.
+func eachNamedChild(n *sitter.Node, visit func(*sitter.Node)) {
+	c := n.Walk()
+	defer c.Close()
+
+	if !c.GotoFirstChild() {
+		return
+	}
+
+	for {
+		if child := c.Node(); child.IsNamed() {
+			visit(child)
+		}
+
+		if !c.GotoNextSibling() {
+			return
+		}
+	}
 }
 
 // isCallKind reports whether a node is a call under some name.
@@ -183,9 +208,7 @@ func grammarDecls(src []byte) []string {
 				}
 			}
 
-			for i := range int(n.NamedChildCount()) {
-				walk(n.NamedChild(uint(i)))
-			}
+			eachNamedChild(n, walk)
 		}
 
 		walk(root)
