@@ -317,46 +317,28 @@ func ParseWithOptions(fileURI uri.URI, content string, opts *ParseOptions) *Pars
 }
 
 // extractSignatures does a shallow parse: function names/args, component refs, scopes.
-func (pr *ParseResult) extractSignatures() {
-	defer func() {
-		if r := recover(); r != nil {
-			log.Recovered(pr.log, "parse panic in extractSignatures", r, "uri", string(pr.URI))
-		}
-	}()
-
-	pr.prepareManagedSetterLookup()
-
-	if pr.FuncLookup != nil {
-		lookup := pr.FuncLookup
-		pr.FuncLookup = memoFuncLookup(lookup)
-
-		defer func() { pr.FuncLookup = lookup }()
-	}
-
-	var allPendingCalls []pendingCall
-
-	if !pr.shallow {
-		pr.flow = newFlowBlocks(0)
-	}
-
-	// Pre-compute tag function boundaries from the whole file (not per-region)
-	// so a function whose body is interrupted by a nested <cfscript> block
-	// (which splits the file into separate Tag/Script/Tag... regions) still
-	// gets a correct end line and in-function tracking in every region it
-	// spans — not just the region containing its opening <cffunction> tag.
-	var (
-		tagScopes    []FuncScope
-		hasTagRegion bool
-	)
-
+// tagFunctionScopes are the scopes of the tag functions of the whole file, and
+// whether it has a tag region at all.
+//
+// Pre-computed from the whole file (not per region) so a function whose body is
+// interrupted by a nested <cfscript> block (which splits the file into separate
+// Tag/Script/Tag... regions) still gets a correct end line and in-function
+// tracking in every region it spans, not just the region containing its
+// opening <cffunction> tag.
+func (pr *ParseResult) tagFunctionScopes() (scopes []FuncScope, hasTagRegion bool) {
 	for _, r := range pr.Regions {
 		if r.Kind == RegionTag {
-			hasTagRegion = true
-			tagScopes = findTagFuncScopesIdx(pr.Content, 0, pr.contentLineIdx)
-
-			break
+			return findTagFuncScopesIdx(pr.Content, 0, pr.contentLineIdx), true
 		}
 	}
+
+	return nil, false
+}
+
+// mergeRegions parses each region of the file into the result, in file order,
+// and returns the calls whose receivers the later passes still have to type.
+func (pr *ParseResult) mergeRegions(tagScopes []FuncScope) []pendingCall {
+	var allPendingCalls []pendingCall
 
 	// The locals of a tag function a region split, carried to the regions
 	// after the split.
@@ -391,6 +373,83 @@ func (pr *ParseResult) extractSignatures() {
 		}
 	}
 
+	return allPendingCalls
+}
+
+// addTagScopes adds the tag functions' scopes the regions did not record. They
+// are keyed by start line rather than found by a scan of pr.Scopes per
+// candidate: both lists are one entry per function, so the pair was quadratic
+// in a component's method count.
+func (pr *ParseResult) addTagScopes(tagScopes []FuncScope) {
+	seen := make(map[int]struct{}, len(pr.Scopes))
+	for _, existing := range pr.Scopes {
+		seen[existing.Start] = struct{}{}
+	}
+
+	for _, sc := range tagScopes {
+		if _, dup := seen[sc.Start]; dup {
+			continue
+		}
+
+		seen[sc.Start] = struct{}{}
+
+		pr.Scopes = append(pr.Scopes, sc)
+	}
+}
+
+// settleSignatures is the second half of a full parse, once every region is in:
+// the expression mappings and service properties, the accessors and delegates
+// properties generate, the member writes and factory and collection returns,
+// and the calls left untyped.
+func (pr *ParseResult) settleSignatures(allPendingCalls []pendingCall) {
+	pr.applyExpressionMappings()
+	pr.applyServiceProperties()
+	pr.generatePropertyAccessors()
+	pr.collectDelegates()
+	pr.appendResolverRefs()
+	// Both passes read the same writes, and nothing between them changes
+	// the regions or scopes those are read from.
+	pr.writesMemo = &writesMemo{}
+	hasBindings := pr.hasMemberBinding(pr.Content)
+	pr.applyMemberBindings(hasBindings)
+	pr.applyFactoryReturnCalls(allPendingCalls)
+	pr.applyCollectionReturns(allPendingCalls)
+	pr.writesMemo.release()
+	pr.writesMemo = nil
+	pr.resolvePendingCalls(allPendingCalls)
+	pr.flow = nil
+	pr.applyChainedReturnLookup()
+
+	if hasBindings {
+		pr.memberSnapshot = &ParseResult{funcRefsMap: maps.Clone(pr.funcRefsMap)}
+		pr.memberSnapshotContent = pr.Content
+	}
+}
+
+func (pr *ParseResult) extractSignatures() {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Recovered(pr.log, "parse panic in extractSignatures", r, "uri", string(pr.URI))
+		}
+	}()
+
+	pr.prepareManagedSetterLookup()
+
+	if pr.FuncLookup != nil {
+		lookup := pr.FuncLookup
+		pr.FuncLookup = memoFuncLookup(lookup)
+
+		defer func() { pr.FuncLookup = lookup }()
+	}
+
+	if !pr.shallow {
+		pr.flow = newFlowBlocks(0)
+	}
+
+	tagScopes, hasTagRegion := pr.tagFunctionScopes()
+
+	allPendingCalls := pr.mergeRegions(tagScopes)
+
 	// Detect tag-based function scopes from full content (handles functions
 	// that span region boundaries, e.g. containing <cfscript> blocks).
 	//
@@ -400,23 +459,7 @@ func (pr *ParseResult) extractSignatures() {
 	// tag parse allocated, spent scanning the file a second time for an answer
 	// already in hand.
 	if hasTagRegion {
-		// Which start lines are already recorded, rather than a scan of pr.Scopes
-		// per candidate: both lists are one entry per function, so the pair was
-		// quadratic in a component's method count.
-		seen := make(map[int]struct{}, len(pr.Scopes))
-		for _, existing := range pr.Scopes {
-			seen[existing.Start] = struct{}{}
-		}
-
-		for _, sc := range tagScopes {
-			if _, dup := seen[sc.Start]; dup {
-				continue
-			}
-
-			seen[sc.Start] = struct{}{}
-
-			pr.Scopes = append(pr.Scopes, sc)
-		}
+		pr.addTagScopes(tagScopes)
 	}
 
 	// Sort scopes by start line to match function order.
@@ -430,34 +473,15 @@ func (pr *ParseResult) extractSignatures() {
 	pr.discardPrimitiveReturnComponents()
 
 	// Generate synthetic accessor functions for properties (skip if explicit function exists).
-	if !pr.shallow {
-		pr.applyExpressionMappings()
-		pr.applyServiceProperties()
-		pr.generatePropertyAccessors()
-		pr.collectDelegates()
-		pr.appendResolverRefs()
-		// Both passes read the same writes, and nothing between them changes
-		// the regions or scopes those are read from.
-		pr.writesMemo = &writesMemo{}
-		hasBindings := pr.hasMemberBinding(pr.Content)
-		pr.applyMemberBindings(hasBindings)
-		pr.applyFactoryReturnCalls(allPendingCalls)
-		pr.applyCollectionReturns(allPendingCalls)
-		pr.writesMemo.release()
-		pr.writesMemo = nil
-		pr.resolvePendingCalls(allPendingCalls)
-		pr.flow = nil
-		pr.applyChainedReturnLookup()
-
-		if hasBindings {
-			pr.memberSnapshot = &ParseResult{funcRefsMap: maps.Clone(pr.funcRefsMap)}
-			pr.memberSnapshotContent = pr.Content
-		}
-	} else {
+	if pr.shallow {
 		// A shallow parse cannot afford FuncLookup, and a ref typed by the
 		// first call of a longer chain is wrong, so such a ref is dynamic.
 		dropChainRest(pr, dynamicIfTyped)
+
+		return
 	}
+
+	pr.settleSignatures(allPendingCalls)
 }
 
 // markStructReturns flags each function one of whose returns is a struct
