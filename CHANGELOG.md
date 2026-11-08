@@ -9,6 +9,8 @@
 
 ### Fixed
 
+- **The formatter's `cfscript_formatter.go` and `formatter.go` are seven files.** Collections, closures, parameters and control-flow statements of CFScript, the whitespace-only guard with the byte scans it relies on, and the CF tag formatting moved out unchanged (same declarations and code lines, checked by comparison; the formatter tests and the TestBox and FW/1 corpus pass).
+
 - **`script_parser.go` and `result.go` are eleven files.** The variable-only scan, string interpolation, the expressions that name a component, nested functions and closures, the typing of pending calls, property components, variables by scope, a function's refs and the call queries moved out unchanged (same declarations and code lines, checked by comparison; `unresolved` is byte-identical). The structural tests that read the parser's source (`TestEveryTokenLoopHandlesLiterals`, `TestBothDispatchSwitchesHandleEveryScope`) read every file of the package now, so a later split cannot move code out of their sight.
 
 - **`resolve.go` is five files.** The component-path resolution (`component_path.go`), function lookup and extends (`func_lookup.go`), the component a function returns (`return_component.go`) and the component a receiver holds (`receiver_component.go`) moved out of its 4,700 lines unchanged: the same 155 top-level declarations and the same code lines, checked by comparing both, and the output of `unresolved` is byte-identical.
