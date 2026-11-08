@@ -233,7 +233,7 @@ func isHitCall(stmt ast.Stmt) bool {
 
 // acceptHelpers answer "found it" with a bool after recording where; see
 // TestEveryAcceptPathRecordsATarget.
-var acceptHelpers = []string{"bareCallInComponent", "bareCallThroughContext"}
+var acceptHelpers = []string{"bareCallInComponent", "bareCallThroughContext", "methodAccepted"}
 
 // gatedByAcceptHelper reports whether cond calls one of acceptHelpers.
 func gatedByAcceptHelper(cond ast.Expr) bool {

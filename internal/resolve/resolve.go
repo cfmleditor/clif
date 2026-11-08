@@ -1752,18 +1752,7 @@ func (r *Resolver) checkMethodOn(comp, softComp string, call *parser.CallSite, p
 	funcName, variable := call.FuncName, call.Variable
 
 	if comp == "" {
-		if base, implied := r.inheritedFromMissingBase(variable, call.Line, pr, baseDir); base != "" {
-			if implied {
-				tr.addf("%q is the framework base's, which does not resolve (%s) — accepted as dynamic", variable, base)
-				tr.hit(TargetDynamic, "", nil)
-
-				return ""
-			}
-
-			return MissingBaseReason(base)
-		}
-
-		return "variable '" + variable + "' has no component ref"
+		return r.receiverlessReason(variable, call.Line, pr, baseDir, tr)
 	}
 
 	// A MockBox mock of a class: the class's methods, where the class
@@ -1818,40 +1807,65 @@ func (r *Resolver) checkMethodOn(comp, softComp string, call *parser.CallSite, p
 
 	tr.addf("checking whether %q defines method %q", comp, funcName)
 
+	if r.methodAccepted(comp, call, pr, baseDir, tr) {
+		return ""
+	}
+
+	return r.missingMethod(comp, softComp, call, pr, baseDir, tr)
+}
+
+// receiverlessReason is the verdict on a call whose receiver no step typed:
+// accepted as dynamic when it belongs to a framework base that does not
+// resolve, the base's reason when the file's own base does not, else that the
+// variable has no component ref.
+func (r *Resolver) receiverlessReason(variable string, line uint32, pr *parser.ParseResult, baseDir string, tr *callTrace) string {
+	if base, implied := r.inheritedFromMissingBase(variable, line, pr, baseDir); base != "" {
+		if implied {
+			tr.addf("%q is the framework base's, which does not resolve (%s) — accepted as dynamic", variable, base)
+			tr.hit(TargetDynamic, "", nil)
+
+			return ""
+		}
+
+		return MissingBaseReason(base)
+	}
+
+	return "variable '" + variable + "' has no component ref"
+}
+
+// methodAccepted reports whether comp, which does not make the receiver
+// untyped, answers a call of the method, recording where: a method it declares
+// or inherits, an assertion a test setup installs, one MockBox adds, a member
+// method every value has, onMissingMethod, an interface (which declares less
+// than what implements it), or the component a resolver names by the variable.
+func (r *Resolver) methodAccepted(comp string, call *parser.CallSite, pr *parser.ParseResult, baseDir string, tr *callTrace) bool {
+	funcName, variable := call.FuncName, call.Variable
+
 	if def := r.ResolveFunc(comp, funcName, baseDir); def != nil {
 		tr.hit(TargetComponent, comp, def)
 
-		return ""
+		return true
 	}
 
 	if def := r.registeredAssertion(comp, call, pr, baseDir); def != nil {
 		tr.addf("%q is a literal assertion installed by the selected beforeTests setup", funcName)
 		tr.hit(TargetComponent, comp, def)
 
-		return ""
+		return true
 	}
 
 	if mockDecoration(funcName) {
 		tr.addf("%q is a method MockBox adds to a mock of %q — accepted", funcName, comp)
 		tr.hit(TargetDynamic, comp, nil)
 
-		return ""
-	}
-
-	// `a.m = f;` earlier in the function stored something on a, and this
-	// calls it: the method is the program's, not the component's.
-	if variable != "" && len(call.Chain) == 0 && pr.AssignsMember(variable, funcName, call.Line) {
-		tr.addf("%q is assigned onto %q earlier in the function — accepted as dynamic", funcName, variable)
-		tr.hit(TargetDynamic, comp, nil)
-
-		return ""
+		return true
 	}
 
 	if parser.IsMemberMethod(funcName) {
 		tr.addf("%q is a known member/Java-interop method — accepted without finding it in %q", funcName, comp)
 		tr.hit(TargetMember, comp, nil)
 
-		return ""
+		return true
 	}
 
 	// Component defines onMissingMethod — any method call is valid.
@@ -1859,7 +1873,7 @@ func (r *Resolver) checkMethodOn(comp, softComp string, call *parser.CallSite, p
 		tr.addf("%q defines onMissingMethod — any method call accepted", comp)
 		tr.hit(TargetDynamic, comp, nil)
 
-		return ""
+		return true
 	}
 
 	// An interface declares less than the object behind it: ColdBox types
@@ -1870,7 +1884,7 @@ func (r *Resolver) checkMethodOn(comp, softComp string, call *parser.CallSite, p
 		tr.addf("%q is an interface, and what implements it may have %q — accepted as dynamic", comp, funcName)
 		tr.hit(TargetDynamic, comp, nil)
 
-		return ""
+		return true
 	}
 
 	// The ref-derived component didn't have the method. Try the variable-name resolver
@@ -1883,17 +1897,17 @@ func (r *Resolver) checkMethodOn(comp, softComp string, call *parser.CallSite, p
 		if altNoFollow {
 			tr.hit(TargetDynamic, altComp, nil)
 
-			return ""
+			return true
 		}
 
 		if altDef := r.ResolveFunc(altComp, funcName, baseDir); altDef != nil {
 			tr.hit(TargetComponent, altComp, altDef)
 
-			return ""
+			return true
 		}
 	}
 
-	return r.missingMethod(comp, softComp, call, pr, baseDir, tr)
+	return false
 }
 
 // missingMethod is checkMethodOn's answer once comp is known not to declare

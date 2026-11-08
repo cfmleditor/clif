@@ -18,7 +18,7 @@ func TestAnArgumentQualifiedReceiverIsTypedFromTheArgumentList(t *testing.T) {
 }`,
 	}
 
-	reasons := reasonsFor(t, files, "A.cfc", nil)
+	reasons := reasonsFor(t, files, nil)
 
 	if reasons["arguments.svc.save"] != "" {
 		t.Errorf("arguments.svc.save: %q, want resolved", reasons["arguments.svc.save"])

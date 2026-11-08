@@ -15,8 +15,10 @@ import (
 // reasonsFor resolves every call of a one-file workspace and returns the
 // resolver's reason for each, keyed by "variable.name" (or "name" for a bare
 // call). An empty reason is a call that resolved.
-func reasonsFor(t *testing.T, files map[string]string, main string, settings func(*Resolver, string)) map[string]string {
+func reasonsFor(t *testing.T, files map[string]string, settings func(*Resolver, string)) map[string]string {
 	t.Helper()
+
+	const main = "A.cfc"
 
 	dir := t.TempDir()
 	writeFiles(t, dir, files)
@@ -79,7 +81,7 @@ func TestAScopeQualifiedCallIsAFunctionReference(t *testing.T) {
 		arguments.passed( 2 );
 		variables.neverSet( 3 );
 	}
-}`}, "A.cfc", nil)
+}`}, nil)
 
 	for _, c := range []struct {
 		key      string
@@ -147,7 +149,7 @@ func TestAReceiverIsMatchedByNameThenByLine(t *testing.T) {
 }`,
 	}
 
-	reasons := reasonsFor(t, files, "A.cfc", func(r *Resolver, _ string) {
+	reasons := reasonsFor(t, files, func(r *Resolver, _ string) {
 		r.Resolvers = []parser.Resolver{
 			{Match: "named", Resolve: "Svc", Prefix: "named", Anchored: true},
 			{Match: "free", Resolve: "nocheck", Prefix: "free", Anchored: true, NoFollow: true},
@@ -168,5 +170,49 @@ func TestAReceiverIsMatchedByNameThenByLine(t *testing.T) {
 
 	if reasons["other.known"] == "" {
 		t.Error("other.known resolved with no ref and no resolver for it")
+	}
+}
+
+// The component a ref gives a receiver may be wrong (a pending call inherited
+// it from another variable), so a method it lacks is tried against the
+// component a resolver names by the variable's own name, and a resolver that
+// says noFollow takes the call without a check.
+func TestAMethodTheRefsComponentLacksIsTriedAgainstTheNameResolver(t *testing.T) {
+	files := map[string]string{
+		"app/Svc.cfc":   `component { function known() {} }`,
+		"app/Other.cfc": `component { function viaName() {} }`,
+		"A.cfc": `component {
+	function run() {
+		var svc = new app.Svc();
+		svc.known();
+		svc.absent();
+		var other = new app.Svc();
+		other.viaName();
+		other.nowhere();
+	}
+}`,
+	}
+
+	reasons := reasonsFor(t, files, func(r *Resolver, _ string) {
+		r.Resolvers = []parser.Resolver{
+			{Match: "svc", Resolve: "nocheck", Prefix: "svc", Anchored: true, NoFollow: true},
+			{Match: "other", Resolve: "app.Other", Prefix: "other", Anchored: true},
+		}
+	})
+
+	if reasons["svc.known"] != "" {
+		t.Errorf("svc.known: %q, want resolved on the ref's component", reasons["svc.known"])
+	}
+
+	if reasons["svc.absent"] != "" {
+		t.Errorf("svc.absent: %q, want accepted by the noFollow resolver on the name", reasons["svc.absent"])
+	}
+
+	if reasons["other.viaName"] != "" {
+		t.Errorf("other.viaName: %q, want found on the component the name resolver gives", reasons["other.viaName"])
+	}
+
+	if reasons["other.nowhere"] == "" {
+		t.Error("other.nowhere resolved, but neither component has it")
 	}
 }
