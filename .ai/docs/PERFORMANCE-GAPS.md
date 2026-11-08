@@ -862,3 +862,19 @@ come to matter. About a third of a Lucee scan (3.7 s to about 2.5 s) and
 nothing on the other six corpora. A wrong invalidation here is a stale leaf
 set in the editor's long-lived process, which is why it is written down and
 not done.
+
+**Batch `GOGC=75` as the default: measured, not changed.** Peak resident memory
+and time of `unresolved`, mean of three interleaved runs per setting:
+
+| corpus | `GOGC=100` | `GOGC=75` |
+|---|---|---|
+| Lucee | 318 MB, 3.83 s | 286 MB, 4.07 s |
+| MasaCMS | 277 MB, 2.67 s | 252 MB, 2.73 s |
+| Galaxie | 154 MB, 0.73 s | 149 MB, 0.80 s |
+| ContentBox | 144 MB, 0.70 s | 135 MB, 0.80 s |
+| ColdBox | 147 MB, 0.80 s | 137 MB, 0.83 s |
+| FW/1, TestBox | 73-75 MB, 0.20 s | 71 MB, 0.20 s |
+
+It saves 3-10% of the memory (2-32 MB) for 0-14% more time, which is the trade
+`cmd/clif/batch_memory.go` already describes and declines at this size: the
+default stays, and a user who wants less memory sets `GOGC` or `GOMEMLIMIT`.
