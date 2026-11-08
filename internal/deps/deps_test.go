@@ -3,20 +3,14 @@ package deps
 import (
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/cfmleditor/clif/internal/index"
 	"github.com/cfmleditor/clif/internal/parser"
+	"github.com/cfmleditor/clif/internal/testutil"
 	"go.lsp.dev/uri"
 )
-
-func testdataDir() string {
-	_, f, _, _ := runtime.Caller(0)
-
-	return filepath.Join(filepath.Dir(f), "..", "..", "testdata", "deps")
-}
 
 type testResolver struct{ dir string }
 
@@ -67,7 +61,7 @@ func buildIndex(t *testing.T, dir string) *index.Index {
 // edge too, so TestFunctionDepsFollowScopePrefixedReceivers checks the labels
 // and the dashed flag instead.
 func TestBuild_FunctionDeps(t *testing.T) {
-	dir := testdataDir()
+	dir := testutil.Testdata("deps")
 	idx := buildIndex(t, dir)
 	controllerPath, _ := filepath.Abs(filepath.Join(dir, "controller.cfc"))
 	pr := parseFile(t, filepath.Join(dir, "controller.cfc"))
@@ -131,7 +125,7 @@ func TestBuild_FunctionDeps(t *testing.T) {
 
 // TestBuild_FileDeps verifies full file deps include service and persist transitively.
 func TestBuild_FileDeps(t *testing.T) {
-	dir := testdataDir()
+	dir := testutil.Testdata("deps")
 	idx := buildIndex(t, dir)
 	controllerPath, _ := filepath.Abs(filepath.Join(dir, "controller.cfc"))
 	pr := parseFile(t, filepath.Join(dir, "controller.cfc"))
@@ -179,7 +173,7 @@ func TestBuild_FileDeps(t *testing.T) {
 
 // TestBuild_CleanupDeps verifies Cleanup's graph includes service and persist.
 func TestBuild_CleanupDeps(t *testing.T) {
-	dir := testdataDir()
+	dir := testutil.Testdata("deps")
 	idx := buildIndex(t, dir)
 	controllerPath, _ := filepath.Abs(filepath.Join(dir, "controller.cfc"))
 	pr := parseFile(t, filepath.Join(dir, "controller.cfc"))

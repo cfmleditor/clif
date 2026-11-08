@@ -9,6 +9,8 @@
 
 ### Fixed
 
+- **Expressions built from a name inside a function are compiled once** (`compiledPattern`) in the registry, lazy-getter, Wheels mapper, ColdBox intercept and Mura object rules; they were compiled on every call. Output is byte-identical on ContentBox and Masa; the time difference is within noise (about 2%), so this is housekeeping, not a speedup. The five copies of the tests' `testdataDir` are `testutil.Testdata`.
+
 - **The byte-level character classes four packages each wrote for themselves are one package, `internal/lex`** (`IsIdent`, `IsWord`, `SkipSpace`): the parser, formatter, route scan, known-issues report and resolver had byte-identical copies. Its test holds each helper to every former definition over all 256 bytes. The rules that differ (the server's, which counts bytes above ASCII, the formatter's Unicode skip, resolve's `\f`/`\v`) keep their own. `unresolved` output is byte-identical on TestBox, FW/1 and ColdBox.
 
 - **A binary file is detected over 8,000 bytes, UTF-16 text is text, and every reader checks.** `IsBinary` looked for a NUL in the first 512 bytes; it reads 8,000 now, as git does, and a UTF-16 file with a byte-order mark (which is a NUL in every other byte) is not binary: `cfpath.AsText` decodes it to the UTF-8 the analysis reads, and the batch scan, code map, indexers, file watcher, `parse`/`scan`, routes, `refs` and `deps` use it. `refs` and `deps` had no check at all. `clif format` and format-on-save refuse a binary or UTF-16 file before parsing (`formatter.SourceError`; a UTF-16 file would be rewritten as UTF-8), and a binary document the editor opens parses as empty. No change to the seven corpora's findings.

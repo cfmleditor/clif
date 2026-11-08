@@ -287,5 +287,5 @@ func interceptTarget(value []parser.Token) *regexp.Regexp {
 		return nil
 	}
 
-	return regexp.MustCompile(`(?i)^` + b.String() + `$`)
+	return compiledPattern(`(?i)^` + b.String() + `$`)
 }

@@ -134,12 +134,12 @@ func braceBody(rest string) string {
 // for a name the scanners do not take, and the reference they are tested
 // against.
 func functionBodyNamedRegex(content, name string) string {
-	tag := regexp.MustCompile(`(?is)<cffunction\b[^>]*\bname\s*=\s*["']` + regexp.QuoteMeta(name) + `["'][^>]*>(.*?)</cffunction>`)
+	tag := compiledPattern(`(?is)<cffunction\b[^>]*\bname\s*=\s*["']` + regexp.QuoteMeta(name) + `["'][^>]*>(.*?)</cffunction>`)
 	if all := tag.FindAllStringSubmatch(content, 2); len(all) == 1 {
 		return strings.TrimSpace(argumentTagRe.ReplaceAllString(all[0][1], ""))
 	}
 
-	script := regexp.MustCompile(`(?i)\bfunction\s+` + regexp.QuoteMeta(name) + `\s*\(`)
+	script := compiledPattern(`(?i)\bfunction\s+` + regexp.QuoteMeta(name) + `\s*\(`)
 
 	all := script.FindAllStringIndex(content, 2)
 	if len(all) != 1 {
@@ -205,7 +205,7 @@ func stripVariables(name string) string {
 func (r *Resolver) fieldWrites(content, field, dir string) string {
 	// Anywhere, not only at a line's start: a write inside a one-line if is
 	// a write all the same, and one missed would be one not checked.
-	re := regexp.MustCompile(`(?i)(?:^|[^\w.$])(?:variables\.)?` + regexp.QuoteMeta(field) + `\s*=\s*([^=][^;\n]*?)\s*(?:/?>|;|\n|$)`)
+	re := compiledPattern(`(?i)(?:^|[^\w.$])(?:variables\.)?` + regexp.QuoteMeta(field) + `\s*=\s*([^=][^;\n]*?)\s*(?:/?>|;|\n|$)`)
 	answer := ""
 
 	for _, m := range re.FindAllStringSubmatchIndex(content, -1) {

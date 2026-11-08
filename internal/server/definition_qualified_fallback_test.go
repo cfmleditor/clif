@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/cfmleditor/clif/internal/parser"
+	"github.com/cfmleditor/clif/internal/testutil"
 	"go.lsp.dev/protocol"
 	"go.lsp.dev/uri"
 )
@@ -15,7 +16,7 @@ import (
 func openInlineComponent(t *testing.T, srv *Server, name, content string) uri.URI {
 	t.Helper()
 
-	docURI := uri.URI("file://" + filepath.Join(testdataDir(), name))
+	docURI := uri.URI("file://" + filepath.Join(testutil.Testdata(), name))
 	srv.setDocument(docURI, content)
 
 	pr := parser.Parse(docURI, content, srv.cfResolvers())

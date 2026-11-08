@@ -3,12 +3,12 @@ package refs
 import (
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/cfmleditor/clif/internal/index"
 	"github.com/cfmleditor/clif/internal/resolve"
+	"github.com/cfmleditor/clif/internal/testutil"
 	"github.com/cfmleditor/clif/internal/vfs"
 )
 
@@ -18,17 +18,11 @@ func testResolver(dir string) *resolve.Resolver {
 	return resolve.NewBatchResolver(vfs.OS{}, index.New(), &resolve.Settings{WorkspaceFolders: []string{dir}})
 }
 
-func testdataDir() string {
-	_, f, _, _ := runtime.Caller(0)
-
-	return filepath.Join(filepath.Dir(f), "..", "..", "testdata", "refs")
-}
-
 // TestTrace_OnlyMatchesTargetComponent verifies that "find all calls to"
 // persist.cfc::GetData only finds calls that resolve to persist.cfc,
 // not calls to service.cfc::GetData or controller.cfc::GetData.
 func TestTrace_OnlyMatchesTargetComponent(t *testing.T) {
-	dir := testdataDir()
+	dir := testutil.Testdata("refs")
 	fs := vfs.OS{}
 	roots := []string{dir}
 
@@ -96,7 +90,7 @@ func TestTrace_OnlyMatchesTargetComponent(t *testing.T) {
 // find GetReport, then recursively find view.cfm calling GetReport.
 // It should NOT find a.cfc, b.cfc, persist.cfc, or report_view.cfm.
 func TestTrace_RecursesUpstream(t *testing.T) {
-	dir := testdataDir()
+	dir := testutil.Testdata("refs")
 	fs := vfs.OS{}
 	roots := []string{dir}
 
@@ -173,7 +167,7 @@ func TestTrace_RecursesUpstream(t *testing.T) {
 // to DoWork() in b.cfc does not match when tracing a.cfc::DoWork.
 // Also verifies that controller.cfc, service.cfc, persist.cfc are excluded.
 func TestTrace_DoesNotMatchSameNameInOtherFile(t *testing.T) {
-	dir := testdataDir()
+	dir := testutil.Testdata("refs")
 	fs := vfs.OS{}
 	roots := []string{dir}
 
@@ -241,7 +235,7 @@ func TestTrace_DoesNotMatchSameNameInOtherFile(t *testing.T) {
 // findRefs LSP command previously lost same-file matches when the URI-decoded
 // path didn't compare byte-for-byte equal to the filesystem-walked path.
 func TestTrace_SameFileMatchToleratesPathFormatting(t *testing.T) {
-	dir := testdataDir()
+	dir := testutil.Testdata("refs")
 	fs := vfs.OS{}
 	roots := []string{dir}
 
@@ -290,7 +284,7 @@ func TestTrace_SameFileMatchToleratesPathFormatting(t *testing.T) {
 // finds RunReport (same-file caller) and report_view.cfm (calls RunReport),
 // but does NOT find a.cfc::RunReport, b.cfc::RunReport, or other unrelated files.
 func TestTrace_GetReportChainIsolated(t *testing.T) {
-	dir := testdataDir()
+	dir := testutil.Testdata("refs")
 	fs := vfs.OS{}
 	roots := []string{dir}
 
@@ -372,7 +366,7 @@ func TestTrace_GetReportChainIsolated(t *testing.T) {
 // down the chain, reaches the target — and that FormatResult renders this as
 // separate "Direct" / "Indirect ... via ..." groups instead of one flat list.
 func TestTrace_DepthAndViaAnnotateChain(t *testing.T) {
-	dir := testdataDir()
+	dir := testutil.Testdata("refs")
 	fs := vfs.OS{}
 	roots := []string{dir}
 

@@ -17,6 +17,7 @@ import (
 	cfpath "github.com/cfmleditor/clif/internal/path"
 	"github.com/cfmleditor/clif/internal/refs"
 	"github.com/cfmleditor/clif/internal/resolve"
+	"github.com/cfmleditor/clif/internal/testutil"
 	"github.com/cfmleditor/clif/internal/vfs"
 	"go.lsp.dev/protocol"
 	"go.lsp.dev/uri"
@@ -4291,7 +4292,7 @@ func TestCompletionViaBeanProperty(t *testing.T) {
 }
 
 func TestBeansTestdata_InjectResolution(t *testing.T) {
-	dir := filepath.Join(testdataDir(), "beans")
+	dir := filepath.Join(testutil.Testdata(), "beans")
 	srv := newTestServer()
 	srv.WorkspaceFolders = []string{dir}
 
@@ -4348,7 +4349,7 @@ func TestBeansTestdata_InjectResolution(t *testing.T) {
 }
 
 func TestBeansTestdata_PositionalTypeResolution(t *testing.T) {
-	dir := filepath.Join(testdataDir(), "beans")
+	dir := filepath.Join(testutil.Testdata(), "beans")
 	srv := newTestServer()
 	srv.WorkspaceFolders = []string{dir}
 
@@ -4377,7 +4378,7 @@ func TestBeansTestdata_PositionalTypeResolution(t *testing.T) {
 }
 
 func TestBeansTestdata_ServiceInjectResolution(t *testing.T) {
-	dir := filepath.Join(testdataDir(), "beans")
+	dir := filepath.Join(testutil.Testdata(), "beans")
 	srv := newTestServer()
 	srv.WorkspaceFolders = []string{dir}
 
@@ -4416,7 +4417,7 @@ func refsResolver(dir string) *resolve.Resolver {
 }
 
 func TestFindAllCalls_GetById(t *testing.T) {
-	dir := filepath.Join(testdataDir(), "beans")
+	dir := filepath.Join(testutil.Testdata(), "beans")
 
 	entries := refs.Find(vfs.OS{}, []string{dir}, &refs.Options{FuncName: "getById", Resolver: refsResolver(dir)})
 
@@ -4441,7 +4442,7 @@ func TestFindAllCalls_GetById(t *testing.T) {
 }
 
 func TestFindAllCalls_GetAll(t *testing.T) {
-	dir := filepath.Join(testdataDir(), "beans")
+	dir := filepath.Join(testutil.Testdata(), "beans")
 
 	entries := refs.Find(vfs.OS{}, []string{dir}, &refs.Options{
 		FuncName: "getAll",
@@ -4469,7 +4470,7 @@ func TestFindAllCalls_GetAll(t *testing.T) {
 }
 
 func TestFindAllCalls_Resolved(t *testing.T) {
-	dir := filepath.Join(testdataDir(), "beans")
+	dir := filepath.Join(testutil.Testdata(), "beans")
 
 	entries := refs.Find(vfs.OS{}, []string{dir}, &refs.Options{
 		FuncName: "getById",
@@ -4493,7 +4494,7 @@ func TestFindAllCalls_Resolved(t *testing.T) {
 }
 
 func TestFindAllCalls_NoResults(t *testing.T) {
-	dir := filepath.Join(testdataDir(), "beans")
+	dir := filepath.Join(testutil.Testdata(), "beans")
 
 	entries := refs.Find(vfs.OS{}, []string{dir}, &refs.Options{
 		FuncName: "nonExistentFunction",
@@ -4506,7 +4507,7 @@ func TestFindAllCalls_NoResults(t *testing.T) {
 }
 
 func TestFindComponentRefs_UserDAO(t *testing.T) {
-	dir := filepath.Join(testdataDir(), "beans")
+	dir := filepath.Join(testutil.Testdata(), "beans")
 	beanPaths := cfpath.LoadAppBeanPaths(dir)
 	beans := cfpath.BuildBeanMap(beanPaths, vfs.OS{})
 	daoPath := beans["userdao@dao"]

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/cfmleditor/clif/internal/parser"
+	"github.com/cfmleditor/clif/internal/testutil"
 )
 
 // A call written `VARIABLES.svc.GetData()` is recorded with Variable
@@ -16,7 +17,7 @@ import (
 // dashed and the walk stopped at depth 0, never reaching the components behind
 // the first hop.
 func TestFunctionDepsFollowScopePrefixedReceivers(t *testing.T) {
-	dir := testdataDir()
+	dir := testutil.Testdata("deps")
 	idx := buildIndex(t, dir)
 	controllerPath, _ := filepath.Abs(filepath.Join(dir, "controller.cfc"))
 	pr := parseFile(t, filepath.Join(dir, "controller.cfc"))

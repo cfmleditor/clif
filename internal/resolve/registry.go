@@ -591,14 +591,14 @@ func factoryBodyFills(body, param string) bool {
 		return false
 	}
 
-	store := regexp.MustCompile(`(?i)\b([A-Za-z_]\w*)\s*\[[^\]]*\]\s*=\s*(?:local\.)?` + regexp.QuoteMeta(item) + `\b`)
+	store := compiledPattern(`(?i)\b([A-Za-z_]\w*)\s*\[[^\]]*\]\s*=\s*(?:local\.)?` + regexp.QuoteMeta(item) + `\b`)
 
 	m := store.FindStringSubmatch(body)
 	if m == nil {
 		return false
 	}
 
-	ret := regexp.MustCompile(`(?i)\breturn\s+(?:variables\.)?` + regexp.QuoteMeta(m[1]) + `\b`)
+	ret := compiledPattern(`(?i)\breturn\s+(?:variables\.)?` + regexp.QuoteMeta(m[1]) + `\b`)
 
 	return ret.MatchString(body)
 }
@@ -610,7 +610,7 @@ func pathsToItem(spanText, pathVar, item string) bool {
 		return true
 	}
 
-	re := regexp.MustCompile(`(?i)\b(?:var\s+)?([A-Za-z_]\w*)\s*=\s*` + regexp.QuoteMeta(item) + `\b`)
+	re := compiledPattern(`(?i)\b(?:var\s+)?([A-Za-z_]\w*)\s*=\s*` + regexp.QuoteMeta(item) + `\b`)
 
 	for _, m := range re.FindAllStringSubmatch(spanText, -1) {
 		if strings.EqualFold(m[1], strings.TrimPrefix(pathVar, "variables.")) {
@@ -971,14 +971,14 @@ func (r *Resolver) methodExistenceGuarded(pr *parser.ParseResult, call *parser.C
 
 	// A reference of the method itself questioned, the way
 	// !isNull(driver.getBundleName) spells it.
-	refCheck := regexp.MustCompile(`(?i)(?:^|[^\w])isNull\s*\(\s*[^\n()]*\.?[^\n()]*` + name + `\s*\)`)
+	refCheck := compiledPattern(`(?i)(?:^|[^\w])isNull\s*\(\s*[^\n()]*\.?[^\n()]*` + name + `\s*\)`)
 	if refCheck.MatchString(text) {
 		return true
 	}
 
 	// structKeyExists(recv, 'm') — a ternary, or an if whose branch calls
 	// it. A negated one reads the other way and does not guard.
-	keyCheck := regexp.MustCompile(`(?i)\bstruct[Kk]ey[Ee]xists\s*\(\s*[^(),\n]*\s*,\s*["']\s*` + name + `\s*["']`)
+	keyCheck := compiledPattern(`(?i)\bstruct[Kk]ey[Ee]xists\s*\(\s*[^(),\n]*\s*,\s*["']\s*` + name + `\s*["']`)
 	for _, m := range keyCheck.FindAllStringIndex(text, -1) {
 		if precededBy(text, m[0], "!", "not ") {
 			continue

@@ -6,6 +6,7 @@ import (
 
 	"github.com/cfmleditor/clif/internal/config"
 	"github.com/cfmleditor/clif/internal/route"
+	"github.com/cfmleditor/clif/internal/testutil"
 	"go.lsp.dev/uri"
 )
 
@@ -15,7 +16,7 @@ func routeServer(t *testing.T) *Server {
 	t.Helper()
 
 	srv := newTestServer()
-	srv.WorkspaceFolders = []string{testdataDir()}
+	srv.WorkspaceFolders = []string{testutil.Testdata()}
 	srv.Features = config.ResolveFeatures(nil)
 	srv.Routes = route.Config{
 		Attributes:  []string{"data-view", "data-read"},
@@ -134,7 +135,7 @@ func TestRoutesFeatureSwitchStopsTheScan(t *testing.T) {
 		t.Error("expected no route at position with the feature off")
 	}
 
-	docURI := uri.URI("file://" + testdataDir() + "/FeatureOff.cfm")
+	docURI := uri.URI("file://" + testutil.Testdata() + "/FeatureOff.cfm")
 	srv.setDocument(docURI, content)
 
 	if got := definitionAt(t, srv, docURI, 0, 16); got != nil {
