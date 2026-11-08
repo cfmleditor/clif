@@ -192,7 +192,7 @@ Editor document change
 | `internal/parser` | Line-scanner/tag-search parsing → `ParseResult`; resolver matching (`ast.go`) |
 | `internal/server` | LSP handler wiring, completion, definition, hover, symbols, signature help, code actions, document links, formatting, on-type formatting, watched-file reindexing, workspace commands, bean scanning |
 | `internal/index` | Concurrency-safe store of function defs, component refs, beans, ORM entities. `HasFile` answers "indexed at all" — not the same as `FunctionsForFile` returning nothing, since a property-only bean indexes to an empty but present entry. Two views of every entry — the name buckets (`funcs`/`comprefs`) and the per-file lists (`fileFuncs`/`fileRefs`) — hold the same pointers, and **every writer must fill or clear both**; `removeFileEntries` reaches the buckets *through* the per-file lists, so a writer that updates one view alone leaves entries no removal can find. **Accessors return a copy** (`snapshot`), which is what lets writers compact and rewrite buckets in place rather than rebuild a slice that, for a name every component declares, holds one entry per file — pinned by `TestAccessorsReturnStorageWritersDoNotTouch`. On a per-keystroke path reach for `LookupPreferred`/`CountFunctions`, not `Lookup`, which pays that copy. **Bucket order is not an answer**: entries land in the order a parallel workspace scan finished, so it differs between restarts — where several files declare a name and none is the requesting file, `LookupPreferred` picks the nearest by `cfpath.URIDistance` and the lowest URI among equals, and `definition.go` orders its multi-location list the same way |
-| `internal/resolve` | Dot-path → `.cfc` file resolution, `CanResolveCall`/`ExplainCall`, extends chain, cfinclude scope |
+| `internal/resolve` | The type-inference and call-resolution engine, about a third of the code. Dot-path → `.cfc` file (`component_path.go`), function lookup and the extends chain (`func_lookup.go`), what a function returns (`return_component.go`) and what a receiver holds (`receiver_component.go`), `CanResolveCall`/`ExplainCall` (`resolve.go`), cfinclude scope, the report's policy layer (`classify.go`: an ordered table of named rules, each marked judgement or proof, the judgement ones off in the strict view; `explain` names the one that decided), and one file per framework or inference rule (`wheels*`, `mura*`, `coldbox*`, `producer_*`, …) |
 | `internal/path` | Case-insensitive path resolution, mappings, globs, `Application.cfc` mapping/bean/ORM extraction, binary + CFML file detection |
 | `internal/config` | `.clif.json` schema (`config.JSON`), defaults, `JavaStubResolver` |
 | `internal/daemon` | Unix socket serve/proxy, connection tracking, config discovery |
@@ -213,6 +213,8 @@ Editor document change
 | `internal/graph` | Graph type + Mermaid renderer |
 | `internal/vfs` | `FS` interface + stdio transport, abstracted for native vs WASM builds. **Every file read goes through `ReadRegular`** (`vfs.OS` and every former `os.ReadFile`): it refuses a device, a FIFO or a socket, whatever a symlink at the path points to, and anything over `MaxFileSize` (32MB). A workspace file symlinked to `/dev/zero` took a scan to 17GB in eight seconds, and a FIFO hung indexing for good; the open is non-blocking so a FIFO cannot wait for a writer, and the checks come from the opened file. `TestReadRegularRefusesADevice`, `TestReadRegularDoesNotWaitOnAFIFO` |
 | `internal/log` | zap wrapper; `debug: true` in config switches to `zap.NewDevelopment`. `EnableCrashReports` (called from `runServer` only, so test binaries never write to the user's cache) sends the runtime's crash output and every panic record to `CLIF_LOG` or, unset, `<os.UserCacheDir>/clif/crash.log`. A recover site calls `cflog.Recovered`, not `log.Error`, so the record carries its stack and reaches that file |
+| `internal/lex` | Byte classes and small string helpers several packages had each written for themselves (`IsIdent`, `IsWord`, `SkipSpace`, `LowerASCII`, `HasPrefixFold`, `ContainsFold`, `UTF16Len`); imports only `strings`, so the parser may use it. Only definitions that were byte-for-byte alike are here: a package whose rule differs keeps its own under a name that says how, and each helper's test holds it to every definition it replaced |
+| `internal/testutil` | Helpers the packages' tests share (`Testdata`); production code does not import it |
 | `internal/conv` | Range-checked integer conversions (`Uint32`, `Uint32FromUint`, `Int32`) for LSP line and column numbers; imports only `math` |
 | `internal/confine` | Keeps a write, or an MCP tool's path, inside given roots after resolving symlinks (a link at the final name and a linked directory above it). A link that stays inside is followed; one that leaves is refused |
 
@@ -1006,6 +1008,14 @@ Check a change here by building a project's map several times and comparing the 
 byte for byte (only `buildMillis` differs).
 
 ## Key structural notes
+
+**Files are split by concern, and some tests read source by file name.** `TestTagDispatchMatchesTheFastSkip`
+reads `tag_parser.go` and `TestDidCloseCoversEveryPerDocumentMap` reads `handler.go`, so the tag dispatch
+and `handleDidClose` stay in them; `TestEveryAcceptPathRecordsATarget` parses `resolve.go`, so a
+`return ""` that accepts a call stays in `canResolveCall` after its `tr.hit` (a helper decides, the caller
+records the target); the parser's loop and dispatch-switch tests read every non-test file of the package
+(`readAllParserSource`). Move code with a declaration comparison (the same top-level declarations and
+code lines before and after), then `unresolved` byte-identical on a corpus.
 
 - `internal/parser/result.go` — `ParseResult`, `ParseOptions`, `Parse()`/`ParseWithOptions()`,
   lazy per-function caches, `replaceExpressions`, `resolvePendingCalls`, property accessors
@@ -2438,7 +2448,7 @@ Some handles need both shapes; others only one, depending on how the code uses t
   `//nolint` to get past a limit — split the function. `dupl` runs outside
   tests for the same reason: the two parsers' `extractAllLinks` and three
   copies of the chain walk were what it found. `depguard` holds three package boundaries
-  (`internal/parser` imports only `internal/log` and the dependency-free `internal/conv`; only `daemon` and `cmd`
+  (`internal/parser` imports only `internal/log` and the dependency-free `internal/conv` and `internal/lex`; only `daemon` and `cmd`
   import `internal/server`; only `cmd` imports the code-map store and MCP
   server), and `forbidigo` bans printing to stdout under `internal/`.
   **Write an empty slice as `[]T{}`, and keep it one where it is marshalled.**
