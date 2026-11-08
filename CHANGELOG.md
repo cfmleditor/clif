@@ -9,6 +9,8 @@
 
 ### Fixed
 
+- **`definitionAnswer` hands its route stage and its cursor-context stage to functions of their own** (`routeStage`, `cursorContextStage`: a resolver's argument, a component path, a file path, a `<cfinvoke>` component). The function was 158 lines. Four tests written first cover what no test reached (a route resolved before the word under the cursor, an unresolved route falling through, a resolver's argument, and a cursor inside an unresolved file path answering nothing); the first and third fail with their stage removed.
+
 - **`handleDidChange` hands two steps to functions of their own:** the burst window (`noteChange`, taking the time so a test can place it) and the lines a notification adds (`lineDelta`). Tests written first pin the window's edge and each shape of change, and fail when the threshold or the sign is changed.
 
 - **`recordBareCallAndChain` hands its chain walk to `walkBareCallHops`.** The loop that follows `.method(` hops and index brackets after a bare call is its own method (the function was 152 lines). Two tests written first pin what it records: each hop's name, chain, caller and line over plain, indexed, nested and non-call shapes, and a resolver-named first call becoming the first hop's receiver. `gapcheck` and the parser tests pass and `unresolved` is byte-identical on all seven corpora.

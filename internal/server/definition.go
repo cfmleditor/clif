@@ -54,35 +54,11 @@ func (s *Server) definitionAnswer(_ context.Context, rawParams []byte) (any, err
 	// "tassweb.admin.changelogsgridview.read" yields one segment, which then
 	// resolves as an unrelated component path or not at all. The whole attribute
 	// value is the thing being pointed at.
-	r := s.routeResolver()
+	if v, ok := s.routeStage(content, line, char, dt); ok {
+		outcome = "route"
 
-	dt.mark("routeResolver")
-
-	ref, isRoute := routepkg.Ref{}, false
-	if r != nil {
-		ref, isRoute = s.routeAtPosition(content, line, char)
+		return v, nil
 	}
-
-	dt.mark("routeScan")
-
-	if isRoute {
-		if locs := s.routeDefinitions(ref); len(locs) > 0 {
-			dt.mark("routeResolve")
-
-			outcome = "route"
-
-			s.log.Debug("definition: route resolved",
-				cflog.String("route", ref.Value), cflog.Int("targets", len(locs)))
-
-			if len(locs) == 1 {
-				return locs[0], nil
-			}
-
-			return locs, nil
-		}
-	}
-
-	dt.mark("routeResolve")
 
 	word := parser.WordAtPosition(content, line, char)
 	if word == "" {
@@ -93,56 +69,10 @@ func (s *Server) definitionAnswer(_ context.Context, rawParams []byte) (any, err
 
 	s.log.Debug("definition: request", cflog.String("word", word), cflog.Int("line", line), cflog.Int("char", char))
 
-	// Check if cursor is inside a resolver-matched call (e.g. getService("UserService"))
-	if comp := parser.ResolverArgAtCursor(content, line, char, s.cfResolvers()); comp != "" {
-		if loc := s.resolveComponentFileDef(comp, docURI); loc != nil {
-			outcome = "resolverArg"
+	if v, stage, handled := s.cursorContextStage(content, word, line, char, docURI, dt); handled {
+		outcome = stage
 
-			s.log.Debug("definition: resolver arg resolved", cflog.String("component", comp))
-
-			return *loc, nil
-		}
-	}
-
-	// Check if cursor is on a component dot-path (new, createObject, extends, etc.)
-	dt.mark("resolverArg")
-
-	if comp := parser.ComponentPathAtCursor(content, line, char); comp != "" {
-		if loc := s.resolveComponentFileDef(comp, docURI); loc != nil {
-			outcome = "componentPath"
-
-			s.log.Debug("definition: component path resolved", cflog.String("path", comp), cflog.String("target", string(loc.URI)))
-
-			return *loc, nil
-		}
-
-		s.log.Debug("definition: component path not resolved", cflog.String("path", comp))
-	}
-
-	// Check if cursor is on a file path (cfinclude, cfmodule template)
-	dt.mark("componentPath")
-
-	if filePath := parser.FilePathAtCursor(content, line, char); filePath != "" {
-		if loc := s.resolveFilePathDef(filePath, docURI); loc != nil {
-			outcome = "filePath"
-
-			s.log.Debug("definition: file path resolved", cflog.String("path", filePath), cflog.String("target", string(loc.URI)))
-
-			return *loc, nil
-		}
-		// Cursor is inside a file path — don't fall through to word-based lookup
-		return nil, nil
-	}
-
-	// Check if cursor is inside a <cfinvoke> method attribute
-	dt.mark("filePath")
-
-	if comp := parser.CfInvokeComponentAtCursor(content, line, char); comp != "" {
-		if loc := s.resolveComponentDef(comp, word, docURI); loc != nil {
-			outcome = "cfinvoke"
-
-			return *loc, nil
-		}
+		return v, nil
 	}
 
 	dt.mark("cfinvoke")
@@ -179,6 +109,97 @@ func (s *Server) definitionAnswer(_ context.Context, rawParams []byte) (any, err
 	defer dt.mark("unqualified")
 
 	return s.unqualifiedDefinition(word, docURI), nil
+}
+
+// routeStage answers go-to-definition on a route (see definitionAnswer): the
+// target of the route the cursor is inside, one location or several. ok is
+// false when the cursor is on no route or the route resolves to nothing, and
+// the ordinary lookup goes on.
+func (s *Server) routeStage(content string, line, char int, dt *defTimer) (v any, ok bool) {
+	r := s.routeResolver()
+
+	dt.mark("routeResolver")
+
+	ref, isRoute := routepkg.Ref{}, false
+	if r != nil {
+		ref, isRoute = s.routeAtPosition(content, line, char)
+	}
+
+	dt.mark("routeScan")
+
+	if isRoute {
+		if locs := s.routeDefinitions(ref); len(locs) > 0 {
+			dt.mark("routeResolve")
+
+			s.log.Debug("definition: route resolved",
+				cflog.String("route", ref.Value), cflog.Int("targets", len(locs)))
+
+			if len(locs) == 1 {
+				return locs[0], true
+			}
+
+			return locs, true
+		}
+	}
+
+	dt.mark("routeResolve")
+
+	return nil, false
+}
+
+// cursorContextStage answers go-to-definition when the cursor is in a place
+// whose meaning the text around it decides, tried in this order: the argument
+// of a call a componentResolver matches, a component dot-path, a file path, a
+// <cfinvoke> component. stage names the one that answered, for the timing
+// report. A cursor inside a file path that resolves to nothing is handled with
+// no answer: it never falls through to the word under it. handled is false
+// when none applies.
+func (s *Server) cursorContextStage(content, word string, line, char int, docURI uri.URI, dt *defTimer) (v any, stage string, handled bool) {
+	// Check if cursor is inside a resolver-matched call (e.g. getService("UserService"))
+	if comp := parser.ResolverArgAtCursor(content, line, char, s.cfResolvers()); comp != "" {
+		if loc := s.resolveComponentFileDef(comp, docURI); loc != nil {
+			s.log.Debug("definition: resolver arg resolved", cflog.String("component", comp))
+
+			return *loc, "resolverArg", true
+		}
+	}
+
+	// Check if cursor is on a component dot-path (new, createObject, extends, etc.)
+	dt.mark("resolverArg")
+
+	if comp := parser.ComponentPathAtCursor(content, line, char); comp != "" {
+		if loc := s.resolveComponentFileDef(comp, docURI); loc != nil {
+			s.log.Debug("definition: component path resolved", cflog.String("path", comp), cflog.String("target", string(loc.URI)))
+
+			return *loc, "componentPath", true
+		}
+
+		s.log.Debug("definition: component path not resolved", cflog.String("path", comp))
+	}
+
+	// Check if cursor is on a file path (cfinclude, cfmodule template)
+	dt.mark("componentPath")
+
+	if filePath := parser.FilePathAtCursor(content, line, char); filePath != "" {
+		if loc := s.resolveFilePathDef(filePath, docURI); loc != nil {
+			s.log.Debug("definition: file path resolved", cflog.String("path", filePath), cflog.String("target", string(loc.URI)))
+
+			return *loc, "filePath", true
+		}
+		// Cursor is inside a file path — don't fall through to word-based lookup
+		return nil, "none", true
+	}
+
+	// Check if cursor is inside a <cfinvoke> method attribute
+	dt.mark("filePath")
+
+	if comp := parser.CfInvokeComponentAtCursor(content, line, char); comp != "" {
+		if loc := s.resolveComponentDef(comp, word, docURI); loc != nil {
+			return *loc, "cfinvoke", true
+		}
+	}
+
+	return nil, "", false
 }
 
 // qualifiedDefinition answers go-to-definition on `qualifier.word`: the
