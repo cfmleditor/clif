@@ -160,109 +160,18 @@ func (pr *ParseResult) funcRefsUncached(funcStart, funcEnd int) ([]ComponentRef,
 
 	body := pr.Content[start:end]
 
-	// Determine region kind for this function
-	regionKind := RegionScript
-
-	for _, r := range pr.Regions {
-		if r.StartLine <= funcStart {
-			regionKind = r.Kind
-		}
-	}
-
 	var (
 		refs  []ComponentRef
 		links []DocumentLink
 	)
 
-	if regionKind == RegionScript {
-		sp := newScriptParser(body, string(pr.URI), funcStart, pr.Resolvers)
-		sp.baseOffset = start
-		sp.resolverSet = pr.resolverSet
-		sp.extractLinks = true
-		sp.argumentTypes = pr.argumentTypeLookup()
-		sp.imports = pr.imports
-		sp.parse()
-		sp.componentRefs, sp.funcRefs = pr.typeBodyPendingCalls(sp.componentRefs, sp.funcRefs, sp.pendingCalls)
-		refs = sp.componentRefs
-		links = sp.links
-		// Include function-scoped refs (nested functions in body)
-		for _, r := range sp.funcRefs {
-			refs = append(refs, r...)
-		}
-
-		for _, l := range sp.funcLinks {
-			links = append(links, l...)
-		}
+	if pr.regionKindAt(funcStart) == RegionScript {
+		refs, links = pr.parseScriptBody(body, start, funcStart)
 	} else {
-		tp := newTagParser(body, string(pr.URI))
-		tp.srcOffset = start
-		tp.resolvers = pr.Resolvers
-		tp.resolverSet = pr.resolverSet
-		tp.extractLinks = true
-		tp.argumentTypes = pr.argumentTypeLookup()
-		tp.parse()
-		tp.componentRefs, tp.funcRefs = pr.typeBodyPendingCalls(tp.componentRefs, tp.funcRefs, tp.pendingCalls)
-		refs = tp.componentRefs
-
-		links = tp.links
-		for _, r := range tp.funcRefs {
-			refs = append(refs, r...)
-		}
-
-		for _, l := range tp.funcLinks {
-			links = append(links, l...)
-		}
+		refs, links = pr.parseTagBody(body, start, funcStart)
 	}
 
-	// Offset lines by funcStart for tag parser (script parser uses baseLine)
-	if regionKind != RegionScript {
-		for i := range refs {
-			refs[i].Line += conv.Uint32(funcStart)
-		}
-
-		for i := range links {
-			links[i].Line += conv.Uint32(funcStart)
-		}
-	}
-
-	// Scan for function calls (still line-based as it's only for exportDeps)
-	if len(pr.findCalls) > 0 && !pr.extractCalls {
-		lineNum := funcStart + 1
-
-		// Only the scopes overlapping this function can hold its lines, in
-		// the order callerAtLine scans them.
-		var near []FuncScope
-
-		for _, sc := range pr.Scopes {
-			if sc.End > funcStart && sc.Start < funcEnd {
-				near = append(near, sc)
-			}
-		}
-
-		scopeAt := scopeIndex(near, false)
-
-		scan := pr.Content[start:end]
-		for scan != "" {
-			nl := strings.IndexByte(scan, '\n')
-
-			var line string
-			if nl < 0 {
-				line = scan
-				scan = ""
-			} else {
-				line = scan[:nl]
-				scan = scan[nl+1:]
-			}
-
-			caller := ""
-			if k := scopeAt(lineNum); k >= 0 {
-				caller = near[k].Name
-			}
-
-			pr.scanLineForCalls(line, lineNum, caller)
-			lineNum++
-		}
-	}
+	pr.scanBodyForCalls(start, end, funcStart, funcEnd)
 
 	refs = pr.resolveMethodReturnRefs(funcStart, funcEnd, refs)
 
@@ -298,6 +207,124 @@ func (pr *ParseResult) funcRefsUncached(funcStart, funcEnd int) ([]ComponentRef,
 	}
 
 	return refs, links
+}
+
+// regionKindAt is the kind of the region the function starting on line
+// funcStart is in: the last region that starts at or before it.
+func (pr *ParseResult) regionKindAt(funcStart int) RegionKind {
+	kind := RegionScript
+
+	for _, r := range pr.Regions {
+		if r.StartLine <= funcStart {
+			kind = r.Kind
+		}
+	}
+
+	return kind
+}
+
+// parseScriptBody is the refs and links of a function body written in
+// CFScript, parsed on its own: its own and those of any function nested in it.
+func (pr *ParseResult) parseScriptBody(body string, start, funcStart int) ([]ComponentRef, []DocumentLink) {
+	sp := newScriptParser(body, string(pr.URI), funcStart, pr.Resolvers)
+	sp.baseOffset = start
+	sp.resolverSet = pr.resolverSet
+	sp.extractLinks = true
+	sp.argumentTypes = pr.argumentTypeLookup()
+	sp.imports = pr.imports
+	sp.parse()
+	sp.componentRefs, sp.funcRefs = pr.typeBodyPendingCalls(sp.componentRefs, sp.funcRefs, sp.pendingCalls)
+
+	refs, links := sp.componentRefs, sp.links
+
+	// Include function-scoped refs (nested functions in body)
+	for _, r := range sp.funcRefs {
+		refs = append(refs, r...)
+	}
+
+	for _, l := range sp.funcLinks {
+		links = append(links, l...)
+	}
+
+	return refs, links
+}
+
+// parseTagBody is parseScriptBody for a body written in tags. The tag parser
+// counts lines from the body's first, so they are moved back by funcStart.
+func (pr *ParseResult) parseTagBody(body string, start, funcStart int) ([]ComponentRef, []DocumentLink) {
+	tp := newTagParser(body, string(pr.URI))
+	tp.srcOffset = start
+	tp.resolvers = pr.Resolvers
+	tp.resolverSet = pr.resolverSet
+	tp.extractLinks = true
+	tp.argumentTypes = pr.argumentTypeLookup()
+	tp.parse()
+	tp.componentRefs, tp.funcRefs = pr.typeBodyPendingCalls(tp.componentRefs, tp.funcRefs, tp.pendingCalls)
+
+	refs, links := tp.componentRefs, tp.links
+
+	for _, r := range tp.funcRefs {
+		refs = append(refs, r...)
+	}
+
+	for _, l := range tp.funcLinks {
+		links = append(links, l...)
+	}
+
+	for i := range refs {
+		refs[i].Line += conv.Uint32(funcStart)
+	}
+
+	for i := range links {
+		links[i].Line += conv.Uint32(funcStart)
+	}
+
+	return refs, links
+}
+
+// scanBodyForCalls records the calls of the names the parse was asked to find
+// (ParseOptions.FindCalls) that a function body holds, line by line. It is
+// for exportDeps, and does nothing when the parse extracts calls itself.
+func (pr *ParseResult) scanBodyForCalls(start, end, funcStart, funcEnd int) {
+	if len(pr.findCalls) == 0 || pr.extractCalls {
+		return
+	}
+
+	lineNum := funcStart + 1
+
+	// Only the scopes overlapping this function can hold its lines, in
+	// the order callerAtLine scans them.
+	var near []FuncScope
+
+	for _, sc := range pr.Scopes {
+		if sc.End > funcStart && sc.Start < funcEnd {
+			near = append(near, sc)
+		}
+	}
+
+	scopeAt := scopeIndex(near, false)
+
+	scan := pr.Content[start:end]
+	for scan != "" {
+		nl := strings.IndexByte(scan, '\n')
+
+		var line string
+		if nl < 0 {
+			line = scan
+			scan = ""
+		} else {
+			line = scan[:nl]
+			scan = scan[nl+1:]
+		}
+
+		caller := ""
+		if k := scopeAt(lineNum); k >= 0 {
+			caller = near[k].Name
+		}
+
+		pr.scanLineForCalls(line, lineNum, caller)
+		lineNum++
+	}
 }
 
 // resolveMethodReturnRefs scans a function body for x = y.method() assignments

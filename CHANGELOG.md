@@ -9,6 +9,8 @@
 
 ### Fixed
 
+- **`funcRefsUncached` is 55 lines, not 150.** The region lookup, the script and tag body parses and the `FindCalls` line scan are `regionKindAt`, `parseScriptBody`, `parseTagBody` and `scanBodyForCalls`. Three tests written first cover what none reached (a tag function's refs on their written lines, `FindCalls` reading a body parsed on its own in both syntaxes, and a chained assignment typed through the lookup). `unresolved` is byte-identical on all seven corpora and `deps` on FW/1 and TestBox. The scan numbers its lines one past the function's first line, so a call it finds is also recorded a line late; that is as it was and is left for its own change.
+
 - **`handleCompletion` is 46 lines, not 150.** What the cursor's context offers is `completionItemsFor` and the log's name for the trigger is `triggerKindName`. Four tests written first cover the branches no test reached (an attribute value, a tag name being typed, the member-function fallback after a dot, and the trigger names); the first three fail with their branch disabled.
 
 - **`definitionAnswer` hands its route stage and its cursor-context stage to functions of their own** (`routeStage`, `cursorContextStage`: a resolver's argument, a component path, a file path, a `<cfinvoke>` component). The function was 158 lines. Four tests written first cover what no test reached (a route resolved before the word under the cursor, an unresolved route falling through, a resolver's argument, and a cursor inside an unresolved file path answering nothing); the first and third fail with their stage removed.
