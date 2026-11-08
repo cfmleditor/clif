@@ -340,17 +340,7 @@ func (s *Server) handleDidChange(_ context.Context, rawParams []byte) (any, erro
 		return nil, nil
 	}
 
-	s.mu.Lock()
-	// Track rapid sequential changes: reset window if >500ms since last burst.
-	now := time.Now()
-	if ws, ok := s.changeWindowStart[docURI]; !ok || now.Sub(ws) > 200*time.Millisecond {
-		s.changeWindowStart[docURI] = now
-		s.changeCount[docURI] = 0
-	}
-
-	s.changeCount[docURI]++
-	changeCount := s.changeCount[docURI]
-	s.mu.Unlock()
+	changeCount := s.noteChange(docURI, time.Now())
 
 	// A burst of edits inside a function stays incremental: each costs a few
 	// milliseconds that way, and the burst path's deferred reparse of the
@@ -471,25 +461,49 @@ func (s *Server) handleDidChange(_ context.Context, rawParams []byte) (any, erro
 		s.reindexFromParseResult(docURI, pr)
 	case parser.EditInFunc:
 		// Only function body changed — shift index lines and rebuild local vars
-		lineDelta := 0
-
-		for _, change := range params.ContentChanges {
-			r, text, isFull := changeRangeAndText(change)
-			if !isFull {
-				oldLines := int(r.End.Line) - int(r.Start.Line)
-				newLines := strings.Count(text, "\n")
-				lineDelta += newLines - oldLines
-			}
-		}
-
-		if lineDelta != 0 {
-			s.index.ShiftLines(docURI, editLine, lineDelta)
+		if delta := lineDelta(params.ContentChanges); delta != 0 {
+			s.index.ShiftLines(docURI, editLine, delta)
 		}
 
 		s.debounceCacheRebuild(docURI, content, editLine)
 	}
 
 	return nil, nil
+}
+
+// noteChange counts a change to docURI made at now in the current burst: the
+// count restarts when more than the window (200ms) has passed since the burst
+// began, and the result is the number of changes in it, this one included.
+func (s *Server) noteChange(docURI uri.URI, now time.Time) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if ws, ok := s.changeWindowStart[docURI]; !ok || now.Sub(ws) > 200*time.Millisecond {
+		s.changeWindowStart[docURI] = now
+		s.changeCount[docURI] = 0
+	}
+
+	s.changeCount[docURI]++
+
+	return s.changeCount[docURI]
+}
+
+// lineDelta is how many lines changes add to the document: the lines each
+// writes less the lines it replaces. A whole-document replacement has no range
+// to measure and counts for nothing.
+func lineDelta(changes []protocol.TextDocumentContentChangeEvent) int {
+	delta := 0
+
+	for _, change := range changes {
+		r, text, isFull := changeRangeAndText(change)
+		if isFull {
+			continue
+		}
+
+		delta += strings.Count(text, "\n") - (int(r.End.Line) - int(r.Start.Line))
+	}
+
+	return delta
 }
 
 // editsInPlace reports whether changes can be applied to pr incrementally: a
