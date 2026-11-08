@@ -528,10 +528,20 @@ func (p *scriptParser) recordBareCallAndChain(tok Token) (alone string) {
 		comp = p.resolveCall(callExpr)
 	}
 
-	var (
-		funcName  string
-		chainHops []string
-	)
+	if !p.walkBareCallHops(caller, comp, hop) {
+		return ""
+	}
+
+	return alone
+}
+
+// walkBareCallHops follows the .method( hops written after a bare call whose
+// own call is already recorded, recording each one with the calls before it as
+// its Chain. comp is the bare call's resolved component, which stands as the
+// first hop's receiver in place of the call; hop is the call written as a
+// Chain entry. It is false when an argument list or an index does not close.
+func (p *scriptParser) walkBareCallHops(caller, comp, hop string) bool {
+	var chainHops []string
 
 	first := true
 
@@ -543,7 +553,7 @@ func (p *scriptParser) recordBareCallAndChain(tok Token) (alone string) {
 			// at risk of misattribution here (the base is a call return, not
 			// a bare variable), so no poisoning is needed, just continuity.
 			if !p.skipBracketIndex() {
-				return ""
+				return false
 			}
 
 			continue
@@ -574,7 +584,6 @@ func (p *scriptParser) recordBareCallAndChain(tok Token) (alone string) {
 			}
 
 			first = false
-			funcName = methTok.Value
 
 			hops := chainSoFar(chainHops)
 			if hops == nil {
@@ -582,7 +591,7 @@ func (p *scriptParser) recordBareCallAndChain(tok Token) (alone string) {
 			}
 
 			p.addCall(&CallSite{
-				FuncName:  funcName,
+				FuncName:  methTok.Value,
 				Component: comp,
 				Chain:     hops,
 				Line:      conv.Uint32(p.baseLine + int(methTok.Line)),
@@ -594,20 +603,20 @@ func (p *scriptParser) recordBareCallAndChain(tok Token) (alone string) {
 			// continue — through the same scan, so a call written inside
 			// them is found: this was the third copy of the paren loop and
 			// the last one still losing `a().b(svc.c())`.
-			argStart = p.sc.PeekSkipComments().Offset
+			argStart := p.sc.PeekSkipComments().Offset
 			p.sc.NextSkipComments() // consume (
 
 			if _, ok := p.scanParenBody(); !ok {
-				return ""
+				return false
 			}
 
-			hop = p.hopSince(funcName, argStart)
+			hop = p.hopSince(methTok.Value, argStart)
 		} else {
 			break
 		}
 	}
 
-	return alone
+	return true
 }
 
 // scopeReceiver says how a call made directly on a scope is recorded, for the

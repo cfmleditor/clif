@@ -9,6 +9,8 @@
 
 ### Fixed
 
+- **`recordBareCallAndChain` hands its chain walk to `walkBareCallHops`.** The loop that follows `.method(` hops and index brackets after a bare call is its own method (the function was 152 lines). Two tests written first pin what it records: each hop's name, chain, caller and line over plain, indexed, nested and non-call shapes, and a resolver-named first call becoming the first hop's receiver. `gapcheck` and the parser tests pass and `unresolved` is byte-identical on all seven corpora.
+
 - **`assignedFromCall` is two functions shorter.** The reading of a variable's prefix (`variables.`, `prc.`, `rc.`, `arguments.rc.`, `arguments.`, `local.`) is `splitAssignedVariable`, with a table test that fails when a prefix length is wrong, and the search for the assignment that reaches the line is `lastAssignment`. `unresolved` is byte-identical on all seven corpora.
 
 - **The server's `handler.go` and `completion.go` are five files.** The `executeCommand` dispatch and its commands (`commands.go`), tag completion (`completion_tags.go`) and the completion cache (`completion_cache.go`) moved out unchanged (same declarations and code lines; the server tests pass). `handleDidClose` stays in `handler.go`, where `TestDidCloseCoversEveryPerDocumentMap` reads it.
