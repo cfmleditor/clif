@@ -9,6 +9,8 @@
 
 ### Fixed
 
+- **`resolve.go` is five files.** The component-path resolution (`component_path.go`), function lookup and extends (`func_lookup.go`), the component a function returns (`return_component.go`) and the component a receiver holds (`receiver_component.go`) moved out of its 4,700 lines unchanged: the same 155 top-level declarations and the same code lines, checked by comparing both, and the output of `unresolved` is byte-identical.
+
 - **The rules that set a call aside are an ordered table, and `explain` names the one that decided.** `ClassifyReasonIn`'s `switch` of ten cases is `classifyRules`, each with a name, its verdict and whether it is a judgement (off in the strict view); `explain`'s `report:` line ends with `(rule: namedComponentDeclares)` and the like. The order and the flags are pinned by a test. `unresolved` output is byte-identical on ContentBox, Masa and TestBox, with no change in time.
 
 - **Expressions built from a name inside a function are compiled once** (`compiledPattern`) in the registry, lazy-getter, Wheels mapper, ColdBox intercept and Mura object rules; they were compiled on every call. Output is byte-identical on ContentBox and Masa; the time difference is within noise (about 2%), so this is housekeeping, not a speedup. The five copies of the tests' `testdataDir` are `testutil.Testdata`.
