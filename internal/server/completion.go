@@ -174,39 +174,72 @@ func (s *Server) handleCompletion(_ context.Context, rawParams []byte) (any, err
 
 	defer s.lockDoc(params.TextDocument.URI)()
 
-	items := []protocol.CompletionItem(nil)
-
 	content, hasDoc := s.getDocument(params.TextDocument.URI)
 
 	t0 := time.Now()
 	cc := completionContextAt(&params, content, hasDoc)
-	char, tagName := cc.char, cc.tagName
 	contextDur := time.Since(t0)
 
-	triggerKind := ""
-
-	switch params.Context.TriggerKind {
-	case protocol.CompletionTriggerKindInvoked:
-		triggerKind = "invoked"
-	case protocol.CompletionTriggerKindTriggerCharacter:
-		triggerKind = "char:" + cc.triggerChar
-	case protocol.CompletionTriggerKindTriggerForIncompleteCompletions:
-		triggerKind = "incomplete"
-	}
+	triggerKind := triggerKindName(params.Context.TriggerKind, cc.triggerChar)
 
 	s.log.Debug("completion: request",
 		cflog.String("trigger", triggerKind),
 		cflog.Bool("triggeredByDot", cc.triggeredByDot),
 		cflog.Bool("inHashExpr", cc.inHashExpr),
 		cflog.Bool("inAttrValue", cc.inAttrValue),
-		cflog.String("tagName", tagName),
+		cflog.String("tagName", cc.tagName),
 		cflog.Uint32("line", params.Position.Line),
 		cflog.Uint32("char", params.Position.Character),
 	)
 
+	items := s.completionItemsFor(&params, &cc, content, hasDoc)
+
+	s.log.Debug("completion: total",
+		cflog.Duration("context", contextDur),
+		cflog.Duration("total", time.Since(totalStart)),
+		cflog.Int("items", len(items)),
+	)
+
+	items = s.applySnippetPolicy(items)
+
+	if items == nil {
+		items = []protocol.CompletionItem{}
+	}
+
+	return &protocol.CompletionList{
+		IsIncomplete: false,
+		Items:        items,
+	}, nil
+}
+
+// triggerKindName is the trigger of a completion request as the debug log
+// spells it.
+func triggerKindName(kind protocol.CompletionTriggerKind, triggerChar string) string {
+	switch kind {
+	case protocol.CompletionTriggerKindInvoked:
+		return "invoked"
+	case protocol.CompletionTriggerKindTriggerCharacter:
+		return "char:" + triggerChar
+	case protocol.CompletionTriggerKindTriggerForIncompleteCompletions:
+		return "incomplete"
+	}
+
+	return ""
+}
+
+// completionItemsFor is what the cursor's context offers, the first of these
+// that applies: a doc block's tags, a hash expression's variables, an
+// attribute value's values, the characters that close a tag, the attributes of
+// the tag around the cursor, a tag name, the methods after a dot, and
+// otherwise the named arguments of the call around the cursor and the
+// document's cached variables and functions.
+func (s *Server) completionItemsFor(params *protocol.CompletionParams, cc *completionContext, content string, hasDoc bool) []protocol.CompletionItem {
+	char, tagName := cc.char, cc.tagName
+	items := []protocol.CompletionItem(nil)
+
 	docItems, inDocBlock := []protocol.CompletionItem(nil), false
 	if hasDoc {
-		docItems, inDocBlock = s.docBlockItems(content, &params)
+		docItems, inDocBlock = s.docBlockItems(content, params)
 	}
 
 	switch {
@@ -295,22 +328,7 @@ func (s *Server) handleCompletion(_ context.Context, rawParams []byte) (any, err
 		}
 	}
 
-	s.log.Debug("completion: total",
-		cflog.Duration("context", contextDur),
-		cflog.Duration("total", time.Since(totalStart)),
-		cflog.Int("items", len(items)),
-	)
-
-	items = s.applySnippetPolicy(items)
-
-	if items == nil {
-		items = []protocol.CompletionItem{}
-	}
-
-	return &protocol.CompletionList{
-		IsIncomplete: false,
-		Items:        items,
-	}, nil
+	return items
 }
 
 // scopeArgumentsCompletion returns the declared arguments for the enclosing function.

@@ -9,6 +9,8 @@
 
 ### Fixed
 
+- **`handleCompletion` is 46 lines, not 150.** What the cursor's context offers is `completionItemsFor` and the log's name for the trigger is `triggerKindName`. Four tests written first cover the branches no test reached (an attribute value, a tag name being typed, the member-function fallback after a dot, and the trigger names); the first three fail with their branch disabled.
+
 - **`definitionAnswer` hands its route stage and its cursor-context stage to functions of their own** (`routeStage`, `cursorContextStage`: a resolver's argument, a component path, a file path, a `<cfinvoke>` component). The function was 158 lines. Four tests written first cover what no test reached (a route resolved before the word under the cursor, an unresolved route falling through, a resolver's argument, and a cursor inside an unresolved file path answering nothing); the first and third fail with their stage removed.
 
 - **`handleDidChange` hands two steps to functions of their own:** the burst window (`noteChange`, taking the time so a test can place it) and the lines a notification adds (`lineDelta`). Tests written first pin the window's edge and each shape of change, and fail when the threshold or the sign is changed.
