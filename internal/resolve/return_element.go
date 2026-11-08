@@ -46,6 +46,20 @@ func (s *sourceInfo) holdsElementReturn() bool {
 	return s.derived.elementReads
 }
 
+// plainParse is the source parsed with no resolver, lookup or option: a
+// function of its text alone, so it is the same for every caller and is kept
+// with the source. A parse is safe to share (its lazy parts are locked), and
+// every function of the file whose return is looked up asked for a fresh one.
+func (s *sourceInfo) plainParse(path string) *parser.ParseResult {
+	if s.derived == nil {
+		return parser.Parse(cfpath.ToURI(path), s.content)
+	}
+
+	s.derived.plainOnce.Do(func() { s.derived.plain = parser.Parse(cfpath.ToURI(path), s.content) })
+
+	return s.derived.plain
+}
+
 func (r *Resolver) elementReturn(fd *parser.FunctionDef) string {
 	if !fd.URI.IsFile() {
 		return ""
@@ -58,7 +72,7 @@ func (r *Resolver) elementReturn(fd *parser.FunctionDef) string {
 		return ""
 	}
 
-	pr := parser.Parse(cfpath.ToURI(fd.URI.Path()), source.content)
+	pr := source.plainParse(fd.URI.Path())
 
 	scope := pr.FuncScopeAt(int(fd.Line))
 	if scope.Start == -1 || !strings.EqualFold(scope.Name, fd.Name) {
