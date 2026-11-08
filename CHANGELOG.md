@@ -9,6 +9,8 @@
 
 ### Fixed
 
+- **`assignedFromCall` is two functions shorter.** The reading of a variable's prefix (`variables.`, `prc.`, `rc.`, `arguments.rc.`, `arguments.`, `local.`) is `splitAssignedVariable`, with a table test that fails when a prefix length is wrong, and the search for the assignment that reaches the line is `lastAssignment`. `unresolved` is byte-identical on all seven corpora.
+
 - **The server's `handler.go` and `completion.go` are five files.** The `executeCommand` dispatch and its commands (`commands.go`), tag completion (`completion_tags.go`) and the completion cache (`completion_cache.go`) moved out unchanged (same declarations and code lines; the server tests pass). `handleDidClose` stays in `handler.go`, where `TestDidCloseCoversEveryPerDocumentMap` reads it.
 
 - **`internal/lex` holds four more helpers that were copied:** `LowerASCII` (parser, server), `HasPrefixFold` (parser, resolve), `IsASCIILetter` (parser, path) and `UTF16Len` (parser, known-issues, server). Each is tested against the definition it replaces, all inline, and the output of `unresolved` is byte-identical.
