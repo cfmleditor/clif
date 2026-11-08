@@ -9,6 +9,7 @@
 package tsoracle
 
 import (
+	"slices"
 	"sort"
 	"strings"
 
@@ -81,42 +82,77 @@ func grammarFor(name string) (language.Grammar, bool) {
 
 // collect walks named children only, for the reason the folding walk gives: an
 // anonymous node is a grammar literal and tokens are leaves.
-func collect(n *sitter.Node, src []byte, rowOffset uint32, opaque map[uint]bool) []Call {
+func collect(root *sitter.Node, src []byte, rowOffset uint32, opaque map[uint]bool) []Call {
 	var out []Call
 
-	var walk func(*sitter.Node)
+	lang := root.Language()
+	// A call is a call_expression or a query_expression. `queryExecute(...)` is
+	// not a call_expression: the grammar gives it a node of its own so the SQL
+	// grammar can be injected into its first argument. Comparing on
+	// call_expression alone reported every queryExecute as a call the parser had
+	// invented — the oracle's mistake, not the parser's, and the reason a
+	// differential check has to be calibrated against the grammar's vocabulary
+	// before its output means anything.
+	callKinds := [...]uint16{lang.IdForNodeKind("call_expression", true), lang.IdForNodeKind("query_expression", true)}
 
-	walk = func(n *sitter.Node) {
-		if opaque != nil && opaque[n.StartByte()] {
-			return
-		}
+	c := root.Walk()
+	defer c.Close()
 
-		if isCallKind(n.Kind()) {
-			if m, at := methodOf(n, src); m != "" {
-				out = append(out, Call{Line: conv.Uint32FromUint(at.StartPosition().Row) + rowOffset, Method: m})
+	// One depth-first pass with a single cursor. An anonymous node is a leaf, so
+	// skipping the unnamed ones visits exactly the named nodes a walk through
+	// NamedChild would, without a cursor and a kind string for each of them.
+	for {
+		n := c.Node()
+		descend := true
+
+		if n.IsNamed() {
+			switch {
+			case opaque != nil && opaque[n.StartByte()]:
+				descend = false
+			case slices.Contains(callKinds[:], n.KindId()):
+				if m, at := methodOf(n, src); m != "" {
+					out = append(out, Call{Line: conv.Uint32FromUint(at.StartPosition().Row) + rowOffset, Method: m})
+				}
 			}
 		}
 
-		for i := range int(n.NamedChildCount()) {
-			walk(n.NamedChild(uint(i)))
+		if descend && c.GotoFirstChild() {
+			continue
+		}
+
+		for !c.GotoNextSibling() {
+			if !c.GotoParent() {
+				return out
+			}
 		}
 	}
-
-	walk(n)
-
-	return out
 }
 
-// isCallKind reports whether a node is a call under some name.
+// eachNamedChild visits the named children of n in order, with a cursor.
 //
-// `queryExecute(...)` is not a call_expression: the grammar gives it a node of
-// its own so the SQL grammar can be injected into its first argument. Comparing
-// on call_expression alone therefore reported every queryExecute as a call the
-// parser had invented — the oracle's mistake, not the parser's, and the reason
-// a differential check has to be calibrated against the grammar's vocabulary
-// before its output means anything.
-func isCallKind(kind string) bool {
-	return kind == "call_expression" || kind == "query_expression"
+// Reading them as n.NamedChild(i) for each i is quadratic in the child count:
+// the binding finds child i by walking the siblings before it. A flat node with
+// hundreds of thousands of children — a binary file saved as .cfm parses to
+// about 0.35 named nodes per byte under the root — took 620ms at 32KB and, by
+// that growth, half an hour at the 1.7MB zip in MasaCMS, which ended the
+// differential run at its timeout.
+func eachNamedChild(n *sitter.Node, visit func(*sitter.Node)) {
+	c := n.Walk()
+	defer c.Close()
+
+	if !c.GotoFirstChild() {
+		return
+	}
+
+	for {
+		if child := c.Node(); child.IsNamed() {
+			visit(child)
+		}
+
+		if !c.GotoNextSibling() {
+			return
+		}
+	}
 }
 
 // methodOf names what a call is to: the property of a member expression, the
@@ -183,9 +219,7 @@ func grammarDecls(src []byte) []string {
 				}
 			}
 
-			for i := range int(n.NamedChildCount()) {
-				walk(n.NamedChild(uint(i)))
-			}
+			eachNamedChild(n, walk)
 		}
 
 		walk(root)

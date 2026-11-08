@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/cfmleditor/clif/internal/parser"
+	cfpath "github.com/cfmleditor/clif/internal/path"
 	"go.lsp.dev/uri"
 )
 
@@ -90,7 +91,7 @@ func TestGrammarAndParserAgreeOnCalls(t *testing.T) {
 		roots, reporting = strings.Split(c, ":"), true
 	}
 
-	var files int
+	var files, binary int
 
 	seen := map[string]int{}
 
@@ -111,6 +112,15 @@ func TestGrammarAndParserAgreeOnCalls(t *testing.T) {
 	for _, p := range paths {
 		src, err := os.ReadFile(p)
 		if err != nil {
+			continue
+		}
+
+		// Not CFML: a zip saved as a .cfm (MasaCMS's theme.zip.cfm is 1.7MB) has
+		// no calls to compare, and the grammar spends two seconds recovering
+		// from it. The index skips such a file the same way.
+		if cfpath.IsBinary(src) {
+			binary++
+
 			continue
 		}
 
@@ -142,7 +152,7 @@ func TestGrammarAndParserAgreeOnCalls(t *testing.T) {
 	}
 
 	if reporting {
-		t.Logf("%d files scanned; the assertions below run only on the repo fixtures", files)
+		t.Logf("%d files scanned, %d binary skipped; the assertions below run only on the repo fixtures", files, binary)
 
 		return
 	}
