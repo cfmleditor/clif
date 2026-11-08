@@ -9,6 +9,8 @@
 
 ### Fixed
 
+- **`tag_parser.go` is five files.** Finding where a tag ends, the tags that assign, call or return, attribute reading, and the hand-off of a tag's expressions to the script parser moved out unchanged (same declarations and code lines; the parser tests pass). The tag dispatch stays in `tag_parser.go` because `TestTagDispatchMatchesTheFastSkip` reads it there.
+
 - **The formatter's `cfscript_formatter.go` and `formatter.go` are seven files.** Collections, closures, parameters and control-flow statements of CFScript, the whitespace-only guard with the byte scans it relies on, and the CF tag formatting moved out unchanged (same declarations and code lines, checked by comparison; the formatter tests and the TestBox and FW/1 corpus pass).
 
 - **`script_parser.go` and `result.go` are eleven files.** The variable-only scan, string interpolation, the expressions that name a component, nested functions and closures, the typing of pending calls, property components, variables by scope, a function's refs and the call queries moved out unchanged (same declarations and code lines, checked by comparison; `unresolved` is byte-identical). The structural tests that read the parser's source (`TestEveryTokenLoopHandlesLiterals`, `TestBothDispatchSwitchesHandleEveryScope`) read every file of the package now, so a later split cannot move code out of their sight.
