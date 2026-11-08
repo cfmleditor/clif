@@ -292,6 +292,48 @@ func (r *Resolver) argumentHolderType(variable, name string, arg *parser.Argumen
 	return "", false
 }
 
+// applicationRefComponent is the component an Application.cfc ref gives a
+// receiver nothing nearer typed. proven says a verified factory result stood in
+// for the parser's guess and is the whole answer.
+func (r *Resolver) applicationRefComponent(variable, lookupVar, baseDir string, tr *callTrace) (comp string, proven bool) {
+	// A verified factory result takes precedence over the parser's
+	// class-level return guess from Application.cfc. Conflicting startup
+	// writes withhold that result rather than restoring the old guess.
+	if component, ok := r.wheelsStartupComponent(variable, baseDir, tr); ok {
+		return component, true
+	}
+
+	for _, hit := range r.applicationRefs(baseDir, lookupVar) {
+		comp = hit.ref.Component
+
+		tr.addf("resolved %q to %q via %s ComponentRef", variable, comp, hit.file)
+
+		if comp != "" {
+			break
+		}
+	}
+
+	return comp, false
+}
+
+// untypedReceiverComponent is the last of the answers for a receiver every
+// ref missed, in this order: what its base classes hold, what its assignments
+// and callers give it, and a shared-scope variable a template the
+// application's Application.cfc includes sets up (see startup.go).
+func (r *Resolver) untypedReceiverComponent(variable, lookupVar string, line uint32, caller, funcName string, pr *parser.ParseResult, baseDir string, tr *callTrace, ctx lookupCtx) string {
+	comp := r.inheritedReceiver(variable, lookupVar, pr, baseDir, tr)
+
+	if comp == "" {
+		comp = r.inferredReceiver(variable, line, caller, funcName, pr, baseDir, tr, ctx)
+	}
+
+	if comp == "" {
+		comp = r.startupComponent(variable, baseDir, tr)
+	}
+
+	return comp
+}
+
 // receiverComponentD is receiverComponent with a lookupCtx: the depth of
 // assignments read to type a variable, which bounds `x = y.f()` through
 // `y = z.g()`, and the subclass a handoff reads on behalf of.
@@ -376,44 +418,10 @@ func (r *Resolver) receiverComponentD(variable string, line uint32, caller, func
 
 	// Fall back to Application.cfc component refs
 	if comp == "" {
-		// A verified factory result takes precedence over the parser's
-		// class-level return guess from Application.cfc. Conflicting startup
-		// writes withhold that result rather than restoring the old guess.
-		if component, proven := r.wheelsStartupComponent(variable, baseDir, tr); proven {
-			return component, false
-		}
+		var proven bool
 
-		for _, hit := range r.applicationRefs(baseDir, lookupVar) {
-			comp = hit.ref.Component
-
-			tr.addf("resolved %q to %q via %s ComponentRef", variable, comp, hit.file)
-
-			if comp != "" {
-				break
-			}
-		}
-	}
-
-	// ARGUMENTS.x qualifier — resolve directly from the enclosing function's argument list.
-	// This handles cases where the argument has a component type (via hint promotion or
-	// explicit type) without requiring a ComponentRef to have been created.
-	if comp == "" && strings.HasPrefix(strings.ToUpper(variable), "ARGUMENTS.") {
-		argName := variable[10:]
-
-		if arg := argumentOf(pr, caller, argName); arg != nil {
-			if strings.Contains(arg.Type, ".") {
-				comp = arg.Type
-
-				tr.addf("resolved %q to %q via <cfargument type>", variable, comp)
-			} else if parser.IsMemberMethod(funcName) {
-				// Primitive-typed argument (string/numeric/array/etc.)
-				// calling a known member/Java-interop method (e.g.
-				// a string argument's .toCharArray()) — no component
-				// is needed to verify it.
-				tr.addf("ARGUMENTS.%s has primitive type %q, but %q is a known member method — accepted without a component", argName, arg.Type, funcName)
-
-				return "", true
-			}
+		if comp, proven = r.applicationRefComponent(variable, lookupVar, baseDir, tr); proven {
+			return comp, false
 		}
 	}
 
@@ -425,17 +433,7 @@ func (r *Resolver) receiverComponentD(variable string, line uint32, caller, func
 	}
 
 	if comp == "" {
-		comp = r.inheritedReceiver(variable, lookupVar, pr, baseDir, tr)
-	}
-
-	if comp == "" {
-		comp = r.inferredReceiver(variable, line, caller, funcName, pr, baseDir, tr, ctx)
-	}
-
-	// Last, a shared-scope variable set up by a template the application's
-	// Application.cfc includes (see startup.go).
-	if comp == "" {
-		comp = r.startupComponent(variable, baseDir, tr)
+		comp = r.untypedReceiverComponent(variable, lookupVar, line, caller, funcName, pr, baseDir, tr, ctx)
 	}
 
 	return comp, false
