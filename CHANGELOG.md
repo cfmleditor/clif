@@ -9,6 +9,8 @@
 
 ### Fixed
 
+- **`canResolveCall` is 82 lines, not 180.** Three blocks became functions that return what they decided and leave the target to the caller, where `TestEveryAcceptPathRecordsATarget` reads it: a scope-qualified call to a stored function, the configured resolvers' match of a receiver by name and by line, and the late fallbacks (loop element, view `prc`/`rc`, argument callers, init). Tests added before the move pin the VARIABLES-scope branch and the name-then-line matching, including `noFollow`, and fail with either reverted; the `ARGUMENTS` branch is reached by another path first, so its test passes with it removed. `unresolved` is byte-identical on Masa, TestBox, ContentBox, FW/1 and ColdBox.
+
 - **`tag_parser.go` is five files.** Finding where a tag ends, the tags that assign, call or return, attribute reading, and the hand-off of a tag's expressions to the script parser moved out unchanged (same declarations and code lines; the parser tests pass). The tag dispatch stays in `tag_parser.go` because `TestTagDispatchMatchesTheFastSkip` reads it there.
 
 - **The formatter's `cfscript_formatter.go` and `formatter.go` are seven files.** Collections, closures, parameters and control-flow statements of CFScript, the whitespace-only guard with the byte scans it relies on, and the CF tag formatting moved out unchanged (same declarations and code lines, checked by comparison; the formatter tests and the TestBox and FW/1 corpus pass).

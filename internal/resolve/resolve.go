@@ -453,37 +453,10 @@ func (r *Resolver) canResolveCall(call *parser.CallSite, pr *parser.ParseResult,
 		return r.resolveSuperCall(funcName, pr, baseDir, tr)
 	}
 
-	// Bare VARIABLES qualifier (no further dot, e.g. "VARIABLES.someName(...)") —
-	// a scope can't itself be a component ref, so treating "VARIABLES" as the thing
-	// needing a ComponentRef is a category error. What's actually being called is a
-	// property assigned onto the scope (e.g. "VARIABLES.someName = ARGUMENTS.callback;
-	// ... VARIABLES.someName(...)"), a function-reference value passed in and stored —
-	// same reasoning as the ARGUMENTS-as-function-reference case below, just for a
-	// VARIABLES-scoped property instead of a bare argument. Accept if funcName was
-	// ever assigned in VARIABLES scope anywhere in the file (assignments inside any
-	// function are visible from every other function, unlike a var-scoped local).
-	if strings.EqualFold(variable, "VARIABLES") {
-		tr.addf("VARIABLES.%s called as a function reference — checking for a VARIABLES-scoped assignment", funcName)
+	if r.acceptsScopeReference(call, pr, tr) {
+		tr.hit(TargetDynamic, "", nil)
 
-		if pr.HasScopedAssignment(parser.ScopeVariables, funcName) {
-			tr.addf("%q was assigned in VARIABLES scope — treating as a call through a function-reference property", funcName)
-			tr.hit(TargetDynamic, "", nil)
-
-			return ""
-		}
-	}
-
-	// ARGUMENTS qualifier — funcName is being called as a function-reference argument.
-	// These are dynamic (type="any"), so we can't verify them statically; accept if the
-	// argument is declared in the enclosing function.
-	if strings.EqualFold(variable, "ARGUMENTS") {
-		tr.addf("ARGUMENTS.%s called as a function reference — checking caller %q's argument list", funcName, call.Caller)
-
-		if declaresArgument(pr, call.Caller, funcName) {
-			tr.hit(TargetDynamic, "", nil)
-
-			return ""
-		}
+		return ""
 	}
 
 	// Qualified call — find the component from refs
@@ -509,28 +482,105 @@ func (r *Resolver) canResolveCall(call *parser.CallSite, pr *parser.ParseResult,
 	}
 
 	if comp == "" {
-		// Try component resolvers
-		var noFollow, soft bool
+		var accepted bool
 
-		comp, noFollow, soft = r.matchResolver(variable, tr, func(c, desc string, nf bool) {
-			tr.addf("resolved %q to %q via componentResolver matching the variable name [%s] (noFollow=%v)",
-				variable, c, desc, nf)
-		})
-		if soft {
-			softComp = comp
-		}
-
-		if noFollow && comp != "" {
+		if comp, softComp, accepted = r.matchReceiverResolvers(call, tr); accepted {
 			tr.hit(TargetDynamic, comp, nil)
 
 			return ""
 		}
 	}
 
-	if comp == "" && call.Text != "" {
-		// Try resolvers against the full line text (handles chained calls like x.method().prop.func())
-		var noFollow, soft bool
+	if comp == "" {
+		comp = r.lateReceiverComponent(call, pr, baseDir, tr)
+	}
 
+	if comp == "" {
+		tr.addf("no ComponentRef and no componentResolver matched %q", variable)
+	}
+
+	// Walk any intermediate .method() hops between the resolved base and this
+	// call (e.g. "kpg.generateKeyPair().getPublic().getParams()" — comp here is
+	// kpg's own component; call.Chain lists "generateKeyPair", "getPublic", each
+	// needing its own declared return type applied before checking funcName below).
+	if comp != "" && comp != "$any" {
+		var (
+			reason string
+			done   bool
+		)
+
+		if comp, softComp, reason, done = r.walkHops(comp, softComp, call, pr, baseDir, tr); done {
+			return reason
+		}
+	}
+
+	return r.checkMethodOn(comp, softComp, call, pr, baseDir, tr)
+}
+
+// acceptsScopeReference reports whether a call qualified by a scope word is a
+// call of a function the scope holds, which a call's receiver cannot be: a
+// scope is not a component.
+func (r *Resolver) acceptsScopeReference(call *parser.CallSite, pr *parser.ParseResult, tr *callTrace) bool {
+	funcName := call.FuncName
+	variable := call.Variable
+
+	// Bare VARIABLES qualifier (no further dot, e.g. "VARIABLES.someName(...)") —
+	// a scope can't itself be a component ref, so treating "VARIABLES" as the thing
+	// needing a ComponentRef is a category error. What's actually being called is a
+	// property assigned onto the scope (e.g. "VARIABLES.someName = ARGUMENTS.callback;
+	// ... VARIABLES.someName(...)"), a function-reference value passed in and stored —
+	// same reasoning as the ARGUMENTS-as-function-reference case below, just for a
+	// VARIABLES-scoped property instead of a bare argument. Accept if funcName was
+	// ever assigned in VARIABLES scope anywhere in the file (assignments inside any
+	// function are visible from every other function, unlike a var-scoped local).
+	if strings.EqualFold(variable, "VARIABLES") {
+		tr.addf("VARIABLES.%s called as a function reference — checking for a VARIABLES-scoped assignment", funcName)
+
+		if pr.HasScopedAssignment(parser.ScopeVariables, funcName) {
+			tr.addf("%q was assigned in VARIABLES scope — treating as a call through a function-reference property", funcName)
+
+			return true
+		}
+	}
+
+	// ARGUMENTS qualifier — funcName is being called as a function-reference argument.
+	// These are dynamic (type="any"), so we can't verify them statically; accept if the
+	// argument is declared in the enclosing function.
+	if strings.EqualFold(variable, "ARGUMENTS") {
+		tr.addf("ARGUMENTS.%s called as a function reference — checking caller %q's argument list", funcName, call.Caller)
+
+		if declaresArgument(pr, call.Caller, funcName) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// matchReceiverResolvers is the component the configured resolvers give a
+// receiver nothing in the file types: by the variable's name, then by the
+// whole line's text (a chain like x.method().prop.func()). soft is the
+// component when a dynamicIfMissing resolver gave it. accepted says a resolver
+// marked noFollow gave it, which takes the call without looking for the method; the
+// caller records the target.
+func (r *Resolver) matchReceiverResolvers(call *parser.CallSite, tr *callTrace) (comp, softComp string, accepted bool) {
+	variable := call.Variable
+
+	var noFollow, soft bool
+
+	comp, noFollow, soft = r.matchResolver(variable, tr, func(c, desc string, nf bool) {
+		tr.addf("resolved %q to %q via componentResolver matching the variable name [%s] (noFollow=%v)",
+			variable, c, desc, nf)
+	})
+	if soft {
+		softComp = comp
+	}
+
+	if noFollow && comp != "" {
+		return comp, softComp, true
+	}
+
+	if comp == "" && call.Text != "" {
 		comp, noFollow, soft = r.matchResolver(call.Text, tr, func(c, desc string, nf bool) {
 			tr.addf("resolved %q to %q via componentResolver matching the full line text %q [%s] (noFollow=%v)",
 				variable, c, call.Text, desc, nf)
@@ -540,11 +590,22 @@ func (r *Resolver) canResolveCall(call *parser.CallSite, pr *parser.ParseResult,
 		}
 
 		if noFollow && comp != "" {
-			tr.hit(TargetDynamic, comp, nil)
-
-			return ""
+			return comp, softComp, true
 		}
 	}
+
+	return comp, softComp, false
+}
+
+// lateReceiverComponent is the answer for a receiver every other step left
+// untyped: a loop element, a view's prc or rc, then what its arguments' callers
+// pass and what init stores. They come last so an inference never turns a call
+// something else accepted into a finding.
+func (r *Resolver) lateReceiverComponent(call *parser.CallSite, pr *parser.ParseResult, baseDir string, tr *callTrace) string {
+	variable := call.Variable
+	funcName := call.FuncName
+
+	comp := ""
 
 	if comp == "" {
 		comp = r.loopElement(call, pr, baseDir, tr)
@@ -586,26 +647,7 @@ func (r *Resolver) canResolveCall(call *parser.CallSite, pr *parser.ParseResult,
 		}
 	}
 
-	if comp == "" {
-		tr.addf("no ComponentRef and no componentResolver matched %q", variable)
-	}
-
-	// Walk any intermediate .method() hops between the resolved base and this
-	// call (e.g. "kpg.generateKeyPair().getPublic().getParams()" — comp here is
-	// kpg's own component; call.Chain lists "generateKeyPair", "getPublic", each
-	// needing its own declared return type applied before checking funcName below).
-	if comp != "" && comp != "$any" {
-		var (
-			reason string
-			done   bool
-		)
-
-		if comp, softComp, reason, done = r.walkHops(comp, softComp, call, pr, baseDir, tr); done {
-			return reason
-		}
-	}
-
-	return r.checkMethodOn(comp, softComp, call, pr, baseDir, tr)
+	return comp
 }
 
 // hopCallReturn is what a hop's own call returns: the configured bean
