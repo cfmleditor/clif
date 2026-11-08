@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/conv"
+	"github.com/cfmleditor/clif/internal/lex"
 )
 
 // propertyDef holds parsed property metadata.
@@ -5878,7 +5879,7 @@ func (p *scriptParser) chainFollowsCall() bool {
 		return false
 	}
 
-	end = skipSpace(p.sc.src, end)
+	end = lex.SkipSpace(p.sc.src, end)
 
 	return end < len(p.sc.src) && (p.sc.src[end] == '.' || p.sc.src[end] == '[' || strings.HasPrefix(p.sc.src[end:], "?."))
 }

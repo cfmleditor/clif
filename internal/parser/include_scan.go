@@ -3,6 +3,8 @@ package parser
 import (
 	"path"
 	"strings"
+
+	"github.com/cfmleditor/clif/internal/lex"
 )
 
 // The scanners here read the include and directory-listing forms by hand. They
@@ -17,11 +19,6 @@ func isRegexpSpace(c byte) bool {
 	return c == ' ' || c == '\t' || c == '\n' || c == '\f' || c == '\r'
 }
 
-// isWordByte is \w.
-func isWordByte(c byte) bool {
-	return isAlnum(c) || c == '_'
-}
-
 func skipRegexpSpace(s string, i int) int {
 	for i < len(s) && isRegexpSpace(s[i]) {
 		i++
@@ -32,12 +29,12 @@ func skipRegexpSpace(s string, i int) int {
 
 // wordStartAt is \b before s[i] when s[i] is a word byte.
 func wordStartAt(s string, i int) bool {
-	return i == 0 || !isWordByte(s[i-1])
+	return i == 0 || !lex.IsWord(s[i-1])
 }
 
 // wordEndAt is \b after a word ending before s[i].
 func wordEndAt(s string, i int) bool {
-	return i >= len(s) || !isWordByte(s[i])
+	return i >= len(s) || !lex.IsWord(s[i])
 }
 
 func isQuote(c byte) bool { return c == '"' || c == '\'' }
@@ -346,7 +343,7 @@ func listingDir(s string) (string, bool) {
 	}
 
 	for j := range len(rest) {
-		if c := rest[j]; !isWordByte(c) && c != '.' && c != '/' && c != '-' {
+		if c := rest[j]; !lex.IsWord(c) && c != '.' && c != '/' && c != '-' {
 			return "", false
 		}
 	}
@@ -375,7 +372,7 @@ func listingIncludeAt(s string) (prefix, query string, end int, ok bool) {
 		}
 
 		k := j + 1
-		for k < len(s) && (isWordByte(s[k]) || s[k] == '.' || s[k] == '/' || s[k] == '-') {
+		for k < len(s) && (lex.IsWord(s[k]) || s[k] == '.' || s[k] == '/' || s[k] == '-') {
 			k++
 		}
 
@@ -386,7 +383,7 @@ func listingIncludeAt(s string) (prefix, query string, end int, ok bool) {
 		q := skipRegexpSpace(s, k+1)
 
 		r := q
-		for r < len(s) && (isWordByte(s[r]) || s[r] == '$') {
+		for r < len(s) && (lex.IsWord(s[r]) || s[r] == '$') {
 			r++
 		}
 

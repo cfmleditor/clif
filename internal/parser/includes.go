@@ -4,6 +4,8 @@ import (
 	"path"
 	"slices"
 	"strings"
+
+	"github.com/cfmleditor/clif/internal/lex"
 )
 
 // includeWindow bounds how far past the keyword a match may reach. A tag with
@@ -505,7 +507,7 @@ func AttributeInclude(p string) (string, bool) {
 
 	name := p[len(prefix) : len(p)-1]
 	for i := range len(name) {
-		if !isWordByte(name[i]) {
+		if !lex.IsWord(name[i]) {
 			return "", false
 		}
 	}

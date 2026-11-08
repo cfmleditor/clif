@@ -16,6 +16,7 @@ import (
 	"github.com/cfmleditor/clif/internal/docs"
 	"github.com/cfmleditor/clif/internal/frameworkapi"
 	"github.com/cfmleditor/clif/internal/index"
+	"github.com/cfmleditor/clif/internal/lex"
 	"github.com/cfmleditor/clif/internal/nativetype"
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
@@ -2037,7 +2038,7 @@ func propertyReadText(line, property string) string {
 		from = i + 1
 
 		after := i + 1 + len(property)
-		if after < len(line) && isIdentChar(line[after]) {
+		if after < len(line) && lex.IsIdent(line[after]) {
 			continue
 		}
 
@@ -2081,7 +2082,7 @@ func propertyReadText(line, property string) string {
 		}
 
 		k := j
-		for k > 0 && isIdentChar(line[k-1]) {
+		for k > 0 && lex.IsIdent(line[k-1]) {
 			k--
 		}
 
@@ -2104,10 +2105,6 @@ func propertyReadText(line, property string) string {
 	}
 
 	return strings.TrimPrefix(line[start:end], ".")
-}
-
-func isIdentChar(c byte) bool {
-	return c == '_' || c == '$' || c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
 }
 
 // hopReturn is chainHopReturn, and failing that what the receiver binds the

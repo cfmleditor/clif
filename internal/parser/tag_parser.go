@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/conv"
+	"github.com/cfmleditor/clif/internal/lex"
 )
 
 // tagParser extracts definitions from CFML tag-based source.
@@ -386,7 +387,7 @@ func callSpanEnd(s string, at int) int {
 func opensAsCall(s string) bool {
 	i := 0
 
-	for i < len(s) && (isIdentByte(s[i]) || s[i] == '.') {
+	for i < len(s) && (lex.IsIdent(s[i]) || s[i] == '.') {
 		i++
 	}
 
@@ -644,7 +645,7 @@ func (p *tagParser) trackBlock(idx int) {
 	}
 
 	end := start
-	for end < len(p.src) && isIdentByte(p.src[end]) {
+	for end < len(p.src) && lex.IsIdent(p.src[end]) {
 		end++
 	}
 
@@ -1900,7 +1901,7 @@ func callReceiver(expr string) (receiver, method string) {
 	}
 
 	j := open
-	for j > 0 && isIdentByte(expr[j-1]) {
+	for j > 0 && lex.IsIdent(expr[j-1]) {
 		j--
 	}
 
@@ -3154,21 +3155,21 @@ func trailingCalls(expr string) []string {
 	var hops []string
 
 	for i >= 0 {
-		j := skipSpace(expr, i)
+		j := lex.SkipSpace(expr, i)
 		if j >= len(expr) || expr[j] != '.' {
 			break
 		}
 
-		j = skipSpace(expr, j+1)
+		j = lex.SkipSpace(expr, j+1)
 		start := j
 
-		for j < len(expr) && isIdentByte(expr[j]) {
+		for j < len(expr) && lex.IsIdent(expr[j]) {
 			j++
 		}
 
 		name := expr[start:j]
 
-		j = skipSpace(expr, j)
+		j = lex.SkipSpace(expr, j)
 
 		if name == "" {
 			break
@@ -3218,18 +3219,6 @@ func skipCallGroup(expr string, open int) int {
 	}
 
 	return -1
-}
-
-func skipSpace(s string, i int) int {
-	for i < len(s) && (s[i] == ' ' || s[i] == '\t' || s[i] == '\n' || s[i] == '\r') {
-		i++
-	}
-
-	return i
-}
-
-func isIdentByte(c byte) bool {
-	return c == '_' || c == '$' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9'
 }
 
 // extractLinksByScope extracts the links on every line of src, which starts at

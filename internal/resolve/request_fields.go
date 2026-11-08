@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/cfmleditor/clif/internal/lex"
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
 )
@@ -150,7 +151,7 @@ func requestWriteCounts(content string) map[string]int {
 // ("request" ending at end) assigns, or "": `request . k =` or `request [ "k"
 // ] =`, with the `=` not the first of `==`.
 func requestKeyWrittenAt(content string, start, end int) string {
-	if start > 0 && isWordByte(content[start-1]) {
+	if start > 0 && lex.IsWord(content[start-1]) {
 		return ""
 	}
 
@@ -166,7 +167,7 @@ func requestKeyWrittenAt(content string, start, end int) string {
 		j = skipSpace(content, j+1)
 		k := j
 
-		for k < len(content) && isWordByte(content[k]) {
+		for k < len(content) && lex.IsWord(content[k]) {
 			k++
 		}
 
@@ -216,10 +217,6 @@ func skipSpace(s string, i int) int {
 	}
 
 	return i
-}
-
-func isWordByte(c byte) bool {
-	return c == '_' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9'
 }
 
 // withoutComments is content with every byte outside the scanner's tokens

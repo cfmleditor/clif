@@ -22,6 +22,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/cfmleditor/clif/internal/lex"
 	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
@@ -1000,14 +1001,7 @@ func hasWordAt(src []byte, pos int, word string) bool {
 
 	after := pos + len(word)
 
-	return after >= len(src) || !isIdentByte(src[after])
-}
-
-func isIdentByte(c byte) bool {
-	return c == '_' || c == '$' ||
-		(c >= '0' && c <= '9') ||
-		(c >= 'a' && c <= 'z') ||
-		(c >= 'A' && c <= 'Z')
+	return after >= len(src) || !lex.IsIdent(src[after])
 }
 
 func hasBytesAt(src []byte, pos int, lit string) bool {

@@ -37,6 +37,7 @@ import (
 	"go.lsp.dev/protocol"
 
 	"github.com/cfmleditor/clif/internal/conv"
+	"github.com/cfmleditor/clif/internal/lex"
 )
 
 // Entry is one finding from a known-issues file.
@@ -350,8 +351,8 @@ func wordIndexFold(s, word string) int {
 		}
 
 		i += from
-		before := i == 0 || !isWordByte(ls[i-1])
-		after := i+len(lw) >= len(ls) || !isWordByte(ls[i+len(lw)])
+		before := i == 0 || !lex.IsIdent(ls[i-1])
+		after := i+len(lw) >= len(ls) || !lex.IsIdent(ls[i+len(lw)])
 
 		if before && after {
 			return i
@@ -359,10 +360,6 @@ func wordIndexFold(s, word string) int {
 
 		from = i + 1
 	}
-}
-
-func isWordByte(c byte) bool {
-	return c == '_' || c == '$' || c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
 }
 
 // utf16Len is the length of s in UTF-16 code units, what an LSP character
