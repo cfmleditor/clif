@@ -359,7 +359,12 @@ func IndexFilesUnder(files []string, under func(file string) *Resolver, visit fu
 		r := under(f)
 
 		content, err := vfs.ReadString(r.FS, f)
-		if err != nil || cfpath.IsBinary(content) {
+		if err != nil {
+			return
+		}
+
+		content, isText := cfpath.AsTextString(content)
+		if !isText {
 			return
 		}
 

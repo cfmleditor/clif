@@ -1,6 +1,7 @@
 package unresolved
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
@@ -182,5 +183,35 @@ func TestABareCallToAFunctionAnIncludedTemplateDeclaresIsAccepted(t *testing.T) 
 	got := Scan(vfs.OS{}, files, files, &Options{WorkspaceFolders: []string{dir}, InferArgs: true})
 	if len(got.Calls) != 1 || got.Calls[0].Function != "nowhereDeclared" {
 		t.Fatalf("want only nowhereDeclared reported, got %+v", got.Calls)
+	}
+}
+
+// A UTF-16 component (with its byte-order mark) is analysed as the text it is,
+// and a binary file saved as .cfc is skipped, however late its first NUL.
+func TestUTF16IsAnalysedAndBinaryIsSkipped(t *testing.T) {
+	dir := t.TempDir()
+
+	src := "component {\n function go() {\n return missingFunctionHere();\n }\n}"
+	enc := []byte{0xFF, 0xFE}
+
+	for _, r := range src {
+		enc = append(enc, byte(r), byte(r>>8))
+	}
+
+	utf16 := filepath.Join(dir, "Wide.cfc")
+	binary := filepath.Join(dir, "Blob.cfc")
+
+	blob := append(bytes.Repeat([]byte("x"), 2000), 0)
+	blob = append(blob, []byte(" function go() { return alsoMissingHere(); }")...)
+
+	for f, b := range map[string][]byte{utf16: enc, binary: blob} {
+		if err := os.WriteFile(f, b, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	got := Scan(vfs.OS{}, []string{utf16, binary}, nil, &Options{WorkspaceFolders: []string{dir}})
+	if len(got.Calls) != 1 || got.Calls[0].Function != "missingFunctionHere" || got.Calls[0].Line != 2 {
+		t.Fatalf("want the UTF-16 file's one call on its third line and nothing from the binary, got %+v", got.Calls)
 	}
 }

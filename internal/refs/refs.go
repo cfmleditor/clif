@@ -147,6 +147,11 @@ func findInFile(fsys vfs.FS, f string, opts *Options) []Entry {
 		return nil
 	}
 
+	data, isText := cfpath.AsText(data)
+	if !isText {
+		return nil
+	}
+
 	// Quick check: skip files that don't contain the function name
 	if funcTarget != "" && !containsFold(data, funcTarget) {
 		return nil

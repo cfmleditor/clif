@@ -814,6 +814,12 @@ func (s *Server) parseContent(fileURI uri.URI, content string) *parser.ParseResu
 func (s *Server) parseContentWith(fileURI uri.URI, content string, calls bool) *parser.ParseResult {
 	s.ensureBeansLoaded()
 
+	// A binary file opened by hand is a document like any other to the editor
+	// but has no CFML in it: parse it as empty, not as source.
+	if cfpath.IsBinary(content) {
+		content = ""
+	}
+
 	// Links are not extracted: only the document-link request reads them, and
 	// it takes them from the text (DocumentLinks).
 	//

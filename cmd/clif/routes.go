@@ -189,7 +189,12 @@ func scanRoutes(paths []string, quiet bool) (resolved, unresolved []routeFinding
 			}
 
 			data, err := fsys.ReadFile(file)
-			if err != nil || cfpath.IsBinary(data) {
+			if err != nil {
+				return
+			}
+
+			data, isText := cfpath.AsText(data)
+			if !isText {
 				return
 			}
 

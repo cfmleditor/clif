@@ -79,7 +79,8 @@ func (e *scanError) String() string {
 // the languages injected into it, and returns every error node, in document
 // order. A binary file has none. clif scan prints them; clif check counts them.
 func parseErrors(file string, content []byte) []scanError {
-	if cfpath.IsBinary(content) {
+	content, isText := cfpath.AsText(content)
+	if !isText {
 		return nil
 	}
 

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf16"
 
 	"github.com/cfmleditor/clif/internal/parser"
 	"github.com/cfmleditor/clif/internal/vfs"
@@ -808,9 +809,20 @@ func IsCFCFile(path string) bool {
 		(path[len(path)-3]|0x20) == 'c' && (path[len(path)-2]|0x20) == 'f' && (path[len(path)-1]|0x20) == 'c'
 }
 
-// IsBinary returns true if data appears to be binary (contains null bytes in the first 512 bytes).
+// binaryWindow is how much of a file IsBinary reads, as git does (it looks at
+// the first 8,000 bytes). Binary formats with a long text header, or a first
+// block of printable bytes, show their NULs later than the first 512.
+const binaryWindow = 8000
+
+// IsBinary returns true if data appears to be binary: a NUL byte in the first
+// 8,000 bytes. A UTF-16 text file (one with a byte-order mark) is text with a
+// NUL in every other byte, and is not binary; AsText decodes it.
 func IsBinary[T string | []byte](data T) bool {
-	n := min(len(data), 512)
+	if utf16Order(data) != 0 {
+		return false
+	}
+
+	n := min(len(data), binaryWindow)
 
 	for i := range n {
 		if data[i] == 0 {
@@ -819,6 +831,68 @@ func IsBinary[T string | []byte](data T) bool {
 	}
 
 	return false
+}
+
+// utf16Order is 1 for UTF-16 little-endian text and 2 for big-endian, 0 for
+// neither. It takes a byte-order mark and a NUL in the right half of the first
+// character pair, so a binary that happens to start with those two bytes and
+// is not text at that width is not taken for UTF-16.
+func utf16Order[T string | []byte](data T) int {
+	if len(data) < 4 {
+		return 0
+	}
+
+	switch {
+	case data[0] == 0xFF && data[1] == 0xFE:
+		return 1
+	case data[0] == 0xFE && data[1] == 0xFF:
+		return 2
+	}
+
+	return 0
+}
+
+// IsUTF16 reports whether data is UTF-16 text, by its byte-order mark.
+func IsUTF16(data []byte) bool { return utf16Order(data) != 0 }
+
+// AsText returns data as the UTF-8 text the analysis reads, and whether it is
+// text at all: a UTF-16 file with a byte-order mark is decoded, binary is not
+// text, and anything else is returned as it is. A UTF-16 file that decodes to
+// text containing a NUL is binary after all.
+func AsText(data []byte) ([]byte, bool) {
+	order := utf16Order(data)
+	if order == 0 {
+		return data, !IsBinary(data)
+	}
+
+	units := make([]uint16, 0, (len(data)-2)/2)
+
+	for i := 2; i+1 < len(data); i += 2 {
+		if order == 1 {
+			units = append(units, uint16(data[i])|uint16(data[i+1])<<8)
+		} else {
+			units = append(units, uint16(data[i])<<8|uint16(data[i+1]))
+		}
+	}
+
+	text := []byte(string(utf16.Decode(units)))
+	if slices.Contains(text[:min(len(text), binaryWindow)], 0) {
+		return nil, false
+	}
+
+	return text, true
+}
+
+// AsTextString is AsText for a string, which is returned as it is, with no
+// copy, unless it is UTF-16: the scan reads every file this way.
+func AsTextString(data string) (string, bool) {
+	if utf16Order(data) == 0 {
+		return data, !IsBinary(data)
+	}
+
+	text, ok := AsText([]byte(data))
+
+	return string(text), ok
 }
 
 // MatchesGlob checks whether a file path matches any of the given glob patterns.
