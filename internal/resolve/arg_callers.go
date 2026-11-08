@@ -413,28 +413,16 @@ func (r *Resolver) inferArgument(fd *parser.FunctionDef, pos int, file string, c
 		return r.inferInitArgument(fd, pos, file, ctx)
 	}
 
-	files := r.callerFiles(fd.Name)
-	files = append(files, r.callerFiles(quotedCallerKey(fd.Name))...)
-
-	for n := 1; n <= len(fd.Name); n++ {
-		files = append(files, r.callerFiles(computedCallerKey(fd.Name[:n]))...)
-	}
-
-	slices.Sort(files)
-
-	files = slices.Compact(files)
+	files := r.candidateCallerFiles(fd.Name)
 	if len(files) == 0 || exceedsCallerLimit(len(files), r.CallerInferenceLimits.MaxCandidateFiles) {
 		return ""
 	}
 
-	argName := fd.Arguments[pos].Name
-	budget := callerFileBudget{limit: r.CallerInferenceLimits.MaxCallerFiles}
-
-	var (
-		comps   []string
-		sites   int
-		dynamic bool
-	)
+	inf := &argInference{
+		r: r, fd: fd, pos: pos, file: file, ctx: ctx,
+		argName: fd.Arguments[pos].Name,
+		budget:  callerFileBudget{limit: r.CallerInferenceLimits.MaxCallerFiles},
+	}
 
 	// Files are read in the order their parses finish: the answer does not
 	// depend on the order (every caller must agree, and the alternatives are
@@ -446,90 +434,134 @@ func (r *Resolver) inferArgument(fd *parser.FunctionDef, pos int, file string, c
 	defer stop()
 
 	for got, more := next(); more; got, more = next() {
-		path, hpr := got.path, got.pr
-		if hpr == nil {
+		if got.pr == nil || !inf.fromCaller(got.path, got.pr) {
 			return ""
-		}
-
-		var tokens []parser.Token
-
-		// Only a call to the function, or to invoke(), can pass it the
-		// argument; and the directory is the file's, not the call's.
-		calls := hpr.CallsNamed(fd.Name, "invoke")
-		dir := filepath.Dir(path)
-
-		for ci := range calls {
-			call := &calls[ci]
-
-			invoke := r.builtinInvoke(call, hpr, dir)
-			if !invoke && !strings.EqualFold(call.FuncName, fd.Name) {
-				continue
-			}
-
-			expr, passed, ours, known := r.callerArgument(call, hpr, path, fd, file, dir, pos, argName, ctx)
-
-			if !ours {
-				if known || !invoke && r.callerOmitsArgument(call, hpr, pos, argName) {
-					continue
-				}
-
-				return ""
-			}
-
-			if !budget.take(path) {
-				return ""
-			}
-
-			if tokens == nil {
-				tokens = r.fileTokens(hpr)
-			}
-
-			if !invoke {
-				expr, passed = callSiteArgument(tokens, call, pos, argName)
-			}
-
-			if !passed {
-				continue
-			}
-
-			sites++
-			if exceedsCallerLimit(sites, r.CallerInferenceLimits.MaxCallSites) {
-				return ""
-			}
-
-			comp, kind := r.callerArgumentAnswer(expr, call, hpr, dir, ctx)
-
-			switch kind {
-			case answerForwarded:
-				sites--
-
-				continue
-			case answerDynamic:
-				dynamic = true
-
-				continue
-			case answerNone:
-				return ""
-			case answerTyped:
-			}
-
-			comps = r.appendArgumentComponents(comps, comp, dir)
 		}
 	}
 
-	if sites == 0 {
+	return inf.answer()
+}
+
+// candidateCallerFiles are the files that may call the function: those that
+// name it, quote its name (invoke( "name" )), or compute a name with its start.
+func (r *Resolver) candidateCallerFiles(name string) []string {
+	files := r.callerFiles(name)
+	files = append(files, r.callerFiles(quotedCallerKey(name))...)
+
+	for n := 1; n <= len(name); n++ {
+		files = append(files, r.callerFiles(computedCallerKey(name[:n]))...)
+	}
+
+	slices.Sort(files)
+
+	return slices.Compact(files)
+}
+
+// argInference is what the callers of a function, read one file at a time, say
+// an argument is.
+type argInference struct {
+	r       *Resolver
+	fd      *parser.FunctionDef
+	file    string
+	argName string
+	budget  callerFileBudget
+	comps   []string
+	ctx     lookupCtx
+	pos     int
+	sites   int
+	dynamic bool
+}
+
+// fromCaller reads the calls to the function in one caller's parse. It is false
+// when the answer is settled as none: a call that may pass the argument but is
+// not understood, or a limit reached.
+func (a *argInference) fromCaller(path string, hpr *parser.ParseResult) bool {
+	r, fd := a.r, a.fd
+
+	var tokens []parser.Token
+
+	// Only a call to the function, or to invoke(), can pass it the
+	// argument; and the directory is the file's, not the call's.
+	calls := hpr.CallsNamed(fd.Name, "invoke")
+	dir := filepath.Dir(path)
+
+	for ci := range calls {
+		call := &calls[ci]
+
+		invoke := r.builtinInvoke(call, hpr, dir)
+		if !invoke && !strings.EqualFold(call.FuncName, fd.Name) {
+			continue
+		}
+
+		expr, passed, ours, known := r.callerArgument(call, hpr, path, fd, a.file, dir, a.pos, a.argName, a.ctx)
+
+		if !ours {
+			if known || !invoke && r.callerOmitsArgument(call, hpr, a.pos, a.argName) {
+				continue
+			}
+
+			return false
+		}
+
+		if !a.budget.take(path) {
+			return false
+		}
+
+		if tokens == nil {
+			tokens = r.fileTokens(hpr)
+		}
+
+		if !invoke {
+			expr, passed = callSiteArgument(tokens, call, a.pos, a.argName)
+		}
+
+		if !passed {
+			continue
+		}
+
+		a.sites++
+		if exceedsCallerLimit(a.sites, r.CallerInferenceLimits.MaxCallSites) {
+			return false
+		}
+
+		comp, kind := r.callerArgumentAnswer(expr, call, hpr, dir, a.ctx)
+
+		switch kind {
+		case answerForwarded:
+			a.sites--
+
+			continue
+		case answerDynamic:
+			a.dynamic = true
+
+			continue
+		case answerNone:
+			return false
+		case answerTyped:
+		}
+
+		a.comps = r.appendArgumentComponents(a.comps, comp, dir)
+	}
+
+	return true
+}
+
+// answer is the component every caller passes, as alternatives when they
+// differ, "$any" when one passes a dynamic value, and "" when none passed it.
+func (a *argInference) answer() string {
+	if a.sites == 0 {
 		return ""
 	}
 
 	// A caller passing a dynamic value makes the argument one: whatever the
 	// others pass, it can be that.
-	if dynamic {
+	if a.dynamic {
 		return "$any"
 	}
 
-	slices.Sort(comps)
+	slices.Sort(a.comps)
 
-	return strings.Join(comps, "|")
+	return strings.Join(a.comps, "|")
 }
 
 // callerAnswer says how one caller's argument was read.
