@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/cfmleditor/clif/internal/conv"
+	"github.com/cfmleditor/clif/internal/lex"
 	cflog "github.com/cfmleditor/clif/internal/log"
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
@@ -583,7 +584,7 @@ func (r *Resolver) argumentExprIsDynamic(expr []parser.Token, line uint32, calle
 // appendArgumentComponents keeps the union of the proven caller alternatives.
 func (r *Resolver) appendArgumentComponents(comps []string, comp, dir string) []string {
 	for alt := range strings.SplitSeq(r.pathsOf(comp, dir), "|") {
-		if !containsFold(comps, alt) {
+		if !lex.ContainsFold(comps, alt) {
 			comps = append(comps, alt)
 		}
 	}

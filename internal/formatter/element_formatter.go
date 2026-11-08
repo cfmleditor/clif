@@ -226,8 +226,8 @@ func (f *Formatter) hasBlockChild(nodes []*sitter.Node) bool {
 	return slices.ContainsFunc(nodes, f.isBlockTagKind)
 }
 
-// formatInlineRun emits a sequence of inline nodes on a single line,
-// preserving the original spacing between them.
+// formatInlineRun emits a run of inline nodes on a single line: the text
+// trimmed, then collapsed to HTML whitespace rules by writeText.
 func (f *Formatter) formatInlineRun(nodes []*sitter.Node) {
 	var combined strings.Builder
 	for _, n := range nodes {
@@ -258,7 +258,7 @@ func (f *Formatter) formatBodyRuns(nodes []*sitter.Node) {
 				j++
 			}
 
-			f.formatTextRun(run)
+			f.formatInlineRun(run)
 
 			i = j
 		} else {
@@ -278,22 +278,6 @@ func (f *Formatter) isInlineNode(n *sitter.Node) bool {
 	}
 
 	return false
-}
-
-// formatTextRun emits a run of inline nodes on a single indented line,
-// collapsing all internal whitespace to single spaces (HTML whitespace rules).
-func (f *Formatter) formatTextRun(nodes []*sitter.Node) {
-	var combined strings.Builder
-	for _, n := range nodes {
-		combined.WriteString(f.text(n))
-	}
-
-	trimmed := trimSpace(combined.String())
-	if trimmed == "" {
-		return
-	}
-
-	f.writeText(trimmed)
 }
 
 // writeText emits a run of template text: collapsed to HTML whitespace rules and

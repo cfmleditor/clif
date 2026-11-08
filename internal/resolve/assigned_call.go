@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/conv"
+	"github.com/cfmleditor/clif/internal/lex"
 	"github.com/cfmleditor/clif/internal/parser"
 )
 
@@ -442,7 +443,7 @@ func hopReturns(lookup func(string, string) string, comp string, c chainCall, dy
 			return ""
 		}
 
-		if !containsFold(returns, ret) {
+		if !lex.ContainsFold(returns, ret) {
 			returns = append(returns, ret)
 		}
 	}
@@ -738,16 +739,6 @@ func inlineStructArg(content, name string, start, line int) string {
 	}
 
 	return "{" + strings.Join(parts, ",") + "}"
-}
-
-func containsFold(list []string, s string) bool {
-	for _, v := range list {
-		if strings.EqualFold(v, s) {
-			return true
-		}
-	}
-
-	return false
 }
 
 // variablesAssignment is the last assignment to an unscoped name above the

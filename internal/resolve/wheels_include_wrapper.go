@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/cfmleditor/clif/internal/lex"
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
 )
@@ -100,7 +101,7 @@ func (r *Resolver) computeWheelsTemplateHosts(file string) []string {
 					return []string{""}
 				}
 
-				if !containsFold(hosts, host) {
+				if !lex.ContainsFold(hosts, host) {
 					hosts = append(hosts, host)
 				}
 			}

@@ -63,3 +63,27 @@ func TestSkipSpace(t *testing.T) {
 		}
 	}
 }
+
+func TestContainsFold(t *testing.T) {
+	list := []string{"getUser", "SET", "ß"}
+
+	for _, c := range []struct {
+		s    string
+		want bool
+	}{
+		{"getuser", true},
+		{"set", true},
+		{"SET", true},
+		{"ß", true},
+		{"get", false},
+		{"", false},
+	} {
+		if got := ContainsFold(list, c.s); got != c.want {
+			t.Errorf("ContainsFold(%q) = %v, want %v", c.s, got, c.want)
+		}
+	}
+
+	if ContainsFold(nil, "x") {
+		t.Error("an empty list holds nothing")
+	}
+}

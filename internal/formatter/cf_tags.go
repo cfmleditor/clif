@@ -194,7 +194,7 @@ func (f *Formatter) formatCFBlockTag(n *sitter.Node) {
 					j++
 				}
 
-				f.formatTextRun(run)
+				f.formatInlineRun(run)
 
 				i = j
 

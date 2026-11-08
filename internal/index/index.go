@@ -305,22 +305,7 @@ func snapshot[T any](s []T) []T {
 //
 // The tail is cleared so the entries dropped from the bucket can be collected
 // rather than pinned by an array the map still points at.
-func keepFuncs(entries []*parser.FunctionDef, keep func(*parser.FunctionDef) bool) []*parser.FunctionDef {
-	n := 0
-
-	for _, e := range entries {
-		if keep(e) {
-			entries[n] = e
-			n++
-		}
-	}
-
-	clear(entries[n:])
-
-	return entries[:n]
-}
-
-func keepRefs(entries []*parser.ComponentRef, keep func(*parser.ComponentRef) bool) []*parser.ComponentRef {
+func keepIf[T any](entries []*T, keep func(*T) bool) []*T {
 	n := 0
 
 	for _, e := range entries {
@@ -819,7 +804,7 @@ func (idx *Index) RemoveFilesUnder(prefix string) {
 	defer idx.mu.Unlock()
 
 	for key, entries := range idx.funcs {
-		filtered := keepFuncs(entries, func(e *parser.FunctionDef) bool {
+		filtered := keepIf(entries, func(e *parser.FunctionDef) bool {
 			return !strings.HasPrefix(string(e.URI), prefix)
 		})
 
@@ -831,7 +816,7 @@ func (idx *Index) RemoveFilesUnder(prefix string) {
 	}
 
 	for key, entries := range idx.comprefs {
-		filtered := keepRefs(entries, func(e *parser.ComponentRef) bool {
+		filtered := keepIf(entries, func(e *parser.ComponentRef) bool {
 			return !strings.HasPrefix(string(e.URI), prefix)
 		})
 
@@ -1147,7 +1132,7 @@ func (idx *Index) SetFuncRefs(fileURI uri.URI, scopeKey string, refs []parser.Co
 		}
 
 		for key := range varKeys {
-			if kept := keepRefs(idx.comprefs[key], keep); len(kept) == 0 {
+			if kept := keepIf(idx.comprefs[key], keep); len(kept) == 0 {
 				delete(idx.comprefs, key)
 			} else {
 				idx.comprefs[key] = kept
@@ -1155,7 +1140,7 @@ func (idx *Index) SetFuncRefs(fileURI uri.URI, scopeKey string, refs []parser.Co
 		}
 
 		for rk := range fileKeys {
-			if kept := keepRefs(idx.fileRefs[rk], keep); len(kept) == 0 {
+			if kept := keepIf(idx.fileRefs[rk], keep); len(kept) == 0 {
 				delete(idx.fileRefs, rk)
 			} else {
 				idx.fileRefs[rk] = kept

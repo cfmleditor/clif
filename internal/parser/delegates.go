@@ -1,6 +1,10 @@
 package parser
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/cfmleditor/clif/internal/lex"
+)
 
 // Delegate is a WireBox delegation (ColdBox 7): the component holding it has
 // every public method of Target, under the name Prefix + method + Suffix.
@@ -37,11 +41,11 @@ func (d *Delegate) DelegatedMethod(name string) string {
 
 	inner := name[len(d.Prefix) : len(name)-len(d.Suffix)]
 
-	if coreDelegateExclusions[strings.ToLower(inner)] || listHasFold(d.Excludes, inner) {
+	if coreDelegateExclusions[strings.ToLower(inner)] || lex.ContainsFold(d.Excludes, inner) {
 		return ""
 	}
 
-	if len(d.Includes) > 0 && !listHasFold(d.Includes, inner) {
+	if len(d.Includes) > 0 && !lex.ContainsFold(d.Includes, inner) {
 		return ""
 	}
 
@@ -53,16 +57,6 @@ func (d *Delegate) DelegatedMethod(name string) string {
 var coreDelegateExclusions = map[string]bool{
 	"init": true, "$init": true, "ondicomplete": true, "setinjector": true,
 	"setbeanfactory": true, "setcoldbox": true,
-}
-
-func listHasFold(list []string, s string) bool {
-	for _, v := range list {
-		if strings.EqualFold(v, s) {
-			return true
-		}
-	}
-
-	return false
 }
 
 // propertyFlags are the property attributes WireBox reads by their presence

@@ -8,6 +8,8 @@
 // formatter's skipSpace skips Unicode space; resolve's also skips \f and \v).
 package lex
 
+import "strings"
+
 // IsIdent reports whether c can appear in a CFML identifier: a letter, a
 // digit, '_' or '$'. It does not say whether c may start one.
 func IsIdent(c byte) bool {
@@ -27,4 +29,16 @@ func SkipSpace(s string, i int) int {
 	}
 
 	return i
+}
+
+// ContainsFold reports whether list holds s, ignoring ASCII and Unicode case
+// as strings.EqualFold does.
+func ContainsFold(list []string, s string) bool {
+	for _, v := range list {
+		if strings.EqualFold(v, s) {
+			return true
+		}
+	}
+
+	return false
 }

@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/cfmleditor/clif/internal/lex"
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
 )
@@ -95,7 +96,7 @@ func (r *Resolver) customTagAttribute(variable string, pr *parser.ParseResult, t
 		}
 
 		for alt := range strings.SplitSeq(comp, "|") {
-			if !containsFold(comps, alt) {
+			if !lex.ContainsFold(comps, alt) {
 				comps = append(comps, alt)
 			}
 		}
