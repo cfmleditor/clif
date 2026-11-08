@@ -88,40 +88,82 @@ func (r *Resolver) ClassifyReason(call *parser.CallSite, reason string, opt Clas
 // ClassifyReasonIn is ClassifyReason for a call whose file is at hand: with it
 // a variable can be traced to the assignment that made it.
 func (r *Resolver) ClassifyReasonIn(call *parser.CallSite, reason string, opt ClassifyOptions, pr *parser.ParseResult, baseDir string) (Verdict, string) {
+	v, base, _ := r.ClassifyReasonRule(call, reason, opt, pr, baseDir)
+
+	return v, base
+}
+
+// classifyInput is what a rule is asked about.
+type classifyInput struct {
+	call    *parser.CallSite
+	reason  string
+	opt     ClassifyOptions
+	pr      *parser.ParseResult
+	baseDir string
+}
+
+// classifyRule sets a call aside, or accepts it, for its reason alone.
+type classifyRule struct {
+	// name is what a trace says decided the call.
+	name string
+	// judgement marks a rule that is a judgement about the receiver, not a
+	// proof: it is off in the strict view (ClassifyOptions.KeepUntypedHops),
+	// which reports the calls nothing proves. The table's order and these
+	// flags are pinned by TestTheClassifyRulesAreInTheirDocumentedOrder.
+	judgement bool
+	verdict   Verdict
+	applies   func(r *Resolver, in *classifyInput) bool
+}
+
+// classifyRules are tried in order after the checks every view makes (an
+// empty reason, a builtin, a global definition); the first that applies
+// decides. The order is part of the answer: a proof is tried before a
+// judgement, and among the judgements the cheaper and narrower first.
+var classifyRules = []classifyRule{
+	{"untypedHop", true, Accepted, func(_ *Resolver, in *classifyInput) bool { return isUntypedHop(in.reason) }},
+	{"undeclaredMember", false, Builtin, func(r *Resolver, in *classifyInput) bool { return r.isUndeclaredMemberCall(in.call, in.reason) }},
+	{"assignedFromUntypedFunction", false, Accepted, func(r *Resolver, in *classifyInput) bool {
+		return r.assignedFromUntypedFunction(in.call, in.reason, in.pr, in.baseDir)
+	}},
+	{"sharedMember", true, Accepted, func(r *Resolver, in *classifyInput) bool { return r.isSharedMemberCall(in.call, in.reason) }},
+	{"namedComponentDeclares", true, Accepted, func(r *Resolver, in *classifyInput) bool { return r.namedComponentDeclares(in.call, in.reason) }},
+	{"nativeMemberOfUnknown", true, Builtin, func(r *Resolver, in *classifyInput) bool { return r.isNativeMemberOfUnknown(in.call, in.reason) }},
+	{"templateFunction", true, Accepted, func(r *Resolver, in *classifyInput) bool { return r.isTemplateFunctionCall(in.call, in.reason) }},
+	{"distinctiveMember", true, Accepted, func(r *Resolver, in *classifyInput) bool { return r.isDistinctiveMember(in.call, in.reason) }},
+	{"beanAccessorOfUnknown", true, Accepted, func(_ *Resolver, in *classifyInput) bool { return isBeanAccessorOfUnknown(in.call, in.reason) }},
+	{"knownNativeMember", true, Accepted, func(r *Resolver, in *classifyInput) bool { return r.isKnownNativeMember(in.call, in.reason) }},
+}
+
+// ClassifyReasonRule is ClassifyReasonIn that also says which rule decided,
+// by name: "" for the checks every view makes and for an unresolved call.
+func (r *Resolver) ClassifyReasonRule(call *parser.CallSite, reason string, opt ClassifyOptions, pr *parser.ParseResult, baseDir string) (v Verdict, base, rule string) {
 	switch {
 	case reason == "":
-		return Accepted, ""
+		return Accepted, "", ""
 	case IsBuiltinCall(call):
-		return Builtin, ""
+		return Builtin, "", "builtin"
 	case opt.GlobalDefs && r.Index.CountFunctions(call.FuncName) > 0:
-		return GlobalDef, ""
-	case !opt.KeepUntypedHops && isUntypedHop(reason):
-		return Accepted, ""
-	case r.isUndeclaredMemberCall(call, reason):
-		return Builtin, ""
-	case r.assignedFromUntypedFunction(call, reason, pr, baseDir):
-		return Accepted, ""
-	case !opt.KeepUntypedHops && r.isSharedMemberCall(call, reason):
-		return Accepted, ""
-	case !opt.KeepUntypedHops && r.namedComponentDeclares(call, reason):
-		return Accepted, ""
-	case !opt.KeepUntypedHops && r.isNativeMemberOfUnknown(call, reason):
-		return Builtin, ""
-	case !opt.KeepUntypedHops && r.isTemplateFunctionCall(call, reason):
-		return Accepted, ""
-	case !opt.KeepUntypedHops && r.isDistinctiveMember(call, reason):
-		return Accepted, ""
-	case !opt.KeepUntypedHops && isBeanAccessorOfUnknown(call, reason):
-		return Accepted, ""
-	case !opt.KeepUntypedHops && r.isKnownNativeMember(call, reason):
-		return Accepted, ""
+		return GlobalDef, "", "globalDefinition"
+	}
+
+	in := classifyInput{call: call, reason: reason, opt: opt, pr: pr, baseDir: baseDir}
+
+	for i := range classifyRules {
+		cr := &classifyRules[i]
+		if cr.judgement && opt.KeepUntypedHops {
+			continue
+		}
+
+		if cr.applies(r, &in) {
+			return cr.verdict, "", cr.name
+		}
 	}
 
 	if base, ok := MissingBaseOf(reason); ok {
-		return MissingBase, base
+		return MissingBase, base, "missingBase"
 	}
 
-	return Unresolved, ""
+	return Unresolved, "", ""
 }
 
 // isUntypedHop reports whether reason is a chain hop whose method declares no

@@ -9,6 +9,8 @@
 
 ### Fixed
 
+- **The rules that set a call aside are an ordered table, and `explain` names the one that decided.** `ClassifyReasonIn`'s `switch` of ten cases is `classifyRules`, each with a name, its verdict and whether it is a judgement (off in the strict view); `explain`'s `report:` line ends with `(rule: namedComponentDeclares)` and the like. The order and the flags are pinned by a test. `unresolved` output is byte-identical on ContentBox, Masa and TestBox, with no change in time.
+
 - **Expressions built from a name inside a function are compiled once** (`compiledPattern`) in the registry, lazy-getter, Wheels mapper, ColdBox intercept and Mura object rules; they were compiled on every call. Output is byte-identical on ContentBox and Masa; the time difference is within noise (about 2%), so this is housekeeping, not a speedup. The five copies of the tests' `testdataDir` are `testutil.Testdata`.
 
 - **The byte-level character classes four packages each wrote for themselves are one package, `internal/lex`** (`IsIdent`, `IsWord`, `SkipSpace`): the parser, formatter, route scan, known-issues report and resolver had byte-identical copies. Its test holds each helper to every former definition over all 256 bytes. The rules that differ (the server's, which counts bytes above ASCII, the formatter's Unicode skip, resolve's `\f`/`\v`) keep their own. `unresolved` output is byte-identical on TestBox, FW/1 and ColdBox.

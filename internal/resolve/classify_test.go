@@ -159,3 +159,56 @@ func TestAVariableAssignedFromAnUntypedFunctionIsAccepted(t *testing.T) {
 		t.Errorf("z: verdict %v, want unresolved", got["z"])
 	}
 }
+
+// TestTheClassifyRulesAreInTheirDocumentedOrder pins the table: the order is
+// part of the answer, and the judgement flag is what the strict view turns off.
+func TestTheClassifyRulesAreInTheirDocumentedOrder(t *testing.T) {
+	type entry struct {
+		name      string
+		judgement bool
+	}
+
+	want := []entry{
+		{"untypedHop", true},
+		{"undeclaredMember", false},
+		{"assignedFromUntypedFunction", false},
+		{"sharedMember", true},
+		{"namedComponentDeclares", true},
+		{"nativeMemberOfUnknown", true},
+		{"templateFunction", true},
+		{"distinctiveMember", true},
+		{"beanAccessorOfUnknown", true},
+		{"knownNativeMember", true},
+	}
+
+	if len(classifyRules) != len(want) {
+		t.Fatalf("%d rules, want %d", len(classifyRules), len(want))
+	}
+
+	for i, w := range want {
+		if got := (entry{classifyRules[i].name, classifyRules[i].judgement}); got != w {
+			t.Errorf("rule %d is %+v, want %+v", i, got, w)
+		}
+	}
+}
+
+// TestTheRuleThatDecidedIsNamed: the trace can say why a call was set aside,
+// and the strict view leaves the judgement out.
+func TestTheRuleThatDecidedIsNamed(t *testing.T) {
+	r := &Resolver{FS: vfs.OS{}, Index: index.New()}
+	call := &parser.CallSite{FuncName: "foo", Variable: "svc", Chain: []string{"get"}}
+	reason := "method 'get' in Svc has no component return type (chain to 'foo')"
+
+	if v, _, rule := r.ClassifyReasonRule(call, reason, ClassifyOptions{}, nil, ""); v != Accepted || rule != "untypedHop" {
+		t.Errorf("open view: %v %q, want accepted by untypedHop", v, rule)
+	}
+
+	if v, _, rule := r.ClassifyReasonRule(call, reason, ClassifyOptions{KeepUntypedHops: true}, nil, ""); v != Unresolved || rule != "" {
+		t.Errorf("strict view: %v %q, want unresolved by no rule", v, rule)
+	}
+
+	bare := &parser.CallSite{FuncName: "len"}
+	if _, _, rule := r.ClassifyReasonRule(bare, "function 'len' not found", ClassifyOptions{}, nil, ""); rule != "builtin" {
+		t.Errorf("a built-in's rule is %q", rule)
+	}
+}
