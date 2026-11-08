@@ -114,6 +114,69 @@ func takeCounted(have map[exprCallKey]int, k exprCallKey) bool {
 	return true
 }
 
+// expressionSubParse parses expr, a sub-parse of the text at offsets[0], for
+// its calls. When the expression holds member assignments (memberSets) one
+// parse answers both questions: those need the body path, so the expression is
+// wrapped in a function; the calls are the same either way, and parsing the
+// <cfset> twice was a tenth of a reparse of a large tag component.
+func (p *tagParser) expressionSubParse(expr string, line int, memberSets bool, origin int, offsets []int) *scriptParser {
+	if memberSets {
+		sub := p.memberSetParser(expr, line)
+		if origin >= 0 {
+			// Spans are initially relative to the synthetic wrapper. Only
+			// calls wholly inside its real expression are translated.
+			sub.baseOffset = 0
+		}
+
+		sub.extractCalls = true
+		sub.parse()
+		p.keepMemberSets(sub, origin)
+
+		return sub
+	}
+
+	sub := p.subParser(expr, line)
+	if len(offsets) > 0 && offsets[0] >= 0 {
+		sub.baseOffset = p.srcOffset + offsets[0]
+	}
+
+	sub.resolverSet = p.resolverSet
+	sub.extractCalls = true
+	sub.parse()
+
+	return sub
+}
+
+// recordInstantiations adds the constructions a sub-parse found. A construction
+// is written in an expression, so the sub-parse that reads the expression is
+// what finds it.
+func (p *tagParser) recordInstantiations(sub *scriptParser, wrapped, knownOrigin bool, origin int) {
+	for _, in := range sub.instantiationsFound() {
+		if wrapped && knownOrigin {
+			// Counted from the wrapper's start, as its calls' spans are.
+			in.at += origin - len(memberSetPrefix)
+		}
+
+		if !slices.Contains(p.instantiations, in) {
+			p.instantiations = append(p.instantiations, in)
+		}
+	}
+}
+
+// exprKeyOf is how a call is matched against those the string paths recorded:
+// by name, and with spanLines by line and by source span.
+func exprKeyOf(call *CallSite, spanLines bool) exprCallKey {
+	k := exprCallKey{name: strings.ToLower(call.FuncName)}
+	if spanLines {
+		k.line = call.Line
+		if call.HasSpan {
+			k.start, k.span = call.StartByte, true
+		}
+	}
+
+	return k
+}
+
 // mergeExpressionCalls merges the calls of expr, a sub-parse of the text at
 // offsets[0]. With topUp, offsets[1] is how many calls the bucket held before
 // the string paths ran, and only calls beyond those are added. With spanLines,
@@ -134,8 +197,6 @@ func (p *tagParser) mergeExpressionCalls(expr string, line int, topUp, spanLines
 		return
 	}
 
-	var sub *scriptParser
-
 	knownOrigin := len(offsets) > 0 && offsets[0] >= 0
 
 	origin := -1
@@ -144,60 +205,11 @@ func (p *tagParser) mergeExpressionCalls(expr string, line int, topUp, spanLines
 	}
 
 	wrapped := memberSets
+	sub := p.expressionSubParse(expr, line, memberSets, origin, offsets)
 
-	if wrapped {
-		// One sub-parse answers both questions. The member assignments need
-		// the body path, so the expression is wrapped in a function; the
-		// calls are the same either way, and parsing the <cfset> twice was a
-		// tenth of a reparse of a large tag component.
-		sub = p.memberSetParser(expr, line)
-		if knownOrigin {
-			// Spans are initially relative to the synthetic wrapper. Only
-			// calls wholly inside its real expression are translated below.
-			sub.baseOffset = 0
-		}
+	p.recordInstantiations(sub, wrapped, knownOrigin, origin)
 
-		sub.extractCalls = true
-		sub.parse()
-
-		if memberSets {
-			p.keepMemberSets(sub, origin)
-		}
-	} else {
-		sub = p.subParser(expr, line)
-		if len(offsets) > 0 && offsets[0] >= 0 {
-			sub.baseOffset = p.srcOffset + offsets[0]
-		}
-
-		sub.resolverSet = p.resolverSet
-		sub.extractCalls = true
-		sub.parse()
-	}
-
-	// A construction is written in an expression, so the sub-parse that reads
-	// the expression is what finds it.
-	for _, in := range sub.instantiationsFound() {
-		if wrapped && knownOrigin {
-			// Counted from the wrapper's start, as its calls' spans are.
-			in.at += origin - len(memberSetPrefix)
-		}
-
-		if !slices.Contains(p.instantiations, in) {
-			p.instantiations = append(p.instantiations, in)
-		}
-	}
-
-	key := func(call *CallSite) exprCallKey {
-		k := exprCallKey{name: strings.ToLower(call.FuncName)}
-		if spanLines {
-			k.line = call.Line
-			if call.HasSpan {
-				k.start, k.span = call.StartByte, true
-			}
-		}
-
-		return k
-	}
+	key := func(call *CallSite) exprCallKey { return exprKeyOf(call, spanLines) }
 	have := map[exprCallKey]int{}
 
 	if topUp {

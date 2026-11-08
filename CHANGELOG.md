@@ -15,6 +15,8 @@
 
 ### Fixed
 
+- **`mergeExpressionCalls` is 87 lines, not 139.** Choosing and running the sub-parse of an expression (`expressionSubParse`, one parse that wraps the expression when it holds member assignments), recording the constructions it found (`recordInstantiations`) and matching its calls against those the string paths recorded (`exprKeyOf`) are their own. The function was fully covered by the tag-expression and interpolation tests; `gapcheck` and the parser tests pass, the allocation budget holds and `unresolved` is byte-identical on all seven corpora.
+
 - **`inferArgument` is 32 lines, not 137.** The files that may call the function (`candidateCallerFiles`), what the callers say so far (`argInference`, with `fromCaller` reading one caller's calls and `answer` the verdict) are methods of their own. The function was covered but for an unparsable caller; the caller-inference tests pass, `unresolved` is byte-identical on all seven corpora and Masa's time is unchanged (2.7 s, six interleaved runs each way).
 
 - **`mergeTagRegion` is 80 lines, not 135.** Setting up a tag parser for a region (`newRegionTagParser`) and moving what it found from the region's lines to the file's (`mergeTagFindings`: links, function links, function refs, pending calls) are methods of their own. A test written first covers the merges nothing reached (links and function links after a script block splits a tag function, and the refs and function on their file lines); `gapcheck` and the parser tests pass and `unresolved` is byte-identical on all seven corpora.
