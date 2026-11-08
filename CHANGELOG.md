@@ -9,6 +9,8 @@
 
 ### Fixed
 
+- **The server's `handler.go` and `completion.go` are five files.** The `executeCommand` dispatch and its commands (`commands.go`), tag completion (`completion_tags.go`) and the completion cache (`completion_cache.go`) moved out unchanged (same declarations and code lines; the server tests pass). `handleDidClose` stays in `handler.go`, where `TestDidCloseCoversEveryPerDocumentMap` reads it.
+
 - **`internal/lex` holds four more helpers that were copied:** `LowerASCII` (parser, server), `HasPrefixFold` (parser, resolve), `IsASCIILetter` (parser, path) and `UTF16Len` (parser, known-issues, server). Each is tested against the definition it replaces, all inline, and the output of `unresolved` is byte-identical.
 
 - **Four more duplicated helpers are one:** a case-insensitive list membership (`lex.ContainsFold`, three copies in `parser`, `resolve` and `server`), the formatter's two identical inline-run writers (`formatTextRun` was `formatInlineRun`), and the index's two bucket filters (`keepIf`, generic). Output is unchanged.
