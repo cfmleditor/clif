@@ -240,7 +240,8 @@ func (s *Server) applyWatchedFileChange(ev protocol.FileEvent) watchedOutcome {
 		return watchedRemoved
 	}
 
-	if cfpath.IsBinary(data) {
+	data, isText := cfpath.AsText(data)
+	if !isText {
 		return watchedSkipped
 	}
 

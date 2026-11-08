@@ -463,7 +463,14 @@ func scanFile(opts *Options, root, file, fingerprint string) *FileGraph {
 	res := &FileGraph{}
 
 	data, err := opts.FS.ReadFile(file)
-	if err != nil || cfpath.IsBinary(data) {
+	if err != nil {
+		res.Stats.Unreadable = 1
+
+		return res
+	}
+
+	data, isText := cfpath.AsText(data)
+	if !isText {
 		res.Stats.Unreadable = 1
 
 		return res

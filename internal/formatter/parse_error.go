@@ -4,8 +4,25 @@ import (
 	"errors"
 	"fmt"
 
+	cfpath "github.com/cfmleditor/clif/internal/path"
 	sitter "github.com/tree-sitter/go-tree-sitter"
 )
+
+// SourceError refuses what is not UTF-8 text before it is parsed: a binary file
+// has no CFML to format and costs the grammar seconds to recover from, and a
+// UTF-16 file would be rewritten as UTF-8, changing its encoding with its
+// layout. Both formatting entry points call it ahead of ParseError, so a file
+// one refuses is a file the other refuses.
+func SourceError(src []byte) error {
+	switch {
+	case cfpath.IsUTF16(src):
+		return errors.New("the file is UTF-16, which clif does not format (it would be rewritten as UTF-8)")
+	case cfpath.IsBinary(src):
+		return errors.New("the file is binary, not CFML")
+	}
+
+	return nil
+}
 
 // ParseError reports the first ERROR or MISSING node in tree, or nil when the
 // tree is clean.

@@ -106,7 +106,8 @@ func (s *Server) indexWorkspace() {
 				return
 			}
 
-			if cfpath.IsBinary(data) {
+			data, isText := cfpath.AsText(data)
+			if !isText {
 				return
 			}
 
@@ -232,7 +233,8 @@ func (s *Server) indexRoot(root string) {
 			continue
 		}
 
-		if cfpath.IsBinary(data) {
+		data, isText := cfpath.AsText(data)
+		if !isText {
 			continue
 		}
 

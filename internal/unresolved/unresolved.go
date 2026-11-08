@@ -294,7 +294,12 @@ func NewResolver(fsys vfs.FS, files []string, opt *Options) *resolve.Resolver {
 
 func scanFile(fsys vfs.FS, resolver *resolve.Resolver, file string, opt *Options) (out []Call, resolved int) {
 	content, err := vfs.ReadString(fsys, file)
-	if err != nil || cfpath.IsBinary(content) {
+	if err != nil {
+		return nil, 0
+	}
+
+	content, isText := cfpath.AsTextString(content)
+	if !isText {
 		return nil, 0
 	}
 

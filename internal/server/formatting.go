@@ -88,6 +88,10 @@ var formatDocumentFn = formatDocument
 
 func formatDocument(content string, opts protocol.FormattingOptions, cfg *config.ResolvedFormatting) (string, error) {
 	src := []byte(content)
+	if err := formatter.SourceError(src); err != nil {
+		return content, err
+	}
+
 	tree := language.Parse(language.CFML, src, nil)
 
 	// The tree owns C memory that the Go GC does not account for, so it has to

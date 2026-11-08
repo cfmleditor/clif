@@ -113,6 +113,11 @@ func depsForFile(path string, resolver *resolve.Resolver, idx *index.Index) []gr
 		return nil
 	}
 
+	content, isText := cfpath.AsText(content)
+	if !isText {
+		return nil
+	}
+
 	abs, _ := filepath.Abs(path)
 
 	result := deps.BuildDocument(&deps.Document{
@@ -123,6 +128,11 @@ func depsForFile(path string, resolver *resolve.Resolver, idx *index.Index) []gr
 
 			data, err := vfs.ReadRegular(file)
 			if err != nil {
+				return nil
+			}
+
+			data, isText := cfpath.AsText(data)
+			if !isText {
 				return nil
 			}
 

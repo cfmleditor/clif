@@ -297,7 +297,8 @@ func cmdParse(args []string) {
 			continue
 		}
 
-		if cfpath.IsBinary(content) {
+		content, isText := cfpath.AsText(content)
+		if !isText {
 			continue
 		}
 
@@ -470,6 +471,10 @@ func formatOneFile(path string, opts *formatter.Options, write bool, links symli
 func formatFile(path string, opts *formatter.Options) (content, out []byte, err error) {
 	content, err = vfs.ReadRegular(path)
 	if err != nil {
+		return nil, nil, err
+	}
+
+	if err := formatter.SourceError(content); err != nil {
 		return nil, nil, err
 	}
 
