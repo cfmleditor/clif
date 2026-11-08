@@ -1013,7 +1013,7 @@ byte for byte (only `buildMillis` differs).
 reads `tag_parser.go` and `TestDidCloseCoversEveryPerDocumentMap` reads `handler.go`, so the tag dispatch
 and `handleDidClose` stay in them; `TestEveryAcceptPathRecordsATarget` parses `resolve.go`, so a
 `return ""` that accepts a call stays in `canResolveCall` after its `tr.hit` (a helper decides, the caller
-records the target); the parser's loop and dispatch-switch tests read every non-test file of the package
+records the target), or is a `return true` in `bareCallInComponent` / `bareCallThroughContext` (the helpers the test names, which record their own); the parser's loop and dispatch-switch tests read every non-test file of the package
 (`readAllParserSource`). Move code with a declaration comparison (the same top-level declarations and
 code lines before and after), then `unresolved` byte-identical on a corpus.
 

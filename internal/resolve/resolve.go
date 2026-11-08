@@ -1084,121 +1084,7 @@ func (r *Resolver) resolveBareCall(call *parser.CallSite, pr *parser.ParseResult
 
 	tr.addf("unqualified call to %q — checking same file", funcName)
 
-	for i := range pr.Funcs {
-		if strings.EqualFold(pr.Funcs[i].Name, funcName) {
-			tr.hit(TargetSameFile, "", &pr.Funcs[i])
-			tr.addf("found %q defined in this file", funcName)
-
-			return ""
-		}
-	}
-
-	// A bare call whose name matches a declared local variable or argument in
-	// the enclosing function is a call through a function-reference value (e.g.
-	// "var columnfn = ARGUMENTS.extend[x].column; ... columnfn(...)"), not a call
-	// to a missing/undefined function — CFML supports first-class function
-	// values assigned to locals/arguments. This is a genuinely different case
-	// from "no qualifier, not in file": the identifier IS declared, its value is
-	// just dynamic (unknown until runtime), so — same reasoning as the
-	// ARGUMENTS.x-as-function-reference case below — there's nothing further to
-	// verify statically, and it should not be reported as if it were a missing
-	// function.
-	if scope := pr.FuncScopeAt(int(call.Line)); scope.Start != -1 {
-		if pr.FuncDeclares(scope.Start, scope.End, funcName) {
-			tr.addf("%q is a declared local variable/argument in the enclosing function — treating as a call through a function-reference value, not a missing function", funcName)
-			tr.hit(TargetDynamic, "", nil)
-
-			return ""
-		}
-	}
-
-	// Check extends chain
-	if r.fileExtends(pr) != "" {
-		tr.addf("not in this file — checking extends chain (%s)", r.fileExtends(pr))
-
-		if def := r.inheritedFunc(pr, funcName, baseDir); def != nil {
-			tr.hit(TargetExtends, r.fileExtends(pr), def)
-			tr.addf("found %q in extends chain", funcName)
-
-			return ""
-		}
-	}
-
-	if def, base := r.virtualBaseFunc(pr, funcName); def != nil {
-		tr.hit(TargetExtends, base, def)
-		tr.addf("found %q on %s, which the framework gives this component by virtual inheritance", funcName, base)
-
-		return ""
-	}
-
-	if def := r.delegatedFunc(pr.Delegates, baseDir, funcName, 0); def != nil {
-		tr.hit(TargetExtends, "", def)
-		tr.addf("found %q among the methods a WireBox delegate gives this component", funcName)
-
-		return ""
-	}
-
-	if pr.URI.IsFile() && strings.HasPrefix(funcName, "$") {
-		if def := r.presideSuperClassFunc(r.extendsChainOf(pr.URI.Path()), funcName, 0); def != nil {
-			tr.hit(TargetExtends, "", def)
-			tr.addf("found %q on PresideSuperClass, which Preside's WireBox gives a presideService component", funcName)
-
-			return ""
-		}
-	}
-
-	if def, via := r.findThroughIncludes(pr, funcName); def != nil {
-		tr.hit(TargetInclude, "", def)
-		tr.addf("found %q through cfinclude, in %s", funcName, via)
-
-		return ""
-	}
-
-	if def := r.wheelsMixinHostFunc(pr, funcName, call.Caller); def != nil {
-		tr.hit(TargetExtends, "", def)
-		tr.addf("found %q on the Wheels host that integrates this component's public methods", funcName)
-
-		return ""
-	}
-
-	if def := r.wheelsWrappedTemplateFunc(pr, funcName); def != nil {
-		tr.hit(TargetInclude, "", def)
-		tr.addf("found %q on the component that includes this template through a Wheels include wrapper", funcName)
-
-		return ""
-	}
-
-	// CFML looks a bare name up in the variables scope, so a bare call to
-	// one the file assigns there — VARIABLES.render = ARGUMENTS.render —
-	// is a call through that function-reference property, the same as the
-	// qualified VARIABLES.render() accepted below. The parser records
-	// VARIABLES.name() as a bare call wherever it reads it as a member of
-	// this component, which is what left `#VARIABLES._renderTemplate()#`
-	// in a string "no qualifier, not in file".
-	if pr.HasScopedAssignment(parser.ScopeVariables, funcName) {
-		tr.addf("%q is assigned in VARIABLES scope — a call through a function-reference property", funcName)
-		tr.hit(TargetDynamic, "", nil)
-
-		return ""
-	}
-
-	if module, ok := r.moduleHelper(pr, funcName, baseDir); ok {
-		tr.addf("%q is a helper the %s module mixes into ColdBox components", funcName, module)
-		tr.hit(TargetDynamic, "", nil)
-
-		return ""
-	}
-
-	if r.thisCallAnswered(call, pr, baseDir) {
-		tr.addf("%q is called through this., and the component answers a missing method with onMissingMethod", funcName)
-		tr.hit(TargetDynamic, "", nil)
-
-		return ""
-	}
-
-	if comps := r.subclassesDeclare(pr, funcName, tr); comps != "" {
-		tr.hit(TargetDynamic, comps, nil)
-
+	if r.bareCallInComponent(call, pr, baseDir, tr) || r.bareCallThroughContext(call, pr, baseDir, tr) {
 		return ""
 	}
 
@@ -1218,6 +1104,145 @@ func (r *Resolver) resolveBareCall(call *parser.CallSite, pr *parser.ParseResult
 	}
 
 	return "no qualifier, not in file"
+}
+
+// bareCallInComponent reports whether an unqualified call is to a function the
+// component has of its own or by inheritance, recording where it landed: this
+// file, a function-reference local, the extends chain, the framework's virtual
+// base, a WireBox delegate, or PresideSuperClass.
+func (r *Resolver) bareCallInComponent(call *parser.CallSite, pr *parser.ParseResult, baseDir string, tr *callTrace) bool {
+	funcName := call.FuncName
+
+	for i := range pr.Funcs {
+		if strings.EqualFold(pr.Funcs[i].Name, funcName) {
+			tr.hit(TargetSameFile, "", &pr.Funcs[i])
+			tr.addf("found %q defined in this file", funcName)
+
+			return true
+		}
+	}
+
+	// A bare call whose name matches a declared local variable or argument in
+	// the enclosing function is a call through a function-reference value (e.g.
+	// "var columnfn = ARGUMENTS.extend[x].column; ... columnfn(...)"), not a call
+	// to a missing/undefined function — CFML supports first-class function
+	// values assigned to locals/arguments. This is a genuinely different case
+	// from "no qualifier, not in file": the identifier IS declared, its value is
+	// just dynamic (unknown until runtime), so — same reasoning as the
+	// ARGUMENTS.x-as-function-reference case below — there's nothing further to
+	// verify statically, and it should not be reported as if it were a missing
+	// function.
+	if scope := pr.FuncScopeAt(int(call.Line)); scope.Start != -1 {
+		if pr.FuncDeclares(scope.Start, scope.End, funcName) {
+			tr.addf("%q is a declared local variable/argument in the enclosing function — treating as a call through a function-reference value, not a missing function", funcName)
+			tr.hit(TargetDynamic, "", nil)
+
+			return true
+		}
+	}
+
+	// Check extends chain
+	if r.fileExtends(pr) != "" {
+		tr.addf("not in this file — checking extends chain (%s)", r.fileExtends(pr))
+
+		if def := r.inheritedFunc(pr, funcName, baseDir); def != nil {
+			tr.hit(TargetExtends, r.fileExtends(pr), def)
+			tr.addf("found %q in extends chain", funcName)
+
+			return true
+		}
+	}
+
+	if def, base := r.virtualBaseFunc(pr, funcName); def != nil {
+		tr.hit(TargetExtends, base, def)
+		tr.addf("found %q on %s, which the framework gives this component by virtual inheritance", funcName, base)
+
+		return true
+	}
+
+	if def := r.delegatedFunc(pr.Delegates, baseDir, funcName, 0); def != nil {
+		tr.hit(TargetExtends, "", def)
+		tr.addf("found %q among the methods a WireBox delegate gives this component", funcName)
+
+		return true
+	}
+
+	if pr.URI.IsFile() && strings.HasPrefix(funcName, "$") {
+		if def := r.presideSuperClassFunc(r.extendsChainOf(pr.URI.Path()), funcName, 0); def != nil {
+			tr.hit(TargetExtends, "", def)
+			tr.addf("found %q on PresideSuperClass, which Preside's WireBox gives a presideService component", funcName)
+
+			return true
+		}
+	}
+
+	return false
+}
+
+// bareCallThroughContext reports whether an unqualified call is to a function
+// the component reaches from outside itself, recording where it landed: a
+// cfinclude, a Wheels host or include wrapper, a variables-scope function
+// reference, a module helper, an onMissingMethod, or what every subclass
+// declares.
+func (r *Resolver) bareCallThroughContext(call *parser.CallSite, pr *parser.ParseResult, baseDir string, tr *callTrace) bool {
+	funcName := call.FuncName
+
+	if def, via := r.findThroughIncludes(pr, funcName); def != nil {
+		tr.hit(TargetInclude, "", def)
+		tr.addf("found %q through cfinclude, in %s", funcName, via)
+
+		return true
+	}
+
+	if def := r.wheelsMixinHostFunc(pr, funcName, call.Caller); def != nil {
+		tr.hit(TargetExtends, "", def)
+		tr.addf("found %q on the Wheels host that integrates this component's public methods", funcName)
+
+		return true
+	}
+
+	if def := r.wheelsWrappedTemplateFunc(pr, funcName); def != nil {
+		tr.hit(TargetInclude, "", def)
+		tr.addf("found %q on the component that includes this template through a Wheels include wrapper", funcName)
+
+		return true
+	}
+
+	// CFML looks a bare name up in the variables scope, so a bare call to
+	// one the file assigns there — VARIABLES.render = ARGUMENTS.render —
+	// is a call through that function-reference property, the same as the
+	// qualified VARIABLES.render() accepted below. The parser records
+	// VARIABLES.name() as a bare call wherever it reads it as a member of
+	// this component, which is what left `#VARIABLES._renderTemplate()#`
+	// in a string "no qualifier, not in file".
+	if pr.HasScopedAssignment(parser.ScopeVariables, funcName) {
+		tr.addf("%q is assigned in VARIABLES scope — a call through a function-reference property", funcName)
+		tr.hit(TargetDynamic, "", nil)
+
+		return true
+	}
+
+	if module, ok := r.moduleHelper(pr, funcName, baseDir); ok {
+		tr.addf("%q is a helper the %s module mixes into ColdBox components", funcName, module)
+		tr.hit(TargetDynamic, "", nil)
+
+		return true
+	}
+
+	if r.thisCallAnswered(call, pr, baseDir) {
+		tr.addf("%q is called through this., and the component answers a missing method with onMissingMethod", funcName)
+		tr.hit(TargetDynamic, "", nil)
+
+		return true
+	}
+
+	if comps := r.subclassesDeclare(pr, funcName, tr); comps != "" {
+		tr.hit(TargetDynamic, comps, nil)
+
+		return true
+	}
+
+	return false
 }
 
 // resolveBareChain is canResolveCall for a call chained onto a bare one,

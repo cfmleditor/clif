@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -44,11 +45,29 @@ func TestEveryAcceptPathRecordsATarget(t *testing.T) {
 	)
 
 	for _, fn := range fns {
-		walkAccepts(fn.Body, false, func(pos token.Pos, hitSeen bool) {
+		walkAccepts(fn.Body, false, isEmptyStringReturn, func(pos token.Pos, hitSeen bool) {
 			accepts++
 
 			if !hitSeen {
 				missing = append(missing, fn.Name.Name+" "+fset.Position(pos).String())
+			}
+		})
+	}
+
+	// A helper that answers "found it" with a bool, for a caller that goes on
+	// when it is false, accepts with `return true`. The helpers are named, since
+	// a bool return elsewhere means other things.
+	for _, name := range acceptHelpers {
+		fn := findFunc(file, name)
+		if fn == nil {
+			t.Fatalf("%s not found in resolve.go — did it move or get renamed?", name)
+		}
+
+		walkAccepts(fn.Body, false, isTrueReturn, func(pos token.Pos, hitSeen bool) {
+			accepts++
+
+			if !hitSeen {
+				missing = append(missing, name+" "+fset.Position(pos).String())
 			}
 		})
 	}
@@ -135,7 +154,7 @@ func findFunc(file *ast.File, name string) *ast.FuncDecl {
 // walkAccepts calls report for every `return ""` in the block, saying whether a
 // tr.hit(...) was already reached on the path to it. hitSeen carries down into
 // nested blocks because a hit in an enclosing block covers the returns beneath it.
-func walkAccepts(block *ast.BlockStmt, hitSeen bool, report func(token.Pos, bool)) {
+func walkAccepts(block *ast.BlockStmt, hitSeen bool, isAccept func(ast.Stmt) bool, report func(token.Pos, bool)) {
 	if block == nil {
 		return
 	}
@@ -147,14 +166,22 @@ func walkAccepts(block *ast.BlockStmt, hitSeen bool, report func(token.Pos, bool
 			continue
 		}
 
-		if isEmptyStringReturn(stmt) {
+		if isAccept(stmt) {
 			report(stmt.Pos(), hitSeen)
 
 			continue
 		}
 
+		// `if r.helper(...) { return "" }`: the helper recorded the target
+		// (checked on its own below), so the return it gates has one.
+		if ifs, ok := stmt.(*ast.IfStmt); ok && gatedByAcceptHelper(ifs.Cond) {
+			walkAccepts(ifs.Body, true, isAccept, report)
+
+			continue
+		}
+
 		for _, nested := range nestedBlocks(stmt) {
-			walkAccepts(nested, hitSeen, report)
+			walkAccepts(nested, hitSeen, isAccept, report)
 		}
 	}
 }
@@ -202,6 +229,38 @@ func isHitCall(stmt ast.Stmt) bool {
 	sel, ok := call.Fun.(*ast.SelectorExpr)
 
 	return ok && sel.Sel.Name == "hit"
+}
+
+// acceptHelpers answer "found it" with a bool after recording where; see
+// TestEveryAcceptPathRecordsATarget.
+var acceptHelpers = []string{"bareCallInComponent", "bareCallThroughContext"}
+
+// gatedByAcceptHelper reports whether cond calls one of acceptHelpers.
+func gatedByAcceptHelper(cond ast.Expr) bool {
+	found := false
+
+	ast.Inspect(cond, func(n ast.Node) bool {
+		if call, ok := n.(*ast.CallExpr); ok {
+			if sel, ok := call.Fun.(*ast.SelectorExpr); ok && slices.Contains(acceptHelpers, sel.Sel.Name) {
+				found = true
+			}
+		}
+
+		return !found
+	})
+
+	return found
+}
+
+func isTrueReturn(stmt ast.Stmt) bool {
+	ret, ok := stmt.(*ast.ReturnStmt)
+	if !ok || len(ret.Results) != 1 {
+		return false
+	}
+
+	id, ok := ret.Results[0].(*ast.Ident)
+
+	return ok && id.Name == "true"
 }
 
 func isEmptyStringReturn(stmt ast.Stmt) bool {
