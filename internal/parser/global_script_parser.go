@@ -93,6 +93,14 @@ func (p *globalScriptParser) parse() {
 			// VariablesVars — which is what completion offers and what the
 			// index stores.
 			p.skipTagAttrs()
+		case "catch":
+			p.parseCatchVar()
+		case "throw":
+			// The one keyword invoked like a function: its named arguments are
+			// not assignments (scriptParser.consumeThrowArgs).
+			if p.sc.PeekSkipComments().Kind == TokLParen {
+				p.skipGroup()
+			}
 		case "function", "public", "private", "remote", "package":
 			// skip function declarations
 		case "property":
@@ -178,6 +186,40 @@ func (p *globalScriptParser) parseDot(tok Token, scope Scope) {
 	})
 
 	p.consumeAssignment()
+}
+
+// parseCatchVar declares the variable of a catch outside any function, in the
+// variables scope: the last name in the parentheses, whatever precedes it being
+// its type (scriptParser.parseCatchVar reads it the same way).
+func (p *globalScriptParser) parseCatchVar() {
+	if p.sc.PeekSkipComments().Kind != TokLParen {
+		return
+	}
+
+	p.sc.NextSkipComments() // consume (
+
+	var last Token
+
+	for {
+		tok := p.sc.NextSkipComments()
+
+		switch tok.Kind {
+		case TokIdent:
+			last = tok
+		case TokDot:
+		case TokRParen, TokEOF:
+			if last.Kind == TokIdent {
+				p.vars = append(p.vars, VarDef{
+					Name: last.Value, Scope: ScopeVariables,
+					Line: conv.Uint32(p.baseLine + int(last.Line)),
+				})
+			}
+
+			return
+		default:
+			return
+		}
+	}
 }
 
 func (p *globalScriptParser) parsePlain(tok Token, afterLT bool) {
