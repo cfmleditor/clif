@@ -24,9 +24,31 @@ func (r *Resolver) registeredAssertion(comp string, call *parser.CallSite, pr *p
 
 	self := pr.URI.Path()
 
+	registrar, ok := r.assertionRegistrar(comp, self, dir)
+	if !ok {
+		return nil
+	}
+
+	hook, method, members, ok := r.assertionHook(self, dir, registrar)
+	if !ok || !members[strings.ToLower(call.FuncName)] {
+		return nil
+	}
+
+	if !r.assertionChainStable(self, hook, registrar, &method) || !assertionCallStable(pr, call) {
+		return nil
+	}
+
+	return &parser.FunctionDef{Name: call.FuncName, URI: hook.URI, Line: hook.Line}
+}
+
+// assertionRegistrar is the BaseSpec registrar the rule rests on, and its source,
+// when the file's addAssertions is BaseSpec's own with the literal contract, no
+// function shadows what it calls, the receiver is the Assertion component
+// BaseSpec's constructor builds, and nothing replaces that field.
+func (r *Resolver) assertionRegistrar(comp, self, dir string) (*parser.FunctionDef, bool) {
 	registrar := r.ResolveFunc(self, "addAssertions", dir)
 	if registrar == nil || len(registrar.Arguments) != 1 || !strings.EqualFold(registrar.Arguments[0].Name, "assertions") || !strings.EqualFold(filepath.Base(registrar.URI.Path()), "BaseSpec.cfc") {
-		return nil
+		return nil, false
 	}
 
 	source := r.sourceInfo(registrar.URI.Path())
@@ -34,37 +56,45 @@ func (r *Resolver) registeredAssertion(comp string, call *parser.CallSite, pr *p
 
 	contract := wheelsTokens(`if(isStruct(arguments.assertions)){structAppend(this.$assert,arguments.assertions,true);return this;}`)
 	if !api.public || !api.literalDefaults || !strings.HasPrefix(api.body, contract) {
-		return nil
+		return nil, false
 	}
 
 	if r.ResolveFunc(self, "structAppend", dir) != nil || r.ResolveFunc(self, "isStruct", dir) != nil {
-		return nil
+		return nil, false
 	}
 
 	assertion := r.ComponentPath("testbox.system.Assertion", filepath.Dir(registrar.URI.Path()))
 	if assertion == "" || !cfpath.SamePath(assertion, r.ComponentPath(comp, dir)) {
-		return nil
+		return nil, false
 	}
 	// The receiver is the BaseSpec-created assertion object, not a coincidentally
 	// named field. Child writes and escapes are checked separately below.
 	constructor := parser.ApplicationConstructor(source.content)
 	if !strings.Contains(wheelsTokens(constructor), wheelsTokens(`variables.$assert=this.$assert=new testbox.system.Assertion();`)) || !assertionProviderStable(&source) {
-		return nil
+		return nil, false
 	}
 
-	hook := r.ResolveFunc(self, "beforeTests", dir)
+	return registrar, true
+}
+
+// assertionHook is the beforeTests the spec selects, its body, and the
+// assertion names it registers by literal closure; the hook must be public,
+// take no arguments, live below the registrar, and (when it calls super's)
+// have a harmless parent.
+func (r *Resolver) assertionHook(self, dir string, registrar *parser.FunctionDef) (hook *parser.FunctionDef, method wheelsMethod, members map[string]bool, ok bool) {
+	hook = r.ResolveFunc(self, "beforeTests", dir)
 	if hook == nil || len(hook.Arguments) != 0 || hook.URI == registrar.URI {
-		return nil
+		return nil, wheelsMethod{}, nil, false
 	}
 
-	method := r.sourceMethods(hook.URI.Path())["beforetests"]
+	method = r.sourceMethods(hook.URI.Path())["beforetests"]
 	if !method.public || !method.literalDefaults {
-		return nil
+		return nil, wheelsMethod{}, nil, false
 	}
 
 	tokens := producerTokens(method.body)
 	if len(tokens) == 0 {
-		return nil
+		return nil, wheelsMethod{}, nil, false
 	}
 
 	if len(tokens) >= 6 && wheelsTokens(producerText(tokens[:6])) == wheelsTokens(`super.beforeTests();`) {
@@ -72,28 +102,30 @@ func (r *Resolver) registeredAssertion(comp string, call *parser.CallSite, pr *p
 
 		parentFile := r.ComponentPath(parent, filepath.Dir(hook.URI.Path()))
 		if !r.harmlessAssertionHook(r.ResolveFunc(parentFile, "beforeTests", filepath.Dir(hook.URI.Path()))) {
-			return nil
+			return nil, wheelsMethod{}, nil, false
 		}
 
 		tokens = tokens[6:]
 	}
 
-	members := literalAssertionRegistrations(tokens)
-	if !members[strings.ToLower(call.FuncName)] {
-		return nil
-	}
+	return hook, method, literalAssertionRegistrations(tokens), true
+}
 
+// assertionChainStable reports whether every component from the spec up to the
+// registrar leaves the assertion field to the known registrar: none writes its
+// storage or registers more than the selected hook's literal calls.
+func (r *Resolver) assertionChainStable(self string, hook, registrar *parser.FunctionDef, method *wheelsMethod) bool {
 	seen := map[string]bool{}
 	for file := self; file != ""; {
 		if seen[pathKey(file)] || len(seen) >= 12 {
-			return nil
+			return false
 		}
 
 		seen[pathKey(file)] = true
 
 		current := r.handlerParse(file)
 		if current == nil {
-			return nil
+			return false
 		}
 		// The known registrar implementation handles both literal and runtime
 		// records. It is not an arbitrary child writer.
@@ -103,7 +135,7 @@ func (r *Resolver) registeredAssertion(comp string, call *parser.CallSite, pr *p
 		}
 
 		if !cfpath.SamePath(file, registrar.URI.Path()) && (!assertionStorageStable(current.Content) || assertionRegistrationCount(current.Content) != expectedRegistrations) {
-			return nil
+			return false
 		}
 
 		if cfpath.SamePath(file, registrar.URI.Path()) {
@@ -112,30 +144,34 @@ func (r *Resolver) registeredAssertion(comp string, call *parser.CallSite, pr *p
 
 		parent, ok := r.extendsOf(file, current.URI)
 		if !ok {
-			return nil
+			return false
 		}
 
 		file = r.ComponentPath(parent, filepath.Dir(file))
 		if file == "" {
-			return nil
+			return false
 		}
 	}
 
-	if !seen[pathKey(registrar.URI.Path())] {
-		return nil
-	}
+	return seen[pathKey(registrar.URI.Path())]
+}
+
+// assertionCallStable reports whether nothing between the start of the calling
+// method and the call can replace the assertion field: unknown code receiving
+// the instance may do it before the call, even when it never spells $assert.
+func assertionCallStable(pr *parser.ParseResult, call *parser.CallSite) bool {
 	// Unknown code receiving the instance may replace its assertion field before
 	// this call, even when it never spells $assert itself.
 	scope := pr.FuncScopeAt(int(call.Line))
 	if !call.HasSpan || scope.Start < 0 {
-		return nil
+		return false
 	}
 
 	from := 0
 	for range scope.Start {
 		next := strings.IndexByte(pr.Content[from:], '\n')
 		if next < 0 {
-			return nil
+			return false
 		}
 
 		from += next + 1
@@ -143,14 +179,14 @@ func (r *Resolver) registeredAssertion(comp string, call *parser.CallSite, pr *p
 
 	bodyFrom := assertionCallBodyStart(pr.Content, from, int(call.StartByte), call.Caller)
 	if bodyFrom < 0 {
-		return nil
+		return false
 	}
 
 	if !guardValueStable(pr.Content, bodyFrom, int(call.StartByte), "$assert") {
-		return nil
+		return false
 	}
 
-	return &parser.FunctionDef{Name: call.FuncName, URI: hook.URI, Line: hook.Line}
+	return true
 }
 
 func (r *Resolver) harmlessAssertionHook(fd *parser.FunctionDef) bool {

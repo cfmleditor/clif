@@ -1,6 +1,9 @@
 package resolve
 
-import "testing"
+import (
+	"maps"
+	"testing"
+)
 
 func TestLiteralAssertionsFollowSelectedSetup(t *testing.T) {
 	for _, tc := range []struct {
@@ -67,5 +70,68 @@ func TestLiteralAssertionsRespectHookOverride(t *testing.T) {
 		if (got["$assert.awesome"] == "") == override {
 			t.Fatalf("override %v got %v", override, got)
 		}
+	}
+}
+
+// Each contract the registration rule checks is one more way for it to decline:
+// the calling method, the receiver's spelling, the registrar's shape and file,
+// the assertion component, the selected hook's shape, the chain up to the
+// registrar. A call that fails any is reported as it was before the rule.
+func TestLiteralAssertionsDeclineWhenAnyContractFails(t *testing.T) {
+	base := map[string]string{
+		"testbox/system/Assertion.cfc": `component {function ordinary(){}}`,
+		"testbox/system/BaseSpec.cfc":  `component {variables.$assert=this.$assert=new testbox.system.Assertion();function addAssertions(required any assertions){if(isStruct(arguments.assertions)){structAppend(this.$assert,arguments.assertions,true);return this;}}}`,
+		"Spec.cfc":                     `component extends="testbox.system.BaseSpec" {function beforeTests(){addAssertions({awesome:function(){return true;}});} function testCustom(){$assert.awesome();}}`,
+	}
+
+	for _, tc := range []struct {
+		name     string
+		override map[string]string
+		resolved bool
+	}{
+		{name: "the baseline is accepted", resolved: true},
+		{name: "this-scoped receiver", resolved: true, override: map[string]string{"Spec.cfc": `component extends="testbox.system.BaseSpec" {function beforeTests(){addAssertions({awesome:function(){}});} function testCustom(){this.$assert.awesome();}}`}},
+		{name: "not a test method", override: map[string]string{"Spec.cfc": `component extends="testbox.system.BaseSpec" {function beforeTests(){addAssertions({awesome:function(){}});} function helper(){$assert.awesome();}}`}},
+		{name: "another receiver", override: map[string]string{"Spec.cfc": `component extends="testbox.system.BaseSpec" {function beforeTests(){addAssertions({awesome:function(){}});} function testCustom(){var a=$assert; a.awesome();}}`}},
+		{name: "registrar argument renamed", override: map[string]string{"testbox/system/BaseSpec.cfc": `component {variables.$assert=this.$assert=new testbox.system.Assertion();function addAssertions(required any items){if(isStruct(arguments.items)){structAppend(this.$assert,arguments.items,true);return this;}}}`}},
+		{name: "registrar not public", override: map[string]string{"testbox/system/BaseSpec.cfc": `component {variables.$assert=this.$assert=new testbox.system.Assertion();private function addAssertions(required any assertions){if(isStruct(arguments.assertions)){structAppend(this.$assert,arguments.assertions,true);return this;}}}`}},
+		{name: "registrar in a base of another name", override: map[string]string{"testbox/system/Other.cfc": `component {variables.$assert=this.$assert=new testbox.system.Assertion();function addAssertions(required any assertions){if(isStruct(arguments.assertions)){structAppend(this.$assert,arguments.assertions,true);return this;}}}`, "Spec.cfc": `component extends="testbox.system.Other" {function beforeTests(){addAssertions({awesome:function(){}});} function testCustom(){$assert.awesome();}}`}},
+		{name: "registrar outside BaseSpec", override: map[string]string{"testbox/system/BaseSpec.cfc": `component {variables.$assert=this.$assert=new testbox.system.Assertion();}`, "Spec.cfc": `component extends="testbox.system.BaseSpec" {function addAssertions(required any assertions){if(isStruct(arguments.assertions)){structAppend(this.$assert,arguments.assertions,true);return this;}} function beforeTests(){addAssertions({awesome:function(){}});} function testCustom(){$assert.awesome();}}`}},
+		{name: "assertion built elsewhere", override: map[string]string{"testbox/system/BaseSpec.cfc": `component {function addAssertions(required any assertions){if(isStruct(arguments.assertions)){structAppend(this.$assert,arguments.assertions,true);return this;}}}`}},
+		{name: "no setup hook", override: map[string]string{"Spec.cfc": `component extends="testbox.system.BaseSpec" {function testCustom(){$assert.awesome();}}`}},
+		{name: "hook takes an argument", override: map[string]string{"Spec.cfc": `component extends="testbox.system.BaseSpec" {function beforeTests(x){addAssertions({awesome:function(){}});} function testCustom(){$assert.awesome();}}`}},
+		{name: "hook not public", override: map[string]string{"Spec.cfc": `component extends="testbox.system.BaseSpec" {private function beforeTests(){addAssertions({awesome:function(){}});} function testCustom(){$assert.awesome();}}`}},
+		{name: "empty hook", override: map[string]string{"Spec.cfc": `component extends="testbox.system.BaseSpec" {function beforeTests(){} function testCustom(){$assert.awesome();}}`}},
+		{name: "another name registered", override: map[string]string{"Spec.cfc": `component extends="testbox.system.BaseSpec" {function beforeTests(){addAssertions({other:function(){}});} function testCustom(){$assert.awesome();}}`}},
+		{name: "a parent with a harmless hook", resolved: true, override: map[string]string{"Parent.cfc": `component extends="testbox.system.BaseSpec" {function beforeTests(){}}`, "Spec.cfc": `component extends="Parent" {function beforeTests(){super.beforeTests(); addAssertions({awesome:function(){}});} function testCustom(){$assert.awesome();}}`}},
+		{name: "a parent hook that does something", override: map[string]string{"Parent.cfc": `component extends="testbox.system.BaseSpec" {function beforeTests(){doSomething();}}`, "Spec.cfc": `component extends="Parent" {function beforeTests(){super.beforeTests(); addAssertions({awesome:function(){}});} function testCustom(){$assert.awesome();}}`}},
+		{name: "a parent that cannot be found", override: map[string]string{"Spec.cfc": `component extends="Missing.Parent" {function beforeTests(){addAssertions({awesome:function(){}});} function testCustom(){$assert.awesome();}}`}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			files := map[string]string{}
+
+			maps.Copy(files, base)
+			maps.Copy(files, tc.override)
+
+			writeFiles(t, dir, files)
+
+			got := reasonsIn(t, dir, "Spec.cfc")
+
+			var (
+				reason string
+				ok     bool
+			)
+
+			for _, key := range []string{"$assert.awesome", "this.$assert.awesome", "a.awesome"} {
+				if reason, ok = got[key]; ok {
+					break
+				}
+			}
+
+			if !ok || (reason == "") != tc.resolved {
+				t.Fatalf("got %q exists %v want resolved %v (all: %v)", reason, ok, tc.resolved, got)
+			}
+		})
 	}
 }
