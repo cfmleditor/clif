@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cfmleditor/clif/internal/conv"
+	"github.com/cfmleditor/clif/internal/lex"
 	"github.com/cfmleditor/clif/internal/log"
 	"go.lsp.dev/uri"
 )
@@ -471,7 +472,7 @@ func (pr *ParseResult) markStructReturns(calls []pendingCall) {
 		}
 
 		expr := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(c.varName), "/"))
-		if !strings.HasPrefix(expr, "{") && !hasPrefixFold(expr, "structnew(") {
+		if !strings.HasPrefix(expr, "{") && !lex.HasPrefixFold(expr, "structnew(") {
 			continue
 		}
 

@@ -193,7 +193,7 @@ func dynamicCall(expr string) string {
 		return "$any"
 	case "createobject":
 		if args = strings.TrimLeft(args, " \t"); args != "" && (args[0] == '"' || args[0] == '\'') &&
-			hasPrefixFold(args[1:], "java") && len(args) > 5 && args[5] == args[0] {
+			lex.HasPrefixFold(args[1:], "java") && len(args) > 5 && args[5] == args[0] {
 			sc := NewScanner(args)
 
 			first := sc.NextSkipComments()

@@ -54,7 +54,7 @@ func tagAttrValues(s string, i int, name string, value func(j int) bool) bool {
 	for p := i; p < end; p++ {
 		// The attribute name holds no '>', so the name may run past end only
 		// as the tail of a lazy repeat would: it starts before the '>'.
-		if !hasPrefixFold(s[p:], name) || !wordStartAt(s, p) {
+		if !lex.HasPrefixFold(s[p:], name) || !wordStartAt(s, p) {
 			continue
 		}
 
@@ -94,7 +94,7 @@ func quotedPath(s string, j int) (start, end int, ok bool) {
 // and returns the path's bounds.
 func includeTagAt(s string) (start, end int, ok bool) {
 	const open = "<cfinclude"
-	if !hasPrefixFold(s, open) || !wordEndAt(s, len(open)) {
+	if !lex.HasPrefixFold(s, open) || !wordEndAt(s, len(open)) {
 		return 0, 0, false
 	}
 
@@ -111,11 +111,11 @@ func includeTagAt(s string) (start, end int, ok bool) {
 // `^(?i)(?:cf)?include\s*\(?\s*(?:template\s*=\s*)?` and an includePathAt.
 func includeScriptAt(s string) (start, end int, ok bool) {
 	i := 0
-	if hasPrefixFold(s, "cf") {
+	if lex.HasPrefixFold(s, "cf") {
 		i = 2
 	}
 
-	if !hasPrefixFold(s[i:], "include") {
+	if !lex.HasPrefixFold(s[i:], "include") {
 		return 0, 0, false
 	}
 
@@ -129,7 +129,7 @@ func includeScriptAt(s string) (start, end int, ok bool) {
 	// The optional template= is taken only when it is whole: a "template"
 	// without its '=' leaves the quote test to fail on its 't', which is
 	// where the pattern's other branch fails too.
-	if hasPrefixFold(s[i:], "template") {
+	if lex.HasPrefixFold(s[i:], "template") {
 		if j := skipRegexpSpace(s, i+len("template")); j < len(s) && s[j] == '=' {
 			i = skipRegexpSpace(s, j+1)
 		}
@@ -252,7 +252,7 @@ func isComputedPath(p string) bool {
 // past the '>'.
 func directoryTagEnd(s string) (int, bool) {
 	const open = "<cfdirectory"
-	if !hasPrefixFold(s, open) || !wordEndAt(s, len(open)) {
+	if !lex.HasPrefixFold(s, open) || !wordEndAt(s, len(open)) {
 		return 0, false
 	}
 
@@ -270,14 +270,14 @@ func listingAttrs(s string) map[string]string {
 	attrs := map[string]string{}
 
 	for i := 0; i < len(s); {
-		if !isASCIILetter(s[i]) || !wordStartAt(s, i) {
+		if !lex.IsASCIILetter(s[i]) || !wordStartAt(s, i) {
 			i++
 
 			continue
 		}
 
 		j := i
-		for j < len(s) && isASCIILetter(s[j]) {
+		for j < len(s) && lex.IsASCIILetter(s[j]) {
 			j++
 		}
 
@@ -315,10 +315,6 @@ func listingAttrs(s string) map[string]string {
 	return attrs
 }
 
-func isASCIILetter(c byte) bool {
-	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
-}
-
 // listingDir reads
 // `(?i)^#\s*getDirectoryFromPath\s*\(\s*getCurrentTemplatePath\s*\(\s*\)\s*\)\s*#([\w./-]+?)/?$`
 // and returns the directory it names.
@@ -330,7 +326,7 @@ func listingDir(s string) (string, bool) {
 			i = skipRegexpSpace(s, i)
 		}
 
-		if !hasPrefixFold(s[i:], part) {
+		if !lex.HasPrefixFold(s[i:], part) {
 			return "", false
 		}
 
@@ -362,7 +358,7 @@ func listingDir(s string) (string, bool) {
 // and returns the prefix, the query name, and the offset past the match.
 func listingIncludeAt(s string) (prefix, query string, end int, ok bool) {
 	const open = "<cfinclude"
-	if !hasPrefixFold(s, open) || !wordEndAt(s, len(open)) {
+	if !lex.HasPrefixFold(s, open) || !wordEndAt(s, len(open)) {
 		return "", "", 0, false
 	}
 
@@ -387,7 +383,7 @@ func listingIncludeAt(s string) (prefix, query string, end int, ok bool) {
 			r++
 		}
 
-		if r == q || !hasPrefixFold(s[r:], ".name") {
+		if r == q || !lex.HasPrefixFold(s[r:], ".name") {
 			return false
 		}
 

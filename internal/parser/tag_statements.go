@@ -147,7 +147,7 @@ func (p *tagParser) setAssign(inner string, line int) {
 	}
 
 	switch {
-	case hasPrefixFold(inner, "var "):
+	case lex.HasPrefixFold(inner, "var "):
 		rest := strings.TrimSpace(inner[4:])
 
 		name := extractIdent(rest)
@@ -160,7 +160,7 @@ func (p *tagParser) setAssign(inner string, line int) {
 
 			p.checkSetRHS(rest, name, line)
 		}
-	case hasPrefixFold(inner, "local."):
+	case lex.HasPrefixFold(inner, "local."):
 		rest := inner[6:]
 
 		name, rhs := splitAssign(rest)
@@ -173,7 +173,7 @@ func (p *tagParser) setAssign(inner string, line int) {
 
 			p.checkSetRHSLead(rest, rhs, name, line)
 		}
-	case hasPrefixFold(inner, "arguments."):
+	case lex.HasPrefixFold(inner, "arguments."):
 		rest := inner[10:]
 
 		name, rhs := splitAssign(rest)
@@ -181,7 +181,7 @@ func (p *tagParser) setAssign(inner string, line int) {
 			p.vars = append(p.vars, VarDef{Name: name, Scope: ScopeArguments, Line: conv.Uint32(line)})
 			p.checkSetRHSLead(rest, rhs, name, line)
 		}
-	case hasPrefixFold(inner, "this."):
+	case lex.HasPrefixFold(inner, "this."):
 		rest := inner[5:]
 
 		name, rhs := splitAssign(rest)
@@ -191,7 +191,7 @@ func (p *tagParser) setAssign(inner string, line int) {
 			p.checkSetRHSLead(rest, rhs, name, line)
 			p.forceGlobal, p.refThis = false, false
 		}
-	case hasPrefixFold(inner, "variables."):
+	case lex.HasPrefixFold(inner, "variables."):
 		rest := inner[10:]
 
 		name, rhs := splitAssign(rest)
@@ -386,12 +386,12 @@ func (p *tagParser) parseCFReturn(tag string, line, idx int) {
 	// source names is the return whatever follows, as it always has been
 	// (`new X().init()`); a Java object's chained calls return other things.
 	switch {
-	case hasPrefixFold(inner, "new "), hasPrefixFold(inner, "createobject("):
+	case lex.HasPrefixFold(inner, "new "), lex.HasPrefixFold(inner, "createobject("):
 		comp, sc, named := constructionHead(returned, p.resolveCall, nil)
 		if comp != "" && (named || sc.NextSkipComments().Kind == TokEOF) {
 			f.ReturnComponent = unionReturn(f.ReturnComponent, comp)
 		}
-	case hasPrefixFold(returned, "entitynew("), hasPrefixFold(returned, "entityloadbypk("):
+	case lex.HasPrefixFold(returned, "entitynew("), lex.HasPrefixFold(returned, "entityloadbypk("):
 		// An entity, or none (entityLoadByPK finds nothing): as the same
 		// call assigned to a variable is typed.
 		open := strings.IndexByte(returned, '(') + 1
@@ -590,7 +590,7 @@ func (p *tagParser) checkSetRHSStr(rhs, varName string, line int) {
 				URI: uriFromString(p.fileURI), Line: conv.Uint32(line),
 			})
 		}
-	case hasPrefixFold(rhs, "new "):
+	case lex.HasPrefixFold(rhs, "new "):
 		comp := extractComponentPath(rhs[4:])
 		if comp != "" {
 			p.addRef(&ComponentRef{
@@ -599,7 +599,7 @@ func (p *tagParser) checkSetRHSStr(rhs, varName string, line int) {
 			})
 		}
 
-	case hasPrefixFold(rhs, "createobject("):
+	case lex.HasPrefixFold(rhs, "createobject("):
 		comp := extractCreateObjectArg(rhs[13:])
 		if comp == "" {
 			comp, _ = nativeJavaHead(rhs)
@@ -629,7 +629,7 @@ func (p *tagParser) checkSetRHSStr(rhs, varName string, line int) {
 			})
 		}
 
-	case hasPrefixFold(rhs, "entitynew("):
+	case lex.HasPrefixFold(rhs, "entitynew("):
 		comp := entityRef(extractEntityNewArg(rhs[10:]))
 		if comp != "" {
 			p.addRef(&ComponentRef{
@@ -637,7 +637,7 @@ func (p *tagParser) checkSetRHSStr(rhs, varName string, line int) {
 				URI: uriFromString(p.fileURI), Line: conv.Uint32(line),
 			})
 		}
-	case hasPrefixFold(rhs, "entityload("):
+	case lex.HasPrefixFold(rhs, "entityload("):
 		comp := entityRef(extractEntityNewArg(rhs[11:]))
 		if comp != "" {
 			p.addRef(&ComponentRef{
@@ -645,7 +645,7 @@ func (p *tagParser) checkSetRHSStr(rhs, varName string, line int) {
 				URI: uriFromString(p.fileURI), Line: conv.Uint32(line),
 			})
 		}
-	case hasPrefixFold(rhs, "entityloadbypk("):
+	case lex.HasPrefixFold(rhs, "entityloadbypk("):
 		comp := entityRef(extractEntityNewArg(rhs[15:]))
 		if comp != "" {
 			p.addRef(&ComponentRef{
@@ -710,7 +710,7 @@ func (p *tagParser) callsOnResolvedReceiver(rhs, comp string) []string {
 // createObject( … ), which returns the object it is called on; any other
 // expression is returned as it is.
 func withoutInit(expr string) string {
-	if receiver, method := callReceiver(expr); strings.EqualFold(method, "init") && hasPrefixFold(strings.TrimSpace(receiver), "createobject(") {
+	if receiver, method := callReceiver(expr); strings.EqualFold(method, "init") && lex.HasPrefixFold(strings.TrimSpace(receiver), "createobject(") {
 		return strings.TrimSpace(receiver)
 	}
 

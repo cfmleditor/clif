@@ -266,7 +266,7 @@ func Diagnostic(e *Entry, lines []string, severity protocol.DiagnosticSeverity, 
 		}
 	}
 
-	start, end = utf16Len(text[:start]), utf16Len(text[:end])
+	start, end = lex.UTF16Len(text[:start]), lex.UTF16Len(text[:end])
 
 	// An explicit column is already an LSP one: the CFLint report writes the
 	// column CFLint gave, and CFLint counts UTF-16 units.
@@ -360,20 +360,4 @@ func wordIndexFold(s, word string) int {
 
 		from = i + 1
 	}
-}
-
-// utf16Len is the length of s in UTF-16 code units, what an LSP character
-// counts: two for a rune outside the Basic Multilingual Plane, one otherwise.
-func utf16Len(s string) int {
-	n := 0
-
-	for _, r := range s {
-		n++
-
-		if r > 0xFFFF {
-			n++
-		}
-	}
-
-	return n
 }

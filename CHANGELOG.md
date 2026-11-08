@@ -9,6 +9,8 @@
 
 ### Fixed
 
+- **`internal/lex` holds four more helpers that were copied:** `LowerASCII` (parser, server), `HasPrefixFold` (parser, resolve), `IsASCIILetter` (parser, path) and `UTF16Len` (parser, known-issues, server). Each is tested against the definition it replaces, all inline, and the output of `unresolved` is byte-identical.
+
 - **Four more duplicated helpers are one:** a case-insensitive list membership (`lex.ContainsFold`, three copies in `parser`, `resolve` and `server`), the formatter's two identical inline-run writers (`formatTextRun` was `formatInlineRun`), and the index's two bucket filters (`keepIf`, generic). Output is unchanged.
 
 - **`canResolveCall` is 82 lines, not 180.** Three blocks became functions that return what they decided and leave the target to the caller, where `TestEveryAcceptPathRecordsATarget` reads it: a scope-qualified call to a stored function, the configured resolvers' match of a receiver by name and by line, and the late fallbacks (loop element, view `prc`/`rc`, argument callers, init). Tests added before the move pin the VARIABLES-scope branch and the name-then-line matching, including `noFollow`, and fail with either reverted; the `ARGUMENTS` branch is reached by another path first, so its test passes with it removed. `unresolved` is byte-identical on Masa, TestBox, ContentBox, FW/1 and ColdBox.

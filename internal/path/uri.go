@@ -3,6 +3,7 @@ package path
 import (
 	"strings"
 
+	"github.com/cfmleditor/clif/internal/lex"
 	"go.lsp.dev/uri"
 )
 
@@ -97,14 +98,12 @@ func driveInPath(rawURI string) string {
 	rest := rawURI[len(uriScheme):]
 	// Only the forward-slash spelling: file://C:\x.cfm already reads as the
 	// path through FromURI's fallback, with its drive's case kept.
-	if len(rest) >= 3 && rest[1] == ':' && rest[2] == '/' && isASCIILetter(rest[0]) {
+	if len(rest) >= 3 && rest[1] == ':' && rest[2] == '/' && lex.IsASCIILetter(rest[0]) {
 		return uriScheme + "/" + rest
 	}
 
 	return rawURI
 }
-
-func isASCIILetter(c byte) bool { return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' }
 
 // URIDistance reports how far apart two document URIs are in the directory
 // tree: the number of directory hops needed to get from one to the other. Two

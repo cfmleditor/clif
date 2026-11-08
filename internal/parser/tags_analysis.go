@@ -417,16 +417,6 @@ func utf16Units(r rune) int {
 	return 1
 }
 
-// utf16Len is the length of s in UTF-16 code units.
-func utf16Len(s string) int {
-	n := 0
-	for _, r := range s {
-		n += utf16Units(r)
-	}
-
-	return n
-}
-
 // ApplyEdit replaces a range in content with newText.
 func ApplyEdit(content string, startLine, startChar, endLine, endChar int, newText string) string {
 	offset := PositionToOffset(content, startLine, startChar)

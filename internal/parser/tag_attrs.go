@@ -4,6 +4,8 @@ package parser
 
 import (
 	"strings"
+
+	"github.com/cfmleditor/clif/internal/lex"
 )
 
 // getAttr extracts an attribute value from a tag string (case-insensitive).
@@ -316,13 +318,4 @@ func toLowerByte(b byte) byte {
 }
 
 // HasPrefixFold is hasPrefixFold, shared with internal/resolve.
-func HasPrefixFold(s, prefix string) bool { return hasPrefixFold(s, prefix) }
-
-// hasPrefixFold checks if s starts with prefix (case-insensitive, ASCII only).
-func hasPrefixFold(s, prefix string) bool {
-	if len(s) < len(prefix) {
-		return false
-	}
-
-	return strings.EqualFold(s[:len(prefix)], prefix)
-}
+func HasPrefixFold(s, prefix string) bool { return lex.HasPrefixFold(s, prefix) }

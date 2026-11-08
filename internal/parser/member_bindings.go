@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/conv"
+	"github.com/cfmleditor/clif/internal/lex"
 )
 
 // MemberReceiverName preserves a record's path. A scoped variable and an
@@ -453,7 +454,7 @@ func (pr *ParseResult) memberValueSource(expression, function string, locals *lo
 		ref = firstRefIn(pr.ComponentRefs, name, scope)
 	}
 
-	if ref == nil && (hasPrefixFold(root, "arguments.") || hasPrefixFold(root, "local.") || locals.has(function, name)) {
+	if ref == nil && (lex.HasPrefixFold(root, "arguments.") || lex.HasPrefixFold(root, "local.") || locals.has(function, name)) {
 		return ReturnSource{}
 	}
 

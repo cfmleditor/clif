@@ -4,6 +4,8 @@ import (
 	"math/rand/v2"
 	"strings"
 	"testing"
+
+	"github.com/cfmleditor/clif/internal/lex"
 )
 
 // indexFoldFromByteLoop is indexFoldFrom as it was before it searched with
@@ -13,10 +15,10 @@ func indexFoldFromByteLoop(s, substr string, from int) int {
 		return max(from, 0)
 	}
 
-	first := lowerASCII(substr[0])
+	first := lex.LowerASCII(substr[0])
 
 	for i := max(from, 0); i+len(substr) <= len(s); i++ {
-		if lowerASCII(s[i]) != first {
+		if lex.LowerASCII(s[i]) != first {
 			continue
 		}
 

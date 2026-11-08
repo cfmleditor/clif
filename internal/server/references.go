@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/cfmleditor/clif/internal/conv"
+	"github.com/cfmleditor/clif/internal/lex"
 	cflog "github.com/cfmleditor/clif/internal/log"
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
@@ -493,19 +494,7 @@ func isIdentByte(b byte) bool {
 // character offset counts unless the client negotiated otherwise. Counting
 // bytes instead shifts the highlight on any line with a non-ASCII character
 // before the match — a comment in prose, a name with an accent.
-func utf16Len(s string) uint32 {
-	var n uint32
-
-	for _, r := range s {
-		n++
-
-		if r > 0xFFFF {
-			n++
-		}
-	}
-
-	return n
-}
+func utf16Len(s string) uint32 { return conv.Uint32(lex.UTF16Len(s)) }
 
 // dedupeLocations drops repeats, keeping first-seen order. Two call sites on
 // one line collapse to the same location once the column is the identifier's

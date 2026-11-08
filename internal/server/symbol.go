@@ -11,6 +11,7 @@ import (
 
 	"github.com/cfmleditor/clif/internal/frameworkapi"
 
+	"github.com/cfmleditor/clif/internal/lex"
 	"github.com/cfmleditor/clif/internal/parser"
 	"go.lsp.dev/protocol"
 )
@@ -192,17 +193,6 @@ func symbolMatchRank(name, query string) int {
 	}
 }
 
-// containsFoldStr reports whether s contains substr (case-insensitive, ASCII).
-// substr must already be lowercase.
-// lowerASCII lowercases an ASCII letter and leaves every other byte alone.
-func lowerASCII(c byte) byte {
-	if c >= 'A' && c <= 'Z' {
-		return c + ('a' - 'A')
-	}
-
-	return c
-}
-
 func containsFoldStr(s, substr string) bool {
 	n := len(substr)
 	if n == 0 {
@@ -221,7 +211,7 @@ func containsFoldStr(s, substr string) bool {
 			// workspace-symbol query containing an underscore silently returned
 			// nothing. Folding both sides with |0x20 would fix that but make
 			// '@' match '`' and '[' match '{', so the fold is explicit.
-			if lowerASCII(s[i+j]) != lowerASCII(substr[j]) {
+			if lex.LowerASCII(s[i+j]) != lex.LowerASCII(substr[j]) {
 				match = false
 
 				break

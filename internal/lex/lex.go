@@ -42,3 +42,39 @@ func ContainsFold(list []string, s string) bool {
 
 	return false
 }
+
+// LowerASCII is c with an ASCII capital lowered and every other byte as it is.
+func LowerASCII(c byte) byte {
+	if c >= 'A' && c <= 'Z' {
+		return c + ('a' - 'A')
+	}
+
+	return c
+}
+
+// IsASCIILetter reports whether c is a-z or A-Z.
+func IsASCIILetter(c byte) bool {
+	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
+}
+
+// HasPrefixFold reports whether s begins with prefix, ignoring case as
+// strings.EqualFold does.
+func HasPrefixFold(s, prefix string) bool {
+	return len(s) >= len(prefix) && strings.EqualFold(s[:len(prefix)], prefix)
+}
+
+// UTF16Len is the length of s in UTF-16 code units, what an LSP character
+// counts: two for a rune outside the Basic Multilingual Plane, one otherwise.
+func UTF16Len(s string) int {
+	n := 0
+
+	for _, r := range s {
+		n++
+
+		if r > 0xFFFF {
+			n++
+		}
+	}
+
+	return n
+}

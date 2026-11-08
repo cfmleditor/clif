@@ -2,7 +2,9 @@ package lex
 
 import (
 	"regexp"
+	"strings"
 	"testing"
+	"unicode/utf16"
 )
 
 // The reference definitions are the ones the packages carried before they
@@ -85,5 +87,52 @@ func TestContainsFold(t *testing.T) {
 
 	if ContainsFold(nil, "x") {
 		t.Error("an empty list holds nothing")
+	}
+}
+
+func TestLowerASCIIAndLetters(t *testing.T) {
+	for b := range 256 {
+		c := byte(b)
+
+		want := c
+		if c >= 'A' && c <= 'Z' {
+			want = c + 32
+		}
+
+		if got := LowerASCII(c); got != want {
+			t.Errorf("LowerASCII(%#x) = %#x, want %#x", c, got, want)
+		}
+
+		letter := c < 0x80 && (c|0x20 >= 'a' && c|0x20 <= 'z')
+		if got := IsASCIILetter(c); got != letter {
+			t.Errorf("IsASCIILetter(%#x) = %v, want %v", c, got, letter)
+		}
+	}
+}
+
+func TestHasPrefixFold(t *testing.T) {
+	for _, c := range []struct {
+		s, prefix string
+		want      bool
+	}{
+		{"CFINCLUDE x", "cfinclude", true},
+		{"cf", "cfinclude", false},
+		{"anything", "", true},
+		{"", "", true},
+		{"", "a", false},
+		{"Straße", "STRA", true},
+	} {
+		if got := HasPrefixFold(c.s, c.prefix); got != c.want || got != (len(c.s) >= len(c.prefix) && strings.EqualFold(c.s[:len(c.prefix)], c.prefix)) {
+			t.Errorf("HasPrefixFold(%q, %q) = %v, want %v", c.s, c.prefix, got, c.want)
+		}
+	}
+}
+
+func TestUTF16LenCountsCodeUnits(t *testing.T) {
+	for _, s := range []string{"", "abc", "é", "日本語", "a😀b", "😀😀", "\xff"} {
+		want := len(utf16.Encode([]rune(s)))
+		if got := UTF16Len(s); got != want {
+			t.Errorf("UTF16Len(%q) = %d, want %d", s, got, want)
+		}
 	}
 }

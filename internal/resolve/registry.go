@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cfmleditor/clif/internal/lex"
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
 	"github.com/cfmleditor/clif/internal/vfs"
@@ -712,15 +713,10 @@ func guardSkips(rest string, tag bool) bool {
 
 		after := strings.TrimLeft(rest[i+1:], " \t\r\n{")
 
-		return hasPrefixFold(after, "continue") || hasPrefixFold(after, "<cfcontinue")
+		return lex.HasPrefixFold(after, "continue") || lex.HasPrefixFold(after, "<cfcontinue")
 	}
 
 	return false
-}
-
-// hasPrefixFold is strings.HasPrefix, ignoring case.
-func hasPrefixFold(s, prefix string) bool {
-	return len(s) >= len(prefix) && strings.EqualFold(s[:len(prefix)], prefix)
 }
 
 // registryMembers is the files of the package's directory, less the names

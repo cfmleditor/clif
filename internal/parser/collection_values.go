@@ -3,6 +3,8 @@ package parser
 import (
 	"sort"
 	"strings"
+
+	"github.com/cfmleditor/clif/internal/lex"
 )
 
 func wholeStructValues(f *FunctionDef, expressions []string, function string, key func(string, string) collKey, nodes map[collKey]*collectionNode) *CollectionValues {
@@ -22,7 +24,7 @@ func wholeStructValues(f *FunctionDef, expressions []string, function string, ke
 		}
 
 		n := nodes[key(root, function)]
-		if n == nil || n.invalid || n.escaped || !n.structSeed || n.arraySeed || hasPrefixFold(root, "this.") {
+		if n == nil || n.invalid || n.escaped || !n.structSeed || n.arraySeed || lex.HasPrefixFold(root, "this.") {
 			return nil
 		}
 
@@ -76,7 +78,7 @@ func (pr *ParseResult) markCollectionEscapes(key func(string, string) collKey, n
 	for _, write := range pr.collectionWrites() {
 		root, element := collectionRead(write.expression)
 		if root != "" && !element && !write.element {
-			if hasPrefixFold(write.target, "this.") {
+			if lex.HasPrefixFold(write.target, "this.") {
 				if n := nodes[key(root, write.function)]; n != nil {
 					n.escaped = true
 				}
