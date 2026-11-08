@@ -2,6 +2,7 @@ package resolve
 
 import (
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/cfmleditor/clif/internal/parser"
@@ -148,5 +149,44 @@ func TestLeafSubclassesAreSharedByViewsThatMapAlike(t *testing.T) {
 
 	if len(r.leafSubs) != 3 {
 		t.Errorf("%d scopes, want 3 (a and b sharing one): %q", len(r.leafSubs), r.leafSubs)
+	}
+}
+
+// The leaves under a base are the components nothing extends: a chain gives its
+// end, siblings give each, and a component of the same name in another folder
+// is not a descendant of the base it does not extend.
+func TestLeafSubclassesAreTheComponentsNothingExtends(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{
+		"h/Base.cfc":     `component { function run(){ variables.svc.go(); } }`,
+		"h/Mid.cfc":      `component extends="Base" {}`,
+		"h/End.cfc":      `component extends="Mid" {}`,
+		"h/Sibling.cfc":  `component extends="Base" {}`,
+		"h/Deep.cfc":     `component extends="End" {}`,
+		"other/Base.cfc": `component {}`,
+		"other/Odd.cfc":  `component extends="Base" {}`,
+	})
+
+	r := &Resolver{}
+	reasonsWith(t, r, dir, "h/Base.cfc")
+
+	got := r.leafSubclasses(filepath.Join(dir, "h", "Base.cfc"))
+	for i := range got {
+		got[i] = filepath.Base(got[i])
+	}
+
+	slices.Sort(got)
+
+	if want := []string{"Deep.cfc", "Sibling.cfc"}; !slices.Equal(got, want) {
+		t.Errorf("leaves = %v, want %v", got, want)
+	}
+
+	other := r.leafSubclasses(filepath.Join(dir, "other", "Base.cfc"))
+	for i := range other {
+		other[i] = filepath.Base(other[i])
+	}
+
+	if want := []string{"Odd.cfc"}; !slices.Equal(other, want) {
+		t.Errorf("leaves under the other Base = %v, want %v", other, want)
 	}
 }

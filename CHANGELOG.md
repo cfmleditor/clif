@@ -13,6 +13,8 @@
 
 ### Fixed
 
+- **A test pins the leaf subclasses under a base** (a chain gives its end, siblings give each, and a same-named base in another folder is its own): `TestLeafSubclassesAreTheComponentsNothingExtends`. It came out of looking for why 42% of a Lucee scan is the leaf walk (one stub base walked 476 times as the index's shape generation moves 150 times); two cheaper fixes were measured, did nothing and are not kept, and the one that would work is written up in `.ai/docs/PERFORMANCE-GAPS.md` §10.
+
 - **A catch's variable and a throw's arguments are read alike by the two variable scans.** Outside any function, the lighter scan behind `VariablesVars` and `ThisVars` declared a `throw( type = "x" )`'s named arguments as variables of the component and missed `catch ( any err )`'s variable, which the full parse got right. It reads them as the full parse does now (`parseCatchVar`, and a throw's argument list passed over). The test fails with either arm removed; `unresolved` is unchanged on all seven corpora, since the difference is code written directly in a component body.
 
 - **`scriptParser.parse` is 84 lines, not 156.** The arm for a statement that starts with a name and a dot (a dotted return type before `function`, or a call on a dotted receiver and the hops walked on from it) is `parseDottedStatement`; the dispatch switch stays in `parse`, where `TestBothDispatchSwitchesHandleEveryScope` reads it. Four tests written first cover the arms nothing reached (a top-level `catch` declaring its variable, a top-level `throw` declaring nothing from its arguments, a dotted call and its hops, a chain that does not finish) and fail with the arm removed. `gapcheck` and the parser tests pass and `unresolved` is byte-identical on all seven corpora.

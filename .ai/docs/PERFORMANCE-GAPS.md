@@ -821,3 +821,44 @@ inside both parsers, including the closure markers and the `<cfset>` cache.
 benchmark's wall time is mostly GC count. Compare allocation counts, or run
 with `GOGC=4000` (then first-touch page faults inflate `memclr` instead);
 `GOMAXPROCS=1` makes the CPU profile attribute it.
+
+## 10. Two whole-file facts were recomputed per function — implemented; the Lucee leaf walk — measured, not done
+
+**Done.** A profile of a MasaCMS scan (4.3 s) put a quarter of its CPU in
+`elementReturn`, which ran two regular expressions over the whole file for
+every function of it whose return type was looked up (line 41 of
+`return_element.go`: 4.0 s of 16.2 s), and a sixth in the `parser.Parse` it
+then made, with no options, for every one of the same functions. Whether a
+source holds an element return is read once per source
+(`sourceInfo.holdsElementReturn`), and the plain parse is kept with it
+(`sourceInfo.plainParse`; a parse's lazy parts are locked, and a test shares
+one across eight goroutines under `-race`). Masa 4.3 s to 2.6 s, Galaxie
+1.28 s to 0.78 s, ContentBox -22%, ColdBox -12%; `unresolved` byte-identical on
+the seven corpora.
+
+**Measured, not done: Lucee's leaf-subclass walk.** After that, 42% of a Lucee
+scan's CPU is `leafSubclassesUncached`, and nearly all of it is one base,
+`testbox/system/BaseSpec.cfc` (a stub), walked 476 times at 12 ms
+(5.7 s of 6.6 s). The cache is keyed on `Index.ShapeGeneration`, and that
+moves about 150 times during the scan: files are indexed as the scan reaches
+them (`IndexParsed`, 7,700 shape bumps over 4,500 files), and every one that
+is new invalidates every answer. Two cheaper ideas were measured and did
+nothing, so they were not kept:
+- Remembering `descendsFromDeclared` per (file, parent) pair between the walk
+  and the leaf pass: 3.7-4.2 s against 3.9-4.2 s.
+- Not moving the generation when a file is indexed again with the same
+  extends: the bumps that matter are first-time additions, so the generation
+  count was still 152.
+
+What would work is an answer that survives the writes that cannot change it,
+which means knowing what a leaf set depends on: the extenders map, and
+whatever `ComponentPath` reads when it resolves an extends (mappings, the
+directory, the file-name fallback `FindFilesByBasename`, and an ORM
+`entityname`). A new file that extends nothing and whose basename and entity
+name no `extends` mentions cannot change it, so the generation could move
+only for files that could; that needs a count of the names `extends` mentions
+kept by every writer of `Index.extends`, and a test for each way a file can
+come to matter. About a third of a Lucee scan (3.7 s to about 2.5 s) and
+nothing on the other six corpora. A wrong invalidation here is a stale leaf
+set in the editor's long-lived process, which is why it is written down and
+not done.
