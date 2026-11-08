@@ -98,7 +98,7 @@ func TestScopedAssignmentInAFunctionBodyEstablishesAComponentRef(t *testing.T) {
 // checks the structure, and catches a missing case for every scope rather than
 // only the ones whose absence has an observable this test happens to assert.
 func TestBothDispatchSwitchesHandleEveryScope(t *testing.T) {
-	src := readParserSource(t, "script_parser.go")
+	src := readAllParserSource(t)
 
 	switches := map[string]string{
 		"scriptParser.parse":           funcBody(t, src, "func (p *scriptParser) parse() {"),
@@ -146,10 +146,11 @@ func funcBody(t *testing.T, src, header string) string {
 	return rest
 }
 
-// readParserSource reads a file from this package's own directory, located
-// relative to this source file so the test does not depend on the working
-// directory.
-func readParserSource(t *testing.T, name string) string {
+// readAllParserSource is every non-test file of this package, joined. The
+// structural tests above and in tag_dispatch_test.go and interpolation_test.go
+// read it rather than one file, so splitting a file by concern does not
+// silently move the code they check out of their sight.
+func readAllParserSource(t *testing.T) string {
 	t.Helper()
 
 	_, self, _, ok := runtime.Caller(0)
@@ -157,12 +158,32 @@ func readParserSource(t *testing.T, name string) string {
 		t.Fatal("cannot locate this source file")
 	}
 
-	data, err := os.ReadFile(filepath.Join(filepath.Dir(self), name))
+	names, err := filepath.Glob(filepath.Join(filepath.Dir(self), "*.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	return string(data)
+	var b strings.Builder
+
+	for _, name := range names {
+		if strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+
+		data, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		b.Write(data)
+		b.WriteByte('\n')
+	}
+
+	if b.Len() == 0 {
+		t.Fatal("no parser source found")
+	}
+
+	return b.String()
 }
 
 func hasComponentRef(refs []ComponentRef, variable, component string) bool {
