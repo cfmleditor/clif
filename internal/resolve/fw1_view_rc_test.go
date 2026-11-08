@@ -4,6 +4,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/cfmleditor/clif/internal/parser"
 )
 
 // TestAnFW1ViewsRcIsWhatItsControllerAssigns: Mura's admin view
@@ -278,5 +280,39 @@ func TestAnFW1SubsystemViewsRcFollowsSetViewHandOffsAndPartials(t *testing.T) {
 
 	if got := reasonsWith(t, &Resolver{ImplicitExtends: views}, dir, "admin/views/product/other.cfm")["rc.product.getName"]; got == "" {
 		t.Errorf("other.cfm: typed by an action rendering another subsystem's view")
+	}
+}
+
+// The setView calls of a controller are read once per text: the section.item
+// each names, its subsystem when it has one, and where it starts.
+func TestAControllersSetViewCallsAreReadOnce(t *testing.T) {
+	src := "component {\n" +
+		"\tfunction list() { setView( \"product.list\" ); }\n" +
+		"\tfunction edit() { getFW().setView( action = \"admin:product.detail\" ); }\n" +
+		"\tfunction other() { var setViewer = 1; view( \"x.y\" ); }\n" +
+		"}\n"
+
+	r := &Resolver{}
+	hpr := parser.Parse("file:///ws/controllers/product.cfc", src)
+
+	got := r.fw1SetViews(hpr)
+	if len(got) != 2 {
+		t.Fatalf("%d setView calls, want 2: %+v", len(got), got)
+	}
+
+	if got[0].target != "product.list" || got[0].hasSubsystem || strings.Count(src[:got[0].at], "\n") != 1 {
+		t.Errorf("first call = %+v", got[0])
+	}
+
+	if got[1].target != "product.detail" || !got[1].hasSubsystem || got[1].subsystem != "admin" || strings.Count(src[:got[1].at], "\n") != 2 {
+		t.Errorf("second call = %+v", got[1])
+	}
+
+	if again := r.fw1SetViews(hpr); len(again) != 2 || &again[0] != &got[0] {
+		t.Error("the second ask read the text again")
+	}
+
+	if changed := r.fw1SetViews(parser.Parse("file:///ws/controllers/product.cfc", "component {}")); len(changed) != 0 {
+		t.Errorf("a changed text kept the old answer: %+v", changed)
 	}
 }

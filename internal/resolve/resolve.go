@@ -83,22 +83,23 @@ type Resolver struct {
 	// The build locks are outside pathCaches: InvalidatePaths replaces that
 	// struct whole, and a lock held by a build in progress would be replaced
 	// by an unlocked one, which the build's Unlock then aborts on.
-	callerBuild    sync.Mutex        // held while callerIdx is built; see buildCallerIndexOnce
-	tagSitesBuild  sync.Mutex        // one customTagSites build at a time
-	exprKeys       []string          // ExpressionMappings' keys in the order they apply
-	resolverSets   sync.Map          // resolverSetKey → *parser.ResolverSet, every parse with that slice sharing it (parseResolverSet)
-	mappingsKey    string            // a view's callerMappings as a key; see leafSubclasses
-	beanPathsCache map[string]string // merged application/configured bean roots
-	diOnce         sync.Once
-	diPolicies     []diPolicy // source-backed DI/1 injection contracts
-	discoveringDI  bool       // private policy discovery never re-enters injection lookup
-	sourceFacts    spanCache[lexicalSourceFacts]
-	callerTokens   spanCache[parser.Token]      // caller file URI → tokens for its current content
-	loopCache      spanCache[loopsByName]       // file URI → every loop its current text holds (loopsOf)
-	typeGuardCache spanCache[receiverTypeGuard] // exact builtin checks in current source
-	closureCache   spanCache[closureSpan]       // file URI → every function literal its current text holds (closuresOf)
-	registryCache  spanCache[[]registryFact]    // file URI → every registry recipe its current text holds (registriesOf)
-	pathCaches                                  // what InvalidatePaths clears
+	callerBuild     sync.Mutex        // held while callerIdx is built; see buildCallerIndexOnce
+	tagSitesBuild   sync.Mutex        // one customTagSites build at a time
+	exprKeys        []string          // ExpressionMappings' keys in the order they apply
+	resolverSets    sync.Map          // resolverSetKey → *parser.ResolverSet, every parse with that slice sharing it (parseResolverSet)
+	mappingsKey     string            // a view's callerMappings as a key; see leafSubclasses
+	beanPathsCache  map[string]string // merged application/configured bean roots
+	diOnce          sync.Once
+	diPolicies      []diPolicy // source-backed DI/1 injection contracts
+	discoveringDI   bool       // private policy discovery never re-enters injection lookup
+	sourceFacts     spanCache[lexicalSourceFacts]
+	callerTokens    spanCache[parser.Token]      // caller file URI → tokens for its current content
+	loopCache       spanCache[loopsByName]       // file URI → every loop its current text holds (loopsOf)
+	typeGuardCache  spanCache[receiverTypeGuard] // exact builtin checks in current source
+	closureCache    spanCache[closureSpan]       // file URI → every function literal its current text holds (closuresOf)
+	fw1SetViewCache spanCache[fw1SetView]        // file URI → every setView call its current text holds (fw1SetViews)
+	registryCache   spanCache[[]registryFact]    // file URI → every registry recipe its current text holds (registriesOf)
+	pathCaches                                   // what InvalidatePaths clears
 }
 
 // pathCaches are the answers a Resolver keeps that depend on files, paths and
