@@ -1254,6 +1254,86 @@ func (p *scriptParser) parseScopedVar(tok Token, scope Scope) {
 	p.forceGlobal = false
 }
 
+// parseDottedStatement reads a statement that starts with a name and a dot,
+// with the name already taken: a dotted return type before `function`, or a
+// call on a dotted receiver, whose later hops are walked on. It is false when
+// the call's argument list never closes, which ends the parse.
+func (p *scriptParser) parseDottedStatement(tok Token) bool {
+	peek := p.sc.PeekSkipComments()
+
+	// Walk the dot chain — could be dotted return type or bare call
+	named := !isKeyword(tok.Value) || operatorWordIsName(tok, peek)
+
+	var retVal chainBuilder
+	retVal.reset(tok.Value)
+
+	lastIdent := tok.Value
+	lastLine := tok.Line
+	prevIdent := ""
+
+	for p.sc.PeekSkipComments().Kind == TokDot {
+		p.sc.NextSkipComments()
+
+		seg := p.sc.PeekSkipComments()
+		if seg.Kind == TokIdent {
+			p.sc.NextSkipComments()
+
+			prevIdent = lastIdent
+			lastIdent = seg.Value
+			lastLine = seg.Line
+
+			retVal.writeDot()
+			retVal.writeString(seg.Value)
+		} else {
+			break
+		}
+	}
+
+	next := p.sc.PeekSkipComments()
+	if next.Kind == TokIdent && identEq(next.Value, "function") {
+		p.sc.NextSkipComments()
+		p.parseFunction(tok, "", retVal.String())
+	} else if next.Kind == TokLParen && named {
+		_ = prevIdent
+
+		varName := ""
+		chain := retVal.String()
+
+		if recv, _, ok := strings.CutLast(chain, "."); ok {
+			varName = recv
+		}
+
+		funcName := lastIdent
+		line := int(tok.Line)
+
+		call := CallSite{
+			FuncName: funcName,
+			Variable: varName,
+			Line:     conv.Uint32(p.baseLine + int(lastLine)),
+		}
+		// This dispatch also handles script islands seeded with a tag
+		// function scope. Capture identity while the opening parenthesis
+		// is still ahead of the scanner, before nested argument calls.
+		p.setCallSpan(&call)
+
+		comp, hop, ok := p.skipParensResolving(chain)
+		if !ok {
+			return false
+		}
+
+		p.addCall(&call)
+
+		// Continue walking further .method() hops chained off this
+		// call's return value (e.g. "table.getTable().setSkipFirstHeader(...)")
+		// — without this, the scanner resumes right after this hop's
+		// "(" and the next ".method(" is rediscovered as an orphaned,
+		// unqualified bare call.
+		p.recordChainContinuation(varName, hop, comp, line)
+	}
+
+	return true
+}
+
 func (p *scriptParser) parse() {
 	for {
 		tok := p.sc.NextSkipComments()
@@ -1320,74 +1400,8 @@ func (p *scriptParser) parse() {
 				p.sc.NextSkipComments()
 				p.parseFunction(tok, "", tok.Value)
 			case peek.Kind == TokDot:
-				// Walk the dot chain — could be dotted return type or bare call
-				named := !isKeyword(tok.Value) || operatorWordIsName(tok, peek)
-
-				var retVal chainBuilder
-				retVal.reset(tok.Value)
-
-				lastIdent := tok.Value
-				lastLine := tok.Line
-				prevIdent := ""
-
-				for p.sc.PeekSkipComments().Kind == TokDot {
-					p.sc.NextSkipComments()
-
-					seg := p.sc.PeekSkipComments()
-					if seg.Kind == TokIdent {
-						p.sc.NextSkipComments()
-
-						prevIdent = lastIdent
-						lastIdent = seg.Value
-						lastLine = seg.Line
-
-						retVal.writeDot()
-						retVal.writeString(seg.Value)
-					} else {
-						break
-					}
-				}
-
-				next := p.sc.PeekSkipComments()
-				if next.Kind == TokIdent && identEq(next.Value, "function") {
-					p.sc.NextSkipComments()
-					p.parseFunction(tok, "", retVal.String())
-				} else if next.Kind == TokLParen && named {
-					_ = prevIdent
-
-					varName := ""
-					chain := retVal.String()
-
-					if recv, _, ok := strings.CutLast(chain, "."); ok {
-						varName = recv
-					}
-
-					funcName := lastIdent
-					line := int(tok.Line)
-
-					call := CallSite{
-						FuncName: funcName,
-						Variable: varName,
-						Line:     conv.Uint32(p.baseLine + int(lastLine)),
-					}
-					// This dispatch also handles script islands seeded with a tag
-					// function scope. Capture identity while the opening parenthesis
-					// is still ahead of the scanner, before nested argument calls.
-					p.setCallSpan(&call)
-
-					comp, hop, ok := p.skipParensResolving(chain)
-					if !ok {
-						return
-					}
-
-					p.addCall(&call)
-
-					// Continue walking further .method() hops chained off this
-					// call's return value (e.g. "table.getTable().setSkipFirstHeader(...)")
-					// — without this, the scanner resumes right after this hop's
-					// "(" and the next ".method(" is rediscovered as an orphaned,
-					// unqualified bare call.
-					p.recordChainContinuation(varName, hop, comp, line)
+				if !p.parseDottedStatement(tok) {
+					return
 				}
 			case peek.Kind == TokDoubleColon:
 				p.parseStaticCall(tok)
