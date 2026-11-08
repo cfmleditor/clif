@@ -1589,3 +1589,16 @@ typed from them); MuraCMS, ContentBox, Slatwall, Preside, cfwheels, Lucee and Co
 
 What is left on Galaxie after this (746): `html` 63, `e` 45, `o` 42, `owner` 27, `entity` 25, `order` 24,
 `arguments.entity` 22 and a long tail, not yet investigated.
+
+## Stubs for ContentBox's Comment and Permission: measured, not added
+
+A `comment` / `permission` receiver resolver in the contentbox preset would need
+the two entities in the stub set (`contentbox/models/comments/Comment.cfc`,
+`security/Permission.cfc`, both in the pinned checkout) and a regenerate with
+`make framework-stubs`. The ContentBox findings left (181) name neither as a
+receiver: the receivers of the "has no component ref" ones are `c` (22),
+`prc.activeDisk` (14), `arguments.c` (11), `arguments.target` (5),
+`c.restrictions` (5), `item` (4) and then ones and twos, with `inComment` (2)
+and `arguments.data.comment` (1) the nearest. The names do not say what they
+hold, so a name-based rule would be a guess, and the yield is at most three
+findings. Not done.
