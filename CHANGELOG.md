@@ -15,6 +15,8 @@
 
 ### Fixed
 
+- **`indexWorkspace` is 93 lines, not 141.** Where the components come from (`workspaceCFCFiles`: the globs, else the folders, else the editor's roots) and the read of one file for the index (`parseForIndex`: not one the editor has open, not unreadable, not binary) are functions of their own. Two tests written first cover what none reached (each source, and each reason a file is skipped); the open-document and binary ones fail with their check removed.
+
 - **A test pins the leaf subclasses under a base** (a chain gives its end, siblings give each, and a same-named base in another folder is its own): `TestLeafSubclassesAreTheComponentsNothingExtends`. It came out of looking for why 42% of a Lucee scan is the leaf walk (one stub base walked 476 times as the index's shape generation moves 150 times); two cheaper fixes were measured, did nothing and are not kept, and the one that would work is written up in `.ai/docs/PERFORMANCE-GAPS.md` §10.
 
 - **A catch's variable and a throw's arguments are read alike by the two variable scans.** Outside any function, the lighter scan behind `VariablesVars` and `ThisVars` declared a `throw( type = "x" )`'s named arguments as variables of the component and missed `catch ( any err )`'s variable, which the full parse got right. It reads them as the full parse does now (`parseCatchVar`, and a throw's argument list passed over). The test fails with either arm removed; `unresolved` is unchanged on all seven corpora, since the difference is code written directly in a component body.
