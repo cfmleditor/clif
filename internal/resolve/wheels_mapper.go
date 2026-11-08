@@ -269,6 +269,8 @@ type sourceDerived struct {
 	methods       map[string]wheelsMethod
 	tagBodiesOnce sync.Once
 	tagBodies     map[string]string
+	elementOnce   sync.Once
+	elementReads  bool
 }
 
 // methodMap is the source's function bodies (wheelsMethods), read once per

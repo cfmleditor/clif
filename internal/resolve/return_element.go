@@ -30,6 +30,22 @@ var (
 	bareReturnRe          = regexp.MustCompile(`(?i)\breturn\s*;|<cfreturn\s*/?>`)
 )
 
+// holdsElementReturn reports whether the source has a return that reads an
+// element of a collection anywhere in it. It is asked for every function of the
+// file whose return type is looked up, and two expressions over the whole file
+// were a quarter of a MasaCMS scan, so the answer is read once per source.
+func (s *sourceInfo) holdsElementReturn() bool {
+	if s.derived == nil {
+		return scriptElementReturnRe.MatchString(s.content) || tagElementReturnRe.MatchString(s.content)
+	}
+
+	s.derived.elementOnce.Do(func() {
+		s.derived.elementReads = scriptElementReturnRe.MatchString(s.content) || tagElementReturnRe.MatchString(s.content)
+	})
+
+	return s.derived.elementReads
+}
+
 func (r *Resolver) elementReturn(fd *parser.FunctionDef) string {
 	if !fd.URI.IsFile() {
 		return ""
@@ -38,7 +54,7 @@ func (r *Resolver) elementReturn(fd *parser.FunctionDef) string {
 	// Not handlerParse: that parse asks this resolver what functions return,
 	// and the parse of this very file is what is asking.
 	source := r.sourceInfo(fd.URI.Path())
-	if !scriptElementReturnRe.MatchString(source.content) && !tagElementReturnRe.MatchString(source.content) {
+	if !source.holdsElementReturn() {
 		return ""
 	}
 
