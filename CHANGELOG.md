@@ -8,6 +8,8 @@
 
 ### Changed
 
+- **`callbackParameterComponent` hands three lookups to functions of their own** (`closureParameter`: the innermost closure around the call and the parameter's position; `callbackProviderFunc`: the function the provider call runs; `callbackParameterName`: the provider's name for the closure it is passed). The path-by-path walk stays in the function. The code moved as it was; breaking the positional-parameter lookup or the closure bounds fails the callback tests, and `unresolved` is byte-identical on all seven corpora.
+
 - **`producerScript.statement` hands `if`, loops and `try` to methods of their own** (`ifStatement`, `loopStatement`, `tryStatement`). The branches of those that run out of input, which no test reached, are pinned: a table reads 24 statement forms, each well-formed and cut short, and checks the node kind, whether the plan failed and what the body and alternative hold (removing the `finally` check fails it). The code moved as it was, and `unresolved` is byte-identical on all seven corpora.
 
 - **`returnComponentOf` hands three of its stages to functions of their own** (`producerReturn`, `sourcesReturn`, `declaredReturn`); the order of the chain (an abstract base's overrides, a declared collection, the plan of the body, the recorded sources, what the function names, the bare type, the doc comment) stays in the function. The code moved as it was; the plan stage says whether it decided with a second result, since an answer of "" can ask for the contracts below it to be skipped. Its branches were covered, and `unresolved` is byte-identical on all seven corpora.
