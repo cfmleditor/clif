@@ -8,6 +8,8 @@
 
 ### Changed
 
+- **`handleDidChange` is three steps.** Applying the changes (`applyChanges`) and bringing the server's views up to date (`afterEdit`) are functions of their own; the handler keeps the guards, the burst path and the deferral. The paths no test reached (an unreadable notification, no changes, a file that is not CFML, a document never opened, a whole-document replacement) have tests, written before the move. No change in behaviour.
+
 - **CLAUDE.md is 331 lines, not 2,855.** The architecture notes moved, unchanged, to nine files under `.ai/docs/guide/` (parser, formatter, code map, structure, LSP, text and includes, resolvers, testing, verification), and CLAUDE.md keeps the commands, the package map, the configuration table, the `explain` workflow and an index saying which file to read for which area. Every non-blank line of the old file is in exactly one new file (checked by comparing the two as multisets); the only additions are the index, a title and a one-line description per file. References to a moved section, in the docs, in comments and in the Configuration table, now name the file that holds it.
 
 - **A Mura template's matching `dspObject_include` calls are found once per path** (`muraSitesFor`). Every untyped name a template reads matched its path against each call's `theFile` pattern again (two passes), 0.6 s of a MasaCMS scan's 9 s of CPU; which calls could include a template depends on its path alone. MasaCMS 2.52 s to 2.44 s (six interleaved runs); the output is byte-identical on all seven corpora.

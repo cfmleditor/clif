@@ -365,10 +365,6 @@ func (s *Server) handleDidChange(_ context.Context, rawParams []byte) (any, erro
 		cflog.Int("bytes", totalBytes),
 	)
 
-	var editLine int
-
-	var lastKind parser.EditKind
-
 	if rapidChanges {
 		// Too many changes in quick succession — just apply text and defer reindex.
 		content = applyContentChanges(content, params.ContentChanges)
@@ -389,9 +385,40 @@ func (s *Server) handleDidChange(_ context.Context, rawParams []byte) (any, erro
 	// A parse already lagging (a deferred reparse not yet run) must not be
 	// edited incrementally: its scopes are out of step with the positions in
 	// these changes. The text is applied and the reparse stays deferred.
-	deferred := pr != nil && s.reparseIsPending(docURI)
+	content, deferred, lastKind, editLine := applyChanges(content, pr, params.ContentChanges, pr != nil && s.reparseIsPending(docURI))
 
-	for i, change := range params.ContentChanges {
+	s.setDocument(docURI, content)
+
+	if deferred {
+		s.scheduleReparse(docURI)
+
+		return nil, nil
+	}
+
+	if pr == nil {
+		// No cached parse result — fall back to full parse
+		pr = s.parseContent(docURI, content)
+		s.mu.Lock()
+		s.parseResults[docURI] = pr
+		s.funcRanges[docURI] = scopesToFuncRanges(pr)
+		s.mu.Unlock()
+		s.reindexFromParseResult(docURI, pr)
+
+		return nil, nil
+	}
+
+	s.afterEdit(docURI, pr, content, lastKind, editLine, params.ContentChanges)
+
+	return nil, nil
+}
+
+// applyChanges applies changes to content, editing the parse in place for as
+// long as each one is inside a function body. An edit outside one, or a parse
+// already lagging (deferred), applies the rest as text alone and reports
+// deferred, for the caller to schedule the reparse. lastKind and editLine say
+// what the last incremental edit did to the parse and where.
+func applyChanges(content string, pr *parser.ParseResult, changes []protocol.TextDocumentContentChangeEvent, deferred bool) (out string, isDeferred bool, lastKind parser.EditKind, editLine int) {
+	for i, change := range changes {
 		r, text, isFull := changeRangeAndText(change)
 
 		// An edit outside a function body would reparse the whole file's
@@ -402,7 +429,7 @@ func (s *Server) handleDidChange(_ context.Context, rawParams []byte) (any, erro
 		}
 
 		if deferred {
-			content = applyContentChanges(content, params.ContentChanges[i:])
+			content = applyContentChanges(content, changes[i:])
 
 			break
 		}
@@ -431,26 +458,12 @@ func (s *Server) handleDidChange(_ context.Context, rawParams []byte) (any, erro
 		}
 	}
 
-	s.setDocument(docURI, content)
+	return content, deferred, lastKind, editLine
+}
 
-	if deferred {
-		s.scheduleReparse(docURI)
-
-		return nil, nil
-	}
-
-	if pr == nil {
-		// No cached parse result — fall back to full parse
-		pr = s.parseContent(docURI, content)
-		s.mu.Lock()
-		s.parseResults[docURI] = pr
-		s.funcRanges[docURI] = scopesToFuncRanges(pr)
-		s.mu.Unlock()
-		s.reindexFromParseResult(docURI, pr)
-
-		return nil, nil
-	}
-
+// afterEdit brings the server's views of docURI up to an incremental edit
+// that has been applied to its parse.
+func (s *Server) afterEdit(docURI uri.URI, pr *parser.ParseResult, content string, lastKind parser.EditKind, editLine int, changes []protocol.TextDocumentContentChangeEvent) {
 	// Update funcRanges from the parse result
 	switch lastKind {
 	case parser.EditGlobal, parser.EditFull:
@@ -461,14 +474,12 @@ func (s *Server) handleDidChange(_ context.Context, rawParams []byte) (any, erro
 		s.reindexFromParseResult(docURI, pr)
 	case parser.EditInFunc:
 		// Only function body changed — shift index lines and rebuild local vars
-		if delta := lineDelta(params.ContentChanges); delta != 0 {
+		if delta := lineDelta(changes); delta != 0 {
 			s.index.ShiftLines(docURI, editLine, delta)
 		}
 
 		s.debounceCacheRebuild(docURI, content, editLine)
 	}
-
-	return nil, nil
 }
 
 // noteChange counts a change to docURI made at now in the current burst: the

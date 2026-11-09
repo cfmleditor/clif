@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -66,5 +67,81 @@ func TestTheChangeCountRestartsAfterTheWindow(t *testing.T) {
 
 	if got := s.noteChange("file:///other.cfc", t0.Add(201*time.Millisecond)); got != 1 {
 		t.Errorf("another document counted %d, want its own 1", got)
+	}
+}
+
+func callDidChange(t *testing.T, srv *Server, docURI uri.URI, changes []protocol.TextDocumentContentChangeEvent) error {
+	t.Helper()
+
+	_, err := srv.handleDidChange(context.Background(), makeCall(t, protocol.MethodTextDocumentDidChange, protocol.DidChangeTextDocumentParams{
+		TextDocument:   protocol.VersionedTextDocumentIdentifier{TextDocumentIdentifier: protocol.TextDocumentIdentifier{URI: docURI}},
+		ContentChanges: changes,
+	}))
+
+	return err
+}
+
+// A notification that cannot be read, names no change, is for a file that is
+// not CFML or for a document the server never opened, leaves everything as it
+// was.
+func TestDidChangeIgnoresWhatItCannotApply(t *testing.T) {
+	srv := newTestServer()
+	doc := uri.URI("file:///ws/A.cfc")
+	openDoc(t, srv, doc, "component {\n\tfunction a() {}\n}\n")
+
+	if _, err := srv.handleDidChange(context.Background(), []byte("{not json")); err == nil {
+		t.Error("an unreadable notification was accepted")
+	}
+
+	if err := callDidChange(t, srv, doc, nil); err != nil {
+		t.Errorf("a notification with no changes failed: %v", err)
+	}
+
+	txt := uri.URI("file:///ws/notes.txt")
+	if err := callDidChange(t, srv, txt, []protocol.TextDocumentContentChangeEvent{partial(0, 0, "x")}); err != nil {
+		t.Errorf("a change to a file that is not CFML failed: %v", err)
+	}
+
+	if _, ok := srv.getDocument(txt); ok {
+		t.Error("a file that is not CFML was stored")
+	}
+
+	never := uri.URI("file:///ws/Never.cfc")
+	if err := callDidChange(t, srv, never, []protocol.TextDocumentContentChangeEvent{partial(0, 0, "x")}); err != nil {
+		t.Errorf("a change to a document that was never opened failed: %v", err)
+	}
+
+	if _, ok := srv.getDocument(never); ok {
+		t.Error("a document that was never opened was stored")
+	}
+
+	if got, _ := srv.getDocument(doc); got != "component {\n\tfunction a() {}\n}\n" {
+		t.Errorf("the open document changed: %q", got)
+	}
+}
+
+// A whole-document replacement of an open file replaces its text and its
+// signatures: the old function is gone from the symbols and the index, the new
+// one is in both.
+func TestDidChangeWholeDocumentReplacesTheParse(t *testing.T) {
+	srv := newTestServer()
+	doc := uri.URI("file:///ws/A.cfc")
+	openDoc(t, srv, doc, "component {\n\tfunction a() {}\n}\n")
+
+	next := "component {\n\n\tfunction b() {}\n}\n"
+	if err := callDidChange(t, srv, doc, []protocol.TextDocumentContentChangeEvent{&protocol.TextDocumentContentChangeWholeDocument{Text: next}}); err != nil {
+		t.Fatal(err)
+	}
+
+	if got, _ := srv.getDocument(doc); got != next {
+		t.Errorf("text = %q, want %q", got, next)
+	}
+
+	if names := symbolNames(t, srv, doc); len(names) != 1 || names[0] != "b@2" {
+		t.Errorf("symbols = %v, want b on line 2", names)
+	}
+
+	if len(srv.index.Lookup("a")) != 0 || len(srv.index.Lookup("b")) != 1 {
+		t.Errorf("index holds a:%d b:%d, want a gone and b indexed", len(srv.index.Lookup("a")), len(srv.index.Lookup("b")))
 	}
 }
