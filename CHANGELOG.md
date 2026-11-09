@@ -8,6 +8,8 @@
 
 ### Changed
 
+- **`returnComponentOf` hands three of its stages to functions of their own** (`producerReturn`, `sourcesReturn`, `declaredReturn`); the order of the chain (an abstract base's overrides, a declared collection, the plan of the body, the recorded sources, what the function names, the bare type, the doc comment) stays in the function. The code moved as it was; the plan stage says whether it decided with a second result, since an answer of "" can ask for the contracts below it to be skipped. Its branches were covered, and `unresolved` is byte-identical on all seven corpora.
+
 - **`flatParamParts` is a small collector.** The entries so far, the one being read, and the comment it holds back are a `paramCollector`; `add` reads one child of the list and `addOther` the comments and kept text. The code moved as it was. The formatted output of 1,298 files across TestBox, FW/1, ColdBox and Galaxie (the first 400 of each, or all there are) is byte-identical before and after, and `make corpus BASELINE=` over those five projects and ContentBox reports no file changing verdict. One branch (a parameter starting with no comma after the previous one's name) was reached by no test before and still is: it is grammar error recovery, and the move did not touch it.
 
 - **`runServer` hands its two modes to `runDaemon` and `runStandalone`.** The startup (logging, crash reports, cache limits) stays in `runServer`; serving through or as the project's daemon, and serving a standalone session, are functions of their own. The code moved as it was. Checked by driving the old and new binary over stdio in both modes (initialize, shutdown, exit): the same replies and exit status.

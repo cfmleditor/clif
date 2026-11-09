@@ -150,91 +150,16 @@ func (r *Resolver) returnComponentOf(fd *parser.FunctionDef, depth int, budget *
 		}
 	}
 
-	if fd.URI.IsFile() && (fd.ReturnType == "" || strings.EqualFold(fd.ReturnType, "any") || strings.EqualFold(fd.ReturnType, "component") || strings.EqualFold(fd.ReturnType, "object")) {
-		// A final mode dispatch has no context-free component return. The
-		// caller must select its branch before a partial parser inference can
-		// supply one of the alternatives as if it were unconditional.
-		if r.hasSelfDefaultParam(fd) {
-			return ""
-		}
-
-		if ret := r.getterReturn(fd); ret != "" {
-			return ret
-		}
-
-		method := r.producerFor(fd)
-
-		// A value the function adds members to before returning it is not
-		// its component, documented or inferred: ColdBox's execute() returns a
-		// RequestContext with getRenderedContent() and two more attached.
-		if method != nil && producerAugmentsReturn(method.body) && !r.producerScalarSelfSetter(method, fd, "") {
-			return ""
-		}
-
-		if method != nil && (producerNeedsSpecialization(method, fd) || (fd.ReturnComponent == "" || fd.ReturnComponent == "$any") && len(fd.ReturnSources) == 0 && fd.DocReturn == "") {
-			eval := producerEvaluation{resolver: r, fd: fd, baseDir: filepath.Dir(fd.URI.Path()), depth: depth, budget: budget}
-
-			ret := eval.call(fd, "", nil, false).component()
-
-			// An unproven answer withholds the declared contracts below only
-			// when the body guards on its arguments (producerSensitive): then
-			// the return depends on the call. A return merely derived from a
-			// call does not say that, and a documented @return still applies.
-			// ColdBox's getContext() has no semicolons; read as a plan, its
-			// lock block hid the returns, and it lost its documented type.
-			if ret == "" {
-				ret = r.unevaluatedReturn(fd, depth, budget)
-			}
-
-			if ret != "" || producerNeedsSpecialization(method, fd) && (fd.DocReturn == "" || producerSensitive(method.body)) {
-				return ret
-			}
-		}
+	if ret, done := r.producerReturn(fd, depth, budget); done {
+		return ret
 	}
 
 	if len(fd.ReturnSources) > 0 {
-		switch strings.ToLower(fd.ReturnType) {
-		case "", "any", "component", "object":
-		default:
-			if strings.Contains(fd.ReturnType, ".") {
-				return r.declaredReturnType(fd)
-			}
-
-			return r.bareReturnComponent(fd)
-		}
-
-		return r.collectionReturnOf(fd, depth, budget)
+		return r.sourcesReturn(fd, depth, budget)
 	}
 
-	switch {
-	case strings.Contains(fd.ReturnComponent, "#"):
-		// `return new "builders.#name#.Builder"()`: a runtime path no
-		// expressionMappings entry covered is dynamic, as it is assigned to
-		// a variable (parser replaceExpressions).
-		return "$any"
-	case fd.ReturnComponent != "" && fd.ReturnComponent != "$any":
-		// `return new Expectation( … )` names the component beside the
-		// declaring file, as a bare return type does; read from the caller's
-		// directory it named nothing, and every expect( x ).toBe() in a
-		// spec extending the Wheels test BaseSpec was a missing component.
-		if p := r.besideDeclaring(fd, fd.ReturnComponent); p != "" {
-			return p
-		}
-
-		return fd.ReturnComponent
-	case strings.Contains(fd.ReturnType, "."):
-		// A relative path is the declaring file's too: ColdBox's AsyncManager
-		// returns `new tasks.Future()`, which is system/async/tasks/Future.cfc
-		// and nothing from the caller's directory.
-		if p := r.besideDeclaring(fd, fd.ReturnType); p != "" {
-			return p
-		}
-
-		if native := nativetype.Java(fd.ReturnType); native != "" {
-			return native
-		}
-
-		return fd.ReturnType
+	if ret, done := r.declaredReturn(fd); done {
+		return ret
 	}
 
 	if p := r.bareReturnComponent(fd); p != "" {
@@ -256,6 +181,113 @@ func (r *Resolver) returnComponentOf(fd *parser.FunctionDef, depth int, budget *
 	}
 
 	return r.aboveDeclaring(fd, fd.ReturnType)
+}
+
+// producerReturn is the component a function that declares none returns, as
+// the plan of its body evaluates (producer_*.go), when that is the answer:
+// done says whether the declared contracts below it in returnComponentOf are
+// skipped, which an answer of "" can ask for too.
+func (r *Resolver) producerReturn(fd *parser.FunctionDef, depth int, budget *int) (ret string, done bool) {
+	if !(fd.URI.IsFile() && (fd.ReturnType == "" || strings.EqualFold(fd.ReturnType, "any") || strings.EqualFold(fd.ReturnType, "component") || strings.EqualFold(fd.ReturnType, "object"))) {
+		return "", false
+	}
+
+	// A final mode dispatch has no context-free component return. The
+	// caller must select its branch before a partial parser inference can
+	// supply one of the alternatives as if it were unconditional.
+	if r.hasSelfDefaultParam(fd) {
+		return "", true
+	}
+
+	if ret := r.getterReturn(fd); ret != "" {
+		return ret, true
+	}
+
+	method := r.producerFor(fd)
+
+	// A value the function adds members to before returning it is not
+	// its component, documented or inferred: ColdBox's execute() returns a
+	// RequestContext with getRenderedContent() and two more attached.
+	if method != nil && producerAugmentsReturn(method.body) && !r.producerScalarSelfSetter(method, fd, "") {
+		return "", true
+	}
+
+	if method != nil && (producerNeedsSpecialization(method, fd) || (fd.ReturnComponent == "" || fd.ReturnComponent == "$any") && len(fd.ReturnSources) == 0 && fd.DocReturn == "") {
+		eval := producerEvaluation{resolver: r, fd: fd, baseDir: filepath.Dir(fd.URI.Path()), depth: depth, budget: budget}
+
+		ret := eval.call(fd, "", nil, false).component()
+
+		// An unproven answer withholds the declared contracts below only
+		// when the body guards on its arguments (producerSensitive): then
+		// the return depends on the call. A return merely derived from a
+		// call does not say that, and a documented @return still applies.
+		// ColdBox's getContext() has no semicolons; read as a plan, its
+		// lock block hid the returns, and it lost its documented type.
+		if ret == "" {
+			ret = r.unevaluatedReturn(fd, depth, budget)
+		}
+
+		if ret != "" || producerNeedsSpecialization(method, fd) && (fd.DocReturn == "" || producerSensitive(method.body)) {
+			return ret, true
+		}
+	}
+
+	return "", false
+}
+
+// sourcesReturn is the answer for a function with return statements the
+// parser recorded the sources of: a declared type wins, else what the
+// collection those sources build holds.
+func (r *Resolver) sourcesReturn(fd *parser.FunctionDef, depth int, budget *int) string {
+	switch strings.ToLower(fd.ReturnType) {
+	case "", "any", "component", "object":
+	default:
+		if strings.Contains(fd.ReturnType, ".") {
+			return r.declaredReturnType(fd)
+		}
+
+		return r.bareReturnComponent(fd)
+	}
+
+	return r.collectionReturnOf(fd, depth, budget)
+}
+
+// declaredReturn is the component a function names in its own return: a
+// runtime path (dynamic), a component, or a dotted return type, each read
+// beside the declaring file. done is false when it declares none of those.
+func (r *Resolver) declaredReturn(fd *parser.FunctionDef) (ret string, done bool) {
+	switch {
+	case strings.Contains(fd.ReturnComponent, "#"):
+		// `return new "builders.#name#.Builder"()`: a runtime path no
+		// expressionMappings entry covered is dynamic, as it is assigned to
+		// a variable (parser replaceExpressions).
+		return "$any", true
+	case fd.ReturnComponent != "" && fd.ReturnComponent != "$any":
+		// `return new Expectation( … )` names the component beside the
+		// declaring file, as a bare return type does; read from the caller's
+		// directory it named nothing, and every expect( x ).toBe() in a
+		// spec extending the Wheels test BaseSpec was a missing component.
+		if p := r.besideDeclaring(fd, fd.ReturnComponent); p != "" {
+			return p, true
+		}
+
+		return fd.ReturnComponent, true
+	case strings.Contains(fd.ReturnType, "."):
+		// A relative path is the declaring file's too: ColdBox's AsyncManager
+		// returns `new tasks.Future()`, which is system/async/tasks/Future.cfc
+		// and nothing from the caller's directory.
+		if p := r.besideDeclaring(fd, fd.ReturnType); p != "" {
+			return p, true
+		}
+
+		if native := nativetype.Java(fd.ReturnType); native != "" {
+			return native, true
+		}
+
+		return fd.ReturnType, true
+	}
+
+	return "", false
 }
 
 // docReturnComponent is the component fd's doc comment says it returns, when
