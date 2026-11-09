@@ -147,6 +147,7 @@ type pathCaches struct {
 	viewArgCache        map[string]map[string][]viewArgSite // module → view → its renders (viewArgSites)
 	muraSites           []muraObjectSite                    // the workspace's dspObject_include calls (muraObjectSites)
 	muraSitesBuilt      bool                                // muraSites has been read
+	muraSiteIdx         sync.Map                            // template path → positions in muraSites that could include it (muraSitesFor)
 	muraSets            map[muraSetsKey]bool                // template, name and scope → the template sets it (muraTemplateSets)
 	collectionFields    map[string]string                   // file, field and index generation → emptyCollectionField's kind
 	leafSubs            map[string]map[string][]string      // mappings scope → base file and index generation → leafSubclasses
