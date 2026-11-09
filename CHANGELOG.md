@@ -8,6 +8,8 @@
 
 ### Changed
 
+- **The MCP server's tool dispatch is a table of handlers.** `run` was a 133-line switch with a case per tool; each tool is now a short method (`searchSymbols`, `findPath`, `explainCall`, …) found by name in `toolHandlers`, and `run` keeps the argument parsing, the no-map refusal and the unknown-tool error. Nothing exercised the switch before beyond three argument checks: every tool is now called through the wire for a good call and for missing arguments, a server without its backing gets the remedy in the message, and a test fails when an advertised tool has no handler (checked by removing one). No change in behaviour.
+
 - **`Map.WriteText` is five sections.** The counts, the detached islands, the hubs, the cycles and the unreferenced list are functions of their own, and the three copies of "the first `limit` of these" are one helper. The text had no test; three outputs (every section, a limit of one, an empty map) were captured from the unchanged code first, and TestBox's text report is unchanged apart from the build time. ContentBox's differs from the old binary's only in the unresolved/builtin split, which moves by one or two between runs of any build (see the code-map guide).
 
 - **`handleDidChange` is three steps.** Applying the changes (`applyChanges`) and bringing the server's views up to date (`afterEdit`) are functions of their own; the handler keeps the guards, the burst path and the deferral. The paths no test reached (an unreadable notification, no changes, a file that is not CFML, a document never opened, a whole-document replacement) have tests, written before the move. No change in behaviour.

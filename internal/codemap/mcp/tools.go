@@ -297,6 +297,25 @@ type toolArgs struct {
 	GlobalDefs      bool     `json:"global_defs"`
 }
 
+// toolHandler runs one tool for already-parsed arguments.
+type toolHandler func(s *Server, a *toolArgs) (any, error)
+
+// toolHandlers is every tool run answers, by name.
+var toolHandlers = map[string]toolHandler{
+	"search_symbols":        (*Server).searchSymbols,
+	"get_symbol":            (*Server).getSymbol,
+	"get_callers":           (*Server).getCallers,
+	"get_callees":           (*Server).getCallees,
+	"find_path":             (*Server).findPath,
+	"list_islands":          (*Server).listIslands,
+	"list_orphans":          (*Server).listOrphans,
+	"get_stats":             func(s *Server, _ *toolArgs) (any, error) { return s.Store.Stats() },
+	"explain_call":          (*Server).explainCall,
+	"find_unresolved_calls": (*Server).findUnresolved,
+	"find_references":       (*Server).findReferences,
+	"lint":                  (*Server).lintPaths,
+}
+
 func (s *Server) run(name string, raw json.RawMessage) (any, error) {
 	var a toolArgs
 
@@ -311,125 +330,135 @@ func (s *Server) run(name string, raw json.RawMessage) (any, error) {
 			"`clif graph --db <file> <dir>` and start the server with --db <file>", name)
 	}
 
-	switch name {
-	case "search_symbols":
-		found, err := s.Store.SearchSymbols(&store.SearchOptions{
-			Query: a.Query, Kind: a.Kind, File: a.File, Island: a.Island,
-			OnlyDead: a.OnlyUnreachable, SortByFan: a.SortByFanIn, Limit: a.Limit,
-		})
-
-		return wrap("symbols", found), err
-
-	case "get_symbol":
-		if a.ID == "" {
-			return nil, errMissing("id")
-		}
-
-		return s.Store.Node(a.ID)
-
-	case "get_callers":
-		if a.ID == "" {
-			return nil, errMissing("id")
-		}
-
-		found, err := s.Store.Callers(a.ID, a.Limit)
-
-		return wrap("callers", found), err
-
-	case "get_callees":
-		if a.ID == "" {
-			return nil, errMissing("id")
-		}
-
-		found, err := s.Store.Callees(a.ID, a.Limit)
-
-		return wrap("callees", found), err
-
-	case "find_path":
-		if a.From == "" || a.To == "" {
-			return nil, errMissing("from and to")
-		}
-
-		path, err := s.Store.Path(a.From, a.To, a.MaxDepth)
-		if err != nil {
-			return nil, err
-		}
-
-		if path == nil {
-			return map[string]any{
-				"found": false,
-				"note": "No dependency path within the depth limit. That can mean there is none, " +
-					"or that a call on the way resolved to nothing — check get_stats.",
-			}, nil
-		}
-
-		return map[string]any{"found": true, "hops": len(path) - 1, "path": path}, nil
-
-	case "list_islands":
-		found, err := s.Store.Islands(a.DetachedOnly, a.Limit)
-
-		return wrap("islands", found), err
-
-	case "list_orphans":
-		found, err := s.Store.Orphans(a.Kind, a.Limit)
-
-		return wrap("orphans", found), err
-
-	case "get_stats":
-		return s.Store.Stats()
-
-	case "explain_call":
-		if s.Explain == nil {
-			return nil, errors.New("explain_call is not available: this server was started without a workspace resolver")
-		}
-
-		if a.File == "" || a.Line <= 0 {
-			return nil, errMissing("file and a 1-based line")
-		}
-
-		text, err := s.Explain(a.File, a.Line, a.Match)
-		if err != nil {
-			return nil, err
-		}
-
-		return map[string]any{"explanation": text}, nil
-
-	case "find_unresolved_calls":
-		if s.Unresolved == nil {
-			return nil, errors.New("find_unresolved_calls is not available on this server")
-		}
-
-		if len(a.Paths) == 0 {
-			return nil, errMissing("paths")
-		}
-
-		return s.Unresolved(a.Paths, a.GlobalDefs, limitOr(a.Limit))
-
-	case "find_references":
-		if s.FindRefs == nil {
-			return nil, errors.New("find_references is not available on this server")
-		}
-
-		if strings.TrimSpace(a.Target) == "" || len(a.Paths) == 0 {
-			return nil, errMissing("target and paths")
-		}
-
-		return s.FindRefs(a.Target, a.Paths, limitOr(a.Limit))
-
-	case "lint":
-		if s.Lint == nil {
-			return nil, errors.New("lint is not available: start the server with --allow-lint to offer it")
-		}
-
-		if len(a.Paths) == 0 {
-			return nil, errMissing("paths")
-		}
-
-		return s.Lint(a.Paths, limitOr(a.Limit))
-
-	default:
+	handler, ok := toolHandlers[name]
+	if !ok {
 		return nil, fmt.Errorf("unknown tool %q", name)
 	}
+
+	return handler(s, &a)
+}
+
+func (s *Server) searchSymbols(a *toolArgs) (any, error) {
+	found, err := s.Store.SearchSymbols(&store.SearchOptions{
+		Query: a.Query, Kind: a.Kind, File: a.File, Island: a.Island,
+		OnlyDead: a.OnlyUnreachable, SortByFan: a.SortByFanIn, Limit: a.Limit,
+	})
+
+	return wrap("symbols", found), err
+}
+
+func (s *Server) getSymbol(a *toolArgs) (any, error) {
+	if a.ID == "" {
+		return nil, errMissing("id")
+	}
+
+	return s.Store.Node(a.ID)
+}
+
+func (s *Server) getCallers(a *toolArgs) (any, error) {
+	if a.ID == "" {
+		return nil, errMissing("id")
+	}
+
+	found, err := s.Store.Callers(a.ID, a.Limit)
+
+	return wrap("callers", found), err
+}
+
+func (s *Server) getCallees(a *toolArgs) (any, error) {
+	if a.ID == "" {
+		return nil, errMissing("id")
+	}
+
+	found, err := s.Store.Callees(a.ID, a.Limit)
+
+	return wrap("callees", found), err
+}
+
+func (s *Server) findPath(a *toolArgs) (any, error) {
+	if a.From == "" || a.To == "" {
+		return nil, errMissing("from and to")
+	}
+
+	path, err := s.Store.Path(a.From, a.To, a.MaxDepth)
+	if err != nil {
+		return nil, err
+	}
+
+	if path == nil {
+		return map[string]any{
+			"found": false,
+			"note": "No dependency path within the depth limit. That can mean there is none, " +
+				"or that a call on the way resolved to nothing — check get_stats.",
+		}, nil
+	}
+
+	return map[string]any{"found": true, "hops": len(path) - 1, "path": path}, nil
+}
+
+func (s *Server) listIslands(a *toolArgs) (any, error) {
+	found, err := s.Store.Islands(a.DetachedOnly, a.Limit)
+
+	return wrap("islands", found), err
+}
+
+func (s *Server) listOrphans(a *toolArgs) (any, error) {
+	found, err := s.Store.Orphans(a.Kind, a.Limit)
+
+	return wrap("orphans", found), err
+}
+
+func (s *Server) explainCall(a *toolArgs) (any, error) {
+	if s.Explain == nil {
+		return nil, errors.New("explain_call is not available: this server was started without a workspace resolver")
+	}
+
+	if a.File == "" || a.Line <= 0 {
+		return nil, errMissing("file and a 1-based line")
+	}
+
+	text, err := s.Explain(a.File, a.Line, a.Match)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{"explanation": text}, nil
+}
+
+func (s *Server) findUnresolved(a *toolArgs) (any, error) {
+	if s.Unresolved == nil {
+		return nil, errors.New("find_unresolved_calls is not available on this server")
+	}
+
+	if len(a.Paths) == 0 {
+		return nil, errMissing("paths")
+	}
+
+	return s.Unresolved(a.Paths, a.GlobalDefs, limitOr(a.Limit))
+}
+
+func (s *Server) findReferences(a *toolArgs) (any, error) {
+	if s.FindRefs == nil {
+		return nil, errors.New("find_references is not available on this server")
+	}
+
+	if strings.TrimSpace(a.Target) == "" || len(a.Paths) == 0 {
+		return nil, errMissing("target and paths")
+	}
+
+	return s.FindRefs(a.Target, a.Paths, limitOr(a.Limit))
+}
+
+func (s *Server) lintPaths(a *toolArgs) (any, error) {
+	if s.Lint == nil {
+		return nil, errors.New("lint is not available: start the server with --allow-lint to offer it")
+	}
+
+	if len(a.Paths) == 0 {
+		return nil, errMissing("paths")
+	}
+
+	return s.Lint(a.Paths, limitOr(a.Limit))
 }
 
 // wrap gives a list result a named field and a count. A bare JSON array tells a
