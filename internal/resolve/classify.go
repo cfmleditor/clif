@@ -39,6 +39,14 @@ type ClassifyOptions struct {
 	// WantTarget also records where an accepted call landed. It allocates a
 	// recorder per call, so a run that only counts leaves it off.
 	WantTarget bool
+	// DeferCounts leaves a call whose fate rests on how many components
+	// declare a name to be settled once the run has indexed everything it will
+	// (Classified.Pending, Pending.Settle). The index grows during a scan: a
+	// framework stub joins it the first time something resolves to one, which
+	// in a parallel scan is whenever a worker gets there, and a count read at
+	// that moment moved by one or two between runs of the same build. It is
+	// ignored with GlobalDefs, whose check counts too.
+	DeferCounts bool
 }
 
 // Classified is the verdict on one call, with what produced it.
@@ -50,6 +58,9 @@ type Classified struct {
 	// classifyRules); empty when the resolver proved it.
 	Rule    string
 	Verdict Verdict
+	// Pending is set instead of a verdict for a call DeferCounts left open.
+	// Verdict is Unresolved until it is settled.
+	Pending *Pending
 }
 
 // ClassifyCall is the one place a batch run decides whether a call resolved.
@@ -70,7 +81,11 @@ func (r *Resolver) ClassifyCall(call *parser.CallSite, pr *parser.ParseResult, b
 		c.Reason = r.CanResolveCall(call, pr, baseDir)
 	}
 
-	c.Verdict, c.Base, c.Rule = r.ClassifyReasonRule(call, c.Reason, opt, pr, baseDir)
+	if opt.DeferCounts && !opt.GlobalDefs {
+		c.Verdict, c.Base, c.Rule, c.Pending = r.classifyPending(call, c.Reason, opt, pr, baseDir)
+	} else {
+		c.Verdict, c.Base, c.Rule = r.ClassifyReasonRule(call, c.Reason, opt, pr, baseDir)
+	}
 
 	// A call set aside for its reason alone is accepted as dynamic.
 	if c.Verdict == Accepted && c.Reason != "" && opt.WantTarget {
@@ -116,6 +131,11 @@ type classifyRule struct {
 	judgement bool
 	verdict   Verdict
 	applies   func(r *Resolver, in *classifyInput) bool
+	// guard, when set, is the part of applies that does not read the index's
+	// counts: a rule with one is decided by how many components declare a
+	// name, so a call it could apply to is settled after the run
+	// (classifyPending). applies is guard and the count test.
+	guard func(r *Resolver, in *classifyInput) bool
 }
 
 // classifyRules are tried in order after the checks every view makes (an
@@ -123,18 +143,30 @@ type classifyRule struct {
 // decides. The order is part of the answer: a proof is tried before a
 // judgement, and among the judgements the cheaper and narrower first.
 var classifyRules = []classifyRule{
-	{"untypedHop", true, Accepted, func(_ *Resolver, in *classifyInput) bool { return isUntypedHop(in.reason) }},
-	{"undeclaredMember", false, Builtin, func(r *Resolver, in *classifyInput) bool { return r.isUndeclaredMemberCall(in.call, in.reason) }},
+	{"untypedHop", true, Accepted, func(_ *Resolver, in *classifyInput) bool { return isUntypedHop(in.reason) }, nil},
+	{
+		"undeclaredMember", false, Builtin, func(r *Resolver, in *classifyInput) bool { return r.isUndeclaredMemberCall(in.call, in.reason) },
+		func(r *Resolver, in *classifyInput) bool { return r.undeclaredMemberGuard(in.call, in.reason) },
+	},
 	{"assignedFromUntypedFunction", false, Accepted, func(r *Resolver, in *classifyInput) bool {
 		return r.assignedFromUntypedFunction(in.call, in.reason, in.pr, in.baseDir)
-	}},
-	{"sharedMember", true, Accepted, func(r *Resolver, in *classifyInput) bool { return r.isSharedMemberCall(in.call, in.reason) }},
-	{"namedComponentDeclares", true, Accepted, func(r *Resolver, in *classifyInput) bool { return r.namedComponentDeclares(in.call, in.reason) }},
-	{"nativeMemberOfUnknown", true, Builtin, func(r *Resolver, in *classifyInput) bool { return r.isNativeMemberOfUnknown(in.call, in.reason) }},
-	{"templateFunction", true, Accepted, func(r *Resolver, in *classifyInput) bool { return r.isTemplateFunctionCall(in.call, in.reason) }},
-	{"distinctiveMember", true, Accepted, func(r *Resolver, in *classifyInput) bool { return r.isDistinctiveMember(in.call, in.reason) }},
-	{"beanAccessorOfUnknown", true, Accepted, func(_ *Resolver, in *classifyInput) bool { return isBeanAccessorOfUnknown(in.call, in.reason) }},
-	{"knownNativeMember", true, Accepted, func(r *Resolver, in *classifyInput) bool { return r.isKnownNativeMember(in.call, in.reason) }},
+	}, nil},
+	{
+		"sharedMember", true, Accepted, func(r *Resolver, in *classifyInput) bool { return r.isSharedMemberCall(in.call, in.reason) },
+		func(r *Resolver, in *classifyInput) bool { return r.sharedMemberGuard(in.call, in.reason) },
+	},
+	{"namedComponentDeclares", true, Accepted, func(r *Resolver, in *classifyInput) bool { return r.namedComponentDeclares(in.call, in.reason) }, nil},
+	{"nativeMemberOfUnknown", true, Builtin, func(r *Resolver, in *classifyInput) bool { return r.isNativeMemberOfUnknown(in.call, in.reason) }, nil},
+	{"templateFunction", true, Accepted, func(r *Resolver, in *classifyInput) bool { return r.isTemplateFunctionCall(in.call, in.reason) }, nil},
+	{
+		"distinctiveMember", true, Accepted, func(r *Resolver, in *classifyInput) bool { return r.isDistinctiveMember(in.call, in.reason) },
+		func(r *Resolver, in *classifyInput) bool { return r.distinctiveGuard(in.call, in.reason) },
+	},
+	{"beanAccessorOfUnknown", true, Accepted, func(_ *Resolver, in *classifyInput) bool { return isBeanAccessorOfUnknown(in.call, in.reason) }, nil},
+	{
+		"knownNativeMember", true, Accepted, func(r *Resolver, in *classifyInput) bool { return r.isKnownNativeMember(in.call, in.reason) },
+		func(r *Resolver, in *classifyInput) bool { return r.knownNativeGuard(in.call, in.reason) },
+	},
 }
 
 // ClassifyReasonRule is ClassifyReasonIn that also says which rule decided,
@@ -183,11 +215,17 @@ func isUntypedHop(reason string) bool {
 // of whatever value the receiver is. `listenerChain.len()` and
 // `registry.keyExists( k )` name no component to check.
 func (r *Resolver) isUndeclaredMemberCall(call *parser.CallSite, reason string) bool {
+	return r.undeclaredMemberGuard(call, reason) && r.Index.CountFunctions(call.FuncName) == 0
+}
+
+// undeclaredMemberGuard is isUndeclaredMemberCall but for how many components
+// declare the name.
+func (r *Resolver) undeclaredMemberGuard(call *parser.CallSite, reason string) bool {
 	if call.Variable == "" || !strings.HasSuffix(reason, "' has no component ref") || !strings.HasPrefix(reason, "variable '") {
 		return false
 	}
 
-	return IsBuiltin(call.FuncName) && r.Index != nil && r.Index.CountFunctions(call.FuncName) == 0
+	return IsBuiltin(call.FuncName) && r.Index != nil
 }
 
 // sharedMemberFiles is how many components must declare a method for a call of
@@ -200,11 +238,17 @@ const sharedMemberFiles = 5
 // nothing in the source says which. Unlike a method no component declares, it
 // can be a real call, and the receiver is as untyped as `x = svc.get()` makes it.
 func (r *Resolver) isSharedMemberCall(call *parser.CallSite, reason string) bool {
+	return r.sharedMemberGuard(call, reason) && r.Index.CountFunctions(call.FuncName) >= sharedMemberFiles
+}
+
+// sharedMemberGuard is isSharedMemberCall but for how many components declare
+// the name.
+func (r *Resolver) sharedMemberGuard(call *parser.CallSite, reason string) bool {
 	if call.Variable == "" || len(call.Chain) > 0 || !strings.HasSuffix(reason, "' has no component ref") || !strings.HasPrefix(reason, "variable '") {
 		return false
 	}
 
-	return r.Index != nil && r.Index.CountFunctions(call.FuncName) >= sharedMemberFiles
+	return r.Index != nil
 }
 
 // Describe says, in a line, what a batch report does with a call of this

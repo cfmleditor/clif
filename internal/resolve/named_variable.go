@@ -201,7 +201,7 @@ const minDistinctiveName = 10
 // specific is not shared by chance, so the receiver is that component or
 // something that quacks like it; a generic name (`get`, `process`) says nothing.
 func (r *Resolver) isDistinctiveMember(call *parser.CallSite, reason string) bool {
-	if !noRefReceiver(call, reason) || len(call.FuncName) < minDistinctiveName || len(camelWords(call.FuncName)) < 2 || IsBuiltin(call.FuncName) || r.Index == nil {
+	if !r.distinctiveGuard(call, reason) {
 		return false
 	}
 
@@ -213,6 +213,12 @@ func (r *Resolver) isDistinctiveMember(call *parser.CallSite, reason string) boo
 	file := cfpath.FromURI(string(defs[0].URI))
 
 	return strings.EqualFold(filepath.Ext(file), ".cfc") && !frameworkapi.IsStub(file)
+}
+
+// distinctiveGuard is isDistinctiveMember but for how many components declare
+// the name.
+func (r *Resolver) distinctiveGuard(call *parser.CallSite, reason string) bool {
+	return noRefReceiver(call, reason) && len(call.FuncName) >= minDistinctiveName && len(camelWords(call.FuncName)) >= 2 && !IsBuiltin(call.FuncName) && r.Index != nil
 }
 
 // javaIdioms are the methods of the Java collection and iterator interfaces a
@@ -254,9 +260,11 @@ func isBeanAccessorOfUnknown(call *parser.CallSite, reason string) bool {
 // members; this is the Java side, from the same tables that type a
 // `createObject( "java", … )` result.
 func (r *Resolver) isKnownNativeMember(call *parser.CallSite, reason string) bool {
-	if !noRefReceiver(call, reason) || r.Index == nil || r.Index.CountFunctions(call.FuncName) != 0 {
-		return false
-	}
+	return r.knownNativeGuard(call, reason) && r.Index.CountFunctions(call.FuncName) == 0
+}
 
-	return nativetype.JDKMember(call.FuncName) || len(nativetype.Types(call.FuncName)) > 0
+// knownNativeGuard is isKnownNativeMember but for how many components declare
+// the name.
+func (r *Resolver) knownNativeGuard(call *parser.CallSite, reason string) bool {
+	return noRefReceiver(call, reason) && r.Index != nil && (nativetype.JDKMember(call.FuncName) || len(nativetype.Types(call.FuncName)) > 0)
 }

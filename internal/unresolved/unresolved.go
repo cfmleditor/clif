@@ -11,6 +11,7 @@ import (
 	"maps"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -175,8 +176,9 @@ func Scan(fsys vfs.FS, files, targets []string, opt *Options) Report {
 	started = time.Now()
 
 	var (
-		mu sync.Mutex
-		wg sync.WaitGroup
+		mu      sync.Mutex
+		wg      sync.WaitGroup
+		pending []pendingCall
 	)
 
 	sem := make(chan struct{}, runtime.GOMAXPROCS(0))
@@ -190,17 +192,21 @@ func Scan(fsys vfs.FS, files, targets []string, opt *Options) Report {
 			defer wg.Done()
 			defer func() { <-sem }()
 
-			calls, resolved := scanFileRecovered(fsys, opt.resolverFor(resolver, file), file, opt)
+			calls, resolved, open := scanFileRecovered(fsys, opt.resolverFor(resolver, file), file, opt)
 
 			mu.Lock()
 
 			rep.Calls = append(rep.Calls, calls...)
 			rep.Resolved += resolved
+
+			pending = append(pending, open...)
 			mu.Unlock()
 		}(f)
 	}
 
 	wg.Wait()
+
+	settlePending(&rep, pending, opt)
 
 	if opt.Candidates {
 		annotateAll(fsys, resolver, files, rep.Calls, opt)
@@ -235,13 +241,14 @@ func Scan(fsys vfs.FS, files, targets []string, opt *Options) Report {
 // which the caller's own recovery does not cover: the editor's export runs a
 // scan inside the language server, and one bad file ended it. A file left
 // out silently would read as one with nothing unresolved in it.
-func scanFileRecovered(fsys vfs.FS, resolver *resolve.Resolver, file string, opt *Options) (out []Call, resolved int) {
+func scanFileRecovered(fsys vfs.FS, resolver *resolve.Resolver, file string, opt *Options) (out []Call, resolved int, open []pendingCall) {
 	defer func() {
 		if rec := recover(); rec != nil {
 			cflog.Recovered(nil, "unresolved scan panic", rec, cflog.String("file", file))
 
 			out = []Call{{File: file, Line: 1, Reason: fmt.Sprintf("%s: %v", ScanFailedReason, rec)}}
 			resolved = 0
+			open = nil
 		}
 	}()
 
@@ -304,15 +311,15 @@ func NewResolver(fsys vfs.FS, files []string, opt *Options) *resolve.Resolver {
 	return resolver
 }
 
-func scanFile(fsys vfs.FS, resolver *resolve.Resolver, file string, opt *Options) (out []Call, resolved int) {
+func scanFile(fsys vfs.FS, resolver *resolve.Resolver, file string, opt *Options) (out []Call, resolved int, open []pendingCall) {
 	content, err := vfs.ReadString(fsys, file)
 	if err != nil {
-		return nil, 0
+		return nil, 0, nil
 	}
 
 	content, isText := cfpath.AsTextString(content)
 	if !isText {
-		return nil, 0
+		return nil, 0, nil
 	}
 
 	baseDir := filepath.Dir(file)
@@ -328,7 +335,26 @@ func scanFile(fsys vfs.FS, resolver *resolve.Resolver, file string, opt *Options
 	for i := range calls {
 		call := &calls[i]
 
-		c := resolver.ClassifyCall(call, pr, baseDir, resolve.ClassifyOptions{GlobalDefs: opt.GlobalDefs, KeepUntypedHops: opt.AssumeOpenWorld || opt.keepUntypedHops})
+		c := resolver.ClassifyCall(call, pr, baseDir, resolve.ClassifyOptions{GlobalDefs: opt.GlobalDefs, KeepUntypedHops: opt.AssumeOpenWorld || opt.keepUntypedHops, DeferCounts: true})
+
+		if c.Pending != nil {
+			open = append(open, pendingCall{
+				pending:  c.Pending,
+				resolver: resolver,
+				entry: Call{
+					This:     call.This,
+					File:     file,
+					Line:     call.Line,
+					Caller:   strings.Clone(call.Caller),
+					Variable: strings.Clone(call.Variable),
+					Function: strings.Clone(call.FuncName),
+					Reason:   c.Reason,
+					Text:     strings.Clone(call.Text),
+				},
+			})
+
+			continue
+		}
 
 		opt.tally.add(c.Rule)
 
@@ -394,7 +420,7 @@ func scanFile(fsys vfs.FS, resolver *resolve.Resolver, file string, opt *Options
 		}
 	}
 
-	return out, resolved
+	return out, resolved, open
 }
 
 // baseGroup is the calls in one file left unchecked by one missing base, and
@@ -683,4 +709,51 @@ func (t *ruleTally) snapshot() map[string]int {
 	maps.Copy(out, t.n)
 
 	return out
+}
+
+// pendingCall is a call whose classification waits for the index to be
+// complete (resolve.ClassifyOptions.DeferCounts): the report entry it becomes
+// if nothing accounts for it, and the resolver of the file it is in.
+type pendingCall struct {
+	pending  *resolve.Pending
+	resolver *resolve.Resolver
+	entry    Call
+}
+
+// settlePending decides the calls left open by the scan, against the index as
+// it now is: the framework stubs a scan reached are all in it, whatever order
+// the workers reached them in, so the same workspace gives the same report. An
+// accepted call counts as resolved, a built-in one is set aside, and one
+// nothing accounts for joins the report. The calls are taken in file and line
+// order so that --verbose reads the same every run.
+func settlePending(rep *Report, pending []pendingCall, opt *Options) {
+	slices.SortFunc(pending, func(a, b pendingCall) int {
+		return cmp.Or(
+			cmp.Compare(a.entry.File, b.entry.File),
+			cmp.Compare(a.entry.Line, b.entry.Line),
+			cmp.Compare(a.entry.Variable, b.entry.Variable),
+			cmp.Compare(a.entry.Function, b.entry.Function),
+		)
+	})
+
+	for i := range pending {
+		p := &pending[i]
+
+		verdict, rule := p.pending.Settle(p.resolver)
+		opt.tally.add(rule)
+
+		switch verdict {
+		case resolve.Accepted:
+			rep.Resolved++
+
+			if opt.Verbose != nil {
+				_, _ = fmt.Fprintf(opt.Verbose, "  ✓ %s:%d: %s.%s\n", filepath.Base(p.entry.File), p.entry.Line+1, p.entry.Variable, p.entry.Function)
+			}
+		case resolve.Unresolved:
+			rep.Calls = append(rep.Calls, p.entry)
+		case resolve.Builtin, resolve.GlobalDef, resolve.MissingBase:
+			// A pending call is only ever a receiver nothing typed, which these
+			// do not decide; set aside as they are elsewhere.
+		}
+	}
 }

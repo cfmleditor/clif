@@ -301,24 +301,28 @@ same reason. `TestTheSameWorkspaceGivesTheSameMap` builds one workspace ten time
 Check a change here by building a project's map several times and comparing the files
 byte for byte (only `buildMillis` differs).
 
-**Known, not fixed: `Stats.Unresolved` and `Stats.Builtin` move by one or two between runs of
-one build on ContentBox** (855/856/857; main shows 854 about one run in 30). The report's
-findings do not move (25 runs on four corpora, identical). The cause is the judgement rules in
-`classify.go` that compare a name's declaration count with a threshold (`sharedMember` at
-five files, `distinctiveMember` at exactly one, `undeclaredMember` and `knownNativeMember` at
-none): the count includes a framework stub once something has resolved to it, a stub is indexed
-the first time that happens, and in a parallel scan that is whenever a worker gets there. A call
-the rule's count decides can flip between two rules that both accept it, or between "built-in"
-and "unresolved" in the map's stats. Counting only the workspace's own definitions
-(`CountFunctionsWhere` with `!frameworkapi.IsStubURI`) makes both stable and was tried, but it
-changes what `unresolved` reports (testbox 125 to 124, coldbox-platform 190 to 195,
-ContentBox 181 to 167 with two added) because the old counts were partly the stubs'. Counting every
-embedded stub instead, from a table built once (`frameworkapi.DeclaredCount`), is stable too and
-moves the findings further (testbox +13/-1, fw1 -8, coldbox-platform +18/-3, ContentBox
-+14/-4, Lucee +7/-5, Masa +16/-17), because most stubs are for frameworks the project does not
-use. The faithful version is to decide the count-dependent rules after the scan, when the index
-holds the stubs the scan reached: it needs each deferred call's count-free rule outcomes kept
-(some need the parse), so it is a rewrite of `ClassifyReasonRule` into two stages, not a patch. That is a
-decision about which calls are guesses, not a tidy-up, so it was left. `unresolved --verbose`
-prints the per-rule counts, which is how this was found; they vary the same way.
+**The rules that compare a name's declaration count with a threshold are decided after the scan**
+(`ClassifyOptions.DeferCounts`, `resolve.Pending`, `internal/resolve/classify_pending.go`). The count
+includes the framework stubs the scan has reached, a stub is indexed the first time something
+resolves to one, and in a parallel scan that is whenever a worker gets there; classified at once,
+a call decided by `sharedMember` (five files), `distinctiveMember` (exactly one), `undeclaredMember`
+or `knownNativeMember` (none) moved between two rules that both accept it, or between "built-in"
+and "unresolved" in the map's stats, by one or two a run (ContentBox 855/856/857; main showed 854
+about one run in 30). Each of those four rules has a `guard` (everything but the count); a call
+in the "variable has no component ref" family that no guard passes is decided at once, as is one
+a rule that reads no count decides before any count rule could apply. Otherwise `classifyPending`
+keeps the call's `Variable`, `FuncName` and `Chain` and the chain of rules that could still decide
+it, and `Pending.Settle` asks them in order of the index as it stands once the run is done:
+`unresolved` settles after its workers finish (`settlePending`), the map after its scan, before a
+file's graph is merged or stored in a `Cache` (a stored graph has the pending calls counted). 30
+runs on ContentBox give one map and 25 one rule table. It is not applied with `GlobalDefs`, whose
+check counts too, nor in `explain` or the editor, which classify one call against the live index.
+Counting against the finished index is the intended meaning, and it moved some calls from where
+the early count had put them: one Lucee finding (`file.toPath` in `WatchService.cfc` is now
+accepted, by one of the count rules), nine calls on Masa and one on ContentBox from "built-in" to
+"unresolved" in the map's stats; the other four corpora are unchanged. Two cheaper fixes were tried
+and rejected because they moved the findings further: not counting the stubs at all (testbox -1,
+coldbox-platform +5, ContentBox -16/+2), and counting every embedded stub (`frameworkapi`, Masa
++16/-17, coldbox-platform +18/-3, ContentBox +14/-4: most stubs are for frameworks the project
+does not use). `unresolved --verbose` prints the per-rule counts.
 
