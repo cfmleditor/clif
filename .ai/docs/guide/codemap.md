@@ -319,7 +319,7 @@ runs on ContentBox give one map and 25 one rule table. It is not applied with `G
 check counts too, nor in `explain` or the editor, which classify one call against the live index.
 Counting against the finished index is the intended meaning, and it moved some calls from where
 the early count had put them: one Lucee finding (`file.toPath` in `WatchService.cfc` is now
-accepted, by one of the count rules), nine calls on Masa and one on ContentBox from "built-in" to
+accepted by `sharedMember`: four workspace components and one framework stub declare `toPath`, five only once the stub has been reached, which in every earlier run came after the call was classified), nine calls on Masa and one on ContentBox from "built-in" to
 "unresolved" in the map's stats; the other four corpora are unchanged. Two cheaper fixes were tried
 and rejected because they moved the findings further: not counting the stubs at all (testbox -1,
 coldbox-platform +5, ContentBox -16/+2), and counting every embedded stub (`frameworkapi`, Masa
