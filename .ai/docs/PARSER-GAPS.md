@@ -507,7 +507,7 @@ it is recorded nowhere. Lucee's cache-driver components and its `<P>`-asserting
 tests are both written this way.
 
 `tagEndIndex` is the shared helper the comment-in-an-attribute-list note in
-CLAUDE.md asks for, routed through the walk's one tag-end site. A quote that
+`.ai/docs/guide/resolvers.md` asks for, routed through the walk's one tag-end site. A quote that
 never closes falls back to the plain scan, so a malformed tag reads exactly as
 it did before. **24 name-keyed sites**, and five new parser-only entries that
 are the multi-line `<cfset>` line skew in §2 — the calls are found, at the tag's
@@ -639,7 +639,7 @@ Three causes, none of them a wrong answer about code that runs:
   builds CFML source as a string literal; the tag parser scans
   `<cfset structDelete(…)>` inside it as a live tag, and the grammar knows it is
   a string. That is the same class as the comment-in-an-attribute-list note in
-  CLAUDE.md: the tag parser matches tags wherever they look like tags.
+  `.ai/docs/guide/resolvers.md`: the tag parser matches tags wherever they look like tags.
 - **The grammar's own gaps**, as in §3.6's `expandPath` case.
 
 ### 4.4 A chained call's line — measured on four projects, November 2026
@@ -756,7 +756,7 @@ calls only the parser records, none of them a call the grammar misses:
 - `#getTable()#` in the SQL text of a query is a call the parser finds in the
   string and the injected SQL grammar does not;
 - and the `this[]` marker is the parser's own (see "Bracket-indexed chain
-  segments" in CLAUDE.md).
+  segments" in `.ai/docs/guide/resolvers.md`).
 
 ### 4.5 All six corpora, and what is left — November 2026
 

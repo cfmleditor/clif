@@ -54,7 +54,7 @@ func locationURIs(result any) []uri.URI {
 //
 // Each case is a receiver the parser cannot type: a call to an unknown factory, a
 // scoped variable, an argument declared `any`, a chain, and a bracket index. They
-// are the shapes CLAUDE.md already documents as unresolvable, so each is a real
+// are the shapes .ai/docs/guide/resolvers.md already documents as unresolvable, so each is a real
 // dead end rather than a contrived one.
 func TestQualifiedFallbackFindsDefinitionsInTheRequestingFile(t *testing.T) {
 	cases := []struct {

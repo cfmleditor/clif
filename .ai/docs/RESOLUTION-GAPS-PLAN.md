@@ -1148,8 +1148,8 @@ gap**, after the view it empties. The largest single cause left in
 `.clif.json` `{"workspaceName":"cbox","frameworks":["coldbox","contentbox","testbox","cfmigrations"]}`;
 never write into `~/corpus`), run the repro below, write the failing test in
 `internal/resolve` (a base component calling `variables.svc.get()`, two or
-three subclasses injecting different services), then follow CLAUDE.md's
-verification discipline.
+three subclasses injecting different services), then follow the
+verification discipline in `.ai/docs/guide/verification.md`.
 
 **Shape.** `handlers/baseContentHandler.cfc` is an abstract handler. It calls
 `variables.ormService` throughout and never declares it; each concrete handler

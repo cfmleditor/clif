@@ -296,7 +296,7 @@ consuming its arguments, retaining current receiver/chain semantics and syntheti
 origin safeguards. Counterexamples must include repeated same-named calls on one
 line, different hop argument lists, script/tag expressions, wrappers and genuine
 spanless/synthetic calls. Reading the first same-named call on the line would
-violate the invariants already documented in CLAUDE.md.
+violate the invariants already documented in `.ai/docs/guide/`.
 
 This establishes a necessary blocker for the 65-entry cohort, not a 65-call gain.
 After the omission is proven, later unknown owners or supplied values may still

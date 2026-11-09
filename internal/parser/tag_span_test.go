@@ -243,7 +243,7 @@ func TestHashesThatAreNotASpanDoNotSwallowTags(t *testing.T) {
 //
 // `Scanner.scanHashExpr` already reads CFScript this way. This is the same rule
 // for the text a tag parser hands over, and the two are the parallel
-// implementations CLAUDE.md warns about.
+// implementations .ai/docs/guide/parser.md warns about.
 func TestAnInterpolatedSpanMayHoldAStringHoldingASpan(t *testing.T) {
 	for _, c := range []struct {
 		name string

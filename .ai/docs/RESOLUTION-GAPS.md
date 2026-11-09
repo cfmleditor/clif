@@ -266,7 +266,7 @@ The gaps below explain the largest of these.
 - **Left alone:** `field` (160) is `<cfloop array="#driver.getCustomFields()#"
   index="field">`, and most `driver` refs in the other admin pages are
   `drivers[ form.class ]`, a struct element picked by a key. Those are the
-  dynamic keys CLAUDE.md keeps as an honest "no component ref".
+  dynamic keys `.ai/docs/guide/resolvers.md` keeps as an honest "no component ref".
 
 ### 6. Methods assigned onto an object at run time — fixed
 

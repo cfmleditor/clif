@@ -89,8 +89,8 @@ Measured over the corpus, 241 files changed:
 - **Folds.** Function folds missing against tree-sitter went from 776 to 8.
 
 Reading these bodies as function bodies exposed two existing gaps, which every
-ordinary function had as well, since fixed on their own — CLAUDE.md's parser
-notes have the rules:
+ordinary function had as well, since fixed on their own — the parser notes in
+`.ai/docs/guide/parser.md` have the rules:
 
 - `return variables.a.b().c()` recorded `c` as a bare call with no receiver,
   where the same chain assigned or written as a statement kept it.

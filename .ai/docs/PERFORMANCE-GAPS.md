@@ -20,7 +20,7 @@ Measured on a synthetic index of 5,000 files declaring 8 methods each — 40,000
 definitions — built by `benchLoadedServer` in
 `internal/server/perf_bench_test.go`. Each figure is the minimum of several
 runs of a single benchmark run **on its own**; see the contamination note in
-CLAUDE.md for why that matters.
+`.ai/docs/guide/verification.md` for why that matters.
 
 **The handler is not the request.** A handler benchmark measures the answer
 being computed and not the answer being sent, and for these two the sending is

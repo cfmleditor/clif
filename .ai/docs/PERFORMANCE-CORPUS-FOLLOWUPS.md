@@ -222,7 +222,7 @@ makes survivable:
 3. The write recogniser looks ahead from every identifier with scanner copies;
    the parser's six token loops each recognise assignments their own way.
    Teaching each a second recogniser is the "two scans must agree" problem
-   `CLAUDE.md` describes for the variable scans (`TestBothVariableScansAgree`).
+   `.ai/docs/guide/parser.md` describes for the variable scans (`TestBothVariableScansAgree`).
 
 The safe shape, if it is attempted: an observer on the **one** assignment
 site the parser already has for each scope (`parseScopedVar`,

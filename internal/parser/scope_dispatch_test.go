@@ -22,7 +22,7 @@ import (
 // every call through that variable becomes an unresolved-call error somewhere
 // far away.
 //
-// CLAUDE.md has warned about this pairing in prose since the two switches
+// .ai/docs/guide/structure.md has warned about this pairing in prose since the two switches
 // existed. This is that warning made executable — the same reason the
 // reflective test over mergeFormatting's field list exists, and that one caught
 // two real omissions.
@@ -111,7 +111,7 @@ func TestBothDispatchSwitchesHandleEveryScope(t *testing.T) {
 			// switch has cases for them but they cannot be exercised there.
 			if !strings.Contains(body, `"`+scope+`"`) {
 				t.Errorf("%s has no case for %q — a scope-prefixed assignment there falls through "+
-					"to checkAssignRef and its component type is silently dropped (see CLAUDE.md)",
+					"to checkAssignRef and its component type is silently dropped (see .ai/docs/guide/structure.md)",
 					name, scope)
 			}
 		}

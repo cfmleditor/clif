@@ -814,7 +814,7 @@ func (rs *ResolverSet) resolve(expr string) resolverAnswer {
 	// decide which one wins. Collected as above, candidates come out ordered by
 	// where each resolver's prefix first byte happens to appear in expr, so for
 	// resolvers whose prefixes start with different letters the array order
-	// documented in CLAUDE.md ("whichever is listed earlier wins") was decided
+	// documented in .ai/docs/guide/resolvers.md ("whichever is listed earlier wins") was decided
 	// by the call site's spelling instead. Given
 	//
 	//	[{prefix "svc", match "svc.$1"}, {prefix "app", match "app$1"}]
