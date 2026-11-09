@@ -312,7 +312,13 @@ the rule's count decides can flip between two rules that both accept it, or betw
 and "unresolved" in the map's stats. Counting only the workspace's own definitions
 (`CountFunctionsWhere` with `!frameworkapi.IsStubURI`) makes both stable and was tried, but it
 changes what `unresolved` reports (testbox 125 to 124, coldbox-platform 190 to 195,
-ContentBox 181 to 167 with two added) because the old counts were partly the stubs'. That is a
+ContentBox 181 to 167 with two added) because the old counts were partly the stubs'. Counting every
+embedded stub instead, from a table built once (`frameworkapi.DeclaredCount`), is stable too and
+moves the findings further (testbox +13/-1, fw1 -8, coldbox-platform +18/-3, ContentBox
++14/-4, Lucee +7/-5, Masa +16/-17), because most stubs are for frameworks the project does not
+use. The faithful version is to decide the count-dependent rules after the scan, when the index
+holds the stubs the scan reached: it needs each deferred call's count-free rule outcomes kept
+(some need the parse), so it is a rewrite of `ClassifyReasonRule` into two stages, not a patch. That is a
 decision about which calls are guesses, not a tidy-up, so it was left. `unresolved --verbose`
 prints the per-rule counts, which is how this was found; they vary the same way.
 
