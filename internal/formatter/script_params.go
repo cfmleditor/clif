@@ -258,12 +258,28 @@ type paramPart struct {
 // The two callers below rendered this walk identically, so they now share it
 // rather than each carrying a copy to keep in step.
 func (f *Formatter) flatParamParts(params *sitter.Node) []paramPart {
-	var parts []paramPart
+	pc := paramCollector{f: f, allComments: true}
 
-	var current []string
+	for i := range params.ChildCount() {
+		pc.add(params.Child(i))
+	}
 
-	currentAllComments := true
-	currentHasName := false
+	// Nothing is pending when the list ended with a comma, so the trailing
+	// comma is already recorded against the entry before it.
+	pc.flush(false)
+
+	return pc.parts
+}
+
+// paramCollector builds a parameter list's entries from its children one at a
+// time: the entries so far, the one being read, and what that one holds back.
+type paramCollector struct {
+	f     *Formatter
+	parts []paramPart
+
+	current     []string
+	allComments bool
+	hasName     bool
 
 	// A `//` comment trailing a parameter, held back from its text. In
 	// comma-first style (`,required any image // why` then `,string type`) the
@@ -274,117 +290,119 @@ func (f *Formatter) flatParamParts(params *sitter.Node) []paramPart {
 	// comma-last `image, // why` already has, so both spellings come out alike.
 	// Only when a comma follows: with none, nothing is written after the text,
 	// and the comment stays on the parameter's line as it always has.
-	var trailing []string
+	trailing []string
+}
 
-	flush := func(commaAfter bool) {
-		if len(current) == 0 {
-			return
-		}
-
-		if !commaAfter {
-			current = append(current, trailing...)
-			trailing = nil
-		}
-
-		parts = append(parts, paramPart{
-			text:       strings.Join(current, " "),
-			isComment:  currentAllComments,
-			commaAfter: commaAfter,
-		})
-
-		for _, comment := range trailing {
-			parts = append(parts, paramPart{text: comment, isComment: true})
-		}
-
-		current = nil
-		trailing = nil
-		currentAllComments = true
-		currentHasName = false
+// flush ends the entry being read, if there is one.
+func (pc *paramCollector) flush(commaAfter bool) {
+	if len(pc.current) == 0 {
+		return
 	}
 
-	for i := range params.ChildCount() {
-		c := params.Child(i)
-		kind := c.Kind()
-
-		// The parentheses delimit the list rather than belonging to any entry
-		// in it, so they are skipped before the flags below are touched —
-		// marking the pending entry non-comment for the opening paren made
-		// every list look as though it ended in a parameter.
-		if kind == "(" || kind == ")" {
-			continue
-		}
-
-		// A parameter carries at most one name, so a token that can only open a
-		// parameter, seen once this entry already has its name, is the next
-		// parameter beginning with no comma in between.
-		if currentHasName && startsParameter(kind) {
-			flush(false)
-		}
-
-		if kind != "," && !isCommentKind(kind) {
-			currentAllComments = false
-
-			// Something other than the separator came after a held comment, so
-			// it was inside the parameter rather than trailing it. It goes back
-			// where it was, as before.
-			current = append(current, trailing...)
-			trailing = nil
-		}
-
-		switch kind {
-		case ",":
-			flush(true)
-		case "required":
-			current = append(current, "required")
-		case "parameter_type":
-			current = append(current, f.text(c.Child(0)))
-		case "array_return_suffix":
-			current = appendTypeSuffix(current, f.text(c))
-		case "identifier":
-			current = append(current, f.text(c))
-			currentHasName = true
-		case "assignment_pattern":
-			left := c.ChildByFieldName("left")
-			right := c.ChildByFieldName("right")
-			current = append(current, fmt.Sprintf("%s = %s", f.expr(left), f.expr(right)))
-			currentHasName = true
-		default:
-			if !c.IsNamed() {
-				break
-			}
-
-			// Once one is held, every comment after it is on a later line and
-			// is held with it, in order.
-			if !currentAllComments && isCommentKind(kind) &&
-				(len(trailing) > 0 || f.isLineCommentNode(c)) {
-				trailing = append(trailing, f.text(c))
-
-				break
-			}
-
-			current = append(current, f.text(c))
-
-			// A `//` comment ends its line by definition, so it cannot share an
-			// entry with whatever follows. Entries are joined with a space, so
-			// a standalone one used to absorb the next parameter — `a, // why,
-			// b` came back as `a,` and `// why b`, with b deleted into the
-			// comment. The guard caught the lost parameter and refused the
-			// file, so it simply stopped responding to format-on-save.
-			//
-			// Only when the entry is nothing but comments. A comment trailing a
-			// parameter belongs to it, and flushing there would strip the comma
-			// that has not been read yet.
-			if currentAllComments && f.isLineCommentNode(c) {
-				flush(false)
-			}
-		}
+	if !commaAfter {
+		pc.current = append(pc.current, pc.trailing...)
+		pc.trailing = nil
 	}
 
-	// Nothing is pending when the list ended with a comma, so the trailing
-	// comma is already recorded against the entry before it.
-	flush(false)
+	pc.parts = append(pc.parts, paramPart{
+		text:       strings.Join(pc.current, " "),
+		isComment:  pc.allComments,
+		commaAfter: commaAfter,
+	})
 
-	return parts
+	for _, comment := range pc.trailing {
+		pc.parts = append(pc.parts, paramPart{text: comment, isComment: true})
+	}
+
+	pc.current = nil
+	pc.trailing = nil
+	pc.allComments = true
+	pc.hasName = false
+}
+
+// add reads one child of the parameter list.
+func (pc *paramCollector) add(c *sitter.Node) {
+	f := pc.f
+	kind := c.Kind()
+
+	// The parentheses delimit the list rather than belonging to any entry
+	// in it, so they are skipped before the flags below are touched —
+	// marking the pending entry non-comment for the opening paren made
+	// every list look as though it ended in a parameter.
+	if kind == "(" || kind == ")" {
+		return
+	}
+
+	// A parameter carries at most one name, so a token that can only open a
+	// parameter, seen once this entry already has its name, is the next
+	// parameter beginning with no comma in between.
+	if pc.hasName && startsParameter(kind) {
+		pc.flush(false)
+	}
+
+	if kind != "," && !isCommentKind(kind) {
+		pc.allComments = false
+
+		// Something other than the separator came after a held comment, so
+		// it was inside the parameter rather than trailing it. It goes back
+		// where it was, as before.
+		pc.current = append(pc.current, pc.trailing...)
+		pc.trailing = nil
+	}
+
+	switch kind {
+	case ",":
+		pc.flush(true)
+	case "required":
+		pc.current = append(pc.current, "required")
+	case "parameter_type":
+		pc.current = append(pc.current, f.text(c.Child(0)))
+	case "array_return_suffix":
+		pc.current = appendTypeSuffix(pc.current, f.text(c))
+	case "identifier":
+		pc.current = append(pc.current, f.text(c))
+		pc.hasName = true
+	case "assignment_pattern":
+		left := c.ChildByFieldName("left")
+		right := c.ChildByFieldName("right")
+		pc.current = append(pc.current, fmt.Sprintf("%s = %s", f.expr(left), f.expr(right)))
+		pc.hasName = true
+	default:
+		pc.addOther(c, kind)
+	}
+}
+
+// addOther reads a child that is neither punctuation nor a part of a
+// parameter's declaration: a comment, or text kept as it is.
+func (pc *paramCollector) addOther(c *sitter.Node, kind string) {
+	if !c.IsNamed() {
+		return
+	}
+
+	// Once one is held, every comment after it is on a later line and
+	// is held with it, in order.
+	if !pc.allComments && isCommentKind(kind) &&
+		(len(pc.trailing) > 0 || pc.f.isLineCommentNode(c)) {
+		pc.trailing = append(pc.trailing, pc.f.text(c))
+
+		return
+	}
+
+	pc.current = append(pc.current, pc.f.text(c))
+
+	// A `//` comment ends its line by definition, so it cannot share an
+	// entry with whatever follows. Entries are joined with a space, so
+	// a standalone one used to absorb the next parameter — `a, // why,
+	// b` came back as `a,` and `// why b`, with b deleted into the
+	// comment. The guard caught the lost parameter and refused the
+	// file, so it simply stopped responding to format-on-save.
+	//
+	// Only when the entry is nothing but comments. A comment trailing a
+	// parameter belongs to it, and flushing there would strip the comma
+	// that has not been read yet.
+	if pc.allComments && pc.f.isLineCommentNode(c) {
+		pc.flush(false)
+	}
 }
 
 // startsParameter reports whether a child kind can only appear at the start of

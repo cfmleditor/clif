@@ -8,6 +8,8 @@
 
 ### Changed
 
+- **`flatParamParts` is a small collector.** The entries so far, the one being read, and the comment it holds back are a `paramCollector`; `add` reads one child of the list and `addOther` the comments and kept text. The code moved as it was. The formatted output of 1,500 files across TestBox, FW/1, ColdBox and Galaxie is byte-identical before and after, and `make corpus BASELINE=` over those five projects and ContentBox reports no file changing verdict. One branch (a parameter starting with no comma after the previous one's name) was reached by no test before and still is: it is grammar error recovery, and the move did not touch it.
+
 - **`runServer` hands its two modes to `runDaemon` and `runStandalone`.** The startup (logging, crash reports, cache limits) stays in `runServer`; serving through or as the project's daemon, and serving a standalone session, are functions of their own. The code moved as it was. Checked by driving the old and new binary over stdio in both modes (initialize, shutdown, exit): the same replies and exit status.
 
 - **The MCP server's tool dispatch is a table of handlers.** `run` was a 133-line switch with a case per tool; each tool is now a short method (`searchSymbols`, `findPath`, `explainCall`, …) found by name in `toolHandlers`, and `run` keeps the argument parsing, the no-map refusal and the unknown-tool error. Nothing exercised the switch before beyond three argument checks: every tool is now called through the wire for a good call and for missing arguments, a server without its backing gets the remedy in the message, and a test fails when an advertised tool has no handler (checked by removing one). No change in behaviour.
