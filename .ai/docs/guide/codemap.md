@@ -300,3 +300,19 @@ and `componentPathUncached` breaks a tie by the lowest path, as `LookupPreferred
 same reason. `TestTheSameWorkspaceGivesTheSameMap` builds one workspace ten times.
 Check a change here by building a project's map several times and comparing the files
 byte for byte (only `buildMillis` differs).
+
+**Known, not fixed: `Stats.Unresolved` and `Stats.Builtin` move by one or two between runs of
+one build on ContentBox** (855/856/857; main shows 854 about one run in 30). The report's
+findings do not move (25 runs on four corpora, identical). The cause is the judgement rules in
+`classify.go` that compare a name's declaration count with a threshold (`sharedMember` at
+five files, `distinctiveMember` at exactly one, `undeclaredMember` and `knownNativeMember` at
+none): the count includes a framework stub once something has resolved to it, a stub is indexed
+the first time that happens, and in a parallel scan that is whenever a worker gets there. A call
+the rule's count decides can flip between two rules that both accept it, or between "built-in"
+and "unresolved" in the map's stats. Counting only the workspace's own definitions
+(`CountFunctionsWhere` with `!frameworkapi.IsStubURI`) makes both stable and was tried, but it
+changes what `unresolved` reports (testbox 125 to 124, coldbox-platform 190 to 195,
+ContentBox 181 to 167 with two added) because the old counts were partly the stubs'. That is a
+decision about which calls are guesses, not a tidy-up, so it was left. `unresolved --verbose`
+prints the per-rule counts, which is how this was found; they vary the same way.
+
