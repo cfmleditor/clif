@@ -190,3 +190,50 @@ func TestLeafSubclassesAreTheComponentsNothingExtends(t *testing.T) {
 		t.Errorf("leaves under the other Base = %v, want %v", other, want)
 	}
 }
+
+// A file that extends nothing, and that no extends names, cannot change the
+// leaves under a base, so indexing one leaves the cached answer standing; a
+// file that does extend the base still moves it. Lucee indexes 435 such files
+// while it scans, and each one used to throw every leaf set away.
+func TestLeafSubclassesSurviveAFileThatCannotChangeThem(t *testing.T) {
+	dir := t.TempDir()
+	writeFiles(t, dir, map[string]string{
+		"h/Base.cfc": `component { function run(){ variables.svc.go(); } }`,
+		"h/A.cfc":    `component extends="Base" {}`,
+	})
+
+	r := &Resolver{}
+	reasonsWith(t, r, dir, "h/Base.cfc")
+
+	base := filepath.Join(dir, "h", "Base.cfc")
+
+	if got := r.leafSubclasses(base); len(got) != 1 {
+		t.Fatalf("leaves = %v, want A", got)
+	}
+
+	gen := r.Index.ShapeGeneration()
+
+	plain := filepath.Join(dir, "h", "Plain.cfc")
+	src := `component { function go(){} }`
+	r.Index.IndexParsed(cfpath.ToURI(plain), src, parser.Parse(cfpath.ToURI(plain), src))
+
+	if r.Index.ShapeGeneration() != gen {
+		t.Fatal("indexing a file that extends nothing moved the generation, so the leaf answers were thrown away")
+	}
+
+	b := filepath.Join(dir, "h", "B.cfc")
+	src = `component extends="Base" {}`
+	r.Index.IndexParsed(cfpath.ToURI(b), src, parser.Parse(cfpath.ToURI(b), src))
+
+	if got := r.leafSubclasses(base); len(got) != 2 {
+		t.Fatalf("leaves = %v, want A and B once B is indexed", got)
+	}
+
+	// A file that stops being a plain one becomes a subclass on re-index.
+	src = `component extends="Base" { function go(){} }`
+	r.Index.IndexParsed(cfpath.ToURI(plain), src, parser.Parse(cfpath.ToURI(plain), src))
+
+	if got := r.leafSubclasses(base); len(got) != 3 {
+		t.Fatalf("leaves = %v, want Plain among them once it extends Base", got)
+	}
+}

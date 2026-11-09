@@ -50,6 +50,11 @@ type Index struct {
 	includeGen uint64
 
 	shape atomic.Uint64 // see ShapeGeneration
+	// mentions counts, by lowercase bare name, the extends spellings that can
+	// resolve through it (mentionedNames); mentionAll counts the computed ones.
+	// They decide which files move the shape (shapeMatters).
+	mentions   map[string]int
+	mentionAll int
 
 	// extenders is ExtendersByName's answer at the generation it was built.
 	extenders struct {
@@ -77,12 +82,15 @@ func (m *writeCountingMutex) Lock() {
 // have changed. It never moves for reads.
 func (idx *Index) Generation() uint64 { return idx.mu.writes.Load() }
 
-// ShapeGeneration moves whenever a file is added to or dropped from the index or
-// what a file extends is recorded or forgotten, and for no other write. An
-// answer that depends only on which components exist and what each extends
-// (the leaf subclasses under a base) stays valid across the writes that do
-// not move it, which are most of them during a scan: variables, includes,
-// functions of files already known.
+// ShapeGeneration moves when a file is added to or dropped from the index, or
+// what a file extends or which entity names it declares changes, and for no
+// other write: and then only if the file could matter to an answer built from
+// the shape (shapeMatters). A file that extends nothing, which no extends
+// spells by name, is left out: during a scan most files indexed are of that
+// kind, and each used to throw away every leaf-subclass answer. An answer that
+// depends only on which components exist and what each extends (the leaf
+// subclasses under a base) stays valid across the writes that do not move it:
+// variables, includes, functions of files already known, and those files.
 func (idx *Index) ShapeGeneration() uint64 { return idx.shape.Load() }
 
 // fileIncludes is one file's cfinclude paths as written, with the file's own
@@ -666,11 +674,14 @@ func (idx *Index) indexParseResult(fileURI uri.URI, content string, pr *parser.P
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
 
-	idx.removeFileEntries(fileURI)
 	fk := uriKey(fileURI)
+	mark := idx.shapeBegin(fk)
+
+	defer idx.shapeEnd(fk, &mark)
+
+	idx.removeFileEntries(fileURI)
 	idx.thisVars[fk] = thisVars
-	idx.extends[fk] = strings.Clone(pr.Extends)
-	idx.shape.Add(1)
+	idx.setExtendsLocked(fk, strings.Clone(pr.Extends))
 	idx.delegates[fk] = cloneDelegates(pr.Delegates)
 
 	// An ORM entity is named by its entityname attribute, which is often not
@@ -696,7 +707,6 @@ func (idx *Index) indexParseResult(fileURI uri.URI, content string, pr *parser.P
 
 	idx.fileFuncs[fk] = fileDefs
 	idx.fileURIs[fk] = uri.URI(strings.Clone(string(fileURI)))
-	idx.shape.Add(1)
 
 	fileRefsList := make([]*parser.ComponentRef, 0, len(refs))
 
@@ -746,7 +756,6 @@ func (idx *Index) IndexFileFromResult(fileURI uri.URI, funcs []parser.FunctionDe
 
 	idx.fileFuncs[fk] = fileDefs
 	idx.fileURIs[fk] = uri.URI(strings.Clone(string(fileURI)))
-	idx.shape.Add(1)
 
 	fileRefsList := make([]*parser.ComponentRef, 0, len(refs))
 
@@ -770,6 +779,11 @@ func (idx *Index) IndexFileFromResult(fileURI uri.URI, funcs []parser.FunctionDe
 func (idx *Index) RemoveFile(fileURI uri.URI) {
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
+
+	fk := uriKey(fileURI)
+	mark := idx.shapeBegin(fk)
+
+	defer idx.shapeEnd(fk, &mark)
 
 	idx.removeFileEntries(fileURI)
 	// Not in removeFileEntries: every re-index runs that first, and a file
@@ -834,9 +848,11 @@ func (idx *Index) RemoveFilesUnder(prefix string) {
 
 	for key := range idx.fileFuncs {
 		if strings.HasPrefix(key, fileKey) {
+			mark := idx.shapeBegin(key)
+
 			delete(idx.fileFuncs, key)
 			delete(idx.fileURIs, key)
-			idx.shape.Add(1)
+			idx.shapeEnd(key, &mark)
 			delete(idx.fileRefs, key)
 			delete(idx.thisVars, key)
 			delete(idx.scopeRefs, key)
@@ -929,8 +945,7 @@ func (idx *Index) removeFileEntries(fileURI uri.URI) {
 	// Dropped with everything else, which is what makes the extends record
 	// self-invalidating: a re-index of any kind forgets it, and the next
 	// lookup re-establishes it from the file as it now stands.
-	delete(idx.extends, key)
-	idx.shape.Add(1)
+	idx.dropExtendsLocked(key)
 	delete(idx.delegates, key)
 
 	// Grouped by bucket, not pooled into one set of everything this file
@@ -952,7 +967,6 @@ func (idx *Index) removeFileEntries(fileURI uri.URI) {
 
 	delete(idx.fileFuncs, key)
 	delete(idx.fileURIs, key)
-	idx.shape.Add(1)
 
 	for name, group := range groupRefsByVariable(idx.fileRefs[key]) {
 		if filtered := dropEntries(idx.comprefs[name], group); len(filtered) == 0 {
@@ -1529,8 +1543,11 @@ func (idx *Index) SetExtends(fileURI uri.URI, extends string) {
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
 
-	idx.extends[uriKey(fileURI)] = strings.Clone(extends)
-	idx.shape.Add(1)
+	key := uriKey(fileURI)
+	mark := idx.shapeBegin(key)
+
+	idx.setExtendsLocked(key, strings.Clone(extends))
+	idx.shapeEnd(key, &mark)
 }
 
 // DelegatesForFile returns the WireBox delegations a file declares, and

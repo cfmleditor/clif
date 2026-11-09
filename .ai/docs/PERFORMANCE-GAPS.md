@@ -822,7 +822,7 @@ benchmark's wall time is mostly GC count. Compare allocation counts, or run
 with `GOGC=4000` (then first-touch page faults inflate `memclr` instead);
 `GOMAXPROCS=1` makes the CPU profile attribute it.
 
-## 10. Two whole-file facts were recomputed per function — implemented; the Lucee leaf walk — measured, not done
+## 10. Two whole-file facts were recomputed per function; the Lucee leaf walk — implemented
 
 **Done.** A profile of a MasaCMS scan (4.3 s) put a quarter of its CPU in
 `elementReturn`, which ran two regular expressions over the whole file for
@@ -836,7 +836,7 @@ one across eight goroutines under `-race`). Masa 4.3 s to 2.6 s, Galaxie
 1.28 s to 0.78 s, ContentBox -22%, ColdBox -12%; `unresolved` byte-identical on
 the seven corpora.
 
-**Measured, not done: Lucee's leaf-subclass walk.** After that, 42% of a Lucee
+**Done afterwards: Lucee's leaf-subclass walk** (see the CHANGELOG; 3.65 s to 2.37 s; the generation moves only for files a name can reach, `internal/index/shape.go`). The measurement that led to it: After that, 42% of a Lucee
 scan's CPU is `leafSubclassesUncached`, and nearly all of it is one base,
 `testbox/system/BaseSpec.cfc` (a stub), walked 476 times at 12 ms
 (5.7 s of 6.6 s). The cache is keyed on `Index.ShapeGeneration`, and that
