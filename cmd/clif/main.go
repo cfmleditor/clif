@@ -248,8 +248,6 @@ func runDaemon(cfg *daemon.Config, log cflog.Logger) {
 	// cut off by a shutdown it could not cancel. See ConnTracker.
 	daemon.WaitForLastClient(ctx, ct, daemon.DrainGrace)
 	cancel()
-
-	return
 }
 
 // runStandalone serves one client with a session of its own.
