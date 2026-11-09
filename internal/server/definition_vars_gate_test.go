@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/cfmleditor/clif/internal/config"
+	"github.com/cfmleditor/clif/internal/testutil"
 	"go.lsp.dev/uri"
 )
 
@@ -22,10 +23,10 @@ func TestVariableDefinitionsCanBeSwitchedOff(t *testing.T) {
 
 	at := func(on bool) any {
 		srv := newTestServer()
-		srv.WorkspaceFolders = []string{testdataDir()}
+		srv.WorkspaceFolders = []string{testutil.Testdata()}
 		srv.Features = config.ResolveFeatures(&config.Features{VariableDefinitions: &on})
 
-		abs := filepath.Join(testdataDir(), "SwitchTest.cfc")
+		abs := filepath.Join(testutil.Testdata(), "SwitchTest.cfc")
 		docURI := uri.URI("file://" + abs)
 		srv.setDocument(docURI, src)
 

@@ -7,6 +7,7 @@ import (
 	"go.lsp.dev/uri"
 
 	"github.com/cfmleditor/clif/internal/conv"
+	"github.com/cfmleditor/clif/internal/lex"
 )
 
 // ParseFunctionDefs extracts function definitions from CFC content.
@@ -606,7 +607,7 @@ func hasScriptTag(content string) bool {
 			return false
 		}
 
-		if lowerASCII(content[at+1]) != 's' {
+		if lex.LowerASCII(content[at+1]) != 's' {
 			continue
 		}
 
@@ -885,7 +886,7 @@ func indexCFTag(s, suffix string) int {
 		return strings.IndexByte(s, '<')
 	}
 
-	first := lowerASCII(suffix[0])
+	first := lex.LowerASCII(suffix[0])
 
 	for off := 0; off < len(s); {
 		i := strings.IndexByte(s[off:], '<')
@@ -900,7 +901,7 @@ func indexCFTag(s, suffix string) int {
 			break
 		}
 
-		if lowerASCII(s[at+1]) != first {
+		if lex.LowerASCII(s[at+1]) != first {
 			continue
 		}
 

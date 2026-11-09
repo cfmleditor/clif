@@ -4,12 +4,13 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/cfmleditor/clif/internal/testutil"
 	"go.lsp.dev/protocol"
 )
 
 func TestDefinitionTestdata_TagResolverGetUser(t *testing.T) {
 	srv := newTestdataServer()
-	srv.WorkspaceFolders = append(srv.WorkspaceFolders, filepath.Join(testdataDir(), "beans"))
+	srv.WorkspaceFolders = append(srv.WorkspaceFolders, filepath.Join(testutil.Testdata(), "beans"))
 	openTestdataFile(t, srv, "services/UserService.cfc")
 	openTestdataFile(t, srv, "beans/services/BeanUserService.cfc")
 	docURI := openTestdataFile(t, srv, "DefinitionTestTag.cfc")

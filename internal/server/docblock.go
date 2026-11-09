@@ -10,6 +10,7 @@ import (
 
 	"github.com/cfmleditor/clif/internal/config"
 	"github.com/cfmleditor/clif/internal/docs"
+	"github.com/cfmleditor/clif/internal/lex"
 	"github.com/cfmleditor/clif/internal/parser"
 )
 
@@ -284,7 +285,7 @@ func (s *Server) docTagItems(content string, params *protocol.CompletionParams, 
 
 		arg := before[m[2]:m[3]]
 
-		if !containsFold(docFunctionArguments(following), arg) {
+		if !lex.ContainsFold(docFunctionArguments(following), arg) {
 			return nil, true
 		}
 
@@ -310,16 +311,6 @@ func (s *Server) docTagItems(content string, params *protocol.CompletionParams, 
 	}
 
 	return items, true
-}
-
-func containsFold(values []string, target string) bool {
-	for _, value := range values {
-		if strings.EqualFold(value, target) {
-			return true
-		}
-	}
-
-	return false
 }
 
 // lineStartOffset is the byte offset of the start of line in content.

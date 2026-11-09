@@ -2,7 +2,6 @@ package codemap_test
 
 import (
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -10,24 +9,14 @@ import (
 	"github.com/cfmleditor/clif/internal/index"
 	cfpath "github.com/cfmleditor/clif/internal/path"
 	"github.com/cfmleditor/clif/internal/resolve"
+	"github.com/cfmleditor/clif/internal/testutil"
 	"github.com/cfmleditor/clif/internal/vfs"
 )
-
-func testdataDir(t *testing.T) string {
-	t.Helper()
-
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("cannot locate the test source file")
-	}
-
-	return filepath.Join(filepath.Dir(file), "..", "..", "testdata")
-}
 
 func buildTestMap(t *testing.T) *codemap.Map {
 	t.Helper()
 
-	root := testdataDir(t)
+	root := testutil.Testdata()
 	fsys := vfs.OS{}
 
 	var files []string
@@ -332,7 +321,7 @@ func TestTopLevelPageCodeIsACaller(t *testing.T) {
 // apparently-unreferenced functions — release scripts, correctly unreferenced and
 // entirely wrong to read as dead code.
 func TestEntryGlobMarksRunnerInvokedCode(t *testing.T) {
-	root := testdataDir(t)
+	root := testutil.Testdata()
 
 	var files []string
 
@@ -387,7 +376,7 @@ func TestEntryGlobMarksRunnerInvokedCode(t *testing.T) {
 // dropped them would misreport what depends on what — the counts, the rankings
 // and the islands all have to keep counting them.
 func TestUtilityIsMarkedNotExcluded(t *testing.T) {
-	root := testdataDir(t)
+	root := testutil.Testdata()
 
 	var files []string
 

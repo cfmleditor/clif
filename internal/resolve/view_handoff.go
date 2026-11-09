@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/conv"
+	"github.com/cfmleditor/clif/internal/lex"
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
 )
@@ -514,7 +515,7 @@ func (r *Resolver) perLeaf(a *handoffAction, f func(leaf string) string) string 
 		}
 
 		for alt := range strings.SplitSeq(answer, "|") {
-			if !containsFold(union, alt) {
+			if !lex.ContainsFold(union, alt) {
 				union = append(union, alt)
 			}
 		}

@@ -1,6 +1,10 @@
 package parser
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/cfmleditor/clif/internal/lex"
+)
 
 // A chained assignment, `a = b = rhs`, gives both names what rhs holds. Each
 // parser handles the inner assignment as the statement it is, then hands the
@@ -73,7 +77,7 @@ func appendPendingFor(calls []pendingCall, from int, name string, this bool) []p
 // struct, which types nothing.
 func chainedSetTarget(rhs string) bool {
 	for _, scope := range []string{"this.", "variables.", "local."} {
-		if hasPrefixFold(rhs, scope) {
+		if lex.HasPrefixFold(rhs, scope) {
 			rhs = rhs[len(scope):]
 
 			break

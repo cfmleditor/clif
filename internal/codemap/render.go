@@ -222,46 +222,69 @@ func (m *Map) WriteMermaid(w io.Writer, maxEdges int) error {
 func (m *Map) WriteText(w io.Writer, limit int) error {
 	var b strings.Builder
 
-	fmt.Fprintf(&b, "Code map of %s (%s level)\n\n", m.Root, m.Level)
-	fmt.Fprintf(&b, "  %d nodes, %d edges\n", len(m.Nodes), len(m.Edges))
-	fmt.Fprintf(&b, "  %d files, %d functions\n", m.Stats.Files, m.Stats.Functions)
-	fmt.Fprintf(&b, "  %d call sites: %d resolved, %d dynamic, %d unresolved, %d builtin\n",
+	m.writeCounts(&b)
+	m.writeIslands(&b, limit)
+	m.writeHubs(&b, limit)
+	m.writeCycles(&b, limit)
+	m.writeOrphans(&b, limit)
+
+	_, err := io.WriteString(w, b.String())
+
+	return err
+}
+
+// capped is the first limit items, or all of them when limit is not positive.
+func capped[T any](items []T, limit int) []T {
+	if limit > 0 && len(items) > limit {
+		return items[:limit]
+	}
+
+	return items
+}
+
+// writeCounts is the header of the report: sizes, call-site confidence, and
+// what the build could not read.
+func (m *Map) writeCounts(b *strings.Builder) {
+	fmt.Fprintf(b, "Code map of %s (%s level)\n\n", m.Root, m.Level)
+	fmt.Fprintf(b, "  %d nodes, %d edges\n", len(m.Nodes), len(m.Edges))
+	fmt.Fprintf(b, "  %d files, %d functions\n", m.Stats.Files, m.Stats.Functions)
+	fmt.Fprintf(b, "  %d call sites: %d resolved, %d dynamic, %d unresolved, %d builtin\n",
 		m.Stats.CallSites, m.Stats.Resolved, m.Stats.Dynamic, m.Stats.Unresolved, m.Stats.Builtin)
 
 	if m.Stats.CallSites > 0 {
 		pct := float64(m.Stats.Resolved) * 100 / float64(m.Stats.CallSites)
-		fmt.Fprintf(&b, "  %.1f%% of call sites resolved to a definition\n", pct)
+		fmt.Fprintf(b, "  %.1f%% of call sites resolved to a definition\n", pct)
 	}
 
 	if m.Stats.Failed > 0 {
-		fmt.Fprintf(&b, "  %d files could not be scanned (an internal error, recorded on stderr or in the crash log)\n", m.Stats.Failed)
+		fmt.Fprintf(b, "  %d files could not be scanned (an internal error, recorded on stderr or in the crash log)\n", m.Stats.Failed)
 	}
 
 	if m.Stats.Unreadable > 0 {
-		fmt.Fprintf(&b, "  %d files unreadable or binary\n", m.Stats.Unreadable)
+		fmt.Fprintf(b, "  %d files unreadable or binary\n", m.Stats.Unreadable)
 	}
 
 	if m.Stats.Routes > 0 {
 		resolved := m.Stats.Routes - m.Stats.RoutesUnresolved
-		fmt.Fprintf(&b, "  %d framework routes: %d resolved (%.1f%%), %d not\n",
+		fmt.Fprintf(b, "  %d framework routes: %d resolved (%.1f%%), %d not\n",
 			m.Stats.Routes, resolved, float64(resolved)*100/float64(m.Stats.Routes), m.Stats.RoutesUnresolved)
 	}
 
 	if m.Stats.Utility > 0 {
-		fmt.Fprintf(&b, "  %d nodes marked utility\n", m.Stats.Utility)
+		fmt.Fprintf(b, "  %d nodes marked utility\n", m.Stats.Utility)
 	}
 
-	fmt.Fprintf(&b, "  %d islands, %d nodes no entry point reaches\n", m.Stats.Islands, m.Stats.Detached)
-	fmt.Fprintf(&b, "  built in %dms\n", m.Stats.BuildMillis)
+	fmt.Fprintf(b, "  %d islands, %d nodes no entry point reaches\n", m.Stats.Islands, m.Stats.Detached)
+	fmt.Fprintf(b, "  built in %dms\n", m.Stats.BuildMillis)
+}
 
+// writeIslands lists the detached subsystems, besides the main graph.
+func (m *Map) writeIslands(b *strings.Builder, limit int) {
 	islands := m.Islands()
 	if len(islands) > 1 {
-		shown := islands[1:]
-		if limit > 0 && len(shown) > limit {
-			shown = shown[:limit]
-		}
+		shown := capped(islands[1:], limit)
 
-		fmt.Fprintf(&b, "\nDetached islands (%d besides the main graph):\n", len(islands)-1)
+		fmt.Fprintf(b, "\nDetached islands (%d besides the main graph):\n", len(islands)-1)
 
 		idx := m.NodeIndex()
 
@@ -273,11 +296,15 @@ func (m *Map) WriteText(w io.Writer, limit int) error {
 				live = " [reachable]"
 			}
 
-			fmt.Fprintf(&b, "  island %d: %d nodes%s, rooted at %s\n",
+			fmt.Fprintf(b, "  island %d: %d nodes%s, rooted at %s\n",
 				isl.ID, len(isl.Nodes), live, strings.Join(describeAll(idx, trim(isl.Roots, 3)), ", "))
 		}
 	}
+}
 
+// writeHubs prints the most depended-on nodes, application code and utility
+// apart.
+func (m *Map) writeHubs(b *strings.Builder, limit int) {
 	in := m.InDegree()
 
 	// Two rankings, because one is unreadable. Infrastructure outranks everything
@@ -292,41 +319,41 @@ func (m *Map) WriteText(w io.Writer, limit int) error {
 			heading += " (utility excluded)"
 		}
 
-		fmt.Fprintf(&b, "\n%s (%d):\n", heading, len(app))
+		fmt.Fprintf(b, "\n%s (%d):\n", heading, len(app))
 
 		for i := range app {
-			fmt.Fprintf(&b, "  %5d  %s\n", in[app[i].ID], describe(&app[i]))
+			fmt.Fprintf(b, "  %5d  %s\n", in[app[i].ID], describe(&app[i]))
 		}
 	}
 
 	if util := m.HubsWhere(limit, func(n *Node) bool { return n.Utility }); len(util) > 0 {
-		fmt.Fprintf(&b, "\nMost depended on, utility (%d):\n", len(util))
+		fmt.Fprintf(b, "\nMost depended on, utility (%d):\n", len(util))
 
 		for i := range util {
-			fmt.Fprintf(&b, "  %5d  %s\n", in[util[i].ID], describe(&util[i]))
+			fmt.Fprintf(b, "  %5d  %s\n", in[util[i].ID], describe(&util[i]))
 		}
 	}
+}
 
+// writeCycles lists the dependency cycles, largest first.
+func (m *Map) writeCycles(b *strings.Builder, limit int) {
 	cycles := m.Cycles()
 	if len(cycles) > 0 {
-		shown := cycles
-		if limit > 0 && len(shown) > limit {
-			shown = shown[:limit]
-		}
+		shown := capped(cycles, limit)
 
-		fmt.Fprintf(&b, "\nCycles (%d, largest first):\n", len(cycles))
+		fmt.Fprintf(b, "\nCycles (%d, largest first):\n", len(cycles))
 
 		for _, c := range shown {
-			fmt.Fprintf(&b, "  %d nodes: %s\n", len(c), strings.Join(trim(c, 6), " -> "))
+			fmt.Fprintf(b, "  %d nodes: %s\n", len(c), strings.Join(trim(c, 6), " -> "))
 		}
 	}
+}
 
+// writeOrphans lists the functions nothing references.
+func (m *Map) writeOrphans(b *strings.Builder, limit int) {
 	orphans := m.Orphans()
 	if len(orphans) > 0 {
-		shown := orphans
-		if limit > 0 && len(shown) > limit {
-			shown = shown[:limit]
-		}
+		shown := capped(orphans, limit)
 
 		// Utility is tagged here as well as in the hub list. Infrastructure is
 		// routinely unreferenced and correctly so — a Java stub exists to be
@@ -346,7 +373,7 @@ func (m *Map) WriteText(w io.Writer, limit int) error {
 			note = fmt.Sprintf("; %d of them utility", util)
 		}
 
-		fmt.Fprintf(&b, "\nUnreferenced (%d — candidates, not a verdict%s; see unresolved count above):\n",
+		fmt.Fprintf(b, "\nUnreferenced (%d — candidates, not a verdict%s; see unresolved count above):\n",
 			len(orphans), note)
 
 		for i := range shown {
@@ -355,13 +382,9 @@ func (m *Map) WriteText(w io.Writer, limit int) error {
 				mark = "  [utility]"
 			}
 
-			fmt.Fprintf(&b, "  %s%s\n", describe(&shown[i]), mark)
+			fmt.Fprintf(b, "  %s%s\n", describe(&shown[i]), mark)
 		}
 	}
-
-	_, err := io.WriteString(w, b.String())
-
-	return err
 }
 
 func describe(n *Node) string {

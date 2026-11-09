@@ -4,7 +4,7 @@ import "testing"
 
 // Two code paths resolve an expression against componentResolvers:
 // ResolveFromCallMatch walks the slice, and ResolverSet.Resolve narrows by a
-// first-byte index first. CLAUDE.md documents one contract for both — resolvers
+// first-byte index first. .ai/docs/guide/resolvers.md documents one contract for both — resolvers
 // are tried in array order, so listing a specific entry before a broad
 // catch-all is how you override it — and CanResolveCall reaches the first path
 // while completion and hover reach the second. They have to agree.

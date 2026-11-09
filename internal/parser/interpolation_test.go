@@ -1,7 +1,6 @@
 package parser
 
 import (
-	"os"
 	"regexp"
 	"slices"
 	"strings"
@@ -166,10 +165,7 @@ func TestMemberCallsOnLiteralsKeepAReceiver(t *testing.T) {
 // own copy of the rule. A new loop that scans tokens itself is the regression
 // this catches.
 func TestEveryTokenLoopHandlesLiterals(t *testing.T) {
-	src, err := os.ReadFile("script_parser.go")
-	if err != nil {
-		t.Fatal(err)
-	}
+	src := readAllParserSource(t)
 
 	// Every arm that dispatches an identifier to the nested-call scan is a
 	// token loop, and each must have a literal arm beside it.
@@ -178,7 +174,7 @@ func TestEveryTokenLoopHandlesLiterals(t *testing.T) {
 	loops := regexp.MustCompile(
 		`(?s)case TokIdent:\n(?:\t+//[^\n]*\n)*(?:\t+\w+ := [^\n]+\n)?\t+p\.scanNestedCall\((\w+)\)\n(.{0,200}?)\n\t+\}`)
 
-	matches := loops.FindAllStringSubmatch(string(src), -1)
+	matches := loops.FindAllStringSubmatch(src, -1)
 	if len(matches) < 6 {
 		t.Fatalf("expected at least six nested-call dispatch sites, found %d — this test's anchor needs updating", len(matches))
 	}

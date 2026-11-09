@@ -5,6 +5,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	"github.com/cfmleditor/clif/internal/lex"
 )
 
 type collectionWrite struct {
@@ -136,7 +138,7 @@ func (pr *ParseResult) collectionKeys(writes []collectionWrite) (*localSet, map[
 	for _, w := range writes {
 		if w.local && w.function != "" {
 			target := w.target
-			if hasPrefixFold(target, "local.") {
+			if lex.HasPrefixFold(target, "local.") {
 				target = target[len("local."):]
 			}
 
@@ -146,13 +148,13 @@ func (pr *ParseResult) collectionKeys(writes []collectionWrite) (*localSet, map[
 
 	return locals, scopeKeys, func(root, function string) collKey {
 		switch {
-		case hasPrefixFold(root, "variables."):
+		case lex.HasPrefixFold(root, "variables."):
 			return kt.field(idVariables, root[len("variables."):])
-		case hasPrefixFold(root, "this."):
+		case lex.HasPrefixFold(root, "this."):
 			return kt.field(idThis, root[len("this."):])
-		case hasPrefixFold(root, "local."):
+		case lex.HasPrefixFold(root, "local."):
 			return kt.local(function, root[len("local."):])
-		case hasPrefixFold(root, "arguments."):
+		case lex.HasPrefixFold(root, "arguments."):
 			return kt.local(function, root[len("arguments."):])
 		}
 
@@ -971,7 +973,7 @@ func scanExpressionWritesFrom(sc *Scanner, expression string, toks []Token) []ex
 			ends.fill(expression, toks)
 		}
 
-		writes = append(writes, expressionWrite{write: collectionWrite{target: root, expression: ends.from(cursor.PeekSkipComments().Offset), element: element, local: local || hasPrefixFold(root, "local.")}, at: t.Offset, placed: true})
+		writes = append(writes, expressionWrite{write: collectionWrite{target: root, expression: ends.from(cursor.PeekSkipComments().Offset), element: element, local: local || lex.HasPrefixFold(root, "local.")}, at: t.Offset, placed: true})
 	}
 
 	return writes

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/cfmleditor/clif/internal/lex"
 	"go.lsp.dev/uri"
 )
 
@@ -813,7 +814,7 @@ func (rs *ResolverSet) resolve(expr string) resolverAnswer {
 	// decide which one wins. Collected as above, candidates come out ordered by
 	// where each resolver's prefix first byte happens to appear in expr, so for
 	// resolvers whose prefixes start with different letters the array order
-	// documented in CLAUDE.md ("whichever is listed earlier wins") was decided
+	// documented in .ai/docs/guide/resolvers.md ("whichever is listed earlier wins") was decided
 	// by the call site's spelling instead. Given
 	//
 	//	[{prefix "svc", match "svc.$1"}, {prefix "app", match "app$1"}]
@@ -901,7 +902,7 @@ func indexFoldFrom(s, substr string, from int) int {
 		k = rarestByte(substr)
 	}
 
-	lo := lowerASCII(substr[k])
+	lo := lex.LowerASCII(substr[k])
 	up := lo
 
 	if lo >= 'a' && lo <= 'z' {
@@ -915,7 +916,7 @@ func indexFoldFrom(s, substr string, from int) int {
 	// EqualFold is called: an anchor byte is common enough in code that the
 	// call per candidate was most of the search.
 	ascii := k > 0 || isASCII(substr)
-	first, final := lowerASCII(substr[0]), lowerASCII(substr[len(substr)-1])
+	first, final := lex.LowerASCII(substr[0]), lex.LowerASCII(substr[len(substr)-1])
 
 	for p := from + k; p <= last+k; {
 		if nextLo < p {
@@ -937,7 +938,7 @@ func indexFoldFrom(s, substr string, from int) int {
 		}
 
 		start := j - k
-		if (!ascii || lowerASCII(s[start]) == first && lowerASCII(s[start+len(substr)-1]) == final) &&
+		if (!ascii || lex.LowerASCII(s[start]) == first && lex.LowerASCII(s[start+len(substr)-1]) == final) &&
 			strings.EqualFold(s[start:start+len(substr)], substr) {
 			return start
 		}
@@ -971,7 +972,7 @@ func rarestByte(needle string) int {
 	best, bestRank := 0, -2
 
 	for i := range len(needle) {
-		c := lowerASCII(needle[i])
+		c := lex.LowerASCII(needle[i])
 
 		rank := -1
 
@@ -1001,17 +1002,6 @@ func indexByteFrom(s string, c byte, i int) int {
 	}
 
 	return len(s)
-}
-
-// lowerASCII folds one ASCII byte. A byte above ASCII is returned unchanged,
-// which is correct here because it can only be part of a multi-byte rune that
-// EqualFold will judge properly.
-func lowerASCII(b byte) byte {
-	if b >= 'A' && b <= 'Z' {
-		return b + 32
-	}
-
-	return b
 }
 
 // placeholderRe matches $1, $2, etc. in patterns.

@@ -1,6 +1,10 @@
 package resolve
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/cfmleditor/clif/internal/lex"
+)
 
 // TestIsScopeNameCoversKnownScopes holds isScopeName to the full list of CFML
 // scope names it is meant to recognise, case-insensitively.
@@ -23,15 +27,15 @@ func TestIsScopeNameCoversKnownScopes(t *testing.T) {
 
 // TestContainsFoldIsCaseInsensitive covers the helper.
 func TestContainsFoldIsCaseInsensitive(t *testing.T) {
-	if !containsFold([]string{"Foo", "Bar"}, "foo") {
+	if !lex.ContainsFold([]string{"Foo", "Bar"}, "foo") {
 		t.Fatal("case-insensitive match missed")
 	}
 
-	if containsFold([]string{"Foo"}, "baz") {
+	if lex.ContainsFold([]string{"Foo"}, "baz") {
 		t.Fatal("non-member reported as present")
 	}
 
-	if containsFold(nil, "x") {
+	if lex.ContainsFold(nil, "x") {
 		t.Fatal("nil slice reported a match")
 	}
 }

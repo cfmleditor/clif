@@ -5,6 +5,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/cfmleditor/clif/internal/lex"
 )
 
 // MappingSources reads statically knowable application mappings in execution
@@ -347,7 +349,7 @@ func (s *mappingSourceState) assignment(target, key, expr, dir string) {
 		return
 	}
 
-	if hasPrefixFold(target, "this.mappings.") {
+	if lex.HasPrefixFold(target, "this.mappings.") {
 		s.mapping(target[len("this.mappings."):], expr, dir)
 
 		return

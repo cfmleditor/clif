@@ -215,6 +215,37 @@ func (r *Resolver) fw1Actions(controllers, section, item string) []fw1Action {
 	return out
 }
 
+// fw1SetView is one setView( "section.item" ) call of a controller: the
+// subsystem it names, if any, the section.item it names, and where it starts.
+type fw1SetView struct {
+	subsystem, target string
+	at                int
+	hasSubsystem      bool
+}
+
+// fw1SetViews are the setView calls of a controller, found once per text. They
+// are asked of every controller for every view whose actions are looked up, and
+// the expression over each controller's whole text was a tenth of a MasaCMS scan.
+func (r *Resolver) fw1SetViews(hpr *parser.ParseResult) []fw1SetView {
+	o := r.owner()
+
+	return o.fw1SetViewCache.get(&o.mu, hpr, func() []fw1SetView {
+		found := fw1SetViewRe.FindAllStringSubmatchIndex(hpr.Content, -1)
+		out := make([]fw1SetView, 0, len(found))
+
+		for _, m := range found {
+			sv := fw1SetView{target: hpr.Content[m[4]:m[5]], at: m[0], hasSubsystem: m[2] >= 0}
+			if sv.hasSubsystem {
+				sv.subsystem = hpr.Content[m[2]:m[3]]
+			}
+
+			out = append(out, sv)
+		}
+
+		return out
+	})
+}
+
 func (r *Resolver) fw1ActionsUncached(controllers, section, item string) []fw1Action {
 	var out []fw1Action
 
@@ -240,18 +271,18 @@ func (r *Resolver) fw1ActionsUncached(controllers, section, item string) []fw1Ac
 			continue
 		}
 
-		for _, m := range fw1SetViewRe.FindAllStringSubmatchIndex(hpr.Content, -1) {
-			if !strings.EqualFold(hpr.Content[m[4]:m[5]], section+"."+item) {
+		for _, sv := range r.fw1SetViews(hpr) {
+			if !strings.EqualFold(sv.target, section+"."+item) {
 				continue
 			}
 
 			// A subsystem is a directory of its own: admin:product.detail
 			// is admin/views/product/detail.cfm.
-			if m[2] >= 0 && !strings.EqualFold(hpr.Content[m[2]:m[3]], filepath.Base(filepath.Dir(controllers))) {
+			if sv.hasSubsystem && !strings.EqualFold(sv.subsystem, filepath.Base(filepath.Dir(controllers))) {
 				continue
 			}
 
-			line := strings.Count(hpr.Content[:m[0]], "\n")
+			line := strings.Count(hpr.Content[:sv.at], "\n")
 
 			scope := hpr.FuncScopeAt(line)
 			if scope.Start == -1 {

@@ -10,6 +10,7 @@ import (
 	"github.com/cfmleditor/clif/internal/graph"
 	"github.com/cfmleditor/clif/internal/index"
 	"github.com/cfmleditor/clif/internal/parser"
+	"github.com/cfmleditor/clif/internal/testutil"
 	"go.lsp.dev/uri"
 )
 
@@ -17,7 +18,7 @@ import (
 // stub: the index stores definitions and refs, never call sites, so there was
 // nowhere to read the next hop's calls from. The caller now supplies them.
 func TestFunctionDepsTraceBeyondTheFirstHop(t *testing.T) {
-	dir := testdataDir()
+	dir := testutil.Testdata("deps")
 	idx := buildIndex(t, dir)
 	controllerPath, _ := filepath.Abs(filepath.Join(dir, "controller.cfc"))
 	pr := parseFile(t, filepath.Join(dir, "controller.cfc"))
@@ -180,7 +181,7 @@ func assertConnected(t *testing.T, root string, edges []graph.Edge) {
 }
 
 func TestFunctionDepsGraphIsConnected(t *testing.T) {
-	dir := testdataDir()
+	dir := testutil.Testdata("deps")
 	idx := buildIndex(t, dir)
 	controllerPath, _ := filepath.Abs(filepath.Join(dir, "controller.cfc"))
 	pr := parseFile(t, filepath.Join(dir, "controller.cfc"))
@@ -210,7 +211,7 @@ func TestFunctionDepsGraphIsConnected(t *testing.T) {
 
 // The refs traversal has always recursed, so it had the same defect for longer.
 func TestFileDepsGraphIsConnected(t *testing.T) {
-	dir := testdataDir()
+	dir := testutil.Testdata("deps")
 	idx := buildIndex(t, dir)
 	controllerPath, _ := filepath.Abs(filepath.Join(dir, "controller.cfc"))
 	pr := parseFile(t, filepath.Join(dir, "controller.cfc"))

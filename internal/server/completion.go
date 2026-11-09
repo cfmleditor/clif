@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cfmleditor/clif/internal/cache"
 	"github.com/cfmleditor/clif/internal/conv"
 	"github.com/cfmleditor/clif/internal/docs"
 	cflog "github.com/cfmleditor/clif/internal/log"
@@ -175,39 +174,72 @@ func (s *Server) handleCompletion(_ context.Context, rawParams []byte) (any, err
 
 	defer s.lockDoc(params.TextDocument.URI)()
 
-	items := []protocol.CompletionItem(nil)
-
 	content, hasDoc := s.getDocument(params.TextDocument.URI)
 
 	t0 := time.Now()
 	cc := completionContextAt(&params, content, hasDoc)
-	char, tagName := cc.char, cc.tagName
 	contextDur := time.Since(t0)
 
-	triggerKind := ""
-
-	switch params.Context.TriggerKind {
-	case protocol.CompletionTriggerKindInvoked:
-		triggerKind = "invoked"
-	case protocol.CompletionTriggerKindTriggerCharacter:
-		triggerKind = "char:" + cc.triggerChar
-	case protocol.CompletionTriggerKindTriggerForIncompleteCompletions:
-		triggerKind = "incomplete"
-	}
+	triggerKind := triggerKindName(params.Context.TriggerKind, cc.triggerChar)
 
 	s.log.Debug("completion: request",
 		cflog.String("trigger", triggerKind),
 		cflog.Bool("triggeredByDot", cc.triggeredByDot),
 		cflog.Bool("inHashExpr", cc.inHashExpr),
 		cflog.Bool("inAttrValue", cc.inAttrValue),
-		cflog.String("tagName", tagName),
+		cflog.String("tagName", cc.tagName),
 		cflog.Uint32("line", params.Position.Line),
 		cflog.Uint32("char", params.Position.Character),
 	)
 
+	items := s.completionItemsFor(&params, &cc, content, hasDoc)
+
+	s.log.Debug("completion: total",
+		cflog.Duration("context", contextDur),
+		cflog.Duration("total", time.Since(totalStart)),
+		cflog.Int("items", len(items)),
+	)
+
+	items = s.applySnippetPolicy(items)
+
+	if items == nil {
+		items = []protocol.CompletionItem{}
+	}
+
+	return &protocol.CompletionList{
+		IsIncomplete: false,
+		Items:        items,
+	}, nil
+}
+
+// triggerKindName is the trigger of a completion request as the debug log
+// spells it.
+func triggerKindName(kind protocol.CompletionTriggerKind, triggerChar string) string {
+	switch kind {
+	case protocol.CompletionTriggerKindInvoked:
+		return "invoked"
+	case protocol.CompletionTriggerKindTriggerCharacter:
+		return "char:" + triggerChar
+	case protocol.CompletionTriggerKindTriggerForIncompleteCompletions:
+		return "incomplete"
+	}
+
+	return ""
+}
+
+// completionItemsFor is what the cursor's context offers, the first of these
+// that applies: a doc block's tags, a hash expression's variables, an
+// attribute value's values, the characters that close a tag, the attributes of
+// the tag around the cursor, a tag name, the methods after a dot, and
+// otherwise the named arguments of the call around the cursor and the
+// document's cached variables and functions.
+func (s *Server) completionItemsFor(params *protocol.CompletionParams, cc *completionContext, content string, hasDoc bool) []protocol.CompletionItem {
+	char, tagName := cc.char, cc.tagName
+	items := []protocol.CompletionItem(nil)
+
 	docItems, inDocBlock := []protocol.CompletionItem(nil), false
 	if hasDoc {
-		docItems, inDocBlock = s.docBlockItems(content, &params)
+		docItems, inDocBlock = s.docBlockItems(content, params)
 	}
 
 	switch {
@@ -296,610 +328,7 @@ func (s *Server) handleCompletion(_ context.Context, rawParams []byte) (any, err
 		}
 	}
 
-	s.log.Debug("completion: total",
-		cflog.Duration("context", contextDur),
-		cflog.Duration("total", time.Since(totalStart)),
-		cflog.Int("items", len(items)),
-	)
-
-	items = s.applySnippetPolicy(items)
-
-	if items == nil {
-		items = []protocol.CompletionItem{}
-	}
-
-	return &protocol.CompletionList{
-		IsIncomplete: false,
-		Items:        items,
-	}, nil
-}
-
-// attrValueItems offers the documented values of the attribute the cursor is
-// inside.
-func attrValueItems(content string, line, char int, tagName string) []protocol.CompletionItem {
-	attrName := parser.FindCurrentAttr(content, line, char)
-	if attrName == "" || tagName == "" {
-		return nil
-	}
-
-	attrs := docs.TagParams(tagName)
-	if attrs == nil {
-		attrs = docs.HTMLTagParams(tagName)
-	}
-
-	var items []protocol.CompletionItem
-
-	for i := range attrs {
-		if !strings.EqualFold(attrs[i].Name, attrName) { // attrName is lowercase ASCII already
-			continue
-		}
-
-		for _, v := range attrs[i].ParamValues() {
-			items = append(items, protocol.CompletionItem{
-				SortText: optStr(SortProperties),
-				Label:    v,
-				Kind:     protocol.CompletionItemKindValue,
-				Detail:   optStr(attrName + " value"),
-			})
-		}
-
-		break
-	}
-
 	return items
-}
-
-// trailingGtAt finds a '>' after the cursor with only whitespace before it,
-// which a close-tag completion replaces rather than doubles. It returns the
-// byte column just past it and the same column as an LSP character, or -1.
-func trailingGtAt(content string, line uint32, char int) (int, uint32) {
-	lineStart := 0
-	for range line {
-		idx := strings.IndexByte(content[lineStart:], '\n')
-		if idx < 0 {
-			lineStart = len(content)
-
-			break
-		}
-
-		lineStart += idx + 1
-	}
-
-	lineEnd := strings.IndexByte(content[lineStart:], '\n')
-	if lineEnd < 0 {
-		lineEnd = len(content) - lineStart
-	}
-
-	lineText := content[lineStart : lineStart+lineEnd]
-	if char >= len(lineText) {
-		return -1, 0
-	}
-
-	after := lineText[char:]
-	if idx := strings.IndexByte(after, '>'); idx != -1 && strings.TrimSpace(after[:idx]) == "" {
-		gt := char + idx + 1
-
-		return gt, lineCol(lineText, gt)
-	}
-
-	return -1, 0
-}
-
-// closeTagItems offers to close each tag still open at the cursor.
-func (s *Server) closeTagItems(content string, hasDoc bool, docURI uri.URI, pos protocol.Position, char int) []protocol.CompletionItem {
-	trailingGt := -1
-
-	var trailingGtCol uint32 // trailingGt as an LSP character
-
-	if hasDoc {
-		trailingGt, trailingGtCol = trailingGtAt(content, pos.Line, char)
-	}
-
-	var items []protocol.CompletionItem
-
-	tags := make(map[string]int)
-
-	for i, tag := range s.findUnclosedTagsScoped(content, docURI, int(pos.Line), char) {
-		if _, ok := tags[tag]; ok {
-			continue
-		}
-
-		item := protocol.CompletionItem{
-			Label:  tag,
-			Kind:   protocol.CompletionItemKindKeyword,
-			Detail: optStr("Close tag"),
-
-			SortText: optStr(fmt.Sprintf("%04d", i)),
-		}
-		if trailingGt >= 0 {
-			item.TextEdit = &protocol.TextEdit{
-				Range: protocol.Range{
-					Start: pos,
-					End:   protocol.Position{Line: pos.Line, Character: trailingGtCol},
-				},
-				NewText: tag + ">",
-			}
-		} else {
-			item.InsertText = optStr(tag + ">")
-		}
-
-		items = append(items, item)
-		tags[tag] = len(items)
-	}
-
-	return items
-}
-
-// tagAttributeItems offers the attributes of the tag the cursor is inside.
-func tagAttributeItems(tagName string) []protocol.CompletionItem {
-	attrs := docs.TagParams(tagName)
-	if attrs == nil {
-		attrs = docs.HTMLTagParams(tagName)
-	}
-
-	items := make([]protocol.CompletionItem, 0, len(attrs))
-
-	for i := range attrs {
-		p := &attrs[i]
-
-		items = append(items, protocol.CompletionItem{
-			SortText: optStr(SortProperties),
-			Label:    p.Name,
-			Kind:     protocol.CompletionItemKindProperty,
-			Detail:   optStr(p.Description),
-
-			InsertText: optStr(p.Name + `="$1"`),
-
-			InsertTextFormat: protocol.InsertTextFormatSnippet,
-		})
-	}
-
-	return items
-}
-
-// cfelseifItem offers to turn a `<cfelse` being typed into `<cfelseif`.
-func cfelseifItem(content string, pos protocol.Position, char int) protocol.CompletionItem {
-	// Replace from the "<" that opened the tag to the cursor. The "<" is not
-	// necessarily on the cursor's line — `<cfelse` with the cursor on the
-	// following line is an ordinary mid-edit state — so its position has to
-	// be computed rather than derived by subtracting a length from the
-	// cursor's column. Doing the latter underflowed uint32 and produced a
-	// range starting at character 4294967288, after its own end.
-	textBefore := parser.TextBeforeCursor(content, int(pos.Line), char)
-	openLine, openChar := pos.Line, pos.Character
-
-	if open := strings.LastIndex(textBefore, "<"); open >= 0 {
-		l, c := parser.PositionAt(content, open)
-		openLine, openChar = conv.Uint32(l), lineCol(parser.LineTextAt(content, l), c)
-	}
-
-	return protocol.CompletionItem{
-		SortText: optStr(SortProperties),
-		Label:    "if",
-		Kind:     protocol.CompletionItemKindKeyword,
-		Detail:   optStr("Convert to cfelseif"),
-
-		FilterText: optStr("if"),
-
-		InsertTextFormat: protocol.InsertTextFormatSnippet,
-		TextEdit: &protocol.TextEdit{
-			Range: protocol.Range{
-				Start: protocol.Position{Line: openLine, Character: openChar},
-				End:   pos,
-			},
-			NewText: "<cfelseif $1",
-		},
-	}
-}
-
-// tagNameItems offers every CFML tag, as a snippet, and every HTML tag.
-func tagNameItems() []protocol.CompletionItem {
-	cfTags, tags := docs.AllTags(), docs.HTMLTags()
-	items := make([]protocol.CompletionItem, 0, len(cfTags)+len(tags))
-
-	for _, tag := range cfTags {
-		items = append(items, protocol.CompletionItem{
-			Label:    tag.Name,
-			SortText: optStr(SortTags + tag.Name),
-
-			Kind:   protocol.CompletionItemKindKeyword,
-			Detail: optStr(tag.Description),
-
-			InsertText: optStr(buildTagSnippet(tag)),
-
-			InsertTextFormat: protocol.InsertTextFormatSnippet,
-		})
-	}
-
-	for i := range tags {
-		tag := &tags[i]
-
-		items = append(items, protocol.CompletionItem{
-			Label:    tag.Name,
-			SortText: optStr(SortTags + tag.Name),
-
-			Kind:   protocol.CompletionItemKindKeyword,
-			Detail: optStr(tag.Description),
-		})
-	}
-
-	return items
-}
-
-// findUnclosedTagsScoped scans for unclosed tags within the enclosing function body,
-// falling back to the full file if the cursor is outside any function.
-func (s *Server) findUnclosedTagsScoped(content string, docURI uri.URI, line, char int) []string {
-	s.mu.RLock()
-	funcs := s.funcRanges[docURI]
-	s.mu.RUnlock()
-
-	startLine := 0
-	idx := sort.Search(len(funcs), func(i int) bool {
-		return funcs[i].End >= line
-	})
-
-	if idx < len(funcs) && line >= funcs[idx].Start {
-		startLine = funcs[idx].Start
-	}
-
-	return parser.FindUnclosedTags(content, startLine, line, char)
-}
-
-// duplicateGtCompletion offers to remove a duplicate '>' when the user types
-// '>' immediately after an existing tag-closing '>'.
-func duplicateGtCompletion(content string, line, char int) (protocol.CompletionItem, bool) {
-	if char < 2 {
-		return protocol.CompletionItem{}, false
-	}
-
-	// One line, taken directly. Splitting the document to read a single row of
-	// it costs a string header per line — 516KB on a 32,000-line component, on
-	// a path that runs every time a '>' is typed, alongside two more doing the
-	// same thing. A line past the end comes back empty, which the length guard
-	// below rejects as it would an empty line.
-	lineText := parser.LineTextAt(content, line)
-	if char > len(lineText) || lineText[char-2] != '>' {
-		return protocol.CompletionItem{}, false
-	}
-	// Verify the previous '>' closes a tag.
-	before := lineText[:char-1]
-
-	openIdx := strings.LastIndexByte(before, '<')
-	if openIdx == -1 {
-		return protocol.CompletionItem{}, false
-	}
-
-	if strings.ContainsRune(before[openIdx:len(before)-1], '>') {
-		return protocol.CompletionItem{}, false
-	}
-
-	return protocol.CompletionItem{
-		Label:  ">",
-		Kind:   protocol.CompletionItemKindKeyword,
-		Detail: optStr("Remove duplicate >"),
-
-		SortText: optStr(SortCloseTags),
-
-		FilterText: optStr(">"),
-
-		TextEdit: &protocol.TextEdit{
-			Range: protocol.Range{
-				Start: protocol.Position{Line: conv.Uint32(line), Character: lineCol(lineText, char-1)},
-				End:   protocol.Position{Line: conv.Uint32(line), Character: lineCol(lineText, char)},
-			},
-			NewText: "",
-		},
-	}, true
-}
-
-// closeTagCompletion returns a completion item when '>' is typed mid-tag
-// with non-whitespace content between the typed '>' and the tag's existing '>'.
-// The completion moves the content before the '>' and removes the duplicate.
-func closeTagCompletion(content string, line, char int) (protocol.CompletionItem, bool) {
-	// One line, for the reason duplicateGtCompletion gives.
-	lineText := parser.LineTextAt(content, line)
-	if char >= len(lineText) {
-		return protocol.CompletionItem{}, false
-	}
-
-	// Find next '>' after cursor.
-	rest := lineText[char:]
-
-	idx := strings.IndexByte(rest, '>')
-	if idx == -1 {
-		return protocol.CompletionItem{}, false
-	}
-
-	middle := rest[:idx]
-
-	// Only offer completion when there's non-whitespace content.
-	if strings.TrimSpace(middle) == "" {
-		return protocol.CompletionItem{}, false
-	}
-
-	// Must not contain '<' (would mean we left the tag).
-	if strings.ContainsRune(middle, '<') {
-		return protocol.CompletionItem{}, false
-	}
-
-	// Verify we're inside a tag.
-	before := lineText[:char]
-
-	openIdx := strings.LastIndexByte(before, '<')
-	if openIdx == -1 {
-		return protocol.CompletionItem{}, false
-	}
-
-	if strings.ContainsRune(lineText[openIdx:char-1], '>') {
-		return protocol.CompletionItem{}, false
-	}
-
-	endChar := char + idx + 1
-
-	return protocol.CompletionItem{
-		Label:  ">",
-		Kind:   protocol.CompletionItemKindKeyword,
-		Detail: optStr("Close tag"),
-
-		SortText: optStr(SortCloseTags),
-
-		FilterText: optStr(">"),
-
-		InsertTextFormat: protocol.InsertTextFormatSnippet,
-		TextEdit: &protocol.TextEdit{
-			Range: protocol.Range{
-				Start: protocol.Position{Line: conv.Uint32(line), Character: lineCol(lineText, char-1)},
-				End:   protocol.Position{Line: conv.Uint32(line), Character: lineCol(lineText, endChar)},
-			},
-			NewText: middle + ">",
-		},
-	}, true
-}
-
-// completionFromCache returns cached items for the cursor's scope.
-// File cache already contains builtins + globals. Function cache has local vars only.
-// applySnippetPolicy blanks the snippet insert text of the item kinds the
-// config turned off, copying only if it has something to change.
-//
-// It used to write over items in place at the end of the handler, and items is
-// frequently a slice the server handed over rather than copied: the
-// process-wide builtin function list behind a sync.Once, or a document's
-// completion cache entry. So with functionSnippets or tagSnippets off, serving
-// one request permanently rewrote the shared list for every session in the
-// process. That was invisible because the edit is idempotent and the settings
-// are process-wide, and it is the reason the handler could not hand out the
-// cached slice without copying it first.
-//
-// Both flags default on, so the common path returns the input untouched and
-// costs nothing.
-func (s *Server) applySnippetPolicy(items []protocol.CompletionItem) []protocol.CompletionItem {
-	if s.TagSnippets && s.FunctionSnippets {
-		return items
-	}
-
-	var out []protocol.CompletionItem
-
-	for i := range items {
-		if items[i].InsertTextFormat != protocol.InsertTextFormatSnippet {
-			continue
-		}
-
-		isTag := items[i].Kind == protocol.CompletionItemKindKeyword
-		isFunc := items[i].Kind == protocol.CompletionItemKindFunction || items[i].Kind == protocol.CompletionItemKindMethod
-
-		if (isTag && !s.TagSnippets) || (isFunc && !s.FunctionSnippets) {
-			if out == nil {
-				out = append(make([]protocol.CompletionItem, 0, len(items)), items...)
-			}
-
-			out[i].InsertText = protocol.Optional[string]{}
-			out[i].InsertTextFormat = protocol.InsertTextFormatPlainText
-		}
-	}
-
-	if out == nil {
-		return items
-	}
-
-	return out
-}
-
-func (s *Server) completionFromCache(docURI uri.URI, line int) []protocol.CompletionItem {
-	s.mu.RLock()
-	funcs := s.funcRanges[docURI]
-	s.mu.RUnlock()
-
-	fileItems := s.compCache.GetFile(docURI)
-	if fileItems == nil {
-		fileItems = s.builtinFuncItems()
-	}
-
-	idx := sort.Search(len(funcs), func(i int) bool {
-		return funcs[i].End >= line
-	})
-	if idx < len(funcs) && line >= funcs[idx].Start {
-		funcItems := s.compCache.GetFuncStale(docURI, funcs[idx].Name)
-		if len(funcItems) == 0 {
-			return fileItems
-		}
-
-		items := make([]protocol.CompletionItem, 0, len(fileItems)+len(funcItems))
-		items = append(items, fileItems...)
-		items = append(items, funcItems...)
-
-		return items
-	}
-
-	return fileItems
-}
-
-// rebuildCompletionCache pre-computes completion items for scopes in a file.
-// editLine indicates which line was edited; only the function containing that line
-// has its local vars scanned. Pass -1 to skip function scanning (file-level only).
-func (s *Server) rebuildCompletionCache(docURI uri.URI, content string, editLine int) {
-	start := time.Now()
-
-	defer s.lockDoc(docURI)()
-
-	s.mu.RLock()
-	funcs := s.funcRanges[docURI]
-	pr := s.parseResults[docURI]
-	s.mu.RUnlock()
-
-	if editLine >= 0 {
-		// Binary search — funcRanges is sorted by Start line
-		idx := sort.Search(len(funcs), func(i int) bool {
-			return funcs[i].End >= editLine
-		})
-		if idx < len(funcs) && editLine >= funcs[idx].Start {
-			f := funcs[idx]
-			hash := cache.HashScope(content, f.Start, f.End)
-
-			if s.compCache.GetFunc(docURI, f.Name, hash) == nil {
-				var vars []string
-				if pr != nil {
-					vars = pr.FuncVars(f.Start, f.End)
-				} else {
-					vars = parser.VarsInFunc(content, f.Start, f.End)
-				}
-
-				items := make([]protocol.CompletionItem, 0, len(vars))
-				for _, v := range vars {
-					items = append(items, protocol.CompletionItem{Label: v, Kind: protocol.CompletionItemKindVariable, SortText: optStr(SortLocalVariables + v)})
-				}
-
-				s.compCache.PutFunc(docURI, f.Name, hash, items)
-				s.log.Debug("completion: func vars rebuilt",
-					cflog.String("uri", string(docURI)),
-					cflog.String("func", f.Name),
-					cflog.Int("vars", len(vars)),
-					cflog.Duration("dur", time.Since(start)),
-				)
-			}
-		}
-	}
-}
-
-// rebuildFileCompletionCache rebuilds the file-level completion cache (builtins + globals).
-// Called on didOpen and didSave. Builtins are included here since this only runs
-// on open/save, avoiding per-request copies.
-func (s *Server) rebuildFileCompletionCache(docURI uri.URI) {
-	defer s.lockDoc(docURI)()
-
-	s.mu.RLock()
-	pr := s.parseResults[docURI]
-	s.mu.RUnlock()
-
-	if pr != nil {
-		s.rebuildFileCompletionCacheFromPR(docURI, pr)
-
-		return
-	}
-
-	content, ok := s.getDocument(docURI)
-	if !ok {
-		return
-	}
-
-	newPR := s.parseContent(docURI, content)
-	s.mu.Lock()
-	s.parseResults[docURI] = newPR
-	s.mu.Unlock()
-	s.rebuildFileCompletionCacheFromPR(docURI, newPR)
-}
-
-// rebuildFileCompletionCacheFromPR rebuilds file-level completion from an existing ParseResult.
-//
-// The caller must hold the document's lock: pr.VariablesVars and pr.ThisVars
-// memoise in place. It is not taken here because rebuildFileCompletionCache
-// already holds it by the time it calls this, and lockDoc hands out plain
-// sync.Mutexes — taking it twice on one goroutine deadlocks rather than
-// nesting.
-func (s *Server) rebuildFileCompletionCacheFromPR(docURI uri.URI, pr *parser.ParseResult) {
-	start := time.Now()
-
-	builtins := s.builtinFuncItems()
-	globals := pr.VariablesVars()
-	thisVarNames := pr.ThisVars()
-	items := make([]protocol.CompletionItem, 0, len(builtins)+len(globals)+len(thisVarNames)+len(pr.Funcs))
-	items = append(items, builtins...)
-	varPrefix := s.scopePrefix("variables")
-	thisPrefix := s.scopePrefix("this")
-
-	items = appendScopedVars(items, globals, varPrefix, protocol.CompletionItemKindVariable)
-	items = appendScopedVars(items, thisVarNames, thisPrefix, protocol.CompletionItemKindProperty)
-
-	for j := range pr.Funcs {
-		f := &pr.Funcs[j]
-
-		var detail strings.Builder
-		detail.WriteString(f.Name)
-		detail.WriteByte('(')
-
-		writeArgDetail(&detail, f.Arguments)
-		insertText := callSnippet(f.Name, requiredArgs(f.Arguments))
-		items = append(items, protocol.CompletionItem{
-			Label:  f.Name,
-			Kind:   protocol.CompletionItemKindFunction,
-			Detail: optStr(detail.String()),
-
-			InsertText: optStr(insertText),
-
-			InsertTextFormat: protocol.InsertTextFormatSnippet,
-			SortText:         optStr(SortUserFunctions + f.Name),
-		})
-	}
-
-	s.compCache.PutFile(docURI, items)
-
-	varsItems := make([]protocol.CompletionItem, 0, len(pr.VariablesVars()))
-	for _, v := range pr.VariablesVars() {
-		varsItems = append(varsItems, protocol.CompletionItem{Label: v, Kind: protocol.CompletionItemKindVariable, SortText: optStr(SortLocalVariables + v)})
-	}
-
-	s.compCache.PutFunc(docURI, "__variables__", 0, varsItems)
-
-	thisItems := make([]protocol.CompletionItem, 0, len(pr.Funcs))
-	for _, v := range pr.ThisVars() {
-		thisItems = append(thisItems, protocol.CompletionItem{Label: v, Kind: protocol.CompletionItemKindProperty, SortText: optStr(SortLocalVariables + v)})
-	}
-
-	for j := range pr.Funcs {
-		f := &pr.Funcs[j]
-
-		var detail strings.Builder
-		detail.WriteString(f.Name)
-		detail.WriteByte('(')
-
-		for i, arg := range f.Arguments {
-			if i > 0 {
-				detail.WriteString(", ")
-			}
-
-			if arg.Type != "" {
-				detail.WriteString(arg.Type)
-				detail.WriteByte(' ')
-			}
-
-			detail.WriteString(arg.Name)
-		}
-
-		detail.WriteString(")")
-		thisItems = append(thisItems, protocol.CompletionItem{
-			Label:  f.Name,
-			Kind:   protocol.CompletionItemKindMethod,
-			Detail: optStr(detail.String()),
-
-			SortText: optStr(SortUserFunctions + f.Name),
-		})
-	}
-
-	s.compCache.PutFunc(docURI, "__this__", 0, thisItems)
-	s.log.Debug("completion: file globals rebuilt",
-		cflog.String("uri", string(docURI)),
-		cflog.Int("globals", len(globals)),
-		cflog.Duration("dur", time.Since(start)),
-	)
 }
 
 // scopeArgumentsCompletion returns the declared arguments for the enclosing function.

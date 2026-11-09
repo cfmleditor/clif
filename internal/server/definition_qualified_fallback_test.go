@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/cfmleditor/clif/internal/parser"
+	"github.com/cfmleditor/clif/internal/testutil"
 	"go.lsp.dev/protocol"
 	"go.lsp.dev/uri"
 )
@@ -15,7 +16,7 @@ import (
 func openInlineComponent(t *testing.T, srv *Server, name, content string) uri.URI {
 	t.Helper()
 
-	docURI := uri.URI("file://" + filepath.Join(testdataDir(), name))
+	docURI := uri.URI("file://" + filepath.Join(testutil.Testdata(), name))
 	srv.setDocument(docURI, content)
 
 	pr := parser.Parse(docURI, content, srv.cfResolvers())
@@ -53,7 +54,7 @@ func locationURIs(result any) []uri.URI {
 //
 // Each case is a receiver the parser cannot type: a call to an unknown factory, a
 // scoped variable, an argument declared `any`, a chain, and a bracket index. They
-// are the shapes CLAUDE.md already documents as unresolvable, so each is a real
+// are the shapes .ai/docs/guide/resolvers.md already documents as unresolvable, so each is a real
 // dead end rather than a contrived one.
 func TestQualifiedFallbackFindsDefinitionsInTheRequestingFile(t *testing.T) {
 	cases := []struct {

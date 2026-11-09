@@ -220,6 +220,95 @@ func parseGraphFlags(args []string) (graphFlags, error) {
 	return f, nil
 }
 
+// absoluteGraphRoot makes every path absolute, in place, and is the root of
+// the map: the first path, or its directory when that is a file. Every path is
+// made absolute before anything reads it: without a config the paths as typed
+// are the scan roots, and `graph .` indexed every file under a relative URI,
+// so each resolved call then named a target relPath turned into
+// `../../../x.cfc`, a node the map does not have, and the edge was dropped.
+func absoluteGraphRoot(paths []string) (string, error) {
+	for i, p := range paths {
+		abs, err := filepath.Abs(p)
+		if err != nil {
+			return "", fmt.Errorf("resolving %s: %w", p, err)
+		}
+
+		paths[i] = abs
+	}
+
+	root := paths[0]
+
+	if info, err := os.Stat(root); err == nil && !info.IsDir() {
+		root = filepath.Dir(root)
+	}
+
+	return root, nil
+}
+
+// reportConfigs tells the person which configs the scan will resolve files under.
+func reportConfigs(found []string) {
+	fmt.Fprintf(os.Stderr, "Resolving each file under its own config (%d found):\n", len(found))
+
+	for _, c := range found {
+		fmt.Fprintf(os.Stderr, "  %s\n", c)
+	}
+}
+
+// openGraphStore opens the database --db names and, unless --no-cache, its
+// file cache. Both are nil without --db.
+func openGraphStore(f *graphFlags) (*store.Store, *store.Cache, error) {
+	if f.db == "" {
+		return nil, nil, nil
+	}
+
+	db, err := store.Open(f.db)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if f.noCache {
+		return db, nil, nil
+	}
+
+	cache := db.NewCache()
+
+	return db, cache, nil
+}
+
+// finishGraph writes the cache back and saves the map. The map is saved
+// before any view narrows it: a database holding a filtered map would answer
+// every later question about a subset of the codebase while looking like it
+// held all of it.
+func finishGraph(f *graphFlags, m *codemap.Map, db *store.Store, cache *store.Cache) error {
+	if cache != nil {
+		if err := cache.Flush(); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: could not write the file cache: %v\n", err)
+		}
+
+		if hits, misses := cache.Hits(); !f.quiet {
+			fmt.Fprintf(os.Stderr, "Cache: %d hits, %d misses\n", hits, misses)
+		}
+	}
+
+	if db == nil {
+		return nil
+	}
+
+	if err := db.Save(m); err != nil {
+		return err
+	}
+
+	if err := db.PruneCache(m.Fingerprint); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not prune old cache generations: %v\n", err)
+	}
+
+	if !f.quiet {
+		fmt.Fprintf(os.Stderr, "Saved %d nodes and %d edges to %s\n", len(m.Nodes), len(m.Edges), f.db)
+	}
+
+	return nil
+}
+
 // buildGraph takes its flags by pointer because it merges the config's codemap
 // settings into them, and the caller renders from the same struct. By value, that
 // merge was discarded on return: the map was built with the config's entry and
@@ -233,23 +322,9 @@ func buildGraph(f *graphFlags) (*codemap.Map, error) {
 	// per config (27% of its CPU in system calls).
 	fsys := vfs.CacheMetadata(vfs.OS{})
 
-	// Every path is made absolute before anything reads it. Without a config the
-	// paths as typed are the scan roots, and `graph .` indexed every file under a
-	// relative URI: each resolved call then named a target relPath turned into
-	// `../../../x.cfc`, a node the map does not have, and the edge was dropped.
-	for i, p := range f.paths {
-		abs, err := filepath.Abs(p)
-		if err != nil {
-			return nil, fmt.Errorf("resolving %s: %w", p, err)
-		}
-
-		f.paths[i] = abs
-	}
-
-	root := f.paths[0]
-
-	if info, err := os.Stat(root); err == nil && !info.IsDir() {
-		root = filepath.Dir(root)
+	root, err := absoluteGraphRoot(f.paths)
+	if err != nil {
+		return nil, err
 	}
 
 	scanRoots, fallback, shared, settings := routeWorkspace(fsys, root, f)
@@ -280,31 +355,17 @@ func buildGraph(f *graphFlags) (*codemap.Map, error) {
 		configs.preload(scanRoots)
 
 		if found := configs.Configs(); len(found) > 1 && !f.quiet {
-			fmt.Fprintf(os.Stderr, "Resolving each file under its own config (%d found):\n", len(found))
-
-			for _, c := range found {
-				fmt.Fprintf(os.Stderr, "  %s\n", c)
-			}
+			reportConfigs(found)
 		}
 	}
 
-	var (
-		db    *store.Store
-		cache *store.Cache
-		err   error
-	)
+	db, cache, err := openGraphStore(f)
+	if err != nil {
+		return nil, err
+	}
 
-	if f.db != "" {
-		db, err = store.Open(f.db)
-		if err != nil {
-			return nil, err
-		}
-
+	if db != nil {
 		defer func() { _ = db.Close() }()
-
-		if !f.noCache {
-			cache = db.NewCache()
-		}
 	}
 
 	opts := codemap.Options{
@@ -342,31 +403,8 @@ func buildGraph(f *graphFlags) (*codemap.Map, error) {
 		fmt.Fprintf(os.Stderr, "\n")
 	}
 
-	if cache != nil {
-		if err := cache.Flush(); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: could not write the file cache: %v\n", err)
-		}
-
-		if hits, misses := cache.Hits(); !f.quiet {
-			fmt.Fprintf(os.Stderr, "Cache: %d hits, %d misses\n", hits, misses)
-		}
-	}
-
-	// The map is saved before any view narrows it: a database holding a filtered
-	// map would answer every later question about a subset of the codebase while
-	// looking like it held all of it.
-	if db != nil {
-		if err := db.Save(m); err != nil {
-			return nil, err
-		}
-
-		if err := db.PruneCache(m.Fingerprint); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: could not prune old cache generations: %v\n", err)
-		}
-
-		if !f.quiet {
-			fmt.Fprintf(os.Stderr, "Saved %d nodes and %d edges to %s\n", len(m.Nodes), len(m.Edges), f.db)
-		}
+	if err := finishGraph(f, m, db, cache); err != nil {
+		return nil, err
 	}
 
 	return m, nil

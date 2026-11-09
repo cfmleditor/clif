@@ -269,6 +269,10 @@ type sourceDerived struct {
 	methods       map[string]wheelsMethod
 	tagBodiesOnce sync.Once
 	tagBodies     map[string]string
+	elementOnce   sync.Once
+	elementReads  bool
+	plainOnce     sync.Once
+	plain         *parser.ParseResult
 }
 
 // methodMap is the source's function bodies (wheelsMethods), read once per
@@ -498,7 +502,7 @@ func defaultSelfReturnModes(params [][]parser.Token, body string) (string, []str
 
 		name := strings.ToLower(param[eq-1].Value)
 		condition := `if\t\(\targuments\t\.\t` + regexp.QuoteMeta(name) + `\t(?:eq|=\t=)\t"[^"#]*"\t\)\t\{\treturn\t[^;{}]+\t;\t\}`
-		pattern := regexp.MustCompile(condition + `(?:\telse\t` + condition + `)*\telse\t\{\treturn\tthis\t;\t\}\t$`)
+		pattern := compiledPattern(condition + `(?:\telse\t` + condition + `)*\telse\t\{\treturn\tthis\t;\t\}\t$`)
 
 		loc := pattern.FindStringIndex(body)
 		if loc == nil || !selfDispatchPrefixSafe(body[:loc[0]], name) {
@@ -507,7 +511,7 @@ func defaultSelfReturnModes(params [][]parser.Token, body string) (string, []str
 
 		match := body[loc[0]:loc[1]]
 		if !strings.Contains(match, name+"\teq\t\"self\"") && !strings.Contains(match, name+"\t=\t=\t\"self\"") {
-			selector := regexp.MustCompile(`arguments\t\.\t` + regexp.QuoteMeta(name) + `\t(?:eq|=\t=)\t"([^"#]*)"`)
+			selector := compiledPattern(`arguments\t\.\t` + regexp.QuoteMeta(name) + `\t(?:eq|=\t=)\t"([^"#]*)"`)
 
 			var modes []string
 			for _, mode := range selector.FindAllStringSubmatch(match, -1) {

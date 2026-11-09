@@ -6,6 +6,7 @@ import (
 	"github.com/cfmleditor/clif/internal/codemap"
 	"github.com/cfmleditor/clif/internal/index"
 	"github.com/cfmleditor/clif/internal/resolve"
+	"github.com/cfmleditor/clif/internal/testutil"
 	"github.com/cfmleditor/clif/internal/vfs"
 )
 
@@ -14,7 +15,7 @@ import (
 // one options value would otherwise get the second built with the first's
 // defaults, and ConfigFor fixed to a single config it never asked for.
 func TestBuildDoesNotWriteToTheCallersOptions(t *testing.T) {
-	root := testdataDir(t)
+	root := testutil.Testdata()
 	fsys := vfs.OS{}
 
 	opts := codemap.Options{

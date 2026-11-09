@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/conv"
+	"github.com/cfmleditor/clif/internal/lex"
 )
 
 // Source says which syntax a route was written in.
@@ -301,12 +302,12 @@ func matchNamedValue(content string, i int, names []string, quotedOnly bool) (ke
 			continue
 		}
 
-		j = skipSpace(content, j)
+		j = lex.SkipSpace(content, j)
 		if j >= len(content) || content[j] != '=' {
 			continue
 		}
 
-		j = skipSpace(content, j+1)
+		j = lex.SkipSpace(content, j+1)
 		if j >= len(content) {
 			continue
 		}
@@ -366,12 +367,12 @@ func matchPropertyValue(content string, i int, names []string, keyQuote byte) (k
 			j++
 		}
 
-		j = skipSpace(content, j)
+		j = lex.SkipSpace(content, j)
 		if j >= len(content) || content[j] != ':' {
 			continue
 		}
 
-		j = skipSpace(content, j+1)
+		j = lex.SkipSpace(content, j+1)
 		if j >= len(content) || (content[j] != '"' && content[j] != '\'') {
 			continue
 		}
@@ -484,7 +485,7 @@ func matchCallArgs(content string, i int, names []string) (string, [][2]int, int
 			continue
 		}
 
-		j = skipSpace(content, j)
+		j = lex.SkipSpace(content, j)
 		if j >= len(content) || content[j] != '(' {
 			continue
 		}
@@ -563,12 +564,4 @@ func isNamePart(c byte) bool {
 // isPropNamePart is isNamePart without the colon, for JavaScript object keys.
 func isPropNamePart(c byte) bool {
 	return isNameStart(c) || c >= '0' && c <= '9' || c == '-' || c == '$'
-}
-
-func skipSpace(content string, i int) int {
-	for i < len(content) && (content[i] == ' ' || content[i] == '\t' || content[i] == '\r' || content[i] == '\n') {
-		i++
-	}
-
-	return i
 }

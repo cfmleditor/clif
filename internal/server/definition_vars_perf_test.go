@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/cfmleditor/clif/internal/parser"
+	"github.com/cfmleditor/clif/internal/testutil"
 	"go.lsp.dev/uri"
 )
 
@@ -82,7 +83,7 @@ func TestOnePassAgreesWithPerScopeSearch(t *testing.T) {
 // times over, when the answer is usually in the first scope or nowhere.
 func TestVariableLookupDoesNotCopyTheDocument(t *testing.T) {
 	content, vars := varCorpus(t, 4000)
-	docURI := uri.URI("file://" + testdataDir() + "/VarPerf.cfc")
+	docURI := uri.URI("file://" + testutil.Testdata() + "/VarPerf.cfc")
 
 	r := testing.Benchmark(func(b *testing.B) {
 		for b.Loop() {

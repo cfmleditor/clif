@@ -20,7 +20,7 @@ Measured on a synthetic index of 5,000 files declaring 8 methods each — 40,000
 definitions — built by `benchLoadedServer` in
 `internal/server/perf_bench_test.go`. Each figure is the minimum of several
 runs of a single benchmark run **on its own**; see the contamination note in
-CLAUDE.md for why that matters.
+`.ai/docs/guide/verification.md` for why that matters.
 
 **The handler is not the request.** A handler benchmark measures the answer
 being computed and not the answer being sent, and for these two the sending is
@@ -821,3 +821,60 @@ inside both parsers, including the closure markers and the `<cfset>` cache.
 benchmark's wall time is mostly GC count. Compare allocation counts, or run
 with `GOGC=4000` (then first-touch page faults inflate `memclr` instead);
 `GOMAXPROCS=1` makes the CPU profile attribute it.
+
+## 10. Two whole-file facts were recomputed per function; the Lucee leaf walk — implemented
+
+**Done.** A profile of a MasaCMS scan (4.3 s) put a quarter of its CPU in
+`elementReturn`, which ran two regular expressions over the whole file for
+every function of it whose return type was looked up (line 41 of
+`return_element.go`: 4.0 s of 16.2 s), and a sixth in the `parser.Parse` it
+then made, with no options, for every one of the same functions. Whether a
+source holds an element return is read once per source
+(`sourceInfo.holdsElementReturn`), and the plain parse is kept with it
+(`sourceInfo.plainParse`; a parse's lazy parts are locked, and a test shares
+one across eight goroutines under `-race`). Masa 4.3 s to 2.6 s, Galaxie
+1.28 s to 0.78 s, ContentBox -22%, ColdBox -12%; `unresolved` byte-identical on
+the seven corpora.
+
+**Done afterwards: Lucee's leaf-subclass walk** (see the CHANGELOG; 3.65 s to 2.37 s; the generation moves only for files a name can reach, `internal/index/shape.go`). The measurement that led to it: After that, 42% of a Lucee
+scan's CPU is `leafSubclassesUncached`, and nearly all of it is one base,
+`testbox/system/BaseSpec.cfc` (a stub), walked 476 times at 12 ms
+(5.7 s of 6.6 s). The cache is keyed on `Index.ShapeGeneration`, and that
+moves about 150 times during the scan: files are indexed as the scan reaches
+them (`IndexParsed`, 7,700 shape bumps over 4,500 files), and every one that
+is new invalidates every answer. Two cheaper ideas were measured and did
+nothing, so they were not kept:
+- Remembering `descendsFromDeclared` per (file, parent) pair between the walk
+  and the leaf pass: 3.7-4.2 s against 3.9-4.2 s.
+- Not moving the generation when a file is indexed again with the same
+  extends: the bumps that matter are first-time additions, so the generation
+  count was still 152.
+
+What would work is an answer that survives the writes that cannot change it,
+which means knowing what a leaf set depends on: the extenders map, and
+whatever `ComponentPath` reads when it resolves an extends (mappings, the
+directory, the file-name fallback `FindFilesByBasename`, and an ORM
+`entityname`). A new file that extends nothing and whose basename and entity
+name no `extends` mentions cannot change it, so the generation could move
+only for files that could; that needs a count of the names `extends` mentions
+kept by every writer of `Index.extends`, and a test for each way a file can
+come to matter. About a third of a Lucee scan (3.7 s to about 2.5 s) and
+nothing on the other six corpora. A wrong invalidation here is a stale leaf
+set in the editor's long-lived process, which is why it is written down and
+not done.
+
+**Batch `GOGC=75` as the default: measured, not changed.** Peak resident memory
+and time of `unresolved`, mean of three interleaved runs per setting:
+
+| corpus | `GOGC=100` | `GOGC=75` |
+|---|---|---|
+| Lucee | 318 MB, 3.83 s | 286 MB, 4.07 s |
+| MasaCMS | 277 MB, 2.67 s | 252 MB, 2.73 s |
+| Galaxie | 154 MB, 0.73 s | 149 MB, 0.80 s |
+| ContentBox | 144 MB, 0.70 s | 135 MB, 0.80 s |
+| ColdBox | 147 MB, 0.80 s | 137 MB, 0.83 s |
+| FW/1, TestBox | 73-75 MB, 0.20 s | 71 MB, 0.20 s |
+
+It saves 3-10% of the memory (2-32 MB) for 0-14% more time, which is the trade
+`cmd/clif/batch_memory.go` already describes and declines at this size: the
+default stays, and a user who wants less memory sets `GOGC` or `GOMEMLIMIT`.

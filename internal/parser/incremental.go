@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/cfmleditor/clif/internal/conv"
+	"github.com/cfmleditor/clif/internal/lex"
 	"github.com/cfmleditor/clif/internal/log"
 )
 
@@ -140,11 +141,11 @@ func (pr *ParseResult) closingTokenCol(line int) int {
 
 	// Check for </cffunction (tag-based)
 	if idx := indexCFTag(lineText, "/cffunction"); idx >= 0 {
-		return utf16Len(lineText[:idx])
+		return lex.UTF16Len(lineText[:idx])
 	}
 	// Check for closing brace (script-based)
 	if before, _, ok := strings.CutLast(lineText, "}"); ok {
-		return utf16Len(before)
+		return lex.UTF16Len(before)
 	}
 
 	return -1

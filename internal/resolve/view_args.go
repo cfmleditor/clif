@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/conv"
+	"github.com/cfmleditor/clif/internal/lex"
 	"github.com/cfmleditor/clif/internal/parser"
 )
 
@@ -79,7 +80,7 @@ func (r *Resolver) viewArgs(variable string, pr *parser.ParseResult, tr *callTra
 		}
 
 		for alt := range strings.SplitSeq(comp, "|") {
-			if !containsFold(comps, alt) {
+			if !lex.ContainsFold(comps, alt) {
 				comps = append(comps, alt)
 			}
 		}

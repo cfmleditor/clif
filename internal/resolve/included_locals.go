@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/conv"
+	"github.com/cfmleditor/clif/internal/lex"
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
 )
@@ -192,7 +193,7 @@ func heldAt(comp, dir string, r *Resolver, comps *[]string, dynamic *bool) bool 
 	}
 
 	for alt := range strings.SplitSeq(r.pathsOf(comp, dir), "|") {
-		if !containsFold(*comps, alt) {
+		if !lex.ContainsFold(*comps, alt) {
 			*comps = append(*comps, alt)
 		}
 	}

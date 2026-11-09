@@ -102,11 +102,13 @@ linters:
           files: ["**/internal/parser/**", "!$test"]
           deny:
             - pkg: github.com/cfmleditor/clif/internal
-              desc: internal/parser imports no project package but internal/log and internal/conv
+              desc: internal/parser imports no project package but internal/log, internal/conv and internal/lex
           allow:
             - github.com/cfmleditor/clif/internal/log
             # Range-checked integer conversions; imports nothing but math.
             - github.com/cfmleditor/clif/internal/conv
+            # Byte classes shared with other packages; imports nothing.
+            - github.com/cfmleditor/clif/internal/lex
         server-importers:
           files: ["**/internal/**", "!**/internal/daemon/**", "!**/internal/server/**"]
           deny:

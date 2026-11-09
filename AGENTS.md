@@ -1,6 +1,6 @@
 # Working on clif
 
-Read `CLAUDE.md` for architecture, parser invariants, and required checks.
+Read `CLAUDE.md` for architecture, commands and required checks. Its "Detailed guide" table points to `.ai/docs/guide/` for the parser, resolver, LSP, formatter, code-map, testing and verification rules; read the file for the area you change.
 
 Keep research, plans, audits, and performance documentation in `.ai/docs/`.
 Corpus review reports and their supporting files belong in

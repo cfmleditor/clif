@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/cfmleditor/clif/internal/lex"
 	"github.com/cfmleditor/clif/internal/parser"
 )
 
@@ -46,7 +47,7 @@ func plainName(name string) bool {
 
 // isNameByte is the class a variable's name continues in, [\w.$].
 func isNameByte(c byte) bool {
-	return isWordByte(c) || c == '.' || c == '$'
+	return lex.IsWord(c) || c == '.' || c == '$'
 }
 
 func lowerByte(c byte) byte {
@@ -95,13 +96,13 @@ func skipSpaceBack(s string, i int) int {
 // startsWord reports whether a \b falls before offset at, for a word byte
 // there: nothing before it, or a byte that is not a word byte.
 func startsWord(s string, at int) bool {
-	return at == 0 || !isWordByte(s[at-1])
+	return at == 0 || !lex.IsWord(s[at-1])
 }
 
 // endsWord reports whether a \b falls at offset at, after a byte that is a word
 // byte: the text ends there or the next byte is not one.
 func endsWord(s string, at int) bool {
-	return at >= len(s) || !isWordByte(s[at])
+	return at >= len(s) || !lex.IsWord(s[at])
 }
 
 // nextFold is the offset of the next occurrence of lit at or after from, or -1.
@@ -142,7 +143,7 @@ func scriptFunctionOpens(s, name string, limit int) []int {
 // its name and its '>', holds `\bname\s*=\s*["']NAME["']`.
 func tagFunctionNamed(seg, name string) bool {
 	for k := nextFold(seg, "name", 1); k >= 0; k = nextFold(seg, "name", k+1) {
-		if isWordByte(seg[k-1]) {
+		if lex.IsWord(seg[k-1]) {
 			continue
 		}
 
@@ -174,7 +175,7 @@ func tagFunctionBodiesNamed(s, name string, limit int) []string {
 
 	for c := nextFold(s, "<cffunction", 0); c >= 0 && len(bodies) < limit; {
 		e := c + len("<cffunction")
-		if e < len(s) && isWordByte(s[e]) {
+		if e < len(s) && lex.IsWord(s[e]) {
 			c = nextFold(s, "<cffunction", c+1)
 
 			continue
@@ -295,7 +296,7 @@ func declaresVarAt(s string, o int, name string) bool {
 
 	end := o + len(name)
 
-	return isWordByte(name[len(name)-1]) != (end < len(s) && isWordByte(s[end]))
+	return lex.IsWord(name[len(name)-1]) != (end < len(s) && lex.IsWord(s[end]))
 }
 
 // loopsOverAt is `\bfor\s*\(\s*(?:var\s+)?NAME\s+in\b` for the occurrence at o.
@@ -392,7 +393,7 @@ func quotedNameStarts(s, name string) []int {
 			continue
 		}
 
-		if isWordByte(name[0]) != (o > 0 && isWordByte(s[o-1])) {
+		if lex.IsWord(name[0]) != (o > 0 && lex.IsWord(s[o-1])) {
 			starts = append(starts, o)
 			lastEnd = end + 1
 		}
@@ -608,11 +609,11 @@ func customErrorTemplateValues(s string) []string {
 func lineWritesName(line, name string) bool {
 	for o := nextFold(line, name, 0); o >= 0; o = nextFold(line, name, o+1) {
 		if j := skipRegexSpace(line, o+len(name)); j+1 < len(line) && line[j] == '=' && line[j+1] != '=' {
-			if o == 0 || !isWordByte(line[o-1]) && line[o-1] != '.' {
+			if o == 0 || !lex.IsWord(line[o-1]) && line[o-1] != '.' {
 				return true
 			}
 
-			if p := o - len("variables."); p >= 0 && foldAt(line, p, "variables.") && (p == 0 || !isWordByte(line[p-1]) && line[p-1] != '.') {
+			if p := o - len("variables."); p >= 0 && foldAt(line, p, "variables.") && (p == 0 || !lex.IsWord(line[p-1]) && line[p-1] != '.') {
 				return true
 			}
 		}

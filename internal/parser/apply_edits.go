@@ -3,6 +3,8 @@ package parser
 import (
 	"strings"
 	"unicode/utf8"
+
+	"github.com/cfmleditor/clif/internal/lex"
 )
 
 // Edit is one LSP content change: a range in the document as it stands after
@@ -74,9 +76,9 @@ func ApplyEdits(content string, edits []Edit) string {
 		rest = rest[start+n:]
 
 		if nl := strings.LastIndexByte(e.Text, '\n'); nl >= 0 {
-			line, col = sLine+strings.Count(e.Text, "\n"), utf16Len(e.Text[nl+1:])
+			line, col = sLine+strings.Count(e.Text, "\n"), lex.UTF16Len(e.Text[nl+1:])
 		} else {
-			line, col = sLine, sCol+utf16Len(e.Text)
+			line, col = sLine, sCol+lex.UTF16Len(e.Text)
 		}
 	}
 
@@ -94,7 +96,7 @@ func walkTo(s string, line, col, toLine, toChar int) (offset, atLine, atCol int)
 	for line < toLine {
 		idx := strings.IndexByte(s[offset:], '\n')
 		if idx < 0 {
-			return len(s), line, col + utf16Len(s[offset:])
+			return len(s), line, col + lex.UTF16Len(s[offset:])
 		}
 
 		offset += idx + 1

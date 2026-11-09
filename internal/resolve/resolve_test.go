@@ -3,21 +3,15 @@ package resolve_test
 import (
 	"os"
 	"path/filepath"
-	"runtime"
 	"testing"
 
 	"github.com/cfmleditor/clif/internal/index"
 	"github.com/cfmleditor/clif/internal/parser"
 	"github.com/cfmleditor/clif/internal/resolve"
+	"github.com/cfmleditor/clif/internal/testutil"
 	"github.com/cfmleditor/clif/internal/vfs"
 	"go.lsp.dev/uri"
 )
-
-func testdataDir() string {
-	_, file, _, _ := runtime.Caller(0)
-
-	return filepath.Join(filepath.Dir(file), "..", "..", "testdata")
-}
 
 // TestCanResolveCall_ResolverFallbackWhenRefDerivesWrongComponent covers the case where
 // a variable (objFile) receives a component ref via a broad resolver matching its RHS
@@ -25,7 +19,7 @@ func testdataDir() string {
 // component does not have the called method. The variable-name resolver ("objFile" →
 // FileObject) should be tried as a fallback and resolve the call correctly.
 func TestCanResolveCall_ResolverFallbackWhenRefDerivesWrongComponent(t *testing.T) {
-	dir := testdataDir()
+	dir := testutil.Testdata()
 
 	resolvers := []parser.Resolver{
 		// Broad resolver: any expression containing "_parent" → models.Base.
@@ -133,7 +127,7 @@ func TestCanResolveCall_ResolverFallbackWhenRefDerivesWrongComponent(t *testing.
 // call.Chain — resolving generatePair's return type, then getPart's — before
 // checking getParams against the final component (chain.Part).
 func TestCanResolveCall_DeepChainWalksEachHopsReturnType(t *testing.T) {
-	dir := testdataDir()
+	dir := testutil.Testdata()
 
 	resolvers := []parser.Resolver{
 		{Match: `createObject\s*\(\s*['"]java['"]\s*,\s*['"](.+?)['"]\s*\)`, Resolve: "chain.$1", Prefix: "createObject"},
@@ -204,7 +198,7 @@ func TestCanResolveCall_DeepChainWalksEachHopsReturnType(t *testing.T) {
 // but the parent file was NOT pre-indexed.  The lookup must trigger on-demand indexing of the
 // parent so that the ref is visible to CanResolveCall.
 func TestCanResolveCall_ExtendsChainRefLookupWithoutPreIndex(t *testing.T) {
-	dir := testdataDir()
+	dir := testutil.Testdata()
 
 	// Deliberately do NOT index the parent (models/Base.cfc) before the test.
 	idx := index.New()
@@ -295,7 +289,7 @@ func TestCanResolveCall_ExtendsChainRefLookupWithoutPreIndex(t *testing.T) {
 // The grandparent (level 2) holds the ref; the parent (level 1) just passes extends
 // through; the child calls $assert.open().  Neither parent nor grandparent is pre-indexed.
 func TestCanResolveCall_ExtendsChainTwoLevels_ThisVarRef(t *testing.T) {
-	dir := testdataDir()
+	dir := testutil.Testdata()
 
 	// Grandparent: holds the component ref via chained this./variables. assignment.
 	grandParentContent := `component {
@@ -375,7 +369,7 @@ func TestCanResolveCall_ExtendsChainTwoLevels_ThisVarRef(t *testing.T) {
 // by a bare name (no dots, e.g. extends="BaseAssertionsTest") and the file is not in the
 // same directory or workspace root, but IS indexed in the workspace.
 func TestComponentPath_BareNameIndexFallback(t *testing.T) {
-	dir := testdataDir()
+	dir := testutil.Testdata()
 
 	idx := index.New()
 	fsys := vfs.OS{}
@@ -408,7 +402,7 @@ func TestComponentPath_BareNameIndexFallback(t *testing.T) {
 // on a typed argument via ARGUMENTS.x.method() — the resolver should find the component
 // type directly from the function definition's argument list without requiring a ComponentRef.
 func TestCanResolveCall_ArgumentsTypedDirectLookup(t *testing.T) {
-	dir := testdataDir()
+	dir := testutil.Testdata()
 
 	content := `component {
 	function work(required models.FileObject doc) {
@@ -466,7 +460,7 @@ func TestCanResolveCall_ArgumentsTypedDirectLookup(t *testing.T) {
 // direct-lookup path above never fires; CanResolveCall must instead recognize
 // the method as a known member method and accept the call without a component.
 func TestCanResolveCall_ArgumentsPrimitiveTypeMemberMethod(t *testing.T) {
-	dir := testdataDir()
+	dir := testutil.Testdata()
 
 	content := `component {
 	function work(required string password) {
@@ -510,7 +504,7 @@ func TestCanResolveCall_ArgumentsPrimitiveTypeMemberMethod(t *testing.T) {
 // component defines onMissingMethod, any method call on it is accepted without
 // reporting "method not found".
 func TestCanResolveCall_OnMissingMethodSkipsVerification(t *testing.T) {
-	dir := testdataDir()
+	dir := testutil.Testdata()
 
 	// CFC that calls pageEvent.setDocument() where pageEvent resolves to JavaProxy.
 	content := `<cfcomponent>
@@ -571,7 +565,7 @@ func TestCanResolveCall_OnMissingMethodSkipsVerification(t *testing.T) {
 // CanResolveCall). The test proves causation, not just "it passes": the same setup without
 // noFollow is shown to fail first, so the pass with noFollow can only be due to the flag.
 func TestCanResolveCall_NoFollowSkipsMethodVerification(t *testing.T) {
-	dir := testdataDir()
+	dir := testutil.Testdata()
 
 	// phantomVar has no established component ref anywhere in the file, so CanResolveCall
 	// falls through to the variable-name resolver. models.Base (see testdata/models/Base.cfc)

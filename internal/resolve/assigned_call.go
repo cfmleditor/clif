@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/conv"
+	"github.com/cfmleditor/clif/internal/lex"
 	"github.com/cfmleditor/clif/internal/parser"
 )
 
@@ -115,13 +116,11 @@ func (r *Resolver) assignedFamily(variable string, line uint32, caller string, p
 	return ""
 }
 
-func (r *Resolver) assignedFromCall(variable string, line uint32, caller string, pr *parser.ParseResult, baseDir string, tr *callTrace, ctx lookupCtx) string {
-	depth := ctx.depth
-	if pr == nil || depth >= maxAssignedDepth || variable == "" || strings.ContainsAny(variable, "[(") {
-		return ""
-	}
-
-	name, container, scoped := variable, "", false
+// splitAssignedVariable is the bare name a lookup of variable reads the
+// assignment of, the container it is a key of (prc, rc or arguments, "" for a
+// plain variable), and whether it was written variables.x.
+func splitAssignedVariable(variable string) (name, container string, scoped bool) {
+	name = variable
 
 	switch lower := strings.ToLower(variable); {
 	case strings.HasPrefix(lower, "variables."):
@@ -141,6 +140,66 @@ func (r *Resolver) assignedFromCall(variable string, line uint32, caller string,
 		name = variable[6:]
 	}
 
+	return name, container, scoped
+}
+
+// foundAssignment is the last assignment a variable's lookup reads: its
+// right-hand side, the line it is on (-1 when not known), and the line and
+// function the right-hand side is typed in.
+type foundAssignment struct {
+	rhs        string
+	evalCaller string
+	at         int
+	evalLine   uint32
+}
+
+// lastAssignment finds the assignment of name that reaches line: a key of a
+// container (prc, rc, arguments) written in the enclosing function, a local,
+// or the component's variable some other function set. Where the assignment
+// was made in another function, it is typed there, not at the lookup's line.
+func (r *Resolver) lastAssignment(variable, name, container string, scoped bool, line uint32, caller string, start int, pr *parser.ParseResult) (foundAssignment, bool) {
+	f := foundAssignment{evalLine: line, evalCaller: caller}
+
+	var ok bool
+
+	if container != "" {
+		var idx int
+
+		f.rhs, idx, ok = lastMemberAssignmentAt(sourceText(pr.Content, start, int(line)), container, name)
+		f.at = start + idx
+
+		return f, ok
+	}
+
+	f.rhs, f.at, ok = r.localAssignmentAt(pr, name, start, int(line))
+	if ok && scoped && localDeclRe.MatchString(lineOfContent(pr.Content, f.at)) {
+		// `var x = …` is a local, not the variables.x asked about.
+		ok = false
+	}
+
+	if !ok && start > 0 && (variable == name || scoped) {
+		f.rhs, f.at, ok = r.variablesAssignment(pr, name, caller, start, int(line), scoped)
+		if ok {
+			// Typed where it was assigned: `variables.x = arguments.x` in
+			// init() reads init's argument, not the caller's.
+			f.evalLine = conv.Uint32(f.at)
+			if scope, found := enclosingScope(pr, f.evalLine); found {
+				f.evalCaller = scope.Name
+			}
+		}
+	}
+
+	return f, ok
+}
+
+func (r *Resolver) assignedFromCall(variable string, line uint32, caller string, pr *parser.ParseResult, baseDir string, tr *callTrace, ctx lookupCtx) string {
+	depth := ctx.depth
+	if pr == nil || depth >= maxAssignedDepth || variable == "" || strings.ContainsAny(variable, "[(") {
+		return ""
+	}
+
+	name, container, scoped := splitAssignedVariable(variable)
+
 	if name == "" || strings.Contains(name, ".") {
 		return ""
 	}
@@ -150,44 +209,12 @@ func (r *Resolver) assignedFromCall(variable string, line uint32, caller string,
 		start = scope.Start
 	}
 
-	var (
-		rhs string
-		ok  bool
-		at  int // the assignment's line, -1 when not known
-	)
-
-	// Where the right-hand side is typed: the lookup's own line and function,
-	// unless the assignment was made in another function.
-	evalLine, evalCaller := line, caller
-
-	if container != "" {
-		var idx int
-
-		rhs, idx, ok = lastMemberAssignmentAt(sourceText(pr.Content, start, int(line)), container, name)
-		at = start + idx
-	} else {
-		rhs, at, ok = r.localAssignmentAt(pr, name, start, int(line))
-		if ok && scoped && localDeclRe.MatchString(lineOfContent(pr.Content, at)) {
-			// `var x = …` is a local, not the variables.x asked about.
-			ok = false
-		}
-
-		if !ok && start > 0 && (variable == name || scoped) {
-			rhs, at, ok = r.variablesAssignment(pr, name, caller, start, int(line), scoped)
-			if ok {
-				// Typed where it was assigned: `variables.x = arguments.x` in
-				// init() reads init's argument, not the caller's.
-				evalLine = conv.Uint32(at)
-				if scope, found := enclosingScope(pr, evalLine); found {
-					evalCaller = scope.Name
-				}
-			}
-		}
-	}
-
+	found, ok := r.lastAssignment(variable, name, container, scoped, line, caller, start, pr)
 	if !ok {
 		return ""
 	}
+
+	rhs, at, evalLine, evalCaller := found.rhs, found.at, found.evalLine, found.evalCaller
 
 	// A conditional's branches are read where the assignment is made, so a
 	// name one of them gives and the function reassigns after it is read
@@ -442,7 +469,7 @@ func hopReturns(lookup func(string, string) string, comp string, c chainCall, dy
 			return ""
 		}
 
-		if !containsFold(returns, ret) {
+		if !lex.ContainsFold(returns, ret) {
 			returns = append(returns, ret)
 		}
 	}
@@ -738,16 +765,6 @@ func inlineStructArg(content, name string, start, line int) string {
 	}
 
 	return "{" + strings.Join(parts, ",") + "}"
-}
-
-func containsFold(list []string, s string) bool {
-	for _, v := range list {
-		if strings.EqualFold(v, s) {
-			return true
-		}
-	}
-
-	return false
 }
 
 // variablesAssignment is the last assignment to an unscoped name above the

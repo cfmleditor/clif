@@ -20,11 +20,11 @@ One pull request per stage, and the same five steps every time:
    a setting or an exclusion needs its reason.
 3. **Fix** what they find. A mechanical fix is still read: a value parameter
    turned into a pointer, or a loop turned into indexing, changes behaviour
-   wherever the code edited its copy. See CLAUDE.md's lint conventions.
+   wherever the code edited its copy. See the lint conventions in `.ai/docs/guide/testing.md`.
 4. **Verify**: `go test -short -race ./...`, `make lint`, and, where code on
    the parse or request path changed, the benchmarks against `main`, run
    alternately.
-5. **Record** the rule and its reason in CLAUDE.md, and update this file.
+5. **Record** the rule and its reason in `.ai/docs/guide/testing.md`, and update this file.
 
 ## Done
 

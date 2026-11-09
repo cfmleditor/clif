@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/cfmleditor/clif/internal/lex"
 	"github.com/cfmleditor/clif/internal/parser"
 )
 
@@ -95,7 +96,7 @@ func (r *Resolver) interceptData(variable, caller string, pr *parser.ParseResult
 		passed++
 
 		for alt := range strings.SplitSeq(comp, "|") {
-			if !containsFold(comps, alt) {
+			if !lex.ContainsFold(comps, alt) {
 				comps = append(comps, alt)
 			}
 		}
@@ -287,5 +288,5 @@ func interceptTarget(value []parser.Token) *regexp.Regexp {
 		return nil
 	}
 
-	return regexp.MustCompile(`(?i)^` + b.String() + `$`)
+	return compiledPattern(`(?i)^` + b.String() + `$`)
 }

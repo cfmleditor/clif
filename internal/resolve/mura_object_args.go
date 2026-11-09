@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/cfmleditor/clif/internal/lex"
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
 )
@@ -91,11 +92,10 @@ func (r *Resolver) muraObjectArg(variable string, pr *parser.ParseResult, tr *ca
 		passed int
 	)
 
-	for i := range r.muraObjectSites() {
-		s := &r.muraObjectSites()[i]
-		if s.target != nil && !s.target.MatchString(slashed) {
-			continue
-		}
+	sites := r.muraObjectSites()
+
+	for _, i := range r.muraSitesFor(slashed) {
+		s := &sites[i]
 
 		value, ok := s.named[strings.ToLower(name)]
 
@@ -123,7 +123,7 @@ func (r *Resolver) muraObjectArg(variable string, pr *parser.ParseResult, tr *ca
 		passed++
 
 		for alt := range strings.SplitSeq(comp, "|") {
-			if !containsFold(comps, alt) {
+			if !lex.ContainsFold(comps, alt) {
 				comps = append(comps, alt)
 			}
 		}
@@ -182,9 +182,35 @@ func (r *Resolver) muraTemplateSets(file, content, name string, scoped bool) boo
 // the template at slashed: one whose theFile pattern matches it, or one that
 // does not spell its file.
 func (r *Resolver) muraObjectMayInclude(slashed string) bool {
-	return slices.ContainsFunc(r.muraObjectSites(), func(s muraObjectSite) bool {
-		return s.target == nil || s.target.MatchString(slashed)
-	})
+	return len(r.muraSitesFor(slashed)) > 0
+}
+
+// muraSitesFor are the positions, in order, of the dspObject_include calls
+// that could name the template at slashed. Which ones they are depends on
+// the path alone, and every untyped name a template reads asks, so each
+// template matches its path against every call's theFile pattern once: those
+// matches were 0.6 s of a MasaCMS scan's 9 s of CPU.
+func (r *Resolver) muraSitesFor(slashed string) []int {
+	o := r.owner()
+
+	if v, ok := o.muraSiteIdx.Load(slashed); ok {
+		if idx, isInts := v.([]int); isInts {
+			return idx
+		}
+	}
+
+	sites := r.muraObjectSites()
+	idx := []int{}
+
+	for i := range sites {
+		if sites[i].target == nil || sites[i].target.MatchString(slashed) {
+			idx = append(idx, i)
+		}
+	}
+
+	o.muraSiteIdx.Store(slashed, idx)
+
+	return idx
 }
 
 // muraIncludeDeclares reports whether a dspObject_Include in the index
@@ -362,5 +388,5 @@ func muraObjectTarget(value []parser.Token) *regexp.Regexp {
 		return nil
 	}
 
-	return regexp.MustCompile(`(?i)(?:^|/)` + b.String() + `$`)
+	return compiledPattern(`(?i)(?:^|/)` + b.String() + `$`)
 }

@@ -2438,7 +2438,7 @@ func TestResolverMatch_PipeDelimitedPrefix(t *testing.T) {
 // substring of another, listing the shorter one first makes the longer one unreachable — the
 // short alternative's (earlier, wrong) position is used to slice expr, so match never sees the
 // full text. This is the pipe-delimited-prefix variant of the pre-existing "prefix substring
-// false-positive" limitation documented in CLAUDE.md, not a new bug — it's inherent to
+// false-positive" limitation documented in .ai/docs/guide/resolvers.md, not a new bug — it's inherent to
 // findPrefixPos trying alternatives in order and stopping at the first hit.
 func TestResolverMatch_PipeDelimitedPrefix_OverlappingAlternatives(t *testing.T) {
 	resolvers := []Resolver{
@@ -4141,7 +4141,7 @@ func TestServiceProperty_BracketWithInternalDot(t *testing.T) {
 // Unanchored is the historical behaviour and is unchanged: indexFold finds the prefix
 // at any position and expr is sliced from there, so a short pattern matches exactly and
 // produces a confidently wrong component. Both false positives below are the ones
-// documented in CLAUDE.md.
+// documented in .ai/docs/guide/resolvers.md.
 func TestResolverMatch_Anchored(t *testing.T) {
 	// The variable merely contains the prefix.
 	unanchored := []Resolver{

@@ -4,27 +4,21 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/cfmleditor/clif/internal/config"
 	"github.com/cfmleditor/clif/internal/parser"
+	"github.com/cfmleditor/clif/internal/testutil"
 	"go.lsp.dev/protocol"
 	"go.lsp.dev/uri"
 )
 
 // testdataDir returns the absolute path to the testdata directory.
-func testdataDir() string {
-	_, file, _, _ := runtime.Caller(0)
-
-	return filepath.Join(filepath.Dir(file), "..", "..", "testdata")
-}
-
 // newTestdataServer creates a server configured with the testdata workspace.
 func newTestdataServer() *Server {
 	srv := newTestServer()
-	dir := testdataDir()
+	dir := testutil.Testdata()
 	srv.WorkspaceFolders = []string{dir}
 	srv.Mappings = map[string]string{
 		"models":   filepath.Join(dir, "models"),
@@ -42,7 +36,7 @@ func newTestdataServer() *Server {
 func openTestdataFile(t *testing.T, srv *Server, relPath string) uri.URI {
 	t.Helper()
 
-	abs := filepath.Join(testdataDir(), relPath)
+	abs := filepath.Join(testutil.Testdata(), relPath)
 
 	data, err := os.ReadFile(abs)
 	if err != nil {

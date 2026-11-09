@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cfmleditor/clif/internal/testutil"
 	"go.lsp.dev/protocol"
 	"go.lsp.dev/uri"
 )
@@ -23,7 +24,7 @@ import (
 func TestDidCloseReleasesEverythingHeldForTheDocument(t *testing.T) {
 	srv := newTestServer()
 
-	abs := testdataDir() + "/CloseRelease.cfc"
+	abs := testutil.Testdata() + "/CloseRelease.cfc"
 	docURI := uri.URI("file://" + abs)
 	content := "component {\n\tfunction thing() { var x = 1; }\n}\n"
 

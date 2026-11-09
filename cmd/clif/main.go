@@ -176,71 +176,82 @@ func runServer() {
 	}
 
 	if cfg != nil {
-		sock := cfg.SocketPath()
-
-		// Try to connect to an existing daemon
-		proxyErr := daemon.Proxy(sock)
-		if proxyErr == nil {
-			return
-		}
-
-		// No daemon running, or a socket that is not this user's: become the
-		// daemon and serve this client over stdio
-		log.Info("starting daemon mode", cflog.String("socket", sock), cflog.Err(proxyErr))
-
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-
-		sharedIndex := index.New()
-		ct := daemon.NewConnTracker()
-		// One settings value configures every session, whether it arrives over
-		// stdio here or over the socket later. Keeping the two in step by hand
-		// is what dropped expressionMappings and servicePropertyResolvers from
-		// every editor after the first; building it in daemon.SettingsFrom
-		// rather than here is what lets a test check that nothing is missing.
-		settings := daemon.SettingsFrom(cfg)
-
-		go func() {
-			// A daemon that cannot serve its socket still serves this editor
-			// over stdio; later editors start sessions of their own.
-			if err := daemon.Serve(ctx, sock, log, sharedIndex, ct, &settings); err != nil {
-				log.Warn("daemon socket not served", cflog.String("socket", sock), cflog.Err(err))
-			}
-		}()
-
-		// Serve this editor session over stdio with the shared index
-		ct.Add()
-
-		stream := jsonrpc2.NewStream(vfs.Stdio())
-		conn := jsonrpc2.NewConn(stream)
-		srv := server.NewServer(conn, log, sharedIndex)
-		srv.Version = version
-		settings.Apply(srv)
-		conn.Go(ctx, srv.Handler())
-
-		go func() {
-			select {
-			case <-conn.Done():
-			case <-ctx.Done():
-				_ = os.Stdin.Close()
-
-				<-conn.Done()
-			}
-
-			ct.Remove()
-		}()
-
-		// Shut down when all clients have disconnected — but not on a zero
-		// that a new client is already arriving into. Closing one editor
-		// window while another opens leaves exactly that, and taking it as
-		// final killed the arriving client: it was accepted and counted, then
-		// cut off by a shutdown it could not cancel. See ConnTracker.
-		daemon.WaitForLastClient(ctx, ct, daemon.DrainGrace)
-		cancel()
+		runDaemon(cfg, log)
 
 		return
 	}
 
+	runStandalone(log)
+}
+
+// runDaemon serves this client as part of the project's daemon: through an
+// existing one when there is one, else as the daemon itself.
+func runDaemon(cfg *daemon.Config, log cflog.Logger) {
+	sock := cfg.SocketPath()
+
+	// Try to connect to an existing daemon
+	proxyErr := daemon.Proxy(sock)
+	if proxyErr == nil {
+		return
+	}
+
+	// No daemon running, or a socket that is not this user's: become the
+	// daemon and serve this client over stdio
+	log.Info("starting daemon mode", cflog.String("socket", sock), cflog.Err(proxyErr))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	sharedIndex := index.New()
+	ct := daemon.NewConnTracker()
+	// One settings value configures every session, whether it arrives over
+	// stdio here or over the socket later. Keeping the two in step by hand
+	// is what dropped expressionMappings and servicePropertyResolvers from
+	// every editor after the first; building it in daemon.SettingsFrom
+	// rather than here is what lets a test check that nothing is missing.
+	settings := daemon.SettingsFrom(cfg)
+
+	go func() {
+		// A daemon that cannot serve its socket still serves this editor
+		// over stdio; later editors start sessions of their own.
+		if err := daemon.Serve(ctx, sock, log, sharedIndex, ct, &settings); err != nil {
+			log.Warn("daemon socket not served", cflog.String("socket", sock), cflog.Err(err))
+		}
+	}()
+
+	// Serve this editor session over stdio with the shared index
+	ct.Add()
+
+	stream := jsonrpc2.NewStream(vfs.Stdio())
+	conn := jsonrpc2.NewConn(stream)
+	srv := server.NewServer(conn, log, sharedIndex)
+	srv.Version = version
+	settings.Apply(srv)
+	conn.Go(ctx, srv.Handler())
+
+	go func() {
+		select {
+		case <-conn.Done():
+		case <-ctx.Done():
+			_ = os.Stdin.Close()
+
+			<-conn.Done()
+		}
+
+		ct.Remove()
+	}()
+
+	// Shut down when all clients have disconnected — but not on a zero
+	// that a new client is already arriving into. Closing one editor
+	// window while another opens leaves exactly that, and taking it as
+	// final killed the arriving client: it was accepted and counted, then
+	// cut off by a shutdown it could not cancel. See ConnTracker.
+	daemon.WaitForLastClient(ctx, ct, daemon.DrainGrace)
+	cancel()
+}
+
+// runStandalone serves one client with a session of its own.
+func runStandalone(log cflog.Logger) {
 	// No .clif.json anywhere above the working directory, so there is no
 	// project to run a daemon for: a standalone session with its own index.
 	// The editor's workspace roots are searched for a config again at

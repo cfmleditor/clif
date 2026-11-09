@@ -8,6 +8,7 @@ import (
 	"cmp"
 	"fmt"
 	"io"
+	"maps"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -79,6 +80,10 @@ type Options struct {
 	InferArgs  bool // type an untyped argument from what every caller passes it (resolve.Resolver.InferArgsFiles)
 	Verbose    io.Writer
 
+	// tally counts, by rule, the calls a scan set aside without proof. Scan
+	// sets it; Report.Rules is its result.
+	tally *ruleTally
+
 	// ResolverFor, when set, gives the resolver a file is checked and indexed
 	// under, given the scan's own resolver (whose index it must share). It is how
 	// a workspace of several applications reads each file under the .clif.json
@@ -103,6 +108,11 @@ type Report struct {
 	SpeculativeMethodConnections []SpeculativeMethodConnection
 	AssumedCalls                 []AssumedCall
 	SpeculativeConnections       []SpeculativeConnection
+
+	// Rules counts the calls the scan accepted or set aside as built-in
+	// without the resolver proving them, by the classify rule that did it.
+	// The reported total hides these; a judgement rule is a guess.
+	Rules map[string]int
 
 	Calls     []Call
 	Resolved  int
@@ -154,6 +164,7 @@ func Scan(fsys vfs.FS, files, targets []string, opt *Options) Report {
 
 	started := time.Now()
 	resolver := NewResolver(fsys, files, opt)
+	opt.tally = &ruleTally{}
 	rep := Report{Indexed: len(files), IndexTime: time.Since(started)}
 
 	if len(targets) == 0 {
@@ -196,6 +207,7 @@ func Scan(fsys vfs.FS, files, targets []string, opt *Options) Report {
 	}
 
 	rep.ScanTime = time.Since(started)
+	rep.Rules = opt.tally.snapshot()
 
 	// Every field takes part, so two calls on one line come out in the same
 	// order whichever goroutine finished first: a report is diffed against
@@ -317,6 +329,8 @@ func scanFile(fsys vfs.FS, resolver *resolve.Resolver, file string, opt *Options
 		call := &calls[i]
 
 		c := resolver.ClassifyCall(call, pr, baseDir, resolve.ClassifyOptions{GlobalDefs: opt.GlobalDefs, KeepUntypedHops: opt.AssumeOpenWorld || opt.keepUntypedHops})
+
+		opt.tally.add(c.Rule)
 
 		switch c.Verdict {
 		case resolve.Accepted:
@@ -635,4 +649,38 @@ func isOutside(rel string) bool {
 // what a variable is assigned from is typed the same way in both commands.
 func Parse(resolver *resolve.Resolver, file, content string) *parser.ParseResult {
 	return resolver.ParseFile(file, content, resolve.BatchSpec())
+}
+
+// ruleTally counts calls by the classify rule that decided them.
+type ruleTally struct {
+	mu sync.Mutex
+	n  map[string]int
+}
+
+// add counts one call; a nil tally, an empty rule (the resolver's own proof,
+// or an unresolved call) and a plain built-in function count nothing.
+func (t *ruleTally) add(rule string) {
+	if t == nil || rule == "" || rule == "builtin" {
+		return
+	}
+
+	t.mu.Lock()
+
+	if t.n == nil {
+		t.n = map[string]int{}
+	}
+
+	t.n[rule]++
+
+	t.mu.Unlock()
+}
+
+func (t *ruleTally) snapshot() map[string]int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	out := make(map[string]int, len(t.n))
+	maps.Copy(out, t.n)
+
+	return out
 }

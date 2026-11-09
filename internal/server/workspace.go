@@ -13,39 +13,63 @@ import (
 	"go.lsp.dev/uri"
 )
 
-func (s *Server) indexWorkspace() {
-	defer indexingGC()()
-
-	// Collect all .cfc files to index.
-	var files []string
-
-	var source string
-
-	if len(s.WorkspaceFolders) > 0 {
-		if len(s.IndexGlobs) > 0 {
-			source = "globs"
-
-			for _, g := range s.IndexGlobs {
-				for _, f := range expandGlob(g) {
-					if cfpath.IsCFCFile(f) {
-						files = append(files, f)
-					}
-				}
-			}
-		} else {
-			source = "workspaceFolders"
-
-			for _, folder := range s.WorkspaceFolders {
-				files = append(files, s.collectCFCFiles(folder)...)
-			}
-		}
-	} else {
-		source = "editorRoots"
-
+// workspaceCFCFiles are the components an indexing run reads, and where the list
+// came from: the config's globs when it has them, else the workspace folders,
+// else the editor's own roots.
+func (s *Server) workspaceCFCFiles() (files []string, source string) {
+	if len(s.WorkspaceFolders) == 0 {
 		for _, root := range s.editorRoots() {
 			files = append(files, s.collectCFCFiles(root)...)
 		}
+
+		return files, "editorRoots"
 	}
+
+	if len(s.IndexGlobs) > 0 {
+		for _, g := range s.IndexGlobs {
+			for _, f := range expandGlob(g) {
+				if cfpath.IsCFCFile(f) {
+					files = append(files, f)
+				}
+			}
+		}
+
+		return files, "globs"
+	}
+
+	for _, folder := range s.WorkspaceFolders {
+		files = append(files, s.collectCFCFiles(folder)...)
+	}
+
+	return files, "workspaceFolders"
+}
+
+// parseForIndex reads and parses one file for the index. ok is false for a file
+// the editor has open (its buffer is the editor's to report), one that cannot
+// be read, and one that is not text.
+func (s *Server) parseForIndex(f string) (pr *parser.ParseResult, ok bool) {
+	fileURI := uri.File(f)
+	if _, open := s.getDocument(fileURI); open {
+		return nil, false
+	}
+
+	data, err := s.FS.ReadFile(f)
+	if err != nil {
+		return nil, false
+	}
+
+	data, isText := cfpath.AsText(data)
+	if !isText {
+		return nil, false
+	}
+
+	return s.parseContentForIndex(fileURI, string(data)), true
+}
+
+func (s *Server) indexWorkspace() {
+	defer indexingGC()()
+
+	files, source := s.workspaceCFCFiles()
 
 	total := len(files)
 	s.log.Info("indexing workspace", cflog.String("source", source), cflog.Int("totalFiles", total), cflog.Any("paths", s.WorkspaceFolders))
@@ -96,22 +120,11 @@ func (s *Server) indexWorkspace() {
 				}
 			}()
 
-			fileURI := uri.File(f)
-			if _, open := s.getDocument(fileURI); open {
+			pr, ok := s.parseForIndex(f)
+			if !ok {
 				return
 			}
 
-			data, err := s.FS.ReadFile(f)
-			if err != nil {
-				return
-			}
-
-			data, isText := cfpath.AsText(data)
-			if !isText {
-				return
-			}
-
-			pr := s.parseContentForIndex(uri.File(f), string(data))
 			results <- parseResult{fileURI: uri.File(f), pr: pr, file: f}
 		}()
 	}

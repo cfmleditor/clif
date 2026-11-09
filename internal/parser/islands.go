@@ -1,6 +1,10 @@
 package parser
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/cfmleditor/clif/internal/lex"
+)
 
 // A script may hold text that is not script, and the scanner reads all of it as
 // code, so SQL's `VARCHAR(255)` and `sum(x)` and a Java method's signature
@@ -117,7 +121,7 @@ func opensScriptQuery(src string, open int) bool {
 
 	head := strings.TrimLeft(src[start:i-1], " \t\r\n")
 
-	return len(head) >= 5 && strings.EqualFold(head[:5], "query") && (len(head) == 5 || !isWordByte(head[5]))
+	return len(head) >= 5 && strings.EqualFold(head[:5], "query") && (len(head) == 5 || !lex.IsWord(head[5]))
 }
 
 // blankQueryBodies blanks the text between each <cfquery …> and </cfquery> in
@@ -132,7 +136,7 @@ func blankQueryBodies(b *lazyBytes, src string, from, to int) bool {
 		}
 
 		afterName := q + len("<cfquery")
-		if afterName < to && isWordByte(src[afterName]) {
+		if afterName < to && lex.IsWord(src[afterName]) {
 			pos = afterName
 
 			continue
@@ -195,7 +199,7 @@ func blankJavaBlocks(lb *lazyBytes, src string) bool {
 
 		pos = j + len("java")
 
-		if j > 0 && (isWordByte(src[j-1]) || src[j-1] == '.' || src[j-1] == '"' || src[j-1] == '\'') {
+		if j > 0 && (lex.IsWord(src[j-1]) || src[j-1] == '.' || src[j-1] == '"' || src[j-1] == '\'') {
 			continue
 		}
 

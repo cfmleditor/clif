@@ -4,6 +4,8 @@ import (
 	"path"
 	"slices"
 	"strings"
+
+	"github.com/cfmleditor/clif/internal/lex"
 )
 
 // includeWindow bounds how far past the keyword a match may reach. A tag with
@@ -109,7 +111,7 @@ func IncludeSites(content string) []IncludeSite {
 		}
 
 		// c is 'i' or 'I'.
-		if !hasPrefixFold(content[i:], "include") {
+		if !lex.HasPrefixFold(content[i:], "include") {
 			i++
 
 			continue
@@ -499,13 +501,13 @@ func hasWordFold(s, word string) bool {
 func AttributeInclude(p string) (string, bool) {
 	const prefix = "#attributes."
 
-	if len(p) <= len(prefix)+1 || !hasPrefixFold(p, prefix) || p[len(p)-1] != '#' {
+	if len(p) <= len(prefix)+1 || !lex.HasPrefixFold(p, prefix) || p[len(p)-1] != '#' {
 		return "", false
 	}
 
 	name := p[len(prefix) : len(p)-1]
 	for i := range len(name) {
-		if !isWordByte(name[i]) {
+		if !lex.IsWord(name[i]) {
 			return "", false
 		}
 	}
@@ -552,7 +554,7 @@ func spellsDirectory(content, tail string) bool {
 		}
 
 		open := strings.LastIndexByte(content[:i], '<')
-		if open >= 0 && (hasPrefixFold(content[open:], "<cfinclude") || hasPrefixFold(content[open:], "<cfdirectory")) {
+		if open >= 0 && (lex.HasPrefixFold(content[open:], "<cfinclude") || lex.HasPrefixFold(content[open:], "<cfdirectory")) {
 			continue
 		}
 

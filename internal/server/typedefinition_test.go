@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/cfmleditor/clif/internal/parser"
+	"github.com/cfmleditor/clif/internal/testutil"
 	"go.lsp.dev/protocol"
 	"go.lsp.dev/uri"
 )
@@ -45,7 +46,7 @@ const typeDefProbe = `component {
 func openProbe(t *testing.T, srv *Server, name, src string) uri.URI {
 	t.Helper()
 
-	docURI := uri.File(filepath.Join(testdataDir(), name))
+	docURI := uri.File(filepath.Join(testutil.Testdata(), name))
 	srv.setDocument(docURI, src)
 	pr := parser.Parse(docURI, src, srv.cfResolvers())
 	srv.index.IndexFileFromResult(docURI, pr.Funcs, pr.ComponentRefs)

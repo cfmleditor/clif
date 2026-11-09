@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/conv"
+	"github.com/cfmleditor/clif/internal/lex"
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
 )
@@ -93,7 +94,7 @@ func (a *initArgSites) take(expr []parser.Token, line uint32, caller string, hpr
 	}
 
 	for alt := range strings.SplitSeq(a.r.pathsOf(comp, dir), "|") {
-		if !containsFold(a.comps, alt) {
+		if !lex.ContainsFold(a.comps, alt) {
 			a.comps = append(a.comps, alt)
 		}
 	}
