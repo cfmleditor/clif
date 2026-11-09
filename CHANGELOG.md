@@ -8,6 +8,8 @@
 
 ### Changed
 
+- **`unresolved` on Lucee is about 5% faster** (3.60 s to 3.41 s, six interleaved runs). `ComponentPath`'s memo was a map behind the resolver's `RWMutex`, and every call read it: a read lock is an atomic add on one shared cache line, which was 0.58 s of a 12 s profile spent on four cores waiting for each other. It is a `sync.Map` now, read without a lock; entries are never removed. The output is byte-identical on all seven corpora. `Index.ExtendsForFile` and the URI-key memo show the same cost (0.3 s and 0.14 s) and are not changed.
+
 - **A controller's `setView` calls are read once per text, not once per view looked up** (`fw1SetViews`). `fw1ActionsUncached` ran an expression over every controller's whole text for each view it was asked about, 0.66 s of a MasaCMS scan's 12 s of CPU; the profile no longer shows it. Wall time on Masa is within noise (2.9 s both ways), since the scan has other limits. A test pins the calls it reads (with and without a subsystem, `action =`, and a lookalike); the output is byte-identical on all seven corpora.
 
 - **A source's plain parse is kept, not redone per function** (`sourceInfo.plainParse`). `elementReturn` parsed the whole file again, with no resolver, for every function of it whose return type was looked up: a sixth of a MasaCMS scan. A parse with no options is a function of the text alone, so it is shared and kept with the source (a parse's lazy parts are locked, and the test shares one across eight goroutines under `-race`). With the change above, Masa goes from 4.3 s to 2.6 s (-39%) and Galaxie from 1.28 s to 0.78 s (-39%); ContentBox -22% and ColdBox -12%, FW/1 -37% on a 0.3 s scan, Lucee unchanged. The output is byte-identical on all seven corpora.

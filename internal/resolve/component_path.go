@@ -45,17 +45,11 @@ func (r *Resolver) ComponentPath(component, baseDir string) string {
 
 	key := component + "\t" + baseDir
 
-	r.mu.RLock()
-
-	if r.resolveCache != nil {
-		if p, ok := r.resolveCache[key]; ok {
-			r.mu.RUnlock()
-
-			return p
+	if p, ok := r.resolveCache.Load(key); ok {
+		if path, isString := p.(string); isString {
+			return path
 		}
 	}
-
-	r.mu.RUnlock()
 
 	var result string
 
@@ -71,13 +65,7 @@ func (r *Resolver) ComponentPath(component, baseDir string) string {
 		result = r.componentPathUncached(component, baseDir)
 	}
 
-	r.mu.Lock()
-	if r.resolveCache == nil {
-		r.resolveCache = make(map[string]string)
-	}
-
-	r.resolveCache[key] = result
-	r.mu.Unlock()
+	r.resolveCache.Store(key, result)
 
 	return result
 }

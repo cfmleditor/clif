@@ -109,7 +109,7 @@ type pathCaches struct {
 	appRootCache        map[string]string                   // dir → Application.cfc root
 	appNameCache        map[string]bool                     // dir → an Application file there names an application
 	slugCache           map[string]string                   // dir → its box.json slug, "" for none
-	resolveCache        map[string]string                   // component+"\t"+baseDir → file path
+	resolveCache        sync.Map                            // component+"\t"+baseDir → file path; read on every call, so lock-free
 	includeCache        map[string]string                   // include path+"\t"+including directory → template
 	interfaceCache      map[string]bool                     // component file → whether it declares an interface
 	dirCache            *cfpath.DirCache                    // directory listings behind those resolutions
