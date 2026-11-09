@@ -418,101 +418,11 @@ func (p *producerScript) statement() producerNode {
 
 	switch strings.ToLower(tok.Value) {
 	case "if":
-		condition := producerText(p.takeParens())
-		if p.position >= len(p.tokens) {
-			p.failed = true
-
-			return producerNode{}
-		}
-
-		body := []producerNode{p.statement()}
-
-		var alternative []producerNode
-
-		if p.position < len(p.tokens) && strings.EqualFold(p.tokens[p.position].Value, "else") {
-			p.position++
-			if p.position >= len(p.tokens) {
-				p.failed = true
-
-				return producerNode{}
-			}
-
-			alternative = []producerNode{p.statement()}
-		}
-
-		return producerNode{kind: "if", expression: condition, body: body, alternative: alternative}
+		return p.ifStatement()
 	case "for", "while":
-		header := p.takeParens()
-		target := ""
-
-		if len(header) > 0 && strings.EqualFold(header[0].Value, "var") {
-			header = header[1:]
-		}
-
-		if len(header) > 0 && header[0].Kind == parser.TokIdent {
-			target = strings.ToLower(header[0].Value)
-		}
-
-		if p.position >= len(p.tokens) {
-			p.failed = true
-
-			return producerNode{}
-		}
-
-		body := []producerNode{p.statement()}
-
-		if producerConditionMutation(header) {
-			return producerNode{kind: "unsafe"}
-		}
-
-		return producerNode{kind: "loop", target: target, body: body, header: producerText(header)}
+		return p.loopStatement()
 	case "try":
-		if p.position >= len(p.tokens) {
-			p.failed = true
-
-			return producerNode{}
-		}
-
-		body := []producerNode{p.statement()}
-		if p.position >= len(p.tokens) || !strings.EqualFold(p.tokens[p.position].Value, "catch") {
-			p.failed = true
-
-			return producerNode{}
-		}
-
-		p.position++
-		p.takeParens()
-
-		if p.position >= len(p.tokens) {
-			p.failed = true
-
-			return producerNode{}
-		}
-
-		catches := [][]producerNode{{p.statement()}}
-
-		// Every further catch clause is another handler the same failure can
-		// reach. Read as one, the second was an expression statement that ran
-		// on into the statement after it, so ColdBox's execute() lost its
-		// `requestContext = getRequestContext();` and kept a stale value.
-		for p.position < len(p.tokens) && strings.EqualFold(p.tokens[p.position].Value, "catch") {
-			p.position++
-			p.takeParens()
-
-			if p.position >= len(p.tokens) {
-				p.failed = true
-
-				return producerNode{}
-			}
-
-			catches = append(catches, []producerNode{p.statement()})
-		}
-
-		if p.position < len(p.tokens) && strings.EqualFold(p.tokens[p.position].Value, "finally") {
-			p.failed = true
-		}
-
-		return producerNode{kind: "try", body: body, alternative: producerHandlers(catches)}
+		return p.tryStatement()
 	case "switch":
 		return p.switchStatement()
 	case "function", "do", "finally", "break", "continue":
@@ -522,6 +432,115 @@ func (p *producerScript) statement() producerNode {
 	}
 
 	return p.expressionStatement()
+}
+
+// ifStatement reads what follows an `if`: the condition, the statement it
+// guards, and the one after an `else`. Running out of input anywhere fails
+// the plan.
+func (p *producerScript) ifStatement() producerNode {
+	condition := producerText(p.takeParens())
+	if p.position >= len(p.tokens) {
+		p.failed = true
+
+		return producerNode{}
+	}
+
+	body := []producerNode{p.statement()}
+
+	var alternative []producerNode
+
+	if p.position < len(p.tokens) && strings.EqualFold(p.tokens[p.position].Value, "else") {
+		p.position++
+		if p.position >= len(p.tokens) {
+			p.failed = true
+
+			return producerNode{}
+		}
+
+		alternative = []producerNode{p.statement()}
+	}
+
+	return producerNode{kind: "if", expression: condition, body: body, alternative: alternative}
+}
+
+// loopStatement reads what follows a `for` or `while`. A header that changes
+// what its own condition reads makes the loop unsafe to evaluate.
+func (p *producerScript) loopStatement() producerNode {
+	header := p.takeParens()
+	target := ""
+
+	if len(header) > 0 && strings.EqualFold(header[0].Value, "var") {
+		header = header[1:]
+	}
+
+	if len(header) > 0 && header[0].Kind == parser.TokIdent {
+		target = strings.ToLower(header[0].Value)
+	}
+
+	if p.position >= len(p.tokens) {
+		p.failed = true
+
+		return producerNode{}
+	}
+
+	body := []producerNode{p.statement()}
+
+	if producerConditionMutation(header) {
+		return producerNode{kind: "unsafe"}
+	}
+
+	return producerNode{kind: "loop", target: target, body: body, header: producerText(header)}
+}
+
+// tryStatement reads what follows a `try`: the body and every catch clause.
+// A `finally` fails the plan, as a body with no catch does.
+func (p *producerScript) tryStatement() producerNode {
+	if p.position >= len(p.tokens) {
+		p.failed = true
+
+		return producerNode{}
+	}
+
+	body := []producerNode{p.statement()}
+	if p.position >= len(p.tokens) || !strings.EqualFold(p.tokens[p.position].Value, "catch") {
+		p.failed = true
+
+		return producerNode{}
+	}
+
+	p.position++
+	p.takeParens()
+
+	if p.position >= len(p.tokens) {
+		p.failed = true
+
+		return producerNode{}
+	}
+
+	catches := [][]producerNode{{p.statement()}}
+
+	// Every further catch clause is another handler the same failure can
+	// reach. Read as one, the second was an expression statement that ran
+	// on into the statement after it, so ColdBox's execute() lost its
+	// `requestContext = getRequestContext();` and kept a stale value.
+	for p.position < len(p.tokens) && strings.EqualFold(p.tokens[p.position].Value, "catch") {
+		p.position++
+		p.takeParens()
+
+		if p.position >= len(p.tokens) {
+			p.failed = true
+
+			return producerNode{}
+		}
+
+		catches = append(catches, []producerNode{p.statement()})
+	}
+
+	if p.position < len(p.tokens) && strings.EqualFold(p.tokens[p.position].Value, "finally") {
+		p.failed = true
+	}
+
+	return producerNode{kind: "try", body: body, alternative: producerHandlers(catches)}
 }
 
 // Dispatch is limited to literal string labels. Keep
