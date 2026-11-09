@@ -59,30 +59,8 @@ func (r *Resolver) callbackParameterComponent(variable string, pr *parser.ParseR
 		return ""
 	}
 
-	spans := r.closuresOf(pr)
-
-	var closure *closureSpan
-
-	for i := range spans {
-		s := &spans[i]
-		if int(ctx.call.StartByte) >= s.from && int(ctx.call.StartByte) < s.to && (closure == nil || s.to-s.from < closure.to-closure.from) {
-			closure = s
-		}
-	}
-
+	closure, parameter := r.closureParameter(pr, int(ctx.call.StartByte), name)
 	if closure == nil {
-		return ""
-	}
-
-	parameter := -1
-
-	for i, p := range closure.params {
-		if p == name {
-			parameter = i
-		}
-	}
-
-	if parameter < 0 {
 		return ""
 	}
 
@@ -103,22 +81,7 @@ func (r *Resolver) callbackParameterComponent(variable string, pr *parser.ParseR
 		return ""
 	}
 
-	component := provider.Component
-
-	var fd *parser.FunctionDef
-	if provider.Variable == "" && component == "" {
-		fd = r.bareFunc(provider.FuncName, pr, baseDir, provider.Caller)
-		component = pr.URI.Path()
-	} else {
-		if component == "" {
-			component, _ = r.receiverComponentD(provider.Variable, provider.Line, provider.Caller, provider.FuncName, pr, baseDir, nil, lookupCtx{depth: ctx.depth + 1, call: provider, callers: ctx.callers})
-		}
-
-		if component != "" {
-			fd = r.ResolveFunc(component, provider.FuncName, baseDir)
-		}
-	}
-
+	fd, component := r.callbackProviderFunc(provider, pr, baseDir, ctx)
 	if fd == nil {
 		return ""
 	}
@@ -134,18 +97,7 @@ func (r *Resolver) callbackParameterComponent(variable string, pr *parser.ParseR
 	}
 
 	pieces := producerSplit(tokens[2 : len(tokens)-1])
-	callback := ""
-
-	for i, piece := range pieces {
-		offset := int(provider.StartByte)
-		if callbackNamedArgument(piece) {
-			if piece[2].Offset+offset == closure.functionFrom {
-				callback = strings.ToLower(piece[0].Value)
-			}
-		} else if len(piece) > 0 && piece[0].Offset+offset == closure.functionFrom && i < len(method.parameters) {
-			callback = method.parameters[i]
-		}
-	}
+	callback := callbackParameterName(pieces, int(provider.StartByte), closure.functionFrom, method.parameters)
 
 	if callback == "" {
 		return ""
@@ -177,6 +129,79 @@ func (r *Resolver) callbackParameterComponent(variable string, pr *parser.ParseR
 	env := eval.bindArguments(fd, method, arguments, true)
 
 	return callbackInvocationComponent(&eval, method.body, env, "arguments."+callback, parameter)
+}
+
+// closureParameter is the innermost closure holding the byte at start, and the
+// position of the parameter called name in it; a nil closure when the byte is
+// in none or the closure has no such parameter.
+func (r *Resolver) closureParameter(pr *parser.ParseResult, start int, name string) (closure *closureSpan, parameter int) {
+	spans := r.closuresOf(pr)
+
+	for i := range spans {
+		s := &spans[i]
+		if start >= s.from && start < s.to && (closure == nil || s.to-s.from < closure.to-closure.from) {
+			closure = s
+		}
+	}
+
+	if closure == nil {
+		return nil, -1
+	}
+
+	parameter = -1
+
+	for i, p := range closure.params {
+		if p == name {
+			parameter = i
+		}
+	}
+
+	if parameter < 0 {
+		return nil, -1
+	}
+
+	return closure, parameter
+}
+
+// callbackProviderFunc is the function a call that is handed a callback runs,
+// and the component declaring it: a bare call is the file's own or an
+// included function, a qualified one is looked up on the receiver's
+// component. A nil function when it cannot be placed.
+func (r *Resolver) callbackProviderFunc(provider *parser.CallSite, pr *parser.ParseResult, baseDir string, ctx lookupCtx) (fd *parser.FunctionDef, component string) {
+	component = provider.Component
+
+	if provider.Variable == "" && component == "" {
+		return r.bareFunc(provider.FuncName, pr, baseDir, provider.Caller), pr.URI.Path()
+	}
+
+	if component == "" {
+		component, _ = r.receiverComponentD(provider.Variable, provider.Line, provider.Caller, provider.FuncName, pr, baseDir, nil, lookupCtx{depth: ctx.depth + 1, call: provider, callers: ctx.callers})
+	}
+
+	if component != "" {
+		fd = r.ResolveFunc(component, provider.FuncName, baseDir)
+	}
+
+	return fd, component
+}
+
+// callbackParameterName is the name, in the provider, of the parameter the
+// closure starting at functionFrom is passed as: a named argument gives it,
+// a positional one is the provider's parameter at that position.
+func callbackParameterName(pieces [][]parser.Token, providerStart, functionFrom int, parameters []string) string {
+	callback := ""
+
+	for i, piece := range pieces {
+		if callbackNamedArgument(piece) {
+			if piece[2].Offset+providerStart == functionFrom {
+				callback = strings.ToLower(piece[0].Value)
+			}
+		} else if len(piece) > 0 && piece[0].Offset+providerStart == functionFrom && i < len(parameters) {
+			callback = parameters[i]
+		}
+	}
+
+	return callback
 }
 
 // Callback syntax is opaque to value evaluation. Preserve its slot while

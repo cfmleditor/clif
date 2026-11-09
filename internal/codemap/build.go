@@ -264,11 +264,32 @@ func Build(opts *Options) *Map {
 	done := 0
 	total := len(opts.Files)
 
+	var open []*FileGraph
+
 	for r := range results {
 		done++
 
 		if opts.Progress != nil {
 			opts.Progress(PhaseScan, done, total)
+		}
+
+		if len(r.pending) > 0 {
+			open = append(open, r)
+
+			continue
+		}
+
+		c.merge(r)
+	}
+
+	// The index holds everything the scan reached now, so the calls whose
+	// fate rests on a count are decided against the same index however the
+	// workers were scheduled.
+	for _, r := range open {
+		r.settle(opts)
+
+		if opts.Cache != nil && r.cacheHash != "" {
+			_ = opts.Cache.Save(fingerprint, r.cacheHash, r)
 		}
 
 		c.merge(r)
@@ -441,6 +462,52 @@ type FileGraph struct {
 	Provisional []Node `json:"provisional"`
 	Edges       []Edge `json:"edges"`
 	Stats       Stats  `json:"stats"`
+
+	// pending are the calls whose classification waits for the index to be
+	// complete (resolve.ClassifyOptions.DeferCounts); settle adds what they
+	// contribute. cacheHash is the content hash to store the file under once
+	// they have, for a file the cache could not store when it was scanned.
+	pending   []pendingCall
+	cacheHash string
+}
+
+// pendingCall is a call in a FileGraph left open: its class, the resolver of
+// its file, the node it is made from and the label it would be drawn with.
+type pendingCall struct {
+	class    *resolve.Pending
+	resolver *resolve.Resolver
+	from     string
+	label    string
+}
+
+// settle adds what the pending calls contribute to the file's graph, against
+// the index as it now is: a built-in is counted so, and any other is an
+// unresolved call (an accepted one, set aside for its reason alone, always
+// was), drawn as an external node when the options ask for those.
+func (res *FileGraph) settle(opts *Options) {
+	for i := range res.pending {
+		p := &res.pending[i]
+
+		if v, _ := p.class.Settle(p.resolver); v == resolve.Builtin {
+			res.Stats.Builtin++
+
+			if !opts.IncludeBuiltins {
+				continue
+			}
+		}
+
+		res.Stats.Unresolved++
+
+		if !opts.IncludeUnresolved {
+			continue
+		}
+
+		to := ExternalID(p.label)
+		res.Provisional = append(res.Provisional, Node{ID: to, Kind: KindExternal, Name: p.label})
+		res.addCallEdge(p.from, to, true)
+	}
+
+	res.pending = nil
 }
 
 // scanFileRecovered is scanFile, with a panic on the file recorded and the
@@ -536,9 +603,15 @@ func scanFile(opts *Options, root, file, fingerprint string) *FileGraph {
 	res.addRoutes(&cfg, rel, root, content)
 
 	if opts.Cache != nil {
-		// A cache write that fails is a slow next build, not a wrong one, so it is
-		// not worth failing the scan over or serialising a mutex around.
-		_ = opts.Cache.Save(fingerprint, hash, res)
+		if len(res.pending) > 0 {
+			// Not yet what the file contributes: Build stores it once the
+			// pending calls are settled.
+			res.cacheHash = hash
+		} else {
+			// A cache write that fails is a slow next build, not a wrong one, so it is
+			// not worth failing the scan over or serialising a mutex around.
+			_ = opts.Cache.Save(fingerprint, hash, res)
+		}
 	}
 
 	return res
@@ -743,9 +816,18 @@ func (res *FileGraph) addCalls(opts *Options, cfg *FileConfig, pr *parser.ParseR
 
 		res.Stats.CallSites++
 
-		class := cfg.Resolver.ClassifyCall(call, pr, baseDir, resolve.ClassifyOptions{WantTarget: true})
+		class := cfg.Resolver.ClassifyCall(call, pr, baseDir, resolve.ClassifyOptions{WantTarget: true, DeferCounts: true})
 		target, reason := class.Target, class.Reason
 		from := res.callerID(pr, rel, call.Line)
+
+		if class.Pending != nil {
+			// A receiver nothing typed, whose fate rests on how many components
+			// declare the method: decided once every file has been scanned. It
+			// is an unresolved call or a built-in, never a resolved one.
+			res.pending = append(res.pending, pendingCall{class: class.Pending, resolver: cfg.Resolver, from: from, label: strings.Clone(externalLabel("", call))})
+
+			continue
+		}
 
 		// A builtin is set aside after resolution, not before. A workspace
 		// function may share a name with a built-in or a member method — init,
