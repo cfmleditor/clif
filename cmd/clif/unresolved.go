@@ -1,11 +1,13 @@
 package main
 
 import (
+	"cmp"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 
@@ -223,6 +225,10 @@ func cmdUnresolved(args []string) {
 		for _, b := range bases {
 			fmt.Fprintf(os.Stderr, "  %-50s %5d files %7d calls\n", b.Component, b.Files, b.Calls)
 		}
+	}
+
+	if fl.verbose {
+		writeRuleCounts(os.Stderr, rep.Rules)
 	}
 
 	if hint := presetHint(cfg, searchDir); hint != "" {
@@ -557,5 +563,29 @@ func perFileResolver(cfg *daemon.Config) func(base *resolve.Resolver, file strin
 		}
 
 		return r
+	}
+}
+
+// writeRuleCounts lists the calls the report did not check, by the rule that
+// let each through: the resolved count includes them, and a judgement rule is
+// a guess about the receiver, not a proof.
+func writeRuleCounts(w io.Writer, rules map[string]int) {
+	if len(rules) == 0 {
+		return
+	}
+
+	names := make([]string, 0, len(rules))
+	for n := range rules {
+		names = append(names, n)
+	}
+
+	sort.Slice(names, func(i, j int) bool {
+		return cmp.Or(cmp.Compare(rules[names[j]], rules[names[i]]), cmp.Compare(names[i], names[j])) < 0
+	})
+
+	_, _ = fmt.Fprintf(w, "\nCalls set aside by rule (not proved by the resolver):\n")
+
+	for _, n := range names {
+		_, _ = fmt.Fprintf(w, "  %-30s %7d\n", n, rules[n])
 	}
 }

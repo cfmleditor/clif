@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- **`unresolved --verbose` says how many calls each classify rule let through.** The resolved count includes calls accepted for their reason alone (`untypedHop`, `sharedMember`, `distinctiveMember`, …), which are judgements about the receiver and not proofs; nothing listed them. They are now counted by rule name in `Report.Rules` and printed on stderr after the totals. A plain built-in function is not counted. The report on stdout is unchanged.
+
 ### Changed
 
 - **A controller's `setView` calls are read once per text, not once per view looked up** (`fw1SetViews`). `fw1ActionsUncached` ran an expression over every controller's whole text for each view it was asked about, 0.66 s of a MasaCMS scan's 12 s of CPU; the profile no longer shows it. Wall time on Masa is within noise (2.9 s both ways), since the scan has other limits. A test pins the calls it reads (with and without a subsystem, `action =`, and a lookalike); the output is byte-identical on all seven corpora.

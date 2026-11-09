@@ -43,9 +43,12 @@ type ClassifyOptions struct {
 
 // Classified is the verdict on one call, with what produced it.
 type Classified struct {
-	Target  CallTarget
-	Reason  string
-	Base    string
+	Target CallTarget
+	Reason string
+	Base   string
+	// Rule names what decided a call set aside for its reason alone (see
+	// classifyRules); empty when the resolver proved it.
+	Rule    string
 	Verdict Verdict
 }
 
@@ -67,7 +70,7 @@ func (r *Resolver) ClassifyCall(call *parser.CallSite, pr *parser.ParseResult, b
 		c.Reason = r.CanResolveCall(call, pr, baseDir)
 	}
 
-	c.Verdict, c.Base = r.ClassifyReasonIn(call, c.Reason, opt, pr, baseDir)
+	c.Verdict, c.Base, c.Rule = r.ClassifyReasonRule(call, c.Reason, opt, pr, baseDir)
 
 	// A call set aside for its reason alone is accepted as dynamic.
 	if c.Verdict == Accepted && c.Reason != "" && opt.WantTarget {
