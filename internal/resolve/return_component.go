@@ -188,7 +188,7 @@ func (r *Resolver) returnComponentOf(fd *parser.FunctionDef, depth int, budget *
 // done says whether the declared contracts below it in returnComponentOf are
 // skipped, which an answer of "" can ask for too.
 func (r *Resolver) producerReturn(fd *parser.FunctionDef, depth int, budget *int) (ret string, done bool) {
-	if !(fd.URI.IsFile() && (fd.ReturnType == "" || strings.EqualFold(fd.ReturnType, "any") || strings.EqualFold(fd.ReturnType, "component") || strings.EqualFold(fd.ReturnType, "object"))) {
+	if !fd.URI.IsFile() || fd.ReturnType != "" && !strings.EqualFold(fd.ReturnType, "any") && !strings.EqualFold(fd.ReturnType, "component") && !strings.EqualFold(fd.ReturnType, "object") {
 		return "", false
 	}
 
