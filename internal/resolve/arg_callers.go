@@ -81,6 +81,15 @@ func (idx *callerIndex) add(path string, names map[string]bool) {
 	}
 }
 
+// sortByPath puts each name's files in path order, without repeats, once the
+// index is complete and before anything asks it.
+func (idx *callerIndex) sortByPath() {
+	for name, ids := range idx.byName {
+		slices.SortFunc(ids, func(a, b uint32) int { return strings.Compare(idx.paths[a], idx.paths[b]) })
+		idx.byName[name] = slices.Compact(ids)
+	}
+}
+
 // IndexCallerFile adds the call-shaped names in content to the batch caller
 // index while the unresolved scan already has the file bytes in hand. It
 // avoids reading every workspace file again when the first untyped argument
@@ -256,24 +265,22 @@ func (r *Resolver) callerFiles(name string) []string {
 
 	key := strings.ToLower(name)
 
+	// Only the copy is made under the index's lock, which every worker
+	// shares: the sort is not, and an index that is complete when it is first
+	// asked (sortByPath) hands over a sorted list. Nothing is written back, so
+	// a name never indexed adds no entry; inference asks about every prefix
+	// of a name (computedCallerKey).
 	idx.mu.Lock()
-	ids, ok := idx.byName[key]
-
-	// Kept in path order, so the next ask sorts a sorted list. A name never
-	// indexed is not written back: inference asks about every prefix of a
-	// name (computedCallerKey), and each would stay in the map as an empty
-	// entry for the rest of the scan.
-	if ok {
-		slices.SortFunc(ids, func(a, b uint32) int { return strings.Compare(idx.paths[a], idx.paths[b]) })
-		ids = slices.Compact(ids)
-		idx.byName[key] = ids
-	}
+	ids := idx.byName[key]
 
 	files := make([]string, 0, len(ids))
 	for _, id := range ids {
 		files = append(files, idx.paths[id])
 	}
 	idx.mu.Unlock()
+
+	slices.Sort(files)
+	files = slices.Compact(files)
 
 	// failed is set when the index is built and never written after.
 	for _, f := range idx.failed {
@@ -333,6 +340,8 @@ func ShareCallerIndex(rs []*Resolver) (restore func()) {
 		}
 	}
 
+	idx.sortByPath()
+
 	prev := make([]*callerIndex, len(rs))
 
 	for i, r := range rs {
@@ -369,6 +378,8 @@ func (r *Resolver) buildCallerIndex() *callerIndex {
 
 		idx.add(path, callerNames(text))
 	}
+
+	idx.sortByPath()
 
 	r.mu.Lock()
 	if r.callerIdx == nil {

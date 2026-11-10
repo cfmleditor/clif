@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"unsafe"
 
 	"github.com/cfmleditor/clif/internal/lex"
 	"go.lsp.dev/uri"
@@ -528,20 +529,24 @@ type ResolverSet struct {
 // resolverMemo is split into shards by expression, each with its own lock:
 // every parse worker of a batch run shares the memo, a miss takes the write
 // lock, and one lock for all of it was the most contended in a tassweb scan,
-// four seconds of workers waiting. A set built for one parse is used by one
-// goroutine and gets a single shard (newPrivateResolverSet): 64 locks would be
-// 4KB per parse for nothing.
+// four seconds of workers waiting. A set built for one parse shares its memo
+// with no other parse and gets a single shard (newPrivateResolverSet): 64
+// would be 4KB per parse for nothing.
 type resolverMemo struct {
 	shards []resolverMemoShard
 }
 
 // resolverMemoShard fills a 64-byte cache line: a hit's RLock writes the
-// reader count, and two shards sharing a line would contend on it.
+// reader count, and two shards sharing a line would contend on it. The pad is
+// worked out from the fields, so it stays right if their sizes change, and
+// fails to compile if they outgrow the line.
 type resolverMemoShard struct {
 	mu      sync.RWMutex // read-locked for a hit
 	answers map[string]resolverAnswer
-	_       [32]byte
+	_       [cacheLine - unsafe.Sizeof(sync.RWMutex{}) - unsafe.Sizeof(map[string]resolverAnswer(nil))]byte
 }
+
+const cacheLine = 64
 
 const resolverMemoShards = 64
 
@@ -634,8 +639,9 @@ func BuildResolverSet(resolvers []Resolver) *ResolverSet {
 	return buildResolverSet(resolvers, resolverMemoShards)
 }
 
-// newPrivateResolverSet is a set for one parse, which no other goroutine
-// reads: its memo is a single shard.
+// newPrivateResolverSet is a set for one parse: no other parse shares its
+// memo, so it is a single shard. It is still locked, because the parse's lazy
+// per-function work can run on whichever goroutine holds the result.
 func newPrivateResolverSet(resolvers []Resolver) *ResolverSet {
 	return buildResolverSet(resolvers, 1)
 }
