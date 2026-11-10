@@ -257,18 +257,23 @@ func (r *Resolver) callerFiles(name string) []string {
 	key := strings.ToLower(name)
 
 	idx.mu.Lock()
-	ids := idx.byName[key]
-	slices.Sort(ids)
-	ids = slices.Compact(ids)
-	idx.byName[key] = ids
+	ids, ok := idx.byName[key]
+
+	// Kept in path order, so the next ask sorts a sorted list. A name never
+	// indexed is not written back: inference asks about every prefix of a
+	// name (computedCallerKey), and each would stay in the map as an empty
+	// entry for the rest of the scan.
+	if ok {
+		slices.SortFunc(ids, func(a, b uint32) int { return strings.Compare(idx.paths[a], idx.paths[b]) })
+		ids = slices.Compact(ids)
+		idx.byName[key] = ids
+	}
 
 	files := make([]string, 0, len(ids))
 	for _, id := range ids {
 		files = append(files, idx.paths[id])
 	}
 	idx.mu.Unlock()
-
-	slices.Sort(files)
 
 	// failed is set when the index is built and never written after.
 	for _, f := range idx.failed {
@@ -323,7 +328,9 @@ func ShareCallerIndex(rs []*Resolver) (restore func()) {
 	idx.failed = failed
 
 	for i, seen := range names {
-		idx.add(files[i], seen)
+		if seen != nil {
+			idx.add(files[i], seen)
+		}
 	}
 
 	prev := make([]*callerIndex, len(rs))

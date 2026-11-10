@@ -528,17 +528,26 @@ type ResolverSet struct {
 // resolverMemo is split into shards by expression, each with its own lock:
 // every parse worker of a batch run shares the memo, a miss takes the write
 // lock, and one lock for all of it was the most contended in a tassweb scan,
-// four seconds of workers waiting.
+// four seconds of workers waiting. A set built for one parse is used by one
+// goroutine and gets a single shard (newPrivateResolverSet): 64 locks would be
+// 4KB per parse for nothing.
 type resolverMemo struct {
-	shards [resolverMemoShards]resolverMemoShard
+	shards []resolverMemoShard
 }
 
+// resolverMemoShard fills a 64-byte cache line: a hit's RLock writes the
+// reader count, and two shards sharing a line would contend on it.
 type resolverMemoShard struct {
 	mu      sync.RWMutex // read-locked for a hit
 	answers map[string]resolverAnswer
+	_       [32]byte
 }
 
 const resolverMemoShards = 64
+
+func newResolverMemo(shards int) *resolverMemo {
+	return &resolverMemo{shards: make([]resolverMemoShard, shards)}
+}
 
 var resolverMemoSeed = maphash.MakeSeed()
 
@@ -555,9 +564,19 @@ func (m *resolverMemo) size() int {
 	return n
 }
 
-// shard is the part of the memo that holds expr.
+// shard is the part of the memo that holds expr. A single shard is not
+// hashed for: the map lookup that follows hashes expr anyway.
 func (m *resolverMemo) shard(expr string) *resolverMemoShard {
-	return &m.shards[maphash.String(resolverMemoSeed, expr)%resolverMemoShards]
+	if len(m.shards) == 1 {
+		return &m.shards[0]
+	}
+
+	return &m.shards[maphash.String(resolverMemoSeed, expr)%uint64(len(m.shards))]
+}
+
+// limit is how many answers one shard holds before it is emptied.
+func (m *resolverMemo) limit() int {
+	return maxResolverAnswers / len(m.shards)
 }
 
 // ForParse is a set for one parse: rs's index and memo of answers, shared,
@@ -608,9 +627,21 @@ func (rs *ResolverSet) isSoft(comp string) bool {
 	return rs.soft[strings.ToLower(comp)]
 }
 
-// BuildResolverSet creates an optimized resolver set from a slice of resolvers.
+// BuildResolverSet creates an optimized resolver set from a slice of
+// resolvers, with a memo sharded for the parse workers that share it through
+// ForParse.
 func BuildResolverSet(resolvers []Resolver) *ResolverSet {
-	rs := &ResolverSet{resolvers: resolvers, byByte: &[256][]int{}, memo: &resolverMemo{}}
+	return buildResolverSet(resolvers, resolverMemoShards)
+}
+
+// newPrivateResolverSet is a set for one parse, which no other goroutine
+// reads: its memo is a single shard.
+func newPrivateResolverSet(resolvers []Resolver) *ResolverSet {
+	return buildResolverSet(resolvers, 1)
+}
+
+func buildResolverSet(resolvers []Resolver, shards int) *ResolverSet {
+	rs := &ResolverSet{resolvers: resolvers, byByte: &[256][]int{}, memo: newResolverMemo(shards)}
 	for i := range resolvers {
 		if resolvers[i].Prefix == "" {
 			continue
@@ -795,7 +826,7 @@ func (rs *ResolverSet) Resolve(expr string) string {
 		a = rs.resolve(expr)
 
 		m.mu.Lock()
-		if m.answers == nil || len(m.answers) >= maxResolverAnswers/resolverMemoShards {
+		if m.answers == nil || len(m.answers) >= rs.memo.limit() {
 			m.answers = make(map[string]resolverAnswer)
 		}
 
