@@ -274,6 +274,17 @@ func (r *Resolver) handlerParse(path string) *parser.ParseResult {
 		return pr
 	}
 
+	frame, reentered := enterHandlerParse(key)
+	if reentered {
+		source := r.sourceInfo(path)
+
+		return source.plainParse(path)
+	}
+
+	defer leaveHandlerParse(frame)
+
+	handlerParses.Add(1)
+
 	text, err := r.readText(path)
 	if err != nil {
 		return nil
@@ -288,6 +299,12 @@ func (r *Resolver) handlerParse(path string) *parser.ParseResult {
 		ExtractCalls: true, ScanAllScopes: true,
 	})
 	pr.FuncLookup = r.FuncLookup(filepath.Dir(path))
+
+	// A parse that read an unfinished outer file is that caller's answer, not
+	// this file's (handler_reentry.go).
+	if frame.borrowed {
+		return pr
+	}
 
 	r.mu.Lock()
 	if r.handlerCache == nil || len(r.handlerCache) >= 512 && len(r.InferArgsFiles) == 0 {
