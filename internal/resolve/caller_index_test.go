@@ -115,3 +115,35 @@ func TestTheFirstAskSortsANameAndAnAddUnsortsIt(t *testing.T) {
 		t.Fatalf("callers of save after an add: %v, want %v", got, want)
 	}
 }
+
+// A first ask sorts a copy outside the lock and keeps it only if nothing was
+// added meanwhile. The interleaving that defeats a length check: one ask
+// copies a list holding a repeat, another stores the shorter compacted list,
+// an add grows it back to the first ask's length, and the first ask finishes.
+// Its copy predates the add and must not replace the list.
+func TestASortStartedBeforeAnAddDoesNotReplaceTheList(t *testing.T) {
+	r := &Resolver{InferArgsFiles: []string{"/w/a.cfc", "/w/b.cfc", "/w/c.cfc"}}
+	r.IndexCallerFile("/w/a.cfc", "component { function f() { save( 1 ); } }")
+	r.IndexCallerFile("/w/c.cfc", "component { function g() { save( 2 ); } }")
+	r.IndexCallerFile("/w/a.cfc", "component { function f() { save( 1 ); } }")
+
+	idx := r.callerIdx
+	early := idx.unsorted("save")
+
+	if got := idx.files("save"); !slices.Equal(got, []string{"/w/a.cfc", "/w/c.cfc"}) {
+		t.Fatalf("callers of save: %v", got)
+	}
+
+	r.IndexCallerFile("/w/b.cfc", "component { function h() { save( 3 ); } }")
+
+	if len(idx.byName["save"]) != len(early.ids) {
+		t.Fatalf("the fixture no longer reproduces the case: %d ids held, %d copied", len(idx.byName["save"]), len(early.ids))
+	}
+
+	early.sort()
+	idx.keep("save", early)
+
+	if got, want := r.callerFiles("save"), []string{"/w/a.cfc", "/w/b.cfc", "/w/c.cfc"}; !slices.Equal(got, want) {
+		t.Fatalf("callers of save after a stale sort finished: %v, want %v", got, want)
+	}
+}

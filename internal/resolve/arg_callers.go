@@ -60,6 +60,10 @@ type callerIndex struct {
 	// cleared when a file is added under it. Only the names asked about are
 	// sorted, a small part of an index of millions of entries.
 	sorted map[string]bool
+	// adds counts the files added. A sorted copy is kept only when nothing
+	// was added while it was being sorted: a length cannot say so, since
+	// another ask's compaction shrinks the list and an add grows it back.
+	adds uint64
 	// failed are the files whose names could not be read (forEachFile).
 	// Each is listed as a caller of every name, so inference parses it and,
 	// when that fails too, withholds rather than typing an argument from
@@ -81,9 +85,16 @@ func (idx *callerIndex) add(path string, names map[string]bool) {
 		idx.paths = append(idx.paths, path)
 	}
 
+	idx.adds++
+
 	for name := range names {
 		idx.byName[name] = append(idx.byName[name], id)
-		delete(idx.sorted, name)
+
+		// Nothing is sorted until something asks, which in a batch run is
+		// after the index pass, so the pass does not pay for the delete.
+		if len(idx.sorted) > 0 {
+			delete(idx.sorted, name)
+		}
 	}
 }
 
@@ -93,35 +104,64 @@ func (idx *callerIndex) add(path string, names map[string]bool) {
 // A name never indexed adds no entry: inference asks about every prefix of a
 // name (computedCallerKey).
 func (idx *callerIndex) files(name string) []string {
-	idx.mu.Lock()
-	ids, paths := idx.byName[name], idx.paths
-
-	if idx.sorted[name] {
-		files := pathsOf(ids, paths)
-		idx.mu.Unlock()
-
+	if files, done := idx.sortedFiles(name); done {
 		return files
 	}
 
-	// Sorted on a copy: add appends to the stored list under the lock.
-	ids = slices.Clone(ids)
-	idx.mu.Unlock()
+	pending := idx.unsorted(name)
+	pending.sort()
+	idx.keep(name, pending)
 
-	held := len(ids)
+	return pathsOf(pending.ids, pending.paths)
+}
 
-	slices.SortFunc(ids, func(a, b uint32) int { return strings.Compare(paths[a], paths[b]) })
-	ids = slices.Compact(ids)
+// sortedFiles is name's files when its list is already sorted.
+func (idx *callerIndex) sortedFiles(name string) ([]string, bool) {
+	idx.mu.Lock()
+	defer idx.mu.Unlock()
 
-	if held > 0 {
-		idx.mu.Lock()
-		if len(idx.byName[name]) == held {
-			idx.byName[name] = ids
-			idx.sorted[name] = true
-		}
-		idx.mu.Unlock()
+	if !idx.sorted[name] {
+		return nil, false
 	}
 
-	return pathsOf(ids, paths)
+	return pathsOf(idx.byName[name], idx.paths), true
+}
+
+// pendingSort is a copy of a name's list taken to be sorted outside the lock,
+// with the add count it was taken at.
+type pendingSort struct {
+	ids   []uint32
+	paths []string
+	adds  uint64
+}
+
+// unsorted copies name's list: add appends to the stored one under the lock.
+func (idx *callerIndex) unsorted(name string) pendingSort {
+	idx.mu.Lock()
+	defer idx.mu.Unlock()
+
+	return pendingSort{ids: slices.Clone(idx.byName[name]), paths: idx.paths, adds: idx.adds}
+}
+
+func (p *pendingSort) sort() {
+	slices.SortFunc(p.ids, func(a, b uint32) int { return strings.Compare(p.paths[a], p.paths[b]) })
+	p.ids = slices.Compact(p.ids)
+}
+
+// keep stores p as name's sorted list, unless a file was added since p was
+// copied or the name was never indexed.
+func (idx *callerIndex) keep(name string, p pendingSort) {
+	if len(p.ids) == 0 {
+		return
+	}
+
+	idx.mu.Lock()
+	defer idx.mu.Unlock()
+
+	if idx.adds == p.adds {
+		idx.byName[name] = p.ids
+		idx.sorted[name] = true
+	}
 }
 
 // pathsOf is the paths ids number.
