@@ -4,6 +4,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
+	"unsafe"
 
 	"github.com/cfmleditor/clif/internal/parser"
 )
@@ -48,8 +50,10 @@ func reachingUnion(pr *parser.ParseResult, scopeStart int, name string, line uin
 	// the source shows at the start of a statement.
 	var at []int
 
+	facts := contentFacts(pr.Content)
+
 	for header := use + 1; len(at) < maxReachingAssignments; header = at[len(at)-1] {
-		_, l, ok := localAssignmentAt(pr.Content, name, scopeStart, header)
+		_, l, ok := facts.assignmentAt(pr.Content, name, scopeStart, header)
 		if !ok {
 			break
 		}
@@ -188,7 +192,11 @@ func blockPaths(content string, scopeStart, use int, name string, lines []int, t
 		}
 	}
 
-	for _, ev := range blockEvents(content[from:end], tag) {
+	for _, ev := range scopeBlockEvents(content, from, tag) {
+		if ev.offset >= end-from {
+			break
+		}
+
 		record(ev.offset)
 
 		switch ev.op {
@@ -214,6 +222,105 @@ func blockPaths(content string, scopeStart, use int, name string, lines []int, t
 	record(len(content) - from)
 
 	return paths
+}
+
+// maxScopeEvents is how many scopes' block events scopeBlockEvents keeps. A
+// scan asks about one file's uses together, so a few per worker is enough.
+const maxScopeEvents = 256
+
+// scopeEventKey names a scope's text by where its bytes are, not by the bytes:
+// hashing a whole file per lookup would cost what the cache saves. The entry
+// holds the text, so the bytes cannot be freed and reused while it is kept.
+type scopeEventKey struct {
+	data *byte
+	n    int
+	from int
+	tag  bool
+}
+
+// contentKey is the key for content's bytes, read from where they are. It
+// only names them; the entry it keys holds content and compares it on a hit.
+func contentKey(content string) scopeEventKey {
+	return scopeEventKey{data: unsafe.StringData(content), n: len(content)} //nolint:gosec // the address is a cache key; the bytes are never written or read through it
+}
+
+type scopeEventEntry struct {
+	content string
+	events  []blockEvent
+}
+
+var scopeEvents = struct {
+	sync.Mutex
+	m map[scopeEventKey]scopeEventEntry
+}{m: map[scopeEventKey]scopeEventEntry{}}
+
+// scopeBlockEvents is blockEvents over content from the byte from to its end,
+// read once per scope rather than once per use: reachingUnion is asked for
+// every lookup of a name assigned more than once, and scanning a template or a
+// long function from its start each time was quadratic in its length. A caller
+// stops at the end it wants; the events before it are the ones a scan of the
+// shorter text gives.
+func scopeBlockEvents(content string, from int, tag bool) []blockEvent {
+	key := contentKey(content)
+	key.from, key.tag = from, tag
+
+	scopeEvents.Lock()
+	entry, ok := scopeEvents.m[key]
+	scopeEvents.Unlock()
+
+	if ok && entry.content == content {
+		return entry.events
+	}
+
+	events := blockEvents(content[from:], tag)
+
+	scopeEvents.Lock()
+	if len(scopeEvents.m) >= maxScopeEvents {
+		clear(scopeEvents.m)
+	}
+
+	scopeEvents.m[key] = scopeEventEntry{content, events}
+	scopeEvents.Unlock()
+
+	return events
+}
+
+var factsCache = struct {
+	sync.Mutex
+	m map[scopeEventKey]scopeFactsEntry
+}{m: map[scopeEventKey]scopeFactsEntry{}}
+
+type scopeFactsEntry struct {
+	content string
+	facts   *lexicalSourceFacts
+}
+
+// contentFacts is scanSourceFacts(content), kept for the content's recent
+// uses as scopeBlockEvents keeps events: reachingUnion has no resolver to ask
+// for the table, and walking the lines above each use to its scope's start
+// was a second of a tassweb scan.
+func contentFacts(content string) *lexicalSourceFacts {
+	key := contentKey(content)
+
+	factsCache.Lock()
+	entry, ok := factsCache.m[key]
+	factsCache.Unlock()
+
+	if ok && entry.content == content {
+		return entry.facts
+	}
+
+	facts := scanSourceFacts(content)
+
+	factsCache.Lock()
+	if len(factsCache.m) >= maxScopeEvents {
+		clear(factsCache.m)
+	}
+
+	factsCache.m[key] = scopeFactsEntry{content, &facts}
+	factsCache.Unlock()
+
+	return &facts
 }
 
 // blockOpen is one open block: its id and the tag or brace that opened it.

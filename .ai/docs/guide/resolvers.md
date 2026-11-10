@@ -329,6 +329,18 @@ segments** (`/modules/wheels` beside `/modules`): `resolveNestedMapping` tries t
 first, before the first-segment lookup, which could never see them. Together they were 1,700
 corpus entries, most of cfwheels' CLI specs.
 
+**A parse may ask about its own file, and `handlerParse` answers that with the plain parse**
+(`handler_reentry.go`). Typing a call while parsing a file asks what the called function
+returns, and some answers read the function's body from the file's parse (`fnBody`,
+`builtCollectionElement`, the registry readers). That parse is not cached until it finishes, so
+without the guard each ask parsed the file again and Preside never finished. A goroutine asking
+for a file it is already parsing gets `sourceInfo.plainParse` (text, scopes, declarations; no
+lookups). A parse that read an *outer* file's plain parse that way is returned to its caller and
+not cached, so what the cache holds is always the file parsed with itself at the root, whichever
+file the scan reached first. A new reader of a function body called from return typing should
+still prefer the plain parse when it needs only text and scopes, as `elementReturn` does.
+`TestAFileAskingAboutItselfIsNotParsedAgainWhileItIsParsed`, `TestABorrowingParseIsNotCached`.
+
 **A component has the functions of the templates it includes** (`includedFunc`): Wheels'
 `Global.cfc` is little but includes of `global/*.cfm`, and a qualified call
 (`application.wo.$simpleLock()`) looked only at the component's own functions. It reads the

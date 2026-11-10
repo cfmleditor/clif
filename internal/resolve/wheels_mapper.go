@@ -273,6 +273,8 @@ type sourceDerived struct {
 	elementReads  bool
 	plainOnce     sync.Once
 	plain         *parser.ParseResult
+	selfOnce      sync.Once
+	mentionsSelf  bool
 }
 
 // methodMap is the source's function bodies (wheelsMethods), read once per
@@ -294,11 +296,26 @@ func (s *sourceInfo) methodMap() map[string]wheelsMethod {
 // which every return lookup would otherwise read.
 func (r *Resolver) hasSelfDefaultParam(fd *parser.FunctionDef) bool {
 	source := r.sourceInfo(fd.URI.Path())
-	if !mentions(source.content, `"self"`) && !mentions(source.content, `'self'`) {
+	if !source.mentionsSelf() {
 		return false
 	}
 
 	return source.methodMap()[strings.ToLower(fd.Name)].selfDefaultParam != ""
+}
+
+// mentionsSelf reports whether the source spells the string "self" in either
+// quote, read once per source: hasSelfDefaultParam is asked on every return
+// lookup, and searching the whole file each time was over a second of a
+// tassweb scan.
+func (s *sourceInfo) mentionsSelf() bool {
+	read := func() bool { return mentions(s.content, `"self"`) || mentions(s.content, `'self'`) }
+	if s.derived == nil {
+		return read()
+	}
+
+	s.derived.selfOnce.Do(func() { s.derived.mentionsSelf = read() })
+
+	return s.derived.mentionsSelf
 }
 
 // sourceMethods is sourceInfo(path)'s function bodies.

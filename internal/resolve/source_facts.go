@@ -103,8 +103,11 @@ func sourceLine(content string, starts []int, line int) string {
 }
 
 func (r *Resolver) localAssignmentAt(pr *parser.ParseResult, name string, start, header int) (string, int, bool) {
-	facts := r.lexicalSource(pr)
+	return r.lexicalSource(pr).assignmentAt(pr.Content, name, start, header)
+}
 
+// assignmentAt is localAssignmentAt over facts, the table read from content.
+func (facts *lexicalSourceFacts) assignmentAt(content, name string, start, header int) (string, int, bool) {
 	starts, assignments := facts.starts, facts.assignments
 	for _, a := range slices.Backward(assignments) {
 		if a.line < start {
@@ -116,10 +119,10 @@ func (r *Resolver) localAssignmentAt(pr *parser.ParseResult, name string, start,
 		}
 
 		rhs := trimAssignmentRHS(a.rhs)
-		_, tag := assignmentPrefix(trimAssignmentSpace(sourceLine(pr.Content, starts, a.line)), "<cfset")
+		_, tag := assignmentPrefix(trimAssignmentSpace(sourceLine(content, starts, a.line)), "<cfset")
 
 		for j := a.line + 1; j < min(header, len(starts)) && j <= a.line+maxAssignmentLines; j++ {
-			joined, more := joinAssignmentLine(rhs, sourceLine(pr.Content, starts, j), tag)
+			joined, more := joinAssignmentLine(rhs, sourceLine(content, starts, j), tag)
 			if !more {
 				break
 			}
