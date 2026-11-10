@@ -310,7 +310,7 @@ func (r *Resolver) delegatesOf(cfcPath string) []parser.Delegate {
 		return nil
 	}
 
-	pr := parser.Parse(cfcURI, text)
+	pr := r.plainParseOf(cfcPath, text)
 	r.Index.SetDelegates(cfcURI, pr.Delegates)
 
 	return pr.Delegates
@@ -455,7 +455,7 @@ func (r *Resolver) declaredExtendsOf(cfcPath string, cfcURI uri.URI) (string, bo
 		return "", false
 	}
 
-	ext := parser.Parse(cfcURI, text).Extends
+	ext := r.plainParseOf(cfcPath, text).Extends
 	r.Index.SetExtends(cfcURI, ext)
 
 	return ext, true

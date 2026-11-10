@@ -36,7 +36,7 @@ func (e *producerEvaluation) constructedInstance(component, dir string, argument
 
 	source := e.resolver.sourceInfo(file)
 
-	pr := parser.Parse(cfpath.ToURI(file), source.content, nil)
+	pr := source.plainParse(file)
 	if pr.Extends != "" {
 		return nil
 	}
@@ -116,7 +116,7 @@ func (e *producerEvaluation) constructedInstance(component, dir string, argument
 		return nil
 	}
 
-	plans := source.producers.all()
+	plans := sourcePlans(source).all()
 	for name, other := range plans {
 		if !instanceLiteralDefaults(other) {
 			return nil
@@ -551,7 +551,7 @@ func (e *producerEvaluation) instanceSetterEffect(tokens []parser.Token, env pro
 		}
 
 		method := e.resolver.producerFor(fd)
-		if method == nil || !instanceSetterContract(name, e.resolver.sourceInfo(fd.URI.Path()).producers.all(), value.instance.values, nil) {
+		if method == nil || !instanceSetterContract(name, sourcePlans(e.resolver.sourceInfo(fd.URI.Path())).all(), value.instance.values, nil) {
 			return false
 		}
 

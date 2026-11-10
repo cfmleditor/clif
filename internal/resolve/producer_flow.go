@@ -167,7 +167,7 @@ func (e *producerEvaluation) call(fd *parser.FunctionDef, receiver string, argum
 
 	forwarding := false
 	if method != nil && len(instances) > 0 && instances[0] != nil && instances[0].valid {
-		forwarding = !instanceSetter(method.body) && instanceSetterContract(fd.Name, e.resolver.sourceInfo(fd.URI.Path()).producers.all(), instances[0].values, nil)
+		forwarding = !instanceSetter(method.body) && instanceSetterContract(fd.Name, sourcePlans(e.resolver.sourceInfo(fd.URI.Path())).all(), instances[0].values, nil)
 	}
 
 	if method != nil && len(instances) > 0 && instances[0] != nil && instances[0].valid && instanceSetter(method.body) {
@@ -368,7 +368,7 @@ func (e *producerEvaluation) selfModeSelected(fd *parser.FunctionDef, name strin
 // plan whose parameters are not fd's describes another version of the
 // function, and binding arguments by position through it would misplace them.
 func (r *Resolver) producerFor(fd *parser.FunctionDef) *producerMethod {
-	method := r.sourceInfo(fd.URI.Path()).producers.get(strings.ToLower(fd.Name))
+	method := sourcePlans(r.sourceInfo(fd.URI.Path())).get(strings.ToLower(fd.Name))
 	if method == nil || len(method.parameters) != len(fd.Arguments) {
 		return nil
 	}
@@ -816,7 +816,7 @@ func (e *producerEvaluation) sharedFieldContract(path string, allowPrimitive boo
 	}
 
 	source := e.resolver.sourceInfo(e.fd.URI.Path())
-	methods := source.producers.all()
+	methods := sourcePlans(source).all()
 	component := ""
 	found := false
 	valid := true
@@ -1064,7 +1064,7 @@ func (e *producerEvaluation) writerComponents(writer, path string) (files []stri
 		}
 	}
 
-	for _, method := range source.producers.all() {
+	for _, method := range sourcePlans(source).all() {
 		visit(method.body)
 	}
 

@@ -1,10 +1,12 @@
 package path
 
 import (
+	"hash/maphash"
 	"maps"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/cfmleditor/clif/internal/parser"
 )
@@ -85,7 +87,7 @@ func AssumedProjectMappings(dir string, read func(string) ([]byte, error)) map[s
 			seen[profile.namespace] = true
 			// Read the declaring application's own mapping expressions, without
 			// calling bootstrapMappings and recursively manufacturing defaults.
-			mapping := parser.MappingSources(filepath.Join(dir, profile.source), nil, read)[profile.namespace]
+			mapping := assumedSourceMappings(filepath.Join(dir, profile.source), read)[profile.namespace]
 			if mapping == filepath.Join(dir, profile.target) {
 				out[profile.namespace] = mapping
 			}
@@ -100,4 +102,83 @@ func AssumedProjectMappings(dir string, read func(string) ([]byte, error)) map[s
 	}
 
 	return out
+}
+
+// assumedSourceMemo is assumedSourceMappings' answers by source file.
+var assumedSourceMemo sync.Map
+
+// sourceRead is one file a mapping walk read, and what it held.
+type sourceRead struct {
+	path string
+	ok   bool
+	sum  uint64
+}
+
+type assumedSources struct {
+	reads    []sourceRead
+	mappings map[string]string
+}
+
+var sourceSeed = maphash.MakeSeed()
+
+func readStamp(path string, data []byte, err error) sourceRead {
+	if err != nil {
+		return sourceRead{path: path}
+	}
+
+	return sourceRead{path: path, ok: true, sum: maphash.Bytes(sourceSeed, data)}
+}
+
+// assumedSourceMappings is parser.MappingSources(file, nil, read), kept by
+// file. Profiles share a source (mura and murawrm both read Application.cfc,
+// testbox, coldbox and preside tests/Application.cfc), and every directory
+// walk from below a project reads the same ones again: each walk followed the
+// file's includes in full.
+//
+// An answer is kept with what each file the walk read held, and is used again
+// only when reading them now gives the same: read is called again for each,
+// so a caller that records what it reads (Discovery) sees them as it would,
+// and an edit to any of them is noticed.
+func assumedSourceMappings(file string, read func(string) ([]byte, error)) map[string]string {
+	if held, ok := assumedSourceMemo.Load(file); ok {
+		memo, _ := held.(*assumedSources)
+
+		fresh := true
+
+		for _, r := range memo.reads {
+			data, err := read(r.path)
+			if readStamp(r.path, data, err) != r {
+				fresh = false
+
+				break
+			}
+		}
+
+		if fresh {
+			return memo.mappings
+		}
+	}
+
+	var (
+		mu    sync.Mutex
+		reads []sourceRead
+	)
+
+	recording := func(path string) ([]byte, error) {
+		data, err := read(path)
+
+		stamp := readStamp(path, data, err)
+
+		mu.Lock()
+
+		reads = append(reads, stamp)
+		mu.Unlock()
+
+		return data, err
+	}
+
+	mappings := parser.MappingSources(file, nil, recording)
+	assumedSourceMemo.Store(file, &assumedSources{reads: reads, mappings: mappings})
+
+	return mappings
 }

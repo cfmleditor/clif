@@ -228,3 +228,20 @@ func TestScriptCustomTagCallsReadOnlyTheirOwnLiterals(t *testing.T) {
 		t.Fatalf("got\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 }
+
+// The folding spans a parse keeps follow its content: an edit inside a
+// function changes the content but not the regions, which are then not used.
+func TestParseResultStructureSpansFollowItsContent(t *testing.T) {
+	src := "component {\n\tfunction f() {\n\t\tx = 1;\n\t}\n}\n"
+	pr := Parse(testURI, src)
+
+	if got, want := fmt.Sprint(pr.StructureSpans()), fmt.Sprint(StructureSpans(src)); got != want {
+		t.Fatalf("spans %s, want %s", got, want)
+	}
+
+	pr.ApplyEdit(2, 0, 2, 0, "\t\tif (a) {\n\t\t\tb();\n\t\t}\n")
+
+	if got, want := fmt.Sprint(pr.StructureSpans()), fmt.Sprint(StructureSpans(pr.Content)); got != want {
+		t.Fatalf("after the edit: %s, want %s", got, want)
+	}
+}

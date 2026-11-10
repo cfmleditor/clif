@@ -70,8 +70,21 @@ func collectionTarget(sc *Scanner) (root string, element bool) {
 }
 
 func collectionRead(expression string) (root string, element bool) {
-	return collectionReadAt(NewScanner(expression))
+	held := collectionReads.get(expression, func(expression string) collectionReadAnswer {
+		root, element := collectionReadAt(NewScanner(expression))
+
+		return collectionReadAnswer{root: strings.Clone(root), element: element}
+	})
+
+	return held.root, held.element
 }
+
+type collectionReadAnswer struct {
+	root    string
+	element bool
+}
+
+var collectionReads exprMemo[collectionReadAnswer]
 
 // collectionReadAt is collectionRead on a scanner at the expression's start.
 func collectionReadAt(sc *Scanner) (root string, element bool) {
@@ -485,8 +498,10 @@ func (pr *ParseResult) applyCollectionFunction(f *FunctionDef, expressions []str
 }
 
 func emptyCollection(expression string) bool {
-	return emptyCollectionAt(NewScanner(expression))
+	return emptyCollections.get(expression, func(expression string) bool { return emptyCollectionAt(NewScanner(expression)) })
 }
+
+var emptyCollections exprMemo[bool]
 
 // emptyCollectionAt is emptyCollection on a scanner at the expression's start.
 func emptyCollectionAt(sc *Scanner) bool {

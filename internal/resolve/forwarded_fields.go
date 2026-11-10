@@ -50,7 +50,7 @@ func (r *Resolver) forwardedFieldReturn(fd *parser.FunctionDef) string {
 
 	file := fd.URI.Path()
 	source := r.sourceInfo(file)
-	methods := source.producers.all()
+	methods := sourcePlans(source).all()
 
 	eval := producerEvaluation{resolver: r, fd: fd}
 	if !eval.fieldTextProved(&source, methods, path) {

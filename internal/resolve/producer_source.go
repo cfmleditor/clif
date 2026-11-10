@@ -211,21 +211,20 @@ func producerText(tokens []parser.Token) string {
 }
 
 func scriptProducerMethods(source string, methods map[string]*producerMethod) {
-	tokens := producerTokens(source)
-	// Whole-file scanning finds function boundaries; individual method plans
-	// remain bounded even in large classes.
-	if tokens == nil {
-		tokens = nil
+	// The whole region, scanned once, finds the function boundaries;
+	// individual method plans stay bounded even in large classes. It was
+	// first asked of producerTokens, which gives up past 4096 tokens: any
+	// real component scanned that much for nothing and then again in full.
+	var tokens []parser.Token
 
-		scanner := parser.NewScanner(source)
-		for {
-			tok := scanner.NextSkipComments()
-			if tok.Kind == parser.TokEOF {
-				break
-			}
-
-			tokens = append(tokens, tok)
+	scanner := parser.NewScanner(source)
+	for {
+		tok := scanner.NextSkipComments()
+		if tok.Kind == parser.TokEOF {
+			break
 		}
+
+		tokens = append(tokens, tok)
 	}
 
 	for i := 0; i+2 < len(tokens); i++ {
