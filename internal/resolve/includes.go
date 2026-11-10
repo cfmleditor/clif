@@ -31,8 +31,10 @@ type includeGraph struct {
 	scopes map[string][]string
 
 	// declared is the set of function names the included templates declare,
-	// built on first use (templateDeclares).
-	declared map[string]bool
+	// built once, on first use (templateDeclares): every scan worker asks at
+	// once, and each built its own copy when the build was not shared.
+	declaredOnce sync.Once
+	declared     map[string]bool
 }
 
 // pathKey is the spelling a file is compared under: cleaned and lowercased,
@@ -363,12 +365,8 @@ func (r *Resolver) templateDeclares(name string) bool {
 		return false
 	}
 
-	g.mu.Lock()
-	declared := g.declared
-	g.mu.Unlock()
-
-	if declared == nil {
-		declared = map[string]bool{}
+	g.declaredOnce.Do(func() {
+		declared := map[string]bool{}
 
 		for key := range g.rev {
 			p := g.paths[key]
@@ -393,12 +391,10 @@ func (r *Resolver) templateDeclares(name string) bool {
 			}
 		}
 
-		g.mu.Lock()
 		g.declared = declared
-		g.mu.Unlock()
-	}
+	})
 
-	return declared[strings.ToLower(name)]
+	return g.declared[strings.ToLower(name)]
 }
 
 // maxNamedTemplates is how many templates may answer to one computed include's
