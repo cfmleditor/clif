@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/cfmleditor/clif/internal/lex"
+
 	"github.com/cfmleditor/clif/internal/frameworkapi"
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
@@ -130,8 +132,13 @@ func (r *Resolver) dirs() *cfpath.DirCache {
 // (frameworkapi.Namespaced).
 // readText is the text of the file at path, shared with the batch content
 // cache rather than copied out of it (vfs.ReadString).
+//
+// A bare carriage return reads as a line feed (lex.NormalizeLineBreaks), as
+// everywhere the analysis reads text, so a line it reports is the editor's.
 func (r *Resolver) readText(path string) (string, error) {
-	return vfs.ReadString(r.fs(), path)
+	text, err := vfs.ReadString(r.fs(), path)
+
+	return lex.NormalizeLineBreaks(text), err
 }
 
 func (r *Resolver) fs() vfs.FS {

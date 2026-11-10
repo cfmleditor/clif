@@ -290,83 +290,12 @@ func moduleAttrs(attrs string, base int, out []CustomTagCall) []CustomTagCall {
 }
 
 // TagAttributes is the attributes in attrs, a tag's text after its name (a
-// CustomTagCall's AttrStart to AttrEnd), by lowercased name: name="value",
-// name='value' or name=value, with space allowed around the =. An attribute
-// given twice keeps its last value, as the engines do; one with no value is
-// left out.
+// CustomTagCall's AttrStart to AttrEnd), by lowercased name, read as a CF
+// tag's are (attrScanner): name="value", name='value' or name=value, space
+// allowed around the =, "" an escaped quote. An attribute given twice keeps
+// its first value; one with no value is left out.
 func TagAttributes(attrs string) map[string]string {
-	out := map[string]string{}
-
-	for i := 0; i < len(attrs); {
-		if !isAttrNameByte(attrs[i]) {
-			if isQuote(attrs[i]) {
-				i = skipQuoted(attrs, i)
-			} else {
-				i++
-			}
-
-			continue
-		}
-
-		start := i
-		for i < len(attrs) && isAttrNameByte(attrs[i]) {
-			i++
-		}
-
-		name := attrs[start:i]
-
-		j := i
-		for j < len(attrs) && isWhitespace(attrs[j]) {
-			j++
-		}
-
-		if j >= len(attrs) || attrs[j] != '=' {
-			continue
-		}
-
-		j++
-		for j < len(attrs) && isWhitespace(attrs[j]) {
-			j++
-		}
-
-		if j >= len(attrs) {
-			break
-		}
-
-		if isQuote(attrs[j]) {
-			end := strings.IndexByte(attrs[j+1:], attrs[j])
-			if end < 0 {
-				break
-			}
-
-			out[strings.ToLower(name)] = attrs[j+1 : j+1+end]
-			i = j + end + 2
-
-			continue
-		}
-
-		k := j
-		for k < len(attrs) && !isWhitespace(attrs[k]) && attrs[k] != '>' && attrs[k] != '/' {
-			k++
-		}
-
-		if k > j {
-			out[strings.ToLower(name)] = attrs[j:k]
-		}
-
-		i = k
-	}
-
-	return out
-}
-
-// skipQuoted is the offset past the quoted text opening at i, or the end.
-func skipQuoted(s string, i int) int {
-	if end := strings.IndexByte(s[i+1:], s[i]); end >= 0 {
-		return i + end + 2
-	}
-
-	return len(s)
+	return tagAttrMap(attrs, cfAttrs)
 }
 
 // scriptCustomTags appends the custom tags text, a script region at base,

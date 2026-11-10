@@ -38,10 +38,20 @@ func (pr *ParseResult) computeScopedVarsPerScope(scope Scope) []string {
 
 		var regionVars []VarDef
 
+		// A script region's declarations are the main script walk's, as the
+		// parse keeps them (keepScriptScopeVars): a var or local outside a
+		// function is a variables one.
 		if r.Kind == RegionScript {
-			sp := newGlobalScriptParser(r.Text, r.StartLine, pr.Scopes)
+			sp := newScriptParser(r.Text, "", r.StartLine, nil).asCFScript()
 			sp.parse()
-			regionVars = sp.vars
+
+			for _, v := range sp.vars {
+				if v.Scope == ScopeLocal {
+					v.Scope = ScopeVariables
+				}
+
+				regionVars = append(regionVars, v)
+			}
 		} else {
 			tp := newTagParser(r.Text, "")
 			tp.parse()
@@ -181,5 +191,43 @@ func TestOneScanGivesEachScopeWhatItsOwnScanDid(t *testing.T) {
 
 	if n == 0 {
 		t.Fatal("found no fixtures under ../../testdata")
+	}
+}
+
+// What a component declares outside its functions, read as the tree-sitter
+// grammar reads it (.ai/docs/SCANNER-CONSOLIDATION.md). A member assignment
+// sets a key of another struct, a == compares, a struct literal's keys and a
+// call's named arguments assign nothing, and a statement may end with its
+// line, a literal value included; a bare assignment and a for-in target
+// declare.
+func TestScopedVarsAreWhatTheGrammarReads(t *testing.T) {
+	src := strings.Join([]string{
+		`results.beforeAliasWrite = 1;`,
+		`if (form.action == "x") { x = 1; }`,
+		`settings = {reload = false, mode = "a"};`,
+		`configure(`,
+		`	append = "",`,
+		`	label = ""`,
+		`);`,
+		`provider = new Provider();`,
+		`for (item in list) {}`,
+		`variables.config = {}`,
+		`variables.dsn = "test"`,
+		`var counter = 0;`,
+	}, "\n")
+
+	pr := Parse(uri.URI("file:///run.cfm"), "<cfscript>\n"+src+"\n</cfscript>")
+	got := pr.VariablesVars()
+
+	for _, want := range []string{"x", "settings", "provider", "item", "config", "dsn", "counter"} {
+		if !slices.Contains(got, want) {
+			t.Errorf("VariablesVars %v lacks %s", got, want)
+		}
+	}
+
+	for _, none := range []string{"beforeAliasWrite", "action", "reload", "mode", "append", "label"} {
+		if slices.Contains(got, none) {
+			t.Errorf("VariablesVars %v holds %s, which is no declaration", got, none)
+		}
 	}
 }

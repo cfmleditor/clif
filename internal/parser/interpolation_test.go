@@ -303,8 +303,7 @@ func TestMarkupHashesAreNotInterpolation(t *testing.T) {
 	}
 }
 
-// The two variable scans must tokenise a file the same way, which is why
-// globalScriptParser opts in too. Without it `"#f("x=1")#"` tokenises as
+// The variable scan reads strings as the parse does (interpStrings). Without it `"#f("x=1")#"` tokenises as
 // `"#f("`, `x`, `=`, `1`, `")#"` — and a scan that records a bare `ident =` as
 // a declaration takes `x` for a variables-scope variable, which is what
 // completion offers and what the index stores.

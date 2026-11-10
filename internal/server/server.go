@@ -51,6 +51,9 @@ type Server struct {
 
 	mu        sync.RWMutex
 	documents map[uri.URI]string
+	// crOnlyDocs is the open documents that ended their lines with a bare
+	// carriage return alone (setCROnly).
+	crOnlyDocs map[uri.URI]bool
 	// rootsMu guards workspaceRoots, and only that. It is deliberately not
 	// s.mu: the roots are read through searchRoots, which is reached from
 	// getResolver and so from most of the server, and nesting those reads
@@ -597,7 +600,48 @@ func (s *Server) setDocument(docURI uri.URI, content string) {
 	s.lastResolveDef = nil
 }
 
+// setCROnly records whether the document as opened ended its lines with a
+// bare carriage return alone (lex.CROnly): its text is held with line feeds,
+// and formatting edits are given them back (withDocumentLineBreaks).
+func (s *Server) setCROnly(docURI uri.URI, crOnly bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if !crOnly {
+		delete(s.crOnlyDocs, docURI)
+
+		return
+	}
+
+	if s.crOnlyDocs == nil {
+		s.crOnlyDocs = map[uri.URI]bool{}
+	}
+
+	s.crOnlyDocs[docURI] = true
+}
+
+// withDocumentLineBreaks is edits with the document's own line breaks: a
+// document whose lines end with a bare carriage return is held, and so
+// formatted, with line feeds, which an edit must not write into it.
+func (s *Server) withDocumentLineBreaks(docURI uri.URI, edits []protocol.TextEdit) []protocol.TextEdit {
+	s.mu.RLock()
+	crOnly := s.crOnlyDocs[docURI]
+	s.mu.RUnlock()
+
+	if !crOnly {
+		return edits
+	}
+
+	for i := range edits {
+		edits[i].NewText = strings.ReplaceAll(edits[i].NewText, "\n", "\r")
+	}
+
+	return edits
+}
+
 func (s *Server) removeDocument(docURI uri.URI) {
+	s.setCROnly(docURI, false)
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

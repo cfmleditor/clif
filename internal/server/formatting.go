@@ -79,7 +79,7 @@ func (s *Server) handleFormatting(ctx context.Context, rawParams []byte) (any, e
 	// The changed runs of lines, not the whole document: see lineEdits.
 	edits := lineEdits(content, formatted)
 
-	return edits, nil
+	return s.withDocumentLineBreaks(params.TextDocument.URI, edits), nil
 }
 
 // formatDocumentFn is formatDocument, as handleFormatting calls it; a test
