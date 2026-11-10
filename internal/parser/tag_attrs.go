@@ -10,6 +10,18 @@ import (
 
 // getAttr extracts an attribute value from a tag string (case-insensitive).
 func getAttr(tag, attr string) string {
+	start, end, ok := attrSpan(tag, attr)
+	if !ok {
+		return ""
+	}
+
+	return tag[start:end]
+}
+
+// attrSpan is where the value of attr stands in tag, quotes excluded, found
+// case-insensitively; ok is false when tag does not set attr, or its quoted
+// value is never closed.
+func attrSpan(tag, attr string) (start, end int, ok bool) {
 	// Scanned case-insensitively in place rather than against a lowercased copy
 	// of the tag.
 	//
@@ -59,7 +71,7 @@ func getAttr(tag, attr string) string {
 	}
 
 	if idx < 0 {
-		return ""
+		return 0, 0, false
 	}
 
 	// Skip past attr name, whitespace, =, whitespace to reach the value
@@ -75,27 +87,27 @@ func getAttr(tag, attr string) string {
 	}
 
 	if valStart >= len(tag) {
-		return ""
+		return 0, 0, false
 	}
 
 	ch := tag[valStart]
 	if ch == '"' || ch == '\'' {
 		valStart++
 
-		end := strings.IndexByte(tag[valStart:], ch)
-		if end < 0 {
-			return ""
+		n := strings.IndexByte(tag[valStart:], ch)
+		if n < 0 {
+			return 0, 0, false
 		}
 
-		return tag[valStart : valStart+end]
+		return valStart, valStart + n, true
 	}
 	// Unquoted value — read until space or >
-	end := valStart
+	end = valStart
 	for end < len(tag) && tag[end] != ' ' && tag[end] != '>' && tag[end] != '\t' {
 		end++
 	}
 
-	return tag[valStart:end]
+	return valStart, end, true
 }
 
 func extractIdent(s string) string {

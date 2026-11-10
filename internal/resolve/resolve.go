@@ -38,8 +38,9 @@ type Resolver struct {
 	FS                 vfs.FS
 	WorkspaceFolders   []string
 	Mappings           map[string]string
-	BeanPaths          map[string]string // configured factory-managed bean roots
-	StartupFiles       []string          // configured startup templates, absolute; see startup.go
+	BeanPaths          map[string]string      // configured factory-managed bean roots
+	StartupFiles       []string               // configured startup templates, absolute; see startup.go
+	CustomTagPaths     []config.CustomTagPath // configured custom tag directories, absolute; see custom_tags.go
 	ExpressionMappings map[string]string
 	Index              *index.Index
 	Resolvers          []parser.Resolver
@@ -106,57 +107,60 @@ type Resolver struct {
 // the index: InvalidatePaths starts them all again at once by resetting this
 // struct, so a cache added here cannot be left out of the reset.
 type pathCaches struct {
-	appRootCache        map[string]string                   // dir → Application.cfc root
-	appNameCache        map[string]bool                     // dir → an Application file there names an application
-	slugCache           map[string]string                   // dir → its box.json slug, "" for none
-	resolveCache        sync.Map                            // component+"\t"+baseDir → file path; read on every call, so lock-free
-	includeCache        map[string]string                   // include path+"\t"+including directory → template
-	interfaceCache      map[string]bool                     // component file → whether it declares an interface
-	dirCache            *cfpath.DirCache                    // directory listings behind those resolutions
-	incGraph            *includeGraph                       // the index's cfincludes, rebuilt when they change
-	implicitCache       map[string]string                   // path → ImplicitExtends(path)
-	helpers             *helperSet                          // application helper templates, per set of config files
-	wb                  *wireboxWorkspace                   // what ModuleConfig.cfc and config/WireBox.cfc say about ids, per set of files
-	fw1Scopes           map[string]fw1Scope                 // nearest application's source-defined injection scope
-	startupCache        map[string][]startupAssign          // app root → its startup templates' shared-scope assignments
-	sourceInfos         map[string]sourceInfo               // source-checked method bodies; refreshed when bytes change
-	ctlPathCache        map[string]controllerPaths          // dir → its files' writes of Wheels' controllerPath
-	includerCache       map[string]string                   // template, name, depth and include generation → includerHeld's answer
-	returnCache         returnCache                         // ReturnComponentOf answers, for one index generation
-	funcCache           funcCache                           // lookupFunc answers, for one index generation
-	funcMu              sync.RWMutex                        // guards funcCache alone; see lookupFunc
-	funcLookups         sync.Map                            // funcLookupKey → FuncLookup's answer, in a batch scan
-	computedIncludes    map[string]computedIncludeFile      // file → its computed includes (computedIncludesOf)
-	callerIdx           *callerIndex                        // name → files calling it, built once for argumentFromCallers
-	argCache            map[string]string                   // an argument → what its callers pass (argumentFromCallers)
-	requestWriterIdx    map[string][]string                 // request key → files writing it (requestWriters)
-	ownedKeys           map[string]string                   // file and function → what its owned-key factory returns (ownedKeyReturn)
-	keyPrefixes         map[string]string                   // literal key prefix → what every factory spelling it stores, "" when they differ (prefixComponent)
-	handlerCache        map[string]*parser.ParseResult      // handler path → its parse (handlerParse)
-	templateNames       map[string][]string                 // template file name → its paths, for a computed include (templatesNamed)
-	uniqueNames         *uniqueNameCache                    // bare component name → its only file (uniqueComponentNamed)
-	fw1ActionCache      map[string][]fw1Action              // controllers dir + section.item → its actions (fw1Actions)
-	fw1IncluderCache    map[string]map[string][]string      // application dir → view → the views rendering it (fw1Includers)
-	boundEntityCache    map[string]string                   // service path → the entity it binds (boundEntity)
-	wrapperHosts        map[string][]string                 // template path → Wheels wrapper hosts (wheelsTemplateHosts)
-	wrapperCalls        map[string][]wrapperCall            // caller path + wrapper → its wrapper calls (wheelsWrapperCalls)
-	extraIncludeHosts   map[string][]includeHost            // template path → includes the graph cannot see (frameworkIncludeHosts)
-	muraEventFiles      map[string]bool                     // file → Mura calls it with an event (handsMuraEvent)
-	lazyGetters         map[string]string                   // file and function → what its lazy getter returns (lazyGetterReturn)
-	lazyFiles           map[string]bool                     // file → it holds an isObject() guard at all
-	viewArgCache        map[string]map[string][]viewArgSite // module → view → its renders (viewArgSites)
-	muraSites           []muraObjectSite                    // the workspace's dspObject_include calls (muraObjectSites)
-	muraSitesBuilt      bool                                // muraSites has been read
-	muraSiteIdx         sync.Map                            // template path → positions in muraSites that could include it (muraSitesFor)
-	muraSets            map[muraSetsKey]bool                // template, name and scope → the template sets it (muraTemplateSets)
-	collectionFields    map[string]string                   // file, field and index generation → emptyCollectionField's kind
-	leafSubs            map[string]map[string][]string      // mappings scope → base file and index generation → leafSubclasses
-	tagSites            map[string][]customTagSite          // custom tag name → the tags calling it (customTagSites)
-	tagTemplates        map[string]int                      // custom tag name → how many templates answer to it
-	interceptSiteList   []interceptSite                     // the workspace's announces (interceptSites)
-	interceptSitesBuilt bool                                // interceptSiteList has been read
-	handoffs            handoffIndex                        // handler actions by the view each renders (viewActions)
-	registryTexts       map[string]registryText             // includer path → its registry facts while its stamp holds (includeRegistries)
+	appRootCache        map[string]string                     // dir → Application.cfc root
+	appNameCache        map[string]bool                       // dir → an Application file there names an application
+	slugCache           map[string]string                     // dir → its box.json slug, "" for none
+	resolveCache        sync.Map                              // component+"\t"+baseDir → file path; read on every call, so lock-free
+	includeCache        map[string]string                     // include path+"\t"+including directory → template
+	interfaceCache      map[string]bool                       // component file → whether it declares an interface
+	dirCache            *cfpath.DirCache                      // directory listings behind those resolutions
+	incGraph            *includeGraph                         // the index's cfincludes, rebuilt when they change
+	implicitCache       map[string]string                     // path → ImplicitExtends(path)
+	helpers             *helperSet                            // application helper templates, per set of config files
+	wb                  *wireboxWorkspace                     // what ModuleConfig.cfc and config/WireBox.cfc say about ids, per set of files
+	fw1Scopes           map[string]fw1Scope                   // nearest application's source-defined injection scope
+	startupCache        map[string][]startupAssign            // app root → its startup templates' shared-scope assignments
+	sourceInfos         map[string]sourceInfo                 // source-checked method bodies; refreshed when bytes change
+	ctlPathCache        map[string]controllerPaths            // dir → its files' writes of Wheels' controllerPath
+	includerCache       map[string]string                     // template, name, depth and include generation → includerHeld's answer
+	returnCache         returnCache                           // ReturnComponentOf answers, for one index generation
+	funcCache           funcCache                             // lookupFunc answers, for one index generation
+	funcMu              sync.RWMutex                          // guards funcCache alone; see lookupFunc
+	funcLookups         sync.Map                              // funcLookupKey → FuncLookup's answer, in a batch scan
+	computedIncludes    map[string]computedIncludeFile        // file → its computed includes (computedIncludesOf)
+	callerIdx           *callerIndex                          // name → files calling it, built once for argumentFromCallers
+	argCache            map[string]string                     // an argument → what its callers pass (argumentFromCallers)
+	requestWriterIdx    map[string][]string                   // request key → files writing it (requestWriters)
+	ownedKeys           map[string]string                     // file and function → what its owned-key factory returns (ownedKeyReturn)
+	keyPrefixes         map[string]string                     // literal key prefix → what every factory spelling it stores, "" when they differ (prefixComponent)
+	handlerCache        map[string]*parser.ParseResult        // handler path → its parse (handlerParse)
+	templateNames       map[string][]string                   // template file name → its paths, for a computed include (templatesNamed)
+	uniqueNames         *uniqueNameCache                      // bare component name → its only file (uniqueComponentNamed)
+	fw1ActionCache      map[string][]fw1Action                // controllers dir + section.item → its actions (fw1Actions)
+	fw1IncluderCache    map[string]map[string][]string        // application dir → view → the views rendering it (fw1Includers)
+	boundEntityCache    map[string]string                     // service path → the entity it binds (boundEntity)
+	wrapperHosts        map[string][]string                   // template path → Wheels wrapper hosts (wheelsTemplateHosts)
+	wrapperCalls        map[string][]wrapperCall              // caller path + wrapper → its wrapper calls (wheelsWrapperCalls)
+	extraIncludeHosts   map[string][]includeHost              // template path → includes the graph cannot see (frameworkIncludeHosts)
+	muraEventFiles      map[string]bool                       // file → Mura calls it with an event (handsMuraEvent)
+	lazyGetters         map[string]string                     // file and function → what its lazy getter returns (lazyGetterReturn)
+	lazyFiles           map[string]bool                       // file → it holds an isObject() guard at all
+	viewArgCache        map[string]map[string][]viewArgSite   // module → view → its renders (viewArgSites)
+	muraSites           []muraObjectSite                      // the workspace's dspObject_include calls (muraObjectSites)
+	muraSitesBuilt      bool                                  // muraSites has been read
+	muraSiteIdx         sync.Map                              // template path → positions in muraSites that could include it (muraSitesFor)
+	muraSets            map[muraSetsKey]bool                  // template, name and scope → the template sets it (muraTemplateSets)
+	collectionFields    map[string]string                     // file, field and index generation → emptyCollectionField's kind
+	leafSubs            map[string]map[string][]string        // mappings scope → base file and index generation → leafSubclasses
+	tagSites            map[string][]customTagSite            // custom tag name → the tags calling it (customTagSites)
+	tagTemplates        map[string]int                        // custom tag name → how many templates answer to it
+	tagCallsByFile      map[string]map[string][]customTagSite // file → its custom tag calls, read while it was indexed (recordTagCalls)
+	tagFiles            map[string]tagFileEntry               // custom tag root, name and depth → its template (tagFileIn)
+	tagRoots            map[string][]cfpath.TagRoot           // caller directory → its custom tag roots (customTagRoots)
+	interceptSiteList   []interceptSite                       // the workspace's announces (interceptSites)
+	interceptSitesBuilt bool                                  // interceptSiteList has been read
+	handoffs            handoffIndex                          // handler actions by the view each renders (viewActions)
+	registryTexts       map[string]registryText               // includer path → its registry facts while its stamp holds (includeRegistries)
 }
 
 // returnCache holds ReturnComponentOf's answers. An answer reads the index and

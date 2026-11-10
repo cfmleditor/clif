@@ -25,7 +25,7 @@ func (r *Resolver) forCaller(baseDir string) *Resolver {
 		Discovery:            r.Discovery,
 		SpeculativeReceivers: r.SpeculativeReceivers,
 		FS:                   r.FS, WorkspaceFolders: r.WorkspaceFolders, Mappings: r.Mappings,
-		BeanPaths: r.BeanPaths, StartupFiles: r.StartupFiles,
+		BeanPaths: r.BeanPaths, StartupFiles: r.StartupFiles, CustomTagPaths: r.CustomTagPaths,
 		ExpressionMappings: r.ExpressionMappings, Index: r.Index, IndexTracksFiles: r.IndexTracksFiles, SnapshotScan: r.SnapshotScan,
 		Resolvers: r.Resolvers, ImplicitExtends: r.ImplicitExtends,
 		PropertyResolvers: r.PropertyResolvers, ServicePropertyResolvers: r.ServicePropertyResolvers, InterpolateAllText: r.InterpolateAllText,

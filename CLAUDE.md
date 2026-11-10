@@ -256,6 +256,7 @@ the user-facing view and all `formatting` defaults.
 | `propertyResolvers` | `<cfproperty>` attribute → component dot-path (`match`/`resolve`/`attribute`) |
 | `servicePropertyResolvers` | `@serviceproperty <var> <kind>\|<name>` doc-comment kind → `${name}` dot-path template, for generically-typed dependencies |
 | `beanPaths` | namespace → directory; `.cfc`s registered as `name@namespace`, plus a bare `name` when unique across all namespaces |
+| `customTagPaths` | Custom tag roots and tag library prefixes (`config.CustomTagPath`: a directory string, or `{directory, prefix, recursive}`). `parser.CustomTagCalls` reads every call syntax; `resolve.CustomTagTemplate` finds the template, after `this.customTagPaths` (`parser.ApplicationSources`, the same walk as the mappings) and before the CFConfig's `customTagMappings` (`cfpath.ServerCustomTagRoots`) |
 | `javaStubsPath` | Auto-synthesizes a `createObject("java", "X")` → `<javaStubsPath>.X` resolver |
 | `formatting` | Formatter options |
 | `linting.enabled` | Enable CFLint diagnostics |

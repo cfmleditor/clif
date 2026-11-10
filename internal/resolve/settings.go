@@ -28,6 +28,7 @@ type Settings struct {
 	PropertyResolvers        []parser.PropertyResolver
 	ServicePropertyResolvers map[string]string
 	BeanPaths                map[string]string // configured beanPaths; Application.cfc's are added
+	CustomTagPaths           []config.CustomTagPath
 	WorkspaceFolders         []string
 	ImplicitExtends          func(path string) string
 	HelperScope              func(path string) bool
@@ -59,6 +60,7 @@ func SettingsFromConfig(r *config.Resolved, folders []string) Settings {
 		ServicePropertyResolvers: r.ServicePropertyResolvers,
 		PropertyResolvers:        config.ParserPropertyResolvers(r.PropertyResolvers),
 		BeanPaths:                r.BeanPaths,
+		CustomTagPaths:           r.CustomTagPaths,
 		WorkspaceFolders:         folders,
 		ImplicitExtends:          config.ImplicitExtends(r.Frameworks),
 		HelperScope:              config.HelperScope(r.Frameworks),
@@ -107,6 +109,7 @@ func NewResolver(fsys vfs.FS, idx *index.Index, s *Settings) *Resolver {
 		Mappings:              s.Mappings,
 		StartupFiles:          s.StartupFiles,
 		BeanPaths:             s.BeanPaths,
+		CustomTagPaths:        s.CustomTagPaths,
 		ExpressionMappings:    s.ExpressionMappings,
 		WorkspaceFolders:      s.WorkspaceFolders,
 		ImplicitExtends:       s.ImplicitExtends,
@@ -137,6 +140,7 @@ func (r *Resolver) Settings() *Settings {
 		StartupFiles:          r.StartupFiles,
 		ExpressionMappings:    r.ExpressionMappings,
 		BeanPaths:             r.BeanPaths,
+		CustomTagPaths:        r.CustomTagPaths,
 		WorkspaceFolders:      r.WorkspaceFolders,
 		ImplicitExtends:       r.ImplicitExtends,
 		HelperScope:           r.HelperScope,
@@ -317,6 +321,8 @@ func (r *Resolver) IndexForBatch(f, content string) (includes []string) {
 	r.IndexCallerFile(f, content)
 
 	if !cfpath.IsCFCFile(f) {
+		r.recordTagCalls(f, content, nil)
+
 		includes = parser.ExtractIncludes(content)
 		r.Index.SetIncludes(cfpath.ToURI(f), includes)
 
@@ -327,7 +333,9 @@ func (r *Resolver) IndexForBatch(f, content string) (includes []string) {
 	// and not by what another file's function declares it returns: indexing runs
 	// in parallel, and a return read from a file not yet indexed would make the
 	// index depend on which worker got there first.
-	r.Index.IndexParsed(cfpath.ToURI(f), content, r.ParseFile(f, content, IndexSpec()))
+	pr := r.ParseFile(f, content, IndexSpec())
+	r.recordTagCalls(f, content, pr)
+	r.Index.IndexParsed(cfpath.ToURI(f), content, pr)
 
 	return nil
 }

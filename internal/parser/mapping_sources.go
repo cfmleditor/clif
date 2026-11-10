@@ -18,6 +18,22 @@ func MappingSources(file string, initial map[string]string, read func(string) ([
 // MappingSourcesWithParent accepts a bootstrap path lookup that must not depend
 // on the mappings being computed. A nil lookup retains declaring-relative parents.
 func MappingSourcesWithParent(file string, initial map[string]string, read func(string) ([]byte, error), parent func(string, string) string) map[string]string {
+	return ApplicationSources(file, initial, read, parent).Mappings
+}
+
+// AppSources is what an Application file's constructor states that a lookup
+// needs: its mappings, and the directories this.customTagPaths names, each
+// absolute. Both come from one walk of the file (ApplicationSources).
+type AppSources struct {
+	Mappings       map[string]string
+	CustomTagPaths []string
+}
+
+// ApplicationSources reads an Application file's mappings and custom tag paths
+// in execution order, through literal includes and the parent Application.cfc,
+// as MappingSourcesWithParent describes, in one walk: a caller that wants both
+// does not read the file twice.
+func ApplicationSources(file string, initial map[string]string, read func(string) ([]byte, error), parent func(string, string) string) AppSources {
 	s := &mappingSourceState{mappings: map[string]string{}, defaults: initial, env: map[string]string{}, seen: map[string]bool{}, read: read, base: file, parent: parent}
 	s.file(file, 0)
 
@@ -27,7 +43,7 @@ func MappingSourcesWithParent(file string, initial map[string]string, read func(
 		}
 	}
 
-	return s.mappings
+	return AppSources{Mappings: s.mappings, CustomTagPaths: s.customTags}
 }
 
 type mappingSourceState struct {
@@ -37,6 +53,9 @@ type mappingSourceState struct {
 	base                    string
 	parent                  func(string, string) string
 	requestMethod           *mappingRequestSource
+	// customTags is this.customTagPaths, each directory absolute; see
+	// ApplicationSources.
+	customTags []string
 }
 
 type mappingRequestSource struct{ file, content string }
@@ -308,6 +327,23 @@ func mappingSourceExpression(sc *Scanner) string {
 }
 
 func (s *mappingSourceState) assignment(target, key, expr, dir string) {
+	if strings.EqualFold(target, "this.customTagPaths") && key == "" || strings.EqualFold(target, "this") && strings.EqualFold(key, "customTagPaths") {
+		s.customTagPaths(expr, dir)
+
+		return
+	}
+
+	// Lucee also takes a struct, keyed like this.mappings (its LDEV-1276
+	// test): each key adds one directory.
+	if strings.EqualFold(target, "this.customTagPaths") {
+		if v, ok := evalPathExpr(expr, s.env, dir); ok && strings.TrimSpace(v) != "" {
+			s.customTags = append(s.customTags, cleanMappingPath(strings.TrimSpace(v), dir))
+			s.env[customTagPathsVar] = strings.Trim(s.env[customTagPathsVar]+","+strings.TrimSpace(v), ",")
+		}
+
+		return
+	}
+
 	if strings.EqualFold(target, "this.mappings") && key == "" {
 		entries, _ := mappingLiteral(expr)
 		// Evaluate the whole RHS against the old struct, before replacing it.
@@ -638,4 +674,117 @@ func replacedMappingPath(term string, env map[string]string, dir string) (string
 	}
 
 	return "", false
+}
+
+// customTagPathsVar is where the walk keeps this.customTagPaths' value, as a
+// list, so a later `this.customTagPaths & ",x"` or listAppend reads it.
+const customTagPathsVar = "this.customtagpaths"
+
+// customTagPaths reads an assignment to this.customTagPaths: a list (ColdFusion
+// takes a comma-delimited string), an array literal (Lucee takes either), or
+// listAppend( this.customTagPaths, dir ), which is how Mura adds its own. An
+// element that is not a path the source states is left out; a whole value that
+// is not clears what was known, as a mapping does.
+func (s *mappingSourceState) customTagPaths(expr, dir string) {
+	var raw []string
+
+	switch {
+	case strings.HasPrefix(strings.TrimSpace(expr), "["):
+		elems, ok := arrayElements(expr)
+		if !ok {
+			break
+		}
+
+		for _, e := range elems {
+			// An array element is one directory: only a list is split.
+			if v, ok := evalPathExpr(e, s.env, dir); ok && strings.TrimSpace(v) != "" {
+				raw = append(raw, strings.TrimSpace(v))
+			}
+		}
+	default:
+		if args, ok := callArg(strings.TrimSpace(expr), "listAppend"); ok {
+			parts := splitTopLevel(args, ',')
+			if len(parts) >= 2 && envName(parts[0]) == customTagPathsVar {
+				raw = append(raw, splitPathList(s.env[customTagPathsVar])...)
+
+				if v, ok := evalPathExpr(parts[1], s.env, dir); ok {
+					raw = append(raw, splitPathList(v)...)
+				}
+
+				break
+			}
+		}
+
+		if v, ok := evalPathExpr(expr, s.env, dir); ok {
+			raw = splitPathList(v)
+		}
+	}
+
+	s.env[customTagPathsVar] = strings.Join(raw, ",")
+	s.customTags = s.customTags[:0]
+
+	for _, p := range raw {
+		s.customTags = append(s.customTags, cleanMappingPath(p, dir))
+	}
+}
+
+// splitPathList is a comma-delimited list of paths, each trimmed, empty ones
+// left out.
+func splitPathList(v string) []string {
+	var out []string
+
+	for p := range strings.SplitSeq(v, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+
+	return out
+}
+
+// arrayElements is the element expressions of an array literal, alone.
+func arrayElements(expr string) ([]string, bool) {
+	expr = strings.TrimSpace(expr)
+	if len(expr) < 2 || expr[0] != '[' || expr[len(expr)-1] != ']' {
+		return nil, false
+	}
+
+	body := strings.TrimSpace(expr[1 : len(expr)-1])
+	if body == "" {
+		return nil, true
+	}
+
+	return splitTopLevel(body, ','), true
+}
+
+// splitTopLevel splits expr at sep outside strings and brackets.
+func splitTopLevel(expr string, sep byte) []string {
+	var (
+		parts []string
+		depth int
+		quote byte
+		start int
+	)
+
+	for i := range len(expr) {
+		c := expr[i]
+
+		switch {
+		case quote != 0:
+			if c == quote {
+				quote = 0
+			}
+		case c == '"' || c == '\'':
+			quote = c
+		case c == '(' || c == '[' || c == '{':
+			depth++
+		case c == ')' || c == ']' || c == '}':
+			depth--
+		case c == sep && depth == 0:
+			parts = append(parts, strings.TrimSpace(expr[start:i]))
+			start = i + 1
+		}
+	}
+
+	return append(parts, strings.TrimSpace(expr[start:]))
 }

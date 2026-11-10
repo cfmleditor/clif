@@ -1,18 +1,12 @@
 package parser
 
 import (
-	"regexp"
 	"strings"
 )
 
 // StartupBeanBinding describes a finite literal service-list assignment. The
 // resolver must verify the factory before using any resulting bean identity.
 type StartupBeanBinding struct{ Variable, Factory, Bean string }
-
-var (
-	serviceLoopHeader  = regexp.MustCompile(`(?is)^for\s*\(\s*((?:variables\.|local\.)?[\w$]+)\s+in\s+listToArray\s*\(\s*([^()]+)\s*\)\s*\)\s*\{`)
-	serviceMemberWrite = regexp.MustCompile(`(?i)^(application|request|session|server)\s*\[\s*["']#\s*([\w.$]+)\s*#["']\s*\]\s*=\s*([\w.$]+)\.getBean\s*\(\s*["']#\s*([\w.$]+)\s*#["']\s*\)\s*;`)
-)
 
 // StartupBeanBindings accepts only complete listToArray loops with a known
 // literal list, identical key/bean interpolation and an unchanged iterator.
@@ -38,14 +32,14 @@ func StartupBeanBindings(content string) []StartupBeanBinding {
 		}
 
 		if identEq(t.Value, "for") {
-			m := serviceLoopHeader.FindStringSubmatch(content[t.Offset:])
-			if m == nil {
+			head, ok := serviceLoopHead(content[t.Offset:])
+			if !ok {
 				continue
 			}
 
-			list, ok := stringLiteral(strings.TrimSpace(m[2]))
+			list, ok := stringLiteral(strings.TrimSpace(head.list))
 			if !ok {
-				list, ok = env[envName(strings.TrimSpace(m[2]))]
+				list, ok = env[envName(strings.TrimSpace(head.list))]
 			}
 
 			if !ok || strings.Contains(list, "#") {
@@ -57,14 +51,14 @@ func StartupBeanBindings(content string) []StartupBeanBinding {
 				continue
 			}
 
-			bodyStart := t.Offset + len(m[0])
+			bodyStart := t.Offset + head.bodyStart
 
 			bodyEnd, valid := serviceLoopEnd(content, bodyStart)
 			if !valid {
 				continue
 			}
 
-			iterator := strings.ToLower(m[1])
+			iterator := strings.ToLower(head.iterator)
 
 			bindings, valid := serviceLoopBody(content[bodyStart:bodyEnd], iterator, values)
 			if valid {
@@ -145,12 +139,12 @@ func serviceLoopBody(body, iterator string, values []string) ([]StartupBeanBindi
 			return nil, false
 		}
 
-		m := serviceMemberWrite.FindStringSubmatch(body[t.Offset:])
-		if m == nil {
+		w, ok := serviceMemberWriteAt(body[t.Offset:])
+		if !ok {
 			continue
 		}
 
-		if !strings.EqualFold(m[2], iterator) || !strings.EqualFold(m[4], iterator) {
+		if !strings.EqualFold(w.key, iterator) || !strings.EqualFold(w.bean, iterator) {
 			return nil, false
 		}
 
@@ -160,7 +154,7 @@ func serviceLoopBody(body, iterator string, values []string) ([]StartupBeanBindi
 				return nil, false
 			}
 
-			out = append(out, StartupBeanBinding{Variable: strings.ToLower(m[1]) + "." + value, Factory: m[3], Bean: value})
+			out = append(out, StartupBeanBinding{Variable: strings.ToLower(w.scope) + "." + value, Factory: w.factory, Bean: value})
 		}
 	}
 }
@@ -199,17 +193,14 @@ func (pr *ParseResult) StartupVariableAssignments() []StartupVariableAssignment 
 	return out
 }
 
-// serviceListAppend is `list = listAppend( list, "name" )`.
-var serviceListAppend = regexp.MustCompile(`(?is)^listAppend\s*\(\s*((?:variables\.|local\.)?[\w$]+)\s*,\s*(["'][^"'#]*["'])\s*\)$`)
-
 // listAppendLiteral is what a known literal list may hold after expr appends
 // a literal to it: every name it held and the appended one. A loop over it
 // then binds the appended name too, which is right whether or not the append
 // ran: a binding says what the loop assigns that name, not that it does. It
 // is how Mura adds a legacy service under a condition before its loop.
 func listAppendLiteral(expr, target string, env map[string]string) (string, bool) {
-	m := serviceListAppend.FindStringSubmatch(strings.TrimSpace(expr))
-	if m == nil || envName(m[1]) != envName(target) {
+	listName, quoted, ok := listAppendCall(strings.TrimSpace(expr))
+	if !ok || envName(listName) != envName(target) {
 		return "", false
 	}
 
@@ -218,7 +209,7 @@ func listAppendLiteral(expr, target string, env map[string]string) (string, bool
 		return "", false
 	}
 
-	item, ok := stringLiteral(m[2])
+	item, ok := stringLiteral(quoted)
 	if !ok || item == "" || strings.Contains(item, ",") {
 		return "", false
 	}
