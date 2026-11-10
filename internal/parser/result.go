@@ -304,7 +304,7 @@ func ParseWithOptions(fileURI uri.URI, content string, opts *ParseOptions) *Pars
 		if opts.ResolverSet.Serves(pr.Resolvers) {
 			pr.resolverSet = opts.ResolverSet.ForParse()
 		} else {
-			pr.resolverSet = BuildResolverSet(pr.Resolvers)
+			pr.resolverSet = newPrivateResolverSet(pr.Resolvers)
 		}
 	}
 

@@ -26,7 +26,7 @@ func TestASharedResolverSetKeepsSoftComponentsPerParse(t *testing.T) {
 		t.Fatal("a parse that never met the resolver reports another parse's soft component")
 	}
 
-	if len(shared.memo.answers) == 0 {
+	if shared.memo.size() == 0 {
 		t.Fatal("the parses did not fill the shared memo")
 	}
 

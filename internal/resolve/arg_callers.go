@@ -47,13 +47,131 @@ type callerIndex struct {
 	// resolvers sorting and writing the map under two different locks is a
 	// concurrent map write, which Go cannot recover from. The race detector
 	// found it in the code map's build, which the editor runs in-process.
-	mu     sync.Mutex
-	byName map[string][]string
+	mu sync.Mutex
+	// byName is each name's files, as positions in paths. Every file is
+	// listed under every name it calls, so storing each path's 16-byte
+	// header per name held 38MB at a tassweb scan's peak, against 19MB as
+	// numbers.
+	byName map[string][]uint32
+	paths  []string
+	ids    map[string]uint32
+	// sorted are the names whose list byName holds in path order without
+	// repeats: put so by the first ask for the name (callerFiles), and
+	// cleared when a file is added under it. Only the names asked about are
+	// sorted, a small part of an index of millions of entries.
+	sorted map[string]bool
+	// adds counts the files added. A sorted copy is kept only when nothing
+	// was added while it was being sorted: a length cannot say so, since
+	// another ask's compaction shrinks the list and an add grows it back.
+	adds uint64
 	// failed are the files whose names could not be read (forEachFile).
 	// Each is listed as a caller of every name, so inference parses it and,
 	// when that fails too, withholds rather than typing an argument from
 	// the callers that were read.
 	failed []string
+}
+
+func newCallerIndex() *callerIndex {
+	return &callerIndex{byName: map[string][]uint32{}, ids: map[string]uint32{}, sorted: map[string]bool{}}
+}
+
+// add lists path under each of names. The caller holds idx.mu, or is the
+// only goroutine holding idx.
+func (idx *callerIndex) add(path string, names map[string]bool) {
+	id, ok := idx.ids[path]
+	if !ok {
+		id = uint32(len(idx.paths)) //nolint:gosec // a workspace has far fewer than 2^32 files
+		idx.ids[path] = id
+		idx.paths = append(idx.paths, path)
+	}
+
+	idx.adds++
+
+	for name := range names {
+		idx.byName[name] = append(idx.byName[name], id)
+
+		// Nothing is sorted until something asks, which in a batch run is
+		// after the index pass, so the pass does not pay for the delete.
+		if len(idx.sorted) > 0 {
+			delete(idx.sorted, name)
+		}
+	}
+}
+
+// files is name's files in path order, without repeats. The first ask for a
+// name sorts it outside the lock, which every worker shares, and keeps the
+// result unless a file was added under the name meanwhile; later asks copy it.
+// A name never indexed adds no entry: inference asks about every prefix of a
+// name (computedCallerKey).
+func (idx *callerIndex) files(name string) []string {
+	if files, done := idx.sortedFiles(name); done {
+		return files
+	}
+
+	pending := idx.unsorted(name)
+	pending.sort()
+	idx.keep(name, pending)
+
+	return pathsOf(pending.ids, pending.paths)
+}
+
+// sortedFiles is name's files when its list is already sorted.
+func (idx *callerIndex) sortedFiles(name string) ([]string, bool) {
+	idx.mu.Lock()
+	defer idx.mu.Unlock()
+
+	if !idx.sorted[name] {
+		return nil, false
+	}
+
+	return pathsOf(idx.byName[name], idx.paths), true
+}
+
+// pendingSort is a copy of a name's list taken to be sorted outside the lock,
+// with the add count it was taken at.
+type pendingSort struct {
+	ids   []uint32
+	paths []string
+	adds  uint64
+}
+
+// unsorted copies name's list: add appends to the stored one under the lock.
+func (idx *callerIndex) unsorted(name string) pendingSort {
+	idx.mu.Lock()
+	defer idx.mu.Unlock()
+
+	return pendingSort{ids: slices.Clone(idx.byName[name]), paths: idx.paths, adds: idx.adds}
+}
+
+func (p *pendingSort) sort() {
+	slices.SortFunc(p.ids, func(a, b uint32) int { return strings.Compare(p.paths[a], p.paths[b]) })
+	p.ids = slices.Compact(p.ids)
+}
+
+// keep stores p as name's sorted list, unless a file was added since p was
+// copied or the name was never indexed.
+func (idx *callerIndex) keep(name string, p pendingSort) {
+	if len(p.ids) == 0 {
+		return
+	}
+
+	idx.mu.Lock()
+	defer idx.mu.Unlock()
+
+	if idx.adds == p.adds {
+		idx.byName[name] = p.ids
+		idx.sorted[name] = true
+	}
+}
+
+// pathsOf is the paths ids number.
+func pathsOf(ids []uint32, paths []string) []string {
+	files := make([]string, 0, len(ids))
+	for _, id := range ids {
+		files = append(files, paths[id])
+	}
+
+	return files
 }
 
 // IndexCallerFile adds the call-shaped names in content to the batch caller
@@ -69,16 +187,14 @@ func (r *Resolver) IndexCallerFile(path, content string) {
 
 	r.mu.Lock()
 	if r.callerIdx == nil {
-		r.callerIdx = &callerIndex{byName: map[string][]string{}}
+		r.callerIdx = newCallerIndex()
 	}
 
 	idx := r.callerIdx
 	r.mu.Unlock()
 
 	idx.mu.Lock()
-	for name := range seen {
-		idx.byName[name] = append(idx.byName[name], path)
-	}
+	idx.add(path, seen)
 	idx.mu.Unlock()
 }
 
@@ -233,13 +349,7 @@ func (r *Resolver) callerFiles(name string) []string {
 
 	key := strings.ToLower(name)
 
-	idx.mu.Lock()
-	files := idx.byName[key]
-	slices.Sort(files)
-	files = slices.Compact(files)
-	idx.byName[key] = files
-	files = slices.Clone(files)
-	idx.mu.Unlock()
+	files := idx.files(key)
 
 	// failed is set when the index is built and never written after.
 	for _, f := range idx.failed {
@@ -290,11 +400,12 @@ func ShareCallerIndex(rs []*Resolver) (restore func()) {
 		}
 	})
 
-	idx := &callerIndex{byName: map[string][]string{}, failed: failed}
+	idx := newCallerIndex()
+	idx.failed = failed
 
 	for i, seen := range names {
-		for name := range seen {
-			idx.byName[name] = append(idx.byName[name], files[i])
+		if seen != nil {
+			idx.add(files[i], seen)
 		}
 	}
 
@@ -324,7 +435,7 @@ func ShareCallerIndex(rs []*Resolver) (restore func()) {
 }
 
 func (r *Resolver) buildCallerIndex() *callerIndex {
-	idx := &callerIndex{byName: map[string][]string{}}
+	idx := newCallerIndex()
 
 	for _, path := range r.InferArgsFiles {
 		text, err := r.readText(path)
@@ -332,9 +443,7 @@ func (r *Resolver) buildCallerIndex() *callerIndex {
 			continue
 		}
 
-		for name := range callerNames(text) {
-			idx.byName[name] = append(idx.byName[name], path)
-		}
+		idx.add(path, callerNames(text))
 	}
 
 	r.mu.Lock()

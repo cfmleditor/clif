@@ -2,10 +2,12 @@ package parser
 
 import (
 	"fmt"
+	"hash/maphash"
 	"regexp"
 	"slices"
 	"strings"
 	"sync"
+	"unsafe"
 
 	"github.com/cfmleditor/clif/internal/lex"
 	"go.lsp.dev/uri"
@@ -524,9 +526,64 @@ type ResolverSet struct {
 	memo *resolverMemo
 }
 
+// resolverMemo is split into shards by expression, each with its own lock:
+// every parse worker of a batch run shares the memo, a miss takes the write
+// lock, and one lock for all of it was the most contended in a tassweb scan,
+// four seconds of workers waiting. A set built for one parse shares its memo
+// with no other parse and gets a single shard (newPrivateResolverSet): 64
+// would be 8KB per parse for nothing.
 type resolverMemo struct {
-	mu      sync.RWMutex // read-locked for a hit: every parse worker shares it
+	shards []resolverMemoShard
+}
+
+// resolverMemoShard fills a cache line: a hit's RLock writes the reader
+// count, and two shards sharing a line would contend on it. The line is taken
+// as 128 bytes, which is arm64's (Apple Silicon); on amd64 that is two 64-byte
+// lines, which also keeps the adjacent-line prefetcher from pairing shards.
+// The pad is worked out from the fields, so it stays right if their sizes
+// change, and fails to compile if they outgrow the line.
+type resolverMemoShard struct {
+	mu      sync.RWMutex // read-locked for a hit
 	answers map[string]resolverAnswer
+	_       [cacheLine - unsafe.Sizeof(sync.RWMutex{}) - unsafe.Sizeof(map[string]resolverAnswer(nil))]byte
+}
+
+const cacheLine = 128
+
+const resolverMemoShards = 64
+
+func newResolverMemo(shards int) *resolverMemo {
+	return &resolverMemo{shards: make([]resolverMemoShard, shards)}
+}
+
+var resolverMemoSeed = maphash.MakeSeed()
+
+// size is how many answers the memo holds.
+func (m *resolverMemo) size() int {
+	n := 0
+
+	for i := range m.shards {
+		m.shards[i].mu.RLock()
+		n += len(m.shards[i].answers)
+		m.shards[i].mu.RUnlock()
+	}
+
+	return n
+}
+
+// shard is the part of the memo that holds expr. A single shard is not
+// hashed for: the map lookup that follows hashes expr anyway.
+func (m *resolverMemo) shard(expr string) *resolverMemoShard {
+	if len(m.shards) == 1 {
+		return &m.shards[0]
+	}
+
+	return &m.shards[maphash.String(resolverMemoSeed, expr)%uint64(len(m.shards))]
+}
+
+// limit is how many answers one shard holds before it is emptied.
+func (m *resolverMemo) limit() int {
+	return maxResolverAnswers / len(m.shards)
 }
 
 // ForParse is a set for one parse: rs's index and memo of answers, shared,
@@ -577,9 +634,22 @@ func (rs *ResolverSet) isSoft(comp string) bool {
 	return rs.soft[strings.ToLower(comp)]
 }
 
-// BuildResolverSet creates an optimized resolver set from a slice of resolvers.
+// BuildResolverSet creates an optimized resolver set from a slice of
+// resolvers, with a memo sharded for the parse workers that share it through
+// ForParse.
 func BuildResolverSet(resolvers []Resolver) *ResolverSet {
-	rs := &ResolverSet{resolvers: resolvers, byByte: &[256][]int{}, memo: &resolverMemo{}}
+	return buildResolverSet(resolvers, resolverMemoShards)
+}
+
+// newPrivateResolverSet is a set for one parse: no other parse shares its
+// memo, so it is a single shard. It is still locked, because the parse's lazy
+// per-function work can run on whichever goroutine holds the result.
+func newPrivateResolverSet(resolvers []Resolver) *ResolverSet {
+	return buildResolverSet(resolvers, 1)
+}
+
+func buildResolverSet(resolvers []Resolver, shards int) *ResolverSet {
+	rs := &ResolverSet{resolvers: resolvers, byByte: &[256][]int{}, memo: newResolverMemo(shards)}
 	for i := range resolvers {
 		if resolvers[i].Prefix == "" {
 			continue
@@ -754,7 +824,7 @@ func (rs *ResolverSet) Resolve(expr string) string {
 		return ""
 	}
 
-	m := rs.memo
+	m := rs.memo.shard(expr)
 
 	m.mu.RLock()
 	a, ok := m.answers[expr]
@@ -764,7 +834,7 @@ func (rs *ResolverSet) Resolve(expr string) string {
 		a = rs.resolve(expr)
 
 		m.mu.Lock()
-		if m.answers == nil || len(m.answers) >= maxResolverAnswers {
+		if m.answers == nil || len(m.answers) >= rs.memo.limit() {
 			m.answers = make(map[string]resolverAnswer)
 		}
 
