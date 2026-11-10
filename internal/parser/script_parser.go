@@ -1,7 +1,6 @@
 package parser
 
 import (
-	"regexp"
 	"slices"
 	"strings"
 
@@ -350,14 +349,8 @@ func mockClassArg(args string) string {
 		}
 	}
 
-	if m := mockClassNameRe.FindStringSubmatch(args); m != nil {
-		return m[1]
-	}
-
-	return ""
+	return mockClassName(args)
 }
-
-var mockClassNameRe = regexp.MustCompile(`(?i)\bclassName\s*[=:]\s*["']([^"'#]+)["']`)
 
 // finalCall is the name of the last call in expr and the text after its
 // `(`: `getMockBox().createEmptyMock("x")` gives createEmptyMock and `"x")`.

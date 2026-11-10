@@ -60,6 +60,17 @@ func (s *Server) definitionAnswer(_ context.Context, rawParams []byte) (any, err
 		return v, nil
 	}
 
+	// A custom tag's name, before the word under the cursor: `<cf_layout>`
+	// reads as the word "cf_layout" and `<ui:button>` as "button", and neither
+	// is a function. See customTagStage.
+	if v, ok := s.customTagStage(content, line, char, params.TextDocument.URI); ok {
+		outcome = "customTag"
+
+		return v, nil
+	}
+
+	dt.mark("customTag")
+
 	word := parser.WordAtPosition(content, line, char)
 	if word == "" {
 		return nil, nil

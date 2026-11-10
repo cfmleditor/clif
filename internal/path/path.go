@@ -79,21 +79,7 @@ func LoadAppMappings(appDir string) map[string]string {
 // and editor mappings. The cache key includes these bootstrap inputs, so two
 // callers with different explicit mappings cannot share inherited facts.
 func LoadAppMappingsWithInitial(appDir string, initial map[string]string) map[string]string {
-	keys := make([]string, 0, len(initial))
-	for key := range initial {
-		keys = append(keys, key)
-	}
-
-	slices.Sort(keys)
-
-	cacheKey := appDir
-
-	var cacheKeySb58 strings.Builder
-	for _, key := range keys {
-		cacheKeySb58.WriteString("\x00" + key + "\x00" + initial[key])
-	}
-
-	cacheKey += cacheKeySb58.String()
+	cacheKey := appCacheKey(appDir, initial)
 
 	appMappingsCacheMu.RLock()
 
@@ -107,7 +93,10 @@ func LoadAppMappingsWithInitial(appDir string, initial map[string]string) map[st
 
 	m := bootstrapMappings(appDir, initial, probeRead)
 
-	app := ApplicationMappingSources(filepath.Join(appDir, "Application.cfc"), initial, probeRead)
+	app := applicationSources(filepath.Join(appDir, "Application.cfc"), initial, probeRead)
+
+	var tags []string
+
 	for _, name := range []string{"Application.cfc", "Application.cfm"} {
 		file := filepath.Join(appDir, name)
 		if _, err := DefaultFS.Stat(file); err != nil {
@@ -115,27 +104,56 @@ func LoadAppMappingsWithInitial(appDir string, initial map[string]string) map[st
 		}
 
 		if name != "Application.cfc" {
-			app = ApplicationMappingSources(file, initial, probeRead)
+			app = applicationSources(file, initial, probeRead)
 		}
 
-		maps.Copy(m, app)
+		maps.Copy(m, app.Mappings)
+		tags = app.CustomTagPaths
 
 		break
 	}
 
+	// The custom tag paths came from the same walk, and are kept with the
+	// mappings under the same lock: a mapping held means its paths are too.
 	appMappingsCacheMu.Lock()
 	appMappingsCache[cacheKey] = m
+	appTagPathsCache[cacheKey] = tags
 	appMappingsCacheMu.Unlock()
 
 	return m
 }
 
+// appCacheKey is appDir with the initial mappings, in a stable order: the
+// answers for an application depend on both.
+func appCacheKey(appDir string, initial map[string]string) string {
+	keys := make([]string, 0, len(initial))
+	for key := range initial {
+		keys = append(keys, key)
+	}
+
+	slices.Sort(keys)
+
+	var b strings.Builder
+
+	b.WriteString(appDir)
+
+	for _, key := range keys {
+		b.WriteString("\x00" + key + "\x00" + initial[key])
+	}
+
+	return b.String()
+}
+
 // ApplicationMappingSources uses only server/editor configuration to bootstrap
 // ancestry. Reads include missing physical parent candidates for invalidation.
 func ApplicationMappingSources(file string, initial map[string]string, read func(string) ([]byte, error)) map[string]string {
+	return applicationSources(file, initial, read).Mappings
+}
+
+func applicationSources(file string, initial map[string]string, read func(string) ([]byte, error)) parser.AppSources {
 	bootstrap, parent := ApplicationParentLookup(filepath.Dir(file), initial, read)
 
-	return parser.MappingSourcesWithParent(file, bootstrap, read, parent)
+	return parser.ApplicationSources(file, bootstrap, read, parent)
 }
 
 // ApplicationParentLookup freezes the inputs used to resolve application
@@ -185,7 +203,9 @@ func ApplicationParentLookup(appDir string, initial map[string]string, read func
 func InvalidateAppMappingsCache() {
 	appMappingsCacheMu.Lock()
 	appMappingsCache = make(map[string]map[string]string)
+	appTagPathsCache = make(map[string][]string)
 	appMappingsCacheMu.Unlock()
+	serverFactsCache.Clear()
 	probeReads.Clear()
 }
 

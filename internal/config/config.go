@@ -88,6 +88,10 @@ type JSON struct {
 	ComponentResolvers []Resolver        `json:"componentResolvers"`
 	PropertyResolvers  []PropResolver    `json:"propertyResolvers"`
 	BeanPaths          map[string]string `json:"beanPaths"`
+	// CustomTagPaths are the directories the server searches for custom
+	// tags, beyond the caller's own directory and this.customTagPaths. See
+	// CustomTagPath.
+	CustomTagPaths []CustomTagPath `json:"customTagPaths"`
 	// JavaStubsPath is the dot-path prefix under which java stub CFCs live
 	// (e.g. "tassweb.packages.tass.javastubs"). When set, createObject("java",
 	// "X") calls are automatically resolved to "<JavaStubsPath>.X" without
@@ -688,6 +692,7 @@ type Resolved struct {
 	ComponentResolvers       []Resolver
 	PropertyResolvers        []PropResolver
 	BeanPaths                map[string]string
+	CustomTagPaths           []CustomTagPath // absolute, in priority order
 	Frameworks               []string
 	Formatting               ResolvedFormatting
 	Features                 ResolvedFeatures
@@ -788,6 +793,8 @@ func Resolve(cfg *JSON, dir string) *Resolved {
 	if len(cfg.BeanPaths) > 0 {
 		r.BeanPaths = ResolvePaths(cfg.BeanPaths, dir)
 	}
+
+	r.CustomTagPaths = ResolveCustomTagPaths(cfg.CustomTagPaths, dir)
 
 	if cfg.Linting != nil {
 		r.Linting = BoolDefault(cfg.Linting.Enabled, false)
@@ -1015,6 +1022,9 @@ func Merge(base, over *JSON) *JSON {
 	}
 
 	out.BeanPaths = mergeStringMap(base.BeanPaths, over.BeanPaths)
+
+	// Both sides' directories are searched, over's first, as resolvers are.
+	out.CustomTagPaths = slices.Concat(over.CustomTagPaths, base.CustomTagPaths)
 
 	// Resolvers from both sides stay active. Order is priority — the first
 	// match wins at lookup time — so over's entries lead.

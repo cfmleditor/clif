@@ -2,18 +2,8 @@ package parser
 
 import (
 	"path/filepath"
-	"regexp"
 	"strings"
 )
-
-// beanPathRe matches: this.beanPaths["namespace"] = expandPath("./path") or this.beanPaths["namespace"] = "path".
-var beanPathRe = regexp.MustCompile(`(?i)this\.beanPaths\[\s*["']([^"']*)["']\s*\]\s*=\s*(?:expandPath\(\s*["']([^"']+)["']\s*\)|["']([^"']+)["'])`)
-
-// diLocationsRe matches: variables.framework.diLocations = "path1,path2".
-var diLocationsRe = regexp.MustCompile(`(?i)(?:variables\.)?framework\.diLocations\s*=\s*["']([^"']+)["']`)
-
-// fw1AppRe is an Application.cfc that is an FW/1 application.
-var fw1AppRe = regexp.MustCompile(`(?i)extends\s*=\s*["']framework\.one["']`)
 
 // ParseApplicationMappings extracts this.mappings from Application.cfc content.
 // appDir is the directory containing Application.cfc, used to resolve relative paths.
@@ -28,9 +18,6 @@ func ParseApplicationMappings(content string, appDir string) map[string]string {
 
 	return s.mappings
 }
-
-// mappingTargetRe is `this.mappings["/key"]`, in any case and either quote.
-var mappingTargetRe = regexp.MustCompile(`(?i)^this\.mappings\[\s*["']([^"']+)["']\s*\]$`)
 
 // envName is how a variable is remembered: lowercased, without the local. or
 // variables. that CFML lets a component's pseudo-constructor leave off.
@@ -139,8 +126,8 @@ func evalPathTerm(term string, env map[string]string, appDir string) (string, bo
 		return value, true
 	}
 
-	if m := mappingTargetRe.FindStringSubmatch(term); m != nil {
-		v, ok := env["mapping:"+strings.ToLower(strings.Trim(strings.TrimSpace(m[1]), "/"))]
+	if key, ok := mappingTargetKey(term); ok {
+		v, ok := env["mapping:"+strings.ToLower(strings.Trim(strings.TrimSpace(key), "/"))]
 
 		return v, ok
 	}
@@ -236,13 +223,8 @@ func isDottedName(s string) bool {
 func ParseAppBeanPaths(content string, appDir string) map[string]string {
 	out := make(map[string]string)
 
-	for _, m := range beanPathRe.FindAllStringSubmatch(content, -1) {
-		ns := m[1]
-
-		val := m[2]
-		if val == "" {
-			val = m[3]
-		}
+	for _, a := range beanPathAssignments(content) {
+		ns, val := a.namespace, a.dir
 
 		if !filepath.IsAbs(val) {
 			val = filepath.Join(appDir, val)
@@ -254,9 +236,9 @@ func ParseAppBeanPaths(content string, appDir string) map[string]string {
 	// An FW/1 application that names no diLocations has DI/1 search
 	// "model,controllers" (framework/one.cfc's default).
 	locations := ""
-	if m := diLocationsRe.FindStringSubmatch(content); m != nil {
-		locations = m[1]
-	} else if fw1AppRe.MatchString(content) {
+	if v, ok := diLocations(content); ok {
+		locations = v
+	} else if extendsFW1(content) {
 		locations = "model,controllers"
 	}
 

@@ -190,6 +190,7 @@ func (pr *ParseResult) shiftAfter(editLine, delta int) {
 func (pr *ParseResult) reparseShallow() {
 	start := time.Now()
 	pr.Regions, pr.contentLineIdx = pr.classifyRegions()
+	pr.regionsOf = pr.Content
 	pr.outputScanned = false
 	pr.Accessors = false
 	pr.Persistent = false

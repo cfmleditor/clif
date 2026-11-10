@@ -81,6 +81,12 @@ func (s *Server) handleDocumentLink(_ context.Context, rawParams []byte) (any, e
 
 	dt.mark("routeLinks")
 
+	// Custom tag links carry their Target too: the template depends on the
+	// custom tag roots, which a link's path alone cannot say.
+	links = append(links, s.customTagLinks(content, docURI)...)
+
+	dt.mark("customTagLinks")
+
 	return links, nil
 }
 

@@ -1,7 +1,6 @@
 package parser
 
 import (
-	"regexp"
 	"strings"
 )
 
@@ -245,10 +244,6 @@ func customPrefixTag(s string, prefixes []string) bool {
 	return false
 }
 
-// markupClosingTag finds evidence of HTML: a closing tag, a doctype or an
-// HTML comment. A script fragment can hold "a<b", but not "</div>".
-var markupClosingTag = regexp.MustCompile(`(?i)</[a-z][a-z0-9-]*\s*>|<!doctype|<!--[^-]`)
-
 // isMarkupTemplate reports whether a .cfm or .cfml file with no CF tags is an
 // HTML template rather than CFScript. ColdFusion runs such a file as literal
 // text: with no <cfoutput> it evaluates nothing, and reading it as script
@@ -259,13 +254,13 @@ func isMarkupTemplate(fileURI, content string) bool {
 		return false
 	}
 
-	// Every form markupClosingTag finds starts "</" or "<!": a file with
+	// Every form hasMarkupEvidence finds starts "</" or "<!": a file with
 	// neither, which is any script-only template, is not scanned.
 	if !strings.Contains(content, "</") && !strings.Contains(content, "<!") {
 		return false
 	}
 
-	return !containsCFTag(content) && markupClosingTag.MatchString(content)
+	return !containsCFTag(content) && hasMarkupEvidence(content)
 }
 
 // cfTagAt reads the name of the tag opening at content[i] ('<'): which kind

@@ -57,6 +57,7 @@ func (s *Server) configureSession(editorCfg *config.JSON) {
 		editorCfg.Mappings = config.ResolvePaths(editorCfg.Mappings, baseDir)
 		editorCfg.StartupFiles = config.ResolvePathList(editorCfg.StartupFiles, baseDir)
 		editorCfg.BeanPaths = config.ResolvePaths(editorCfg.BeanPaths, baseDir)
+		editorCfg.CustomTagPaths = config.ResolveCustomTagPaths(editorCfg.CustomTagPaths, baseDir)
 	}
 
 	dir := baseDir
@@ -66,6 +67,7 @@ func (s *Server) configureSession(editorCfg *config.JSON) {
 		fileCfg.Mappings = config.ResolvePaths(fileCfg.Mappings, dir)
 		fileCfg.StartupFiles = config.ResolvePathList(fileCfg.StartupFiles, dir)
 		fileCfg.BeanPaths = config.ResolvePaths(fileCfg.BeanPaths, dir)
+		fileCfg.CustomTagPaths = config.ResolveCustomTagPaths(fileCfg.CustomTagPaths, dir)
 
 		s.log.Info("loaded config from workspace", cflog.String("path", path))
 	} else {
@@ -99,6 +101,7 @@ func (s *Server) configureSession(editorCfg *config.JSON) {
 	s.ComponentResolvers = nil
 	s.PropertyResolvers = nil
 	s.BeanPaths = nil
+	s.CustomTagPaths = nil
 	s.Frameworks = nil
 
 	// A config read from a file is resolved as a file is, which maps the folder
@@ -348,6 +351,10 @@ func (s *Server) applyConfig(r *config.Resolved) {
 
 	if len(r.BeanPaths) > 0 && len(s.BeanPaths) == 0 {
 		s.BeanPaths = r.BeanPaths
+	}
+
+	if len(r.CustomTagPaths) > 0 && len(s.CustomTagPaths) == 0 {
+		s.CustomTagPaths = r.CustomTagPaths
 	}
 
 	if len(r.Frameworks) > 0 && len(s.Frameworks) == 0 {

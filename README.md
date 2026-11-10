@@ -841,6 +841,7 @@ The same settings can also be supplied by your editor as LSP `initializationOpti
 | `workspaceIndexGlobs` | No | Glob patterns to filter which `.cfc` files are indexed. |
 | `mappings` | No | Component path mappings. Keys are the first segment of a dot-path, values are directory paths (absolute or relative to config). A workspace folder already implies a mapping of its own name; see [Mappings](#mappings). |
 | `startupFiles` | No | Templates that set up shared-scope variables for the whole workspace. See [Startup files](#startup-files). |
+| `customTagPaths` | No | Directories the server searches for custom tags, as an administrator's custom tag paths are, and tag library prefixes. See [Custom tags](#custom-tags). |
 | `componentResolvers` | No | Custom patterns for resolving method calls to component paths. See below. |
 | `frameworks` | No | Framework presets the project uses, e.g. `["coldbox"]`. Each adds the resolvers and implicit base components that framework implies. See [Frameworks](#frameworks). |
 | `formatting` | No | Formatter configuration object. See below. |
@@ -858,6 +859,35 @@ Recognized standard project layouts can supply missing root and library mappings
 Mappings let you resolve component dot-paths that use a virtual root. For example, with `"models": "./src/models"`, the dot-path `models.User` resolves to `./src/models/User.cfc`.
 
 A workspace folder also stands for a mapping of its own name, so a root that is just a folder's name needs no entry. With `"workspacePaths": ["../tassweb"]`, the dot-path `tassweb.packages.core.Kernel` resolves to `../tassweb/packages/core/Kernel.cfc`, and the include `/tassweb/includes/header.cfm` to the matching file. This is tried last, after every mapping, every `Application.cfc` mapping and every relative lookup, so it never changes a path those already resolve. Mappings are still what you need for any root that is not a workspace folder's name: a virtual root such as `models` above, a directory outside `workspacePaths`, or a name that should point somewhere other than the folder it matches. An explicit mapping for a folder's own name is harmless; it wins, and says the same thing.
+
+### Custom tags
+
+Go-to-definition and document links follow a custom tag call to the template it runs, in every syntax that names one:
+
+| Call | Where the template is looked for |
+|---|---|
+| `<cf_name>`, `</cf_name>`, `cf_name(...)` in cfscript | The caller's directory, then the custom tag paths |
+| `<cfmodule name="a.b">`, `cfmodule(name="a.b")`, `module name="a.b";` | `a/b` under the custom tag paths |
+| `<cfmodule template="x.cfm">`, `cfmodule(template=…)`, `module template="…";` | The path, found as a `cfinclude`'s is |
+| `<cfimport taglib="lib" prefix="ui">` then `<ui:name>` | `name` in `lib`, found as a `cfinclude`'s path is |
+| `<cfabridge>` | `bridge` in a `customTagPaths` entry with the prefix `cfa` |
+
+A name is tried as `.cfm`, `.cfc` and `.cfml`, without case. The custom tag paths are, in order:
+
+1. what the `Application.cfc` (or `.cfm`) sets in `this.customTagPaths`: a list, an array, Lucee's struct, or `listAppend(this.customTagPaths, …)`, through includes and a parent `Application.cfc`, as `this.mappings` is read;
+2. the `customTagPaths` entries in `.clif.json` without a prefix;
+3. the `customTagMappings` (Lucee) or `customTagPaths` (CommandBox) of the server's CFConfig file (`.cfconfig.json`, or the file `server.json` names). Its `customTagDeepSearch` makes every path searched recursively, as Lucee does.
+
+```json
+"customTagPaths": [
+  "shared/customtags",
+  { "directory": "lib/tags", "recursive": true },
+  { "directory": "lib/bridge", "prefix": "cfa" },
+  { "directory": "lucee/library/tag", "prefix": "cf" }
+]
+```
+
+A bare string is a directory, relative to the config file. `recursive` also searches its subdirectories, as ColdFusion always does and Lucee does with "search subdirectories" on; the shallowest match wins. An entry with a `prefix` is a tag library rather than a custom tag path: `<cfabridge>` runs `bridge.cfm` in it for the prefix `cfa`, and a Lucee library directory, whose `abridge.cfm` is `<cfabridge>`, takes the prefix `cf`. A built-in tag is never looked up in one. A template or name written with `#…#` is computed and is not followed.
 
 ### Frameworks
 
@@ -1744,7 +1774,7 @@ Precedence, when both are present:
 | Key set only in editor settings | The editor's value applies |
 | `formatting` set on both | Merged key by key — the file wins on the keys it names, the editor's other keys stand |
 | `mappings`, `beanPaths`, and other maps | Merged per key; the file wins on conflicts |
-| `componentResolvers`, `propertyResolvers` | Both apply, with the file's entries tried first |
+| `componentResolvers`, `propertyResolvers`, `customTagPaths` | Both apply, with the file's entries tried first |
 
 Relative paths resolve against the directory of whichever source declared them — the config file's own directory, or the first workspace folder for editor settings.
 

@@ -2,7 +2,6 @@ package resolve
 
 import (
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 
@@ -39,13 +38,6 @@ type customTagSite struct {
 	opaque bool
 }
 
-var (
-	customTagStartRe = regexp.MustCompile(`(?i)<cf_(\w+)\b|<cfmodule\b`)
-	tagAttributeRe   = regexp.MustCompile(`(?s)([\w:.-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')`)
-	wholeHashExprRe  = regexp.MustCompile(`(?s)^\s*#([^#]+)#\s*$`)
-	cfparamTagRe     = regexp.MustCompile(`(?is)<cfparam\b[^>]*>`)
-)
-
 // customTagAttribute is the component the custom tag pr holds as variable
 // (`attributes.x`), as the tags calling it pass it, or "".
 func (r *Resolver) customTagAttribute(variable string, pr *parser.ParseResult, tr *callTrace, ctx lookupCtx) string {
@@ -68,7 +60,7 @@ func (r *Resolver) customTagAttribute(variable string, pr *parser.ParseResult, t
 
 	// A tag that sets the attribute reads its own value; a cfparam only
 	// fills one that was not passed.
-	if setsName(cfparamTagRe.ReplaceAllString(pr.Content, ""), "attributes."+rest) {
+	if setsName(withoutTags(pr.Content, "cfparam"), "attributes."+rest) {
 		return ""
 	}
 
@@ -85,12 +77,12 @@ func (r *Resolver) customTagAttribute(variable string, pr *parser.ParseResult, t
 			continue
 		}
 
-		m := wholeHashExprRe.FindStringSubmatch(raw)
-		if m == nil {
+		expr, whole := wholeHashExpr(raw)
+		if !whole {
 			return ""
 		}
 
-		comp := r.renderedValueD(significantTokens(m[1]), viewArgSite{file: s.file, line: s.line}, lookupCtx{depth: ctx.depth, callers: ctx.callers})
+		comp := r.renderedValueD(significantTokens(expr), viewArgSite{file: s.file, line: s.line}, lookupCtx{depth: ctx.depth, callers: ctx.callers})
 		if comp == "" {
 			return ""
 		}
@@ -189,20 +181,72 @@ func (r *Resolver) customTagSites() (map[string][]customTagSite, map[string]int)
 }
 
 // customTagCallsInFile is customTagCallsIn over one file, nil when it holds
-// none.
+// none. A file indexed in this scan was read then (IndexCallerFile), and its
+// calls are taken from that read.
 func (r *Resolver) customTagCallsInFile(file string) map[string][]customTagSite {
+	o := r.owner()
+
+	o.mu.RLock()
+	calls, read := o.tagCallsByFile[file]
+	o.mu.RUnlock()
+
+	if read {
+		return calls
+	}
+
 	text, err := r.readText(file)
-	if err != nil || parser.IndexFold(text, "<cf_") < 0 && parser.IndexFold(text, "<cfmodule") < 0 {
+	if err != nil {
 		return nil
 	}
 
 	return customTagCallsIn(text, file)
 }
 
-// tagsNamedIn is the custom tag names file's text spells, read with the
-// tag-start pattern alone, for a file whose full read of its calls panicked.
-// ok is false when it cannot say: the text cannot be read, it calls a tag
-// through <cfmodule> (whose name is in an attribute), or this read panics too.
+// recordTagCalls keeps the custom tag calls in path, whose text indexing has
+// in hand, for customTagSites, which would otherwise read and walk the file
+// again. Only a batch scan reads them (InferArgsFiles). pr, when not nil, is
+// the file's parse, whose regions are reused rather than split again.
+//
+// A read that panics records nothing and leaves the file indexed: the build
+// reads the file again, and its panic is caught and reported there, where a
+// failed file is an opaque caller (customTagSites).
+func (r *Resolver) recordTagCalls(path, content string, pr *parser.ParseResult) {
+	if len(r.InferArgsFiles) == 0 {
+		return
+	}
+
+	defer func() { _ = recover() }()
+
+	var calls map[string][]customTagSite
+
+	if mayCallCustomTag(content) {
+		var found []parser.CustomTagCall
+		if pr != nil && pr.Content == content {
+			found = pr.CustomTagCalls(nil)
+		} else {
+			found = parser.CustomTagCalls(content, nil)
+		}
+
+		calls = customTagSitesOf(content, path, found)
+	}
+
+	o := r.owner()
+
+	o.mu.Lock()
+	if o.tagCallsByFile == nil {
+		o.tagCallsByFile = map[string]map[string][]customTagSite{}
+	}
+
+	o.tagCallsByFile[path] = calls
+	o.mu.Unlock()
+}
+
+// tagsNamedIn is the custom tag names file's text spells, `cf_name` read by
+// the plainest search there is, for a file whose full read of its calls
+// panicked: `<cf_name` and the script call `cf_name(` both count, and so may
+// a name in a comment, which only makes a tag decline. ok is false when it
+// cannot say: the text cannot be read, it calls cfmodule (whose tag is in an
+// attribute), or this read panics too.
 func (r *Resolver) tagsNamedIn(file string) (names []string, ok bool) {
 	defer func() {
 		if recover() != nil {
@@ -211,21 +255,32 @@ func (r *Resolver) tagsNamedIn(file string) (names []string, ok bool) {
 	}()
 
 	text, err := r.readText(file)
-	if err != nil {
+	if err != nil || callsCFModule(text) {
 		return nil, false
 	}
 
-	for _, m := range customTagStartRe.FindAllStringSubmatch(text, -1) {
-		if m[1] == "" {
-			return nil, false
+	for from := 0; ; {
+		i := parser.IndexFold(text[from:], "cf_")
+		if i < 0 {
+			return names, true
 		}
 
-		if name := strings.ToLower(m[1]); !slices.Contains(names, name) {
-			names = append(names, name)
+		i += from
+		j := i + len("cf_")
+
+		k := j
+		for k < len(text) && lex.IsWord(text[k]) {
+			k++
 		}
+
+		if k > j && (i == 0 || !lex.IsWord(text[i-1])) {
+			if name := strings.ToLower(text[j:k]); !slices.Contains(names, name) {
+				names = append(names, name)
+			}
+		}
+
+		from = max(k, i+1)
 	}
-
-	return names, true
 }
 
 func (r *Resolver) cachedTagSites() (map[string][]customTagSite, map[string]int, bool) {
@@ -235,70 +290,194 @@ func (r *Resolver) cachedTagSites() (map[string][]customTagSite, map[string]int,
 	return r.tagSites, r.tagTemplates, r.tagSites != nil
 }
 
-// customTagCallsIn reads the custom tag calls in content: `<cf_name …>`, and
-// `<cfmodule template="…/name.cfm" …>`.
+// customTagCallsIn reads the custom tag calls in content by tag name: each
+// `<cf_name …>` and `<cfmodule template="…/name.cfm" …>`, with the attributes
+// it passes. A call from cfscript, cf_name(…) or cfmodule(template=…), is an
+// opaque caller: its arguments are expressions, not the `#expr#` attribute
+// values customTagAttribute reads. The calls are found by
+// parser.CustomTagCalls, which skips comments.
 func customTagCallsIn(content, file string) map[string][]customTagSite {
-	out := map[string][]customTagSite{}
-	lines := newLineIndex(content)
+	if !mayCallCustomTag(content) {
+		return nil
+	}
 
-	for _, m := range customTagStartRe.FindAllStringSubmatchIndex(content, -1) {
-		end := quotedTagEnd(content, m[1])
-		if end < 0 {
+	return customTagSitesOf(content, file, parser.CustomTagCalls(content, nil))
+}
+
+// customTagSitesOf is customTagCallsIn over calls already read from content.
+// What it keeps is copied out of content, so a site held for the scan does
+// not keep the whole file's text alive.
+func customTagSitesOf(content, file string, calls []parser.CustomTagCall) map[string][]customTagSite {
+	var out map[string][]customTagSite
+
+	for i := range calls {
+		c := &calls[i]
+
+		tag := customTagName(c)
+		if tag == "" {
 			continue
 		}
 
-		site := customTagSite{file: file, line: lines.lineOf(m[0]), attrs: map[string]string{}}
+		site := customTagSite{file: file, line: c.Line, opaque: c.Script}
+		if !c.Script {
+			attrs := parser.TagAttributes(content[c.AttrStart:c.AttrEnd])
 
-		for _, a := range tagAttributeRe.FindAllStringSubmatch(content[m[1]:end], -1) {
-			value := a[2]
-			if value == "" {
-				value = a[3]
+			site.attrs = make(map[string]string, len(attrs))
+			for k, v := range attrs {
+				site.attrs[strings.Clone(k)] = strings.Clone(v)
 			}
 
-			key := strings.ToLower(a[1])
-			if key == "attributecollection" {
-				site.opaque = true
-			}
-
-			site.attrs[key] = value
+			_, site.opaque = site.attrs["attributecollection"]
 		}
 
-		tag := ""
-		if m[2] >= 0 {
-			tag = strings.ToLower(content[m[2]:m[3]])
-		} else if template := site.attrs["template"]; strings.EqualFold(filepath.Ext(template), ".cfm") && !strings.Contains(template, "#") {
-			tag = strings.ToLower(strings.TrimSuffix(filepath.Base(filepath.FromSlash(template)), filepath.Ext(template)))
+		if out == nil {
+			out = map[string][]customTagSite{}
 		}
 
-		if tag != "" {
-			out[tag] = append(out[tag], site)
-		}
+		tag = strings.Clone(tag)
+		out[tag] = append(out[tag], site)
 	}
 
 	return out
 }
 
-// quotedTagEnd is the index of the `>` ending the tag whose name ends at
-// from, stepping over quoted attribute values, or -1.
-func quotedTagEnd(content string, from int) int {
-	var quote byte
-
-	for i := from; i < len(content); i++ {
-		c := content[i]
-
-		switch {
-		case quote != 0:
-			if c == quote {
-				quote = 0
-			}
-		case c == '"' || c == '\'':
-			quote = c
-		case c == '>':
-			return i
-		}
+// mayCallCustomTag reports whether content could hold a custom tag call at
+// all: it spells cf_ or cfmodule, or a Lucee `module template=` or
+// `module name=` statement. Most files do not, and are not walked.
+func mayCallCustomTag(content string) bool {
+	if parser.IndexFold(content, "cf_") >= 0 || parser.IndexFold(content, "cfmodule") >= 0 {
+		return true
 	}
 
-	return -1
+	for from := 0; ; {
+		i := parser.IndexFold(content[from:], "module")
+		if i < 0 {
+			return false
+		}
+
+		i += from
+		from = i + len("module")
+
+		if i > 0 && lex.IsWord(content[i-1]) {
+			continue
+		}
+
+		j := from
+		for j < len(content) && (content[j] == ' ' || content[j] == '\t' || content[j] == '\n' || content[j] == '\r') {
+			j++
+		}
+
+		if j > from && (lex.HasPrefixFold(content[j:], "template") || lex.HasPrefixFold(content[j:], "name")) {
+			return true
+		}
+	}
+}
+
+// callsCFModule reports whether text calls cfmodule, as a tag (<cfmodule) or
+// from cfscript (cfmodule( ). A mention in prose or a longer name does not
+// count.
+func callsCFModule(text string) bool {
+	for from := 0; ; {
+		i := parser.IndexFold(text[from:], "cfmodule")
+		if i < 0 {
+			return false
+		}
+
+		i += from
+		from = i + len("cfmodule")
+
+		if from < len(text) && lex.IsWord(text[from]) {
+			continue
+		}
+
+		if i > 0 && text[i-1] == '<' {
+			return true
+		}
+
+		if i > 0 && lex.IsWord(text[i-1]) {
+			continue
+		}
+
+		j := from
+		for j < len(text) && (text[j] == ' ' || text[j] == '\t' || text[j] == '\n' || text[j] == '\r') {
+			j++
+		}
+
+		if j < len(text) && text[j] == '(' {
+			return true
+		}
+	}
+}
+
+// customTagName is the lowercased name of the template the call c runs, as
+// customTagSites counts templates by name: a cf_ tag's name, or the file name
+// of a literal cfmodule template ending .cfm; "" for an end tag and any
+// other call.
+func customTagName(c *parser.CustomTagCall) string {
+	switch {
+	case c.Closing || c.Dynamic:
+		return ""
+	case c.Kind == parser.CustomTagUnderscore:
+		return strings.ToLower(c.Name)
+	case c.Kind == parser.CustomTagModuleTemplate && strings.EqualFold(filepath.Ext(c.Name), ".cfm"):
+		return strings.ToLower(strings.TrimSuffix(filepath.Base(filepath.FromSlash(c.Name)), filepath.Ext(c.Name)))
+	default:
+		return ""
+	}
+}
+
+// wholeHashExpr is the expression of raw when raw is one #expr# and nothing
+// else but space.
+func wholeHashExpr(raw string) (string, bool) {
+	raw = strings.TrimSpace(raw)
+	if len(raw) < 3 || raw[0] != '#' || raw[len(raw)-1] != '#' {
+		return "", false
+	}
+
+	expr := raw[1 : len(raw)-1]
+
+	return expr, !strings.Contains(expr, "#")
+}
+
+// withoutTags is content with every <name …> tag cut out, name matched
+// without case and ending at a non-name byte, the tag running to its first >.
+func withoutTags(content, name string) string {
+	open := "<" + name
+
+	i := parser.IndexFold(content, open)
+	if i < 0 {
+		return content
+	}
+
+	var b strings.Builder
+
+	for i >= 0 {
+		end := i + len(open)
+		if end < len(content) && lex.IsWord(content[end]) {
+			b.WriteString(content[:end])
+			content = content[end:]
+		} else {
+			b.WriteString(content[:i])
+
+			gt := strings.IndexByte(content[end:], '>')
+			if gt < 0 {
+				// A tag never closed is no tag: its text stays.
+				b.WriteString(content[i:])
+
+				content = ""
+
+				break
+			}
+
+			content = content[end+gt+1:]
+		}
+
+		i = parser.IndexFold(content, open)
+	}
+
+	b.WriteString(content)
+
+	return b.String()
 }
 
 // attributeIncludeTargets is what `<cfinclude template="#attributes.name#">`

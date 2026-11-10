@@ -3,7 +3,6 @@ package parser
 import (
 	"cmp"
 	"maps"
-	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -90,11 +89,19 @@ type ParseResult struct {
 	// walk met the tags collectWrites reads, valid while tagScopeVarsOf is.
 	collectionTags map[int][]int
 	// textLinks is DocumentLinks' answer, for the content textLinksOf.
-	textLinks    []DocumentLink
-	textLinksOf  string
-	allVars      []VarDef
-	declareScans map[string]bool // mayDeclare's answers, by lowercased name
-	allVarsDone  bool
+	textLinks   []DocumentLink
+	textLinksOf string
+	// regionsOf is the Content Regions and contentLineIdx were split from: an
+	// edit inside a function changes Content and leaves them.
+	regionsOf string
+	// customTags is CustomTagCalls' answer, for the content customTagsOf and
+	// the prefixes customTagsKey.
+	customTags    []CustomTagCall
+	customTagsOf  string
+	customTagsKey string
+	allVars       []VarDef
+	declareScans  map[string]bool // mayDeclare's answers, by lowercased name
+	allVarsDone   bool
 
 	// anyScopedVars caches, per Scope, every name ever assigned in that scope
 	// anywhere in the file (see HasScopedAssignment) — unlike variablesVars/thisVars,
@@ -221,6 +228,7 @@ func Parse(fileURI uri.URI, content string, resolvers ...[]Resolver) *ParseResul
 
 	start := time.Now()
 	pr.Regions, pr.contentLineIdx = pr.classifyRegions()
+	pr.regionsOf = pr.Content
 	pr.extractSignatures()
 	pr.logDebug("parse", "uri", string(fileURI), "funcs", len(pr.Funcs), "refs", len(pr.ComponentRefs), "dur", time.Since(start))
 
@@ -310,6 +318,7 @@ func ParseWithOptions(fileURI uri.URI, content string, opts *ParseOptions) *Pars
 
 	start := time.Now()
 	pr.Regions, pr.contentLineIdx = pr.classifyRegions()
+	pr.regionsOf = pr.Content
 	pr.extractSignatures()
 	pr.logDebug("parse", "uri", string(fileURI), "funcs", len(pr.Funcs), "refs", len(pr.ComponentRefs), "dur", time.Since(start))
 
@@ -917,7 +926,7 @@ func appendKeyed[T any](m map[string][]T, k string, v []T) map[string][]T {
 	return m
 }
 
-// servicePropertyRe matches a "@serviceproperty varName kind|name" annotation inside a
+// servicePropertyAnnotations reads a "@serviceproperty varName kind|name" annotation inside a
 // CFML tag comment, e.g. "<!--- @serviceproperty donorObj package|sandbox.tasscom.components.donor --->".
 // This is a project-specific documentation convention (not standard CFML/CFC syntax) for
 // annotating the real component type of a dependency that's declared with a generic
@@ -928,7 +937,6 @@ func appendKeyed[T any](m map[string][]T, k string, v []T) map[string][]T {
 // all without a global componentResolver keyed on the bare receiver text, which risks
 // matching an unrelated same-named receiver anywhere else in the workspace. An in-source
 // annotation is scoped to this one file, so it doesn't carry that risk.
-var servicePropertyRe = regexp.MustCompile(`@serviceproperty\s+([A-Za-z_][A-Za-z0-9_.\[\]]*)\s+([A-Za-z]+)\|(\S+)`)
 
 // applyServiceProperties scans the whole file for "@serviceproperty" annotations and
 // registers a ComponentRef for the annotated variable at the annotation's line, resolved
@@ -949,10 +957,10 @@ func (pr *ParseResult) applyServiceProperties() {
 	// The matches come in order, so the line count is carried between them.
 	lines := lineCounter{text: pr.Content}
 
-	for _, m := range servicePropertyRe.FindAllStringSubmatchIndex(pr.Content, -1) {
-		varName := pr.Content[m[2]:m[3]]
-		kind := strings.ToLower(pr.Content[m[4]:m[5]])
-		name := pr.Content[m[6]:m[7]]
+	for _, m := range servicePropertyAnnotations(pr.Content) {
+		varName := m.name
+		kind := strings.ToLower(m.kind)
+		name := m.target
 
 		tmpl, ok := pr.ServicePropertyResolvers[kind]
 		if !ok {
@@ -960,7 +968,7 @@ func (pr *ParseResult) applyServiceProperties() {
 		}
 
 		component := strings.ReplaceAll(tmpl, "${name}", name)
-		line := conv.Uint32(lines.before(m[0]))
+		line := conv.Uint32(lines.before(m.start))
 
 		// resolve.CanResolveCall strips a receiver down to the text after its last
 		// top-level "." before comparing against ComponentRef.Variable (e.g.

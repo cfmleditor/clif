@@ -390,7 +390,7 @@ func isRegexPattern(s string) bool {
 func (r *Resolver) compiledRe() {
 	r.reOnce.Do(func() {
 		pattern := r.Match
-		hasPlaceholder := placeholderRe.MatchString(pattern)
+		hasPlaceholder := hasPlaceholder(pattern)
 		r.hasPlaceholder = hasPlaceholder
 
 		switch {
@@ -409,14 +409,14 @@ func (r *Resolver) compiledRe() {
 				r.re = re
 			}
 		case strings.Contains(pattern, `\`):
-			reStr := "(?i)" + placeholderRe.ReplaceAllString(pattern, "")
+			reStr := "(?i)" + withoutPlaceholders(pattern)
 
 			re, err := regexp.Compile(reStr)
 			if err == nil {
 				r.re = re
 			}
 		default:
-			parts := placeholderRe.Split(pattern, -1)
+			parts := splitPlaceholders(pattern)
 
 			var b strings.Builder
 
@@ -1073,9 +1073,6 @@ func indexByteFrom(s string, c byte, i int) int {
 
 	return len(s)
 }
-
-// placeholderRe matches $1, $2, etc. in patterns.
-var placeholderRe = regexp.MustCompile(`\$(\d+)`)
 
 // substitutePlaceholder replaces $N and its case-folded ${N:lower}/${N:upper} variants in
 // result with captured. The case-folded forms let a resolver normalize a captured call-site
