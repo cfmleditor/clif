@@ -577,7 +577,8 @@ func TestRefIndexAgreesWithTheScan(t *testing.T) {
 }
 
 // tagEnd takes the '<' inside a tag from the scan at made of the same text.
-// It must give what searching the text itself gives, whatever was asked
+// It must give what searching the text itself, outside its quoted values,
+// gives, whatever was asked
 // before it: a tag whose text holds a '<', one whose quotes are odd, one past
 // the fused span, and a tag asked about after another that left an answer.
 func TestTagEndFindsTheSameLtAsSearching(t *testing.T) {
@@ -589,7 +590,8 @@ func TestTagEndFindsTheSameLtAsSearching(t *testing.T) {
 			gt = len(s) - from - 1
 		}
 
-		if lt := strings.IndexByte(s[from:from+gt], '<'); lt >= 0 && startsTag(s[from+lt+1:]) {
+		// A '<' starts a tag inside this one only outside its quoted values.
+		if lt := tagStartOutsideQuotes(s[from:from+gt], 0); lt >= 0 {
 			return from + lt
 		}
 

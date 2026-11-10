@@ -85,6 +85,10 @@ type ParseResult struct {
 	// without reparsing the regions.
 	tagScopeVars   map[int][]VarDef
 	tagScopeVarsOf string
+	// scriptScopeVars is tagScopeVars for each script region: the
+	// declarations the main parse's script walk recorded there, valid while
+	// tagScopeVarsOf is (see keepScriptScopeVars).
+	scriptScopeVars map[int][]VarDef
 	// collectionTags is, for each tag region by its offset, where the parse's
 	// walk met the tags collectWrites reads, valid while tagScopeVarsOf is.
 	collectionTags map[int][]int
@@ -358,7 +362,7 @@ func (pr *ParseResult) mergeRegions(tagScopes []FuncScope) []pendingCall {
 
 	// The tag regions share one output state, in file order, from the top.
 	pr.output = outputState{}
-	pr.tagScopeVars, pr.tagScopeVarsOf, pr.collectionTags = nil, pr.Content, nil
+	pr.tagScopeVars, pr.tagScopeVarsOf, pr.collectionTags, pr.scriptScopeVars = nil, pr.Content, nil, nil
 
 	for _, r := range pr.Regions {
 		// A RegionSkip is a literal <script> block, left out of the script
@@ -641,6 +645,7 @@ func (pr *ParseResult) mergeScriptRegion(r *Region, tagScopes []FuncScope, open 
 	key := sp.inFunc
 
 	sp.parse()
+	pr.keepScriptScopeVars(r, sp.vars)
 
 	// What the block declared local stays local in the regions after it.
 	if key != "" {
@@ -1485,12 +1490,18 @@ func ExtractLinks(content string) []DocumentLink {
 
 				start := pos + 1
 
-				end := strings.IndexByte(line[start:], q)
+				// template= and include name a CF template, whose value is read
+				// as a CF tag's is; href= and action= are markup's.
+				mode := htmlAttrs
+				if attr == "template=" || attr == "include " {
+					mode = cfAttrs
+				}
+
+				end := quotedValueEnd(line, pos, mode)
 				if end < 0 {
 					break
 				}
 
-				end += start
 				path := line[start:end]
 
 				if path != "" && !strings.Contains(path, "#") && !strings.Contains(path, "://") {
@@ -2061,6 +2072,46 @@ func (pr *ParseResult) keepTagScopeVars(r *Region, vars []VarDef) {
 	pr.tagScopeVars[r.Offset] = kept
 }
 
+// keepScriptScopeVars keeps the declarations a script region's parse
+// recorded, on file lines, that can be variables- or this-scope ones: those
+// scopes, and a var or local, which outside any function is variables.
+// computeScopedVars reads them in place of a second walk of the region.
+//
+// That second walk, the global scanner, read every member assignment a.b =
+// as declaring b, and a == in a condition as an assignment; judged against
+// the tree-sitter grammar over the corpus it declared some 3,400 variables
+// that were none and missed 391 this walk finds
+// (.ai/docs/SCANNER-CONSOLIDATION.md).
+func (pr *ParseResult) keepScriptScopeVars(r *Region, vars []VarDef) {
+	var kept []VarDef
+
+	for _, v := range vars {
+		switch v.Scope {
+		case ScopeVariables, ScopeThis, ScopeLocal:
+			kept = append(kept, v)
+		default:
+		}
+	}
+
+	if pr.scriptScopeVars == nil {
+		pr.scriptScopeVars = map[int][]VarDef{}
+	}
+
+	pr.scriptScopeVars[r.Offset] = kept
+}
+
+// keptScriptScopeVars is what keepScriptScopeVars kept for the script region
+// at offset, when the regions were read from the current content.
+func (pr *ParseResult) keptScriptScopeVars(offset int) ([]VarDef, bool) {
+	if pr.scriptScopeVars == nil || !pr.regionFactsCurrent() {
+		return nil, false
+	}
+
+	vars, ok := pr.scriptScopeVars[offset]
+
+	return vars, ok
+}
+
 // keptTagScopeVars is what keepTagScopeVars kept for the tag region at
 // offset, when the regions were read from the current content.
 func (pr *ParseResult) keptTagScopeVars(offset int) ([]VarDef, bool) {
@@ -2094,7 +2145,7 @@ func (pr *ParseResult) regionFactsCurrent() bool {
 		return true
 	}
 
-	pr.tagScopeVars, pr.tagScopeVarsOf, pr.collectionTags = nil, "", nil
+	pr.tagScopeVars, pr.tagScopeVarsOf, pr.collectionTags, pr.scriptScopeVars = nil, "", nil, nil
 
 	return false
 }

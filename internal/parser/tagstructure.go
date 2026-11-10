@@ -211,11 +211,51 @@ func tagEnd(ends *tagEnds, from int) int {
 		lt = strings.IndexByte(content[from:from+gt], '<')
 	}
 
-	if lt >= 0 && startsTag(content[from+lt+1:]) {
+	if lt >= 0 {
+		lt = tagStartOutsideQuotes(content[from:from+gt], lt)
+	}
+
+	if lt >= 0 {
 		return from + lt
 	}
 
 	return from + gt + 1
+}
+
+// tagStartOutsideQuotes is the offset in span, a tag's text before its '>',
+// of the first '<' at or after first that starts a tag outside the tag's
+// quoted values, or -1. A '<' inside a value is the value's text:
+// hint="… <br />" and output="</cfif>" ended the tag there, and every
+// attribute after it was lost to every reader. When the quotes do not pair
+// up within the span, which is not markup but text, any '<' that starts a tag
+// ends it, as before.
+func tagStartOutsideQuotes(span string, first int) int {
+	var quote byte
+
+	inQuote := -1 // the first '<' starting a tag inside a quote, for when quotes do not pair
+
+	for i := range len(span) {
+		c := span[i]
+
+		switch {
+		case quote != 0:
+			if c == quote {
+				quote = 0
+			} else if c == '<' && inQuote < 0 && i >= first && startsTag(span[i+1:]) {
+				inQuote = i
+			}
+		case c == '"' || c == '\'':
+			quote = c
+		case c == '<' && i >= first && startsTag(span[i+1:]):
+			return i
+		}
+	}
+
+	if quote != 0 {
+		return inQuote
+	}
+
+	return -1
 }
 
 // startsTag reports whether s, the text after a `<`, begins an opening or

@@ -61,10 +61,18 @@ type scriptParser struct {
 	inClosure    bool  // scanning a closure's body as statements — see scanClosureBody
 	refThis      bool  // the assignment being parsed is through `this.` — see ComponentRef.This
 	chainDepth   uint8 // chained assignments being parsed; see maxChainedAssignments
+	// openDepth is how many brackets openKinds holds, past 16 counted as
+	// unknown; afterFor is whether the last token a loop read was `for`.
+	openDepth uint8
+	afterFor  bool
 
 	// argNesting fits beside the flags and returnLine after it, in the eight
 	// bytes after the pointers.
-	argNesting int16  // recursion depth of skipParenBody's scan, bounded by maxArgNesting
+	argNesting int16 // recursion depth of skipParenBody's scan, bounded by maxArgNesting
+	// openKinds is the brackets the parse loops have seen open and not
+	// closed, two bits each, innermost lowest (see trackOpen): a bare
+	// `name =` declares only at statement level.
+	openKinds  uint32
 	returnLine uint32 // the line of the return returnVar came from
 }
 
@@ -931,9 +939,7 @@ func (p *scriptParser) parseVarDecl(tok Token) {
 	}
 
 	// Check RHS for component refs
-	p.skipLiteralGroup()
-
-	rhs := p.sc.PeekSkipComments()
+	rhs := p.rhsAfterLiteral()
 	if rhs.Kind != TokIdent {
 		return
 	}
@@ -1207,9 +1213,7 @@ func (p *scriptParser) parseScopedVar(tok Token, scope Scope) {
 		return
 	}
 
-	p.skipLiteralGroup()
-
-	rhs := p.sc.PeekSkipComments()
+	rhs := p.rhsAfterLiteral()
 	if rhs.Kind == TokIdent {
 		var buf foldScratch
 		switch string(buf.lowerFold(rhs.Value)) {
@@ -1333,6 +1337,8 @@ func (p *scriptParser) parse() {
 		if tok.Kind == TokEOF {
 			break
 		}
+
+		p.trackOpen(tok)
 
 		afterLT := p.afterLT
 		p.afterLT = tok.Kind == TokLT
@@ -2235,6 +2241,12 @@ func (p *scriptParser) parseBody(funcLine int, args []Argument) int {
 
 	var endLine int
 
+	// A body's statements start at its own brace, whatever surrounds it.
+	prevKinds, prevDepth, prevFor := p.openKinds, p.openDepth, p.afterFor
+	p.openKinds, p.openDepth, p.afterFor = 0, 0, false
+
+	defer func() { p.openKinds, p.openDepth, p.afterFor = prevKinds, prevDepth, prevFor }()
+
 	for depth > 0 {
 		t := p.sc.NextSkipComments()
 		if t.Kind == TokEOF {
@@ -2256,6 +2268,8 @@ func (p *scriptParser) parseBody(funcLine int, args []Argument) int {
 
 		afterLT := p.afterLT
 		p.afterLT = t.Kind == TokLT
+
+		p.trackOpen(t)
 
 		switch t.Kind {
 		case TokLBrace:
@@ -2841,9 +2855,7 @@ func (p *scriptParser) parseBodyVarDecl(varTok Token) {
 	}
 
 	// Check RHS for component refs
-	p.skipLiteralGroup()
-
-	rhs := p.sc.PeekSkipComments()
+	rhs := p.rhsAfterLiteral()
 	if rhs.Kind != TokIdent {
 		return
 	}
@@ -2922,9 +2934,7 @@ func (p *scriptParser) parseBodyScopedVar(scopeTok Token, scope Scope) {
 	}
 
 	// Check RHS for component refs
-	p.skipLiteralGroup()
-
-	rhs := p.sc.PeekSkipComments()
+	rhs := p.rhsAfterLiteral()
 	if rhs.Kind == TokIdent {
 		var buf foldScratch
 		switch string(buf.lowerFold(rhs.Value)) {
@@ -3002,6 +3012,15 @@ func (p *scriptParser) checkAssignRef(tok Token) {
 		return
 	}
 
+	// A name = inside a call's arguments is a named argument, and inside a
+	// struct literal a key: neither assigns. Judged against the tree-sitter
+	// grammar over the corpus, reading them as assignments declared 769
+	// variables that were none (.ai/docs/SCANNER-CONSOLIDATION.md). The loop
+	// reads on through them as through any expression.
+	if !p.atStatementLevel() {
+		return
+	}
+
 	p.sc.NextSkipComments() // consume =
 	p.noteAssign(tok.Value, int(tok.Line))
 
@@ -3028,9 +3047,7 @@ func (p *scriptParser) checkAssignRef(tok Token) {
 		return
 	}
 
-	p.skipLiteralGroup()
-
-	rhs := p.sc.PeekSkipComments()
+	rhs := p.rhsAfterLiteral()
 	if rhs.Kind != TokIdent {
 		p.forceGlobal = false
 
@@ -4113,11 +4130,28 @@ func (p *scriptParser) skipInstantiation() {
 // first spelling as an assignment, declaring a variable called `force`. Only
 // the `=` spelling was ever affected, which is why the two look like different
 // constructs in a `.cfc` and are the same one.
-func (p *scriptParser) skipLiteralGroup() {
+// rhsAfterLiteral steps over a struct or array literal a right-hand side
+// starts with (skipLiteralGroup) and is the token that then begins the value
+// to read for a type. After a literal there is none: the value was the
+// literal, and an identifier after it begins the next statement, as one does
+// where Lucee lets a line end a statement without a semicolon. Read as the
+// value, `x = {}` then `y = 2` on the next line took y for x's type and never
+// declared it.
+func (p *scriptParser) rhsAfterLiteral() Token {
+	if p.skipLiteralGroup() {
+		return Token{Kind: TokSemicolon}
+	}
+
+	return p.sc.PeekSkipComments()
+}
+
+// skipLiteralGroup steps over the struct or array literal the scanner is at,
+// and reports whether there was one.
+func (p *scriptParser) skipLiteralGroup() bool {
 	switch p.sc.PeekSkipComments().Kind {
 	case TokLBrace, TokLBracket:
 	default:
-		return
+		return false
 	}
 
 	p.sc.NextSkipComments() // consume { or [
@@ -4129,7 +4163,7 @@ func (p *scriptParser) skipLiteralGroup() {
 
 		switch tok.Kind {
 		case TokEOF:
-			return
+			return true
 		case TokLBrace, TokLBracket:
 			depth++
 		case TokRBrace, TokRBracket:
@@ -4138,7 +4172,7 @@ func (p *scriptParser) skipLiteralGroup() {
 			// Hand a nested (...) to the scan that knows it, so a call written
 			// inside a literal's value is still found.
 			if !p.skipParenBody() {
-				return
+				return true
 			}
 		case TokIdent:
 			p.scanNestedCall(tok)
@@ -4148,14 +4182,16 @@ func (p *scriptParser) skipLiteralGroup() {
 			// Any other token is passed over.
 		}
 	}
+
+	return true
 }
 
 // looksLikeTagAttrs reports whether the scanner sits on `ident =`, without
 // moving it.
 //
 // That is two tokens of lookahead and the scanner offers one, so this saves and
-// restores rather than peeking twice. It is a free function because both script
-// parsers need it — see the note on globalScriptParser.
+// restores rather than peeking twice. It takes a scanner rather than a parser,
+// so any reader of CFScript can ask it.
 func looksLikeTagAttrs(sc *Scanner) bool {
 	saved := sc.Save()
 	defer sc.Restore(saved)
@@ -4731,3 +4767,96 @@ func (p *scriptParser) chainFollowsCall() bool {
 // reaches it from a typed component finds nothing, and from a dynamic value
 // keeps the value dynamic.
 const ElementHop = "[]"
+
+// The kinds of bracket trackOpen keeps.
+const (
+	openValue = 1 // a call's or a group's (, a [, a struct literal's {
+	openBlock = 2 // a block's {
+	openFor   = 3 // a for header's (: its init and step are statements
+
+	openBits     = 2
+	maxOpenDepth = 32 / openBits
+)
+
+// trackOpen keeps openKinds for a token a parse loop read. A handler that
+// reads a statement on its own reads its brackets in pairs, so the loops see
+// only the ones nothing consumed: the arguments of a call no handler took, a
+// struct or array literal, a block.
+func (p *scriptParser) trackOpen(tok Token) {
+	afterFor := p.afterFor
+	p.afterFor = tok.Kind == TokIdent && identEq(tok.Value, "for")
+
+	switch tok.Kind {
+	case TokLParen:
+		if afterFor {
+			p.pushOpen(openFor)
+		} else {
+			p.pushOpen(openValue)
+		}
+	case TokLBracket:
+		p.pushOpen(openValue)
+	case TokLBrace:
+		if structLiteralAt(p.sc.src, tok.Offset) {
+			p.pushOpen(openValue)
+		} else {
+			p.pushOpen(openBlock)
+		}
+	case TokRParen, TokRBracket, TokRBrace:
+		if p.openDepth > 0 {
+			if p.openDepth <= maxOpenDepth {
+				p.openKinds >>= openBits
+			}
+
+			p.openDepth--
+		}
+	default:
+	}
+}
+
+func (p *scriptParser) pushOpen(kind uint32) {
+	if p.openDepth < maxOpenDepth {
+		p.openKinds = p.openKinds<<openBits | kind
+	}
+
+	if p.openDepth < 255 {
+		p.openDepth++
+	}
+}
+
+// atStatementLevel reports whether the loop stands where a statement can
+// begin: in no bracket, a block, or a for header.
+func (p *scriptParser) atStatementLevel() bool {
+	if p.openDepth == 0 {
+		return true
+	}
+
+	if p.openDepth > maxOpenDepth {
+		return false
+	}
+
+	kind := p.openKinds & (1<<openBits - 1)
+
+	return kind == openBlock || kind == openFor
+}
+
+// structLiteralAt reports whether the { at offset opens a struct literal
+// rather than a block: it follows what only an expression follows, an
+// operator that takes a value or the word return.
+func structLiteralAt(src string, offset int) bool {
+	i := offset - 1
+	for i >= 0 && isRESpace(src[i]) {
+		i--
+	}
+
+	if i < 0 {
+		return false
+	}
+
+	// An arrow function's => ends in >, so its body reads as the block it is.
+	switch src[i] {
+	case '=', '(', '[', ',', ':', '?':
+		return true
+	}
+
+	return i >= 5 && strings.EqualFold(src[i-5:i+1], "return") && (i < 6 || !lex.IsWord(src[i-6]))
+}

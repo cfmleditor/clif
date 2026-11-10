@@ -109,6 +109,24 @@ type Scanner struct {
 	replay *[]Token
 }
 
+// NewScriptScanner is a scanner for text known to be CFScript: a string reads
+// as the parse reads it, a `#...#` inside it opening an expression in which
+// the same quote may open another string. A plain scanner ends
+// "{#listLast( p, "{" )#)" at the second quote and takes the `{` after it for
+// a brace, which threw every function finder that counted braces off for the
+// rest of the file.
+func NewScriptScanner(src string) *Scanner {
+	sc := NewScanner(src)
+	sc.interpStrings = true
+
+	return sc
+}
+
+// IsScriptSource reports whether content is CFScript as a whole, as
+// ClassifyRegions decides: a script component, or text with no CF tag. Only
+// such text should be read with NewScriptScanner.
+func IsScriptSource(content string) bool { return isScriptFile(content) }
+
 // tokenize is every token of src that a CFScript scanner's NextSkipComments
 // returns (interpolated strings included), ending in TokEOF.
 func tokenize(src string) []Token {

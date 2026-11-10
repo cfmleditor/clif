@@ -217,7 +217,9 @@ func scriptProducerMethods(source string, methods map[string]*producerMethod) {
 	// real component scanned that much for nothing and then again in full.
 	var tokens []parser.Token
 
-	scanner := parser.NewScanner(source)
+	// A script region: its strings are read as the parse reads them, or a
+	// quote inside a #...# ends one early and its braces count.
+	scanner := parser.NewScriptScanner(source)
 	for {
 		tok := scanner.NextSkipComments()
 		if tok.Kind == parser.TokEOF {

@@ -5,6 +5,8 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/cfmleditor/clif/internal/parser"
+
 	cfpath "github.com/cfmleditor/clif/internal/path"
 )
 
@@ -143,15 +145,10 @@ func initArgumentDefault(src []byte, name string) string {
 	return ""
 }
 
-var tagAttrRe = regexp.MustCompile(`(?is)\b([a-z]+)\s*=\s*(?:"([^"]*)"|'([^']*)')`)
-
-// tagAttr is the value of attribute attr in tag, or "".
+// tagAttr is the value of attribute attr in tag, or "", read as the parse
+// reads a CF tag's attributes (parser.TagAttribute). Its own pattern took
+// letters alone for a name and quoted values alone, so `show3d` and
+// `default=0` were never read.
 func tagAttr(tag []byte, attr string) string {
-	for _, m := range tagAttrRe.FindAllSubmatch(tag, -1) {
-		if strings.EqualFold(string(m[1]), attr) {
-			return string(m[2]) + string(m[3])
-		}
-	}
-
-	return ""
+	return parser.TagAttribute(string(tag), attr)
 }

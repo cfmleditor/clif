@@ -55,7 +55,15 @@ func (pr *ParseResult) AllVars() []VarDef {
 	defer pr.mu.Unlock()
 
 	if !pr.allVarsDone {
-		pr.allVars = ParseVars(pr.Content)
+		// Split as the parse splits the file: a markup template is no script
+		// region, though ClassifyRegions alone, without the file's name, would
+		// make it one.
+		regions, idx := pr.Regions, pr.contentLineIdx
+		if pr.regionsOf != pr.Content || regions == nil {
+			regions, idx = pr.classifyRegions()
+		}
+
+		pr.allVars = varDefs(varsAndScopesIn(pr.Content, regions, idx))
 		pr.allVarsDone = true
 	}
 
@@ -482,8 +490,13 @@ func (pr *ParseResult) computeScopedVars() (variables, this []string) {
 
 		var regionVars []VarDef
 
-		if r.Kind == RegionScript {
-			sp := newGlobalScriptParser(r.Text, r.StartLine, pr.Scopes)
+		// A script region's declarations are the main script walk's: kept from
+		// the parse, or, where an edit inside a function has moved its lines,
+		// walked again by the same rules.
+		if kept, ok := pr.keptScriptScopeVars(r.Offset); ok && r.Kind == RegionScript {
+			regionVars = kept
+		} else if r.Kind == RegionScript {
+			sp := newScriptParser(r.Text, "", r.StartLine, nil).asCFScript()
 			sp.parse()
 			regionVars = sp.vars
 		} else if kept, ok := pr.keptTagScopeVars(r.Offset); ok {
@@ -501,12 +514,19 @@ func (pr *ParseResult) computeScopedVars() (variables, this []string) {
 
 		for i := range regionVars {
 			v := &regionVars[i]
-			if v.Scope != ScopeVariables && v.Scope != ScopeThis {
+			if v.Scope != ScopeVariables && v.Scope != ScopeThis && v.Scope != ScopeLocal {
 				continue
 			}
 
 			if fs := findFuncScope(int(v.Line), pr.Scopes); fs.Start != -1 {
 				continue // inside a function
+			}
+
+			// A var or local outside any function is a variables one.
+			if v.Scope == ScopeLocal {
+				top := *v
+				top.Scope = ScopeVariables
+				v = &top
 			}
 
 			note(v)

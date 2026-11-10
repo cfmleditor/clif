@@ -83,7 +83,7 @@ type tagParser struct {
 	// baseLine is this region's absolute start line (0 if parsing the whole
 	// file as one region). knownScopes, when set by the caller, gives the
 	// true absolute (Start, End) of every tag function in the WHOLE file —
-	// computed once up front via findTagFuncScopes(pr.Content, 0), which is
+	// computed once up front via findTagFuncScopesIdx(pr.Content, 0, idx), which is
 	// unaffected by region splitting. Used so a function whose body is
 	// interrupted by a nested <cfscript> block (splitting the file into
 	// separate regions here) still resolves its real end line, instead of

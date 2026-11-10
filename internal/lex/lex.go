@@ -78,3 +78,45 @@ func UTF16Len(s string) int {
 
 	return n
 }
+
+// NormalizeLineBreaks is s with each bare carriage return, one not followed by
+// a line feed, made a line feed: s itself, uncopied, when it has none.
+//
+// The Language Server Protocol ends a line at \r, \n or \r\n, as editors do,
+// and so must every line count the analysis makes. They counted \n alone, and
+// a file written with old Mac line endings (66 in the corpus) was one line to
+// the parser, the line index and tree-sitter: every position the server gave
+// in it was wrong. Replacing the byte keeps every offset, so the text is made
+// right once, where it is read, rather than every counter taught a second
+// rule. A \r\n is left as it is: its \n already ends the line.
+func NormalizeLineBreaks(s string) string {
+	i := strings.IndexByte(s, '\r')
+	for i >= 0 && i+1 < len(s) && s[i+1] == '\n' {
+		next := strings.IndexByte(s[i+1:], '\r')
+		if next < 0 {
+			return s
+		}
+
+		i += 1 + next
+	}
+
+	if i < 0 {
+		return s
+	}
+
+	b := []byte(s)
+	for j := i; j < len(b); j++ {
+		if b[j] == '\r' && (j+1 == len(b) || b[j+1] != '\n') {
+			b[j] = '\n'
+		}
+	}
+
+	return string(b)
+}
+
+// CROnly reports whether s ends its lines with bare carriage returns alone:
+// it has one, and no line feed. Text NormalizeLineBreaks changed from such a
+// file is written back with them.
+func CROnly(s string) bool {
+	return strings.IndexByte(s, '\r') >= 0 && strings.IndexByte(s, '\n') < 0
+}

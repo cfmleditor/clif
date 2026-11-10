@@ -387,7 +387,13 @@ func (r *Resolver) storeSourceInfo(path string, src *sourceInfo) {
 }
 
 func wheelsMethods(content string) map[string]wheelsMethod {
+	// Bodies end at their braces, so strings are read as the parse reads them
+	// where the text is CFScript.
 	scanner := parser.NewScanner(content)
+	if parser.IsScriptSource(content) {
+		scanner = parser.NewScriptScanner(content)
+	}
+
 	methods := make(map[string]wheelsMethod)
 	depth, componentDepth := 0, 0
 

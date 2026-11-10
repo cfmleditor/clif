@@ -98,11 +98,11 @@ func TestNamedArgumentsAndStructKeysAreNotVariables(t *testing.T) {
 	}
 }
 
-// ParseVars and VariablesVars are two separate scans of the same file —
-// scriptParser's full one and globalScriptParser's cheap outside-functions-only
-// one — and every rule about what does *not* declare a variable has to hold in
-// both. All three shapes here fooled both, and fixing one left the other
-// reporting the same phantom names to hover and completion.
+// ParseVars and VariablesVars read the same declarations, the script walk's,
+// and every rule about what does *not* declare a variable has to hold for
+// both. They were two scans once, and all three shapes here fooled both:
+// fixing one left the other reporting the same phantom names to hover and
+// completion.
 func TestBothVariableScansAgree(t *testing.T) {
 	// Each line is a shape, paired with the names it must not be read as
 	// declaring.
@@ -171,6 +171,61 @@ func TestTagSyntaxIsNotReadAsScriptTagAttributes(t *testing.T) {
 	for _, want := range []string{"localVar", "other"} {
 		if !slices.Contains(got, want) {
 			t.Errorf("expected %q in FuncVars, got %v", want, got)
+		}
+	}
+}
+
+// ParseVars places a declaration in the function it is in, with the scopes
+// the parse finds: a <cffunction> whose body holds a <cfscript> block ends at
+// its </cffunction>, not at the block. The separate scope finder ParseVars
+// used to call ended it at the block, so what the function declared after it
+// read as declared outside any function.
+func TestParseVarsKeepsATagFunctionWholeAcrossAScriptBlock(t *testing.T) {
+	src := strings.Join([]string{
+		`<cfcomponent>`,
+		`<cffunction name="run">`,
+		`	<cfset var before = 1>`,
+		`	<cfscript>`,
+		`		x = 2;`,
+		`	</cfscript>`,
+		`	<cfset var after = 3>`,
+		`</cffunction>`,
+		`</cfcomponent>`,
+	}, "\n")
+
+	for _, v := range ParseVars(src) {
+		if v.Name == "after" && (v.FuncStart != 1 || v.FuncEnd != 7) {
+			t.Fatalf("after is in %d-%d, want the function at 1-7", v.FuncStart, v.FuncEnd)
+		}
+	}
+
+	if got := FindFuncScopes(src); len(got) != 1 || got[0].Start != 1 || got[0].End != 7 {
+		t.Fatalf("scopes %+v, want one at 1-7", got)
+	}
+}
+
+// A file with no CF tag is script, as RustCFML runs a .cfm, unless its first
+// line could not begin CFScript: then it is a text file a .cfm extension lets
+// the engine serve, and declares nothing. Mura's settings.ini.cfm read as
+// script declared every key in it.
+func TestATaglessTextFileIsNotScript(t *testing.T) {
+	for src, script := range map[string]bool{
+		"[settings]\nmode=production\nadmindir=/admin\n":        false,
+		"# Connection String\nDB_CLASS=org.hsqldb.jdbcDriver\n": false,
+		"\ufeff# Introduction\n\nSome *markdown* = text.\n":     false,
+		"#!/usr/bin/env rustcfml\nx = 2 + 2;\n":                 true,
+		"// a script template\nx = 1;\ny = 2;\n":                true,
+		"[1, 2].each(function(v) { total = v; });\n":            true,
+	} {
+		regions := ClassifyRegions(src)
+		if got := len(regions) == 1 && regions[0].Kind == RegionScript; got != script {
+			t.Errorf("%q read as script %v, want %v", src, got, script)
+		}
+
+		if !script {
+			if vars := ParseVars(src); len(vars) != 0 {
+				t.Errorf("%q declares %v, want nothing", src, vars)
+			}
 		}
 	}
 }
