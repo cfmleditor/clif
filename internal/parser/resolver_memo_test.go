@@ -49,7 +49,9 @@ func TestTheResolverMemoKeepsWhatItsShardsHold(t *testing.T) {
 		t.Fatalf("the private memo holds %d answers, want %d", n, exprs)
 	}
 
-	if size := unsafe.Sizeof(resolverMemoShard{}); size != 64 {
-		t.Fatalf("a memo shard is %d bytes; it should fill one 64-byte cache line", size)
+	// 128 bytes is arm64's cache line (Apple Silicon); 64, amd64's, would
+	// leave two shards sharing each line there.
+	if size := unsafe.Sizeof(resolverMemoShard{}); size != 128 {
+		t.Fatalf("a memo shard is %d bytes; it should fill one 128-byte cache line", size)
 	}
 }

@@ -87,3 +87,31 @@ func TestAskingForAnAbsentNameDoesNotGrowTheIndex(t *testing.T) {
 		t.Fatalf("the index grew from %d names to %d by being asked", before, after)
 	}
 }
+
+// A name's list is sorted by the first ask for it and kept, so later asks do
+// not sort it again; a file added under the name afterwards is in the next
+// answer, in its place.
+func TestTheFirstAskSortsANameAndAnAddUnsortsIt(t *testing.T) {
+	r := &Resolver{InferArgsFiles: []string{"/w/a.cfc", "/w/c.cfc", "/w/b.cfc"}}
+	r.IndexCallerFile("/w/c.cfc", "component { function f() { save( 1 ); } }")
+	r.IndexCallerFile("/w/a.cfc", "component { function g() { save( 2 ); } }")
+
+	if got, want := r.callerFiles("save"), []string{"/w/a.cfc", "/w/c.cfc"}; !slices.Equal(got, want) {
+		t.Fatalf("callers of save: %v, want %v", got, want)
+	}
+
+	idx := r.callerIdx
+	if !idx.sorted["save"] || !slices.Equal(pathsOf(idx.byName["save"], idx.paths), []string{"/w/a.cfc", "/w/c.cfc"}) {
+		t.Fatalf("the first ask did not keep save's list sorted: %v", pathsOf(idx.byName["save"], idx.paths))
+	}
+
+	r.IndexCallerFile("/w/b.cfc", "component { function h() { save( 3 ); } }")
+
+	if idx.sorted["save"] {
+		t.Fatal("adding a caller of save left its list marked sorted")
+	}
+
+	if got, want := r.callerFiles("save"), []string{"/w/a.cfc", "/w/b.cfc", "/w/c.cfc"}; !slices.Equal(got, want) {
+		t.Fatalf("callers of save after an add: %v, want %v", got, want)
+	}
+}

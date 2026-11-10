@@ -531,22 +531,24 @@ type ResolverSet struct {
 // lock, and one lock for all of it was the most contended in a tassweb scan,
 // four seconds of workers waiting. A set built for one parse shares its memo
 // with no other parse and gets a single shard (newPrivateResolverSet): 64
-// would be 4KB per parse for nothing.
+// would be 8KB per parse for nothing.
 type resolverMemo struct {
 	shards []resolverMemoShard
 }
 
-// resolverMemoShard fills a 64-byte cache line: a hit's RLock writes the
-// reader count, and two shards sharing a line would contend on it. The pad is
-// worked out from the fields, so it stays right if their sizes change, and
-// fails to compile if they outgrow the line.
+// resolverMemoShard fills a cache line: a hit's RLock writes the reader
+// count, and two shards sharing a line would contend on it. The line is taken
+// as 128 bytes, which is arm64's (Apple Silicon); on amd64 that is two 64-byte
+// lines, which also keeps the adjacent-line prefetcher from pairing shards.
+// The pad is worked out from the fields, so it stays right if their sizes
+// change, and fails to compile if they outgrow the line.
 type resolverMemoShard struct {
 	mu      sync.RWMutex // read-locked for a hit
 	answers map[string]resolverAnswer
 	_       [cacheLine - unsafe.Sizeof(sync.RWMutex{}) - unsafe.Sizeof(map[string]resolverAnswer(nil))]byte
 }
 
-const cacheLine = 64
+const cacheLine = 128
 
 const resolverMemoShards = 64
 

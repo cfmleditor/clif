@@ -55,6 +55,11 @@ type callerIndex struct {
 	byName map[string][]uint32
 	paths  []string
 	ids    map[string]uint32
+	// sorted are the names whose list byName holds in path order without
+	// repeats: put so by the first ask for the name (callerFiles), and
+	// cleared when a file is added under it. Only the names asked about are
+	// sorted, a small part of an index of millions of entries.
+	sorted map[string]bool
 	// failed are the files whose names could not be read (forEachFile).
 	// Each is listed as a caller of every name, so inference parses it and,
 	// when that fails too, withholds rather than typing an argument from
@@ -63,7 +68,7 @@ type callerIndex struct {
 }
 
 func newCallerIndex() *callerIndex {
-	return &callerIndex{byName: map[string][]uint32{}, ids: map[string]uint32{}}
+	return &callerIndex{byName: map[string][]uint32{}, ids: map[string]uint32{}, sorted: map[string]bool{}}
 }
 
 // add lists path under each of names. The caller holds idx.mu, or is the
@@ -78,16 +83,55 @@ func (idx *callerIndex) add(path string, names map[string]bool) {
 
 	for name := range names {
 		idx.byName[name] = append(idx.byName[name], id)
+		delete(idx.sorted, name)
 	}
 }
 
-// sortByPath puts each name's files in path order, without repeats, once the
-// index is complete and before anything asks it.
-func (idx *callerIndex) sortByPath() {
-	for name, ids := range idx.byName {
-		slices.SortFunc(ids, func(a, b uint32) int { return strings.Compare(idx.paths[a], idx.paths[b]) })
-		idx.byName[name] = slices.Compact(ids)
+// files is name's files in path order, without repeats. The first ask for a
+// name sorts it outside the lock, which every worker shares, and keeps the
+// result unless a file was added under the name meanwhile; later asks copy it.
+// A name never indexed adds no entry: inference asks about every prefix of a
+// name (computedCallerKey).
+func (idx *callerIndex) files(name string) []string {
+	idx.mu.Lock()
+	ids, paths := idx.byName[name], idx.paths
+
+	if idx.sorted[name] {
+		files := pathsOf(ids, paths)
+		idx.mu.Unlock()
+
+		return files
 	}
+
+	// Sorted on a copy: add appends to the stored list under the lock.
+	ids = slices.Clone(ids)
+	idx.mu.Unlock()
+
+	held := len(ids)
+
+	slices.SortFunc(ids, func(a, b uint32) int { return strings.Compare(paths[a], paths[b]) })
+	ids = slices.Compact(ids)
+
+	if held > 0 {
+		idx.mu.Lock()
+		if len(idx.byName[name]) == held {
+			idx.byName[name] = ids
+			idx.sorted[name] = true
+		}
+		idx.mu.Unlock()
+	}
+
+	return pathsOf(ids, paths)
+}
+
+// pathsOf is the paths ids number.
+func pathsOf(ids []uint32, paths []string) []string {
+	files := make([]string, 0, len(ids))
+	for _, id := range ids {
+		files = append(files, paths[id])
+	}
+
+	return files
 }
 
 // IndexCallerFile adds the call-shaped names in content to the batch caller
@@ -265,22 +309,7 @@ func (r *Resolver) callerFiles(name string) []string {
 
 	key := strings.ToLower(name)
 
-	// Only the copy is made under the index's lock, which every worker
-	// shares: the sort is not, and an index that is complete when it is first
-	// asked (sortByPath) hands over a sorted list. Nothing is written back, so
-	// a name never indexed adds no entry; inference asks about every prefix
-	// of a name (computedCallerKey).
-	idx.mu.Lock()
-	ids := idx.byName[key]
-
-	files := make([]string, 0, len(ids))
-	for _, id := range ids {
-		files = append(files, idx.paths[id])
-	}
-	idx.mu.Unlock()
-
-	slices.Sort(files)
-	files = slices.Compact(files)
+	files := idx.files(key)
 
 	// failed is set when the index is built and never written after.
 	for _, f := range idx.failed {
@@ -340,8 +369,6 @@ func ShareCallerIndex(rs []*Resolver) (restore func()) {
 		}
 	}
 
-	idx.sortByPath()
-
 	prev := make([]*callerIndex, len(rs))
 
 	for i, r := range rs {
@@ -378,8 +405,6 @@ func (r *Resolver) buildCallerIndex() *callerIndex {
 
 		idx.add(path, callerNames(text))
 	}
-
-	idx.sortByPath()
 
 	r.mu.Lock()
 	if r.callerIdx == nil {
