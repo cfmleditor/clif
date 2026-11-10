@@ -448,7 +448,7 @@ func (r *Resolver) diExecutionSources(d *Resolver, file, content string) []diSou
 	}
 
 	application := parser.Parse(cfpath.ToURI(file), execution.String(), nil)
-	original := parser.Parse(cfpath.ToURI(file), content, nil)
+	original := r.plainParseOf(file, content)
 
 	application.Extends = original.Extends
 	if strings.EqualFold(filepath.Base(file), "Application.cfc") && r.applicationInheritsFramework(file, "framework.one") {
@@ -697,7 +697,7 @@ func (r *Resolver) isDI1(component, dir string) bool {
 			return false
 		}
 
-		pr := parser.Parse(cfpath.ToURI(file), text)
+		pr := r.plainParseOf(file, text)
 
 		methods := map[string]bool{}
 		for i := range pr.Funcs {

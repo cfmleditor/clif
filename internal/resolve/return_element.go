@@ -60,6 +60,17 @@ func (s *sourceInfo) plainParse(path string) *parser.ParseResult {
 	return s.derived.plain
 }
 
+// plainParseOf is file's plain parse (sourceInfo.plainParse) when content is
+// the text its source holds, as it is for a file read just now; a fresh one
+// otherwise. A caller must not change what it is given: the parse is shared.
+func (r *Resolver) plainParseOf(file, content string) *parser.ParseResult {
+	if source := r.sourceInfo(file); source.derived != nil && source.content == content {
+		return source.plainParse(file)
+	}
+
+	return parser.Parse(cfpath.ToURI(file), content)
+}
+
 func (r *Resolver) elementReturn(fd *parser.FunctionDef) string {
 	if !fd.URI.IsFile() {
 		return ""

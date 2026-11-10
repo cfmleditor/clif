@@ -1,9 +1,59 @@
 package parser
 
-import "strings"
+import (
+	"strings"
+	"sync"
+)
 
 // Read declarations without a second signature, reference or body parse.
+//
+// The answer depends on the file's text and how it was split, and every parse
+// that has both a setter and a property-bean lookup asks: a batch scan's index,
+// scan and handler parses of each DI/1-managed file. It is kept by those, and
+// is shared: prepareManagedSetterLookup only reads it.
 func (pr *ParseResult) managedPropertyMetadata() *ParseResult {
+	key := managedKey{uri: string(pr.URI), content: pr.Content, interpolateAll: pr.interpolateAll}
+
+	managedMu.Lock()
+	held, ok := managedMemo[key]
+	managedMu.Unlock()
+
+	if ok && pr.regionsOf == pr.Content {
+		return held
+	}
+
+	metadata := pr.readManagedPropertyMetadata()
+
+	if pr.regionsOf == pr.Content {
+		managedMu.Lock()
+		if len(managedMemo) >= maxManagedMemo {
+			clear(managedMemo)
+		}
+
+		managedMemo[key] = metadata
+		managedMu.Unlock()
+	}
+
+	return metadata
+}
+
+// managedKey is what managedPropertyMetadata's answer depends on: the regions
+// come from the URI, the text and whether all text is interpolated.
+type managedKey struct {
+	uri, content   string
+	interpolateAll bool
+}
+
+// maxManagedMemo bounds managedMemo, a count of files cleared when reached.
+// A key holds its text alive.
+const maxManagedMemo = 512
+
+var (
+	managedMu   sync.Mutex
+	managedMemo = map[managedKey]*ParseResult{}
+)
+
+func (pr *ParseResult) readManagedPropertyMetadata() *ParseResult {
 	metadata := &ParseResult{}
 
 	for _, region := range pr.Regions {

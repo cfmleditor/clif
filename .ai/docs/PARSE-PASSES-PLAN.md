@@ -54,6 +54,40 @@ Two caveats on the LSP figures:
 4. **Lazy per-function reparses** for functions the full parse already
    walked, because a memo keeps entries only for functions that had a result.
 
+## Outcome (branch `parse-passes`, 2026-11-10)
+
+| | Before | After |
+|---|---|---|
+| ContentBox, token passes | 15.9× | 13.2–13.6× |
+| Mura, token passes | 25.5× | 14.9–16.2× |
+| Mura, full parses | 3,151 | about 2,700 |
+
+`unresolved --json` is byte-identical on all six corpora after every step.
+Mura's range comes from `resolve.tokenize`'s shared memo under parallel
+workers; it swung 15.6–18.9× before step 11 made the memo generational.
+
+| Step | Result |
+|---|---|
+| 1. Plain parses with a cached twin | Done (`plainParseOf`) |
+| 2. `AssumedProjectMappings` | Done: memo by source file, checked by re-reading what the walk read |
+| 3. Producer plans | Done: lazy, one scan without the 4096-token false start |
+| 4. `applicationScan` | Done: bounded memo by text |
+| 5. Keep the main parse's script variables | **Not equivalent.** The global scanner and the main parse disagree on 975 of 14,949 corpus files |
+| 6. `AllVars` from kept declarations | **Not equivalent.** 87 of 14,949 files differ even with the same function scopes (317 with the parse's scopes) |
+| 7. Pre-fill empty function refs | **Not equivalent.** The lazy body parse finds refs in 1,309 of 48,268 functions the full parse filed none under |
+| 8. Collection answers | Done: bounded memo by expression |
+| 9. Folding and custom tags | Done: spans from the parse's regions, kept per content (0 of 14,949 files differ); byte gate on script regions |
+| 10. Owner-level caches | Done for startup source facts and the WireBox module memos. `handlerCache` cannot be shared: views are one per application root, and a handler parse depends on its view's lookups |
+| 11. Token memo | Made generational, which removed most of the run-to-run swing; sub-slicing file tokens was not attempted |
+| 12. Prior hand-off | `managedPropertyMetadata` is memoised by text (Mura 2.5M to 0.5M tokens). Handing regions between parses was not done: it saves only byte scans |
+
+Steps 5 to 7 failed for one reason: the parser has several walkers that do
+the same job (find variables, find function scopes, read a body) and they
+disagree on real files. Reusing one's answer in place of another's is then a
+behaviour change, not a cache. Consolidating them means deciding, case by
+case, which answer is right; the differential harnesses used here (parse
+every corpus file, compare the two answers) are the way to find the cases.
+
 ## The plan
 
 Each step stands alone, lands as its own change, and keeps `unresolved --json`

@@ -61,7 +61,14 @@ func (s *Server) handleFoldingRange(_ context.Context, rawParams []byte) (any, e
 // tag-syntax <cffunction> has no braces, and a script function is found by
 // both, which the dedupe below collapses.
 func foldingRanges(pr *parser.ParseResult, content string) []protocol.FoldingRange {
-	spans := parser.StructureSpans(content)
+	// The parse keeps the spans for its content, read from its regions.
+	var spans []parser.Span
+	if pr.Content == content {
+		spans = pr.StructureSpans()
+	} else {
+		spans = parser.StructureSpans(content)
+	}
+
 	folds := make([]protocol.FoldingRange, 0, len(pr.Scopes)+len(spans))
 
 	for _, sc := range pr.Scopes {

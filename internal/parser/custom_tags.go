@@ -128,7 +128,11 @@ func customTagCalls(regions []Region, idx []int32, content string, prefixes []st
 	for _, r := range regions {
 		switch r.Kind {
 		case RegionScript:
-			out = scriptCustomTags(r.Text, r.Offset, out)
+			// Every script call spells cf_ or module (cfmodule, Lucee's
+			// statement), and most components spell neither.
+			if IndexFold(r.Text, "cf_") >= 0 || IndexFold(r.Text, "module") >= 0 {
+				out = scriptCustomTags(r.Text, r.Offset, out)
+			}
 		case RegionTag:
 			out, imports = tagCustomTags(r.Text, r.Offset, imports, prefixes, out)
 		default:

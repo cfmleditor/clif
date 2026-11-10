@@ -3,13 +3,14 @@ package parser
 import (
 	"slices"
 	"strings"
+	"sync"
 )
 
 // ApplicationSections separates executable constructor text from declarations.
 // Byte positions and newlines are retained in each projection. The method map
 // is case insensitive; duplicate declarations are withheld rather than selected.
 func ApplicationSections(content string) (constructor string, methods map[string]string) {
-	masked, sections := applicationScan(content)
+	constructor, sections := applicationScan(content)
 	methods = map[string]string{}
 	duplicate := map[string]bool{}
 
@@ -22,16 +23,16 @@ func ApplicationSections(content string) (constructor string, methods map[string
 		}
 	}
 
-	return maskedText(masked, content), methods
+	return constructor, methods
 }
 
 // ApplicationConstructor is ApplicationSections' constructor alone. Most
 // callers want only it, and ApplicationSections builds a copy of the whole
 // file for every function it finds (94% of a FW/1 scan's peak heap).
 func ApplicationConstructor(content string) string {
-	masked, _ := applicationScan(content)
+	constructor, _ := applicationScan(content)
 
-	return maskedText(masked, content)
+	return constructor
 }
 
 // maskedText is masked as a string: content itself when nothing was blanked,
@@ -80,10 +81,10 @@ func methodProjection(content string, sections []appSection, name string) (strin
 // ApplicationConstructorAndMethod is ApplicationConstructor and
 // ApplicationMethod from one scan, for a caller that needs both.
 func ApplicationConstructorAndMethod(content, name string) (constructor, method string, ok bool) {
-	masked, sections := applicationScan(content)
+	constructor, sections := applicationScan(content)
 	method, ok = methodProjection(content, sections, name)
 
-	return string(masked), method, ok
+	return constructor, method, ok
 }
 
 // ApplicationMethodNames is the names ApplicationSections' methods has, each
@@ -132,8 +133,49 @@ func (s appSection) projection(content string) string {
 }
 
 // applicationScan is content with every function blanked (the constructor),
-// and the named functions it found, in order.
-func applicationScan(content string) ([]byte, []appSection) {
+// and the named functions it found, in order. It is asked of the same text
+// by many lookups, several of them twice for one file (the constructor, then
+// the sections), so the answers are kept by content: hashing the text is far
+// cheaper than tokenising it. What it returns is shared and must not change.
+func applicationScan(content string) (string, []appSection) {
+	appScanMu.Lock()
+	held, ok := appScans[content]
+	appScanMu.Unlock()
+
+	if ok {
+		return held.constructor, held.sections
+	}
+
+	masked, sections := scanApplication(content)
+	held = appScanResult{constructor: maskedText(masked, content), sections: sections}
+
+	appScanMu.Lock()
+	if len(appScans) >= maxAppScans {
+		clear(appScans)
+	}
+
+	appScans[content] = held
+	appScanMu.Unlock()
+
+	return held.constructor, held.sections
+}
+
+// maxAppScans bounds applicationScan's memo. A key holds its text alive, so
+// the bound is a count of files, cleared when reached.
+const maxAppScans = 256
+
+type appScanResult struct {
+	constructor string
+	sections    []appSection
+}
+
+var (
+	appScanMu sync.Mutex
+	appScans  = map[string]appScanResult{}
+)
+
+// scanApplication is applicationScan's work.
+func scanApplication(content string) ([]byte, []appSection) {
 	masked := []byte(content)
 
 	var sections []appSection

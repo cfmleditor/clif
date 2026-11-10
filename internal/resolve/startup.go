@@ -168,6 +168,52 @@ func splitSharedScope(variable string) (string, bool) {
 	return scope + "." + strings.ToLower(name), true
 }
 
+// startupFileFacts is what one startup source states, read from its text
+// alone: its shared-scope assignments, its component-body variable
+// assignments, its service-list bean bindings and its includes.
+type startupFileFacts struct {
+	content  string
+	shared   []startupAssign
+	vars     []parser.StartupVariableAssignment
+	beans    []parser.StartupBeanBinding
+	includes []string
+}
+
+// startupFacts is file's startupFileFacts for content, kept on the owner: a
+// workspace's application roots each have a view, each with its own
+// startupCache, and their chains share their sources, which every view read,
+// parsed and scanned again (Mura's ran to hundreds of parses). An answer is
+// used again only for the same text. A caller copies what it changes.
+func (r *Resolver) startupFacts(file, content string) *startupFileFacts {
+	o := r.owner()
+
+	o.mu.RLock()
+	held, ok := o.startupFileFacts[file]
+	o.mu.RUnlock()
+
+	if ok && held.content == content {
+		return held
+	}
+
+	held = &startupFileFacts{
+		content:  content,
+		shared:   sharedAssignments(content, filepath.Dir(file)),
+		vars:     parser.Parse(cfpath.ToURI(file), content, r.Resolvers).StartupVariableAssignments(),
+		beans:    parser.StartupBeanBindings(content),
+		includes: parser.ExtractIncludes(content),
+	}
+
+	o.mu.Lock()
+	if o.startupFileFacts == nil {
+		o.startupFileFacts = map[string]*startupFileFacts{}
+	}
+
+	o.startupFileFacts[file] = held
+	o.mu.Unlock()
+
+	return held
+}
+
 // startupAssigns returns the shared-scope assignments made by the templates
 // the Application.cfc (or .cfm) governing baseDir includes, transitively, and
 // by that file itself, then by the configured StartupFiles and what they
@@ -224,16 +270,16 @@ func (r *Resolver) startupAssigns(baseDir string) []startupAssign {
 		for _, source := range sources {
 			anchor := anchors[pathKey(file)] || filepath.Dir(source.file) != filepath.Dir(file)
 			file, content := source.file, source.content
+			facts := r.startupFacts(file, content)
 			before := len(out)
-			out = append(out, sharedAssignments(content, filepath.Dir(file))...)
+			out = append(out, facts.shared...)
 			r.bindWheelsStartup(out[before:], content, filepath.Dir(file))
 
-			pr := parser.Parse(cfpath.ToURI(file), content, r.Resolvers)
-			for _, assignment := range pr.StartupVariableAssignments() {
+			for _, assignment := range facts.vars {
 				out = append(out, startupAssign{key: strings.ToLower(assignment.Variable), rhs: assignment.Expression, dir: filepath.Dir(file), strict: true})
 			}
 
-			for _, binding := range parser.StartupBeanBindings(content) {
+			for _, binding := range facts.beans {
 				out = append(out, startupAssign{key: strings.ToLower(binding.Variable), dir: filepath.Dir(file), factory: strings.ToLower(binding.Factory), bean: binding.Bean})
 			}
 
@@ -241,7 +287,7 @@ func (r *Resolver) startupAssigns(baseDir string) []startupAssign {
 				out[i].anchor = anchor
 			}
 
-			for _, raw := range parser.ExtractIncludes(content) {
+			for _, raw := range facts.includes {
 				if target := r.IncludePath(raw, file); target != "" {
 					anchors[pathKey(target)] = anchors[pathKey(target)] || anchor
 					queue = append(queue, target)

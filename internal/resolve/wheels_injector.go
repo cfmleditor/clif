@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/parser"
-	cfpath "github.com/cfmleditor/clif/internal/path"
 )
 
 // This fingerprint pins the complete lexical Injector contract in testdata/
@@ -129,7 +128,7 @@ func (r *Resolver) wheelsLiteralBinding(binder, alias, dir string) string {
 	}
 
 	source := r.sourceInfo(file)
-	pr := parser.Parse(cfpath.ToURI(file), source.content, nil)
+	pr := source.plainParse(file)
 
 	constructor := parser.ApplicationConstructor(source.content)
 	if pr.Extends != "" || len(pr.Funcs) != 1 || wheelsTokens(constructor) != wheelsTokens(`component {}`) {

@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/cfmleditor/clif/internal/parser"
 )
@@ -265,6 +266,53 @@ func sameApplication(hit, baseDir string) bool {
 // properties are captured before configure(), and variables.conventions after.
 // Unknown control flow and child injector ownership are withheld.
 func moduleModelRoot(content, dir string) string {
+	key := textKey{text: content, extra: dir}
+
+	moduleRootMu.Lock()
+	root, ok := moduleRoots[key]
+	moduleRootMu.Unlock()
+
+	if ok {
+		return root
+	}
+
+	root = readModuleModelRoot(content, dir)
+
+	moduleRootMu.Lock()
+	if len(moduleRoots) >= maxModuleMemo {
+		clear(moduleRoots)
+	}
+
+	moduleRoots[key] = root
+	moduleRootMu.Unlock()
+
+	return root
+}
+
+// textKey is a memo key: a file's text, and what else the answer depends on.
+type textKey struct{ text, extra string }
+
+// maxModuleMemo bounds the module memos, a count of files, cleared when
+// reached. A key holds its text alive.
+const maxModuleMemo = 1024
+
+// moduleRoots and moduleWrites keep moduleModelRoot's and moduleAssignments'
+// answers by text: each is a function of it, and the WireBox facts a view
+// builds read every ModuleConfig again for each view, three or four times a
+// file.
+var (
+	moduleRootMu  sync.Mutex
+	moduleRoots   = map[textKey]string{}
+	moduleWriteMu sync.Mutex
+	moduleWrites  = map[textKey]moduleWriteAnswer{}
+)
+
+type moduleWriteAnswer struct {
+	writes map[string][]parser.Token
+	ok     bool
+}
+
+func readModuleModelRoot(content, dir string) string {
 	constructor, methods := parser.ApplicationSections(content)
 
 	flags, ok := moduleAssignments(constructor, true)
@@ -335,6 +383,32 @@ func moduleModelRoot(content, dir string) string {
 // moduleAssignments reads literal dot/bracket writes in source order. A whole
 // conventions struct replaces earlier fields, including the default location.
 func moduleAssignments(source string, public bool) (map[string][]parser.Token, bool) {
+	key := textKey{text: source}
+	if public {
+		key.extra = "public"
+	}
+
+	moduleWriteMu.Lock()
+	held, ok := moduleWrites[key]
+	moduleWriteMu.Unlock()
+
+	if !ok {
+		held.writes, held.ok = readModuleAssignments(source, public)
+
+		moduleWriteMu.Lock()
+		if len(moduleWrites) >= maxModuleMemo {
+			clear(moduleWrites)
+		}
+
+		moduleWrites[key] = held
+		moduleWriteMu.Unlock()
+	}
+
+	// A caller merges into the map it is given; the tokens are only read.
+	return maps.Clone(held.writes), held.ok
+}
+
+func readModuleAssignments(source string, public bool) (map[string][]parser.Token, bool) {
 	result := map[string][]parser.Token{}
 	sc := parser.NewScanner(source)
 

@@ -353,7 +353,7 @@ func allTokens(content string) []parser.Token {
 	}
 
 	tokenMemo.mu.Lock()
-	tokens, ok := tokenMemo.byText[content]
+	tokens, ok := tokenMemo.lookup(content)
 	tokenMemo.mu.Unlock()
 
 	if ok {
@@ -363,19 +363,8 @@ func allTokens(content string) []parser.Token {
 	tokens = slices.Clip(tokenize(content))
 
 	tokenMemo.mu.Lock()
-	defer tokenMemo.mu.Unlock()
-
-	if tokenMemo.held+len(tokens) > maxMemoTokens {
-		// Everything is dropped at once: cheaper than ordering them, and the
-		// text asked for next is the text still being worked on.
-		clear(tokenMemo.byText)
-		tokenMemo.held = 0
-	}
-
-	if _, dup := tokenMemo.byText[content]; !dup {
-		tokenMemo.byText[content] = tokens
-		tokenMemo.held += len(tokens)
-	}
+	tokenMemo.store(content, tokens)
+	tokenMemo.mu.Unlock()
 
 	return tokens
 }
@@ -384,18 +373,59 @@ const (
 	// minMemoTokenText is the shortest text worth remembering: a short window
 	// tokenizes faster than the map hashes it.
 	minMemoTokenText = 64
-	// maxMemoTokens bounds the memo, about 20 MB of tokens.
-	maxMemoTokens = 1 << 19
+	// maxMemoTokens bounds each of the memo's two generations, so the memo
+	// holds at most about 16 MB of tokens.
+	maxMemoTokens = 1 << 18
 )
 
 // tokenMemo is allTokens' memory, keyed by the text. A key shares the bytes of
 // the file it was cut from, so holding one holds that file's text until the
-// memo is cleared.
-var tokenMemo = struct {
-	mu     sync.Mutex
-	byText map[string][]parser.Token
-	held   int
-}{byText: map[string][]parser.Token{}}
+// memo lets it go.
+//
+// It keeps two generations. When the current one fills it becomes the
+// previous, and the previous is dropped; a text found in the previous moves
+// back to the current. The memo used to drop everything when full, and under
+// a scan's parallel workers that came about once a workspace pass: what was
+// being worked on was lost with the rest, and the share of tokens it saved
+// swung by a third between two runs of the same scan.
+var tokenMemo = tokenGenerations{current: map[string][]parser.Token{}}
+
+type tokenGenerations struct {
+	mu                sync.Mutex
+	current, previous map[string][]parser.Token
+	held              int // tokens in current
+}
+
+// lookup is content's tokens, if held. Callers hold mu.
+func (g *tokenGenerations) lookup(content string) ([]parser.Token, bool) {
+	if tokens, ok := g.current[content]; ok {
+		return tokens, true
+	}
+
+	tokens, ok := g.previous[content]
+	if ok {
+		delete(g.previous, content)
+		g.put(content, tokens)
+	}
+
+	return tokens, ok
+}
+
+// store keeps content's tokens. Callers hold mu.
+func (g *tokenGenerations) store(content string, tokens []parser.Token) {
+	if _, dup := g.current[content]; !dup {
+		g.put(content, tokens)
+	}
+}
+
+func (g *tokenGenerations) put(content string, tokens []parser.Token) {
+	if g.held+len(tokens) > maxMemoTokens {
+		g.previous, g.current, g.held = g.current, map[string][]parser.Token{}, 0
+	}
+
+	g.current[content] = tokens
+	g.held += len(tokens)
+}
 
 func tokenize(content string) []parser.Token {
 	sc := parser.NewScanner(content)

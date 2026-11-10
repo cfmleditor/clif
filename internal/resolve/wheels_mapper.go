@@ -186,7 +186,6 @@ type wheelsMethod struct {
 type sourceInfo struct {
 	associations map[string]parser.FunctionDef
 	content      string
-	producers    *producerPlans
 	derived      *sourceDerived // facts read from content on first use
 
 	// size and modTime are the file's stamp when content was read. An
@@ -247,7 +246,7 @@ func (r *Resolver) sourceInfo(path string) sourceInfo {
 
 	result := cached
 	if !ok || cached.content != content {
-		result = sourceInfo{associations: wheelsAssociations(content), content: content, producers: newProducerPlans(content), derived: &sourceDerived{}}
+		result = sourceInfo{associations: wheelsAssociations(content), content: content, derived: &sourceDerived{}}
 	}
 
 	result.size, result.modTime, result.gen = info.Size(), info.ModTime(), gen
@@ -259,6 +258,8 @@ func (r *Resolver) sourceInfo(path string) sourceInfo {
 // sourceDerived holds what is read from a source's content once, the first
 // time it is asked for, and shared by every copy of its sourceInfo.
 type sourceDerived struct {
+	producersOnce sync.Once
+	producers     *producerPlans
 	requestOnce   sync.Once
 	requestWrites map[string]int
 	startupOnce   sync.Once
@@ -275,6 +276,19 @@ type sourceDerived struct {
 	plain         *parser.ParseResult
 	selfOnce      sync.Once
 	mentionsSelf  bool
+}
+
+// sourcePlans is the source's producer plans (newProducerPlans), built on
+// first use: a source is made for nearly every file a lookup touches, and
+// few are asked what their methods produce. nil for a source never read.
+func sourcePlans(s sourceInfo) *producerPlans {
+	if s.derived == nil {
+		return nil
+	}
+
+	s.derived.producersOnce.Do(func() { s.derived.producers = newProducerPlans(s.content) })
+
+	return s.derived.producers
 }
 
 // methodMap is the source's function bodies (wheelsMethods), read once per
@@ -356,7 +370,8 @@ func (s *sourceInfo) startupAssignments(file uri.URI) []parser.StartupVariableAs
 		return parser.Parse(file, s.content).StartupVariableAssignments()
 	}
 
-	s.derived.startupOnce.Do(func() { s.derived.startup = parser.Parse(file, s.content).StartupVariableAssignments() })
+	// The plain parse, which other lookups of the source share.
+	s.derived.startupOnce.Do(func() { s.derived.startup = s.plainParse(file.Path()).StartupVariableAssignments() })
 
 	return s.derived.startup
 }

@@ -44,6 +44,46 @@ type Span struct {
 func StructureSpans(content string) []Span {
 	regions, idx := ClassifyRegionsIdx(content)
 
+	return structureSpans(content, regions, idx)
+}
+
+// StructureSpans is the spans of the parsed file (see parser.StructureSpans),
+// from the regions the parse split when they are ClassifyRegions' split of
+// its current content, and kept for that content: folding is asked again
+// after every edit, and documents are folded as often as they are opened.
+func (pr *ParseResult) StructureSpans() []Span {
+	pr.mu.Lock()
+	if pr.structure != nil && pr.structureOf == pr.Content {
+		spans := pr.structure
+		pr.mu.Unlock()
+
+		return spans
+	}
+
+	content, regions, idx := pr.Content, pr.Regions, pr.contentLineIdx
+	// A markup template is split by the parse, not as ClassifyRegions does.
+	split := pr.regionsOf == content && regions != nil && (pr.interpolateAll || !isMarkupTemplate(string(pr.URI), content))
+	pr.mu.Unlock()
+
+	var spans []Span
+	if split {
+		spans = structureSpans(content, regions, idx)
+	} else {
+		spans = StructureSpans(content)
+	}
+
+	if spans == nil {
+		spans = []Span{}
+	}
+
+	pr.mu.Lock()
+	pr.structure, pr.structureOf = spans, content
+	pr.mu.Unlock()
+
+	return spans
+}
+
+func structureSpans(content string, regions []Region, idx []int32) []Span {
 	var (
 		spans  []Span
 		script [][2]int

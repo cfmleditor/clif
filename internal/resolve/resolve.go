@@ -120,6 +120,7 @@ type pathCaches struct {
 	wb                  *wireboxWorkspace                     // what ModuleConfig.cfc and config/WireBox.cfc say about ids, per set of files
 	fw1Scopes           map[string]fw1Scope                   // nearest application's source-defined injection scope
 	startupCache        map[string][]startupAssign            // app root → its startup templates' shared-scope assignments
+	startupFileFacts    map[string]*startupFileFacts          // startup source → what its text states (startupFacts), on the owner
 	sourceInfos         map[string]sourceInfo                 // source-checked method bodies; refreshed when bytes change
 	ctlPathCache        map[string]controllerPaths            // dir → its files' writes of Wheels' controllerPath
 	includerCache       map[string]string                     // template, name, depth and include generation → includerHeld's answer

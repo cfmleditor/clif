@@ -99,9 +99,12 @@ type ParseResult struct {
 	customTags    []CustomTagCall
 	customTagsOf  string
 	customTagsKey string
-	allVars       []VarDef
-	declareScans  map[string]bool // mayDeclare's answers, by lowercased name
-	allVarsDone   bool
+	// structure is StructureSpans' answer, for the content structureOf.
+	structure    []Span
+	structureOf  string
+	allVars      []VarDef
+	declareScans map[string]bool // mayDeclare's answers, by lowercased name
+	allVarsDone  bool
 
 	// anyScopedVars caches, per Scope, every name ever assigned in that scope
 	// anywhere in the file (see HasScopedAssignment) — unlike variablesVars/thisVars,

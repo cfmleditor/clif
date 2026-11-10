@@ -42,7 +42,7 @@ func (r *Resolver) wheelsModelReturn(global string, def *parser.FunctionDef, arg
 
 	create := helper("$createModelClass")
 
-	plan := r.sourceInfo(create.URI.Path()).producers.get("$createmodelclass")
+	plan := sourcePlans(r.sourceInfo(create.URI.Path())).get("$createmodelclass")
 	if plan == nil || len(plan.parameters) != 3 || !strings.EqualFold(plan.parameters[0], "name") || !strings.EqualFold(plan.parameters[1], "modelPaths") || !strings.EqualFold(plan.parameters[2], "type") || wheelsTokens(plan.defaults["modelpaths"]) != wheelsTokens(`application.wheels.modelPath`) || wheelsTokens(plan.defaults["type"]) != wheelsTokens(`"model"`) {
 		return ""
 	}

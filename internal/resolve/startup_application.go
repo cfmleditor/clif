@@ -30,7 +30,7 @@ func (r *Resolver) applicationInheritsFramework(file, framework string) bool {
 			return false
 		}
 
-		pr := parser.Parse(cfpath.ToURI(file), string(data), nil)
+		pr := r.plainParseOf(file, string(data))
 		if strings.EqualFold(pr.Extends, framework) {
 			return true
 		}
@@ -78,7 +78,7 @@ func (r *Resolver) applicationStartupSources(file string) []startupSource {
 		chain = append(chain, startupSource{file, constructor})
 		methods = append(methods, declared)
 
-		pr := parser.Parse(cfpath.ToURI(file), content, nil)
+		pr := r.plainParseOf(file, content)
 
 		fw1 = fw1 || strings.EqualFold(pr.Extends, "framework.one")
 		if pr.Extends == "" {

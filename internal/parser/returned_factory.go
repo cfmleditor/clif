@@ -1,6 +1,9 @@
 package parser
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 // scriptReturnExpression reads without moving the body's scanner or recording
 // calls twice. A slice of the original source keeps nested arguments intact.
@@ -32,6 +35,24 @@ func scriptReturnExpression(scanner *Scanner) string {
 // factoryReturnChain accepts only a whole factory call followed by method
 // calls. Operators, indexing and member reads produce different values.
 func factoryReturnChain(expr string) (root string, methods []string) {
+	held := factoryChains.get(expr, func(expr string) factoryChain {
+		root, methods := readFactoryReturnChain(expr)
+
+		return factoryChain{root: strings.Clone(root), methods: cloneStrings(methods)}
+	})
+
+	return held.root, slices.Clone(held.methods)
+}
+
+type factoryChain struct {
+	root    string
+	methods []string
+}
+
+var factoryChains exprMemo[factoryChain]
+
+// readFactoryReturnChain is factoryReturnChain's work.
+func readFactoryReturnChain(expr string) (root string, methods []string) {
 	sc := NewScanner(expr)
 	if sc.NextSkipComments().Kind != TokIdent {
 		return "", nil
