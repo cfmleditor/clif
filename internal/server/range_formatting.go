@@ -77,7 +77,7 @@ func (s *Server) handleRangeFormatting(ctx context.Context, rawParams []byte) (a
 		cflog.Int("edits", len(edits)),
 		cflog.Duration("elapsed", elapsed))
 
-	return edits, nil
+	return s.withDocumentLineBreaks(docURI, edits), nil
 }
 
 // lineSpan converts a requested range into the inclusive line numbers it

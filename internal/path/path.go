@@ -2,6 +2,7 @@
 package path
 
 import (
+	"bytes"
 	"maps"
 	"net/url"
 	"os"
@@ -11,6 +12,8 @@ import (
 	"sync"
 	"time"
 	"unicode/utf16"
+
+	"github.com/cfmleditor/clif/internal/lex"
 
 	"github.com/cfmleditor/clif/internal/parser"
 	"github.com/cfmleditor/clif/internal/vfs"
@@ -879,10 +882,21 @@ func IsUTF16(data []byte) bool { return utf16Order(data) != 0 }
 // text at all: a UTF-16 file with a byte-order mark is decoded, binary is not
 // text, and anything else is returned as it is. A UTF-16 file that decodes to
 // text containing a NUL is binary after all.
+//
+// A bare carriage return is read as a line feed (lex.NormalizeLineBreaks), so
+// the analysis counts lines as the editor does.
 func AsText(data []byte) ([]byte, bool) {
 	order := utf16Order(data)
 	if order == 0 {
-		return data, !IsBinary(data)
+		if IsBinary(data) {
+			return data, false
+		}
+
+		if bytes.IndexByte(data, '\r') < 0 {
+			return data, true
+		}
+
+		return []byte(lex.NormalizeLineBreaks(string(data))), true
 	}
 
 	units := make([]uint16, 0, (len(data)-2)/2)
@@ -895,7 +909,7 @@ func AsText(data []byte) ([]byte, bool) {
 		}
 	}
 
-	text := []byte(string(utf16.Decode(units)))
+	text := []byte(lex.NormalizeLineBreaks(string(utf16.Decode(units))))
 	if slices.Contains(text[:min(len(text), binaryWindow)], 0) {
 		return nil, false
 	}
@@ -907,7 +921,11 @@ func AsText(data []byte) ([]byte, bool) {
 // copy, unless it is UTF-16: the scan reads every file this way.
 func AsTextString(data string) (string, bool) {
 	if utf16Order(data) == 0 {
-		return data, !IsBinary(data)
+		if IsBinary(data) {
+			return data, false
+		}
+
+		return lex.NormalizeLineBreaks(data), true
 	}
 
 	text, ok := AsText([]byte(data))

@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cfmleditor/clif/internal/lex"
+
 	"github.com/cfmleditor/clif/internal/cache"
 	cflog "github.com/cfmleditor/clif/internal/log"
 	"github.com/cfmleditor/clif/internal/lspdoc"
@@ -278,10 +280,15 @@ func (s *Server) handleDidOpen(_ context.Context, rawParams []byte) (any, error)
 
 	defer s.lockDoc(docURI)()
 
-	s.setDocument(docURI, params.TextDocument.Text)
+	// Lines end at a bare \r too, as the editor counts them; a document that
+	// ends its lines that way alone gets them back in formatting edits.
+	text := lex.NormalizeLineBreaks(params.TextDocument.Text)
+	s.setCROnly(docURI, lex.CROnly(params.TextDocument.Text))
+
+	s.setDocument(docURI, text)
 	s.diagnosticsOpened(context.Background(), docURI)
 
-	pr := s.parseContent(docURI, params.TextDocument.Text)
+	pr := s.parseContent(docURI, text)
 	s.log.Debug("document opened: parse result",
 		cflog.String("uri", string(docURI)),
 		cflog.Int("funcs", len(pr.Funcs)),

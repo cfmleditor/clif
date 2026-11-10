@@ -180,7 +180,10 @@ func scanApplication(content string) ([]byte, []appSection) {
 
 	var sections []appSection
 
+	// Functions are found by their braces, so strings are read as the parse
+	// reads them where the text is CFScript (NewScriptScanner).
 	sc := NewScanner(content)
+	sc.interpStrings = isScriptFile(content)
 
 	var header []Token
 

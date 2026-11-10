@@ -66,9 +66,78 @@ func ParseComponentRefs(fileURI uri.URI, content string) []ComponentRef {
 
 // ParseVars extracts variable declarations from content.
 func ParseVars(content string) []VarDef {
-	regions := ClassifyRegions(content)
-	scopes := findFuncScopesIn(regions)
+	found, scopes := varsAndScopes(content)
 
+	return varDefs(found, scopes)
+}
+
+// varsAndScopes is what each region of content declares, in region order,
+// and the file's function scopes, from one walk of each region. The scopes
+// are found as the parse finds them (extractSignatures): a script region's by
+// its script walk, the tag functions by one pass over the whole file, so a
+// <cffunction> whose body a <cfscript> block splits ends where it ends.
+//
+// A separate finder (findFuncScopesIn) used to supply them, walking every
+// region a second time. Judged against the tree-sitter grammar over the
+// corpus it was wrong where the two differed: it ended 1,381 tag functions
+// early, at the first <cfscript> in their body, and missed 339 script
+// functions the script walk finds (.ai/docs/SCANNER-CONSOLIDATION.md).
+func varsAndScopes(content string) (found [][]VarDef, scopes []FuncScope) {
+	regions, idx := ClassifyRegionsIdx(content)
+
+	return varsAndScopesIn(content, regions, idx)
+}
+
+// varsAndScopesIn is varsAndScopes over regions already split from content,
+// with their line index (nil to build one).
+func varsAndScopesIn(content string, regions []Region, idx []int32) (found [][]VarDef, scopes []FuncScope) {
+	found = make([][]VarDef, len(regions))
+	hasTag := false
+
+	for i, r := range regions {
+		if r.Kind == RegionScript {
+			sp := newScriptParser(r.Text, "", r.StartLine, nil).asCFScript()
+			sp.parse()
+			found[i] = sp.vars
+			scopes = append(scopes, sp.scopes...)
+
+			continue
+		}
+
+		hasTag = true
+		tp := newTagParser(r.Text, "")
+		tp.parse()
+
+		for j := range tp.vars {
+			tp.vars[j].Line += conv.Uint32(r.StartLine)
+		}
+
+		found[i] = tp.vars
+	}
+
+	if hasTag {
+		seen := make(map[int]bool, len(scopes))
+		for _, sc := range scopes {
+			seen[sc.Start] = true
+		}
+
+		for _, sc := range findTagFuncScopesIdx(content, 0, idx) {
+			if !seen[sc.Start] {
+				seen[sc.Start] = true
+				scopes = append(scopes, sc)
+			}
+		}
+	}
+
+	sortScopes(scopes)
+
+	return found, scopes
+}
+
+// varDefs is ParseVars' answer from each region's declarations, found, and
+// the file's function scopes: each declaration once by name and line, with
+// its function, and a var or local outside any function read as variables.
+func varDefs(found [][]VarDef, scopes []FuncScope) []VarDef {
 	var defs []VarDef
 
 	type key struct {
@@ -78,24 +147,7 @@ func ParseVars(content string) []VarDef {
 
 	seen := make(map[key]bool)
 
-	for _, r := range regions {
-		var regionVars []VarDef
-
-		if r.Kind == RegionScript {
-			sp := newScriptParser(r.Text, "", r.StartLine, nil).asCFScript()
-			sp.parse()
-			regionVars = sp.vars
-		} else {
-			tp := newTagParser(r.Text, "")
-			tp.parse()
-
-			for i := range tp.vars {
-				tp.vars[i].Line += conv.Uint32(r.StartLine)
-			}
-
-			regionVars = tp.vars
-		}
-
+	for _, regionVars := range found {
 		for _, v := range regionVars {
 			k := key{strings.ToLower(v.Name), v.Line}
 			if seen[k] {
@@ -121,7 +173,6 @@ func ParseVars(content string) []VarDef {
 
 // GlobalVars returns this.x and variables.x names declared outside any function.
 func GlobalVars(content string) []string {
-	scopes := FindFuncScopes(content)
 	allVars := ParseVars(content)
 	seen := make(map[string]bool)
 
@@ -131,8 +182,6 @@ func GlobalVars(content string) []string {
 		if v.FuncStart != -1 {
 			continue
 		}
-
-		_ = scopes
 
 		switch v.Scope {
 		case ScopeVariables, ScopeThis:
@@ -176,120 +225,12 @@ func VarsInFunc(content string, funcStart, funcEnd int) []string {
 	return names
 }
 
-// FindFuncScopes returns function line ranges in the content.
+// FindFuncScopes returns function line ranges in the content, as the parse
+// finds them (varsAndScopes).
 func FindFuncScopes(content string) []FuncScope {
-	return findFuncScopesIn(ClassifyRegions(content))
-}
-
-// findFuncScopesIn is FindFuncScopes for a caller that has already classified
-// the content. ClassifyRegions is not cheap — it builds a line index over the
-// whole file — and ParseVars was paying for it twice, once itself and once
-// inside FindFuncScopes, on every call.
-func findFuncScopesIn(regions []Region) []FuncScope {
-	var scopes []FuncScope
-
-	for _, r := range regions {
-		if r.Kind == RegionScript {
-			scopes = append(scopes, findScriptFuncScopes(r.Text, r.StartLine)...)
-		} else {
-			scopes = append(scopes, findTagFuncScopes(r.Text, r.StartLine)...)
-		}
-	}
+	_, scopes := varsAndScopes(content)
 
 	return scopes
-}
-
-// findScriptFuncScopes finds function boundaries in script source.
-func findScriptFuncScopes(src string, baseLine int) []FuncScope {
-	var scopes []FuncScope
-
-	sc := NewScanner(src)
-
-	for {
-		tok := sc.NextSkipComments()
-		if tok.Kind == TokEOF {
-			break
-		}
-
-		if tok.Kind != TokIdent || !startsFunction(sc, tok) {
-			continue
-		}
-
-		startLine := baseLine + int(tok.Line)
-
-		// Skip name
-		nameTok := sc.NextSkipComments()
-		if nameTok.Kind != TokIdent {
-			continue
-		}
-		// Skip (args)
-		lp := sc.NextSkipComments()
-		if lp.Kind != TokLParen {
-			continue
-		}
-
-		skipToClose(sc, TokLParen, TokRParen)
-		skipFunctionAttrs(sc, nil)
-
-		// Find body end
-		brace := sc.PeekSkipComments()
-		if brace.Kind == TokSemicolon {
-			sc.NextSkipComments()
-
-			scopes = append(scopes, FuncScope{Name: nameTok.Value, Start: startLine, End: baseLine + int(brace.Line)})
-
-			continue
-		}
-
-		if brace.Kind != TokLBrace {
-			continue
-		}
-
-		sc.NextSkipComments()
-
-		lastTok := skipToClose(sc, TokLBrace, TokRBrace)
-
-		endLine := baseLine + int(lastTok.Line)
-		scopes = append(scopes, FuncScope{Name: nameTok.Value, Start: startLine, End: endLine})
-	}
-
-	return scopes
-}
-
-// startsFunction reports whether tok begins a function declaration: the
-// `function` keyword, or an access modifier followed by it, with or without
-// a return type between. It consumes the tokens it reads past tok.
-func startsFunction(sc *Scanner, tok Token) bool {
-	if identEq(tok.Value, "function") {
-		return true
-	}
-
-	if !identEq(tok.Value, "public") && !identEq(tok.Value, "private") &&
-		!identEq(tok.Value, "remote") && !identEq(tok.Value, "package") {
-		return false
-	}
-
-	// Look ahead for [type] function
-	next := sc.PeekSkipComments()
-	if next.Kind != TokIdent {
-		return false
-	}
-
-	sc.NextSkipComments()
-
-	if identEq(next.Value, "function") {
-		return true
-	}
-
-	// next was the return type
-	next2 := sc.PeekSkipComments()
-	if next2.Kind == TokIdent && identEq(next2.Value, "function") {
-		sc.NextSkipComments()
-
-		return true
-	}
-
-	return false
 }
 
 // skipFunctionAttrs consumes the attributes a script function declaration may
@@ -364,13 +305,8 @@ func skipToClose(sc *Scanner, open, closing TokenKind) Token {
 	return last
 }
 
-// findTagFuncScopes finds <cffunction>...</cffunction> boundaries.
-func findTagFuncScopes(src string, baseLine int) []FuncScope {
-	return findTagFuncScopesIdx(src, baseLine, nil)
-}
-
-// findTagFuncScopesIdx is findTagFuncScopes for a caller holding a line index
-// for exactly this src. ClassifyRegions builds one over the whole file on its
+// findTagFuncScopesIdx finds <cffunction>...</cffunction> boundaries, for a
+// caller holding a line index for exactly this src. ClassifyRegions builds one over the whole file on its
 // way to the regions, and extractSignatures then asked for the scopes of that
 // same whole file — so the index was built twice over one string, every parse.
 // A nil idx means build one.
@@ -581,8 +517,51 @@ func isScriptFile(content string) bool {
 		return false
 	}
 
-	// If no CF tags found at all, treat as script
-	return !containsCFTag(content)
+	// If no CF tags found at all, treat as script, unless its first line
+	// could not begin CFScript: then it is a text file a .cfm extension lets
+	// the engine serve, an INI or properties file or Markdown.
+	return !containsCFTag(content) && !startsAsText(content)
+}
+
+// notSectionName reports whether r cannot be in an INI section's name.
+func notSectionName(r rune) bool {
+	return r != '_' && r != '-' && r != '.' && r != ' ' && (r < '0' || r > '9') && (r < 'a' || r > 'z') && (r < 'A' || r > 'Z')
+}
+
+// startsAsText reports whether content's first non-blank line is one no
+// CFScript begins with: a # (a Markdown heading, a properties comment), or an
+// INI section header, [name] alone on its line. Mura's settings.ini.cfm and
+// its templates, ContentBox's runtime.properties.cfm and cbmarkdown's
+// markdown.md.cfm were each read as one script region, and every key = value
+// line in them as a declaration; the tree-sitter grammar reads them as text.
+// A #! line is the shebang RustCFML runs a script by, and stays script.
+func startsAsText(content string) bool {
+	content = strings.TrimPrefix(content, bomUTF8)
+
+	for content != "" {
+		line, rest, _ := strings.Cut(content, "\n")
+		content = rest
+
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		switch {
+		case strings.HasPrefix(line, "#!"):
+			return false
+		case line[0] == '#':
+			return true
+		case len(line) > 2 && line[0] == '[' && line[len(line)-1] == ']':
+			name := line[1 : len(line)-1]
+
+			return name != "" && strings.IndexFunc(name, notSectionName) < 0
+		default:
+			return false
+		}
+	}
+
+	return false
 }
 
 // hasScriptTag reports whether content contains a literal <script ...> or

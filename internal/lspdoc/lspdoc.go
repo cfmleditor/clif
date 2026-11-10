@@ -4,6 +4,7 @@
 package lspdoc
 
 import (
+	"github.com/cfmleditor/clif/internal/lex"
 	"github.com/cfmleditor/clif/internal/parser"
 	"go.lsp.dev/protocol"
 )
@@ -12,10 +13,13 @@ import (
 // whole-document replacement from a TextDocumentContentChangeEvent union value.
 func ChangeRangeAndText(change protocol.TextDocumentContentChangeEvent) (r protocol.Range, text string, isFull bool) {
 	switch c := change.(type) {
+	// The text is the analysis's, whose lines end at a bare \r too
+	// (lex.NormalizeLineBreaks); the range is the editor's, which already
+	// counts them so.
 	case *protocol.TextDocumentContentChangePartial:
-		return c.Range, c.Text, false
+		return c.Range, lex.NormalizeLineBreaks(c.Text), false
 	case *protocol.TextDocumentContentChangeWholeDocument:
-		return protocol.Range{}, c.Text, true
+		return protocol.Range{}, lex.NormalizeLineBreaks(c.Text), true
 	default:
 		return protocol.Range{}, "", true
 	}

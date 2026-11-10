@@ -32,8 +32,10 @@ func TestParserStructsKeepTheirSize(t *testing.T) {
 		// and the chained-assignment depth a byte past the bools, padded to
 		// another word, still inside the 416-byte class. The index of the
 		// function whose body is parsed (bodyFunc) is one more, and the
-		// last that fits in it.
-		{"scriptParser", unsafe.Sizeof(scriptParser{}), 408},
+		// last that fits in it. The open brackets the loops track
+		// (openKinds, openDepth, afterFor) fill the class to its last byte:
+		// the next field of any size moves it to 448.
+		{"scriptParser", unsafe.Sizeof(scriptParser{}), 416},
 	}
 
 	for _, c := range cases {

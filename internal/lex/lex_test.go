@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 	"unicode/utf16"
+	"unsafe"
 )
 
 // The reference definitions are the ones the packages carried before they
@@ -134,5 +135,30 @@ func TestUTF16LenCountsCodeUnits(t *testing.T) {
 		if got := UTF16Len(s); got != want {
 			t.Errorf("UTF16Len(%q) = %d, want %d", s, got, want)
 		}
+	}
+}
+
+func TestNormalizeLineBreaks(t *testing.T) {
+	for in, want := range map[string]string{
+		"a\rb\rc":     "a\nb\nc",
+		"a\r\nb\r\n":  "a\r\nb\r\n",
+		"a\r\nb\rc\r": "a\r\nb\nc\n",
+		"a\nb":        "a\nb",
+		"\r":          "\n",
+		"":            "",
+	} {
+		if got := NormalizeLineBreaks(in); got != want {
+			t.Errorf("NormalizeLineBreaks(%q) = %q, want %q", in, got, want)
+		}
+	}
+
+	// Text with nothing to change is the same string, not a copy.
+	s := "line\r\nline\n"
+	if got := NormalizeLineBreaks(s); unsafe.StringData(got) != unsafe.StringData(s) {
+		t.Error("an unchanged text was copied")
+	}
+
+	if !CROnly("a\rb") || CROnly("a\r\nb") || CROnly("ab") {
+		t.Error("CROnly")
 	}
 }

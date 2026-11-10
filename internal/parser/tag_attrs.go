@@ -19,96 +19,15 @@ func getAttr(tag, attr string) string {
 }
 
 // attrSpan is where the value of attr stands in tag, quotes excluded, found
-// case-insensitively; ok is false when tag does not set attr, or its quoted
-// value is never closed.
+// without case as a CF tag's attributes are read (attrScanner); ok is false
+// when tag does not set attr, or its quoted value is never closed.
 func attrSpan(tag, attr string) (start, end int, ok bool) {
-	// Scanned case-insensitively in place rather than against a lowercased copy
-	// of the tag.
-	//
-	// Two reasons, and the second is a correctness one. A <cffunction> tag is
-	// asked for five or six attributes, so the copy was made five or six times
-	// for one tag — strings.ToLower was 10% of tag parsing in a profile, the
-	// largest single cost in it, and getAttr 13% including it. And the offsets
-	// from that copy were then used to index `tag`, which only holds while
-	// folding preserves length: it does not universally (U+0130 lowercases to
-	// two runes), so a tag carrying one desynchronised every offset after it.
-	//
-	// Find the attribute name followed by optional whitespace and =
-	idx := -1
-	searchFrom := 0
-
-	for {
-		i := indexFoldFrom(tag, attr, searchFrom)
-		if i < 0 {
-			break
-		}
-
-		// The name has to start a word. Only the text *after* the match used to
-		// be checked, so a plain substring hit inside a longer attribute name
-		// counted: "name" matched the tail of "displayname=", and
-		// <cffunction displayname="Donor Lookup" name="getDonor"> was indexed
-		// as a function literally called "Donor Lookup". Same for "type"
-		// inside "returntype=" and any other attribute ending in the one being
-		// looked up.
-		if i > 0 && isAttrNameByte(tag[i-1]) {
-			searchFrom = i + 1
-
-			continue
-		}
-
-		j := i + len(attr)
-		for j < len(tag) && isWhitespace(tag[j]) {
-			j++
-		}
-
-		if j < len(tag) && tag[j] == '=' {
-			idx = i
-
-			break
-		}
-
-		searchFrom = i + 1
-	}
-
-	if idx < 0 {
-		return 0, 0, false
-	}
-
-	// Skip past attr name, whitespace, =, whitespace to reach the value
-	valStart := idx + len(attr)
-	for valStart < len(tag) && isWhitespace(tag[valStart]) {
-		valStart++
-	}
-
-	valStart++ // skip =
-
-	for valStart < len(tag) && isWhitespace(tag[valStart]) {
-		valStart++
-	}
-
-	if valStart >= len(tag) {
-		return 0, 0, false
-	}
-
-	ch := tag[valStart]
-	if ch == '"' || ch == '\'' {
-		valStart++
-
-		n := strings.IndexByte(tag[valStart:], ch)
-		if n < 0 {
-			return 0, 0, false
-		}
-
-		return valStart, valStart + n, true
-	}
-	// Unquoted value — read until space or >
-	end = valStart
-	for end < len(tag) && tag[end] != ' ' && tag[end] != '>' && tag[end] != '\t' {
-		end++
-	}
-
-	return valStart, end, true
+	return tagAttrValue(tag, attr, cfAttrs)
 }
+
+// TagAttribute is the value of attr in tag, a CF tag's text, read as the
+// parse reads it; "" when the tag does not set it.
+func TagAttribute(tag, attr string) string { return getAttr(tag, attr) }
 
 func extractIdent(s string) string {
 	i := 0
@@ -123,69 +42,10 @@ func extractIdent(s string) string {
 	return s[:i]
 }
 
-// extractAllAttrs extracts all attribute key=value pairs from a tag string.
-// Keys are lowercased.
+// extractAllAttrs is every attribute of tag, a CF tag's text, by name
+// lowercased (tagAttrMap).
 func extractAllAttrs(tag string) map[string]string {
-	attrs := make(map[string]string)
-	// Skip tag name
-	i := 1 // past '<'
-	for i < len(tag) && tag[i] != ' ' && tag[i] != '\t' && tag[i] != '>' {
-		i++
-	}
-
-	for i < len(tag) {
-		// Skip whitespace
-		for i < len(tag) && isWhitespace(tag[i]) {
-			i++
-		}
-
-		if i >= len(tag) || tag[i] == '>' || tag[i] == '/' {
-			break
-		}
-		// Read attribute name
-		start := i
-
-		for i < len(tag) && tag[i] != '=' && tag[i] != ' ' && tag[i] != '>' && tag[i] != '/' {
-			i++
-		}
-
-		key := strings.ToLower(tag[start:i])
-
-		if i >= len(tag) || tag[i] != '=' {
-			continue
-		}
-
-		i++ // past '='
-		if i >= len(tag) {
-			break
-		}
-
-		if tag[i] == '"' || tag[i] == '\'' {
-			q := tag[i]
-			i++
-			valStart := i
-
-			for i < len(tag) && tag[i] != q {
-				i++
-			}
-
-			attrs[key] = tag[valStart:i]
-
-			if i < len(tag) {
-				i++ // past closing quote
-			}
-		} else {
-			valStart := i
-
-			for i < len(tag) && tag[i] != ' ' && tag[i] != '>' {
-				i++
-			}
-
-			attrs[key] = tag[valStart:i]
-		}
-	}
-
-	return attrs
+	return tagAttrMap(tag, cfAttrs)
 }
 
 func splitAssign(s string) (name, rhs string) {
