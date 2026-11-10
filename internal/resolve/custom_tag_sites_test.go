@@ -1,6 +1,7 @@
 package resolve
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -106,6 +107,7 @@ func TestMayCallCustomTag(t *testing.T) {
 		`component { this.module = 1; }`: false,
 		`// load the module's settings`:  false,
 		`submodule template="x"`:         false,
+		`// set the module name first`:   false,
 	} {
 		if got := mayCallCustomTag(text); got != want {
 			t.Errorf("mayCallCustomTag(%q) = %v, want %v", text, got, want)
@@ -124,30 +126,30 @@ func TestCustomTagSitesDoNotHoldTheFile(t *testing.T) {
 	}
 }
 
-// A template found is kept only while it exists, and a miss only briefly
-// outside a batch scan: a tag directory can change with no event saying so.
+// A template found is kept only while it exists. A miss holds while the
+// directories searched are unchanged, so asking again lists nothing, and a
+// template added to one of them is seen at once; a recursive miss is redone
+// after recursiveMissTTL.
 func TestTagFileInForgetsWhatChanged(t *testing.T) {
 	dir := t.TempDir()
-	r := &Resolver{FS: vfs.OS{}}
+	fsys := &readDirCounter{FS: vfs.OS{}}
+	r := &Resolver{FS: fsys}
 
 	if f := r.tagFileIn(dir, "nav", false); f != "" {
 		t.Fatalf("before the file: %q", f)
 	}
 
+	listed := fsys.n
+
+	if f := r.tagFileIn(dir, "nav", false); f != "" || fsys.n != listed {
+		t.Fatalf("an unchanged miss: %q, %d more listings, want none", f, fsys.n-listed)
+	}
+
 	writeFiles(t, dir, map[string]string{"nav.cfm": ``})
-
-	if f := r.tagFileIn(dir, "nav", false); f != "" {
-		t.Fatalf("a fresh miss is kept, got %q", f)
-	}
-
-	for k, e := range r.tagFiles {
-		e.missed = e.missed.Add(-2 * tagMissTTL)
-		r.tagFiles[k] = e
-	}
 
 	want := filepath.Join(dir, "nav.cfm")
 	if f := r.tagFileIn(dir, "nav", false); f != want {
-		t.Fatalf("after the miss expired: %q, want %q", f, want)
+		t.Fatalf("after the file was added: %q, want %q", f, want)
 	}
 
 	if err := os.Remove(want); err != nil {
@@ -156,5 +158,71 @@ func TestTagFileInForgetsWhatChanged(t *testing.T) {
 
 	if f := r.tagFileIn(dir, "nav", false); f != "" {
 		t.Fatalf("after the file went: %q", f)
+	}
+
+	// Deep below the root, where the root's own listing does not change.
+	writeFiles(t, dir, map[string]string{"a/b/keep.txt": ``})
+
+	if f := r.tagFileIn(dir, "deep", true); f != "" {
+		t.Fatalf("before the deep file: %q", f)
+	}
+
+	writeFiles(t, dir, map[string]string{"a/b/deep.cfm": ``})
+
+	if f := r.tagFileIn(dir, "deep", true); f != "" {
+		t.Fatalf("a recursive miss is kept for its TTL, got %q", f)
+	}
+
+	for k, e := range r.tagFiles {
+		e.missed = e.missed.Add(-2 * recursiveMissTTL)
+		r.tagFiles[k] = e
+	}
+
+	if want := filepath.Join(dir, "a", "b", "deep.cfm"); r.tagFileIn(dir, "deep", true) != want {
+		t.Fatalf("after the recursive miss expired, want %q", want)
+	}
+}
+
+// readDirCounter counts directory listings.
+type readDirCounter struct {
+	vfs.FS
+	n int
+}
+
+func (c *readDirCounter) ReadDir(path string) ([]fs.DirEntry, error) {
+	c.n++
+
+	return c.FS.ReadDir(path)
+}
+
+// A file that panicked, and so is read again by name, cannot be said to
+// name its tags when it calls one by path: through cfmodule, or Lucee's
+// module statement.
+func TestCallsCFModuleCountsTheModuleStatement(t *testing.T) {
+	for text, want := range map[string]bool{
+		`module template="widget.cfm" svc=x;`: true,
+		"module\n\tname = \"a.b\";":           true,
+		`// the module name is set below`:     false,
+	} {
+		if got := callsCFModule(text); got != want {
+			t.Errorf("callsCFModule(%q) = %v, want %v", text, got, want)
+		}
+	}
+}
+
+// One scan's resolvers, one per config, share what each recorded: a file is
+// walked for its tag calls once, whichever config indexed it.
+func TestShareTagCallsGivesEachResolverEveryRecord(t *testing.T) {
+	a := &Resolver{InferArgsFiles: []string{"/a.cfm", "/b.cfm"}}
+	b := &Resolver{InferArgsFiles: a.InferArgsFiles}
+
+	a.recordTagCalls("/a.cfm", `<cf_x>`, nil)
+	b.recordTagCalls("/b.cfm", `<cf_y>`, nil)
+	ShareTagCalls([]*Resolver{a, b})
+
+	for _, r := range []*Resolver{a, b} {
+		if len(r.tagCallsByFile["/a.cfm"]["x"]) != 1 || len(r.tagCallsByFile["/b.cfm"]["y"]) != 1 {
+			t.Fatalf("records: %+v", r.tagCallsByFile)
+		}
 	}
 }

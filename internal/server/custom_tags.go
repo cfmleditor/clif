@@ -1,6 +1,8 @@
 package server
 
 import (
+	"strings"
+
 	"go.lsp.dev/protocol"
 	"go.lsp.dev/uri"
 
@@ -43,6 +45,10 @@ func (s *Server) customTagLinks(content string, docURI uri.URI) []protocol.Docum
 
 	var links []protocol.DocumentLink
 
+	// A page calls the same tag many times, and each lookup checks the disk:
+	// one per tag a request.
+	targets := map[tagKey]string{}
+
 	calls := s.customTagCalls(docURI, content, r.CustomTagPrefixes())
 	for i := range calls {
 		call := &calls[i]
@@ -50,7 +56,14 @@ func (s *Server) customTagLinks(content string, docURI uri.URI) []protocol.Docum
 			continue
 		}
 
-		target := r.CustomTagTemplate(call, from)
+		k := tagKey{kind: call.Kind, name: strings.ToLower(call.Name), prefix: call.Prefix, taglib: call.Taglib, dynamic: call.Dynamic}
+
+		target, seen := targets[k]
+		if !seen {
+			target = r.CustomTagTemplate(call, from)
+			targets[k] = target
+		}
+
 		if target == "" {
 			continue
 		}
@@ -71,6 +84,14 @@ func (s *Server) customTagLinks(content string, docURI uri.URI) []protocol.Docum
 	}
 
 	return links
+}
+
+// tagKey is what a custom tag call's template depends on, within one
+// document.
+type tagKey struct {
+	kind                 parser.CustomTagKind
+	name, prefix, taglib string
+	dynamic              bool
 }
 
 // customTagCalls is the custom tag calls in the open document: its cached

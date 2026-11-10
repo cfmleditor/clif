@@ -194,12 +194,18 @@ var shapeChecks = map[string]func(s string) (got, want string){
 func unfolded(s string) bool { return strings.ContainsAny(s, "Kſ") }
 
 // Every shape reads what its regular expression read, on the hand-written
-// cases and on 200,000 texts built from the shapes' own fragments.
+// cases and on 200,000 texts built from the shapes' own fragments (10,000
+// under -short; FuzzTextShapes goes further).
 func TestTextShapesMatchTheirExpressions(t *testing.T) {
 	rng := rand.New(rand.NewPCG(1, 2))
 	texts := slices.Clone(shapeCases)
 
-	for range 200_000 {
+	n := 200_000
+	if testing.Short() {
+		n = 10_000
+	}
+
+	for range n {
 		texts = append(texts, randomShapeText(rng))
 	}
 

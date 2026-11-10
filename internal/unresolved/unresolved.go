@@ -308,6 +308,15 @@ func NewResolver(fsys vfs.FS, files []string, opt *Options) *resolve.Resolver {
 
 	resolve.IndexFilesUnder(files, func(f string) *resolve.Resolver { return under[f] }, nil)
 
+	if opt.InferArgs {
+		rs := []*resolve.Resolver{resolver}
+		for r := range distinct {
+			rs = append(rs, r)
+		}
+
+		resolve.ShareTagCalls(rs)
+	}
+
 	return resolver
 }
 

@@ -278,8 +278,19 @@ type serviceProperty struct {
 }
 
 // servicePropertyAnnotations are content's @serviceproperty annotations, in
-// order. The tag is matched with its case: it is a project's convention, not
-// CFML.
+// order: "@serviceproperty varName kind|name", usually inside a CFML tag
+// comment, e.g. "<!--- @serviceproperty donorObj package|sandbox.tasscom.components.donor --->".
+// The tag is matched with its case.
+//
+// This is a project-specific documentation convention (not standard CFML/CFC syntax) for
+// annotating the real component type of a dependency that's declared with a generic
+// <cfargument type="struct"> (CF doesn't enforce component types on constructor args, so
+// projects sometimes type them loosely and document the real type in a comment instead).
+// varName allows "." and "[...]" (e.g. "result.data[i]") so the same convention can
+// annotate a bracket-indexed receiver — a case CanResolveCall otherwise can't resolve at
+// all without a global componentResolver keyed on the bare receiver text, which risks
+// matching an unrelated same-named receiver anywhere else in the workspace. An in-source
+// annotation is scoped to this one file, so it doesn't carry that risk.
 func servicePropertyAnnotations(content string) []serviceProperty {
 	var out []serviceProperty
 

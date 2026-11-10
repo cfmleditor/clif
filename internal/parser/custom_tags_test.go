@@ -204,6 +204,8 @@ func TestScriptCustomTagCallsReadOnlyTheirOwnLiterals(t *testing.T) {
 		cfmodule(template="/tags/" & name & ".cfm");
 		cfmodule(template="a.cfm", args={template: "b.cfm"});
 		module template="c" & ext;
+		if (nav) module template="nav.cfm";
+		else module template="none.cfm";
 		cf_helper();
 	}
 }`
@@ -218,7 +220,9 @@ func TestScriptCustomTagCallsReadOnlyTheirOwnLiterals(t *testing.T) {
 		"template::/tags/@3 script dynamic",
 		"template::a.cfm@4 script",
 		"template::c@5 script dynamic",
-		"cf_::helper@6 script",
+		"template::nav.cfm@6 script",
+		"template::none.cfm@7 script",
+		"cf_::helper@8 script",
 	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("got\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))

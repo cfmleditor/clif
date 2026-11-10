@@ -397,16 +397,25 @@ func scriptCustomTags(text string, base int, out []CustomTagCall) []CustomTagCal
 		case lower == "cfmodule" && sc.PeekSkipComments().Kind == TokLParen:
 			out = scriptModuleAttrs(sc, base, TokRParen, out)
 			prev = Token{Kind: TokRParen}
-		case lower == "module" && statementStart(before.Kind) && sc.PeekSkipComments().Kind == TokIdent:
+		case lower == "module" && statementStart(before) && sc.PeekSkipComments().Kind == TokIdent:
 			out = scriptModuleAttrs(sc, base, TokSemicolon, out)
 			prev = Token{Kind: TokSemicolon}
 		}
 	}
 }
 
-// statementStart reports whether a token after kind begins a statement.
-func statementStart(kind TokenKind) bool {
-	return kind == TokSemicolon || kind == TokLBrace || kind == TokRBrace
+// statementStart reports whether a token after prev begins a statement:
+// after a ; or a brace, the ) closing an if, for or while head with no braces,
+// or else.
+func statementStart(prev Token) bool {
+	switch prev.Kind {
+	case TokSemicolon, TokLBrace, TokRBrace, TokRParen:
+		return true
+	case TokIdent:
+		return strings.EqualFold(prev.Value, "else")
+	default:
+		return false
+	}
 }
 
 // scriptModuleAttrs reads the name = "value" pairs of a script cfmodule, up

@@ -926,18 +926,6 @@ func appendKeyed[T any](m map[string][]T, k string, v []T) map[string][]T {
 	return m
 }
 
-// servicePropertyAnnotations reads a "@serviceproperty varName kind|name" annotation inside a
-// CFML tag comment, e.g. "<!--- @serviceproperty donorObj package|sandbox.tasscom.components.donor --->".
-// This is a project-specific documentation convention (not standard CFML/CFC syntax) for
-// annotating the real component type of a dependency that's declared with a generic
-// <cfargument type="struct"> (CF doesn't enforce component types on constructor args, so
-// projects sometimes type them loosely and document the real type in a comment instead).
-// varName allows "." and "[...]" (e.g. "result.data[i]") so the same convention can
-// annotate a bracket-indexed receiver — a case CanResolveCall otherwise can't resolve at
-// all without a global componentResolver keyed on the bare receiver text, which risks
-// matching an unrelated same-named receiver anywhere else in the workspace. An in-source
-// annotation is scoped to this one file, so it doesn't carry that risk.
-
 // applyServiceProperties scans the whole file for "@serviceproperty" annotations and
 // registers a ComponentRef for the annotated variable at the annotation's line, resolved
 // via the per-kind dot-path template in pr.ServicePropertyResolvers (e.g.

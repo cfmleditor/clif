@@ -1,6 +1,7 @@
 package resolve
 
 import (
+	"maps"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -241,6 +242,32 @@ func (r *Resolver) recordTagCalls(path, content string, pr *parser.ParseResult) 
 	o.mu.Unlock()
 }
 
+// ShareTagCalls gives every resolver in rs the custom tag calls any of them
+// recorded while indexing. A scan indexes each file with the resolver of the
+// config governing it, but every resolver searches all the scan's files for a
+// tag's callers (InferArgsFiles), and without the others' records it would
+// read and walk each of their files again. A file's calls do not depend on
+// its config, so the union serves them all.
+func ShareTagCalls(rs []*Resolver) {
+	all := map[string]map[string][]customTagSite{}
+
+	for _, r := range rs {
+		o := r.owner()
+
+		o.mu.RLock()
+		maps.Copy(all, o.tagCallsByFile)
+		o.mu.RUnlock()
+	}
+
+	for _, r := range rs {
+		o := r.owner()
+
+		o.mu.Lock()
+		o.tagCallsByFile = maps.Clone(all)
+		o.mu.Unlock()
+	}
+}
+
 // tagsNamedIn is the custom tag names file's text spells, `cf_name` read by
 // the plainest search there is, for a file whose full read of its calls
 // panicked: `<cf_name` and the script call `cf_name(` both count, and so may
@@ -342,15 +369,18 @@ func customTagSitesOf(content, file string, calls []parser.CustomTagCall) map[st
 }
 
 // mayCallCustomTag reports whether content could hold a custom tag call at
-// all: it spells cf_ or cfmodule, or a Lucee `module template=` or
-// `module name=` statement. Most files do not, and are not walked.
+// all: it spells cf_ or cfmodule, or a Lucee `module template=` or `module
+// name=` statement. Most files do not, and are not walked.
 func mayCallCustomTag(content string) bool {
-	if parser.IndexFold(content, "cf_") >= 0 || parser.IndexFold(content, "cfmodule") >= 0 {
-		return true
-	}
+	return parser.IndexFold(content, "cf_") >= 0 || parser.IndexFold(content, "cfmodule") >= 0 || hasModuleStatement(content)
+}
 
+// hasModuleStatement reports whether text holds Lucee's `module template=…`
+// or `module name=…` statement: the word module, space, and the attribute
+// with its =. Prose ("the module name is") has no =.
+func hasModuleStatement(text string) bool {
 	for from := 0; ; {
-		i := parser.IndexFold(content[from:], "module")
+		i := parser.IndexFold(text[from:], "module")
 		if i < 0 {
 			return false
 		}
@@ -358,25 +388,34 @@ func mayCallCustomTag(content string) bool {
 		i += from
 		from = i + len("module")
 
-		if i > 0 && lex.IsWord(content[i-1]) {
+		if i > 0 && lex.IsWord(text[i-1]) {
 			continue
 		}
 
-		j := from
-		for j < len(content) && (content[j] == ' ' || content[j] == '\t' || content[j] == '\n' || content[j] == '\r') {
-			j++
+		j := lex.SkipSpace(text, from)
+		if j == from {
+			continue
 		}
 
-		if j > from && (lex.HasPrefixFold(content[j:], "template") || lex.HasPrefixFold(content[j:], "name")) {
-			return true
+		for _, attr := range []string{"template", "name"} {
+			if lex.HasPrefixFold(text[j:], attr) {
+				if k := lex.SkipSpace(text, j+len(attr)); k < len(text) && text[k] == '=' {
+					return true
+				}
+			}
 		}
 	}
 }
 
-// callsCFModule reports whether text calls cfmodule, as a tag (<cfmodule) or
-// from cfscript (cfmodule( ). A mention in prose or a longer name does not
+// callsCFModule reports whether text calls a tag by its path or dotted name,
+// which only the call's attribute says: <cfmodule, cfmodule( from cfscript,
+// or Lucee's module statement. A mention in prose or a longer name does not
 // count.
 func callsCFModule(text string) bool {
+	if hasModuleStatement(text) {
+		return true
+	}
+
 	for from := 0; ; {
 		i := parser.IndexFold(text[from:], "cfmodule")
 		if i < 0 {
@@ -398,12 +437,7 @@ func callsCFModule(text string) bool {
 			continue
 		}
 
-		j := from
-		for j < len(text) && (text[j] == ' ' || text[j] == '\t' || text[j] == '\n' || text[j] == '\r') {
-			j++
-		}
-
-		if j < len(text) && text[j] == '(' {
+		if j := lex.SkipSpace(text, from); j < len(text) && text[j] == '(' {
 			return true
 		}
 	}

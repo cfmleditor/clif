@@ -40,16 +40,27 @@ var customTagExtensions = []string{".cfm", ".cfc", ".cfml"}
 // maxTagSearchDirs bounds a recursive search of one custom tag root.
 const maxTagSearchDirs = 4096
 
-// tagMissTTL is how long tagFileIn trusts that a template is missing. A tag
-// directory can sit outside the workspace, or outside the files the editor
-// reports changes to, so no event says when a template appears in it.
-const tagMissTTL = 5 * time.Second
+// recursiveMissTTL is how long tagFileIn trusts that a recursive search of a
+// root found nothing. A search that lists only the directories named holds
+// while none of them changes (tagFileEntry.listed); a recursive one may list
+// thousands, too many to check on every request, and is redone this often.
+// A tag directory can sit outside the workspace, or outside the files the
+// editor reports changes to, so no event says when a template appears in it.
+const recursiveMissTTL = time.Minute
 
-// tagFileEntry is one tagFileIn answer: the template, or "" with when the
-// search for it found none.
+// tagFileEntry is one tagFileIn answer: the template, or "" with what makes
+// the miss stale, the directories the search listed and when.
 type tagFileEntry struct {
 	file   string
+	listed []dirStamp
 	missed time.Time
+}
+
+// dirStamp is a directory as a search listed it: an entry added to or removed
+// from it moves its modification time.
+type dirStamp struct {
+	dir string
+	mod time.Time
 }
 
 // CustomTagTemplate is the file the custom tag call c, made in fromFile, runs,
@@ -206,8 +217,10 @@ func (r *Resolver) isDir(dir string) bool {
 
 // tagFileIn is the template rel (a name, or a slash path for a dotted
 // cfmodule name) names in dir, or under it when recursive, matched without
-// case; "" for none. A template found is kept while it exists, and a miss for
-// tagMissTTL (for good in a batch scan); InvalidatePaths drops both.
+// case; "" for none. A template found is kept while it exists; a miss while
+// the directories searched are unchanged, or for recursiveMissTTL after a
+// recursive search (for good in a batch scan, whose files do not change
+// under it). InvalidatePaths drops both.
 func (r *Resolver) tagFileIn(dir, rel string, recursive bool) string {
 	key := dir + "\x00" + strings.ToLower(rel)
 	if recursive {
@@ -218,27 +231,20 @@ func (r *Resolver) tagFileIn(dir, rel string, recursive bool) string {
 	e, ok := r.tagFiles[key]
 	r.mu.RUnlock()
 
-	if ok {
-		// A batch scan's files do not change under it.
-		if e.file == "" && (r.SnapshotScan || time.Since(e.missed) < tagMissTTL) {
-			return ""
-		}
-
-		if e.file != "" {
-			if _, err := r.fs().Stat(e.file); err == nil {
-				return e.file
-			}
-		}
+	if ok && r.tagEntryHolds(&e, recursive) {
+		return e.file
 	}
 
-	e = tagFileEntry{file: r.findTagFile(dir, rel)}
+	var listed []dirStamp
+
+	e = tagFileEntry{file: r.findTagFile(dir, rel, &listed)}
 
 	if e.file == "" && recursive {
 		e.file = r.findTagFileBelow(dir, rel)
 	}
 
 	if e.file == "" {
-		e.missed = time.Now()
+		e.listed, e.missed = listed, time.Now()
 	}
 
 	r.mu.Lock()
@@ -252,13 +258,40 @@ func (r *Resolver) tagFileIn(dir, rel string, recursive bool) string {
 	return e.file
 }
 
+// tagEntryHolds reports whether a kept tagFileIn answer still stands.
+func (r *Resolver) tagEntryHolds(e *tagFileEntry, recursive bool) bool {
+	if e.file != "" {
+		_, err := r.fs().Stat(e.file)
+
+		return err == nil
+	}
+
+	if r.SnapshotScan {
+		return true
+	}
+
+	if recursive && time.Since(e.missed) >= recursiveMissTTL {
+		return false
+	}
+
+	for _, d := range e.listed {
+		info, err := r.fs().Stat(d.dir)
+		if err != nil || !info.ModTime().Equal(d.mod) {
+			return false
+		}
+	}
+
+	return true
+}
+
 // findTagFile is rel's template directly in dir, each segment matched
-// without case.
-func (r *Resolver) findTagFile(dir, rel string) string {
+// without case. Each directory it lists is added to listed when listed is
+// not nil, with its modification time.
+func (r *Resolver) findTagFile(dir, rel string, listed *[]dirStamp) string {
 	segments := strings.Split(rel, "/")
 
 	for _, seg := range segments[:len(segments)-1] {
-		next := r.entryNamed(dir, func(name string, isDir bool) bool { return isDir && strings.EqualFold(name, seg) })
+		next := r.entryNamed(dir, listed, func(name string, isDir bool) bool { return isDir && strings.EqualFold(name, seg) })
 		if next == "" {
 			return ""
 		}
@@ -269,7 +302,7 @@ func (r *Resolver) findTagFile(dir, rel string) string {
 	last := segments[len(segments)-1]
 
 	for _, ext := range customTagExtensions {
-		if f := r.entryNamed(dir, func(name string, isDir bool) bool { return !isDir && strings.EqualFold(name, last+ext) }); f != "" {
+		if f := r.entryNamed(dir, listed, func(name string, isDir bool) bool { return !isDir && strings.EqualFold(name, last+ext) }); f != "" {
 			return f
 		}
 	}
@@ -277,8 +310,23 @@ func (r *Resolver) findTagFile(dir, rel string) string {
 	return ""
 }
 
-// entryNamed is the first entry of dir, by name, that match accepts.
-func (r *Resolver) entryNamed(dir string, match func(name string, isDir bool) bool) string {
+// entryNamed is the first entry of dir, by name, that match accepts. dir is
+// added to listed, as findTagFile says.
+func (r *Resolver) entryNamed(dir string, listed *[]dirStamp, match func(name string, isDir bool) bool) string {
+	if listed != nil {
+		// Stamped before the listing, so an entry added while it runs makes
+		// the stamp stale rather than the miss permanent.
+		if info, err := r.fs().Stat(dir); err == nil {
+			if n := len(*listed); n == 0 || (*listed)[n-1].dir != dir {
+				*listed = append(*listed, dirStamp{dir: dir, mod: info.ModTime()})
+			}
+		} else {
+			// A directory that is not there is stamped as missing: one made
+			// later is then a change.
+			*listed = append(*listed, dirStamp{dir: dir})
+		}
+	}
+
 	entries, err := r.fs().ReadDir(dir)
 	if err != nil {
 		return ""
@@ -322,7 +370,7 @@ func (r *Resolver) findTagFileBelow(dir, rel string) string {
 				return ""
 			}
 
-			if f := r.findTagFile(d, rel); f != "" {
+			if f := r.findTagFile(d, rel, nil); f != "" {
 				return f
 			}
 		}
