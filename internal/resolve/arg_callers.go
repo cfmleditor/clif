@@ -47,13 +47,38 @@ type callerIndex struct {
 	// resolvers sorting and writing the map under two different locks is a
 	// concurrent map write, which Go cannot recover from. The race detector
 	// found it in the code map's build, which the editor runs in-process.
-	mu     sync.Mutex
-	byName map[string][]string
+	mu sync.Mutex
+	// byName is each name's files, as positions in paths. Every file is
+	// listed under every name it calls, so storing each path's 16-byte
+	// header per name held 38MB at a tassweb scan's peak, against 19MB as
+	// numbers.
+	byName map[string][]uint32
+	paths  []string
+	ids    map[string]uint32
 	// failed are the files whose names could not be read (forEachFile).
 	// Each is listed as a caller of every name, so inference parses it and,
 	// when that fails too, withholds rather than typing an argument from
 	// the callers that were read.
 	failed []string
+}
+
+func newCallerIndex() *callerIndex {
+	return &callerIndex{byName: map[string][]uint32{}, ids: map[string]uint32{}}
+}
+
+// add lists path under each of names. The caller holds idx.mu, or is the
+// only goroutine holding idx.
+func (idx *callerIndex) add(path string, names map[string]bool) {
+	id, ok := idx.ids[path]
+	if !ok {
+		id = uint32(len(idx.paths)) //nolint:gosec // a workspace has far fewer than 2^32 files
+		idx.ids[path] = id
+		idx.paths = append(idx.paths, path)
+	}
+
+	for name := range names {
+		idx.byName[name] = append(idx.byName[name], id)
+	}
 }
 
 // IndexCallerFile adds the call-shaped names in content to the batch caller
@@ -69,16 +94,14 @@ func (r *Resolver) IndexCallerFile(path, content string) {
 
 	r.mu.Lock()
 	if r.callerIdx == nil {
-		r.callerIdx = &callerIndex{byName: map[string][]string{}}
+		r.callerIdx = newCallerIndex()
 	}
 
 	idx := r.callerIdx
 	r.mu.Unlock()
 
 	idx.mu.Lock()
-	for name := range seen {
-		idx.byName[name] = append(idx.byName[name], path)
-	}
+	idx.add(path, seen)
 	idx.mu.Unlock()
 }
 
@@ -234,12 +257,18 @@ func (r *Resolver) callerFiles(name string) []string {
 	key := strings.ToLower(name)
 
 	idx.mu.Lock()
-	files := idx.byName[key]
-	slices.Sort(files)
-	files = slices.Compact(files)
-	idx.byName[key] = files
-	files = slices.Clone(files)
+	ids := idx.byName[key]
+	slices.Sort(ids)
+	ids = slices.Compact(ids)
+	idx.byName[key] = ids
+
+	files := make([]string, 0, len(ids))
+	for _, id := range ids {
+		files = append(files, idx.paths[id])
+	}
 	idx.mu.Unlock()
+
+	slices.Sort(files)
 
 	// failed is set when the index is built and never written after.
 	for _, f := range idx.failed {
@@ -290,12 +319,11 @@ func ShareCallerIndex(rs []*Resolver) (restore func()) {
 		}
 	})
 
-	idx := &callerIndex{byName: map[string][]string{}, failed: failed}
+	idx := newCallerIndex()
+	idx.failed = failed
 
 	for i, seen := range names {
-		for name := range seen {
-			idx.byName[name] = append(idx.byName[name], files[i])
-		}
+		idx.add(files[i], seen)
 	}
 
 	prev := make([]*callerIndex, len(rs))
@@ -324,7 +352,7 @@ func ShareCallerIndex(rs []*Resolver) (restore func()) {
 }
 
 func (r *Resolver) buildCallerIndex() *callerIndex {
-	idx := &callerIndex{byName: map[string][]string{}}
+	idx := newCallerIndex()
 
 	for _, path := range r.InferArgsFiles {
 		text, err := r.readText(path)
@@ -332,9 +360,7 @@ func (r *Resolver) buildCallerIndex() *callerIndex {
 			continue
 		}
 
-		for name := range callerNames(text) {
-			idx.byName[name] = append(idx.byName[name], path)
-		}
+		idx.add(path, callerNames(text))
 	}
 
 	r.mu.Lock()

@@ -2,6 +2,7 @@ package parser
 
 import (
 	"fmt"
+	"hash/maphash"
 	"regexp"
 	"slices"
 	"strings"
@@ -524,9 +525,39 @@ type ResolverSet struct {
 	memo *resolverMemo
 }
 
+// resolverMemo is split into shards by expression, each with its own lock:
+// every parse worker of a batch run shares the memo, a miss takes the write
+// lock, and one lock for all of it was the most contended in a tassweb scan,
+// four seconds of workers waiting.
 type resolverMemo struct {
-	mu      sync.RWMutex // read-locked for a hit: every parse worker shares it
+	shards [resolverMemoShards]resolverMemoShard
+}
+
+type resolverMemoShard struct {
+	mu      sync.RWMutex // read-locked for a hit
 	answers map[string]resolverAnswer
+}
+
+const resolverMemoShards = 64
+
+var resolverMemoSeed = maphash.MakeSeed()
+
+// size is how many answers the memo holds.
+func (m *resolverMemo) size() int {
+	n := 0
+
+	for i := range m.shards {
+		m.shards[i].mu.RLock()
+		n += len(m.shards[i].answers)
+		m.shards[i].mu.RUnlock()
+	}
+
+	return n
+}
+
+// shard is the part of the memo that holds expr.
+func (m *resolverMemo) shard(expr string) *resolverMemoShard {
+	return &m.shards[maphash.String(resolverMemoSeed, expr)%resolverMemoShards]
 }
 
 // ForParse is a set for one parse: rs's index and memo of answers, shared,
@@ -754,7 +785,7 @@ func (rs *ResolverSet) Resolve(expr string) string {
 		return ""
 	}
 
-	m := rs.memo
+	m := rs.memo.shard(expr)
 
 	m.mu.RLock()
 	a, ok := m.answers[expr]
@@ -764,7 +795,7 @@ func (rs *ResolverSet) Resolve(expr string) string {
 		a = rs.resolve(expr)
 
 		m.mu.Lock()
-		if m.answers == nil || len(m.answers) >= maxResolverAnswers {
+		if m.answers == nil || len(m.answers) >= maxResolverAnswers/resolverMemoShards {
 			m.answers = make(map[string]resolverAnswer)
 		}
 
