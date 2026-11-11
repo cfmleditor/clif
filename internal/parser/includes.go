@@ -8,10 +8,10 @@ import (
 	"github.com/cfmleditor/clif/internal/lex"
 )
 
-// includeWindow bounds how far past the keyword a match may reach. A tag with
-// its attributes or a script include with its path is far shorter; the bound
-// only has to stop a stray keyword costing a scan to the end of the file.
-const includeWindow = 512
+// callWindow bounds how far past a call's name callArgs reads. A listing's
+// arguments are far shorter; the bound only has to stop a stray name costing a
+// scan to the end of the file.
+const callWindow = 512
 
 // ExtractIncludes returns the static paths a file cfincludes, in source order
 // and without duplicates, exactly as written.
@@ -381,38 +381,6 @@ func includeSite(content, raw string, at int) (IncludeSite, bool) {
 	return IncludeSite{Path: p, Offset: at}, true
 }
 
-// includeFormAt decides which form the "include" found at i begins, and where
-// that form starts: "<cfinclude" at the '<', "cfinclude" or "include" at the
-// keyword. It returns a nil reader for an occurrence that is neither — the
-// tail of a longer identifier or a member call such as arr.include(…). The
-// Application.cfc walk (mapping_sources.go) reads its includes with it.
-func includeFormAt(content string, i int) (int, func(string) (int, int, bool)) {
-	start := i
-	if i >= 2 && strings.EqualFold(content[i-2:i], "cf") {
-		start = i - 2
-	}
-
-	if start >= 1 && content[start-1] == '<' {
-		if start == i {
-			return 0, nil // "<include" is not a CFML tag
-		}
-
-		return start - 1, includeTagAt
-	}
-
-	if start >= 1 {
-		if c := content[start-1]; c == '.' || c == '_' || isAlnum(c) {
-			return 0, nil
-		}
-	}
-
-	return start, includeScriptAt
-}
-
-func isAlnum(c byte) bool {
-	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9'
-}
-
 // isIncludable reports whether p names a template cfinclude can run. It is not
 // cfpath.IsCFMLFile, which imports this package.
 func isIncludable(p string) bool {
@@ -543,7 +511,7 @@ func listsTemplates(content, dir string) bool {
 }
 
 // callArgs is the text between the parentheses of a call whose name ends at
-// i, bounded by includeWindow; quotes are not stepped over, which a listing's
+// i, bounded by callWindow; quotes are not stepped over, which a listing's
 // arguments do not need.
 func callArgs(content string, i int) (string, bool) {
 	i = skipRegexpSpace(content, i)
@@ -553,7 +521,7 @@ func callArgs(content string, i int) (string, bool) {
 
 	depth := 0
 
-	for j := i; j < min(len(content), i+includeWindow); j++ {
+	for j := i; j < min(len(content), i+callWindow); j++ {
 		switch content[j] {
 		case '(':
 			depth++

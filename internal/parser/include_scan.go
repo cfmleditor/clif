@@ -7,12 +7,11 @@ import (
 	"github.com/cfmleditor/clif/internal/lex"
 )
 
-// The scanners here read an include form by hand at a place a caller has
-// found, which the Application.cfc walk does (mapping_sources.go); and the
-// shapes of path an include may name. They were regular expressions, and each
+// The shapes of path an include may name, and the directory listings whose
+// names a file includes. Some were regular expressions, and each such scanner
 // mirrors the expression it replaced exactly:
-// TestIncludeScannersMatchTheirExpressions holds them to it. IncludeSites
-// finds includes with the document walk instead (includes.go).
+// TestListingScannersMatchTheirExpressions holds them to it. IncludeSites
+// finds the includes themselves with the document walk (includes.go).
 
 // isRegexpSpace is \s in Go's regexp syntax: no vertical tab.
 func isRegexpSpace(c byte) bool {
@@ -35,138 +34,6 @@ func wordStartAt(s string, i int) bool {
 // wordEndAt is \b after a word ending before s[i].
 func wordEndAt(s string, i int) bool {
 	return i >= len(s) || !lex.IsWord(s[i])
-}
-
-func isQuote(c byte) bool { return c == '"' || c == '\'' }
-
-// tagAttrValues calls value for each place, from i up to the tag's first '>',
-// that `\bname\s*=\s*` stands, with the offset just past it, until value
-// reports a match. It is the `[^>]*?\bname\s*=\s*` of a tag pattern: the
-// earliest occurrence whose remainder matches wins, as a lazy repeat's would.
-func tagAttrValues(s string, i int, name string, value func(j int) bool) bool {
-	end := strings.IndexByte(s[i:], '>')
-	if end < 0 {
-		end = len(s)
-	} else {
-		end += i
-	}
-
-	for p := i; p < end; p++ {
-		// The attribute name holds no '>', so the name may run past end only
-		// as the tail of a lazy repeat would: it starts before the '>'.
-		if !lex.HasPrefixFold(s[p:], name) || !wordStartAt(s, p) {
-			continue
-		}
-
-		j := skipRegexpSpace(s, p+len(name))
-		if j >= len(s) || s[j] != '=' {
-			continue
-		}
-
-		if value(skipRegexpSpace(s, j+1)) {
-			return true
-		}
-	}
-
-	return false
-}
-
-// quotedPath reads `["']([^"'#]+)["']` at j: the path's bounds.
-func quotedPath(s string, j int) (start, end int, ok bool) {
-	if j >= len(s) || !isQuote(s[j]) {
-		return 0, 0, false
-	}
-
-	k := j + 1
-	for k < len(s) && !isQuote(s[k]) && s[k] != '#' {
-		k++
-	}
-
-	if k == j+1 || k >= len(s) || !isQuote(s[k]) {
-		return 0, 0, false
-	}
-
-	return j + 1, k, true
-}
-
-// includeTagAt reads `^(?i)<cfinclude\b[^>]*?\btemplate\s*=\s*` and an
-// includePathAt
-// and returns the path's bounds.
-func includeTagAt(s string) (start, end int, ok bool) {
-	const open = "<cfinclude"
-	if !lex.HasPrefixFold(s, open) || !wordEndAt(s, len(open)) {
-		return 0, 0, false
-	}
-
-	found := tagAttrValues(s, len(open), "template", func(j int) bool {
-		start, end, ok = includePathAt(s, j)
-
-		return ok
-	})
-
-	return start, end, found
-}
-
-// includeScriptAt reads
-// `^(?i)(?:cf)?include\s*\(?\s*(?:template\s*=\s*)?` and an includePathAt.
-func includeScriptAt(s string) (start, end int, ok bool) {
-	i := 0
-	if lex.HasPrefixFold(s, "cf") {
-		i = 2
-	}
-
-	if !lex.HasPrefixFold(s[i:], "include") {
-		return 0, 0, false
-	}
-
-	i = skipRegexpSpace(s, i+len("include"))
-	if i < len(s) && s[i] == '(' {
-		i++
-	}
-
-	i = skipRegexpSpace(s, i)
-
-	// The optional template= is taken only when it is whole: a "template"
-	// without its '=' leaves the quote test to fail on its 't', which is
-	// where the pattern's other branch fails too.
-	if lex.HasPrefixFold(s[i:], "template") {
-		if j := skipRegexpSpace(s, i+len("template")); j < len(s) && s[j] == '=' {
-			i = skipRegexpSpace(s, j+1)
-		}
-	}
-
-	return includePathAt(s, i)
-}
-
-// includePathAt is the path an include names at j: a literal one
-// (quotedPath), one whose file name alone is computed, which
-// computedNameGlob reads as a glob, or one custom tag attribute
-// (AttributeInclude). It is
-// `([^"'#]+|(?:[^"'#*\\/][^"'#*\\]*/)?#[^"'#/]+#\.cfm|[^"'#*\\/][^"'#*\\]*/#[^"'#/]+#|#attributes\.\w+#)`
-// between quotes.
-func includePathAt(s string, j int) (start, end int, ok bool) {
-	if start, end, ok = quotedPath(s, j); ok {
-		return start, end, true
-	}
-
-	if j >= len(s) || !isQuote(s[j]) {
-		return 0, 0, false
-	}
-
-	k := j + 1
-	for k < len(s) && !isQuote(s[k]) {
-		k++
-	}
-
-	if k >= len(s) {
-		return 0, 0, false
-	}
-
-	if !isComputedPath(s[j+1 : k]) {
-		return 0, 0, false
-	}
-
-	return j + 1, k, true
 }
 
 // RootVariablePath is the rooted path left of p when it begins with one plain
