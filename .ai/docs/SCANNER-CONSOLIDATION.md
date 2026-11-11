@@ -721,6 +721,70 @@ remains as regular expressions is user patterns, HQL, `tagSharedAssign`
 (anchored at a `CFTags` tag start), and patterns matched against names rather
 than CFML.
 
+### Done: one route into the parser
+
+`ParseFunctionDefs`, `ParseComponentRefs`, `ParseVars`, `FindFuncScopes`,
+`FunctionSpansOf` and `ParseResult.AllVars` ran the script and tag walkers
+themselves (`walkRegions`), without the parse's region split by file name, its
+output-context gate, the whole-file `<cffunction>` scopes it gives the tag
+walk, or its seeding of a `<cfscript>` island with the tag function around it.
+Each is now a reading of a shallow `ParseWithOptions`, and the two lighter
+readings are options of that one parse: `KeepVars` keeps every declaration the
+walk records (for `AllVars` and `ParseVars`), and `ScopesOnly` skips the tag
+regions' walks (for `FunctionSpansOf` and `FindFuncScopes`). Over 14,996 files
+the scopes, spans and include wrappers are identical; every other difference
+is the parse being right: 832 island declarations and 312 island component
+refs are filed in their tag function rather than at file level, 12
+declarations follow the output gate or the whole-file tag scopes, and the
+function definitions carry the parse's return facts and its primitive-return
+rule. The readings cost 5 to 20% more each (a `ParseResult` per call); on the
+server they run where no parse is cached. The function-body re-walks in
+`parse_vars.go`, `parse_func_refs.go` and `parse_calls.go` remain, and are the
+lazy-refs step.
+
+### Done: call readers read the parse's calls
+
+The resolver's framework call readers (ColdBox renders and announcements,
+FW/1's `view()`, `setView()` and rc hand-offs, Mura's `dspObject_include`,
+Wheels associations, WireBox's `map().to()`, cborm's `super.init()`,
+`includeUDF` and Lucee's package listings) no longer walk a file's tokens. Each
+takes the file's parse and reads the calls it recorded, reading a call's
+arguments from the tokens of its span (`parsedCalls`). The plain parse a source
+keeps records their names through `ParseOptions.FindCalls`, which without
+`ExtractCalls` now runs the walk `ExtractCalls` runs and records only those
+names' calls, with spans, receivers and chains, where it searched each line's
+text for `name(`. Over 14,996 files such a parse records the same 25,112 calls
+as an `ExtractCalls` parse, and every other field equals the plain parse's.
+Each reader's answer equals its old token walk's except where the walk took a
+function's own declaration for a call: 201 FW/1 rc hand-offs and 16
+announcement declarations. The resolver's call index (`textCalls`) is gone.
+
+### Done: write readers read the parse's assignments
+
+The resolver's write readers found a name's writes by walking the scanner's
+tokens over the whole text, once per name: `setsName`, `fw1Assigns`,
+`throughAssigns`, the last `prc.x`, `membersWrittenOn`, a lazy getter's field
+writes, a subclass's literal, `initStoredArg` and a public property's writes.
+They now read `parser.Assignment` records, which the parse reads over its own
+regions (`ParseOptions.RecordAssignments`, `ParseResult.Assignments`, and
+`AssignmentsOf` for text with no parse): the target as written, the operator,
+the value's and statement's spans, the line and the tag. The records take the
+parse's rules: a write stands only where a statement can (`atStatementLevel`),
+`ident ident =` is a script-syntax tag whose attributes are not assignments,
+and a value ends where `newlineEndsStatement`, a `;`, a `,` or its bracket ends
+it. A differential over 14,996 files found every difference to be the token
+walk reading markup, JavaScript, SQL, tag attributes, named arguments or
+struct keys as writes, cutting a value at a line break, or losing code after an
+unbalanced quote, except two parse gaps left as they are: `=>` inside a
+`<cfset>`, and `"<cfscript>"` inside a `<cfset>` string. `codeWrites` remains
+only as that test's oracle. Still on their own readers: the guards
+(`existsGuards`, `methodExistenceGuarded`), `requestWriteCounts` (a proof
+count matched against the producer plans'), and the line-based assignment
+reader behind `native_reassignment.go` and `reaching_refs.go`, which feeds
+receiver typing and wants its own differential.
+
+For all three, `unresolved` is byte-identical on eight corpora.
+
 ## Speed is an option of the one walker, not a second walker
 
 Some walkers exist because they do less. `globalScriptParser` reads only
