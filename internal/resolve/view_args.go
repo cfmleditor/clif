@@ -240,7 +240,7 @@ func renderSites(content, file, module string) map[string][]viewArgSite {
 		return out
 	}
 
-	for _, call := range codeCalls(textCode(content), viewRenderNames...) {
+	for _, call := range textCalls(content, viewRenderNames...) {
 		view, args, ok := renderCall(call.args(), module)
 		if !ok {
 			continue

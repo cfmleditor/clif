@@ -170,7 +170,7 @@ func TestTheCallReadersReadOnlyCode(t *testing.T) {
 func TestCodeListsReadTheExpressionsInsideStrings(t *testing.T) {
 	text := "x = 1;\ny = \"a\n#renderView( 'b' )#\";\n"
 
-	calls := codeCalls(textCode(text), "renderView")
+	calls := textCalls(text, "renderView")
 	if len(calls) != 1 {
 		t.Fatalf("found %d calls, want 1", len(calls))
 	}
@@ -178,5 +178,32 @@ func TestCodeListsReadTheExpressionsInsideStrings(t *testing.T) {
 	name := calls[0].name()
 	if text[name.Offset:name.Offset+len(name.Value)] != "renderView" || name.Line != 2 {
 		t.Errorf("the call is at offset %d, line %d: %q", name.Offset, name.Line, text[name.Offset:])
+	}
+}
+
+// textCalls answers from the text's call index what codeCalls answers by
+// walking its code, for any names, in the same order.
+func TestTextCallsAreCodeCalls(t *testing.T) {
+	texts := []string{
+		`setView("a"); x = view( "b" ); renderView(view="c"); // view("d")` + "\n" + `y = "#view('e')# #renderView('f')#";`,
+		"<cfscript>\nmap(\"a\").to(\"b\"); hasMany(\"x\"); belongsTo(name=\"y\");\n</cfscript><cfoutput>#view('z')#</cfoutput>",
+		`super.init( entityName = "e" ); init(); x.init("y");`,
+	}
+
+	nameSets := [][]string{{"view"}, {"setView", "view", "renderView"}, {"map"}, {"hasMany", "belongsTo", "hasOne"}, {"init"}, {"nothing"}}
+
+	for _, text := range texts {
+		for _, names := range nameSets {
+			want, got := codeCalls(textCodeOf(text).lists, names...), textCalls(text, names...)
+			if len(want) != len(got) {
+				t.Fatalf("%q %v: %d calls, codeCalls finds %d", text, names, len(got), len(want))
+			}
+
+			for i := range want {
+				if want[i].name().Offset != got[i].name().Offset || want[i].closing != got[i].closing {
+					t.Fatalf("%q %v: call %d at %d, codeCalls has %d", text, names, i, got[i].name().Offset, want[i].name().Offset)
+				}
+			}
+		}
 	}
 }

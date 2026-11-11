@@ -201,7 +201,7 @@ func (r *Resolver) interceptSites() []interceptSite {
 // interceptSitesIn reads the announces in content: the state first, by
 // position or as state=, and the data second, or as data= or interceptData=.
 func interceptSitesIn(content, file string) []interceptSite {
-	calls := codeCalls(textCode(content), interceptAnnouncers...)
+	calls := textCalls(content, interceptAnnouncers...)
 	out := make([]interceptSite, 0, len(calls))
 
 	for _, call := range calls {

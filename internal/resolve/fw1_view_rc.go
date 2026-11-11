@@ -73,7 +73,7 @@ func fw1ViewCalls(text string) []fw1ViewCall {
 
 	var out []fw1ViewCall
 
-	for _, call := range codeCalls(textCode(text), "view") {
+	for _, call := range textCalls(text, "view") {
 		lit, ok := soleString(firstArgValue(call.pieces(), "path"))
 		if !ok {
 			continue
@@ -293,7 +293,7 @@ func fw1SetViewsIn(content string) []fw1SetView {
 		return out
 	}
 
-	for _, call := range codeCalls(textCode(content), "setView") {
+	for _, call := range textCalls(content, "setView") {
 		pieces := call.pieces()
 		if len(pieces) != 1 {
 			continue

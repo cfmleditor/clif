@@ -321,7 +321,7 @@ func muraObjectCalls(content string) []codeCall {
 		return nil
 	}
 
-	return codeCalls(textCode(content), "dspObject_include")
+	return textCalls(content, "dspObject_include")
 }
 
 // muraObjectTarget is a pattern for the templates a theFile value can name:

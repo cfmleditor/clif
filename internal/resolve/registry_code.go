@@ -23,7 +23,7 @@ type packageListing struct {
 func packageListings(content string) []packageListing {
 	var out []packageListing
 
-	for _, call := range codeCalls(textCode(content), "ComponentListPackageAsStruct") {
+	for _, call := range textCalls(content, "ComponentListPackageAsStruct") {
 		pieces := call.pieces()
 		if len(pieces) != 2 {
 			continue

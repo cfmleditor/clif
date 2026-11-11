@@ -4,6 +4,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"unsafe"
 
 	"github.com/cfmleditor/clif/internal/parser"
@@ -33,7 +34,16 @@ var codeMemo = &textCache[*textTokens]{size: textTokensSize}
 type textTokens struct {
 	raw   []parser.Token
 	lists [][]parser.Token
+
+	// calls indexes every `name (` in lists by lowercased name, built on the
+	// first textCalls: each reader asked the whole file for its own names, and
+	// walked every token to find them.
+	callsOnce sync.Once
+	calls     map[string][]callAt
 }
+
+// callAt is where one call's name stands: lists[list][at].
+type callAt struct{ list, at int32 }
 
 func textTokensSize(t *textTokens) int {
 	n := 48 + tokenBytes*cap(t.raw) + codeListsSize(t.lists)

@@ -271,7 +271,7 @@ func viewRenders(content, module string) []viewRender {
 
 	var out []viewRender
 
-	for _, call := range codeCalls(textCode(content), viewRenderNames...) {
+	for _, call := range textCalls(content, viewRenderNames...) {
 		pieces := call.pieces()
 
 		lit, ok := soleString(firstArgValue(pieces, "view"))

@@ -107,6 +107,47 @@ func rawTokens(text string) []parser.Token {
 	return codeMemo.of(text, textCodeOf).raw
 }
 
+// textCalls is textCalls(text, names...), answered from the text's
+// call index: the file's tokens are walked once for every name any reader
+// asks about, not once per reader.
+func textCalls(text string, names ...string) []codeCall {
+	entry := codeMemo.of(text, textCodeOf)
+	entry.callsOnce.Do(func() { entry.calls = indexCalls(entry.lists) })
+
+	var out []codeCall
+
+	for _, name := range names {
+		for _, c := range entry.calls[strings.ToLower(name)] {
+			list := entry.lists[c.list]
+			if closing := producerGroupEnd(list, int(c.at)+1, parser.TokLParen, parser.TokRParen); closing > 0 {
+				out = append(out, codeCall{tokens: list, at: int(c.at), closing: closing})
+			}
+		}
+	}
+
+	if len(names) > 1 || len(entry.lists) > 1 {
+		slices.SortStableFunc(out, func(a, b codeCall) int { return a.name().Offset - b.name().Offset })
+	}
+
+	return out
+}
+
+// indexCalls is every `name (` in lists, by lowercased name, in order.
+func indexCalls(lists [][]parser.Token) map[string][]callAt {
+	calls := map[string][]callAt{}
+
+	for l, list := range lists {
+		for i := 0; i+1 < len(list); i++ {
+			if list[i].Kind == parser.TokIdent && list[i+1].Kind == parser.TokLParen {
+				name := strings.ToLower(list[i].Value)
+				calls[name] = append(calls[name], callAt{int32(l), int32(i)})
+			}
+		}
+	}
+
+	return calls
+}
+
 // textCodeOf is the text's entry, uncached. The raw list keeps no spare
 // capacity: tokenize sizes it from the text's length, and a file of mostly
 // markup or comments has far fewer tokens.
