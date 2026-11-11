@@ -140,7 +140,7 @@ func indexCalls(lists [][]parser.Token) map[string][]callAt {
 		for i := 0; i+1 < len(list); i++ {
 			if list[i].Kind == parser.TokIdent && list[i+1].Kind == parser.TokLParen {
 				name := strings.ToLower(list[i].Value)
-				calls[name] = append(calls[name], callAt{int32(l), int32(i)}) //nolint:gosec // token positions in one file
+				calls[name] = append(calls[name], callAt{int32(l), int32(i)})
 			}
 		}
 	}
