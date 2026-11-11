@@ -31,7 +31,7 @@ type tagParser struct {
 	extends       string
 	accessors     bool
 	persistent    bool
-	lineIndex     []int32 // byte offset of each line start
+	lineIndex     LineTable // byte offset of each line start
 	resolvers     []Resolver
 	resolverSet   *ResolverSet
 	extractLinks  bool // whether to extract document links
@@ -101,22 +101,12 @@ func newTagParser(src, fileURI string) *tagParser {
 }
 
 func (p *tagParser) buildLineIndex() {
-	p.lineIndex = buildLineIdx(p.src)
+	p.lineIndex = NewLineTable(p.src)
 }
 
-// lineAt returns the 0-based line number for a byte offset using binary search.
+// lineAt returns the 0-based line number for a byte offset.
 func (p *tagParser) lineAt(offset int) int {
-	lo, hi := 0, len(p.lineIndex)
-	for lo < hi {
-		mid := (lo + hi) / 2
-		if int(p.lineIndex[mid]) <= offset {
-			lo = mid + 1
-		} else {
-			hi = mid
-		}
-	}
-
-	return lo - 1
+	return p.lineIndex.LineOf(offset)
 }
 
 // parse scans through tag-based CFML extracting definitions.
@@ -179,7 +169,7 @@ func (p *tagParser) parse() {
 			p.closeTag(idx)
 
 			pos = idx + 1
-		case idx+3 < len(p.src) && toLowerByte(p.src[idx+1]) == 'c' && toLowerByte(p.src[idx+2]) == 'f':
+		case idx+3 < len(p.src) && lex.LowerASCII(p.src[idx+1]) == 'c' && lex.LowerASCII(p.src[idx+2]) == 'f':
 			p.trackBlock(idx)
 			p.trackOutput(idx)
 
@@ -333,7 +323,7 @@ func (p *tagParser) trackBlock(idx int) {
 		return
 	}
 
-	switch toLowerByte(p.src[start+2]) {
+	switch lex.LowerASCII(p.src[start+2]) {
 	case 'f', 'i', 'e', 'l', 't', 'c', 'd':
 	default:
 		return
@@ -402,7 +392,7 @@ func (p *tagParser) handleCFTag(idx int) int {
 	// <cferror>. Both measured within noise on the parser benchmarks,
 	// because that work is a byte scan over a tag that was going to be
 	// scanned past anyway.
-	ch := toLowerByte(p.src[idx+3])
+	ch := lex.LowerASCII(p.src[idx+3])
 	if ch != 'c' && ch != 'f' && ch != 'l' && ch != 'p' && ch != 's' && ch != 'o' && ch != 'i' && ch != 'r' && ch != 'e' && ch != '/' {
 		return p.stepOverEvaluatedTag(idx)
 	}
@@ -1067,16 +1057,6 @@ func isCloseTagFor(tag, name string) bool {
 	rest := tag[2+len(name):]
 
 	return rest[0] == '>' || isWhitespace(rest[0])
-}
-
-// isAttrNameByte reports whether c can appear inside a tag attribute name.
-// Used to require that a name match starts a word rather than landing in the
-// middle of a longer attribute.
-func isAttrNameByte(c byte) bool {
-	return c >= 'a' && c <= 'z' ||
-		c >= 'A' && c <= 'Z' ||
-		c >= '0' && c <= '9' ||
-		c == '_' || c == '-' || c == ':' || c == '.'
 }
 
 func isWhitespace(c byte) bool {

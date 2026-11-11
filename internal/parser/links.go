@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/conv"
+	"github.com/cfmleditor/clif/internal/lex"
 )
 
 // Links were read by scanning each line for `template=`, `include `, `href=`
@@ -114,7 +115,7 @@ func tagFileRefs(text string, includesOnly bool, emit fileRefFunc) {
 			}
 
 			// A path is quoted; an unquoted value is an expression or a word.
-			if a.valStart == 0 || !isQuoteByte(s[a.valStart-1]) {
+			if a.valStart == 0 || !lex.IsQuote(s[a.valStart-1]) {
 				continue
 			}
 
@@ -220,7 +221,7 @@ func tagStartOutsideQuotesEnd(s string) int {
 			if c == quote {
 				quote = 0
 			}
-		case isQuoteByte(c):
+		case lex.IsQuote(c):
 			quote = c
 		case c == '>':
 			return i
@@ -347,7 +348,7 @@ func isLink(kind fileRefKind, path string) bool {
 func regionLinks(text string, script bool, baseLine int) []DocumentLink {
 	var (
 		links []DocumentLink
-		idx   []int32
+		idx   LineTable
 	)
 
 	emit := func(kind fileRefKind, _, start, end int) {
@@ -356,10 +357,10 @@ func regionLinks(text string, script bool, baseLine int) []DocumentLink {
 		}
 
 		if idx == nil {
-			idx = buildLineIdx(text)
+			idx = NewLineTable(text)
 		}
 
-		line := lineAtOffset(idx, start)
+		line := idx.LineOf(start)
 		lineStart := int(idx[line])
 
 		links = append(links, DocumentLink{
@@ -390,9 +391,9 @@ func ExtractLinks(content string) []DocumentLink {
 
 // linksInRegions is ExtractLinks over regions already split from content,
 // with their line index (nil to build one).
-func linksInRegions(content string, regions []Region, idx []int32) []DocumentLink {
+func linksInRegions(content string, regions []Region, idx LineTable) []DocumentLink {
 	if idx == nil {
-		idx = buildLineIdx(content)
+		idx = NewLineTable(content)
 	}
 
 	var links []DocumentLink
@@ -402,7 +403,7 @@ func linksInRegions(content string, regions []Region, idx []int32) []DocumentLin
 			return
 		}
 
-		line := lineAtOffset(idx, start)
+		line := idx.LineOf(start)
 		lineStart := int(idx[line])
 
 		links = append(links, DocumentLink{

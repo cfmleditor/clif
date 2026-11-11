@@ -21,6 +21,34 @@ func IsWord(c byte) bool {
 	return c == '_' || c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
 }
 
+// IsRegexpSpace is a regular expression's \s as Go's regexp reads it: space,
+// tab, newline, form feed and carriage return, and not vertical tab.
+func IsRegexpSpace(c byte) bool {
+	return c == ' ' || c == '\t' || c == '\n' || c == '\f' || c == '\r'
+}
+
+// SkipRegexpSpace is the index of the first byte of s at or after i that is
+// not IsRegexpSpace, or len(s).
+func SkipRegexpSpace(s string, i int) int {
+	for i < len(s) && IsRegexpSpace(s[i]) {
+		i++
+	}
+
+	return i
+}
+
+// IsQuote reports whether c is a double or a single quote, either of which
+// delimits a CFML string or attribute value.
+func IsQuote(c byte) bool {
+	return c == '"' || c == '\''
+}
+
+// IsWordStart reports whether c can begin a name that is not a number: an
+// ASCII letter or '_'. It is IsWord without the digits.
+func IsWordStart(c byte) bool {
+	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c == '_'
+}
+
 // SkipSpace is the index of the first byte of s at or after i that is not a
 // space, tab, newline or carriage return, or len(s).
 func SkipSpace(s string, i int) int {

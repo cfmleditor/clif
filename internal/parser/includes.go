@@ -8,10 +8,10 @@ import (
 	"github.com/cfmleditor/clif/internal/lex"
 )
 
-// includeWindow bounds how far past the keyword a match may reach. A tag with
-// its attributes or a script include with its path is far shorter; the bound
-// only has to stop a stray keyword costing a scan to the end of the file.
-const includeWindow = 512
+// callWindow bounds how far past a call's name callArgs reads. A listing's
+// arguments are far shorter; the bound only has to stop a stray name costing a
+// scan to the end of the file.
+const callWindow = 512
 
 // ExtractIncludes returns the static paths a file cfincludes, in source order
 // and without duplicates, exactly as written.
@@ -159,34 +159,63 @@ func isIdentName(s string) bool {
 	return true
 }
 
-// wrapperIncludes is the includes made through a function of content that
-// includes the template one of its arguments names: Wheels' Global.cfc
-// declares $include(template) as `include "#LCase(arguments.template)#"` and
-// loads the application's routes with $include(template = "/config/routes.cfm"),
-// which runs them in Global's own variables scope. A call of the function in
-// the same file, unqualified and with a literal path for that argument, named
-// or in its place, is an include there. A call through another object runs the
-// template in that object's scope, and is none of this file's.
-//
-// argIncludes holds each include of an argument, the argument's name as its
-// Path. Finding the function and its arguments takes a parse, which only a
-// file with such an include pays for.
-func wrapperIncludes(content string, regions []Region, argIncludes []IncludeSite) []IncludeSite {
-	scopes := FindFuncScopes(content)
+// IncludeWrapper is a function that includes the template one of its
+// arguments names: Param, lowercased, at Position among its arguments.
+type IncludeWrapper struct {
+	Param    string
+	Position int
+}
 
-	var defs []FunctionDef
-
-	// param is each wrapper's included argument by lowercased function name,
-	// and position its place in the function's arguments.
-	type param struct {
-		name     string
-		position int
+// IncludeWrappers is the functions content declares that include the
+// template an argument names, `include "#arguments.template#"` or through one
+// call (`#LCase(arguments.template)#`), by lowercased name. Wheels' Global.cfc
+// declares $include so; a call of one is an include into the variables scope
+// of the component whose method runs it. Finding them takes a parse, which
+// only a file with such an include pays for.
+func IncludeWrappers(content string) map[string]IncludeWrapper {
+	if IndexFold(content, "arguments.") < 0 || IndexFold(content, "include") < 0 {
+		return nil
 	}
 
-	params := map[string]param{}
+	var argIncludes []IncludeSite
+
+	emit := func(kind fileRefKind, at, start, end int) {
+		if kind != refInclude {
+			return
+		}
+
+		if param, ok := argumentInclude(content[start:end]); ok {
+			argIncludes = append(argIncludes, IncludeSite{Path: param, Offset: at})
+		}
+	}
+
+	regions, _ := ClassifyRegionsIdx(content)
+
+	regions = fileRegions(content, regions)
+	for i := range regions {
+		regionFileRefs(&regions[i], true, emit)
+	}
+
+	return includeWrappersIn(content, argIncludes)
+}
+
+// includeWrappersIn is IncludeWrappers from argIncludes, each include of an
+// argument in content with the argument's name as its Path.
+func includeWrappersIn(content string, argIncludes []IncludeSite) map[string]IncludeWrapper {
+	if len(argIncludes) == 0 {
+		return nil
+	}
+
+	scopes := FindFuncScopes(content)
+	lines := NewLineTable(content)
+
+	var (
+		defs     []FunctionDef
+		wrappers map[string]IncludeWrapper
+	)
 
 	for _, inc := range argIncludes {
-		line := strings.Count(content[:inc.Offset], "\n")
+		line := lines.LineOf(inc.Offset)
 
 		var fn string
 
@@ -211,12 +240,32 @@ func wrapperIncludes(content string, regions []Region, argIncludes []IncludeSite
 
 			for k, a := range defs[i].Arguments {
 				if strings.EqualFold(a.Name, inc.Path) {
-					params[strings.ToLower(fn)] = param{inc.Path, k}
+					if wrappers == nil {
+						wrappers = map[string]IncludeWrapper{}
+					}
+
+					wrappers[strings.ToLower(fn)] = IncludeWrapper{Param: inc.Path, Position: k}
 				}
 			}
 		}
 	}
 
+	return wrappers
+}
+
+// wrapperIncludes is the includes made through an include wrapper content
+// declares (IncludeWrappers): Wheels' Global.cfc loads the application's
+// routes with $include(template = "/config/routes.cfm"), which runs them in
+// Global's own variables scope. A call of the function in the same file,
+// unqualified and with a literal path for that argument, named or in its
+// place, is an include there. A call through another object runs the template
+// in that object's scope, which the resolver decides
+// (wheels_include_wrapper.go).
+//
+// argIncludes holds each include of an argument, the argument's name as its
+// Path.
+func wrapperIncludes(content string, regions []Region, argIncludes []IncludeSite) []IncludeSite {
+	params := includeWrappersIn(content, argIncludes)
 	if len(params) == 0 {
 		return nil
 	}
@@ -248,7 +297,7 @@ func wrapperIncludes(content string, regions []Region, argIncludes []IncludeSite
 
 			sc.NextSkipComments()
 
-			if tmpl, ok := wrapperArgument(sc, p.name, p.position); ok {
+			if tmpl, ok := wrapperArgument(sc, p.Param, p.Position); ok {
 				if site, ok := includeSite(content, tmpl, r.Offset+t.Offset); ok {
 					out = append(out, site)
 				}
@@ -331,38 +380,6 @@ func includeSite(content, raw string, at int) (IncludeSite, bool) {
 	}
 
 	return IncludeSite{Path: p, Offset: at}, true
-}
-
-// includeFormAt decides which form the "include" found at i begins, and where
-// that form starts: "<cfinclude" at the '<', "cfinclude" or "include" at the
-// keyword. It returns a nil reader for an occurrence that is neither — the
-// tail of a longer identifier or a member call such as arr.include(…). The
-// Application.cfc walk (mapping_sources.go) reads its includes with it.
-func includeFormAt(content string, i int) (int, func(string) (int, int, bool)) {
-	start := i
-	if i >= 2 && strings.EqualFold(content[i-2:i], "cf") {
-		start = i - 2
-	}
-
-	if start >= 1 && content[start-1] == '<' {
-		if start == i {
-			return 0, nil // "<include" is not a CFML tag
-		}
-
-		return start - 1, includeTagAt
-	}
-
-	if start >= 1 {
-		if c := content[start-1]; c == '.' || c == '_' || isAlnum(c) {
-			return 0, nil
-		}
-	}
-
-	return start, includeScriptAt
-}
-
-func isAlnum(c byte) bool {
-	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9'
 }
 
 // isIncludable reports whether p names a template cfinclude can run. It is not
@@ -495,17 +512,17 @@ func listsTemplates(content, dir string) bool {
 }
 
 // callArgs is the text between the parentheses of a call whose name ends at
-// i, bounded by includeWindow; quotes are not stepped over, which a listing's
+// i, bounded by callWindow; quotes are not stepped over, which a listing's
 // arguments do not need.
 func callArgs(content string, i int) (string, bool) {
-	i = skipRegexpSpace(content, i)
+	i = lex.SkipRegexpSpace(content, i)
 	if i >= len(content) || content[i] != '(' {
 		return "", false
 	}
 
 	depth := 0
 
-	for j := i; j < min(len(content), i+includeWindow); j++ {
+	for j := i; j < min(len(content), i+callWindow); j++ {
 		switch content[j] {
 		case '(':
 			depth++

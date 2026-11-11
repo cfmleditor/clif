@@ -245,11 +245,11 @@ const renderWindow = 8000
 func renderSites(content, file, module string) map[string][]viewArgSite {
 	out := map[string][]viewArgSite{}
 
-	lines := newLineIndex(content)
+	lines := parser.NewLineTable(content)
 
 	for _, start := range renderStarts(content) {
 		window := content[start:min(len(content), start+renderWindow)]
-		base := lines.lineOf(start)
+		base := lines.LineOf(start)
 
 		tokens := significantTokens(window)
 		if len(tokens) < 2 || !slices.Contains(viewRenderNames, strings.ToLower(tokens[0].Value)) || tokens[1].Kind != parser.TokLParen {

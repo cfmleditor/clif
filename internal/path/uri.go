@@ -129,7 +129,7 @@ func driveInPath(rawURI string) string {
 // take different inputs. This one is file-to-file.
 func URIDistance(a, b string) int {
 	n := 0
-	for n < len(a) && n < len(b) && foldByte(a[n]) == foldByte(b[n]) {
+	for n < len(a) && n < len(b) && lex.LowerASCII(a[n]) == lex.LowerASCII(b[n]) {
 		n++
 	}
 
@@ -139,15 +139,4 @@ func URIDistance(a, b string) int {
 	cut := strings.LastIndexByte(a[:n], '/') + 1
 
 	return strings.Count(a[cut:], "/") + strings.Count(b[cut:], "/")
-}
-
-// foldByte lowercases an ASCII letter and leaves every other byte alone. The
-// explicit range matters: folding with |0x20 also maps '_' onto DEL and '[' onto
-// '{', which the symbol search was once wrong about for exactly that reason.
-func foldByte(c byte) byte {
-	if c >= 'A' && c <= 'Z' {
-		return c + ('a' - 'A')
-	}
-
-	return c
 }

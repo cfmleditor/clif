@@ -3,6 +3,7 @@ package parser
 import (
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -151,6 +152,19 @@ func (s *mappingSourceState) content(content, file string, depth int) {
 	sc := NewSourceScanner(content)
 	previous := TokEOF
 
+	var includes []IncludeSite
+	if s.read != nil {
+		includes = literalIncludeSites(content)
+	}
+
+	// skipTo drops the includes the walk stepped over without running: those
+	// in a method's body, which a declaration does not execute.
+	skipTo := func(offset int) {
+		for len(includes) > 0 && includes[0].Offset < offset {
+			includes = includes[1:]
+		}
+	}
+
 	for {
 		t := sc.NextSkipComments()
 		before := previous
@@ -158,6 +172,14 @@ func (s *mappingSourceState) content(content, file string, depth int) {
 		previous = t.Kind
 		if t.Kind == TokEOF {
 			return
+		}
+
+		// An include runs where it stands, between the assignments before and
+		// after it, so each is followed once the walk reaches it.
+		for len(includes) > 0 && includes[0].Offset <= t.Offset {
+			s.file(s.includePath(includes[0].Path, file), depth+1)
+			s.env["@template"] = file
+			includes = includes[1:]
 		}
 
 		if t.Kind != TokIdent || before == TokDot {
@@ -168,6 +190,7 @@ func (s *mappingSourceState) content(content, file string, depth int) {
 		// Constructor extraction deliberately excludes even lifecycle methods.
 		if identEq(t.Value, "function") {
 			skipMappingFunction(sc)
+			skipTo(sc.Pos())
 
 			continue
 		}
@@ -186,6 +209,8 @@ func (s *mappingSourceState) content(content, file string, depth int) {
 				}
 			}
 
+			skipTo(sc.Pos())
+
 			continue
 		}
 
@@ -198,17 +223,6 @@ func (s *mappingSourceState) content(content, file string, depth int) {
 			}
 
 			continue
-		}
-
-		if index := indexFold(t.Value, "include"); index >= 0 && s.read != nil {
-			start, form := includeFormAt(content, t.Offset+index)
-			if form != nil {
-				window := content[start:min(len(content), start+includeWindow)]
-				if from, to, ok := form(window); ok && isIncludable(window[from:to]) {
-					s.file(s.includePath(window[from:to], file), depth+1)
-					s.env["@template"] = file
-				}
-			}
 		}
 
 		cursor := *sc
@@ -224,6 +238,26 @@ func (s *mappingSourceState) content(content, file string, depth int) {
 
 		s.assignment(target, key, expression, filepath.Dir(file))
 	}
+}
+
+// literalIncludeSites is the includes of content that name one template
+// literally, in source order. They are the document walk's (IncludeSites), so
+// an include in a comment, a string or a page's prose is none. A computed
+// path, which IncludeSites reads as a glob or keeps as `#attributes.x#`, names
+// no one file the walk could read.
+func literalIncludeSites(content string) []IncludeSite {
+	sites := IncludeSites(content)
+
+	out := sites[:0]
+	for _, site := range sites {
+		if !strings.ContainsAny(site.Path, "#*") {
+			out = append(out, site)
+		}
+	}
+
+	slices.SortStableFunc(out, func(a, b IncludeSite) int { return a.Offset - b.Offset })
+
+	return out
 }
 
 func skipMappingFunction(sc *Scanner) {

@@ -17,11 +17,6 @@ import (
 // a "/" immediately before ">" in either side is also skipped; if allowRequote
 // is true, the attribute re-quoting described below is skipped too.
 // Returns nil if only whitespace differs, or an error describing the first mismatch.
-// isQuoteByte reports whether c delimits an attribute value or string literal.
-func isQuoteByte(c byte) bool {
-	return c == '"' || c == '\''
-}
-
 func checkWhitespaceOnly(a, b []byte, allowSelfClose, allowRequote bool) error {
 	i, j := 0, 0
 
@@ -46,7 +41,7 @@ func checkWhitespaceOnly(a, b []byte, allowSelfClose, allowRequote bool) error {
 		j = skipWSAndComments(b, j, &commentsB, scriptB, strsB)
 
 		if j < len(b) && isNormalizationToken(b[j]) &&
-			(i >= len(a) || toLower(a[i]) != toLower(b[j])) {
+			(i >= len(a) || lex.LowerASCII(a[i]) != lex.LowerASCII(b[j])) {
 			switch b[j] {
 			case '{':
 				openedAdded++
@@ -100,21 +95,21 @@ func checkWhitespaceOnly(a, b []byte, allowSelfClose, allowRequote bool) error {
 		// `<cfset msg = hello world>`, or `SELECT 'a'` as `SELECT a` — passed
 		// as whitespace-only. A removal is compared like any other byte now.
 		if allowRequote {
-			if isQuoteByte(a[i]) && isQuoteByte(b[j]) && a[i] != b[j] {
+			if lex.IsQuote(a[i]) && lex.IsQuote(b[j]) && a[i] != b[j] {
 				i++
 				j++
 
 				continue
 			}
 
-			if isQuoteByte(b[j]) && !isQuoteByte(a[i]) {
+			if lex.IsQuote(b[j]) && !lex.IsQuote(a[i]) {
 				j++
 
 				continue
 			}
 		}
 
-		if toLower(a[i]) != toLower(b[j]) {
+		if lex.LowerASCII(a[i]) != lex.LowerASCII(b[j]) {
 			line := byteOffsetToLine(a, i)
 			ctx := snippetAt(a, i)
 
@@ -553,7 +548,7 @@ func hasWordAt(src []byte, pos int, word string) bool {
 	}
 
 	for k := range len(word) {
-		if toLower(src[pos+k]) != word[k] {
+		if lex.LowerASCII(src[pos+k]) != word[k] {
 			return false
 		}
 	}
@@ -656,7 +651,7 @@ func collectCommentBody(sink *[]byte, body []byte) {
 			continue
 		}
 
-		*sink = append(*sink, toLower(c))
+		*sink = append(*sink, lex.LowerASCII(c))
 	}
 }
 
@@ -815,12 +810,4 @@ func skipWSAndComments(src []byte, pos int, sink *[]byte, script scriptSpans, st
 			return pos
 		}
 	}
-}
-
-func toLower(c byte) byte {
-	if c >= 'A' && c <= 'Z' {
-		return c + 32
-	}
-
-	return c
 }

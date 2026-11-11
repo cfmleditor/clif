@@ -132,7 +132,7 @@ func (r *Resolver) includerHeldUncached(variable, file string, g *includeGraph, 
 				return ""
 			}
 
-			line := uint32(strings.Count(hpr.Content[:site.Offset], "\n")) //nolint:gosec // a file offset's line count is non-negative
+			line := uint32(hpr.LineOf(site.Offset)) //nolint:gosec // a file offset's line count is non-negative
 			caller := hpr.FuncScopeAt(int(line)).Name
 
 			comp, _ := r.receiverComponentD(variable, line, caller, "", hpr, dir, nil, lookupCtx{depth: ctx.depth + 1, callers: ctx.callers})

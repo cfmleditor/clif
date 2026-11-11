@@ -181,13 +181,5 @@ func extractMethodCallBase(rhs string) string {
 	return base
 }
 
-func toLowerByte(b byte) byte {
-	if b >= 'A' && b <= 'Z' {
-		return b + 32
-	}
-
-	return b
-}
-
 // HasPrefixFold is hasPrefixFold, shared with internal/resolve.
 func HasPrefixFold(s, prefix string) bool { return lex.HasPrefixFold(s, prefix) }

@@ -50,14 +50,6 @@ func isNameByte(c byte) bool {
 	return lex.IsWord(c) || c == '.' || c == '$'
 }
 
-func lowerByte(c byte) byte {
-	if c >= 'A' && c <= 'Z' {
-		return c + 32
-	}
-
-	return c
-}
-
 // foldAt reports whether s holds lit at offset at, ignoring ASCII case.
 func foldAt(s string, at int, lit string) bool {
 	if at < 0 || at+len(lit) > len(s) {
@@ -65,7 +57,7 @@ func foldAt(s string, at int, lit string) bool {
 	}
 
 	for i := range len(lit) {
-		if a, b := s[at+i], lit[i]; a != b && lowerByte(a) != lowerByte(b) {
+		if a, b := s[at+i], lit[i]; a != b && lex.LowerASCII(a) != lex.LowerASCII(b) {
 			return false
 		}
 	}
@@ -73,20 +65,10 @@ func foldAt(s string, at int, lit string) bool {
 	return true
 }
 
-// skipRegexSpace returns the first offset at or after i that is not \s as RE2
-// reads it, which leaves out \v: the package's skipSpace does not.
-func skipRegexSpace(s string, i int) int {
-	for i < len(s) && isRegexSpace(s[i]) {
-		i++
-	}
-
-	return i
-}
-
 // skipSpaceBack returns the offset just past the last non-whitespace byte
 // before i: the whitespace run ending at i is s[result:i].
 func skipSpaceBack(s string, i int) int {
-	for i > 0 && isRegexSpace(s[i-1]) {
+	for i > 0 && lex.IsRegexpSpace(s[i-1]) {
 		i--
 	}
 
@@ -118,11 +100,11 @@ func scriptFunctionOpens(s, name string, limit int) []int {
 	lastEnd := 0
 
 	for o := nextFold(s, name, 0); o >= 0 && len(ends) < limit; o = nextFold(s, name, o+1) {
-		if o == 0 || !isRegexSpace(s[o-1]) {
+		if o == 0 || !lex.IsRegexpSpace(s[o-1]) {
 			continue
 		}
 
-		open := skipRegexSpace(s, o+len(name))
+		open := lex.SkipRegexpSpace(s, o+len(name))
 		if open >= len(s) || s[open] != '(' {
 			continue
 		}
@@ -147,12 +129,12 @@ func tagFunctionNamed(seg, name string) bool {
 			continue
 		}
 
-		j := skipRegexSpace(seg, k+4)
+		j := lex.SkipRegexpSpace(seg, k+4)
 		if j >= len(seg) || seg[j] != '=' {
 			continue
 		}
 
-		j = skipRegexSpace(seg, j+1)
+		j = lex.SkipRegexpSpace(seg, j+1)
 		if j >= len(seg) || seg[j] != '"' && seg[j] != '\'' || !foldAt(seg, j+1, name) {
 			continue
 		}
@@ -285,7 +267,7 @@ func nameStartsHere(s string, o int) bool {
 
 // declaresVarAt is `\bvar\s+NAME\b` for the occurrence of name at o.
 func declaresVarAt(s string, o int, name string) bool {
-	if o == 0 || !isRegexSpace(s[o-1]) {
+	if o == 0 || !lex.IsRegexpSpace(s[o-1]) {
 		return false
 	}
 
@@ -302,11 +284,11 @@ func declaresVarAt(s string, o int, name string) bool {
 // loopsOverAt is `\bfor\s*\(\s*(?:var\s+)?NAME\s+in\b` for the occurrence at o.
 func loopsOverAt(s string, o int, name string) bool {
 	after := o + len(name)
-	if after >= len(s) || !isRegexSpace(s[after]) {
+	if after >= len(s) || !lex.IsRegexpSpace(s[after]) {
 		return false
 	}
 
-	in := skipRegexSpace(s, after)
+	in := lex.SkipRegexpSpace(s, after)
 	if !foldAt(s, in, "in") || !endsWord(s, in+2) {
 		return false
 	}
@@ -368,7 +350,7 @@ func namesVariableAt(s string, o int, name string) bool {
 //	\b(?:item|index|name|returnvariable|variable|result)\s*=\s*["']NAME["']
 func assignsName(s, name string) bool {
 	for o := nextFold(s, name, 0); o >= 0; o = nextFold(s, name, o+1) {
-		if assignOpAt(s, skipRegexSpace(s, o+len(name))) && nameStartsHere(s, o) {
+		if assignOpAt(s, lex.SkipRegexpSpace(s, o+len(name))) && nameStartsHere(s, o) {
 			return true
 		}
 
@@ -411,7 +393,7 @@ func renderStarts(s string) []int {
 	lastEnd := 0
 
 	for v := nextFold(s, "view", 0); v >= 0; v = nextFold(s, "view", v+1) {
-		open := skipRegexSpace(s, v+len("view"))
+		open := lex.SkipRegexpSpace(s, v+len("view"))
 		if open >= len(s) || s[open] != '(' {
 			continue
 		}
@@ -508,7 +490,7 @@ func wordCallStarts(s string, words ...string) []int {
 
 	for _, word := range words {
 		for _, o := range wordStarts(s, word) {
-			if open := skipRegexSpace(s, o+len(word)); open < len(s) && s[open] == '(' {
+			if open := lex.SkipRegexpSpace(s, o+len(word)); open < len(s) && s[open] == '(' {
 				starts = append(starts, o)
 			}
 		}
@@ -578,12 +560,12 @@ func customErrorTemplateValues(s string) []string {
 	const word = "customErrorTemplate"
 
 	for o := nextFold(s, word, 0); o >= 0; o = nextFold(s, word, o+1) {
-		i := skipRegexSpace(s, o+len(word))
+		i := lex.SkipRegexpSpace(s, o+len(word))
 		if i >= len(s) || s[i] != ':' && s[i] != '=' {
 			continue
 		}
 
-		i = skipRegexSpace(s, i+1)
+		i = lex.SkipRegexpSpace(s, i+1)
 		if i >= len(s) || s[i] != '"' && s[i] != '\'' {
 			continue
 		}
@@ -608,7 +590,7 @@ func customErrorTemplateValues(s string) []string {
 // `(?:^|[^\w.])(?:variables\.)?NAME\s*=[^=]|\bsetNAME\s*\(`, for a plain name.
 func lineWritesName(line, name string) bool {
 	for o := nextFold(line, name, 0); o >= 0; o = nextFold(line, name, o+1) {
-		if j := skipRegexSpace(line, o+len(name)); j+1 < len(line) && line[j] == '=' && line[j+1] != '=' {
+		if j := lex.SkipRegexpSpace(line, o+len(name)); j+1 < len(line) && line[j] == '=' && line[j+1] != '=' {
 			if o == 0 || !lex.IsWord(line[o-1]) && line[o-1] != '.' {
 				return true
 			}
@@ -619,7 +601,7 @@ func lineWritesName(line, name string) bool {
 		}
 
 		if o >= 3 && foldAt(line, o-3, "set") && startsWord(line, o-3) {
-			if open := skipRegexSpace(line, o+len(name)); open < len(line) && line[open] == '(' {
+			if open := lex.SkipRegexpSpace(line, o+len(name)); open < len(line) && line[open] == '(' {
 				return true
 			}
 		}

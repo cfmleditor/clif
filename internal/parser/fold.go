@@ -1,5 +1,7 @@
 package parser
 
+import "github.com/cfmleditor/clif/internal/lex"
+
 // foldScratch is stack space for lowerFold. Sized past any identifier these
 // switches compare against, and past any realistic CFML identifier, so the
 // heap path below is the exception rather than the common case.
@@ -28,14 +30,14 @@ func (f *foldScratch) lowerFold(s string) []byte {
 	if len(s) > len(f) {
 		out := make([]byte, len(s))
 		for i := range len(s) {
-			out[i] = toLowerByte(s[i])
+			out[i] = lex.LowerASCII(s[i])
 		}
 
 		return out
 	}
 
 	for i := range len(s) {
-		f[i] = toLowerByte(s[i])
+		f[i] = lex.LowerASCII(s[i])
 	}
 
 	return f[:len(s)]

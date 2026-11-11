@@ -203,12 +203,12 @@ func callerNames(content string) map[string]bool {
 
 	for open := strings.IndexByte(content, '('); open >= 0; {
 		end := open
-		for end > 0 && callerSpace(content[end-1]) {
+		for end > 0 && lex.IsRegexpSpace(content[end-1]) {
 			end--
 		}
 
 		start := end
-		for start > 0 && callerWord(content[start-1]) {
+		for start > 0 && lex.IsIdent(content[start-1]) {
 			start--
 		}
 
@@ -235,7 +235,7 @@ func callerNames(content string) map[string]bool {
 		}
 
 		start := i
-		for start > 0 && callerWord(content[start-1]) {
+		for start > 0 && lex.IsIdent(content[start-1]) {
 			start--
 		}
 
@@ -254,7 +254,7 @@ func callerNames(content string) map[string]bool {
 		}
 
 		start := i
-		for start > 0 && callerWord(content[start-1]) {
+		for start > 0 && lex.IsIdent(content[start-1]) {
 			start--
 		}
 
@@ -316,14 +316,6 @@ func addCallerName(seen map[string]bool, name string) {
 	}
 
 	seen[string(folded[:len(name)])] = true
-}
-
-func callerSpace(c byte) bool {
-	return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f'
-}
-
-func callerWord(c byte) bool {
-	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_' || c == '$'
 }
 
 // owner is the resolver that holds the shared caches: a per-caller view

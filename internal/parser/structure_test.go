@@ -291,7 +291,7 @@ func TestClassifyDoesNotAllocate(t *testing.T) {
 	}
 }
 
-// A lineCursor must give lineAtOffset's answer whatever order it is asked in:
+// A lineCursor must give LineTable.LineOf's answer whatever order it is asked in:
 // forward steps, backward steps, jumps past its step limit and offsets at the
 // ends of the document.
 func TestLineCursorMatchesLineAtOffset(t *testing.T) {
@@ -303,7 +303,7 @@ func TestLineCursorMatchesLineAtOffset(t *testing.T) {
 	}
 
 	src := sb.String()
-	idx := buildLineIdx(src)
+	idx := NewLineTable(src)
 	cur := lineCursor{idx: idx}
 	state := uint32(1)
 
@@ -321,8 +321,8 @@ func TestLineCursorMatchesLineAtOffset(t *testing.T) {
 			off = []int{0, len(src), len(src) - 1}[int(state>>8)%3]
 		}
 
-		if got, want := cur.at(off), lineAtOffset(idx, off); got != want {
-			t.Fatalf("offset %d: cursor %d, lineAtOffset %d", off, got, want)
+		if got, want := cur.at(off), idx.LineOf(off); got != want {
+			t.Fatalf("offset %d: cursor %d, LineOf %d", off, got, want)
 		}
 	}
 }

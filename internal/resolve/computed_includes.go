@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/cfmleditor/clif/internal/lex"
 	"github.com/cfmleditor/clif/internal/parser"
 )
 
@@ -56,17 +57,12 @@ func computedIncludeOffsets(s string) []int {
 
 		// A bare include must start a word (\b): the character before it is
 		// not a word character.
-		if i >= end && (i == 0 || !isRegexWordByte(s[i-1])) {
+		if i >= end && (i == 0 || !lex.IsWord(s[i-1])) {
 			if m := computedIncludeAt.FindStringIndex(s[i:]); m != nil {
 				offsets, end = append(offsets, i), i+m[1]
 			}
 		}
 	}
-}
-
-// isRegexWordByte is \w as RE2 reads it.
-func isRegexWordByte(c byte) bool {
-	return c == '_' || c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
 }
 
 func (r *Resolver) computedIncludeHosts(file string) []includeHost {
@@ -129,8 +125,14 @@ func (r *Resolver) computedIncludesOf(path string) computedIncludeFile {
 	}
 
 	if text, err := r.readText(path); err == nil {
+		var lines parser.LineTable
+
 		for _, at := range computedIncludeOffsets(text) {
-			inc.lines = append(inc.lines, strings.Count(text[:at], "\n"))
+			if lines == nil {
+				lines = parser.NewLineTable(text)
+			}
+
+			inc.lines = append(inc.lines, lines.LineOf(at))
 		}
 
 		if len(inc.lines) > 0 {

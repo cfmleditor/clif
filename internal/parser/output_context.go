@@ -2,6 +2,8 @@ package parser
 
 import (
 	"strings"
+
+	"github.com/cfmleditor/clif/internal/lex"
 )
 
 // Where ColdFusion evaluates #...# in the text of a tag file.
@@ -186,6 +188,10 @@ func outputContext(content string) (spans [][2]int, prefixes []string) {
 	return spans, prefixes
 }
 
+// isTagNameByte reports whether c can appear in a tag or attribute name after
+// its first byte: an ASCII letter, a digit, '_', ':', '-' or '.'. The tag
+// stack, the attribute scanner and the tag parser each had this set under its
+// own name.
 func isTagNameByte(c byte) bool {
 	return c == '_' || c == ':' || c == '-' || c == '.' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9'
 }
@@ -255,7 +261,7 @@ func cfTagAt(content string, i int) (kind outputKind, closing, isCF bool) {
 		nameEnd++
 	}
 
-	if nameEnd-nameStart < 2 || toLowerByte(content[nameStart]) != 'c' || toLowerByte(content[nameStart+1]) != 'f' {
+	if nameEnd-nameStart < 2 || lex.LowerASCII(content[nameStart]) != 'c' || lex.LowerASCII(content[nameStart+1]) != 'f' {
 		return outputOther, closing, false
 	}
 

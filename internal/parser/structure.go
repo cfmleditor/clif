@@ -83,7 +83,7 @@ func (pr *ParseResult) StructureSpans() []Span {
 	return spans
 }
 
-func structureSpans(content string, regions []Region, idx []int32) []Span {
+func structureSpans(content string, regions []Region, idx LineTable) []Span {
 	var (
 		spans  []Span
 		script [][2]int
@@ -95,7 +95,7 @@ func structureSpans(content string, regions []Region, idx []int32) []Span {
 	// the markup it is.
 	if len(regions) == 1 && regions[0].Kind == RegionScript && len(regions[0].Text) == len(content) && startsWithMarkup(content) {
 		if idx == nil {
-			idx = buildLineIdx(content)
+			idx = NewLineTable(content)
 		}
 
 		return tagStructure(content, nil, idx, nil)
@@ -116,7 +116,7 @@ func structureSpans(content string, regions []Region, idx []int32) []Span {
 	}
 
 	if idx == nil {
-		idx = buildLineIdx(content)
+		idx = NewLineTable(content)
 	}
 
 	return tagStructure(content, script, idx, spans)

@@ -2,7 +2,11 @@
 
 package parser
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/cfmleditor/clif/internal/lex"
+)
 
 // attrMode is how a tag's attribute values are read.
 type attrMode uint8
@@ -63,7 +67,7 @@ func (a *attrScanner) next() (tagAttr, bool) {
 			a.i = len(s)
 
 			return tagAttr{}, false
-		case isQuoteByte(c):
+		case lex.IsQuote(c):
 			// A value with no name before it: step over it whole.
 			if end := quotedValueEnd(s, a.i, a.mode); end >= 0 {
 				a.i = end + 1
@@ -72,21 +76,21 @@ func (a *attrScanner) next() (tagAttr, bool) {
 			}
 
 			continue
-		case !isAttrNameByte(c):
+		case !isTagNameByte(c):
 			a.i++
 
 			continue
 		}
 
 		start := a.i
-		for a.i < len(s) && isAttrNameByte(s[a.i]) {
+		for a.i < len(s) && isTagNameByte(s[a.i]) {
 			a.i++
 		}
 
 		attr := tagAttr{nameStart: start, nameEnd: a.i}
 
 		j := a.i
-		for j < len(s) && isRESpace(s[j]) {
+		for j < len(s) && lex.IsRegexpSpace(s[j]) {
 			j++
 		}
 
@@ -95,7 +99,7 @@ func (a *attrScanner) next() (tagAttr, bool) {
 		}
 
 		j++
-		for j < len(s) && isRESpace(s[j]) {
+		for j < len(s) && lex.IsRegexpSpace(s[j]) {
 			j++
 		}
 
@@ -105,7 +109,7 @@ func (a *attrScanner) next() (tagAttr, bool) {
 			return tagAttr{}, false
 		}
 
-		if isQuoteByte(s[j]) {
+		if lex.IsQuote(s[j]) {
 			end := quotedValueEnd(s, j, a.mode)
 			if end < 0 {
 				// A value whose quote never closes ends the reading.
@@ -146,7 +150,7 @@ func endsUnquotedValue(s string, k int) bool {
 	case '/':
 		return k+1 == len(s) || s[k+1] == '>'
 	default:
-		return isRESpace(s[k])
+		return lex.IsRegexpSpace(s[k])
 	}
 }
 
@@ -195,7 +199,7 @@ func hashExprEnd(s string, open int, q byte) int {
 		switch {
 		case c == '#':
 			return i
-		case isQuoteByte(c):
+		case lex.IsQuote(c):
 			if c == q && (isIdentPart(prev) || prev == ')' || prev == ']') {
 				return -1
 			}
@@ -220,7 +224,7 @@ func hashExprEnd(s string, open int, q byte) int {
 		case c == '\n' && i-open > 4096:
 			return -1
 		default:
-			if !isRESpace(c) {
+			if !lex.IsRegexpSpace(c) {
 				prev = c
 			}
 		}

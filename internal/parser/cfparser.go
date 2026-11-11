@@ -90,7 +90,7 @@ func varsAndScopes(content string) (found [][]VarDef, scopes []FuncScope) {
 
 // varsAndScopesIn is varsAndScopes over regions already split from content,
 // with their line index (nil to build one).
-func varsAndScopesIn(content string, regions []Region, idx []int32) (found [][]VarDef, scopes []FuncScope) {
+func varsAndScopesIn(content string, regions []Region, idx LineTable) (found [][]VarDef, scopes []FuncScope) {
 	found = make([][]VarDef, len(regions))
 	hasTag := false
 
@@ -310,7 +310,7 @@ func skipToClose(sc *Scanner, open, closing TokenKind) Token {
 // way to the regions, and extractSignatures then asked for the scopes of that
 // same whole file — so the index was built twice over one string, every parse.
 // A nil idx means build one.
-func findTagFuncScopesIdx(src string, baseLine int, idx []int32) []FuncScope {
+func findTagFuncScopesIdx(src string, baseLine int, idx LineTable) []FuncScope {
 	// A modest capacity rather than a counted one. Counting <cffunction first
 	// sizes the slice exactly, but it is a second pass over the whole source and
 	// it runs on script components too, where it scans everything to find
@@ -319,7 +319,7 @@ func findTagFuncScopesIdx(src string, baseLine int, idx []int32) []FuncScope {
 	scopes := make([]FuncScope, 0, 8)
 
 	if idx == nil {
-		idx = buildLineIdx(src)
+		idx = NewLineTable(src)
 	}
 
 	pos := 0
@@ -360,7 +360,7 @@ func findTagFuncScopesIdx(src string, baseLine int, idx []int32) []FuncScope {
 			continue
 		}
 
-		startLine := baseLine + lineAtOffset(idx, i)
+		startLine := baseLine + idx.LineOf(i)
 
 		end := min(i+200, len(src))
 
@@ -382,7 +382,7 @@ func findTagFuncScopesIdx(src string, baseLine int, idx []int32) []FuncScope {
 			closeEnd += gt + 1
 		}
 
-		endLine := baseLine + lineAtOffset(idx, closeEnd)
+		endLine := baseLine + idx.LineOf(closeEnd)
 		scopes = append(scopes, FuncScope{Name: funcName, Access: funcAccess, ReturnType: funcReturn, Start: startLine, End: endLine})
 		pos = closeEnd
 	}
@@ -390,65 +390,21 @@ func findTagFuncScopesIdx(src string, baseLine int, idx []int32) []FuncScope {
 	return scopes
 }
 
-// buildLineIdx returns byte offsets of each line start.
-//
-// int32 rather than int: this is one entry per line of every file parsed, built
-// several times over, and it was the single largest allocation site in a tag
-// parse. A CFML file large enough to overflow int32 is 2GB of source, which no
-// engine would load and this parser holds entirely in memory anyway.
-//
-// Both passes go through the stdlib's byte scanners rather than a loop over
-// every byte: strings.Count and strings.IndexByte are vectorised, and this runs
-// once per parsed file over the whole source, which made it 3.9% of tag parsing
-// in a profile. The count pass stays — sizing the slice up front is what keeps
-// the fill pass from reallocating a dozen times on a large file.
-func buildLineIdx(src string) []int32 {
-	idx := make([]int32, 1, strings.Count(src, "\n")+1)
-
-	for off := 0; off < len(src); {
-		i := strings.IndexByte(src[off:], '\n')
-		if i < 0 {
-			break
-		}
-
-		off += i + 1
-
-		idx = append(idx, conv.Int32(off))
-	}
-
-	return idx
-}
-
-// lineAtOffset returns the 0-based line number for a byte offset.
-func lineAtOffset(idx []int32, offset int) int {
-	lo, hi := 0, len(idx)
-	for lo < hi {
-		mid := (lo + hi) / 2
-		if int(idx[mid]) <= offset {
-			lo = mid + 1
-		} else {
-			hi = mid
-		}
-	}
-
-	return lo - 1
-}
-
-// lineCursor answers lineAtOffset for a walk that mostly moves forward. A
+// lineCursor answers LineTable.LineOf for a walk that mostly moves forward. A
 // document walk asks for the line of each tag's start, its end and, for a
 // closing tag, the line of the content before it: offsets within a few lines
 // of the last answer, which a short step from that line finds without the
 // binary search over every line in the file. An offset further away falls
-// back to lineAtOffset, so the answer is always lineAtOffset's.
+// back to LineOf, so the answer is always LineOf's.
 type lineCursor struct {
-	idx  []int32
+	idx  LineTable
 	line int
 }
 
 // maxCursorSteps is how many lines a lineCursor walks before it searches.
 const maxCursorSteps = 8
 
-// at returns lineAtOffset(c.idx, offset).
+// at returns c.idx.LineOf(offset).
 func (c *lineCursor) at(offset int) int {
 	idx, l := c.idx, c.line
 
@@ -469,7 +425,7 @@ func (c *lineCursor) at(offset int) int {
 		}
 	}
 
-	l = lineAtOffset(idx, offset)
+	l = idx.LineOf(offset)
 	c.line = max(l, 0)
 
 	return l
@@ -486,7 +442,7 @@ func ClassifyRegions(content string) []Region {
 // so a caller that also needs line numbers for this content does not build a
 // second one. The index is nil for a script file, which never reaches the code
 // that wants it.
-func ClassifyRegionsIdx(content string) ([]Region, []int32) {
+func ClassifyRegionsIdx(content string) ([]Region, LineTable) {
 	if isScriptFile(content) {
 		return []Region{{Kind: RegionScript, StartLine: 0, Text: content}}, nil
 	}
@@ -614,7 +570,7 @@ func containsCFTag(s string) bool {
 		at := off + i
 		off = at + 1
 
-		if at+2 < len(s) && toLowerByte(s[at+1]) == 'c' && toLowerByte(s[at+2]) == 'f' {
+		if at+2 < len(s) && lex.LowerASCII(s[at+1]) == 'c' && lex.LowerASCII(s[at+2]) == 'f' {
 			return true
 		}
 	}
@@ -705,8 +661,8 @@ func findScriptSkipSpans(content string) []scriptSkipSpan {
 // blocks inside comments do not produce spurious script regions. Literal
 // <script>...</script> blocks with no CFML inside (see findScriptSkipSpans)
 // are emitted as RegionSkip so their JavaScript is never scanned as CFML.
-func splitCFScriptBlocks(content string) ([]Region, []int32) {
-	idx := buildLineIdx(content)
+func splitCFScriptBlocks(content string) ([]Region, LineTable) {
+	idx := NewLineTable(content)
 	skipSpans := findScriptSkipSpans(content)
 	skipIdx := 0
 
@@ -715,7 +671,7 @@ func splitCFScriptBlocks(content string) ([]Region, []int32) {
 	// add appends a region of kind for content[from:to], unless it is blank.
 	add := func(kind RegionKind, from, to int) {
 		if text := content[from:to]; strings.TrimSpace(text) != "" {
-			regions = append(regions, Region{Kind: kind, StartLine: lineAtOffset(idx, from), Text: text, Offset: from})
+			regions = append(regions, Region{Kind: kind, StartLine: idx.LineOf(from), Text: text, Offset: from})
 		}
 	}
 
@@ -744,7 +700,7 @@ func splitCFScriptBlocks(content string) ([]Region, []int32) {
 				add(RegionTag, pos, nextSkip.start)
 			}
 
-			regions = append(regions, Region{Kind: RegionSkip, StartLine: lineAtOffset(idx, nextSkip.start), Text: content[nextSkip.start:nextSkip.end], Offset: nextSkip.start})
+			regions = append(regions, Region{Kind: RegionSkip, StartLine: idx.LineOf(nextSkip.start), Text: content[nextSkip.start:nextSkip.end], Offset: nextSkip.start})
 
 			pos = nextSkip.end
 			skipIdx++

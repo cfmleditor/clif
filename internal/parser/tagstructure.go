@@ -3,6 +3,8 @@ package parser
 import (
 	"slices"
 	"strings"
+
+	"github.com/cfmleditor/clif/internal/lex"
 )
 
 // tagFrame is one open tag in tagStructure's stack.
@@ -40,7 +42,7 @@ const maxTagSearch = 64
 // that is how `<cfset>`, `<br>` and an unclosed `<p>` fall out without a list
 // of which tags have bodies. isBodilessTag is only there to keep the stack
 // short.
-func tagStructure(content string, script [][2]int, idx []int32, spans []Span) []Span {
+func tagStructure(content string, script [][2]int, idx LineTable, spans []Span) []Span {
 	var stack []tagFrame
 
 	// A page has about one span in four lines. Growing the slice from nothing
@@ -162,24 +164,16 @@ func pushTag(stack []tagFrame, name string, line int) []tagFrame {
 // letters, digits, `_`, `-`, `.` and `:` (a cfimport prefix, `cf_` custom
 // tags). Empty when s does not start a tag — `a < b`, `<=`, `<#`.
 func tagName(s string) string {
-	if s == "" || !isTagNameStart(s[0]) {
+	if s == "" || !lex.IsWordStart(s[0]) {
 		return ""
 	}
 
 	i := 1
-	for i < len(s) && isTagNamePart(s[i]) {
+	for i < len(s) && isTagNameByte(s[i]) {
 		i++
 	}
 
 	return s[:i]
-}
-
-func isTagNameStart(c byte) bool {
-	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c == '_'
-}
-
-func isTagNamePart(c byte) bool {
-	return isTagNameStart(c) || c >= '0' && c <= '9' || c == '-' || c == '.' || c == ':'
 }
 
 // tagEnd returns the offset just past the `>` ending the tag whose attributes
@@ -265,7 +259,7 @@ func startsTag(s string) bool {
 		s = s[1:]
 	}
 
-	return s != "" && isTagNameStart(s[0])
+	return s != "" && lex.IsWordStart(s[0])
 }
 
 // lastContent returns the offset of the last non-space byte before lt, or lt

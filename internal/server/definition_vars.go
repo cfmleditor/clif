@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cfmleditor/clif/internal/lex"
 	cflog "github.com/cfmleditor/clif/internal/log"
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
@@ -131,15 +132,6 @@ func matchVarInFile(vars []parser.VarDef, word string, line int, scoped bool, sc
 	return nil
 }
 
-// lowerASCIIByte folds one ASCII byte, for the guard below.
-func lowerASCIIByte(b byte) byte {
-	if b >= 'A' && b <= 'Z' {
-		return b + 32
-	}
-
-	return b
-}
-
 // bestVarDeclPerScope returns the declaration in force at line for each scope in
 // order, indexed the same way as order.
 func bestVarDeclPerScope(vars []parser.VarDef, name string, order []parser.Scope, line int) []*parser.VarDef {
@@ -171,12 +163,12 @@ func bestVarDeclPerScope(vars []parser.VarDef, name string, order []parser.Scope
 	// function call per declaration is what made the one pass cost more than the
 	// nine it replaced. Length and a folded first byte reject almost everything
 	// inline.
-	want := lowerASCIIByte(name[0])
+	want := lex.LowerASCII(name[0])
 
 	for i := range vars {
 		v := &vars[i]
 
-		if len(v.Name) != len(name) || lowerASCIIByte(v.Name[0]) != want {
+		if len(v.Name) != len(name) || lex.LowerASCII(v.Name[0]) != want {
 			continue
 		}
 

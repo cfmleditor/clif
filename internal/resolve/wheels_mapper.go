@@ -278,6 +278,8 @@ type sourceDerived struct {
 	plain           *parser.ParseResult
 	selfOnce        sync.Once
 	mentionsSelf    bool
+	wrappersOnce    sync.Once
+	wrappers        map[string]parser.IncludeWrapper
 }
 
 // sourcePlans is the source's producer plans (newProducerPlans), built on
@@ -304,6 +306,18 @@ func (s *sourceInfo) methodMap() map[string]wheelsMethod {
 	s.derived.methodsOnce.Do(func() { s.derived.methods = wheelsMethods(s.content) })
 
 	return s.derived.methods
+}
+
+// includeWrappers is the source's include wrappers (parser.IncludeWrappers),
+// read once per source.
+func (s *sourceInfo) includeWrappers() map[string]parser.IncludeWrapper {
+	if s.derived == nil {
+		return parser.IncludeWrappers(s.content)
+	}
+
+	s.derived.wrappersOnce.Do(func() { s.derived.wrappers = parser.IncludeWrappers(s.content) })
+
+	return s.derived.wrappers
 }
 
 // hasSelfDefaultParam reports whether fd's body ends in a dispatch on a

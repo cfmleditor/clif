@@ -400,8 +400,7 @@ scanner:
   `cfreturn`) links nothing. A markup tag cut by a CF tag
   (`<a <cfif x>class="on"</cfif> href="p.cfm">`) keeps its later attributes.
 - **Script regions:** the script scanner, skipping comments, reads
-  `include "x"`, `include template="x"` and `cfinclude(template="x")`, as
-  `includeScriptAt` does; `cfmodule(…)` and `module template=` come from the
+  `include "x"`, `include template="x"` and `cfinclude(template="x")`; `cfmodule(…)` and `module template=` come from the
   custom tag scanner; a CF tag written among the statements is read as a tag.
   A member call (`arr.include(…)`) and a struct key named `template` are not
   links.
@@ -436,9 +435,9 @@ scans the attributes of `<cfinclude>` and `<cfdirectory>` alone.
   scanner and a third rule; it reads `IncludeSites` now, and its scanner
   (`NewScriptScanner`) only says which include statements stand in the
   component body.
-- The Application.cfc walk (`mapping_sources.go`) still reads an include at
-  a keyword its own walk finds, with `includeFormAt`; the expression
-  differential holds those readers.
+- The Application.cfc walk (`mapping_sources.go`) still read an include at
+  a keyword its own walk found; see "Done: the Application.cfc walk's
+  includes".
 
 - A function that includes the template an argument names is an include
   wrapper (`wrapperIncludes`): Wheels' `Global.cfc` declares
@@ -525,6 +524,66 @@ Left as they are, since they ask something else of a comment:
 `precedingComment` (the doc comment just before a `<cffunction>`, found
 backwards), the region split's running depth count, and `scanSourceFacts`'
 test for a line that starts as a comment.
+
+### Done: one include-wrapper fact
+
+Two readers knew that a function can include the template its argument
+names. The include scan (#364) read any such function, but only for calls in
+the same file. The resolver's Wheels reader (`wheels_include_wrapper.go`)
+reads calls across files and decides where the include runs
+(`application.wo.$include(…)` runs in `Global`), but proved a wrapper only
+against newer Wheels' pinned bodies, which route the include through
+`$resolveGlobalIncludeTemplate` and `$tryIncludeTemplate`. Older Wheels, the
+corpus's own `Global.cfc`, writes `include "#LCase(arguments.template)#"` in
+the wrapper itself, and was never proven.
+
+The parser now exports the fact, `parser.IncludeWrappers` (function, argument,
+position), and both read it: the include scan for same-file calls, and the
+resolver as a second proof beside the pinned bodies (`wheelsIncludeWrapperProven`,
+cached per source). `unresolved` is byte-identical on cfwheels: the templates
+it includes through `application.wo` have no findings on `main` to lose.
+
+### Done: the Application.cfc walk's includes
+
+The walk that reads an Application.cfc's mappings and custom tag paths
+(`mapping_sources.go`) was the last to read an include outside the include
+walk. It looked for "include" in every identifier token and read the form by
+hand (`includeFormAt`, `includeTagAt`/`includeScriptAt`, a 512-byte window),
+so an include in a page's prose or an HTML comment was followed as if it ran.
+It now takes the literal-template sites `IncludeSites` reads and follows each
+when its token walk reaches the site's offset, so includes still run in
+source order between the assignments around them; sites inside a method body
+the walk skips are dropped as before. The hand readers and their
+regexp-differential test are gone. `unresolved` is byte-identical on the eight
+corpora; `TestApplicationSourcesFollowOnlyLiveIncludes` covers comments,
+strings, prose and method bodies.
+
+### Done: shared byte classes
+
+About twenty byte-class helpers that several packages each defined byte for
+byte (regexp `\s`, quote, word start, identifier, `\w`, ASCII letter, ASCII
+lowering) live once in `internal/lex` (`IsRegexpSpace`, `SkipRegexpSpace`,
+`IsQuote`, `IsWordStart`, and the existing `IsIdent`, `IsWord`,
+`IsASCIILetter`, `LowerASCII`), each tested over all 256 bytes against every
+copy it replaced. Three tag-name byte sets in the parser were one, now
+`isTagNameByte`. Near-duplicates that differ in a byte keep their own names:
+the scanner's table-driven `isIdentPart`, the server's `isIdentByte` (with
+bytes past 0x7f), `isNameByte` (with `.` and `$`), the routes' name sets (with
+`$`), and `isWhitespace` (with `\v`).
+
+### Done: one line table
+
+Five line tables were built by hand: the parser's `buildLineIdx` and
+`lineStartTable`, the tag parser's own binary search, the resolver's
+`lineStartsOf` and `newLineIndex` (newline offsets rather than line starts).
+They are one `parser.LineTable` (`line_table.go`): line starts as int32,
+`LineOf` by binary search, `Start` and `Span`. `TestLineTableMatchesTheTablesItReplaced`
+holds it to each copy over generated texts. The resolver's cached tables take
+half the memory. `ParseResult.LineOf` serves callers that asked a file's line
+once per site by counting from the top (FW/1 `setView`s, included locals,
+computed includes, include wrappers). The server's two single-line lookups
+stay, since a table per request would cost more. `unresolved` is
+byte-identical on ContentBox and Mura.
 
 ## Speed is an option of the one walker, not a second walker
 

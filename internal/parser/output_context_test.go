@@ -7,6 +7,30 @@ import (
 	"go.lsp.dev/uri"
 )
 
+// isTagNameByte stands for two definitions the package had under other names;
+// these are those, as they were written.
+func TestIsTagNameByteMatchesTheDefinitionsItReplaced(t *testing.T) {
+	former := map[string]func(byte) bool{
+		"isAttrNameByte": func(c byte) bool {
+			return c >= 'a' && c <= 'z' ||
+				c >= 'A' && c <= 'Z' ||
+				c >= '0' && c <= '9' ||
+				c == '_' || c == '-' || c == ':' || c == '.'
+		},
+		"isTagNamePart": func(c byte) bool {
+			return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c == '_' || c >= '0' && c <= '9' || c == '-' || c == '.' || c == ':'
+		},
+	}
+
+	for name, f := range former {
+		for b := range 256 {
+			if got, want := isTagNameByte(byte(b)), f(byte(b)); got != want {
+				t.Errorf("%s differs at %#x: isTagNameByte=%v", name, b, got)
+			}
+		}
+	}
+}
+
 func callNames(pr *ParseResult) []string {
 	out := []string{}
 	cs := pr.AllCalls()

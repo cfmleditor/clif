@@ -268,7 +268,7 @@ func (r *Resolver) muraObjectSites() []muraObjectSite {
 func muraObjectSitesIn(content, file string) []muraObjectSite {
 	var out []muraObjectSite
 
-	lines := newLineIndex(content)
+	lines := parser.NewLineTable(content)
 
 	for _, m := range muraObjectStartRe.FindAllStringIndex(content, -1) {
 		tokens := significantTokens(content[m[0]:min(len(content), m[0]+renderWindow)])
@@ -281,7 +281,7 @@ func muraObjectSitesIn(content, file string) []muraObjectSite {
 			continue
 		}
 
-		site := muraObjectSite{file: file, line: lines.lineOf(m[0]), named: map[string][]parser.Token{}}
+		site := muraObjectSite{file: file, line: lines.LineOf(m[0]), named: map[string][]parser.Token{}}
 
 		for _, piece := range producerSplit(tokens[2:end]) {
 			if len(piece) < 3 || piece[0].Kind != parser.TokIdent || piece[1].Kind != parser.TokEquals {
