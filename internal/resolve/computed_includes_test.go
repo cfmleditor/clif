@@ -37,9 +37,9 @@ func TestATemplateIncludedByAComputedPathReadsItsIncluder(t *testing.T) {
 	})
 }
 
-// computedIncludeOffsets finds computed includes where the word include is,
-// rather than running this expression over the whole file; it must find what
-// the expression found.
+// computedIncludeOffsets reads the file's code where this expression read its
+// text; in code, it must find what the expression found. (A commented-out
+// include is TestTheCallReadersReadOnlyCode's.)
 var computedIncludeReference = regexp.MustCompile(`(?i)<cfinclude\s+template\s*=\s*["']#[^"']*#["']|\binclude\s+["']#[^"']*#["']`)
 
 func TestComputedIncludeOffsetsMatchTheExpression(t *testing.T) {

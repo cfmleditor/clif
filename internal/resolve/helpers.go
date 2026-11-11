@@ -3,10 +3,10 @@ package resolve
 import (
 	"io/fs"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 
+	"github.com/cfmleditor/clif/internal/lex"
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
 )
@@ -29,12 +29,74 @@ import (
 // is the preset's (Resolver.HelperScope); finding them is here, since it
 // needs the index and the file system.
 
-var (
-	moduleHelperRe = regexp.MustCompile(`(?is)this\.applicationHelper\s*=\s*\[([^\]]*)\]`)
-	appHelperRe    = regexp.MustCompile(`(?is)\bapplicationHelper\s*[:=]\s*(\[[^\]]*\]|"[^"]*"|'[^']*')`)
-	quotedRe       = regexp.MustCompile(`"([^"]*)"|'([^']*)'`)
-	includeUDFRe   = regexp.MustCompile(`(?i)includeUDF\(\s*(?:udflibrary\s*=\s*)?["']#moduleMapping#/([^"'#]+)["']`)
-)
+// helperSetting is the templates the first applicationHelper setting in
+// text's code names, as written. A module's is `this.applicationHelper = [
+// … ]`, an array; an application's, in its ColdBox config, is
+// `applicationHelper : …` or `= …`, an array or one string.
+func helperSetting(text string, module bool) []string {
+	for _, code := range textCode(text) {
+		for i := 0; i+2 < len(code); i++ {
+			if !isWord(code[i], "applicationHelper") {
+				continue
+			}
+
+			if module && (i < 2 || code[i-1].Kind != parser.TokDot || !isWord(code[i-2], "this")) {
+				continue
+			}
+
+			if !isAssignAt(code, i+1) && (module || code[i+1].Kind != parser.TokColon) {
+				continue
+			}
+
+			if lit, ok := stringLiteral(code[i+2]); ok && !module {
+				return []string{lit}
+			}
+
+			if code[i+2].Kind != parser.TokLBracket {
+				continue
+			}
+
+			end := producerGroupEnd(code, i+2, parser.TokLBracket, parser.TokRBracket)
+			if end < 0 {
+				continue
+			}
+
+			var out []string
+
+			for _, piece := range producerSplit(code[i+3 : end]) {
+				if lit, ok := soleString(piece); ok {
+					out = append(out, lit)
+				}
+			}
+
+			return out
+		}
+	}
+
+	return nil
+}
+
+// includedUDFPaths are the templates text's code hands includeUDF under the
+// module's mapping, `includeUDF( "#moduleMapping#/helpers/x.cfm" )`, by
+// position or as udflibrary =: each path after the mapping.
+func includedUDFPaths(text string) []string {
+	const prefix = "#moduleMapping#/"
+
+	var out []string
+
+	for _, call := range codeCalls(textCode(text), "includeUDF") {
+		lit, ok := soleString(firstArgValue(call.pieces(), "udflibrary"))
+		if !ok || !lex.HasPrefixFold(lit, prefix) {
+			continue
+		}
+
+		if rel := lit[len(prefix):]; rel != "" && !strings.ContainsAny(rel, "#\"'") {
+			out = append(out, rel)
+		}
+	}
+
+	return out
+}
 
 // helperSet caches the application helpers for one set of config files.
 type helperSet struct {
@@ -215,12 +277,12 @@ func (r *Resolver) applicationHelpers() []string {
 	var templates []string
 
 	for _, m := range modules {
-		templates = append(templates, r.helpersIn(m, moduleHelperRe, filepath.Dir(m))...)
+		templates = append(templates, r.helpersIn(m, true, filepath.Dir(m))...)
 		templates = append(templates, r.includedUDFs(m)...)
 	}
 
 	for _, a := range apps {
-		templates = append(templates, r.helpersIn(a, appHelperRe, filepath.Dir(filepath.Dir(a)))...)
+		templates = append(templates, r.helpersIn(a, false, filepath.Dir(filepath.Dir(a)))...)
 	}
 
 	for _, root := range presides {
@@ -269,29 +331,24 @@ func (r *Resolver) presideHelpers(system string) []string {
 	return out
 }
 
-// helpersIn reads the templates the setting re matches in configFile names,
-// each relative to base.
-func (r *Resolver) helpersIn(configFile string, re *regexp.Regexp, base string) []string {
+// helpersIn reads the templates configFile's applicationHelper setting names,
+// a module's when module is set, each relative to base.
+func (r *Resolver) helpersIn(configFile string, module bool, base string) []string {
 	data, err := r.fs().ReadFile(configFile)
 	if err != nil {
 		return nil
 	}
 
 	// Both settings this is asked for hold the word, and most config files do
-	// not: asking first skips an expression over the whole file.
+	// not: asking first skips reading the whole file's code.
 	if !mentions(string(data), "applicationHelper") {
-		return nil
-	}
-
-	m := re.FindSubmatch(data)
-	if m == nil {
 		return nil
 	}
 
 	var out []string
 
-	for _, q := range quotedRe.FindAllSubmatch(m[1], -1) {
-		rel := strings.TrimSpace(string(q[1]) + string(q[2]))
+	for _, lit := range helperSetting(string(data), module) {
+		rel := strings.TrimSpace(lit)
 		if rel == "" || strings.Contains(rel, "#") {
 			continue
 		}
@@ -318,14 +375,13 @@ func (r *Resolver) includedUDFs(moduleConfig string) []string {
 		return nil
 	}
 
-	if !mentions(string(data), "includeUDF(") {
+	if !mentions(string(data), "includeUDF") {
 		return nil
 	}
 
 	var out []string
 
-	for _, m := range includeUDFRe.FindAllSubmatch(data, -1) {
-		rel := string(m[1])
+	for _, rel := range includedUDFPaths(string(data)) {
 		if filepath.Ext(rel) == "" {
 			rel += ".cfm"
 		}

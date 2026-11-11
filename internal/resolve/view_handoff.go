@@ -30,20 +30,6 @@ import (
 // A view no setView names (a partial rendered by renderView, a pager, a
 // sidebar) has no handoff, and its prc stays unknown.
 
-var (
-	// setView, and view() or renderView() (ColdBox 7 renamed the second the
-	// first): an action calls the latter to render a viewlet it returns, and
-	// a view to render a partial.
-	renderCallRe  = regexp.MustCompile(`(?i)\b(?:setView|renderView|view)\s*\(\s*(?:view\s*=\s*)?["']/?([\w./-]+)["']([^)]*)`)
-	renderModRe   = regexp.MustCompile(`(?i)\bmodule\s*=\s*["']([^"']*)["']`)
-	actionStartRe = regexp.MustCompile(`(?i)\bfunction\s+(\w+)\s*\(`)
-
-	// A view named from a variable a subclass sets: ContentBox's base handler
-	// renders "#variables.handler#/indexTable", handler being "pages" in one
-	// subclass and "entries" in another.
-	computedRenderRe = regexp.MustCompile(`(?i)\b(?:setView|renderView|view)\s*\(\s*(?:view\s*=\s*)?["']#variables\.(\w+)#(/[\w./-]*)["']([^)]*)`)
-)
-
 // handoffAction is one handler action that renders a view, directly or
 // through the views that render it as a partial.
 type handoffAction struct {
@@ -52,6 +38,36 @@ type handoffAction struct {
 	start, setView int      // the lines the action starts on and renders on
 	body           string   // the action's source up to the render call
 	through        []string // the views between the action and this one, which must not assign the prc member
+}
+
+// handlerAction is where a function of a handler is written: its name, its
+// first byte, and where its parameters (or a <cffunction>'s body) open. A
+// render after that and before the next one's is the action's.
+type handlerAction struct {
+	name        string
+	start, open int
+}
+
+// handlerActions is the handler's functions the parse found (spans, its
+// FunctionSpans), in the order written: its methods and the named functions
+// nested in them, in either syntax. A function assigned to a name is a value
+// and not an action.
+func handlerActions(spans []parser.FunctionSpan) []handlerAction {
+	actions := make([]handlerAction, 0, len(spans))
+
+	for i := range spans {
+		s := &spans[i]
+
+		switch {
+		case s.Kind == parser.FunctionTag && s.Body >= 0:
+			actions = append(actions, handlerAction{name: s.Name, start: s.Start, open: s.Body})
+		case (s.Kind == parser.FunctionDeclared || s.Kind == parser.FunctionNested) && s.Params >= 0:
+			actions = append(actions, handlerAction{name: s.Name, start: s.Start, open: s.Params})
+		default:
+		}
+	}
+
+	return actions
 }
 
 // handoffIndex is every module's handler actions by the view each renders,
@@ -134,16 +150,6 @@ func (r *Resolver) moduleActions(dir string) map[string]renderers {
 	out := map[string]renderers{}
 	name := strings.ToLower(filepath.Base(dir))
 
-	calls := func(content string, starts []int, visit func(view string, m []int)) {
-		for _, m := range renderCallMatches(content, starts) {
-			if mod := renderModRe.FindStringSubmatch(content[m[4]:m[5]]); mod != nil && !strings.EqualFold(mod[1], name) {
-				continue
-			}
-
-			visit(strings.ToLower(content[m[2]:m[3]]), m)
-		}
-	}
-
 	for _, handler := range r.moduleFiles(dir, "handlers", ".cfc") {
 		data, err := r.fs().ReadFile(handler)
 		if err != nil {
@@ -155,64 +161,62 @@ func (r *Resolver) moduleActions(dir string) map[string]renderers {
 		// The actions and line breaks of the handler, found once: each render
 		// used to search everything above it for its action and count lines
 		// from the top, quadratic in the handler's length.
-		actions := actionStartMatches(content)
-		starts := renderStarts(content)
+		actions := handlerActions(r.functionSpansOf(handler, content))
+		renders := viewRenders(content, name)
 		lines := parser.NewLineTable(content)
-		actionBefore := func(at int) []int {
-			i := sort.Search(len(actions), func(i int) bool { return actions[i][1] > at })
+		actionBefore := func(at int) *handlerAction {
+			i := sort.Search(len(actions), func(i int) bool { return actions[i].open > at })
 			if i == 0 {
 				return nil
 			}
 
-			return actions[i-1]
+			return &actions[i-1]
 		}
 
-		for _, m := range computedRenderMatches(content, starts) {
-			if mod := renderModRe.FindStringSubmatch(content[m[6]:m[7]]); mod != nil && !strings.EqualFold(mod[1], name) {
-				continue
-			}
-
-			last := actionBefore(m[0])
-			if last == nil {
+		// The computed renders first, then the literal ones, as the two
+		// expressions that found them were run.
+		for _, render := range renders {
+			last := actionBefore(render.at)
+			if render.variable == "" || last == nil {
 				continue
 			}
 
 			for _, leaf := range r.leafSubclasses(handler) {
-				lit := r.leafLiteral(leaf, handler, content[m[2]:m[3]])
+				lit := r.leafLiteral(leaf, handler, render.variable)
 				if lit == "" {
 					continue
 				}
 
-				view := strings.ToLower(lit + content[m[4]:m[5]])
+				view := strings.ToLower(lit + render.rest)
 				entry := out[view]
 				entry.actions = append(entry.actions, handoffAction{
 					handler: handler,
 					leaf:    leaf,
-					name:    content[last[2]:last[3]],
-					start:   lines.LineOf(last[0]),
-					setView: lines.LineOf(m[0]),
-					body:    content[last[0]:m[0]],
+					name:    last.name,
+					start:   lines.LineOf(last.start),
+					setView: lines.LineOf(render.at),
+					body:    content[last.start:render.at],
 				})
 				out[view] = entry
 			}
 		}
 
-		calls(content, starts, func(view string, m []int) {
-			last := actionBefore(m[0])
-			if last == nil {
-				return
+		for _, render := range renders {
+			last := actionBefore(render.at)
+			if render.view == "" || last == nil {
+				continue
 			}
 
-			entry := out[view]
+			entry := out[render.view]
 			entry.actions = append(entry.actions, handoffAction{
 				handler: handler,
-				name:    content[last[2]:last[3]],
-				start:   lines.LineOf(last[0]),
-				setView: lines.LineOf(m[0]),
-				body:    content[last[0]:m[0]],
+				name:    last.name,
+				start:   lines.LineOf(last.start),
+				setView: lines.LineOf(render.at),
+				body:    content[last.start:render.at],
 			})
-			out[view] = entry
-		})
+			out[render.view] = entry
+		}
 	}
 
 	views := filepath.Join(dir, "views")
@@ -230,14 +234,97 @@ func (r *Resolver) moduleActions(dir string) map[string]renderers {
 
 		parent := strings.ToLower(strings.TrimSuffix(filepath.ToSlash(rel), filepath.Ext(rel)))
 
-		calls(text, renderStarts(text), func(view string, _ []int) {
-			entry := out[view]
+		for _, render := range viewRenders(text, name) {
+			if render.view == "" {
+				continue
+			}
+
+			entry := out[render.view]
 			entry.parents = append(entry.parents, parentView{name: parent, file: file})
-			out[view] = entry
-		})
+			out[render.view] = entry
+		}
 	}
 
 	return out
+}
+
+// viewRender is one setView, view() or renderView() call naming its view by
+// a literal: the view lowercased, without a leading slash, or, for a view
+// named from a variable a subclass sets, that variable and what follows it.
+// ContentBox's base handler renders "#variables.handler#/indexTable", handler
+// being "pages" in one subclass and "entries" in another.
+type viewRender struct {
+	at             int // the offset of the call's name
+	view           string
+	variable, rest string
+}
+
+// viewRenders are the setView, view() and renderView() calls in content
+// (ColdBox 7 renamed the second the first: an action calls it to render a
+// viewlet it returns, and a view to render a partial) that render a view of
+// the module named module: the view their first argument names,
+// positionally or as view =, when module = names no other module. The call
+// is read from the file's tokens, so one in a comment renders nothing.
+func viewRenders(content, module string) []viewRender {
+	if !mentions(content, "view") {
+		return nil
+	}
+
+	var out []viewRender
+
+	for _, call := range codeCalls(textCode(content), viewRenderNames...) {
+		pieces := call.pieces()
+
+		lit, ok := soleString(firstArgValue(pieces, "view"))
+		if !ok {
+			continue
+		}
+
+		if mod, named := soleString(namedArgValue(pieces, "module")); named && !strings.EqualFold(mod, module) {
+			continue
+		}
+
+		if view := strings.TrimPrefix(lit, "/"); view != "" && isViewPath(view) {
+			out = append(out, viewRender{at: call.name().Offset, view: strings.ToLower(view)})
+		} else if variable, rest, computed := computedView(lit); computed {
+			out = append(out, viewRender{at: call.name().Offset, variable: variable, rest: rest})
+		}
+	}
+
+	return out
+}
+
+// computedView reads `#variables.X#/rest`: X, and rest from its slash.
+func computedView(lit string) (variable, rest string, ok bool) {
+	const prefix = "#variables."
+	if !lex.HasPrefixFold(lit, prefix) {
+		return "", "", false
+	}
+
+	variable, rest, found := strings.Cut(lit[len(prefix):], "#")
+	if !found || variable == "" || !strings.HasPrefix(rest, "/") || !isViewPath(rest) {
+		return "", "", false
+	}
+
+	for i := range len(variable) {
+		if !lex.IsWord(variable[i]) {
+			return "", "", false
+		}
+	}
+
+	return variable, rest, true
+}
+
+// isViewPath reports whether s is all word characters, dots, slashes and
+// dashes.
+func isViewPath(s string) bool {
+	for i := range len(s) {
+		if c := s[i]; !lex.IsWord(c) && c != '.' && c != '/' && c != '-' {
+			return false
+		}
+	}
+
+	return true
 }
 
 // moduleFiles are the files with extension ext under module/sub.

@@ -2,9 +2,9 @@ package resolve
 
 import (
 	"path/filepath"
-	"regexp"
 	"strings"
 
+	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
 )
 
@@ -20,7 +20,26 @@ import (
 // names: Bootstrap's own site, checked by its text and by the function it sits
 // in. It needs ColdBox's source; a stub has no body to read.
 
-var customErrorTemplateRe = regexp.MustCompile(`(?i)customErrorTemplate\s*[:=]\s*["']([^"'#]+)["']`)
+// customErrorTemplateValues are the templates text, a config, sets
+// customErrorTemplate to: `customErrorTemplate : "/path"` or `= "/path"`,
+// written in code, with a literal holding no expression.
+func customErrorTemplateValues(text string) []string {
+	var out []string
+
+	for _, code := range textCode(text) {
+		for i := 0; i+2 < len(code); i++ {
+			if !isWord(code[i], "customErrorTemplate") || code[i+1].Kind != parser.TokColon && !isAssignAt(code, i+1) {
+				continue
+			}
+
+			if lit, ok := stringLiteral(code[i+2]); ok && lit != "" && !strings.ContainsAny(lit, "#\"'") {
+				out = append(out, lit)
+			}
+		}
+	}
+
+	return out
+}
 
 const coldboxErrorInclude = `include "#bugReportRelativePath#"`
 

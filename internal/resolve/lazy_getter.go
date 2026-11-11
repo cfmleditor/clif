@@ -30,10 +30,8 @@ import (
 // answer.
 
 var (
-	lazyTagRe     = regexp.MustCompile(`(?is)^<cfif\s+(?:not\s+|!\s*)isObject\(\s*([\w.]+)\s*\)\s*>(.*)</cfif>\s*<cfreturn\s+([\w.]+)\s*/?>$`)
-	lazyScriptRe  = regexp.MustCompile(`(?is)^if\s*\(\s*(?:not\s+|!\s*)isObject\(\s*([\w.]+)\s*\)\s*\)\s*\{([^{}]*)\}\s*return\s+([\w.]+)\s*;$`)
-	argumentTagRe = regexp.MustCompile(`(?is)<cfargument\b[^>]*>`)
-	placeholderRe = regexp.MustCompile(`^(?:""|'')$`)
+	lazyTagRe    = regexp.MustCompile(`(?is)^<cfif\s+(?:not\s+|!\s*)isObject\(\s*([\w.]+)\s*\)\s*>(.*)</cfif>\s*<cfreturn\s+([\w.]+)\s*/?>$`)
+	lazyScriptRe = regexp.MustCompile(`(?is)^if\s*\(\s*(?:not\s+|!\s*)isObject\(\s*([\w.]+)\s*\)\s*\)\s*\{([^{}]*)\}\s*return\s+([\w.]+)\s*;$`)
 )
 
 // lazyGetterReturn is the component fd returns when it is a lazy getter, or "".
@@ -68,7 +66,7 @@ func (r *Resolver) lazyGetterReturn(fd *parser.FunctionDef) string {
 	guarded = mentions(content, "isobject(")
 
 	if guarded {
-		if field := lazyField(functionBodyNamed(content, fd.Name)); field != "" {
+		if field := lazyField(functionBodyNamed(content, r.functionSpansOf(path, content), fd.Name)); field != "" {
 			answer = r.fieldWrites(content, field, filepath.Dir(path))
 		}
 	}
@@ -85,89 +83,23 @@ func (r *Resolver) lazyGetterReturn(fd *parser.FunctionDef) string {
 	return answer
 }
 
-// functionBodyNamed is the text between the braces of the function name in
-// content, or between its <cffunction> tag and </cffunction>, with its
-// <cfargument> tags removed; "" when there is not exactly one.
-func functionBodyNamed(content, name string) string {
-	if !plainName(name) {
-		return functionBodyNamedRegex(content, name)
-	}
-
-	if bodies := tagFunctionBodiesNamed(content, name, 2); len(bodies) == 1 {
-		return strings.TrimSpace(argumentTagRe.ReplaceAllString(bodies[0], ""))
-	}
-
-	opens := scriptFunctionOpens(content, name, 2)
-	if len(opens) != 1 {
+// functionBodyNamed is the body of the function name the parse found in
+// content (spans, its FunctionSpans), trimmed: the text between a script
+// function's braces, or between its <cffunction> tag and </cffunction>
+// with its <cfargument> tags removed; "" when content declares not exactly
+// one function of that name, or one with no body.
+func functionBodyNamed(content string, spans []parser.FunctionSpan, name string) string {
+	s, ok := parser.FunctionSpanNamed(spans, name)
+	if !ok || s.Body < 0 {
 		return ""
 	}
 
-	return braceBody(content[opens[0]:])
-}
-
-// braceBody is the text between the first '{' of rest and its matching '}',
-// trimmed, or "" when there is not one.
-func braceBody(rest string) string {
-	open := strings.IndexByte(rest, '{')
-	if open < 0 {
-		return ""
+	body := s.BodyText(content)
+	if s.Kind == parser.FunctionTag {
+		body = parser.WithoutCFTags(body, "cfargument")
 	}
 
-	depth := 0
-
-	for i := open; i < len(rest); i++ {
-		switch rest[i] {
-		case '{':
-			depth++
-		case '}':
-			depth--
-			if depth == 0 {
-				return strings.TrimSpace(rest[open+1 : i])
-			}
-		}
-	}
-
-	return ""
-}
-
-// functionBodyNamedRegex is functionBodyNamed as the expressions it replaces,
-// for a name the scanners do not take, and the reference they are tested
-// against.
-func functionBodyNamedRegex(content, name string) string {
-	tag := compiledPattern(`(?is)<cffunction\b[^>]*\bname\s*=\s*["']` + regexp.QuoteMeta(name) + `["'][^>]*>(.*?)</cffunction>`)
-	if all := tag.FindAllStringSubmatch(content, 2); len(all) == 1 {
-		return strings.TrimSpace(argumentTagRe.ReplaceAllString(all[0][1], ""))
-	}
-
-	script := compiledPattern(`(?i)\bfunction\s+` + regexp.QuoteMeta(name) + `\s*\(`)
-
-	all := script.FindAllStringIndex(content, 2)
-	if len(all) != 1 {
-		return ""
-	}
-
-	rest := content[all[0][1]:]
-
-	open := strings.IndexByte(rest, '{')
-	if open < 0 {
-		return ""
-	}
-
-	depth := 0
-
-	for i := open; i < len(rest); i++ {
-		switch rest[i] {
-		case '{':
-			depth++
-		case '}':
-			depth--
-			if depth == 0 {
-				return strings.TrimSpace(rest[open+1 : i])
-			}
-		}
-	}
-
-	return ""
+	return strings.TrimSpace(body)
 }
 
 // lazyField is the field body guards and returns, without a variables.
@@ -210,7 +142,7 @@ func (r *Resolver) fieldWrites(content, field, dir string) string {
 
 	for _, m := range re.FindAllStringSubmatchIndex(content, -1) {
 		rhs := strings.TrimSpace(content[m[2]:m[3]])
-		if placeholderRe.MatchString(rhs) {
+		if isEmptyLiteral(rhs) {
 			continue
 		}
 

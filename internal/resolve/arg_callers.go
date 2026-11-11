@@ -2,7 +2,6 @@ package resolve
 
 import (
 	"path/filepath"
-	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -860,14 +859,6 @@ func chainText(chain []string) string {
 	return b.String()
 }
 
-// javaObjectRe is an expression that makes a Java object: createObject with
-// the java type, or Lucee's new java:, whatever is chained on it.
-var javaObjectRe = regexp.MustCompile(`(?is)^(?:createObject\s*\(\s*["']java["']|new\s+java:)`)
-
-// computedComponentRe is createObject of a component whose path is computed
-// but whose last segment, the file's name, is literal.
-var computedComponentRe = regexp.MustCompile(`(?is)^createObject\s*\(\s*["']component["']\s*,\s*["'][^"']*#[^"']*\.(\w+)["']\s*\)$`)
-
 // cannotHold reports whether the variable call is made on is, at the call, a
 // local assigned something that cannot be fd's component: a Java object, or a
 // component whose computed path names a file of another name — Mura's
@@ -890,11 +881,11 @@ func (r *Resolver) cannotHold(call *parser.CallSite, pr *parser.ParseResult, fd 
 	}
 
 	rhs = strings.TrimSpace(rhs)
-	if javaObjectRe.MatchString(rhs) {
+	if isJavaObject(rhs) {
 		return true
 	}
 
-	m := computedComponentRe.FindStringSubmatch(rhs)
+	m := computedComponent(rhs)
 	if m == nil || !fd.URI.IsFile() {
 		return false
 	}
@@ -1089,7 +1080,7 @@ func (r *Resolver) argumentExprComponentSource(expr []parser.Token, line uint32,
 
 	// An element read, `found[ 1 ]` or `rows[ i ]`, is an element of the
 	// collection it indexes, as the same read assigned to a variable is.
-	if exactKeyedReadRe.MatchString(text) {
+	if isExactKeyedRead(text) {
 		start := 0
 		if scope, ok := enclosingScope(pr, line); ok {
 			start = scope.Start

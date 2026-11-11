@@ -77,8 +77,10 @@ func (r *Resolver) muraAdminOwner(root string) string {
 	}
 
 	code := muraRendererSource(string(source))
+	spans := parser.FunctionSpansOf(framework, code)
+
 	for _, method := range []string{"view", "layout"} {
-		body := functionBodyNamed(code, method)
+		body := functionBodyNamed(code, spans, method)
 		pr := parser.ParseWithOptions(cfpath.ToURI(framework), body, &parser.ParseOptions{ExtractCalls: true})
 		calls := pr.AllCalls()
 		found := false
@@ -95,15 +97,15 @@ func (r *Resolver) muraAdminOwner(root string) string {
 		}
 	}
 
-	if !muraParameterInclude(code, "internalView", "viewPath") || !muraParameterInclude(code, "internalLayout", "layoutPath") {
+	if !muraParameterInclude(code, spans, "internalView", "viewPath") || !muraParameterInclude(code, spans, "internalLayout", "layoutPath") {
 		return ""
 	}
 
 	return app
 }
 
-func muraParameterInclude(source, method, parameter string) bool {
-	body := functionBodyNamed(source, method)
+func muraParameterInclude(source string, spans []parser.FunctionSpan, method, parameter string) bool {
+	body := functionBodyNamed(source, spans, method)
 	found := 0
 
 	for _, tag := range producerTags(body) {

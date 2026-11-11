@@ -2,7 +2,6 @@ package resolve
 
 import (
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/parser"
@@ -48,7 +47,7 @@ func (r *Resolver) muraEvent(variable, comp string, line uint32, caller string, 
 	if comp == "" && !strings.Contains(variable, ".") {
 		if start, ok := declaresLocal(pr, line, caller, "event"); ok {
 			rhs, _ := r.localAssignmentIn(pr, "event", start, int(line)+1)
-			if !muraEventSourceRe.MatchString(rhs) {
+			if !isMuraEventSource(rhs) {
 				return ""
 			}
 		}
@@ -125,10 +124,6 @@ func (r *Resolver) inMuraSource(path string) bool {
 
 	return strings.HasPrefix(strings.ToLower(path), strings.ToLower(root))
 }
-
-// muraEventSourceRe is an expression that hands back Mura's event: a
-// renderer's getEvent(), a MuraScope's event(), or a new one.
-var muraEventSourceRe = regexp.MustCompile(`(?i)(?:^|\.)(?:getEvent|event)\(\s*\)$|mura\.(?:servlet)?event["']`)
 
 // declaresLocal reports whether the function holding line declares name as a
 // local of its own, not an argument, and the line that function starts on.

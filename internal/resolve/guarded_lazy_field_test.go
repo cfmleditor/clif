@@ -102,7 +102,7 @@ func TestDefaultSelfReturnParameterRequiresALiteralFinalDispatch(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := wheelsMethods("component{" + tc.source + `}`)["f"].selfDefaultParam
+			got := methodsOf("component{" + tc.source + `}`)["f"].selfDefaultParam
 			if got != tc.want {
 				t.Fatalf("self-default parameter = %q, want %q", got, tc.want)
 			}

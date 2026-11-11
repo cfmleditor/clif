@@ -2,7 +2,6 @@ package resolve
 
 import (
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/parser"
@@ -22,22 +21,41 @@ var entityMethods = map[string]bool{
 	"new": true, "get": true, "getorfail": true, "findwhere": true,
 }
 
-var superInitEntityRe = regexp.MustCompile(`(?is)\bsuper\.init\(\s*(?:entityName\s*=\s*)?["']([^"'#]+)["']`)
+// superInitEntity reads the entity src's code binds its service to: the
+// first super.init() whose first argument, positionally or as entityName =,
+// is a literal with no expression in it; else the first passing on an
+// argument of the service's own init, `super.init( entityName =
+// arguments.x )`, whose name is arg.
+func superInitEntity(src string) (entity, arg string) {
+	var argument string
 
-// superInitArgRe is `super.init( entityName = arguments.x )`: the service
-// passes on an argument of its own init, bound to that argument's default.
-var superInitArgRe = regexp.MustCompile(`(?is)\bsuper\.init\(\s*(?:entityName\s*=\s*)?(?:arguments\.)?([a-z_][\w]*)\s*[,)]`)
+	for _, call := range codeCalls(textCode(src), "init") {
+		if call.before(1).Kind != parser.TokDot || !isWord(call.before(2), "super") {
+			continue
+		}
 
-// scriptInitRe and tagInitRe find the service's own init(): its parameter
-// list in script syntax, its body in tag syntax, where the <cfargument>s are.
-var (
-	scriptInitRe = regexp.MustCompile(`(?is)\bfunction\s+init\s*\(([^)]*)\)`)
-	tagInitRe    = regexp.MustCompile(`(?is)<cffunction\s[^>]*\bname\s*=\s*["']init["'][^>]*>(.*?)</cffunction>`)
-	cfargumentRe = regexp.MustCompile(`(?is)<cfargument\s[^>]*>`)
+		value := firstArgValue(call.pieces(), "entityName")
 
-	// paramDefaultRe is a script parameter with a literal default.
-	paramDefaultRe = regexp.MustCompile(`(?is)(?:^|[,\s])([a-z_]\w*)\s*=\s*["']([^"'#]+)["']`)
-)
+		if lit, ok := soleString(value); ok && strings.TrimSpace(lit) != "" && !strings.ContainsAny(lit, "#\"'") {
+			return strings.TrimSpace(lit), ""
+		}
+
+		name, next := dottedAt(value, 0)
+		if argument != "" || name == "" || next != len(value) {
+			continue
+		}
+
+		if rest, ok := strings.CutPrefix(strings.ToLower(name), "arguments."); ok {
+			name = name[len(name)-len(rest):]
+		}
+
+		if !strings.Contains(name, ".") && !strings.Contains(name, "$") {
+			argument = name
+		}
+	}
+
+	return "", argument
+}
 
 // entityReturn is the entity a call to method on the service at path
 // returns, or "".
@@ -88,16 +106,19 @@ func (r *Resolver) boundEntityUncached(path string) string {
 			return ""
 		}
 
-		// Both expressions need `super.init(`, which most components lack.
-		if mentions(string(data), "super.init(") {
-			if m := superInitEntityRe.FindSubmatch(data); m != nil {
-				return strings.TrimSpace(string(m[1]))
+		// Both forms call super.init(), which most components never mention.
+		if text := string(data); mentions(text, "super") && mentions(text, "init") {
+			entity, arg := superInitEntity(text)
+			if entity != "" {
+				return entity
 			}
 
-			if m := superInitArgRe.FindSubmatch(data); m != nil {
+			if arg != "" {
 				// The service binds whatever its own init() was handed, so the
 				// answer is the argument's default, and nothing without one.
-				return initArgumentDefault(data, string(m[1]))
+				content := string(data)
+
+				return initArgumentDefault(content, r.functionSpansOf(path, content), arg)
 			}
 		}
 
@@ -113,42 +134,43 @@ func (r *Resolver) boundEntityUncached(path string) string {
 }
 
 // initArgumentDefault is the literal default of the argument name of the
-// init() declared in src, or "": `init( entityName = "cbContent" )`, or a
-// `<cfargument name="entityName" default="cbContent">` inside
-// `<cffunction name="init">`.
-func initArgumentDefault(src []byte, name string) string {
-	if m := scriptInitRe.FindSubmatch(src); m != nil {
-		for _, d := range paramDefaultRe.FindAllSubmatch(m[1], -1) {
-			if strings.EqualFold(string(d[1]), name) {
-				return strings.TrimSpace(string(d[2]))
-			}
+// first init() the parse found in content (spans, its FunctionSpans), or "":
+// a script init's `entityName = "cbContent"`, or the default of the
+// `<cfargument name="entityName">` in a `<cffunction name="init">`. A
+// default that is an expression (`#…#`) is none.
+func initArgumentDefault(content string, spans []parser.FunctionSpan, name string) string {
+	literal := func(d string) string {
+		if strings.Contains(d, "#") {
+			return ""
 		}
+
+		return strings.TrimSpace(d)
 	}
 
-	m := tagInitRe.FindSubmatch(src)
-	if m == nil {
-		return ""
-	}
-
-	for _, tag := range cfargumentRe.FindAll(m[1], -1) {
-		if !strings.EqualFold(tagAttr(tag, "name"), name) {
+	for i := range spans {
+		s := &spans[i]
+		if !strings.EqualFold(s.Name, "init") {
 			continue
 		}
 
-		if d := tagAttr(tag, "default"); d != "" && !strings.Contains(d, "#") {
-			return strings.TrimSpace(d)
+		if s.Kind != parser.FunctionTag {
+			return literal(s.Defaults[strings.ToLower(name)])
+		}
+
+		tags := parser.CFTags(s.BodyText(content), "cfargument")
+		for j := range tags {
+			tag := &tags[j]
+			if arg, _ := tag.Attr("name"); tag.Close || !strings.EqualFold(arg, name) {
+				continue
+			}
+
+			d, _ := tag.Attr("default")
+
+			return literal(d)
 		}
 
 		return ""
 	}
 
 	return ""
-}
-
-// tagAttr is the value of attribute attr in tag, or "", read as the parse
-// reads a CF tag's attributes (parser.TagAttribute). Its own pattern took
-// letters alone for a name and quoted values alone, so `show3d` and
-// `default=0` were never read.
-func tagAttr(tag []byte, attr string) string {
-	return parser.TagAttribute(string(tag), attr)
 }

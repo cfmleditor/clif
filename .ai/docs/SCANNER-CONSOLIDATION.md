@@ -585,6 +585,81 @@ computed includes, include wrappers). The server's two single-line lookups
 stay, since a table per request would cost more. `unresolved` is
 byte-identical on ContentBox and Mura.
 
+### Done: the resolver's tag regexes
+
+The resolver read `<cfloop>` (twice over, in `loop_element.go` and
+`registry.go`), `<cfargument>` (`orm.go`, `lazy_getter.go`), `<cffunction>`
+(`owned_keys.go`, `orm.go`), `<cfreturn>` (`return_element.go`) and
+shared-scope `<cfset>` (`startup.go`) with regular expressions of its own:
+`<cfloop\b([^>]*)>` and the like. Each ended a tag at the first `>`, even
+inside a quoted value, read a commented-out tag as live, and read a value to
+either quote. They now read `parser.CFTags` (`internal/parser/cf_tags.go`),
+the parse's own reading of a tag: outside `<!--- --->` comments, its extent
+past a `>` inside a quoted value (`tagEnd`), its attributes by the CF-mode
+attribute scanner, with `Body` for an expression tag's expression and
+`WithoutCFTags` for a body without its `<cfargument>`s.
+`TestTheResolversTagReadersSkipCommentsAndQuotedGT` holds each reader to a
+commented-out tag and a quoted `>`. `unresolved` is byte-identical on the eight
+corpora.
+
+### Done: the resolver's call patterns
+
+About thirty regular expressions in `internal/resolve` found framework calls
+and statements by running over whole files or function bodies: ColdBox's
+setView/view/renderView, announce and customErrorTemplate; FW/1's setView,
+view and rc hand-offs; Wheels associations; WireBox `map().to()`; cborm
+`super.init()`; ColdBox helpers and includeUDF; Mura `dspObject_include`;
+application names; computed includes; and Lucee's registry recipe. They
+matched commented-out code and text inside strings, and each read arguments
+with a quote rule of its own. They now read the scanner's tokens through
+`codeLists`/`codeCalls` (`code_calls.go`): comments are skipped, strings follow
+the parse's rule, and a call's arguments are the tokens between its
+parentheses. Each `#…#` expression inside a string is read as code in a list
+of its own, through the parse's `parser.InterpolatedSpans`, so
+`"#renderView('x')#"` is still a render. The hand ports in `text_rules.go` that
+existed only to make those regexes fast went with them.
+`TestTheCallReadersReadOnlyCode` holds every reader to a commented-out or
+in-string call beside a real one, and fails on the regex readers. Left for
+another pass: the dynamic per-name `compiledPattern` assignment detectors
+(`fw1Assigns`, the prc and lazy-getter writes, isNull/structKeyExists guards).
+
+### Done: the resolver's expression shapes
+
+The resolver's 29 fixed-shape regular expressions that read one short
+expression or value are byte readers now, in
+`internal/resolve/expression_shapes.go` on an `exprCursor` like the parser's
+`textCursor`: keyed reads, `createObject`/`new` constructions, null casts and
+Elvis fallbacks, an init's argument copies, `duplicate()`, dotted names, a
+`loadBy`'s `returnFormat`. A reader standing for `FindStringSubmatch` returns
+the same slice. Each expression stays in `expression_shapes_test.go` as the
+oracle, checked on 200,000 generated texts per shape and under
+`FuzzExpressionShapes`. `localDeclRe` (a whole line) is left, since its input
+is not one expression.
+
+### Done: function finders read the parse
+
+The parse now records where each function is written:
+`ParseResult.FunctionSpans`, with each function's kind, stated access, literal
+string defaults and the byte offsets of its declaration, parameters and body.
+The script walk records them as it reads each declaration, and the parse's
+`<cffunction>` finder records the tag ones. `parser.FunctionSpansOf` is the
+functions-only reading of the same region walk, held equal to a full parse
+over the fixtures. The resolver's finders read these spans, once per source,
+instead of finding functions themselves: `wheelsMethods`, the script producer
+plans, the tag function bodies, `functionBodyNamed`, `hasWrittenFunc`, the
+cborm init default, the registry factory, the ColdBox handler actions and
+`ApplicationSections`. Their token walks and expressions are gone
+(`scanApplication`, `writesFunction`, `actionStartRe`, `factoryDefRe`,
+`scriptInitRe`). Over the corpus every difference was the old finder reading a
+comment, JavaScript in a `.cfm` page, a brace in a string or a `>` in a hint,
+or missing a tag handler's actions or an interface's declarations. The
+differential also found headers the parse itself lost (`string[]` returns,
+modifiers before or after the access, `component function`,
+`function function`, colon attributes, a self-closing `<cffunction>`, a
+`<cffunction>` in a `<cfscript>` string), now read. What remains:
+`<cffunction>` inside triple-backtick tag islands, which the parse blanks, and
+`mapping_sources.go`'s own function skipper.
+
 ## Speed is an option of the one walker, not a second walker
 
 Some walkers exist because they do less. `globalScriptParser` reads only

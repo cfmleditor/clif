@@ -2,7 +2,6 @@ package resolve
 
 import (
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 
@@ -232,41 +231,22 @@ func (r *Resolver) viewArgSites(module string) map[string][]viewArgSite {
 	return sites
 }
 
-// renderStartRe is what renderStarts finds, as an expression: the reference it is
-// tested against.
-var renderStartRe = regexp.MustCompile(`(?i)\b(?:setView|renderView|view)\s*\(`)
-
-// renderWindow bounds the text tokenized for one render call, so a page is not
-// tokenized from each call to its end.
-const renderWindow = 8000
-
 // renderSites are the renders in content of a view of the module named
-// module, by view name.
+// module, by view name: calls in the file's tokens, so none in a comment.
 func renderSites(content, file, module string) map[string][]viewArgSite {
 	out := map[string][]viewArgSite{}
 
-	lines := parser.NewLineTable(content)
+	if !mentions(content, "view") {
+		return out
+	}
 
-	for _, start := range renderStarts(content) {
-		window := content[start:min(len(content), start+renderWindow)]
-		base := lines.LineOf(start)
-
-		tokens := significantTokens(window)
-		if len(tokens) < 2 || !slices.Contains(viewRenderNames, strings.ToLower(tokens[0].Value)) || tokens[1].Kind != parser.TokLParen {
-			continue
-		}
-
-		end := producerGroupEnd(tokens, 1, parser.TokLParen, parser.TokRParen)
-		if end < 0 {
-			continue
-		}
-
-		view, args, ok := renderCall(tokens[2:end], module)
+	for _, call := range codeCalls(textCode(content), viewRenderNames...) {
+		view, args, ok := renderCall(call.args(), module)
 		if !ok {
 			continue
 		}
 
-		out[view] = append(out[view], viewArgSite{file: file, line: base, args: args})
+		out[view] = append(out[view], viewArgSite{file: file, line: int(call.name().Line), args: args})
 	}
 
 	return out

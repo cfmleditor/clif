@@ -97,6 +97,9 @@ type ParseResult struct {
 	// regionsOf is the Content Regions and contentLineIdx were split from: an
 	// edit inside a function changes Content and leaves them.
 	regionsOf string
+	// spans is FunctionSpans' answer, behind a pointer since most parses are
+	// never asked for it.
+	spans *functionSpans
 	// customTags is CustomTagCalls' answer, for the content customTagsOf and
 	// the prefixes customTagsKey.
 	customTags    []CustomTagCall
@@ -343,7 +346,7 @@ func ParseWithOptions(fileURI uri.URI, content string, opts *ParseOptions) *Pars
 func (pr *ParseResult) tagFunctionScopes() (scopes []FuncScope, hasTagRegion bool) {
 	for _, r := range pr.Regions {
 		if r.Kind == RegionTag {
-			return findTagFuncScopesIdx(pr.Content, 0, pr.contentLineIdx), true
+			return findTagFuncScopesIdx(pr.Content, 0, pr.contentLineIdx, pr.Regions), true
 		}
 	}
 
@@ -402,6 +405,9 @@ func (pr *ParseResult) addTagScopes(tagScopes []FuncScope) {
 	}
 
 	for _, sc := range tagScopes {
+		// Every tag function's span is kept, whichever walk filed its scope.
+		pr.keepSpan(&sc)
+
 		if _, dup := seen[sc.Start]; dup {
 			continue
 		}
@@ -460,6 +466,9 @@ func (pr *ParseResult) extractSignatures() {
 	if !pr.shallow {
 		pr.flow = newFlowBlocks(0)
 	}
+
+	pr.spans = &functionSpans{of: pr.Content}
+	defer pr.spans.sort()
 
 	tagScopes, hasTagRegion := pr.tagFunctionScopes()
 
@@ -663,6 +672,11 @@ func (pr *ParseResult) mergeScriptRegion(r *Region, tagScopes []FuncScope, open 
 
 	pr.Funcs = append(pr.Funcs, sp.funcs...)
 	pr.ComponentRefs = append(pr.ComponentRefs, sp.componentRefs...)
+
+	for i := range sp.scopes {
+		pr.keepSpan(&sp.scopes[i])
+	}
+
 	pr.Scopes = append(pr.Scopes, sp.scopes...)
 	pr.Properties = append(pr.Properties, sp.properties...)
 

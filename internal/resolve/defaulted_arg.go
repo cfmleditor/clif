@@ -148,7 +148,7 @@ func (r *Resolver) defaultedConstruction(tokens []parser.Token, name, dir string
 
 		switch {
 		case strings.HasPrefix(lower, "createobject"):
-			m := createdComponent.FindStringSubmatch(text)
+			m := createdComponent(text)
 			if m == nil {
 				continue
 			}

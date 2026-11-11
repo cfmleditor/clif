@@ -42,8 +42,6 @@ type interceptSite struct {
 
 var interceptAnnouncers = []string{"announce", "announceInterception", "processState"}
 
-var interceptStartRe = regexp.MustCompile(`(?i)\b(?:announce|announceInterception|processState)\s*\(`)
-
 // interceptData is the component variable holds in the interceptor method
 // caller of pr, as the calls announcing that interception point pass it, or
 // "".
@@ -203,24 +201,13 @@ func (r *Resolver) interceptSites() []interceptSite {
 // interceptSitesIn reads the announces in content: the state first, by
 // position or as state=, and the data second, or as data= or interceptData=.
 func interceptSitesIn(content, file string) []interceptSite {
-	var out []interceptSite
+	calls := codeCalls(textCode(content), interceptAnnouncers...)
+	out := make([]interceptSite, 0, len(calls))
 
-	lines := parser.NewLineTable(content)
+	for _, call := range calls {
+		site := interceptSite{file: file, line: int(call.name().Line)}
 
-	for _, start := range interceptStarts(content) {
-		tokens := significantTokens(content[start:min(len(content), start+renderWindow)])
-		if len(tokens) < 2 || tokens[1].Kind != parser.TokLParen {
-			continue
-		}
-
-		end := producerGroupEnd(tokens, 1, parser.TokLParen, parser.TokRParen)
-		if end < 0 {
-			continue
-		}
-
-		site := interceptSite{file: file, line: lines.LineOf(start)}
-
-		for i, piece := range producerSplit(tokens[2:end]) {
+		for i, piece := range producerSplit(call.args()) {
 			if len(piece) == 0 {
 				continue
 			}

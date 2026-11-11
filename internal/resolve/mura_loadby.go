@@ -2,7 +2,6 @@ package resolve
 
 import (
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/parser"
@@ -49,23 +48,17 @@ func takesReturnFormat(fd *parser.FunctionDef) bool {
 	return false
 }
 
-var (
-	returnFormatRe = regexp.MustCompile(`(?i)\breturnFormat\s*=`)
-	selfFormatRe   = regexp.MustCompile(`(?i)\breturnFormat\s*=\s*["']self["']`)
-	positionalRe   = regexp.MustCompile(`^\s*[^\s=]+\s*(?:,|$)`)
-)
-
 // selfFormat reports whether a loadBy call's arguments leave the format the
 // bean itself: they name it "self", or name every argument and none of them
 // the format. A positional argument or an argumentCollection could be one.
 func selfFormat(args string) bool {
-	if selfFormatRe.MatchString(args) {
+	if namesSelfFormat(args) {
 		return true
 	}
 
-	if returnFormatRe.MatchString(args) || parser.IndexFold(args, "argumentCollection") >= 0 {
+	if namesReturnFormat(args) || parser.IndexFold(args, "argumentCollection") >= 0 {
 		return false
 	}
 
-	return strings.TrimSpace(args) == "" || !positionalRe.MatchString(args)
+	return strings.TrimSpace(args) == "" || !positionalFirst(args)
 }

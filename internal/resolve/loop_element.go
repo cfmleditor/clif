@@ -2,7 +2,6 @@ package resolve
 
 import (
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -30,13 +29,7 @@ import (
 //
 // Anything else gives no element type and the variable stays untyped.
 
-var (
-	loopTagRe      = regexp.MustCompile(`(?is)<(/?)cfloop\b([^>]*)>`)
-	loopAttrRe     = regexp.MustCompile(`(?i)\b(array|collection|struct|index|item)\s*=\s*["']([^"']*)["']`)
-	loopPathRe     = regexp.MustCompile(`^(?:(local|variables|this|arguments)\.)?(\w+)$`)
-	indexedReadRe  = regexp.MustCompile(`^((?:local|variables|this|arguments)\.[\w.]+|[A-Za-z_]\w*)\s*\[[^\]]*\]$`)
-	maxElementHops = 4
-)
+var maxElementHops = 4
 
 // loopElement is the component call's receiver holds as the variable of a loop
 // around the call, or "".
@@ -277,10 +270,11 @@ func tagLoops(content string) []loopSpan {
 
 	lines := parser.NewLineTable(content)
 
-	for _, m := range loopTagRe.FindAllStringSubmatchIndex(content, -1) {
-		line := lines.LineOf(m[0])
+	tags := parser.CFTags(content, "cfloop")
+	for i := range tags {
+		line := lines.LineOf(tags[i].Start)
 
-		if m[3] > m[2] { // </cfloop>
+		if tags[i].Close {
 			if len(stack) == 0 {
 				continue
 			}
@@ -296,10 +290,7 @@ func tagLoops(content string) []loopSpan {
 			continue
 		}
 
-		attrs := map[string]string{}
-		for _, a := range loopAttrRe.FindAllStringSubmatch(content[m[4]:m[5]], -1) {
-			attrs[strings.ToLower(a[1])] = a[2]
-		}
+		attrs := tags[i].Attrs()
 
 		variable := attrs["index"]
 		if collection := attrs["collection"]; collection != "" {
@@ -480,7 +471,7 @@ func (r *Resolver) elementOf(expression string, header, start int, caller string
 	}
 
 	// A field of the struct a local's call returned: results.comments.
-	if f := structFieldRe.FindStringSubmatch(expression); f != nil && !isScopeWord(f[1]) {
+	if f := structField(expression); f != nil && !isScopeWord(f[1]) {
 		if rhs, ok := r.localAssignmentIn(pr, f[1], start, header); ok {
 			return r.fieldElement(rhs, f[2], header, caller, pr, baseDir, leaf)
 		}
@@ -490,7 +481,7 @@ func (r *Resolver) elementOf(expression string, header, start int, caller string
 
 	// The same through a key the subclass spells: results[ variables.entityPlural ],
 	// where each subclass sets entityPlural to the name its service's struct uses.
-	if f := keyedFieldRe.FindStringSubmatch(expression); f != nil && !isScopeWord(f[1]) && leaf != "" {
+	if f := keyedField(expression); f != nil && !isScopeWord(f[1]) && leaf != "" {
 		key := r.leafLiteral(leaf, pr.URI.Path(), f[2])
 		if key == "" {
 			return ""
@@ -503,13 +494,13 @@ func (r *Resolver) elementOf(expression string, header, start int, caller string
 		return ""
 	}
 
-	m := loopPathRe.FindStringSubmatch(expression)
+	m := loopPath(expression)
 	if m == nil {
 		// An element read under a key — fields[idx], a struct-key element
 		// of a local — is the element of the collection the read indexes:
 		// the read's own brackets name no chain and no member. Only what
 		// the collection proves answers; a dynamic guess is no answer.
-		if k := indexedReadRe.FindStringSubmatch(expression); k != nil && !isScopeWord(k[1]) {
+		if k := indexedRead(expression); k != nil && !isScopeWord(k[1]) {
 			comp := r.elementOf(k[1], header, start, caller, pr, baseDir, depth+1, leaf)
 			if comp != "" && (!strings.HasPrefix(comp, "$") || strings.HasPrefix(comp, familyPrefix)) {
 				return comp
@@ -814,11 +805,8 @@ func returnsEntityArray(method, arguments string) bool {
 	case "findallwhere":
 		return true
 	case "list":
-		return asQueryFalseRe.MatchString(lower) && !strings.Contains(lower, "properties")
+		return asQueryFalseIn(lower) && !strings.Contains(lower, "properties")
 	}
 
 	return false
 }
-
-// asQueryFalseRe finds `asQuery = false` among a call's arguments.
-var asQueryFalseRe = regexp.MustCompile(`\basquery\s*[=:]\s*(?:false|no|0)\b`)

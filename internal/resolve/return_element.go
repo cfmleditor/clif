@@ -25,9 +25,11 @@ import (
 // find nothing tests for that (isNull, arrayLen).
 var (
 	scriptElementReturnRe = regexp.MustCompile(`(?i)\breturn\s+([A-Za-z_]\w*)\s*\[[^\]\n]*\]\s*;`)
-	tagElementReturnRe    = regexp.MustCompile(`(?i)<cfreturn\s+([A-Za-z_]\w*)\s*\[[^\]\n]*\]\s*/?>`)
-	anyReturnRe           = regexp.MustCompile(`(?i)\breturn\b|<cfreturn\b`)
-	bareReturnRe          = regexp.MustCompile(`(?i)\breturn\s*;|<cfreturn\s*/?>`)
+	anyReturnRe           = regexp.MustCompile(`(?i)\breturn\b`)
+	bareReturnRe          = regexp.MustCompile(`(?i)\breturn\s*;`)
+	// elementReadRe is a <cfreturn>'s expression when it reads an element,
+	// the tags themselves read with parser.CFTags.
+	elementReadRe = regexp.MustCompile(`^([A-Za-z_]\w*)\s*\[[^\]\n]*\]$`)
 )
 
 // holdsElementReturn reports whether the source has a return that reads an
@@ -36,11 +38,11 @@ var (
 // were a quarter of a MasaCMS scan, so the answer is read once per source.
 func (s *sourceInfo) holdsElementReturn() bool {
 	if s.derived == nil {
-		return scriptElementReturnRe.MatchString(s.content) || tagElementReturnRe.MatchString(s.content)
+		return scriptElementReturnRe.MatchString(s.content) || len(tagReturns(s.content).reads) > 0
 	}
 
 	s.derived.elementOnce.Do(func() {
-		s.derived.elementReads = scriptElementReturnRe.MatchString(s.content) || tagElementReturnRe.MatchString(s.content)
+		s.derived.elementReads = scriptElementReturnRe.MatchString(s.content) || len(tagReturns(s.content).reads) > 0
 	})
 
 	return s.derived.elementReads
@@ -95,20 +97,26 @@ func (r *Resolver) elementReturn(fd *parser.FunctionDef) string {
 		return ""
 	}
 
-	reads := scriptElementReturnRe.FindAllStringSubmatchIndex(text, -1)
-	reads = append(reads, tagElementReturnRe.FindAllStringSubmatchIndex(text, -1)...)
+	tags := tagReturns(text)
 
-	if len(reads) == 0 || len(reads)+len(bareReturnRe.FindAllStringIndex(text, -1)) != len(anyReturnRe.FindAllStringIndex(text, -1)) {
+	reads := tags.reads
+	for _, m := range scriptElementReturnRe.FindAllStringSubmatchIndex(text, -1) {
+		reads = append(reads, elementRead{at: m[0], name: text[m[2]:m[3]]})
+	}
+
+	bare := len(bareReturnRe.FindAllStringIndex(text, -1)) + tags.bare
+	if len(reads) == 0 || len(reads)+bare != len(anyReturnRe.FindAllStringIndex(text, -1))+tags.all {
 		return ""
 	}
 
 	dir := filepath.Dir(fd.URI.Path())
 	component := ""
+	lines := parser.NewLineTable(text)
 
 	for _, m := range reads {
-		line := scope.Start + strings.Count(text[:m[0]], "\n")
+		line := scope.Start + lines.LineOf(m.at)
 
-		element := r.elementOf(text[m[2]:m[3]], line, scope.Start, fd.Name, pr, dir, 0, "")
+		element := r.elementOf(m.name, line, scope.Start, fd.Name, pr, dir, 0, "")
 		if element == "" || strings.HasPrefix(element, "$") || component != "" && element != component {
 			return ""
 		}
@@ -117,4 +125,50 @@ func (r *Resolver) elementReturn(fd *parser.FunctionDef) string {
 	}
 
 	return component
+}
+
+// elementRead is a return that reads an element: where it starts, and the
+// collection it reads.
+type elementRead struct {
+	at   int
+	name string
+}
+
+// tagReturnFacts is what the <cfreturn> tags of a text return: the element
+// reads, how many return nothing, and how many there are.
+type tagReturnFacts struct {
+	reads     []elementRead
+	bare, all int
+}
+
+// tagReturns reads text's <cfreturn> tags with parser.CFTags: a tag in a
+// comment is none, and a '>' inside the expression's quotes does not end it.
+func tagReturns(text string) tagReturnFacts {
+	var facts tagReturnFacts
+
+	if !mentions(text, "<cfreturn") {
+		return facts
+	}
+
+	tags := parser.CFTags(text, "cfreturn")
+	for i := range tags {
+		if tags[i].Close {
+			continue
+		}
+
+		facts.all++
+
+		body := tags[i].Body()
+		if body == "" {
+			facts.bare++
+
+			continue
+		}
+
+		if m := elementReadRe.FindStringSubmatch(body); m != nil {
+			facts.reads = append(facts.reads, elementRead{at: tags[i].Start, name: m[1]})
+		}
+	}
+
+	return facts
 }

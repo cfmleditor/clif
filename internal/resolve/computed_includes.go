@@ -2,10 +2,9 @@ package resolve
 
 import (
 	"path/filepath"
-	"regexp"
+	"slices"
 	"strings"
 
-	"github.com/cfmleditor/clif/internal/lex"
 	"github.com/cfmleditor/clif/internal/parser"
 )
 
@@ -25,44 +24,40 @@ import (
 
 const minDirSegments = 3
 
-// computedIncludeAt matches the two forms of a computed include,
-// `<cfinclude template="#…#"` and a script `include "#…#"`, where one starts at
-// the beginning of its input: computedIncludeOffsets runs it only where the
-// word include is, rather than running computedIncludeRe over every byte of
-// every candidate file (14% of a tassweb scan's CPU).
-var computedIncludeAt = regexp.MustCompile(`^(?i:<cfinclude\s+template\s*=\s*["']#[^"']*#["']|include\s+["']#[^"']*#["'])`)
-
-// computedIncludeOffsets is the start of each computedIncludeRe match in s, as
-// FindAllStringIndex gives them: no match starts inside an earlier one.
+// computedIncludeOffsets is where each computed include in s's code starts,
+// in order: `<cfinclude template="#…#"`, at its "<", and a script `include
+// "#…#"`, the path a string that begins and ends with an expression. A file
+// with no word include has none, which spares reading the code of most
+// candidate files (finding these was once 14% of a tassweb scan's CPU).
 func computedIncludeOffsets(s string) []int {
+	if parser.IndexFold(s, "include") < 0 {
+		return nil
+	}
+
 	var offsets []int
 
-	for at, end := 0, 0; ; {
-		i := parser.IndexFoldFrom(s, "include", at)
-		if i < 0 {
-			return offsets
-		}
+	computed := func(t parser.Token) bool {
+		lit, ok := stringLiteral(t)
 
-		at = i + len("include")
+		return ok && len(lit) >= 2 && lit[0] == '#' && lit[len(lit)-1] == '#'
+	}
 
-		// <cfinclude: the match starts at its "<".
-		start := i - 3
-		if start >= end && i >= 3 && strings.EqualFold(s[start:i], "<cf") {
-			if m := computedIncludeAt.FindStringIndex(s[start:]); m != nil {
-				offsets, end = append(offsets, start), start+m[1]
-
-				continue
-			}
-		}
-
-		// A bare include must start a word (\b): the character before it is
-		// not a word character.
-		if i >= end && (i == 0 || !lex.IsWord(s[i-1])) {
-			if m := computedIncludeAt.FindStringIndex(s[i:]); m != nil {
-				offsets, end = append(offsets, i), i+m[1]
+	for _, code := range textCode(s) {
+		for i := 0; i+1 < len(code); i++ {
+			switch {
+			case isWord(code[i], "cfinclude") && i > 0 && code[i-1].Kind == parser.TokLT && code[i-1].Offset+1 == code[i].Offset:
+				if i+3 < len(code) && isWord(code[i+1], "template") && isAssignAt(code, i+2) && computed(code[i+3]) {
+					offsets = append(offsets, code[i-1].Offset)
+				}
+			case isWord(code[i], "include") && code[i+1].Offset > code[i].Offset+len(code[i].Value) && computed(code[i+1]):
+				offsets = append(offsets, code[i].Offset)
 			}
 		}
 	}
+
+	slices.Sort(offsets)
+
+	return offsets
 }
 
 func (r *Resolver) computedIncludeHosts(file string) []includeHost {
