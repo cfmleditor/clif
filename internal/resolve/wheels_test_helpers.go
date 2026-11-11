@@ -107,42 +107,55 @@ func wheelsTestBinds(source *sourceInfo) bool {
 		}
 	}
 
+	pos := 0
+
 	for _, expected := range significantTokens(wheelsTestInlineBinder) {
 		actual := scanner.NextSkipComments()
 		if wheelsTokens(actual.Value) != wheelsTokens(expected.Value) {
 			return false
 		}
+
+		pos = actual.Offset + len(actual.Value)
 	}
 
-	var header []parser.Token
+	return onlyMethodsFollow(source, pos)
+}
 
-	for {
-		t := scanner.NextSkipComments()
-		if t.Kind == parser.TokRBrace {
-			return len(header) == 0 && scanner.NextSkipComments().Kind == parser.TokEOF
+// onlyMethodsFollow reports whether the source's text from pos to its end is
+// method declarations the parse found and nothing else but the component's
+// closing brace: each a function declared as a statement, with a body
+// wheelsReadMethod reads, and only comments and space between them.
+func onlyMethodsFollow(source *sourceInfo, pos int) bool {
+	content := source.content
+	spans := source.functionSpans()
+
+	trivia := func(text string) bool {
+		return parser.NewScriptScanner(text).NextSkipComments().Kind == parser.TokEOF
+	}
+
+	for i := range spans {
+		s := &spans[i]
+		if s.Start < pos {
+			continue // one before pos, or nested in the method before
 		}
 
-		if t.Kind != parser.TokIdent {
+		if s.Kind != parser.FunctionDeclared || s.Body < 0 || !trivia(content[pos:s.Start]) {
 			return false
 		}
 
-		if !strings.EqualFold(t.Value, "function") {
-			if len(header) >= 4 {
-				return false
-			}
-
-			header = append(header, t)
-
-			continue
-		}
-
-		name, _ := wheelsReadMethod(scanner, false)
-		if name == "" {
+		if _, ok := wheelsReadMethod(content, s); !ok {
 			return false
 		}
 
-		header = nil
+		pos = s.End
 	}
+
+	rest := parser.NewScriptScanner(content[pos:])
+	if rest.NextSkipComments().Kind != parser.TokRBrace {
+		return false
+	}
+
+	return rest.NextSkipComments().Kind == parser.TokEOF
 }
 
 const wheelsTestInlineBinder = `

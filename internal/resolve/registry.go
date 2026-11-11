@@ -87,10 +87,6 @@ var (
 	// that turns an appended array into the struct the page reads back.
 	factoryCallRe = regexp.MustCompile(`(?i)\b((?:variables\.)?[A-Za-z_]\w*)\s*=\s*([A-Za-z_]\w*)\s*\(\s*((?:variables\.)?[A-Za-z_]\w*)\s*(?:,|\))`)
 
-	// function FN(...): the script definition of a factory function's name
-	// and its parameter list.
-	factoryDefRe = regexp.MustCompile(`(?i)\bfunction\s+([A-Za-z_]\w*)\s*\(([^)]*)\)`)
-
 	// loop array=arguments.P item="X": the factory body's walk of the array
 	// its argument received.
 	factoryLoopRe = regexp.MustCompile(`(?i)\bloop\s+array=arguments\.([A-Za-z_]\w*)\s+item="([^"]*)"`)
@@ -246,6 +242,18 @@ func (r *Resolver) registryListingFamily(name string, pr *parser.ParseResult) (r
 func (r *Resolver) findRegistries(content, file string) []registryFact {
 	var facts []registryFact
 
+	// The template's functions, for a factory it hands the listing to; parsed
+	// only when one is looked for.
+	var parsed *parser.ParseResult
+
+	parse := func() *parser.ParseResult {
+		if parsed == nil {
+			parsed = r.plainParseOf(file, content)
+		}
+
+		return parsed
+	}
+
 	for _, listing := range pkgListRe.FindAllStringSubmatchIndex(content, -1) {
 		pkg := content[listing[2]:listing[3]]
 		target := strings.TrimPrefix(content[listing[4]:listing[5]], "variables.")
@@ -259,7 +267,7 @@ func (r *Resolver) findRegistries(content, file string) []registryFact {
 		container, ok := registryContainer(spanText, span.item)
 
 		if !ok {
-			container, ok = factoryContainer(content, span.end, span.item)
+			container, ok = factoryContainer(content, span.end, span.item, parse)
 
 			if !ok {
 				continue
@@ -471,8 +479,9 @@ func registryContainer(spanText, item string) (string, bool) {
 // loop's span: a template that fills two registries hands both to the same
 // factory, and each loop's own call is the one naming its container. The
 // function must prove the shape: its first parameter the call's argument, a
-// walk of `arguments.` it on the item a store and a return agree on.
-func factoryContainer(content string, from int, item string) (string, bool) {
+// walk of `arguments.` it on the item a store and a return agree on. parse
+// is the template's parse, which finds its functions.
+func factoryContainer(content string, from int, item string, parse func() *parser.ParseResult) (string, bool) {
 	spanText := content[:from]
 
 	var arrs []string
@@ -498,7 +507,7 @@ func factoryContainer(content string, from int, item string) (string, bool) {
 			continue
 		}
 
-		if factoryFillsRegistry(content, m[2]) {
+		if factoryFillsRegistry(parse(), m[2]) {
 			return m[1], true
 		}
 	}
@@ -506,9 +515,10 @@ func factoryContainer(content string, from int, item string) (string, bool) {
 	return "", false
 }
 
-// factoryFillsRegistry is whether content's fn walks the array the call's
-// argument handed it and stores each walked element in the struct it
-// returns:
+// factoryFillsRegistry is whether the template's function fn, the first
+// script function of that name the parse found in it (pr), walks the array
+// the call's argument handed it and stores each walked element in the struct
+// it returns:
 //
 //	function doSortedStruct(arr) {
 //		var sct=structNew('ordered');
@@ -520,48 +530,36 @@ func factoryContainer(content string, from int, item string) (string, bool) {
 //
 // The call's argument binding the factory proved itself in factoryContainer:
 // its first argument is one of the arrays the appends shipped into.
-func factoryFillsRegistry(content, fn string) bool {
-	var params []string
+func factoryFillsRegistry(pr *parser.ParseResult, fn string) bool {
+	spans := pr.FunctionSpans()
 
-	for _, m := range factoryDefRe.FindAllStringSubmatch(content, -1) {
-		if strings.EqualFold(m[1], fn) {
-			params = strings.Split(m[2], ",")
-
-			break
-		}
-	}
-
-	if len(params) == 0 {
-		return false
-	}
-
-	words := strings.Fields(params[0])
-	if len(words) == 0 {
-		return false
-	}
-
-	param := words[len(words)-1]
-
-	// The body begins at the first brace after the signature.
-	for _, m := range factoryDefRe.FindAllStringSubmatchIndex(content, -1) {
-		if !strings.EqualFold(content[m[2]:m[3]], fn) {
+	for i := range spans {
+		s := &spans[i]
+		if s.Kind == parser.FunctionTag || !strings.EqualFold(s.Name, fn) {
 			continue
 		}
 
-		open := strings.Index(content[m[1]:], "{")
-		if open < 0 {
+		def := spanFunction(pr, s)
+		if def == nil || len(def.Arguments) == 0 || s.Body < 0 {
 			return false
 		}
 
-		end, ok := braceEnd(content, m[1]+open)
-		if !ok {
-			return false
-		}
-
-		return factoryBodyFills(content[m[1]+open:end+1], param)
+		return factoryBodyFills(s.BodyText(pr.Content), def.Arguments[0].Name)
 	}
 
 	return false
+}
+
+// spanFunction is the FunctionDef pr holds for the function s, one of its
+// FunctionSpans: the one of its name declared on its line.
+func spanFunction(pr *parser.ParseResult, s *parser.FunctionSpan) *parser.FunctionDef {
+	for i := range pr.Funcs {
+		if f := &pr.Funcs[i]; !f.Generated && int(f.Line) == s.Line && strings.EqualFold(f.Name, s.Name) {
+			return f
+		}
+	}
+
+	return nil
 }
 
 // factoryBodyFills is whether the function body walks the array its param

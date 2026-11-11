@@ -92,142 +92,6 @@ func nextFold(s, lit string, from int) int {
 	return parser.IndexFoldFrom(s, lit, from)
 }
 
-// scriptFunctionOpens returns the end offsets (just past the parenthesis) of up
-// to limit non-overlapping matches of `\bfunction\s+NAME\s*\(` in s.
-func scriptFunctionOpens(s, name string, limit int) []int {
-	var ends []int
-
-	lastEnd := 0
-
-	for o := nextFold(s, name, 0); o >= 0 && len(ends) < limit; o = nextFold(s, name, o+1) {
-		if o == 0 || !lex.IsRegexpSpace(s[o-1]) {
-			continue
-		}
-
-		open := lex.SkipRegexpSpace(s, o+len(name))
-		if open >= len(s) || s[open] != '(' {
-			continue
-		}
-
-		w := skipSpaceBack(s, o)
-		if w < 8 || !foldAt(s, w-8, "function") || !startsWord(s, w-8) || w-8 < lastEnd {
-			continue
-		}
-
-		ends = append(ends, open+1)
-		lastEnd = open + 1
-	}
-
-	return ends
-}
-
-// tagFunctionNamed reports whether seg, the text of a <cffunction> tag between
-// its name and its '>', holds `\bname\s*=\s*["']NAME["']`.
-func tagFunctionNamed(seg, name string) bool {
-	for k := nextFold(seg, "name", 1); k >= 0; k = nextFold(seg, "name", k+1) {
-		if lex.IsWord(seg[k-1]) {
-			continue
-		}
-
-		j := lex.SkipRegexpSpace(seg, k+4)
-		if j >= len(seg) || seg[j] != '=' {
-			continue
-		}
-
-		j = lex.SkipRegexpSpace(seg, j+1)
-		if j >= len(seg) || seg[j] != '"' && seg[j] != '\'' || !foldAt(seg, j+1, name) {
-			continue
-		}
-
-		if end := j + 1 + len(name); end < len(seg) && (seg[end] == '"' || seg[end] == '\'') {
-			return true
-		}
-	}
-
-	return false
-}
-
-// tagFunctionBodiesNamed returns the text between the '>' of up to limit
-// non-overlapping `<cffunction\b[^>]*\bname\s*=\s*["']NAME["'][^>]*>(.*?)</cffunction>`
-// matches in s and their </cffunction>.
-func tagFunctionBodiesNamed(s, name string, limit int) []string {
-	const closer = "</cffunction>"
-
-	var bodies []string
-
-	for c := nextFold(s, "<cffunction", 0); c >= 0 && len(bodies) < limit; {
-		e := c + len("<cffunction")
-		if e < len(s) && lex.IsWord(s[e]) {
-			c = nextFold(s, "<cffunction", c+1)
-
-			continue
-		}
-
-		gt := strings.IndexByte(s[e:], '>')
-		if gt < 0 {
-			break
-		}
-
-		tagEnd := e + gt
-
-		if !tagFunctionNamed(s[e:tagEnd], name) {
-			c = nextFold(s, "<cffunction", c+1)
-
-			continue
-		}
-
-		end := nextFold(s, closer, tagEnd+1)
-		if end < 0 {
-			break
-		}
-
-		bodies = append(bodies, s[tagEnd+1:end])
-		c = nextFold(s, "<cffunction", end+len(closer))
-	}
-
-	return bodies
-}
-
-// writesFunction reports whether s holds
-// `\bfunction\s+NAME\s*\(|<cffunction[^>]+name\s*=\s*["']NAME["']`.
-func writesFunction(s, name string) bool {
-	if len(scriptFunctionOpens(s, name, 1)) == 1 {
-		return true
-	}
-
-	for o := nextFold(s, name, 1); o >= 0; o = nextFold(s, name, o+1) {
-		if s[o-1] != '"' && s[o-1] != '\'' {
-			continue
-		}
-
-		if end := o + len(name); end >= len(s) || s[end] != '"' && s[end] != '\'' {
-			continue
-		}
-
-		// ["'] NAME ["'] is preceded by `name\s*=\s*` inside a <cffunction> tag.
-		eq := skipSpaceBack(s, o-1)
-		if eq == 0 || s[eq-1] != '=' {
-			continue
-		}
-
-		nameEnd := skipSpaceBack(s, eq-1)
-		if nameEnd < 4 || !foldAt(s, nameEnd-4, "name") {
-			continue
-		}
-
-		// `<cffunction[^>]+name`: the tag opens after the last '>' before the
-		// attribute, with at least one byte between it and the attribute.
-		nameStart := nameEnd - 4
-		from := strings.LastIndexByte(s[:nameStart], '>') + 1
-
-		if t := nextFold(s[:nameStart], "<cffunction", from); t >= 0 && t+len("<cffunction") < nameStart {
-			return true
-		}
-	}
-
-	return false
-}
-
 // assignOpAt reports whether s holds `[-+*/&]?=[^=]|\+\+|--` at offset j.
 func assignOpAt(s string, j int) bool {
 	if j >= len(s) {
@@ -504,24 +368,19 @@ func wordCallStarts(s string, words ...string) []int {
 var (
 	renderCallAt       = anchorStart(renderCallRe)
 	computedRenderAt   = anchorStart(computedRenderRe)
-	actionStartAt      = anchorStart(actionStartRe)
 	fw1ViewCallAt      = anchorStart(fw1ViewCallRe)
 	prcResponseWriteAt = anchorStart(prcResponseWriteRe)
 )
 
-// renderCallMatches, computedRenderMatches and actionStartMatches are the
-// FindAllStringSubmatchIndex of renderCallRe, computedRenderRe and actionStartRe
-// over content. starts are renderStarts(content) for the first two.
+// renderCallMatches and computedRenderMatches are the
+// FindAllStringSubmatchIndex of renderCallRe and computedRenderRe over
+// content. starts are renderStarts(content).
 func renderCallMatches(content string, starts []int) [][]int {
 	return matchesAt(renderCallAt, content, starts)
 }
 
 func computedRenderMatches(content string, starts []int) [][]int {
 	return matchesAt(computedRenderAt, content, starts)
-}
-
-func actionStartMatches(content string) [][]int {
-	return matchesAt(actionStartAt, content, wordStarts(content, "function"))
 }
 
 // interceptStarts are the offsets of interceptStartRe's matches in s.

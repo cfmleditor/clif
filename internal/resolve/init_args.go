@@ -317,23 +317,17 @@ func lineWritesNameRegex(line, name string) bool {
 }
 
 // hasWrittenFunc reports whether pr's source declares a function called name,
-// as opposed to one generated for a property.
+// as opposed to one generated for a property: whether the parse found one
+// written in it, in either syntax.
 func hasWrittenFunc(pr *parser.ParseResult, name string) bool {
-	if !mentions(pr.Content, name) {
-		return false
+	spans := pr.FunctionSpans()
+	for i := range spans {
+		if strings.EqualFold(spans[i].Name, name) {
+			return true
+		}
 	}
 
-	if plainName(name) {
-		return writesFunction(pr.Content, name)
-	}
-
-	return writesFunctionRegex(pr.Content, name)
-}
-
-// writesFunctionRegex is writesFunction as the expression it replaces, for a name
-// the scanner does not take, and the reference the scanner is tested against.
-func writesFunctionRegex(content, name string) bool {
-	return compiledPattern(`(?i)\bfunction\s+` + regexp.QuoteMeta(name) + `\s*\(|<cffunction[^>]+name\s*=\s*["']` + regexp.QuoteMeta(name) + `["']`).MatchString(content)
+	return false
 }
 
 // initStoredArg is the init argument p when every write to name in pr is

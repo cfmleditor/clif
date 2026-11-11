@@ -17,9 +17,10 @@ func producerMethodsEager(content string) map[string]*producerMethod {
 	methods := map[string]*producerMethod{}
 	tags := []producerTag{}
 
+	scriptProducerMethods(content, parser.FunctionSpansOf("", content), methods)
+
 	for _, region := range parser.ClassifyRegions(content) {
 		if region.Kind == parser.RegionScript {
-			scriptProducerMethods(region.Text, methods)
 			tags = append(tags, producerTag{name: "cfscript", body: region.Text})
 		}
 
@@ -115,7 +116,7 @@ func plansMustMatch(t *testing.T, name, content string) {
 	t.Helper()
 
 	want := producerMethodsEager(content)
-	plans := newProducerPlans(content)
+	plans := newProducerPlans(content, parser.FunctionSpansOf("", content))
 
 	for method, plan := range want {
 		if got := plans.get(method); !reflect.DeepEqual(got, plan) {
@@ -127,7 +128,7 @@ func plansMustMatch(t *testing.T, name, content string) {
 		t.Errorf("%s: a method the file lacks has a plan", name)
 	}
 
-	if got := newProducerPlans(content).all(); !reflect.DeepEqual(got, want) {
+	if got := newProducerPlans(content, parser.FunctionSpansOf("", content)).all(); !reflect.DeepEqual(got, want) {
 		t.Errorf("%s: all plans differ: %d made, want %d", name, len(got), len(want))
 	}
 }

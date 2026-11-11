@@ -3,6 +3,8 @@ package resolve
 import (
 	"strings"
 	"testing"
+
+	"github.com/cfmleditor/clif/internal/parser"
 )
 
 // The resolver's tag readers read tags as the parse does (parser.CFTags): a
@@ -25,7 +27,7 @@ func TestTheResolversTagReadersSkipCommentsAndQuotedGT(t *testing.T) {
 		src := `<!--- <cffunction name="init"><cfargument name="entityName" default="Ghost"></cffunction> --->` +
 			`<cffunction name="init" hint="a > b"><cfargument name="entityName" default="Real"></cffunction>`
 
-		if got := initArgumentDefault([]byte(src), "entityName"); got != "Real" {
+		if got := initArgumentDefault(src, parser.FunctionSpansOf("", src), "entityName"); got != "Real" {
 			t.Fatalf("initArgumentDefault = %q", got)
 		}
 	})
@@ -34,7 +36,7 @@ func TestTheResolversTagReadersSkipCommentsAndQuotedGT(t *testing.T) {
 		src := `<!--- <cffunction name="ghost">x</cffunction> --->` +
 			`<cffunction name="real" hint="a > b">body</cffunction>`
 
-		bodies := tagFunctionBodies(src)
+		bodies := tagFunctionBodies(src, parser.FunctionSpansOf("", src))
 		if _, ghost := bodies["ghost"]; ghost || bodies["real"] != "body" {
 			t.Fatalf("tagFunctionBodies = %q", bodies)
 		}
