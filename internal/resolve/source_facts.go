@@ -132,7 +132,7 @@ func (facts *lexicalSourceFacts) assignmentAt(content, name string, start, heade
 		}
 
 		rhs = withoutTrailingComment(rhs, tag)
-		if strings.Count(rhs, "(") != strings.Count(rhs, ")") {
+		if parens, _, _ := openGroups(rhs); parens != 0 {
 			return "", 0, false
 		}
 
@@ -164,10 +164,8 @@ func joinAssignmentLine(rhs, line string, tag bool) (string, bool) {
 	// joined after it, the next line would be read as comment too.
 	code := withoutTrailingComment(rhs, tag)
 
-	switch {
-	case strings.Count(code, "(") > strings.Count(code, ")"),
-		strings.Count(code, "{") > strings.Count(code, "}"),
-		strings.Count(code, "[") > strings.Count(code, "]"):
+	switch parens, braces, brackets := openGroups(code); {
+	case parens > 0 || braces > 0 || brackets > 0:
 		return strings.TrimSpace(code + " " + next), true
 	case strings.HasSuffix(code, "?") || strings.HasSuffix(code, ":") && !strings.HasSuffix(code, "::") ||
 		strings.HasPrefix(next, "?") || strings.HasPrefix(next, ":") && !strings.HasPrefix(next, "::"):
@@ -185,6 +183,35 @@ func joinAssignmentLine(rhs, line string, tag bool) (string, bool) {
 		return code + next, true
 	default:
 		return rhs, false
+	}
+}
+
+// openGroups is how many parentheses, braces and brackets code leaves open,
+// each its opens less its closes, counted where the script scanner reads them:
+// not in a string, a quoted argument inside a string's #...#, or a comment.
+// Counting bytes joined `x = f( ")" )`'s next line on, or took
+// `x = "#g( "(" )#"` for unbalanced.
+func openGroups(code string) (parens, braces, brackets int) {
+	sc := parser.NewScriptScanner(code)
+
+	for {
+		switch sc.NextSkipComments().Kind {
+		case parser.TokEOF:
+			return parens, braces, brackets
+		case parser.TokLParen:
+			parens++
+		case parser.TokRParen:
+			parens--
+		case parser.TokLBrace:
+			braces++
+		case parser.TokRBrace:
+			braces--
+		case parser.TokLBracket:
+			brackets++
+		case parser.TokRBracket:
+			brackets--
+		default:
+		}
 	}
 }
 
