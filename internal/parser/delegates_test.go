@@ -56,6 +56,14 @@ func TestDelegatesAreRead(t *testing.T) {
 				{Target: "Memory", Prefix: "Memory"},
 			},
 		},
+		// The declaration is read by the scanner: a brace in a doc comment
+		// before it, or in a quoted value, does not end it, and a word in the
+		// comment is no attribute.
+		"braces in a comment and a string": {
+			src: "/**\n * delegates=\"Commented\"\n * @return {struct}\n */\n" +
+				"component hint=\"a { b }\" // { delegates=\"Trailing\"\n\tdelegates=\"Memory\"\n{\n}",
+			want: []Delegate{{Target: "Memory"}},
+		},
 		"none past the declaration": {
 			src:  "component {\n\tfunction f() { var delegates = \"Memory\"; }\n}",
 			want: nil,

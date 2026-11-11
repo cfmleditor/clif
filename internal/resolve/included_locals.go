@@ -2,7 +2,6 @@ package resolve
 
 import (
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -201,32 +200,20 @@ func heldAt(comp, dir string, r *Resolver, comps *[]string, dynamic *bool) bool 
 	return true
 }
 
-// setsName reports whether content assigns or declares name anywhere: an
-// assignment, a var, a loop variable, a cfset, a function's argument, or a
-// tag attribute naming it as the variable it fills.
+// setsName reports whether content assigns or declares name anywhere in its
+// code: an assignment (=, op= or ++/--, with a local. or variables. scope or
+// none), a var, a for-in loop variable, a cfset, a function's argument, or a
+// tag attribute naming it as the variable it fills. A write in a comment, or
+// spelled inside a string, sets nothing.
 func setsName(content, name string) bool {
-	// Every branch below names the variable.
-	if !mentions(content, name) {
+	// Every form below names the variable.
+	if name == "" || !mentions(content, name) {
 		return false
 	}
 
-	if plainName(name) {
-		return assignsName(content, name)
-	}
+	code := codeOf(content)
 
-	return assignsNameRegex(content, name)
-}
-
-// assignsNameRegex is assignsName as the expression it replaces, for a name the
-// scanner does not take, and the reference the scanner is tested against.
-func assignsNameRegex(content, name string) bool {
-	q := regexp.QuoteMeta(name)
-	re := compiledPattern(`(?i)(?:^|[^\w.$])(?:local\.|variables\.)?` + q + `\s*(?:[-+*/&]?=[^=]|\+\+|--)` +
-		`|\bvar\s+` + q + `\b` +
-		`|\bfor\s*\(\s*(?:var\s+)?` + q + `\s+in\b` +
-		`|\b(?:item|index|name|returnvariable|variable|result)\s*=\s*["']` + q + `["']`)
-
-	return re.MatchString(content)
+	return len(codeWrites(code, name, writeRule{scopes: []string{"local", "variables"}, compound: true})) > 0 || declaresName(code, name)
 }
 
 // isCFMLScope reports whether s names one of CFML's own scopes. An FW/1 or

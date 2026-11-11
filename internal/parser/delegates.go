@@ -162,52 +162,36 @@ func parseDelegateItem(item string) Delegate {
 }
 
 // componentAttr is the value of one of the component's attributes,
-// `delegates` or `entityname`, script or tag, or "". It is read from the declaration alone —
-// everything before a script component's opening brace, or its <cfcomponent>
-// tag, found past its quoted values since `delegates=">Memory"` holds a `>` —
-// so a parse pays for the few lines of the declaration, not the file.
+// `delegates` or `entityname`, script or tag, or "". It is read from the
+// declaration alone, by the script scanner: the attributes after `component`
+// up to its opening brace, or after <cfcomponent up to the tag's `>`, so a
+// parse pays for the few lines of the declaration, not the file. A brace or a
+// `>` in a quoted value, and anything in a comment before the declaration,
+// is no end of it: a byte search for the first `{` stopped in a doc
+// comment's `@return {struct}` and lost the attribute.
 func componentAttr(content, attr string) string {
-	end := strings.IndexByte(content, '{')
+	sc := NewScriptScanner(content)
+	inDeclaration := false
 
-	scope := content
-	if end >= 0 {
-		scope = content[:end]
-	}
+	for {
+		t := sc.NextSkipComments()
 
-	switch t := indexFold(scope, "<cfcomponent"); {
-	case t >= 0:
-		gt := tagEndIndex(content[t:])
-		if gt < 0 {
+		switch {
+		case t.Kind == TokEOF || t.Kind == TokLBrace || inDeclaration && t.Kind == TokGT:
+			return ""
+		case t.Kind != TokIdent:
+		case !inDeclaration:
+			inDeclaration = identEq(t.Value, "component") || identEq(t.Value, "cfcomponent")
+		case identEq(t.Value, attr) && sc.PeekSkipComments().Kind == TokEquals:
+			sc.NextSkipComments()
+
+			if v := sc.NextSkipComments(); v.Kind == TokString && len(v.Value) >= 2 {
+				return v.Value[1 : len(v.Value)-1]
+			}
+
 			return ""
 		}
-
-		end = t + gt
-	case end < 0:
-		return ""
 	}
-
-	head := content[:end]
-
-	i := indexFold(head, attr)
-	if i < 0 {
-		return ""
-	}
-
-	rest := strings.TrimLeft(head[i+len(attr):], " \t\r\n")
-	if !strings.HasPrefix(rest, "=") {
-		return ""
-	}
-
-	rest = strings.TrimLeft(rest[1:], " \t\r\n")
-	if rest == "" || (rest[0] != '"' && rest[0] != '\'') {
-		return ""
-	}
-
-	if q := strings.IndexByte(rest[1:], rest[0]); q >= 0 {
-		return rest[1 : 1+q]
-	}
-
-	return ""
 }
 
 func splitList(s string) []string {

@@ -132,7 +132,7 @@ func (facts *lexicalSourceFacts) assignmentAt(content, name string, start, heade
 		}
 
 		rhs = withoutTrailingComment(rhs, tag)
-		if strings.Count(rhs, "(") != strings.Count(rhs, ")") {
+		if parens, _, _ := parser.OpenGroups(rhs); parens != 0 {
 			return "", 0, false
 		}
 
@@ -164,10 +164,8 @@ func joinAssignmentLine(rhs, line string, tag bool) (string, bool) {
 	// joined after it, the next line would be read as comment too.
 	code := withoutTrailingComment(rhs, tag)
 
-	switch {
-	case strings.Count(code, "(") > strings.Count(code, ")"),
-		strings.Count(code, "{") > strings.Count(code, "}"),
-		strings.Count(code, "[") > strings.Count(code, "]"):
+	switch parens, braces, brackets := parser.OpenGroups(code); {
+	case parens > 0 || braces > 0 || brackets > 0:
 		return strings.TrimSpace(code + " " + next), true
 	case strings.HasSuffix(code, "?") || strings.HasSuffix(code, ":") && !strings.HasSuffix(code, "::") ||
 		strings.HasPrefix(next, "?") || strings.HasPrefix(next, ":") && !strings.HasPrefix(next, "::"):

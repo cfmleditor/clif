@@ -1,7 +1,6 @@
 package resolve
 
 import (
-	"regexp"
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/conv"
@@ -149,16 +148,17 @@ func (r *Resolver) lastAssignment(variable, name, container string, scoped bool,
 	var ok bool
 
 	if container != "" {
-		var idx int
+		if !mentions(sourceText(pr.Content, start, int(line)), container+"."+name) {
+			return f, false
+		}
 
-		f.rhs, idx, ok = lastMemberAssignmentAt(sourceText(pr.Content, start, int(line)), container, name)
-		f.at = start + idx
+		f.rhs, f.at, ok = lastMemberWrite(pr.Content, fileCodeOn(pr, start, int(line)-1), container, name)
 
 		return f, ok
 	}
 
 	f.rhs, f.at, ok = r.localAssignmentAt(pr, name, start, int(line))
-	if ok && scoped && localDeclRe.MatchString(lineOfContent(pr.Content, f.at)) {
+	if ok && scoped && lineDeclaresLocal(lineOfContent(pr.Content, f.at)) {
 		// `var x = …` is a local, not the variables.x asked about.
 		ok = false
 	}
@@ -560,8 +560,24 @@ func (r *Resolver) registryListingConstruction(method, args string, pr *parser.P
 	return familyComp(fact)
 }
 
-// localDeclRe is a line declaring a local: `var x`, `local.x`.
-var localDeclRe = regexp.MustCompile(`(?i)(?:^|[^\w.])(?:var\s+[\w$]|local\.)`)
+// lineDeclaresLocal reports whether a source line declares a local, `var x` or
+// `local.x`, in its code: not in a comment or a string, and not a member
+// named var or local (`x.local.y`).
+func lineDeclaresLocal(line string) bool {
+	tokens := significantTokens(line)
+
+	for i := 0; i+1 < len(tokens); i++ {
+		if i > 0 && tokens[i-1].Kind == parser.TokDot {
+			continue
+		}
+
+		if isWord(tokens[i], "var") && tokens[i+1].Kind == parser.TokIdent || isWord(tokens[i], "local") && tokens[i+1].Kind == parser.TokDot {
+			return true
+		}
+	}
+
+	return false
+}
 
 // chainCall is one call of a chain: its name and its argument text.
 type chainCall struct{ name, args string }
@@ -1036,15 +1052,19 @@ func (r *Resolver) membersWrittenOn(pr *parser.ParseResult, line uint32, names .
 		start = scope.Start
 	}
 
-	text := sourceText(pr.Content, start, int(line)+1)
+	var code [][]parser.Token
 
 	for _, name := range names {
 		name = strings.TrimPrefix(strings.ToLower(name), "local.")
-		if !plainName(name) || strings.Contains(name, ".") {
+		if name == "" || strings.Contains(name, ".") {
 			continue
 		}
 
-		if compiledPattern(`(?i)\b` + regexp.QuoteMeta(name) + `\s*(?:\.\s*\w+|\[[^\]]*\])\s*=[^=]`).MatchString(text) {
+		if code == nil {
+			code = fileCodeOn(pr, start, int(line))
+		}
+
+		if len(codeWrites(code, name, writeRule{qualified: true, member: true})) > 0 {
 			return true
 		}
 	}

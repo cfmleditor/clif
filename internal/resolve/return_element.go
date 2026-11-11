@@ -2,7 +2,7 @@ package resolve
 
 import (
 	"path/filepath"
-	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/parser"
@@ -23,14 +23,9 @@ import (
 // whose elements are all the same component, answers. A bare `return;` returns
 // nothing and does not count against it, since a caller of a function that may
 // find nothing tests for that (isNull, arrayLen).
-var (
-	scriptElementReturnRe = regexp.MustCompile(`(?i)\breturn\s+([A-Za-z_]\w*)\s*\[[^\]\n]*\]\s*;`)
-	anyReturnRe           = regexp.MustCompile(`(?i)\breturn\b`)
-	bareReturnRe          = regexp.MustCompile(`(?i)\breturn\s*;`)
-	// elementReadRe is a <cfreturn>'s expression when it reads an element,
-	// the tags themselves read with parser.CFTags.
-	elementReadRe = regexp.MustCompile(`^([A-Za-z_]\w*)\s*\[[^\]\n]*\]$`)
-)
+// The returns are read from the scanner's tokens (scriptReturns) and the
+// parse's tags (tagReturns): a return in a comment or a string, or the word in
+// a hint, is none.
 
 // holdsElementReturn reports whether the source has a return that reads an
 // element of a collection anywhere in it. It is asked for every function of the
@@ -38,14 +33,24 @@ var (
 // were a quarter of a MasaCMS scan, so the answer is read once per source.
 func (s *sourceInfo) holdsElementReturn() bool {
 	if s.derived == nil {
-		return scriptElementReturnRe.MatchString(s.content) || len(tagReturns(s.content).reads) > 0
+		return holdsElementRead(s.content)
 	}
 
 	s.derived.elementOnce.Do(func() {
-		s.derived.elementReads = scriptElementReturnRe.MatchString(s.content) || len(tagReturns(s.content).reads) > 0
+		s.derived.elementReads = holdsElementRead(s.content)
 	})
 
 	return s.derived.elementReads
+}
+
+// holdsElementRead reports whether content has a script or a tag return that
+// reads an element.
+func holdsElementRead(content string) bool {
+	if !mentions(content, "return") {
+		return false
+	}
+
+	return len(scriptReturns(codeLists(tokenize(content))[0]).reads) > 0 || len(tagReturns(content).reads) > 0
 }
 
 // plainParse is the source parsed with no resolver, lookup or option: a
@@ -98,14 +103,10 @@ func (r *Resolver) elementReturn(fd *parser.FunctionDef) string {
 	}
 
 	tags := tagReturns(text)
+	script := scriptReturns(significantTokens(text))
 
-	reads := tags.reads
-	for _, m := range scriptElementReturnRe.FindAllStringSubmatchIndex(text, -1) {
-		reads = append(reads, elementRead{at: m[0], name: text[m[2]:m[3]]})
-	}
-
-	bare := len(bareReturnRe.FindAllStringIndex(text, -1)) + tags.bare
-	if len(reads) == 0 || len(reads)+bare != len(anyReturnRe.FindAllStringIndex(text, -1))+tags.all {
+	reads := slices.Concat(tags.reads, script.reads)
+	if len(reads) == 0 || len(reads)+tags.bare+script.bare != tags.all+script.all {
 		return ""
 	}
 
@@ -134,17 +135,17 @@ type elementRead struct {
 	name string
 }
 
-// tagReturnFacts is what the <cfreturn> tags of a text return: the element
-// reads, how many return nothing, and how many there are.
-type tagReturnFacts struct {
+// returnFacts is what the returns of a text return: the element reads, how
+// many return nothing, and how many there are.
+type returnFacts struct {
 	reads     []elementRead
 	bare, all int
 }
 
 // tagReturns reads text's <cfreturn> tags with parser.CFTags: a tag in a
 // comment is none, and a '>' inside the expression's quotes does not end it.
-func tagReturns(text string) tagReturnFacts {
-	var facts tagReturnFacts
+func tagReturns(text string) returnFacts {
+	var facts returnFacts
 
 	if !mentions(text, "<cfreturn") {
 		return facts
@@ -165,10 +166,55 @@ func tagReturns(text string) tagReturnFacts {
 			continue
 		}
 
-		if m := elementReadRe.FindStringSubmatch(body); m != nil {
-			facts.reads = append(facts.reads, elementRead{at: tags[i].Start, name: m[1]})
+		tokens := significantTokens(body)
+		if name, next, ok := elementReadAt(tokens, 0); ok && next == len(tokens) {
+			facts.reads = append(facts.reads, elementRead{at: tags[i].Start, name: name})
 		}
 	}
 
 	return facts
+}
+
+// scriptReturns reads the return statements in tokens, a text's code with no
+// newlines: `return x[ i ];` is an element read, `return;` returns nothing.
+// A return written in a comment or a string is none, and neither is a member
+// named return (`x.return`). A <cfreturn> tag is the identifier cfreturn, so
+// it is not counted here.
+func scriptReturns(tokens []parser.Token) returnFacts {
+	var facts returnFacts
+
+	for i, t := range tokens {
+		if !isWord(t, "return") || i > 0 && tokens[i-1].Kind == parser.TokDot {
+			continue
+		}
+
+		facts.all++
+
+		if i+1 < len(tokens) && tokens[i+1].Kind == parser.TokSemicolon {
+			facts.bare++
+
+			continue
+		}
+
+		if name, next, ok := elementReadAt(tokens, i+1); ok && next < len(tokens) && tokens[next].Kind == parser.TokSemicolon {
+			facts.reads = append(facts.reads, elementRead{at: t.Offset, name: name})
+		}
+	}
+
+	return facts
+}
+
+// elementReadAt reads `name[ … ]` at tokens[i]: a plain name and one index,
+// and the position after the index's closing bracket.
+func elementReadAt(tokens []parser.Token, i int) (string, int, bool) {
+	if i+1 >= len(tokens) || tokens[i].Kind != parser.TokIdent || tokens[i+1].Kind != parser.TokLBracket {
+		return "", 0, false
+	}
+
+	closing := producerGroupEnd(tokens, i+1, parser.TokLBracket, parser.TokRBracket)
+	if closing < 0 {
+		return "", 0, false
+	}
+
+	return tokens[i].Value, closing + 1, true
 }

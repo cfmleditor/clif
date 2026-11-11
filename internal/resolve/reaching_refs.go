@@ -1,7 +1,6 @@
 package resolve
 
 import (
-	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -420,19 +419,20 @@ func blockEvents(text string, tag bool) []blockEvent {
 }
 
 // tagBlocks reports whether the scope starting at line scopeStart is written
-// in tags: a template, or a <cffunction> body.
+// in tags: whether the code on that line is in one of the parse's tag regions
+// (a template's markup, a <cffunction>, a tag component's pseudo-constructor)
+// rather than script (a script file, or a <cfscript> block's body). It used to
+// be the file's extension and a look for <cffunction> in the 200 bytes after
+// the line, which read a tag component's pseudo-constructor as script, its
+// <cfset> struct literals' braces as blocks, and a script function in a
+// template's <cfscript> as tags, with no blocks at all.
 func tagBlocks(pr *parser.ParseResult, scopeStart int) bool {
-	switch strings.ToLower(filepath.Ext(pr.URI.Path())) {
-	case ".cfm", ".cfml":
-		return true
-	}
-
 	from, ok := lineOffset(pr.Content, scopeStart)
 	if !ok {
 		return false
 	}
 
-	return parser.IndexFoldFrom(pr.Content[from:min(len(pr.Content), from+200)], "<cffunction", 0) >= 0
+	return pr.RegionKindFrom(from) != parser.RegionScript
 }
 
 // tagBlockEvent is the block event a tag makes, if it makes one.
@@ -463,12 +463,18 @@ func tagBlockEvent(name string, closing, selfClosed bool, offset int) (blockEven
 	return blockEvent{}, false
 }
 
-// braceEvents reads CFScript braces in text, which begins base bytes into the
-// text the offsets are relative to.
+// braceEvents reads the braces of text, which is CFScript and begins base
+// bytes into the text the offsets are relative to. They are the script
+// scanner's, so a brace in a comment or a string, or in a quoted argument
+// inside a string's #...#, is none. The text is known to be script (a script
+// scope, or a <cfscript> block's body), and is read as script whatever else
+// it holds: NewSourceScanner decides from the text, and took a function's
+// body that writes "<cfoutput>" or "<script>" for markup with plain strings,
+// whose `"#f("}")#"` closed a block.
 func braceEvents(text string, base int) []blockEvent {
 	var events []blockEvent
 
-	scanner := parser.NewSourceScanner(text)
+	scanner := parser.NewScriptScanner(text)
 
 	for {
 		switch tok := scanner.NextSkipComments(); tok.Kind {

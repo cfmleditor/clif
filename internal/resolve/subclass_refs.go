@@ -3,7 +3,6 @@ package resolve
 import (
 	"maps"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -231,8 +230,6 @@ func (r *Resolver) subclassRef(path, base, name string, scope parser.RefScope) s
 // value a subclass gives a variable its base reads, as ContentBox's handlers
 // give entityPlural and handler. "" when none writes one.
 func (r *Resolver) leafLiteral(leaf, base, name string) string {
-	re := compiledPattern(`(?i)\bvariables\.` + regexp.QuoteMeta(name) + `\s*=\s*["']([^"'#]*)["']`)
-
 	path := leaf
 
 	for range 16 {
@@ -241,8 +238,8 @@ func (r *Resolver) leafLiteral(leaf, base, name string) string {
 		}
 
 		if text, err := r.readText(path); err == nil && mentions(text, "variables."+name) {
-			if m := re.FindStringSubmatch(text); m != nil && m[1] != "" {
-				return m[1]
+			if lit := writtenLiteral(codeOf(text), "variables."+name); lit != "" {
+				return lit
 			}
 		}
 
@@ -252,6 +249,19 @@ func (r *Resolver) leafLiteral(leaf, base, name string) string {
 		}
 
 		path = r.ComponentPath(ext, filepath.Dir(path))
+	}
+
+	return ""
+}
+
+// writtenLiteral is the first literal string code assigns name: a write
+// whose whole value is one string, not empty and with no quote or #...# in
+// it. "" when there is none.
+func writtenLiteral(code [][]parser.Token, name string) string {
+	for _, w := range codeWrites(code, name, writeRule{qualified: true}) {
+		if lit, ok := soleString(w.value()); ok && lit != "" && !strings.ContainsAny(lit, "\"'#") {
+			return lit
+		}
 	}
 
 	return ""

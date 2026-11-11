@@ -40,53 +40,20 @@ empty server cannot see. Pin the shape, not the clock, when it matters:
 `TestIndexFileFromResultDoesNotScaleWithIndexSize` compares allocations at
 two index sizes, so it fails on the regression rather than on a busy runner.
 
-**A rule that asks a question of a file's text finds the name, not the whole file**
-(`internal/resolve/text_rules.go`). `hasWrittenFunc`, `setsName` and `functionBodyNamed` were
-regular expressions run over the whole text, once per call site and name; the literal prefilter
-in front of each (`mentions`) passes whenever the name is in the file, which for `init` or `get` is
-nearly always, and a case-insensitive alternation then ran an automaton over every byte.
-Profiled with `CLIF_CPUPROFILE` over a real `unresolved` scan, 27.5% of ColdBox's CPU and 29.4% of
-ContentBox's sat in stacks with a `regexp` frame, compiling only 3-4% of it. They are scanners now
-that find the name with `parser.IndexFoldFrom` and check what stands before and after it, and
-`unresolved` is **byte-identical** on ColdBox, TestBox, FW/1, ContentBox and Lucee; the regexp share
-fell to 10.2% and 21.9%, and a scan to 19% and 7.5% less wall time (interleaved, 12 runs). Three
-things keep that true, each with a test: the expression is **kept as the reference**
-(`writesFunctionRegex`, `assignsNameRegex`, `functionBodyNamedRegex`) and
-`TestTheTextScannersAreTheExpressionsTheyReplace` compares both on 60,000 random texts drawn from the
-tokens the expressions care about, including `\v`, which RE2's `\s` leaves out, and asserts it sees
-a match in a real share of them; a **name that is not plain** (non-ASCII, whitespace, `>`) takes the
-expression; and ASCII case folding only, as `mentions` already was. The test was checked against
-planted bugs (a dropped `\b`, `==` as an assignment, `\v` as space, a case-sensitive prefix): all
-caught. **Do this to the next one the same way**; what is left in a profile, by CPU in ContentBox:
-`moduleActions`, `renderSites`, `addMaps`, `lastMemberAssignmentAt`, `boundEntityUncached`,
-`quotedNameLines`, `coldboxErrorHosts`, `includedUDFs`, `helpersIn`. The parser (script and tag)
-and the editor's completion, keystroke, symbol and folding handlers have no regexp frame at all.
-
-A second batch did the same two ways. Where an expression has a **literal every match must hold**
-(`super.init(`, `map(` and `to(`, `includeUDF(`, `applicationHelper`), `mentions` asks first and the
-expression is skipped for a file without it: safe by construction, and held by
-`TestEveryPrefilterLiteralIsHeldByEveryMatchOfItsExpression`, which fails on a literal an expression does
-not need. Where the expression is a name beside a few characters, a scanner takes its place
-(`quotedNameStarts`, `renderStarts`), differential-tested like the first three. Regexp share of CPU after
-both batches: ColdBox 27.5% to 5.0%, ContentBox 29.4% to 14.7%; a scan is 22% and 14% faster, measured
-interleaved over 16 runs; and `unresolved` stays byte-identical on all five workspaces. What is left, by CPU
-in ContentBox: `moduleActions`, `lastMemberAssignmentAt` (multiline, with a lazy group and a `\s*` that
-crosses lines: reproduce it exactly or not at all), `coldboxErrorHosts`, `interceptSitesIn`.
-
-A third batch keeps the original expression as the matcher and replaces only the search for where a
-match can start (`anchorStart`, `matchesAt` in `text_rules.go`): a scanner finds the fixed word each
-expression opens with (`wordStarts`, `wordCallStarts`, `renderStarts`), and the expression, recompiled
-as `\A…`, is run at each candidate alone. `matchesAt` keeps `FindAll`'s leftmost, non-overlapping
-rule, and `anchorStart` panics on a pattern it does not recognise, so a changed expression cannot
-silently stop being anchored. `TestTheAnchoredExpressionsMatchWhatTheyReplace` compares submatch
-indices with the unanchored expression on random text built from each expression's pieces, with a
-floor on how often it matches; planted bugs (a dropped word boundary, an empty capture, a `==` taken
-as an assignment, a lost `variables.` prefix) fail it. `unresolved` stays byte-identical on all
-five workspaces; 4-9% faster on ColdBox and ContentBox (interleaved, 10 runs). `lastMemberAssignmentAt`
-is anchored the same way (`memberAssignMatches`): its `^\s*` crosses lines and `<cfset` and `arguments.`
-are optional, so the candidates are every line start in the whitespace before the written `container.name`,
-both with and without the `<cfset`, and the expression decides at each.
-`TestTheMemberAssignmentScannerIsTheExpressionItReplaces` holds it to the expression.
+**A rule that asks a question of a file's text reads the code, not the text.** The resolver's
+questions of CFML source (does this file write `NAME`, call `setView`, declare `init`, guard with
+`structKeyExists`, hold a `<cfloop>`) were regular expressions over the whole text, and then hand
+scanners made to match them exactly for speed (`text_rules.go`, now deleted). Both read a
+commented-out statement or a word inside a string as code. They now read what the parse reads: the
+scanner's tokens (`allTokens`, `codeLists`/`codeCalls` in `code_calls.go`, `codeWrites` in
+`name_writes.go`), `parser.CFTags` for tags, and `ParseResult.FunctionSpans`/`parser.FunctionSpansOf`
+for functions; `.ai/docs/SCANNER-CONSOLIDATION.md` has each step. **Do the next one the same way:** a
+test that puts a commented-out or in-string case beside a real one and fails on the old reader, and
+the `unresolved --json` corpus diff, every changed finding explained. Where a reader must keep its
+old answer exactly (a fixed-shape expression over one value), keep the expression in the test as the
+oracle and compare on generated texts, as `expression_shapes_test.go` and the parser's
+`text_shapes_test.go` do. Regexes that remain are user patterns (`componentResolvers`), HQL, and a
+few built from a value the code spells and matched against a name, not against CFML.
 
 **Search for the entries you are holding; do not sweep the bucket for them.**
 Both index writers on the keystroke path — `removeFileEntries` on every

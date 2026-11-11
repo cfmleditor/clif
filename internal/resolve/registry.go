@@ -2,7 +2,6 @@ package resolve
 
 import (
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -43,18 +42,6 @@ type registryFact struct {
 	listing   string   // the struct the listing merges into, lowercased, without variables.
 	members   []string // absolute .cfc paths of the family, sorted
 }
-
-var (
-	// <cfloop ...> and </cfloop>, for a listing loop's span. Group 1 is the
-	// close tag's slash, group 2 is the open tag's attribute text.
-
-	// Lucee's script loop statement: loop collection=driverNames ... { .
-	// Group 1 is the attribute text; the opening brace closes the match.
-	scriptLoopPartsRe = regexp.MustCompile(`(?is)\bloop\b([^\{;]*?)\{`)
-
-	// The header's attributes, quoted or bare.
-	loopAttrPairsRe = regexp.MustCompile(`(?i)\b(collection|struct|array|index|item|list)\s*=\s*(?:"([^"]*)"|'([^']*)'|([A-Za-z_][\w]*))`)
-)
 
 // registriesOf is the registry facts the template's own text holds, read for
 // every element read the template makes on one of its containers.
@@ -286,38 +273,87 @@ func listingLoopSpan(content, listingVar string, from int) (registrySpan, bool) 
 		return registrySpan{start: tags[i].End, end: end, item: attrs["item"], index: attrs["index"]}, true
 	}
 
-	for _, m := range scriptLoopPartsRe.FindAllStringSubmatchIndex(content, -1) {
-		if m[0] < from {
+	if !mentions(content, "loop") {
+		return registrySpan{}, false
+	}
+
+	tokens := codeLists(tokenize(content))[0]
+
+	for i, t := range tokens {
+		if t.Offset < from || !isWord(t, "loop") || i > 0 && tokens[i-1].Kind == parser.TokDot {
 			continue
 		}
 
-		attrs := loopAttrs(content[m[2]:m[3]])
+		open := scriptLoopOpen(tokens, i+1)
+		if open < 0 {
+			continue
+		}
+
+		attrs := loopAttrs(tokens[i+1 : open])
 
 		if !strings.EqualFold(loopIterated(attrs), listingVar) {
 			continue
 		}
 
-		end, ok := braceEnd(content, m[1]-1)
-		if !ok {
+		closing := producerGroupEnd(tokens, open, parser.TokLBrace, parser.TokRBrace)
+		if closing < 0 {
 			continue
 		}
 
-		return registrySpan{start: m[1], end: end, item: attrs["item"], index: attrs["index"]}, true
+		return registrySpan{start: tokens[open].Offset + 1, end: tokens[closing].Offset, item: attrs["item"], index: attrs["index"]}, true
 	}
 
 	return registrySpan{}, false
 }
 
-// loopAttrs is a loop header's attribute name→value pairs, quotes and #s off.
-func loopAttrs(header string) map[string]string {
+// scriptLoopOpen is the position of the brace that opens the body of Lucee's
+// script loop statement, `loop collection=drivers item="d" {`, whose header
+// starts at tokens[i]; -1 when a statement ends first.
+func scriptLoopOpen(tokens []parser.Token, i int) int {
+	for ; i < len(tokens); i++ {
+		switch tokens[i].Kind {
+		case parser.TokLBrace:
+			return i
+		case parser.TokSemicolon, parser.TokRBrace:
+			return -1
+		default:
+		}
+	}
+
+	return -1
+}
+
+// loopAttrs is a script loop header's attribute name→value pairs, read from
+// its tokens: a quoted value without its quotes, or a bare name.
+func loopAttrs(header []parser.Token) map[string]string {
 	attrs := map[string]string{}
 
-	for _, a := range loopAttrPairsRe.FindAllStringSubmatch(header, -1) {
-		attrs[strings.ToLower(a[1])] = loopAttrValue(a)
+	for j := 0; j+2 < len(header); j++ {
+		if header[j].Kind != parser.TokIdent || !isAssignAt(header, j+1) || j > 0 && header[j-1].Kind == parser.TokDot {
+			continue
+		}
+
+		name := strings.ToLower(header[j].Value)
+		if !slices.Contains(loopAttrNames, name) {
+			continue
+		}
+
+		if _, dup := attrs[name]; dup {
+			continue
+		}
+
+		if value, ok := stringLiteral(header[j+2]); ok {
+			attrs[name] = value
+		} else if value, _ := dottedAt(header, j+2); value != "" {
+			attrs[name] = value
+		}
 	}
 
 	return attrs
 }
+
+// loopAttrNames are the script loop attributes a listing loop is read by.
+var loopAttrNames = []string{"collection", "struct", "array", "index", "item", "list"}
 
 // loopIterated is the collection the loop header names: the tag's collection
 // attribute, or the script loop's collection or struct.
@@ -328,17 +364,6 @@ func loopIterated(attrs map[string]string) string {
 	}
 
 	return strings.Trim(name, "#")
-}
-
-// loopAttrValue is the attribute match's value, whichever quote it was in.
-func loopAttrValue(a []string) string {
-	for _, v := range a[2:] {
-		if v != "" {
-			return v
-		}
-	}
-
-	return ""
 }
 
 // tagLoopEnd is the offset of the </cfloop> that closes tags[open], a
@@ -357,28 +382,6 @@ func tagLoopEnd(tags []parser.CFTag, open int) (int, bool) {
 
 		if depth == 0 {
 			return tags[i].Start, true
-		}
-	}
-
-	return 0, false
-}
-
-// braceEnd walks braces from the open at open, answering the offset of its
-// matching close brace. Braces inside quoted strings do not count.
-func braceEnd(content string, open int) (int, bool) {
-	depth := 0
-
-	for i := open; i < len(content); i++ {
-		switch content[i] {
-		case '{':
-			depth++
-		case '}':
-			depth--
-			if depth == 0 {
-				return i, true
-			}
-		case '"', '\'':
-			i = skipQuoted(content, i)
 		}
 	}
 
@@ -925,54 +928,32 @@ func (r *Resolver) methodExistenceGuarded(pr *parser.ParseResult, call *parser.C
 		return false
 	}
 
-	text := methodGuardWindow(pr.Content, call.Line, 3, 3)
-
-	name := regexp.QuoteMeta(funcName)
-
-	// A reference of the method itself questioned, the way
-	// !isNull(driver.getBundleName) spells it.
-	refCheck := compiledPattern(`(?i)(?:^|[^\w])isNull\s*\(\s*[^\n()]*\.?[^\n()]*` + name + `\s*\)`)
-	if refCheck.MatchString(text) {
-		return true
+	line := int(call.Line)
+	if !mentions(sourceText(pr.Content, line-3, line+4), funcName) {
+		return false
 	}
 
-	// structKeyExists(recv, 'm') — a ternary, or an if whose branch calls
-	// it. A negated one reads the other way and does not guard.
-	keyCheck := compiledPattern(`(?i)\bstruct[Kk]ey[Ee]xists\s*\(\s*[^(),\n]*\s*,\s*["']\s*` + name + `\s*["']`)
-	for _, m := range keyCheck.FindAllStringIndex(text, -1) {
-		if precededBy(text, m[0], "!", "not ") {
+	for _, c := range codeCalls(fileCodeOn(pr, line-3, line+3), "isNull", "structKeyExists") {
+		if isWord(c.name(), "isNull") {
+			// A reference of the method itself questioned, the way
+			// !isNull(driver.getBundleName) spells it.
+			args := c.args()
+			if len(args) > 0 && isWord(args[len(args)-1], funcName) &&
+				!slices.ContainsFunc(args, func(t parser.Token) bool { return t.Kind == parser.TokLParen }) {
+				return true
+			}
+
 			continue
 		}
 
-		return true
-	}
-
-	return false
-}
-
-// methodGuardWindow is the lines around the call's own, from `before` above
-// to `after` below it. Call lines are 0-based.
-func methodGuardWindow(content string, line uint32, before, after int) string {
-	var lines []string
-
-	for at := int(line) - before; at <= int(line)+after; at++ {
-		if at < 0 {
+		// structKeyExists(recv, 'm') — a ternary, or an if whose branch
+		// calls it. A negated one reads the other way and does not guard.
+		pieces := c.pieces()
+		if len(pieces) != 2 || c.before(1).Kind == parser.TokBang || isWord(c.before(1), "not") {
 			continue
 		}
 
-		if l := lineOfContent(content, at); l != "" {
-			lines = append(lines, l)
-		}
-	}
-
-	return strings.Join(lines, "\n")
-}
-
-// precededBy is whether at is preceded by one of the words, which turns a
-// structKeyExists guard the other way.
-func precededBy(text string, at int, negs ...string) bool {
-	for _, neg := range negs {
-		if at >= len(neg) && strings.EqualFold(text[at-len(neg):at], neg) {
+		if lit, ok := soleString(pieces[1]); ok && strings.EqualFold(strings.TrimSpace(lit), funcName) {
 			return true
 		}
 	}

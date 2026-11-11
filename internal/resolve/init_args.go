@@ -2,7 +2,6 @@ package resolve
 
 import (
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 
@@ -142,7 +141,7 @@ func (a *initArgSites) scan(path string) bool {
 		}
 	}
 
-	for _, line := range quotedNameLines(hpr.Content, a.base) {
+	for _, line := range quotedNameLines(hpr, a.base) {
 		if !read[line] {
 			return false
 		}
@@ -196,45 +195,35 @@ func (r *Resolver) constructions(tokens []parser.Token, base, file, dir string) 
 	return out
 }
 
-// quotedNameLines are the lines on which name ends a quoted string.
-func quotedNameLines(content, name string) []int {
-	if !mentions(content, name) {
+// quotedNameLines are the lines on which a string in pr's code ends with
+// name, as a component's dotted path does: "a.b.Name" or 'Name'. A string in
+// a comment is none.
+func quotedNameLines(pr *parser.ParseResult, name string) []int {
+	if name == "" || !mentions(pr.Content, name) {
 		return nil
 	}
 
-	var starts []int
-	if plainName(name) {
-		starts = quotedNameStarts(content, name)
-	} else {
-		starts = quotedNameStartsRegex(content, name)
+	var out []int
+
+	for _, list := range fileCode(pr) {
+		for _, t := range list {
+			lit, ok := stringLiteral(t)
+			if !ok || len(lit) < len(name) {
+				continue
+			}
+
+			at := len(lit) - len(name)
+			if !strings.EqualFold(lit[at:], name) || at > 0 && lex.IsWord(lit[at-1]) {
+				continue
+			}
+
+			out = append(out, int(t.Line)+strings.Count(t.Value[:1+at], "\n"))
+		}
 	}
 
-	// Lines are counted on from the last match, not from the top each time.
-	out := make([]int, 0, len(starts))
-	line, from := 0, 0
+	slices.Sort(out)
 
-	for _, start := range starts {
-		line += strings.Count(content[from:start], "\n")
-		from = start
-
-		out = append(out, line)
-	}
-
-	return out
-}
-
-// quotedNameStartsRegex is quotedNameStarts as the expression it replaces, for a
-// name the scanner does not take, and the reference it is tested against.
-func quotedNameStartsRegex(content, name string) []int {
-	re := compiledPattern(`(?i)\b` + regexp.QuoteMeta(name) + `["']`)
-	matches := re.FindAllStringIndex(content, -1)
-	starts := make([]int, 0, len(matches))
-
-	for _, m := range matches {
-		starts = append(starts, m[0])
-	}
-
-	return starts
+	return slices.Compact(out)
 }
 
 // initArgMember is what variables.name holds when the file stores only an
@@ -303,14 +292,6 @@ func (r *Resolver) initArgDeclared(pr *parser.ParseResult, param string) string 
 	return r.bareArgumentComponent(arg.Type, pr)
 }
 
-// lineWritesNameRegex is lineWritesName as the expression it replaces, for a name
-// the scanner does not take, and the reference it is tested against.
-func lineWritesNameRegex(line, name string) bool {
-	q := regexp.QuoteMeta(name)
-
-	return compiledPattern(`(?i)(?:(?:^|[^\w.])(?:variables\.)?` + q + `\s*=[^=])|(?:\bset` + q + `\s*\()`).MatchString(line)
-}
-
 // hasWrittenFunc reports whether pr's source declares a function called name,
 // as opposed to one generated for a property: whether the parse found one
 // written in it, in either syntax.
@@ -334,29 +315,30 @@ func initStoredArg(pr *parser.ParseResult, name string) string {
 		return ""
 	}
 
-	// Every write the expression below matches names the variable.
-	if !mentions(pr.Content, name) {
+	// Every write below names the variable.
+	if name == "" || !mentions(pr.Content, name) {
 		return ""
 	}
 
-	plain := plainName(name)
-	write := func(line string) bool { return lineWritesNameRegex(line, name) }
+	// The lines that write it: `[variables.]name = …`, or a call to its
+	// setter.
+	code := fileCode(pr)
 
-	if plain {
-		write = func(line string) bool { return lineWritesName(line, name) }
+	var lines []int
+	for _, w := range codeWrites(code, name, writeRule{scopes: []string{"variables"}}) {
+		lines = append(lines, w.line())
 	}
+
+	for _, c := range codeCalls(code, "set"+name) {
+		lines = append(lines, int(c.name().Line))
+	}
+
+	slices.Sort(lines)
 
 	param := ""
 
-	i := -1
-
-	for line := range strings.Lines(pr.Content) {
-		i++
-		line = strings.TrimSuffix(line, "\n")
-
-		if !mentions(line, name) || !write(line) {
-			continue
-		}
+	for _, i := range slices.Compact(lines) {
+		line := sourceText(pr.Content, i, i+1)
 
 		m := initArgAssign(line)
 		if m == nil {

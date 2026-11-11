@@ -2,7 +2,6 @@ package resolve
 
 import (
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/conv"
@@ -416,7 +415,7 @@ func (r *Resolver) fw1ActionRcD(file, action, name, funcName string, depth int) 
 			continue
 		}
 
-		if !fw1Assigns(hpr.Content, scope, name) {
+		if !fw1Assigns(hpr, scope, name) {
 			if fn == action {
 				if comp, handed := r.fw1HandedRc(file, hpr, scope, name, funcName, depth); handed {
 					return comp
@@ -447,7 +446,7 @@ func (r *Resolver) fw1HandedRc(file string, hpr *parser.ParseResult, scope parse
 
 	for _, target := range fw1RcCalls(sourceText(hpr.Content, scope.Start, scope.End+1)) {
 		callee, ok := funcScope(hpr, target)
-		if !ok || strings.EqualFold(callee.Name, scope.Name) || !fw1Assigns(hpr.Content, callee, name) {
+		if !ok || strings.EqualFold(callee.Name, scope.Name) || !fw1Assigns(hpr, callee, name) {
 			continue
 		}
 
@@ -478,15 +477,12 @@ func funcScope(pr *parser.ParseResult, name string) (parser.FuncScope, bool) {
 	return parser.FuncScope{}, false
 }
 
-// fw1Assigns reports whether the function at scope assigns rc.name.
-func fw1Assigns(content string, scope parser.FuncScope, name string) bool {
-	re := compiledPattern(`(?i)\b(?:arguments\.)?rc\.` + regexp.QuoteMeta(name) + `\s*=[^=]`)
-
-	for line := range strings.Lines(sourceText(content, scope.Start, scope.End+1)) {
-		if mentions(line, "rc."+name) && re.MatchString(strings.TrimSuffix(line, "\n")) {
-			return true
-		}
+// fw1Assigns reports whether the function at scope assigns rc.name, or
+// arguments.rc.name, in its code.
+func fw1Assigns(pr *parser.ParseResult, scope parser.FuncScope, name string) bool {
+	if !mentions(sourceText(pr.Content, scope.Start, scope.End+1), name) {
+		return false
 	}
 
-	return false
+	return len(codeWrites(fileCodeOn(pr, scope.Start, scope.End), "rc."+name, writeRule{qualified: true})) > 0
 }
