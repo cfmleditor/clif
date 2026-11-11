@@ -293,7 +293,7 @@ func TestAControllersSetViewCallsAreReadOnce(t *testing.T) {
 		"}\n"
 
 	r := &Resolver{}
-	hpr := parser.Parse("file:///ws/controllers/product.cfc", src)
+	hpr := plainParseText("/ws/controllers/product.cfc", src)
 
 	got := r.fw1SetViews(hpr)
 	if len(got) != 2 {

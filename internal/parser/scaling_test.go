@@ -514,7 +514,7 @@ func TestScopeIndexAgreesWithTheScan(t *testing.T) {
 				t.Fatalf("round %d line %d: inclusive %d, findFuncScope %d", round, line, got, want)
 			}
 
-			wantName, got := pr.callerAtLine(line), ""
+			wantName, got := callerAtLine(pr.Scopes, line), ""
 			if k := exclusive(line); k >= 0 {
 				got = scopes[k].Name
 			}
@@ -524,6 +524,18 @@ func TestScopeIndexAgreesWithTheScan(t *testing.T) {
 			}
 		}
 	}
+}
+
+// callerAtLine is the scan scopeIndex's exclusive form replaced: the first
+// scope whose lines strictly hold lineNum.
+func callerAtLine(scopes []FuncScope, lineNum int) string {
+	for _, sc := range scopes {
+		if lineNum > sc.Start && lineNum < sc.End {
+			return sc.Name
+		}
+	}
+
+	return ""
 }
 
 // firstRef and refsOnLine answer from their index as the scans they replaced

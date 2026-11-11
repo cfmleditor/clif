@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"maps"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -58,7 +59,7 @@ type ParseResult struct {
 	ServicePropertyResolvers map[string]string
 	extractLinks             bool        // whether to extract links during global scan
 	extractCalls             bool        // whether to extract all call sites during parsing
-	findCalls                []string    // function names to scan for
+	findCalls                []string    // ParseOptions.FindCalls, lowercased
 	scanAllScopes            bool        // scan all lines including function bodies
 	shallow                  bool        // minimal parse mode
 	interpolateAll           bool        // ParseOptions.InterpolateAllText
@@ -216,9 +217,14 @@ type ParseOptions struct {
 	ServicePropertyResolvers map[string]string                       // "@serviceproperty" annotation kind → dot-path template
 	ExtractLinks             bool                                    // extract document links during global scan
 	ExtractCalls             bool                                    // extract all variable.method() call sites during parsing
-	FindCalls                []string                                // function names to find call sites for
-	ScanAllScopes            bool                                    // scan all lines including function bodies (for refs/deps)
-	Shallow                  bool                                    // minimal parse: signatures only, no refs/properties/args
+	// FindCalls is the function names to find call sites for, ignoring
+	// case, in Calls. With ExtractCalls it filters what that records; without
+	// it the walk records these names' calls alone, as ExtractCalls would,
+	// with their spans, receivers and chains, and nothing else changes
+	// (call_names.go).
+	FindCalls     []string
+	ScanAllScopes bool // scan all lines including function bodies (for refs/deps)
+	Shallow       bool // minimal parse: signatures only, no refs/properties/args
 	// InterpolateAllText scans #...# in all of a tag file's text, as the
 	// parser did before it learned where ColdFusion evaluates it (see
 	// outputContext), and reads a tag-free .cfm template as CFScript. It is
@@ -327,7 +333,7 @@ func ParseWithOptions(fileURI uri.URI, content string, opts *ParseOptions) *Pars
 		ServicePropertyResolvers: opts.ServicePropertyResolvers,
 		extractLinks:             opts.ExtractLinks,
 		extractCalls:             opts.ExtractCalls,
-		findCalls:                opts.FindCalls,
+		findCalls:                lowerNames(opts.FindCalls),
 		scanAllScopes:            opts.ScanAllScopes,
 		shallow:                  opts.Shallow,
 		interpolateAll:           opts.InterpolateAllText,
@@ -397,7 +403,7 @@ func (pr *ParseResult) mergeRegions(tagScopes []FuncScope) []pendingCall {
 		// identically over the corpus and against tag-shaped text inside a JS
 		// string, which is the case it was written for — and which is not a
 		// skip region, because it contains `<cf`.
-		if r.Kind == RegionSkip && !pr.extractCalls {
+		if r.Kind == RegionSkip && !pr.walksCalls() {
 			continue
 		}
 
@@ -646,7 +652,8 @@ func (pr *ParseResult) mergeScriptRegion(r *Region, tagScopes []FuncScope, open 
 	sp.baseOffset = r.Offset
 	sp.resolverSet = pr.resolverSet
 	sp.extractLinks = pr.extractLinks
-	sp.extractCalls = pr.extractCalls
+	sp.extractCalls = pr.walksCalls()
+	sp.setCallNames(pr.callNames())
 	sp.builtinReturnLookup = pr.BuiltinReturnLookup
 	sp.argumentTypes = pr.argumentTypeLookup()
 
@@ -759,7 +766,8 @@ func (pr *ParseResult) newRegionTagParser(r *Region, tagScopes []FuncScope) *tag
 	tp.resolvers = pr.Resolvers
 	tp.resolverSet = pr.resolverSet
 	tp.extractLinks = pr.extractLinks
-	tp.extractCalls = pr.extractCalls
+	tp.extractCalls = pr.walksCalls()
+	tp.callNames = pr.callNames()
 	tp.builtinReturnLookup = pr.BuiltinReturnLookup
 	tp.argumentTypes = pr.argumentTypeLookup()
 	tp.baseLine = r.StartLine
@@ -1307,54 +1315,35 @@ func (pr *ParseResult) replaceExpressions(comp string) string {
 	return comp
 }
 
-// appendResolverRefs scans content for function call sites (findCalls).
-// Resolver refs are now handled by the script/tag parsers during initial parse.
+// appendResolverRefs keeps in Calls the calls of the names the parse was
+// asked to find (findCalls), from every scope, in the order they are written.
 func (pr *ParseResult) appendResolverRefs() {
 	if len(pr.findCalls) == 0 {
 		return
 	}
 
-	if pr.extractCalls {
-		// Filter recorded calls by target function names
-		pr.filterCallsByName()
+	pr.filterCallsByName()
 
+	if pr.extractCalls {
 		return
 	}
 
-	content := pr.Content
-	lineNum := 0
-	scopeIdx := 0
-	currentFunc := ""
+	// Only these were recorded, and Calls now holds every one: FuncCalls of
+	// a parse that does not extract calls parses a body for its own.
+	pr.funcCallsMap = nil
+	pr.dropCallsIndex()
 
-	for content != "" {
-		nl := strings.IndexByte(content, '\n')
+	sort.SliceStable(pr.Calls, func(i, j int) bool { return callWrittenBefore(&pr.Calls[i], &pr.Calls[j]) })
+}
 
-		var line string
-
-		if nl < 0 {
-			line = content
-			content = ""
-		} else {
-			line = content[:nl]
-			content = content[nl+1:]
-		}
-
-		// Track current function scope
-		if scopeIdx < len(pr.Scopes) {
-			if lineNum > pr.Scopes[scopeIdx].End {
-				scopeIdx++
-				currentFunc = ""
-			}
-
-			if scopeIdx < len(pr.Scopes) && lineNum == pr.Scopes[scopeIdx].Start+1 {
-				currentFunc = pr.Scopes[scopeIdx].Name
-			}
-		}
-
-		pr.scanLineForCalls(line, lineNum, currentFunc)
-
-		lineNum++
+// callWrittenBefore reports whether a is written before b: by line, then by
+// where its span starts.
+func callWrittenBefore(a, b *CallSite) bool {
+	if a.Line != b.Line {
+		return a.Line < b.Line
 	}
+
+	return a.StartByte < b.StartByte
 }
 
 // filterCallsByName populates pr.Calls with calls from funcCallsMap and global

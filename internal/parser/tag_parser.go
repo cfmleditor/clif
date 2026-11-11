@@ -36,6 +36,9 @@ type tagParser struct {
 	resolverSet   *ResolverSet
 	extractLinks  bool // whether to extract document links
 	extractCalls  bool // whether to extract all call sites
+	// callNames, lowercased, are the only names whose calls are recorded
+	// (call_names.go); nil records every call.
+	callNames []string
 	// gated limits #...# scanning of text to where ColdFusion evaluates it,
 	// which output tracks as the walk passes each tag; srcOffset is this
 	// region's offset in the file. The attributes of CF tags and of
@@ -211,6 +214,7 @@ func (p *tagParser) parseNestedScript(idx int) int {
 	sp.baseOffset = p.srcOffset + bodyStart
 	sp.resolverSet = p.resolverSet
 	sp.extractCalls = p.extractCalls
+	sp.setCallNames(p.callNames)
 	sp.parse()
 	p.funcs = append(p.funcs, sp.funcs...)
 	p.vars = append(p.vars, sp.vars...)
@@ -1024,6 +1028,10 @@ func nearestComponentRef(refs []ComponentRef, lookupVar string, atLine int) *Com
 }
 
 func (p *tagParser) addCall(call *CallSite) {
+	if p.callNames != nil && !namedIn(p.callNames, call.FuncName) {
+		return
+	}
+
 	if p.inFunc == "" {
 		p.calls = append(p.calls, *call)
 	} else {

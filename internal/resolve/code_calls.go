@@ -5,19 +5,23 @@ import (
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/parser"
+	cfpath "github.com/cfmleditor/clif/internal/path"
 )
 
 // The readers that look for a framework's calls in a file — setView(),
-// hasMany(), map().to(), super.init(), dspObject_include() and the rest — read
-// the file's tokens rather than its bytes. A regular expression over the text
-// matched a call in a comment (`// setView( "old/view" )`) or inside a string,
-// and read the call's arguments by a quote rule of its own; the scanner skips
-// every comment, reads strings by the parse's rule, and a call's arguments
-// are the tokens between its parentheses.
+// hasMany(), map().to(), super.init(), dspObject_include() and the rest — take
+// them from the file's parse (parsedCalls): the parse records the calls of
+// readerCallNames, where they are written, with the receiver and the chain
+// they are made on, and a reader reads a call's arguments from the tokens of
+// its span. A regular expression over the text matched a call in a comment
+// (`// setView( "old/view" )`) or inside a string, and then a walk of each
+// file's tokens of its own read a function's declaration as a call of it.
 //
-// Code also runs inside a string: `"#renderView( 'x' )#"`. codeLists hands a
-// reader the tokens of each such expression as a list of its own, so a call
-// in one is read and a call is never split across a string's edge.
+// The guards and the windows of code the write readers walk are still tokens
+// (codeLists, codeCalls). Code also runs inside a string:
+// `"#renderView( 'x' )#"`. codeLists hands a reader the tokens of each such
+// expression as a list of its own, so a call in one is read and a call is
+// never split across a string's edge.
 
 // maxInterpolationDepth bounds how deep codeLists follows expressions inside
 // strings inside expressions.
@@ -107,9 +111,10 @@ func rawTokens(text string) []parser.Token {
 	return codeMemo.of(text, textCodeOf).raw
 }
 
-// textCalls is textCalls(text, names...), answered from the text's
-// call index: the file's tokens are walked once for every name any reader
-// asks about, not once per reader.
+// textCalls is codeCalls(textCode(text), names...), answered from the text's
+// call index: the file's tokens are walked once for every name asked about.
+// No reader asks it now; the framework readers take the parse's calls
+// (parsedCalls).
 func textCalls(text string, names ...string) []codeCall {
 	entry := codeMemo.of(text, textCodeOf)
 	entry.callsOnce.Do(func() { entry.calls = indexCalls(entry.lists) })
@@ -146,6 +151,84 @@ func indexCalls(lists [][]parser.Token) map[string][]callAt {
 	}
 
 	return calls
+}
+
+// readerCallNames are the calls the resolver's framework readers read:
+// renders, announcements, Wheels associations, WireBox's map().to(), cborm's
+// super.init(), includeUDF, Lucee's package listings and Mura's display
+// objects. Every plain parse records them (plainParseText), so a reader takes
+// a file's calls from the parse it already has, not from a walk of its own.
+var readerCallNames = slices.Concat(viewRenderNames, interceptAnnouncers, []string{
+	"hasMany", "belongsTo", "hasOne", "map", "to", "init", "includeUDF",
+	"ComponentListPackageAsStruct", "dspObject_include",
+})
+
+// plainParseText is the plain parse of content, the text of file: no
+// resolver, lookup or option but the readers' calls (readerCallNames).
+func plainParseText(file, content string) *parser.ParseResult {
+	return parser.ParseWithOptions(cfpath.ToURI(file), content, &parser.ParseOptions{FindCalls: readerCallNames})
+}
+
+// parsedCalls are the calls of names pr recorded, in the order they are
+// written, each read from its span in pr's text: its name, its parenthesis,
+// its arguments' tokens and the parenthesis closing them, at their offsets
+// and lines in the file. A call without a span (the parse could not place
+// it) is not one.
+func parsedCalls(pr *parser.ParseResult, names ...string) []parsedCall {
+	if pr == nil {
+		return nil
+	}
+
+	sites := pr.CallsWritten(names...)
+	out := make([]parsedCall, 0, len(sites))
+
+	for i := range sites {
+		if call, ok := spanCall(pr.Content, &sites[i]); ok {
+			out = append(out, call)
+		}
+	}
+
+	return out
+}
+
+// parsedCall is a call the parse recorded, as a codeCall over the tokens of
+// its own span, with the parse's record of it.
+type parsedCall struct {
+	codeCall
+
+	site *parser.CallSite
+}
+
+// spanCall reads the call site c from its span in content.
+func spanCall(content string, c *parser.CallSite) (parsedCall, bool) {
+	start, end := int(c.StartByte), int(c.EndByte)
+	if !c.HasSpan || start >= end || end > len(content) {
+		return parsedCall{}, false
+	}
+
+	tokens := make([]parser.Token, 0, 8)
+
+	sc := parser.NewScriptScanner(content[start:end])
+	for tok := sc.NextSkipComments(); tok.Kind != parser.TokEOF; tok = sc.NextSkipComments() {
+		if tok.Kind == parser.TokNewline {
+			continue
+		}
+
+		tok.Offset += start
+		tok.Line += int32(c.Line) //nolint:gosec // a line number of one file
+		tokens = append(tokens, tok)
+	}
+
+	if len(tokens) < 3 || tokens[0].Kind != parser.TokIdent || tokens[1].Kind != parser.TokLParen {
+		return parsedCall{}, false
+	}
+
+	closing := producerGroupEnd(tokens, 1, parser.TokLParen, parser.TokRParen)
+	if closing != len(tokens)-1 {
+		return parsedCall{}, false
+	}
+
+	return parsedCall{tokens: tokens, at: 0, closing: closing, site: c}, true
 }
 
 // textCodeOf is the text's entry, uncached. The raw list keeps no spare

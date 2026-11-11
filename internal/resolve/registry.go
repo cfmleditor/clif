@@ -190,19 +190,12 @@ func (r *Resolver) registryListingFamily(name string, pr *parser.ParseResult) (r
 func (r *Resolver) findRegistries(content, file string) []registryFact {
 	var facts []registryFact
 
-	// The template's functions, for a factory it hands the listing to; parsed
-	// only when one is looked for.
-	var parsed *parser.ParseResult
+	// The template's plain parse: its listings, and its functions for a
+	// factory it hands a listing to.
+	parsed := r.plainParseOf(file, content)
+	parse := func() *parser.ParseResult { return parsed }
 
-	parse := func() *parser.ParseResult {
-		if parsed == nil {
-			parsed = r.plainParseOf(file, content)
-		}
-
-		return parsed
-	}
-
-	for _, listing := range packageListings(content) {
+	for _, listing := range packageListings(parsed) {
 		pkg := listing.pkg
 		target := strings.TrimPrefix(listing.target, "variables.")
 

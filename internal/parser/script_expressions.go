@@ -20,14 +20,14 @@ func (p *scriptParser) readNewComponent() string {
 }
 
 // addInstantiation records that comp is built by the construction starting
-// at tok. Gated as a call is (addCall): only a parse that extracts calls
-// wants it. A look ahead that rewinds and walks the same text again records
+// at tok. Gated as a call is (addCall): only a parse that extracts every
+// call wants it, not one recording a few names' (call_names.go). A look ahead that rewinds and walks the same text again records
 // the same token, which is kept once. The token's offset is the file's where
 // the parse knows its origin: an interpolation's scanner, and every <cfset>
 // a tag file hands over, count from zero, and two constructions on one line
 // were the same entry.
 func (p *scriptParser) addInstantiation(comp string, tok Token) {
-	if !p.extractCalls || comp == "" || strings.HasPrefix(comp, "$") {
+	if !p.extractCalls || p.callNames() != nil || comp == "" || strings.HasPrefix(comp, "$") {
 		return
 	}
 
@@ -37,22 +37,22 @@ func (p *scriptParser) addInstantiation(comp string, tok Token) {
 	}
 
 	in := Instantiation{Component: comp, Line: conv.Uint32(p.baseLine + int(tok.Line)), at: at}
-	if p.instantiations == nil {
-		p.instantiations = &[]Instantiation{}
+	if p.extras == nil {
+		p.extras = &scriptExtras{}
 	}
 
-	if !slices.Contains(*p.instantiations, in) {
-		*p.instantiations = append(*p.instantiations, in)
+	if !slices.Contains(p.extras.instantiations, in) {
+		p.extras.instantiations = append(p.extras.instantiations, in)
 	}
 }
 
 // instantiationsFound is what addInstantiation recorded.
 func (p *scriptParser) instantiationsFound() []Instantiation {
-	if p.instantiations == nil {
+	if p.extras == nil {
 		return nil
 	}
 
-	return *p.instantiations
+	return p.extras.instantiations
 }
 
 // readNewComponentPath reads the component path after "new" keyword.

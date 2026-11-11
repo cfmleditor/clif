@@ -114,14 +114,14 @@ func (r *Resolver) wirebox() *wireboxWorkspace {
 			}
 		}
 
-		wb.addMaps(src, dir)
+		wb.addMaps(r.binderParse(m, src), dir)
 	}
 
 	for _, b := range binders {
 		if text, err := r.readText(b); err == nil {
 			// config/WireBox.cfc is the application's: its paths are read
 			// from the application's root, the directory above config/.
-			wb.addMaps(text, filepath.Dir(filepath.Dir(b)))
+			wb.addMaps(r.binderParse(b, text), filepath.Dir(filepath.Dir(b)))
 		}
 	}
 
@@ -132,14 +132,20 @@ func (r *Resolver) wirebox() *wireboxWorkspace {
 	return wb
 }
 
-// addMaps records every `map( id ).to( path )` in src.
-func (wb *wireboxWorkspace) addMaps(src, dir string) {
+// binderParse is the parse of file, which holds src, that its binder maps
+// are read from: its plain parse, or none when src cannot hold one.
+func (r *Resolver) binderParse(file, src string) *parser.ParseResult {
 	// `map( "id" ).to( "path" )`: a file without both words holds none.
 	if !mentions(src, "map") || !mentions(src, "to") {
-		return
+		return nil
 	}
 
-	for _, m := range binderMaps(src) {
+	return r.plainParseOf(file, src)
+}
+
+// addMaps records every `map( id ).to( path )` the parse pr recorded.
+func (wb *wireboxWorkspace) addMaps(pr *parser.ParseResult, dir string) {
+	for _, m := range binderMaps(pr) {
 		id := strings.ToLower(m[0])
 		if _, ok := wb.ids[id]; !ok {
 			wb.ids[id] = idTarget{path: m[1], dir: dir}
@@ -147,33 +153,42 @@ func (wb *wireboxWorkspace) addMaps(src, dir string) {
 	}
 }
 
-// binderMaps are the `map( "id" ).to( "path" )` calls in src's code, each id
-// and path trimmed: each call given one literal, the id holding no
-// expression.
-func binderMaps(src string) [][2]string {
+// binderMaps are the `map( "id" ).to( "path" )` calls the parse pr
+// recorded, each id and path trimmed: each call given one literal, the id
+// holding no expression. A to() is the map()'s when the parse chains it on a
+// map() hop, and the map() is the last one to close before it.
+func binderMaps(pr *parser.ParseResult) [][2]string {
 	var out [][2]string
 
-	if !mentions(src, "map") || !mentions(src, "to") {
+	mapCalls := parsedCalls(pr, "map")
+	if len(mapCalls) == 0 {
 		return out
 	}
 
-	for _, call := range textCalls(src, "map") {
-		id, ok := soleString(call.args())
+	for _, to := range parsedCalls(pr, "to") {
+		chain := to.site.Chain
+		if len(chain) == 0 || !strings.EqualFold(parser.CallHopName(chain[len(chain)-1]), "map") {
+			continue
+		}
+
+		var hop *parsedCall
+
+		for i := range mapCalls {
+			if mapCalls[i].end() <= to.name().Offset && (hop == nil || mapCalls[i].end() > hop.end()) {
+				hop = &mapCalls[i]
+			}
+		}
+
+		if hop == nil {
+			continue
+		}
+
+		id, ok := soleString(hop.args())
 		if !ok || strings.TrimSpace(id) == "" || strings.Contains(id, "#") {
 			continue
 		}
 
-		to := call.closing + 1
-		if to+2 >= len(call.tokens) || call.tokens[to].Kind != parser.TokDot || !isWord(call.tokens[to+1], "to") || call.tokens[to+2].Kind != parser.TokLParen {
-			continue
-		}
-
-		closing := producerGroupEnd(call.tokens, to+2, parser.TokLParen, parser.TokRParen)
-		if closing < 0 {
-			continue
-		}
-
-		if path, ok := soleString(call.tokens[to+3 : closing]); ok && strings.TrimSpace(path) != "" {
+		if path, ok := soleString(to.args()); ok && strings.TrimSpace(path) != "" {
 			out = append(out, [2]string{strings.TrimSpace(id), strings.TrimSpace(path)})
 		}
 	}
