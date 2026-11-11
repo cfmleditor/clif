@@ -2,7 +2,6 @@ package resolve
 
 import (
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"time"

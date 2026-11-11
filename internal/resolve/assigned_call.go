@@ -1,7 +1,6 @@
 package resolve
 
 import (
-	"regexp"
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/conv"
