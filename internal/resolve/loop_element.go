@@ -29,9 +29,7 @@ import (
 //
 // Anything else gives no element type and the variable stays untyped.
 
-var (
-	maxElementHops = 4
-)
+var maxElementHops = 4
 
 // loopElement is the component call's receiver holds as the variable of a loop
 // around the call, or "".
