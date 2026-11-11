@@ -1426,6 +1426,13 @@ func (pr *ParseResult) lineAt(off int) int {
 	return pr.lineStartsTable().LineOf(off)
 }
 
+// LineOf is the 0-based line of Content holding byte offset off, from the
+// line table the parse result keeps: a caller asking for many offsets in one
+// file does not count from the top for each.
+func (pr *ParseResult) LineOf(off int) int {
+	return pr.lineAt(off)
+}
+
 func (pr *ParseResult) lineStartsTable() LineTable {
 	pr.lineStartsMu.Lock()
 	defer pr.lineStartsMu.Unlock()

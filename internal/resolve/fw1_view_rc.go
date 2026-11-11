@@ -282,7 +282,7 @@ func (r *Resolver) fw1ActionsUncached(controllers, section, item string) []fw1Ac
 				continue
 			}
 
-			line := strings.Count(hpr.Content[:sv.at], "\n")
+			line := hpr.LineOf(sv.at)
 
 			scope := hpr.FuncScopeAt(line)
 			if scope.Start == -1 {

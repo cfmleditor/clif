@@ -13,19 +13,6 @@ import (
 // TestListingScannersMatchTheirExpressions holds them to it. IncludeSites
 // finds the includes themselves with the document walk (includes.go).
 
-// isRegexpSpace is \s in Go's regexp syntax: no vertical tab.
-func isRegexpSpace(c byte) bool {
-	return c == ' ' || c == '\t' || c == '\n' || c == '\f' || c == '\r'
-}
-
-func skipRegexpSpace(s string, i int) int {
-	for i < len(s) && isRegexpSpace(s[i]) {
-		i++
-	}
-
-	return i
-}
-
 // wordStartAt is \b before s[i] when s[i] is a word byte.
 func wordStartAt(s string, i int) bool {
 	return i == 0 || !lex.IsWord(s[i-1])
@@ -123,7 +110,7 @@ func listingDir(s string) (string, bool) {
 
 	for _, part := range []string{"#", "getDirectoryFromPath", "(", "getCurrentTemplatePath", "(", ")", ")", "#"} {
 		if part != "#" || i > 0 {
-			i = skipRegexpSpace(s, i)
+			i = lex.SkipRegexpSpace(s, i)
 		}
 
 		if !lex.HasPrefixFold(s[i:], part) {
@@ -167,7 +154,7 @@ func listingIncludePath(p string) (prefix, query string, ok bool) {
 		return "", "", false
 	}
 
-	q := skipRegexpSpace(p, k+1)
+	q := lex.SkipRegexpSpace(p, k+1)
 
 	r := q
 	for r < len(p) && (lex.IsWord(p[r]) || p[r] == '$') {
@@ -178,7 +165,7 @@ func listingIncludePath(p string) (prefix, query string, ok bool) {
 		return "", "", false
 	}
 
-	e := skipRegexpSpace(p, r+len(".name"))
+	e := lex.SkipRegexpSpace(p, r+len(".name"))
 	if e != len(p)-1 || p[e] != '#' {
 		return "", "", false
 	}

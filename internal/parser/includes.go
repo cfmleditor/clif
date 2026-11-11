@@ -207,6 +207,7 @@ func includeWrappersIn(content string, argIncludes []IncludeSite) map[string]Inc
 	}
 
 	scopes := FindFuncScopes(content)
+	lines := NewLineTable(content)
 
 	var (
 		defs     []FunctionDef
@@ -214,7 +215,7 @@ func includeWrappersIn(content string, argIncludes []IncludeSite) map[string]Inc
 	)
 
 	for _, inc := range argIncludes {
-		line := strings.Count(content[:inc.Offset], "\n")
+		line := lines.LineOf(inc.Offset)
 
 		var fn string
 
@@ -514,7 +515,7 @@ func listsTemplates(content, dir string) bool {
 // i, bounded by callWindow; quotes are not stepped over, which a listing's
 // arguments do not need.
 func callArgs(content string, i int) (string, bool) {
-	i = skipRegexpSpace(content, i)
+	i = lex.SkipRegexpSpace(content, i)
 	if i >= len(content) || content[i] != '(' {
 		return "", false
 	}

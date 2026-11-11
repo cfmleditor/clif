@@ -125,8 +125,14 @@ func (r *Resolver) computedIncludesOf(path string) computedIncludeFile {
 	}
 
 	if text, err := r.readText(path); err == nil {
+		var lines parser.LineTable
+
 		for _, at := range computedIncludeOffsets(text) {
-			inc.lines = append(inc.lines, strings.Count(text[:at], "\n"))
+			if lines == nil {
+				lines = parser.NewLineTable(text)
+			}
+
+			inc.lines = append(inc.lines, lines.LineOf(at))
 		}
 
 		if len(inc.lines) > 0 {
