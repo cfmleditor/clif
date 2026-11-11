@@ -703,10 +703,49 @@ type appRef struct {
 // applicationRefs will look through.
 const maxApplicationHops = 8
 
-// applicationNameRe finds the line that names an application, in either syntax:
-// `this.name = …` in a component, `<cfapplication name="…">` or
-// `cfapplication( name = "…" )`.
-var applicationNameRe = regexp.MustCompile(`(?i)\bthis\.name\s*=|<cfapplication\b[^>]*\bname\s*=|\bcfapplication\s*\([^)]*\bname\s*=`)
+// namesAnApplication reports whether text's code names an application, in
+// either syntax: `this.name = …` in a component, `<cfapplication name="…">`
+// or `cfapplication( name = "…" )`.
+func namesAnApplication(text string) bool {
+	if !mentions(text, "name") {
+		return false
+	}
+
+	for _, code := range textCode(text) {
+		for i := range code {
+			switch {
+			case isWord(code[i], "this") && i+3 < len(code) && code[i+1].Kind == parser.TokDot && isWord(code[i+2], "name") && isAssignAt(code, i+3):
+				return true
+			case isWord(code[i], "cfapplication") && i > 0 && code[i-1].Kind == parser.TokLT && code[i-1].Offset+1 == code[i].Offset:
+				if attributeNamed(code[i+1:], "name", parser.TokGT) {
+					return true
+				}
+			case isWord(code[i], "cfapplication") && i+1 < len(code) && code[i+1].Kind == parser.TokLParen:
+				if end := producerGroupEnd(code, i+1, parser.TokLParen, parser.TokRParen); end > 0 && attributeNamed(code[i+2:end], "name", parser.TokEOF) {
+					return true
+				}
+			}
+		}
+	}
+
+	return false
+}
+
+// attributeNamed reports whether tokens, up to the first of kind stop, set
+// name: `name =`.
+func attributeNamed(tokens []parser.Token, name string, stop parser.TokenKind) bool {
+	for j, t := range tokens {
+		if t.Kind == stop {
+			return false
+		}
+
+		if isWord(t, name) && isAssignAt(tokens, j+1) {
+			return true
+		}
+	}
+
+	return false
+}
 
 // applicationRefs is the first ref for name in the governing Application.cfc
 // and then Application.cfm, for each that has one.
@@ -779,7 +818,7 @@ func (r *Resolver) namesApplication(appDir string) bool {
 
 	for _, appName := range []string{"Application.cfc", "Application.cfm"} {
 		text, err := r.readText(filepath.Join(appDir, appName))
-		if err == nil && applicationNameRe.MatchString(text) {
+		if err == nil && namesAnApplication(text) {
 			v = true
 
 			break

@@ -3,7 +3,6 @@ package resolve
 import (
 	"maps"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -39,8 +38,6 @@ type wireboxWorkspace struct {
 type idTarget struct {
 	path, dir string
 }
-
-var binderMapRe = regexp.MustCompile(`(?is)\bmap\(\s*["']([^"'#]+)["']\s*\)\s*\.\s*to\(\s*["']([^"']+)["']\s*\)`)
 
 // wirebox reads every ModuleConfig.cfc and config/WireBox.cfc the index
 // holds, remembered until that set of files changes, as applicationHelpers
@@ -138,16 +135,46 @@ func (r *Resolver) wirebox() *wireboxWorkspace {
 // addMaps records every `map( id ).to( path )` in src.
 func (wb *wireboxWorkspace) addMaps(src, dir string) {
 	// `map( "id" ).to( "path" )`: a file without both words holds none.
-	if !mentions(src, "map(") || !mentions(src, "to(") {
+	if !mentions(src, "map") || !mentions(src, "to") {
 		return
 	}
 
-	for _, m := range binderMapRe.FindAllStringSubmatch(src, -1) {
-		id := strings.ToLower(strings.TrimSpace(m[1]))
+	for _, m := range binderMaps(src) {
+		id := strings.ToLower(m[0])
 		if _, ok := wb.ids[id]; !ok {
-			wb.ids[id] = idTarget{path: strings.TrimSpace(m[2]), dir: dir}
+			wb.ids[id] = idTarget{path: m[1], dir: dir}
 		}
 	}
+}
+
+// binderMaps are the `map( "id" ).to( "path" )` calls in src's code, each id
+// and path trimmed: each call given one literal, the id holding no
+// expression.
+func binderMaps(src string) [][2]string {
+	var out [][2]string
+
+	for _, call := range codeCalls(textCode(src), "map") {
+		id, ok := soleString(call.args())
+		if !ok || strings.TrimSpace(id) == "" || strings.Contains(id, "#") {
+			continue
+		}
+
+		to := call.closing + 1
+		if to+2 >= len(call.tokens) || call.tokens[to].Kind != parser.TokDot || !isWord(call.tokens[to+1], "to") || call.tokens[to+2].Kind != parser.TokLParen {
+			continue
+		}
+
+		closing := producerGroupEnd(call.tokens, to+2, parser.TokLParen, parser.TokRParen)
+		if closing < 0 {
+			continue
+		}
+
+		if path, ok := soleString(call.tokens[to+3 : closing]); ok && strings.TrimSpace(path) != "" {
+			out = append(out, [2]string{strings.TrimSpace(id), strings.TrimSpace(path)})
+		}
+	}
+
+	return out
 }
 
 // wireboxID is ComponentPath's answer for a WireBox id: a mapped one's

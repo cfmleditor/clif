@@ -45,10 +45,6 @@ type registryFact struct {
 }
 
 var (
-	// ComponentListPackageAsStruct("lucee.admin.debug", driverNames): a listing
-	// literal and the struct it merges into.
-	pkgListRe = regexp.MustCompile(`(?i)\bComponentListPackageAsStruct\s*\(\s*["']([^"']*)["']\s*,\s*((?:variables\.)?[A-Za-z_]\w*)\s*\)`)
-
 	// <cfloop ...> and </cfloop>, for a listing loop's span. Group 1 is the
 	// close tag's slash, group 2 is the open tag's attribute text.
 
@@ -59,44 +55,9 @@ var (
 	// The header's attributes, quoted or bare.
 	loopAttrPairsRe = regexp.MustCompile(`(?i)\b(collection|struct|array|index|item|list)\s*=\s*(?:"([^"]*)"|'([^']*)'|([A-Za-z_][\w]*))`)
 
-	// A compare of the listing key with a name. Group 2 is the operator:
-	// equal to a name and skipping keeps it out, as does unequal to one and
-	// constructing; registrySkips reads which.
-	skipCompareRe = regexp.MustCompile(`(?i)\b([A-Za-z_]\w*)\s*(===?|!==|!=|\bEQ\b|\bNEQ\b)\s*["']([^"']+)["']`)
-
-	// R[key] = createObject("component", V), written right on the store.
-	directStoreRe = regexp.MustCompile(`(?i)((?:variables\.)?[A-Za-z_]\w*)\s*\[[^\]]*\]\s*=\s*createObject\s*\(\s*["']\s*component\s*["']\s*,\s*([^)]*?)\s*\)`)
-
-	// R[key] = V: the store of a variable into the registry.
-	registryStoreRe = regexp.MustCompile(`(?i)((?:variables\.)?[A-Za-z_]\w*)\s*\[[^\]]*\]\s*=\s*([A-Za-z_]\w*)\s*;?`)
-
-	// V = createObject("component", path): the variable the construction was
-	// assigned to, and the path it spells.
-	createdAssignRe = regexp.MustCompile(`(?i)\b([A-Za-z_]\w*)\s*=\s*createObject\s*\(\s*["']\s*component\s*["']\s*,\s*([^)]*?)\s*\)`)
-
-	// arrayAppend(ARR, createObject("component", V)): the constructions the
-	// listing's loop ships into an array a factory call turns into the
-	// registry.
-	arrayAppendCreateRe = regexp.MustCompile(`(?i)\barrayAppend\s*\(\s*((?:variables\.)?[A-Za-z_]\w*)\s*,\s*createObject\s*\(\s*["']\s*component\s*["']\s*,\s*([^)]*?)\s*\)`)
-
-	// arrayAppend(ARR, V), where V is the variable the construction was
-	// assigned to.
-	arrayAppendVarRe = regexp.MustCompile(`(?i)\barrayAppend\s*\(\s*((?:variables\.)?[A-Za-z_]\w*)\s*,\s*([A-Za-z_]\w*)\s*\)`)
-
-	// CONTAINER = FN(ARR ...): the assignment whose right side is the call
-	// that turns an appended array into the struct the page reads back.
-	factoryCallRe = regexp.MustCompile(`(?i)\b((?:variables\.)?[A-Za-z_]\w*)\s*=\s*([A-Za-z_]\w*)\s*\(\s*((?:variables\.)?[A-Za-z_]\w*)\s*(?:,|\))`)
-
 	// function FN(...): the script definition of a factory function's name
 	// and its parameter list.
 	factoryDefRe = regexp.MustCompile(`(?i)\bfunction\s+([A-Za-z_]\w*)\s*\(([^)]*)\)`)
-
-	// loop array=arguments.P item="X": the factory body's walk of the array
-	// its argument received.
-	factoryLoopRe = regexp.MustCompile(`(?i)\bloop\s+array=arguments\.([A-Za-z_]\w*)\s+item="([^"]*)"`)
-
-	// for (X in arguments.P): the factory body's walk, script for-in form.
-	factoryForRe = regexp.MustCompile(`(?i)\bfor\s*\(\s*(?:var\s+)?([A-Za-z_]\w*)\s+in\s+arguments\.([A-Za-z_]\w*)\b`)
 )
 
 // registriesOf is the registry facts the template's own text holds, read for
@@ -246,11 +207,11 @@ func (r *Resolver) registryListingFamily(name string, pr *parser.ParseResult) (r
 func (r *Resolver) findRegistries(content, file string) []registryFact {
 	var facts []registryFact
 
-	for _, listing := range pkgListRe.FindAllStringSubmatchIndex(content, -1) {
-		pkg := content[listing[2]:listing[3]]
-		target := strings.TrimPrefix(content[listing[4]:listing[5]], "variables.")
+	for _, listing := range packageListings(content) {
+		pkg := listing.pkg
+		target := strings.TrimPrefix(listing.target, "variables.")
 
-		span, ok := listingLoopSpan(content, target, listing[1])
+		span, ok := listingLoopSpan(content, target, listing.end)
 		if !ok {
 			continue
 		}
@@ -443,15 +404,20 @@ func skipQuoted(content string, i int) int {
 // stores what the listing's item constructed: a createObject written right
 // on the store, or the variable an earlier createObject was assigned to.
 func registryContainer(spanText, item string) (string, bool) {
-	for _, m := range directStoreRe.FindAllStringSubmatch(spanText, -1) {
-		if pathsToItem(spanText, m[2], item) {
-			return m[1], true
+	span := codeLists(allTokens(spanText))[0]
+	stores := registryStores(span)
+
+	// R[key] = createObject("component", V), written right on the store.
+	for _, s := range stores {
+		if path, ok := createdComponentArg(span, s.value); ok && pathsToItem(span, path, item) {
+			return s.registry, true
 		}
 	}
 
-	for _, m := range registryStoreRe.FindAllStringSubmatch(spanText, -1) {
-		if assignedFromCreate(spanText, m[2], item) {
-			return m[1], true
+	// R[key] = V: the store of a variable into the registry.
+	for _, s := range stores {
+		if s.value < len(span) && span[s.value].Kind == parser.TokIdent && assignedFromCreate(span, span[s.value].Value, item) {
+			return s.registry, true
 		}
 	}
 
@@ -473,19 +439,33 @@ func registryContainer(spanText, item string) (string, bool) {
 // function must prove the shape: its first parameter the call's argument, a
 // walk of `arguments.` it on the item a store and a return agree on.
 func factoryContainer(content string, from int, item string) (string, bool) {
-	spanText := content[:from]
+	before := codeLists(tokenize(content[:from]))[0]
+	appends := codeCalls([][]parser.Token{before}, "arrayAppend")
 
 	var arrs []string
 
-	for _, m := range arrayAppendCreateRe.FindAllStringSubmatch(spanText, -1) {
-		if pathsToItem(spanText, m[2], item) && !slices.ContainsFunc(arrs, func(a string) bool { return strings.EqualFold(a, m[1]) }) {
-			arrs = append(arrs, m[1])
+	add := func(arr string) {
+		if !slices.ContainsFunc(arrs, func(a string) bool { return strings.EqualFold(a, arr) }) {
+			arrs = append(arrs, arr)
 		}
 	}
 
-	for _, m := range arrayAppendVarRe.FindAllStringSubmatch(spanText, -1) {
-		if assignedFromCreate(spanText, m[2], item) && !slices.ContainsFunc(arrs, func(a string) bool { return strings.EqualFold(a, m[1]) }) {
-			arrs = append(arrs, m[1])
+	// arrayAppend(ARR, createObject("component", V)): the constructions the
+	// listing's loop ships into an array a factory call turns into the
+	// registry.
+	for _, call := range appends {
+		if arr, value, n := appendArgs(call); n > 0 {
+			if path, created := createdComponentArg(value, 0); created && pathsToItem(before, path, item) {
+				add(arr)
+			}
+		}
+	}
+
+	// arrayAppend(ARR, V), where V is the variable the construction was
+	// assigned to.
+	for _, call := range appends {
+		if arr, value, n := appendArgs(call); n == 2 && len(value) == 1 && value[0].Kind == parser.TokIdent && assignedFromCreate(before, value[0].Value, item) {
+			add(arr)
 		}
 	}
 
@@ -493,13 +473,15 @@ func factoryContainer(content string, from int, item string) (string, bool) {
 		return "", false
 	}
 
-	for _, m := range factoryCallRe.FindAllStringSubmatch(content[from:], -1) {
-		if !slices.ContainsFunc(arrs, func(a string) bool { return strings.EqualFold(a, m[3]) }) {
+	// CONTAINER = FN(ARR ...): the assignment whose right side is the call
+	// that turns an appended array into the struct the page reads back.
+	for _, call := range factoryCalls(codeLists(tokenize(content[from:]))[0]) {
+		if !slices.ContainsFunc(arrs, func(a string) bool { return strings.EqualFold(a, call.arg) }) {
 			continue
 		}
 
-		if factoryFillsRegistry(content, m[2]) {
-			return m[1], true
+		if factoryFillsRegistry(content, call.fn) {
+			return call.container, true
 		}
 	}
 
@@ -570,43 +552,41 @@ func factoryFillsRegistry(content, fn string) bool {
 // return names. A walk the store's key or value does not keep to leaves the
 // shape unproven.
 func factoryBodyFills(body, param string) bool {
-	var item string
+	code := codeLists(allTokens(body))[0]
 
-	if m := factoryLoopRe.FindStringSubmatch(body); m != nil && strings.EqualFold(m[1], param) {
-		item = strings.TrimPrefix(strings.TrimPrefix(m[2], "local."), "var ")
-	} else if m := factoryForRe.FindStringSubmatch(body); m != nil && strings.EqualFold(m[2], param) {
-		item = m[1]
-	} else {
+	item, ok := factoryWalkItem(code, param)
+	if !ok || item == "" {
 		return false
 	}
 
-	if item == "" {
-		return false
+	// The first store of the walked item, `sct[...] = item`, and a return of
+	// the struct it stores into.
+	for _, s := range registryStores(code) {
+		value := s.value
+		if value+2 < len(code) && isWord(code[value], "local") && code[value+1].Kind == parser.TokDot {
+			value += 2
+		}
+
+		if !nameAt(code, value, item) {
+			continue
+		}
+
+		return returnsName(code, s.ident)
 	}
 
-	store := compiledPattern(`(?i)\b([A-Za-z_]\w*)\s*\[[^\]]*\]\s*=\s*(?:local\.)?` + regexp.QuoteMeta(item) + `\b`)
-
-	m := store.FindStringSubmatch(body)
-	if m == nil {
-		return false
-	}
-
-	ret := compiledPattern(`(?i)\breturn\s+(?:variables\.)?` + regexp.QuoteMeta(m[1]) + `\b`)
-
-	return ret.MatchString(body)
+	return false
 }
 
 // pathsToItem is whether the construction's path names the listing's item,
-// or a variable the item was assigned to in the span.
-func pathsToItem(spanText, pathVar, item string) bool {
-	if strings.EqualFold(strings.TrimPrefix(pathVar, "variables."), item) {
+// or a variable the item was assigned to in the span's code.
+func pathsToItem(span []parser.Token, pathVar, item string) bool {
+	pathVar = strings.TrimPrefix(pathVar, "variables.")
+	if strings.EqualFold(pathVar, item) {
 		return true
 	}
 
-	re := compiledPattern(`(?i)\b(?:var\s+)?([A-Za-z_]\w*)\s*=\s*` + regexp.QuoteMeta(item) + `\b`)
-
-	for _, m := range re.FindAllStringSubmatch(spanText, -1) {
-		if strings.EqualFold(m[1], strings.TrimPrefix(pathVar, "variables.")) {
+	for i := 1; i+1 < len(span); i++ {
+		if isAssignAt(span, i) && span[i-1].Kind == parser.TokIdent && strings.EqualFold(span[i-1].Value, pathVar) && nameAt(span, i+1, item) {
 			return true
 		}
 	}
@@ -615,18 +595,15 @@ func pathsToItem(spanText, pathVar, item string) bool {
 }
 
 // assignedFromCreate is whether name is the variable an in-span
-// createObject(...) of the listing's item was assigned to.
-func assignedFromCreate(spanText, name, item string) bool {
-	if strings.ContainsAny(name, "([(\"") {
-		return false
-	}
-
-	for _, m := range createdAssignRe.FindAllStringSubmatch(spanText, -1) {
-		if !strings.EqualFold(m[1], name) {
+// createObject(...) of the listing's item was assigned to: `name =
+// createObject( "component", V )`.
+func assignedFromCreate(span []parser.Token, name, item string) bool {
+	for i := 1; i+1 < len(span); i++ {
+		if !isAssignAt(span, i) || span[i-1].Kind != parser.TokIdent || !strings.EqualFold(span[i-1].Value, name) {
 			continue
 		}
 
-		if pathsToItem(spanText, m[2], item) {
+		if path, ok := createdComponentArg(span, i+1); ok && pathsToItem(span, path, item) {
 			return true
 		}
 	}
@@ -646,20 +623,17 @@ func registrySkips(spanText, index string) []string {
 
 	var skips []string
 
-	for _, m := range skipCompareRe.FindAllStringSubmatchIndex(spanText, -1) {
-		if !strings.EqualFold(spanText[m[2]:m[3]], index) {
+	for _, c := range keyCompares(codeLists(allTokens(spanText))[0]) {
+		if !strings.EqualFold(c.key, index) {
 			continue
 		}
 
-		op := strings.ToLower(spanText[m[4]:m[5]])
-		equal := op == "==" || op == "===" || op == "eq"
-
-		if equal != guardSkips(spanText[m[1]:], insideCFTag(spanText[:m[0]])) {
+		if c.equal != guardSkips(spanText[c.end:], insideCFTag(spanText[:c.start])) {
 			continue
 		}
 
-		if name := spanText[m[6]:m[7]]; !slices.Contains(skips, name) {
-			skips = append(skips, name)
+		if !slices.Contains(skips, c.name) {
+			skips = append(skips, c.name)
 		}
 	}
 

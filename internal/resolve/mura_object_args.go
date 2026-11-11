@@ -53,8 +53,6 @@ type muraObjectSite struct {
 // template short of the collection that builds it.
 const maxHandOffDepth = maxAssignedDepth + 1
 
-var muraObjectStartRe = regexp.MustCompile(`(?i)\bdspObject_include\s*\(`)
-
 // muraObjectArg is the component variable holds in the display-object
 // template pr, as the dspObject_include calls naming it pass it, or "".
 func (r *Resolver) muraObjectArg(variable string, pr *parser.ParseResult, tr *callTrace, ctx lookupCtx) string {
@@ -266,24 +264,13 @@ func (r *Resolver) muraObjectSites() []muraObjectSite {
 
 // muraObjectSitesIn reads the dspObject_include calls in content.
 func muraObjectSitesIn(content, file string) []muraObjectSite {
-	var out []muraObjectSite
+	calls := muraObjectCalls(content)
+	out := make([]muraObjectSite, 0, len(calls))
 
-	lines := parser.NewLineTable(content)
+	for _, call := range calls {
+		site := muraObjectSite{file: file, line: int(call.name().Line), named: map[string][]parser.Token{}}
 
-	for _, m := range muraObjectStartRe.FindAllStringIndex(content, -1) {
-		tokens := significantTokens(content[m[0]:min(len(content), m[0]+renderWindow)])
-		if len(tokens) < 2 || tokens[1].Kind != parser.TokLParen {
-			continue
-		}
-
-		end := producerGroupEnd(tokens, 1, parser.TokLParen, parser.TokRParen)
-		if end < 0 {
-			continue
-		}
-
-		site := muraObjectSite{file: file, line: lines.LineOf(m[0]), named: map[string][]parser.Token{}}
-
-		for _, piece := range producerSplit(tokens[2:end]) {
+		for _, piece := range producerSplit(call.args()) {
 			if len(piece) < 3 || piece[0].Kind != parser.TokIdent || piece[1].Kind != parser.TokEquals {
 				// A positional argument: theFile is the fourth, and the
 				// call cannot be placed.
@@ -309,27 +296,15 @@ func muraObjectSitesIn(content, file string) []muraObjectSite {
 // withoutMuraObjectArgs is content with the argument list of each
 // dspObject_include call blanked, newlines kept.
 func withoutMuraObjectArgs(content string) string {
-	matches := muraObjectStartRe.FindAllStringIndex(content, -1)
-	if len(matches) == 0 {
+	calls := muraObjectCalls(content)
+	if len(calls) == 0 {
 		return content
 	}
 
 	b := []byte(content)
 
-	for _, m := range matches {
-		window := content[m[0]:min(len(content), m[0]+renderWindow)]
-
-		tokens := significantTokens(window)
-		if len(tokens) < 2 || tokens[1].Kind != parser.TokLParen {
-			continue
-		}
-
-		end := producerGroupEnd(tokens, 1, parser.TokLParen, parser.TokRParen)
-		if end < 0 {
-			continue
-		}
-
-		for i := m[0] + tokens[1].Offset; i < m[0]+tokens[end].Offset; i++ {
+	for _, call := range calls {
+		for i := call.tokens[call.at+1].Offset; i < call.tokens[call.closing].Offset; i++ {
 			if b[i] != '\n' {
 				b[i] = ' '
 			}
@@ -337,6 +312,16 @@ func withoutMuraObjectArgs(content string) string {
 	}
 
 	return string(b)
+}
+
+// muraObjectCalls are the dspObject_include calls in content's tokens: none
+// in a comment or a string.
+func muraObjectCalls(content string) []codeCall {
+	if !mentions(content, "dspObject_include") {
+		return nil
+	}
+
+	return codeCalls(textCode(content), "dspObject_include")
 }
 
 // muraObjectTarget is a pattern for the templates a theFile value can name:

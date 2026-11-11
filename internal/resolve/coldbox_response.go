@@ -2,7 +2,6 @@ package resolve
 
 import (
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/parser"
@@ -18,12 +17,10 @@ import (
 
 const coldboxResponse = "coldbox.system.web.context.Response"
 
-var prcResponseWriteRe = regexp.MustCompile(`(?i)\bprc\s*(?:\.\s*response|\[\s*["']response["']\s*\])\s*=[^=]`)
-
 // coldboxPrcResponse is ColdBox's Response for prc.response in a handler, or "".
 func (r *Resolver) coldboxPrcResponse(variable string, pr *parser.ParseResult) string {
 	v := strings.ToLower(strings.TrimPrefix(strings.ToLower(variable), "arguments."))
-	if v != "prc.response" || !pr.URI.IsFile() || mentions(pr.Content, "response") && writesPrcResponse(pr.Content) {
+	if v != "prc.response" || !pr.URI.IsFile() || mentions(pr.Content, "response") && writesPrcResponse(fileTokens(pr)) {
 		return ""
 	}
 
@@ -60,6 +57,39 @@ func (r *Resolver) reachesEventHandler(path string) bool {
 		}
 
 		path = next
+	}
+
+	return false
+}
+
+// writesPrcResponse reports whether tokens, a file's, assign prc.response or
+// prc["response"]: written in code, not in a comment or a string.
+func writesPrcResponse(tokens []parser.Token) bool {
+	for _, code := range codeLists(tokens) {
+		for i := 0; i+3 < len(code); i++ {
+			if !isWord(code[i], "prc") {
+				continue
+			}
+
+			next := i + 1
+
+			switch {
+			case code[next].Kind == parser.TokDot && isWord(code[next+1], "response"):
+				next += 2
+			case code[next].Kind == parser.TokLBracket && next+2 < len(code) && code[next+2].Kind == parser.TokRBracket:
+				if lit, ok := stringLiteral(code[next+1]); !ok || !strings.EqualFold(lit, "response") {
+					continue
+				}
+
+				next += 3
+			default:
+				continue
+			}
+
+			if isAssignAt(code, next) {
+				return true
+			}
+		}
 	}
 
 	return false

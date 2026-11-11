@@ -2,9 +2,10 @@ package resolve
 
 import (
 	"path/filepath"
-	"regexp"
 	"strings"
 
+	"github.com/cfmleditor/clif/internal/conv"
+	"github.com/cfmleditor/clif/internal/lex"
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
 )
@@ -83,11 +84,52 @@ func (r *Resolver) receiverReturn(path, method string) string {
 	return r.muraLoadBy(path, method)
 }
 
-// associationRe is a Wheels association in a model's config():
+// wheelsAssociation is a Wheels association in a model's config():
 // `hasMany( "comments" )`, `belongsTo( name = "author", modelName = "User" )`.
-var associationRe = regexp.MustCompile(`(?is)\b(hasMany|belongsTo|hasOne)\(\s*(?:name\s*=\s*)?["'](\w+)["']([^)]*)\)`)
+type wheelsAssociation struct {
+	kind, name, model string // model is "" when modelName names none
+	line              int
+}
 
-var modelNameArgRe = regexp.MustCompile(`(?i)\bmodelName\s*=\s*["'](\w+)["']`)
+// wheelsAssociationCalls are the associations src declares in its code: a
+// hasMany, belongsTo or hasOne call whose first argument, positionally or as
+// name =, is a literal name.
+func wheelsAssociationCalls(src string) []wheelsAssociation {
+	var out []wheelsAssociation
+
+	for _, call := range codeCalls(textCode(src), "hasMany", "belongsTo", "hasOne") {
+		pieces := call.pieces()
+
+		name, ok := soleString(firstArgValue(pieces, "name"))
+		if !ok || !isWordText(name) {
+			continue
+		}
+
+		a := wheelsAssociation{kind: call.name().Value, name: name, line: int(call.name().Line)}
+		if model, ok := soleString(namedArgValue(pieces, "modelName")); ok && isWordText(model) {
+			a.model = model
+		}
+
+		out = append(out, a)
+	}
+
+	return out
+}
+
+// isWordText reports whether s is one or more word characters.
+func isWordText(s string) bool {
+	if s == "" {
+		return false
+	}
+
+	for i := range len(s) {
+		if !lex.IsWord(s[i]) {
+			return false
+		}
+	}
+
+	return true
+}
 
 // associationFunc is the method name an association declared in the model
 // at path gives it, as a definition returning the associated model, or nil.
@@ -110,29 +152,27 @@ func (r *Resolver) associationFunc(path, name string) *parser.FunctionDef {
 func wheelsAssociations(src string) map[string]parser.FunctionDef {
 	var definitions map[string]parser.FunctionDef
 
-	// associationRe needs one of these, called: a file with none is most
-	// files, and the expression run over each was 4% of a tassweb scan's CPU.
-	if parser.IndexFold(src, "hasMany(") < 0 && parser.IndexFold(src, "belongsTo(") < 0 && parser.IndexFold(src, "hasOne(") < 0 {
+	// An association is a call of one of these: a file with none is most
+	// files, and reading the calls of each was 4% of a tassweb scan's CPU.
+	if parser.IndexFold(src, "hasMany") < 0 && parser.IndexFold(src, "belongsTo") < 0 && parser.IndexFold(src, "hasOne") < 0 {
 		return definitions
 	}
 
-	for _, m := range associationRe.FindAllStringSubmatchIndex(src, -1) {
-		kind, assoc, args := src[m[2]:m[3]], src[m[4]:m[5]], src[m[6]:m[7]]
+	for _, a := range wheelsAssociationCalls(src) {
+		assoc := a.name
 		singular := singularize(assoc)
 
 		model := ucFirstWord(singular)
-		if mm := modelNameArgRe.FindStringSubmatch(args); mm != nil {
-			model = mm[1]
+		if a.model != "" {
+			model = a.model
 		}
 
-		for _, method := range associationMethods(strings.ToLower(kind), assoc, singular) {
+		for _, method := range associationMethods(strings.ToLower(a.kind), assoc, singular) {
 			if _, exists := definitions[method.name]; exists {
 				continue
 			}
 
-			def := parser.FunctionDef{
-				Line: uint32(strings.Count(src[:m[0]], "\n")), //nolint:gosec // a line count of a file read here
-			}
+			def := parser.FunctionDef{Line: conv.Uint32(a.line)}
 
 			if method.returnsModel {
 				def.ReturnComponent = model

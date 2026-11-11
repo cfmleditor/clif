@@ -2,7 +2,6 @@ package resolve
 
 import (
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/parser"
@@ -80,7 +79,18 @@ func (r *Resolver) reachesColdBox(path, baseDir string) bool {
 	return false
 }
 
-var mementoRe = regexp.MustCompile(`(?i)\bthis\.memento\s*=`)
+// declaresMemento reports whether text's code assigns this.memento.
+func declaresMemento(text string) bool {
+	for _, code := range textCode(text) {
+		for i := 0; i+3 < len(code); i++ {
+			if isWord(code[i], "this") && code[i+1].Kind == parser.TokDot && isWord(code[i+2], "memento") && isAssignAt(code, i+3) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
 
 // mementoFunc is getMemento() on a component that declares `this.memento`,
 // itself or through its extends chain: mementifier
@@ -94,7 +104,7 @@ func (r *Resolver) mementoFunc(chain []string, funcName string) *parser.Function
 
 	for _, p := range chain {
 		text, err := r.readText(p)
-		if err != nil || !mentions(text, "this.memento") || !mementoRe.MatchString(text) {
+		if err != nil || !mentions(text, "this.memento") || !declaresMemento(text) {
 			continue
 		}
 
