@@ -237,26 +237,39 @@ func TestTheTextScannersOnTheirOwnShapes(t *testing.T) {
 	})
 }
 
-// A literal tested before an expression is a promise: every match of the
-// expression holds it. If one did not, a file the expression would have matched
-// is skipped, quietly. The text here is built from whole matches of each
-// expression, the same cut short, in the other case and run together, so that
-// matches occur and the promise is tried where it is most likely to break.
-func TestEveryPrefilterLiteralIsHeldByEveryMatchOfItsExpression(t *testing.T) {
+// A literal tested before a reader is a promise: everything the reader finds
+// holds it. If one did not, a file the reader would have read is skipped,
+// quietly. The text here is built from whole calls each reader reads, the
+// same cut short, in the other case and run together, so that calls occur and
+// the promise is tried where it is most likely to break.
+func TestEveryPrefilterLiteralIsHeldByEveryCallItsReaderReads(t *testing.T) {
 	type pair struct {
 		name    string
 		re      func(string) bool
 		literal string
 	}
 
+	entity := func(s string) bool {
+		e, _ := superInitEntity(s)
+
+		return e != ""
+	}
+	argument := func(s string) bool {
+		_, a := superInitEntity(s)
+
+		return a != ""
+	}
+	maps := func(s string) bool { return len(binderMaps(s)) > 0 }
+
 	pairs := []pair{
-		{"superInitEntityRe", superInitEntityRe.MatchString, "super.init("},
-		{"superInitArgRe", superInitArgRe.MatchString, "super.init("},
-		{"binderMapRe map", binderMapRe.MatchString, "map("},
-		{"binderMapRe to", binderMapRe.MatchString, "to("},
-		{"includeUDFRe", includeUDFRe.MatchString, "includeUDF("},
-		{"moduleHelperRe", moduleHelperRe.MatchString, "applicationHelper"},
-		{"appHelperRe", appHelperRe.MatchString, "applicationHelper"},
+		{"superInitEntity super", entity, "super"},
+		{"superInitEntity init", entity, "init"},
+		{"superInitEntity argument", argument, "super"},
+		{"binderMaps map", maps, "map"},
+		{"binderMaps to", maps, "to"},
+		{"includedUDFPaths", func(s string) bool { return len(includedUDFPaths(s)) > 0 }, "includeUDF"},
+		{"helperSetting module", func(s string) bool { return len(helperSetting(s, true)) > 0 }, "applicationHelper"},
+		{"helperSetting application", func(s string) bool { return len(helperSetting(s, false)) > 0 }, "applicationHelper"},
 	}
 
 	pieces := []string{
@@ -302,44 +315,20 @@ func TestEveryPrefilterLiteralIsHeldByEveryMatchOfItsExpression(t *testing.T) {
 	}
 }
 
-// quotedNameStarts and renderStarts are held to their expressions the same way,
-// on text drawn from what each looks for: the name or the call, beside quotes,
-// brackets and the words that almost make one.
-func TestTheNameAndRenderScannersAreTheExpressionsTheyReplace(t *testing.T) {
+// quotedNameStarts is held to its expression the same way, on text drawn from
+// what it looks for: the name beside quotes, brackets and the words that
+// almost make one.
+func TestTheNameScannerIsTheExpressionItReplaces(t *testing.T) {
 	r := rand.New(rand.NewSource(11))
 
-	renderPieces := []string{
-		"view", "View", "VIEW", "setView", "SETVIEW", "renderView", "RenderView", "set", "render", "xview", "preview", "setrenderView", "renderset",
-		"(", " (", "\n(", "\t(", "\v(", ")", "\"", "'", "/", ".", "_", "$", "1", " ", "\n", "event.", "return ", "views", "viewer(",
-	}
 	namePieces := []string{"x", "X", "name", "Name", "xname", "name1", "_name", "$name", "name_", "\"", "'", "\"\"", " ", "\n", "=", "(", ")", ".", "-", "é"}
 
-	var renderHits, nameHits int
+	var nameHits int
 
 	for range 50000 {
 		var b strings.Builder
 
-		for range 1 + r.Intn(10) {
-			b.WriteString(renderPieces[r.Intn(len(renderPieces))])
-		}
-
-		text := b.String()
-
-		var want []int
-		for _, m := range renderStartRe.FindAllStringIndex(text, -1) {
-			want = append(want, m[0])
-		}
-
-		got := renderStarts(text)
-		if len(want) != len(got) || (len(want) > 0 && !slices.Equal(want, got)) {
-			t.Fatalf("renderStarts(%q) = %v, the expression says %v", text, got, want)
-		}
-
-		renderHits += len(want)
-
 		name := scannerNames[r.Intn(len(scannerNames))]
-
-		b.Reset()
 
 		for range 1 + r.Intn(12) {
 			if r.Intn(2) == 0 {
@@ -349,7 +338,7 @@ func TestTheNameAndRenderScannersAreTheExpressionsTheyReplace(t *testing.T) {
 			}
 		}
 
-		text = b.String()
+		text := b.String()
 
 		if want, got := quotedNameStartsRegex(text, name), quotedNameStarts(text, name); !slices.Equal(want, got) {
 			t.Fatalf("quotedNameStarts(%q, %q) = %v, the expression says %v", text, name, got, want)
@@ -358,8 +347,8 @@ func TestTheNameAndRenderScannersAreTheExpressionsTheyReplace(t *testing.T) {
 		}
 	}
 
-	if renderHits < 2000 || nameHits < 2000 {
-		t.Errorf("the generator found %d render starts and %d quoted names: it does not exercise them", renderHits, nameHits)
+	if nameHits < 2000 {
+		t.Errorf("the generator found %d quoted names: it does not exercise them", nameHits)
 	}
 }
 
@@ -373,103 +362,33 @@ func pickText(r *rand.Rand, pieces []string, most int) string {
 	return b.String()
 }
 
-// The expressions that begin with a fixed word are run at the places that word
-// is. Each is compared with the expression it stands for on text built from the
-// expression's own pieces — its word in either case and beside what almost makes
-// a match — and the comparison is of the submatch indices, so a capture that
-// moved is a failure too.
+// actionStartRe is run at the places the word function is. It is compared
+// with the expression it stands for on text built from its own pieces — its
+// word in either case and beside what almost makes a match — and the
+// comparison is of the submatch indices, so a capture that moved is a
+// failure too.
 func TestTheAnchoredExpressionsMatchWhatTheyReplace(t *testing.T) {
 	r := rand.New(rand.NewSource(13))
 
-	render := []string{
-		"view", "View", "setView", "renderView", "RENDERVIEW", "xview", "preview", "view (", "view(", "\n", " ", "\t", "\v", "(", ")", ",", "\"", "'", "/", ".",
-		"home/index", "x.y", "a-b", "view=", "view = ", "module=\"m\"", "module = 'x'", "#variables.v#", "#variables.", "#", "/sub/page", "data", "=", ";", "{", "}",
-		`view("home/index")`, `renderView( view = "x/y", module="m" )`, `setView('/a.b/c-d')`, `View ( "p" , x )`, `view("#variables.v#/sub")`, `renderView( view="#variables.handler#/x/" )`, `view("a")view("b")`, `xview("q")`,
+	pieces := []string{
+		"\n", " ", "\t", "\v", "(", ")", ",", "\"", "'", "/", ".", "=", ";", "{", "}", "view(", "x",
 		"function", "FUNCTION", "functions", "xfunction", "function ", "function  run(", "function\tinit (", "function (", "function run", "function _x1(",
 	}
-	intercept := []string{
-		"announce", "ANNOUNCE", "announceInterception", "AnnounceInterception", "processState", "processstate", "announces", "xannounce", "(", " (", "\n(", "\v(", ")", ",",
-		"\"", "'", " ", "\n", "x", "state", "data", "{", "}", "=",
-	}
-	fw1 := []string{
-		"view", "View", "xview", "views", "(", " (", ")", ",", "\"", "'", ":", "path", "path=", "path = ", "mod:", "a-b:", "x/y", "z", "/", " ", "\n", "\t", "_", ".",
-		`view("a/b")`, `view( path = 'mod:x/y' , z)`, `view("m-n:p/q",`, `View ( "p" )`, `xview("q")`, `view("a b")`, `view(path="x")`,
-	}
-	prc := []string{
-		"prc", "PRC", "xprc", "prcs", ".", " . ", "response", "Response", "[", "]", "\"", "'", "=", "==", " ", "\n", "x", "(", ")", ".response", "[\"response\"]", "['response']", "prc.response =",
-	}
-	cet := []string{
-		"customErrorTemplate", "CUSTOMERRORTEMPLATE", "customErrorTemplates", "xcustomErrorTemplate", ":", "=", " : ", " = ", "\"", "'", "/error.cfm", "x", "#", "#x#", "\n", ",", "{", "}", ";", "a b",
-	}
 
-	var hits [6]int
+	hits := 0
 
 	for range 40000 {
-		text := pickText(r, render, 14)
-
-		if want, got := renderCallRe.FindAllStringSubmatchIndex(text, -1), renderCallMatches(text, renderStarts(text)); !slices.EqualFunc(want, got, slices.Equal) {
-			t.Fatalf("renderCallMatches(%q) = %v, the expression says %v", text, got, want)
-		} else {
-			hits[0] += len(want)
-		}
-
-		if want, got := computedRenderRe.FindAllStringSubmatchIndex(text, -1), computedRenderMatches(text, renderStarts(text)); !slices.EqualFunc(want, got, slices.Equal) {
-			t.Fatalf("computedRenderMatches(%q) = %v, the expression says %v", text, got, want)
-		} else {
-			hits[1] += len(want)
-		}
+		text := pickText(r, pieces, 14)
 
 		if want, got := actionStartRe.FindAllStringSubmatchIndex(text, -1), actionStartMatches(text); !slices.EqualFunc(want, got, slices.Equal) {
 			t.Fatalf("actionStartMatches(%q) = %v, the expression says %v", text, got, want)
 		} else {
-			hits[2] += len(want)
-		}
-
-		text = pickText(r, intercept, 12)
-
-		var wantStarts []int
-		for _, m := range interceptStartRe.FindAllStringIndex(text, -1) {
-			wantStarts = append(wantStarts, m[0])
-		}
-
-		if got := interceptStarts(text); !slices.Equal(wantStarts, got) {
-			t.Fatalf("interceptStarts(%q) = %v, the expression says %v", text, got, wantStarts)
-		} else {
-			hits[3] += len(wantStarts)
-		}
-
-		text = pickText(r, fw1, 14)
-
-		if want, got := fw1ViewCallRe.FindAllStringSubmatchIndex(text, -1), fw1ViewCallMatches(text); !slices.EqualFunc(want, got, slices.Equal) {
-			t.Fatalf("fw1ViewCallMatches(%q) = %v, the expression says %v", text, got, want)
-		} else {
-			hits[4] += len(want)
-		}
-
-		text = pickText(r, prc, 10)
-
-		if want, got := prcResponseWriteRe.MatchString(text), writesPrcResponse(text); want != got {
-			t.Fatalf("writesPrcResponse(%q) = %v, the expression says %v", text, got, want)
-		} else if want {
-			hits[5]++
-		}
-
-		text = pickText(r, cet, 12)
-
-		var wantValues []string
-		for _, m := range customErrorTemplateRe.FindAllStringSubmatch(text, -1) {
-			wantValues = append(wantValues, m[1])
-		}
-
-		if got := customErrorTemplateValues(text); !slices.Equal(wantValues, got) {
-			t.Fatalf("customErrorTemplateValues(%q) = %q, the expression says %q", text, got, wantValues)
+			hits += len(want)
 		}
 	}
 
-	for i, n := range hits {
-		if n < 300 {
-			t.Errorf("expression %d matched %d times: the generator does not exercise it", i, n)
-		}
+	if hits < 300 {
+		t.Errorf("the expression matched %d times: the generator does not exercise it", hits)
 	}
 }
 

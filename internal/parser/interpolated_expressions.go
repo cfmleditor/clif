@@ -16,3 +16,19 @@ func InterpolatedExpressions(source string) []string {
 
 	return expressions
 }
+
+// InterpolatedSpans is where each expression InterpolatedExpressions returns
+// lies in source: [start, end), the hashes around it excluded.
+func InterpolatedSpans(source string) [][2]int {
+	spans := interpolatedSpans(source)
+	if len(spans) == 0 {
+		return nil
+	}
+
+	out := make([][2]int, 0, len(spans))
+	for _, span := range spans {
+		out = append(out, [2]int{span.start, span.end})
+	}
+
+	return out
+}

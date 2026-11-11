@@ -384,42 +384,6 @@ func quotedNameStarts(s, name string) []int {
 	return starts
 }
 
-// renderStarts returns the offsets of the non-overlapping matches of
-// `\b(?:setView|renderView|view)\s*\(` in s, which is where each starts and not
-// where the word view does: the caller reads the call's name from it.
-func renderStarts(s string) []int {
-	var starts []int
-
-	lastEnd := 0
-
-	for v := nextFold(s, "view", 0); v >= 0; v = nextFold(s, "view", v+1) {
-		open := lex.SkipRegexpSpace(s, v+len("view"))
-		if open >= len(s) || s[open] != '(' {
-			continue
-		}
-
-		start := v
-
-		switch {
-		case v >= 6 && foldAt(s, v-6, "render") && startsWord(s, v-6):
-			start = v - 6
-		case v >= 3 && foldAt(s, v-3, "set") && startsWord(s, v-3):
-			start = v - 3
-		case !startsWord(s, v):
-			continue
-		}
-
-		if start < lastEnd {
-			continue
-		}
-
-		starts = append(starts, start)
-		lastEnd = open + 1
-	}
-
-	return starts
-}
-
 // Expressions that begin with a fixed word are run at the places that word is,
 // not at every byte of the file. The scanner says where to try; the expression,
 // compiled to begin with \A, says what it matches there, so its captures, its
@@ -483,107 +447,12 @@ func wordStarts(s, word string) []int {
 	return starts
 }
 
-// wordCallStarts returns the offsets in s of `\b(?:word|…)\s*\(`, in order and
-// once each.
-func wordCallStarts(s string, words ...string) []int {
-	var starts []int
+var actionStartAt = anchorStart(actionStartRe)
 
-	for _, word := range words {
-		for _, o := range wordStarts(s, word) {
-			if open := lex.SkipRegexpSpace(s, o+len(word)); open < len(s) && s[open] == '(' {
-				starts = append(starts, o)
-			}
-		}
-	}
-
-	slices.Sort(starts)
-
-	return slices.Compact(starts)
-}
-
-var (
-	renderCallAt       = anchorStart(renderCallRe)
-	computedRenderAt   = anchorStart(computedRenderRe)
-	actionStartAt      = anchorStart(actionStartRe)
-	fw1ViewCallAt      = anchorStart(fw1ViewCallRe)
-	prcResponseWriteAt = anchorStart(prcResponseWriteRe)
-)
-
-// renderCallMatches, computedRenderMatches and actionStartMatches are the
-// FindAllStringSubmatchIndex of renderCallRe, computedRenderRe and actionStartRe
-// over content. starts are renderStarts(content) for the first two.
-func renderCallMatches(content string, starts []int) [][]int {
-	return matchesAt(renderCallAt, content, starts)
-}
-
-func computedRenderMatches(content string, starts []int) [][]int {
-	return matchesAt(computedRenderAt, content, starts)
-}
-
+// actionStartMatches is the FindAllStringSubmatchIndex of actionStartRe over
+// content.
 func actionStartMatches(content string) [][]int {
 	return matchesAt(actionStartAt, content, wordStarts(content, "function"))
-}
-
-// interceptStarts are the offsets of interceptStartRe's matches in s.
-func interceptStarts(s string) []int {
-	var starts []int
-
-	lastEnd := 0
-
-	for _, o := range wordCallStarts(s, "announce", "announceInterception", "processState") {
-		if o < lastEnd {
-			continue
-		}
-
-		starts = append(starts, o)
-		lastEnd = o + 1
-	}
-
-	return starts
-}
-
-// fw1ViewCallMatches is fw1ViewCallRe.FindAllStringSubmatchIndex(s, -1).
-func fw1ViewCallMatches(s string) [][]int {
-	return matchesAt(fw1ViewCallAt, s, wordCallStarts(s, "view"))
-}
-
-// writesPrcResponse reports whether prcResponseWriteRe matches s.
-func writesPrcResponse(s string) bool {
-	return len(matchesAt(prcResponseWriteAt, s, wordStarts(s, "prc"))) > 0
-}
-
-// customErrorTemplateValues are the captures of
-// `customErrorTemplate\s*[:=]\s*["']([^"'#]+)["']` over s, in order.
-func customErrorTemplateValues(s string) []string {
-	var out []string
-
-	const word = "customErrorTemplate"
-
-	for o := nextFold(s, word, 0); o >= 0; o = nextFold(s, word, o+1) {
-		i := lex.SkipRegexpSpace(s, o+len(word))
-		if i >= len(s) || s[i] != ':' && s[i] != '=' {
-			continue
-		}
-
-		i = lex.SkipRegexpSpace(s, i+1)
-		if i >= len(s) || s[i] != '"' && s[i] != '\'' {
-			continue
-		}
-
-		start := i + 1
-		end := start
-
-		for end < len(s) && s[end] != '"' && s[end] != '\'' && s[end] != '#' {
-			end++
-		}
-
-		if end > start && end < len(s) && (s[end] == '"' || s[end] == '\'') {
-			out = append(out, s[start:end])
-			o = end
-		}
-	}
-
-	return out
 }
 
 // lineWritesName is the expression initStoredArg asks of one line,

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/conv"
+	"github.com/cfmleditor/clif/internal/lex"
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
 )
@@ -26,14 +27,66 @@ import (
 // (ImplicitExtends), which is how the fw1 preset says views run inside the
 // framework.
 
-// fw1SetViewRe is setView( "section.item" ), the action named or not, with a
-// subsystem or not: Slatwall's controllers write
-// `getFW().setView( action = "admin:product.detail" )`.
-var fw1SetViewRe = regexp.MustCompile(`(?i)\bsetView\s*\(\s*(?:action\s*=\s*)?["'](?:([\w-]+):)?([\w.]+)["']\s*\)`)
+// fw1Target splits what setView() or view() names, `admin:product.detail`:
+// the subsystem, when one is named, and the rest, which must be made of
+// word characters and the bytes in extra.
+func fw1Target(lit, extra string) (subsystem, target string, hasSubsystem, ok bool) {
+	target = lit
+	if sub, rest, found := strings.Cut(lit, ":"); found {
+		if !wordsAnd(sub, "-") {
+			return "", "", false, false
+		}
 
-// fw1ViewCallRe is a view rendering another inside itself, `#view(
+		subsystem, target, hasSubsystem = sub, rest, true
+	}
+
+	if !wordsAnd(target, extra) {
+		return "", "", false, false
+	}
+
+	return subsystem, target, hasSubsystem, true
+}
+
+// wordsAnd reports whether s is not empty and holds only word characters and
+// the bytes in extra.
+func wordsAnd(s, extra string) bool {
+	for i := range len(s) {
+		if !lex.IsWord(s[i]) && strings.IndexByte(extra, s[i]) < 0 {
+			return false
+		}
+	}
+
+	return s != ""
+}
+
+// fw1ViewCall is a view rendering another inside itself, `#view(
 // "product/producttabs/settings" )#`, which FW/1 renders with the same rc.
-var fw1ViewCallRe = regexp.MustCompile(`(?i)\bview\s*\(\s*(?:path\s*=\s*)?["'](?:([\w-]+):)?([\w/]+)["']\s*[,)]`)
+type fw1ViewCall struct {
+	subsystem, view string
+}
+
+// fw1ViewCalls are the view() calls in text's code whose first argument,
+// positionally or as path =, names a view by a literal.
+func fw1ViewCalls(text string) []fw1ViewCall {
+	if !mentions(text, "view") {
+		return nil
+	}
+
+	var out []fw1ViewCall
+
+	for _, call := range codeCalls(textCode(text), "view") {
+		lit, ok := soleString(firstArgValue(call.pieces(), "path"))
+		if !ok {
+			continue
+		}
+
+		if sub, view, _, ok := fw1Target(lit, "/"); ok {
+			out = append(out, fw1ViewCall{subsystem: sub, view: view})
+		}
+	}
+
+	return out
+}
 
 // maxFW1ViewDepth bounds how many views rendering views rc is followed through.
 const maxFW1ViewDepth = 4
@@ -140,12 +193,12 @@ func (r *Resolver) fw1Includers(app string) map[string][]string {
 
 		text := string(data)
 
-		for _, m := range fw1ViewCallMatches(text) {
-			if m[2] >= 0 && m[3] > m[2] && !strings.EqualFold(text[m[2]:m[3]], filepath.Base(app)) {
+		for _, call := range fw1ViewCalls(text) {
+			if call.subsystem != "" && !strings.EqualFold(call.subsystem, filepath.Base(app)) {
 				continue
 			}
 
-			view := strings.ToLower(strings.Trim(text[m[4]:m[5]], "/"))
+			view := strings.ToLower(strings.Trim(call.view, "/"))
 			if !seen[view] {
 				seen[view] = true
 				out[view] = append(out[view], file)
@@ -229,21 +282,35 @@ type fw1SetView struct {
 func (r *Resolver) fw1SetViews(hpr *parser.ParseResult) []fw1SetView {
 	o := r.owner()
 
-	return o.fw1SetViewCache.get(&o.mu, hpr, func() []fw1SetView {
-		found := fw1SetViewRe.FindAllStringSubmatchIndex(hpr.Content, -1)
-		out := make([]fw1SetView, 0, len(found))
+	return o.fw1SetViewCache.get(&o.mu, hpr, func() []fw1SetView { return fw1SetViewsIn(hpr.Content) })
+}
 
-		for _, m := range found {
-			sv := fw1SetView{target: hpr.Content[m[4]:m[5]], at: m[0], hasSubsystem: m[2] >= 0}
-			if sv.hasSubsystem {
-				sv.subsystem = hpr.Content[m[2]:m[3]]
-			}
+// fw1SetViewsIn are the setView( "section.item" ) calls in content's code,
+// the action named or not, with a subsystem or not: Slatwall's controllers
+// write `getFW().setView( action = "admin:product.detail" )`.
+func fw1SetViewsIn(content string) []fw1SetView {
+	out := []fw1SetView{}
+	if !mentions(content, "setView") {
+		return out
+	}
 
-			out = append(out, sv)
+	for _, call := range codeCalls(textCode(content), "setView") {
+		pieces := call.pieces()
+		if len(pieces) != 1 {
+			continue
 		}
 
-		return out
-	})
+		lit, ok := soleString(firstArgValue(pieces, "action"))
+		if !ok {
+			continue
+		}
+
+		if sub, target, hasSub, ok := fw1Target(lit, "."); ok {
+			out = append(out, fw1SetView{subsystem: sub, target: target, at: call.name().Offset, hasSubsystem: hasSub})
+		}
+	}
+
+	return out
 }
 
 func (r *Resolver) fw1ActionsUncached(controllers, section, item string) []fw1Action {
@@ -304,9 +371,38 @@ func (r *Resolver) fw1ActionRc(file, action, name, funcName string) string {
 	return r.fw1ActionRcD(file, action, name, funcName, 0)
 }
 
-// fw1RcCallRe is an action handing its rc to another of the controller's:
-// `detail( rc )`, `this.detail( arguments.rc )`.
-var fw1RcCallRe = regexp.MustCompile(`(?i)(?:^|[^\w.]|\bthis\.)(\w+)\s*\(\s*(?:rc\s*=\s*)?(?:arguments\.)?rc\s*\)`)
+// fw1RcCalls are the names of the functions the code of body hands its rc
+// to, `detail( rc )`, `this.detail( arguments.rc )`, in order: a call on no
+// receiver but this, with rc its one argument, by position or as rc =.
+func fw1RcCalls(body string) []string {
+	var out []string
+
+	for _, call := range codeCalls(codeLists(allTokens(body))) {
+		if call.before(1).Kind == parser.TokDot && !isWord(call.before(2), "this") {
+			continue
+		}
+
+		pieces := call.pieces()
+		if len(pieces) != 1 {
+			continue
+		}
+
+		value := pieces[0]
+		if name, v, ok := namedArg(value); ok {
+			if !strings.EqualFold(name, "rc") {
+				continue
+			}
+
+			value = v
+		}
+
+		if arg, next := dottedAt(value, 0); next == len(value) && (strings.EqualFold(arg, "rc") || strings.EqualFold(arg, "arguments.rc")) {
+			out = append(out, call.name().Value)
+		}
+	}
+
+	return out
+}
 
 func (r *Resolver) fw1ActionRcD(file, action, name, funcName string, depth int) string {
 	hpr := r.handlerParse(file)
@@ -349,8 +445,8 @@ func (r *Resolver) fw1ActionRcD(file, action, name, funcName string, depth int) 
 func (r *Resolver) fw1HandedRc(file string, hpr *parser.ParseResult, scope parser.FuncScope, name, funcName string, depth int) (string, bool) {
 	answer, handed := "", false
 
-	for _, m := range fw1RcCallRe.FindAllStringSubmatch(sourceText(hpr.Content, scope.Start, scope.End+1), -1) {
-		callee, ok := funcScope(hpr, m[1])
+	for _, target := range fw1RcCalls(sourceText(hpr.Content, scope.Start, scope.End+1)) {
+		callee, ok := funcScope(hpr, target)
 		if !ok || strings.EqualFold(callee.Name, scope.Name) || !fw1Assigns(hpr.Content, callee, name) {
 			continue
 		}
