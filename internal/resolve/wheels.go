@@ -97,6 +97,10 @@ type wheelsAssociation struct {
 func wheelsAssociationCalls(src string) []wheelsAssociation {
 	var out []wheelsAssociation
 
+	if !mentions(src, "hasMany") && !mentions(src, "belongsTo") && !mentions(src, "hasOne") {
+		return out
+	}
+
 	for _, call := range codeCalls(textCode(src), "hasMany", "belongsTo", "hasOne") {
 		pieces := call.pieces()
 

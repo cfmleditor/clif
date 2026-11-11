@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/cfmleditor/clif/internal/lex"
 	"github.com/cfmleditor/clif/internal/parser"
 )
 
@@ -30,10 +31,18 @@ const minDirSegments = 3
 // with no word include has none, which spares reading the code of most
 // candidate files (finding these was once 14% of a tassweb scan's CPU).
 func computedIncludeOffsets(s string) []int {
-	if parser.IndexFold(s, "include") < 0 {
+	// Only a file where some include's path opens with a quoted # is read as
+	// code: the word alone is in most CFML files, and reading each one's code
+	// was more than a pass over a Mura scan's text.
+	if parser.IndexFold(s, "include") < 0 || !mayIncludeComputed(s) {
 		return nil
 	}
 
+	return computedIncludesRead(s)
+}
+
+// computedIncludesRead is computedIncludeOffsets without the checks in front.
+func computedIncludesRead(s string) []int {
 	var offsets []int
 
 	computed := func(t parser.Token) bool {
@@ -144,4 +153,38 @@ func (r *Resolver) computedIncludesOf(path string) computedIncludeFile {
 	o.mu.Unlock()
 
 	return inc
+}
+
+// mayIncludeComputed reports whether s may hold an include of a computed
+// path: "include" or "template", then space, an optional "=", space, and a
+// quote opening with '#'. It answers yes wherever it cannot tell (a comment
+// in between), so it never hides one computedIncludeOffsets would read.
+func mayIncludeComputed(s string) bool {
+	for _, word := range []string{"include", "template"} {
+		for i := parser.IndexFold(s, word); i >= 0; i = parser.IndexFoldFrom(s, word, i+len(word)) {
+			j := skipControl(s, i+len(word))
+			if j < len(s) && s[j] == '=' {
+				j = skipControl(s, j+1)
+			}
+
+			switch {
+			case j+1 < len(s) && lex.IsQuote(s[j]) && s[j+1] == '#':
+				return true
+			case j < len(s) && (s[j] == '/' || s[j] == '<'):
+				return true // a comment between; read the code
+			}
+		}
+	}
+
+	return false
+}
+
+// skipControl steps over every byte at or below a space: whatever the
+// scanner takes for whitespace is among them.
+func skipControl(s string, i int) int {
+	for i < len(s) && s[i] <= ' ' {
+		i++
+	}
+
+	return i
 }

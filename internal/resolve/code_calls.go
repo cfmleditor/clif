@@ -92,11 +92,31 @@ func interpolationTokens(t parser.Token, span [2]int) []parser.Token {
 	return out
 }
 
-// textCode is codeLists of a whole file's text. It is tokenized here rather
-// than through allTokens, whose memo is for the short windows read again and
-// again; every caller keeps what it reads from a file.
+// textCode is codeLists of a whole file's text, kept for the texts asked
+// about most recently (codeMemo): a file is asked by one reader after another
+// (computed includes, view renders, Mura objects, element returns, a name's
+// writes), and each tokenized it again, which took a Mura scan from 14 to 21
+// passes over its text. The lists are shared; a caller does not change them.
 func textCode(text string) [][]parser.Token {
-	return codeLists(tokenize(text))
+	return codeMemo.of(text, textCodeOf).lists
+}
+
+// rawTokens is text's tokens as the scanner gives them, newlines kept, from
+// the same entry as textCode: one read of the file for both.
+func rawTokens(text string) []parser.Token {
+	return codeMemo.of(text, textCodeOf).raw
+}
+
+// textCodeOf is the text's entry, uncached. The raw list keeps no spare
+// capacity: tokenize sizes it from the text's length, and a file of mostly
+// markup or comments has far fewer tokens.
+func textCodeOf(text string) *textTokens {
+	raw := tokenize(text)
+	if cap(raw) > len(raw)+len(raw)/4 {
+		raw = slices.Clip(slices.Clone(raw))
+	}
+
+	return &textTokens{raw: raw, lists: codeLists(raw)}
 }
 
 // codeCall is one call in a token list: the name at tokens[at], its

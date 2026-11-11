@@ -153,6 +153,10 @@ func (wb *wireboxWorkspace) addMaps(src, dir string) {
 func binderMaps(src string) [][2]string {
 	var out [][2]string
 
+	if !mentions(src, "map") || !mentions(src, "to") {
+		return out
+	}
+
 	for _, call := range codeCalls(textCode(src), "map") {
 		id, ok := soleString(call.args())
 		if !ok || strings.TrimSpace(id) == "" || strings.Contains(id, "#") {

@@ -34,6 +34,8 @@
 
 ### Changed
 
+- **A batch scan tokenizes each file once for the resolver's whole-file readers.** The consolidation's token readers each tokenized whole files on their own, and three caches held the same tokens: passes over the text rose from 11.7 to 18.2 on ContentBox and from 14.2 to 20.6 on Mura, and memory by up to 13%, though CPU stayed within 3%. One entry per text now serves every whole-file reader, the word checks in front of them are back, and the include walk skips script that names no include: 16.1 and 17.4 passes, memory within 5–8% of before, and Mura's CPU below it. `unresolved` is byte-identical on eight corpora.
+
 - Go 1.27.4, for a standard-library `net/http` advisory (GO-2026-6859) that failed `govulncheck`; `modernc.org/libc` 1.81.0 and `go-json-experiment/json` v1.27.2.
 
 - **Parse workers no longer queue on one lock to look up a resolver match.** The memo of which component an expression resolves to is shared by every parse worker of a batch run, and every miss took its single write lock: in a tassweb scan workers spent four seconds waiting on it. A shared set's memo is now 64 shards by expression (`resolverMemo`), each with its own lock, a 64th of the cap and 128 bytes to itself (arm64's cache line, two of amd64's); a set built for one parse, which shares its memo with nothing, keeps a single shard and the whole cap. The tassweb scan is about 5% faster in wall time (5.32s against 5.59s) and spends 0.6s less in the kernel, with the same user CPU (three runs each, alternated), and `unresolved` is byte-identical.

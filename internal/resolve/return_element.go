@@ -50,7 +50,7 @@ func holdsElementRead(content string) bool {
 		return false
 	}
 
-	return len(scriptReturns(codeLists(tokenize(content))[0]).reads) > 0 || len(tagReturns(content).reads) > 0
+	return len(scriptReturns(textCode(content)[0]).reads) > 0 || len(tagReturns(content).reads) > 0
 }
 
 // plainParse is the source parsed with no resolver, lookup or option: a
