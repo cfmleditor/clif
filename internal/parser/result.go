@@ -1993,12 +1993,7 @@ func (pr *ParseResult) DocumentLinks() []DocumentLink {
 	defer pr.mu.Unlock()
 
 	if pr.textLinks == nil || pr.textLinksOf != pr.Content {
-		// Split as the parse splits the file, which knows a markup template
-		// by its name; its own regions when they are of this content.
-		regions, idx := pr.Regions, pr.contentLineIdx
-		if pr.regionsOf != pr.Content || regions == nil {
-			regions, idx = pr.classifyRegions()
-		}
+		regions, idx := pr.contentRegions()
 
 		pr.textLinks = linksInRegions(pr.Content, regions, idx)
 		if pr.textLinks == nil {
@@ -2009,4 +2004,34 @@ func (pr *ParseResult) DocumentLinks() []DocumentLink {
 	}
 
 	return pr.textLinks
+}
+
+// contentRegions is Content split as the parse splits it, which knows a
+// markup template by its name: its own regions when they are of this
+// content. pr.mu is held.
+func (pr *ParseResult) contentRegions() ([]Region, []int32) {
+	if pr.regionsOf == pr.Content && pr.Regions != nil {
+		return pr.Regions, pr.contentLineIdx
+	}
+
+	return pr.classifyRegions()
+}
+
+// IncludeSites is parser.IncludeSites of Content, read in the parse's own
+// regions rather than a second split.
+func (pr *ParseResult) IncludeSites() []IncludeSite {
+	if IndexFold(pr.Content, "include") < 0 {
+		return nil
+	}
+
+	pr.mu.Lock()
+	regions, _ := pr.contentRegions()
+	pr.mu.Unlock()
+
+	return includeSitesIn(pr.Content, regions)
+}
+
+// Includes is parser.ExtractIncludes of Content, from IncludeSites.
+func (pr *ParseResult) Includes() []string {
+	return includePaths(pr.IncludeSites())
 }

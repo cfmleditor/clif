@@ -61,10 +61,17 @@ others reaches `api.cfc`, its base, and every sibling. A file with several inclu
 against all of them; which one ran is not in the source.
 
 - `parser.ExtractIncludes` reads only `<cfinclude template>`, `include "…"`, `include
-  template=` and `cfinclude(template=)` naming a `.cfm`/`.cfml`, skipping `#…#` paths and
-  `<!--- --->` comments. Not `ExtractLinks`: `<cfmodule template>` runs in a scope of its own.
-  It runs on every indexed file, so it finds the keyword and matches only there — two
-  whole-file case-insensitive regexes took tassweb's index pass from 1.5s to 5.5s.
+  template=` and `cfinclude(template=)` naming a `.cfm`/`.cfml`, skipping `#…#` paths it
+  cannot read. It is the walk `ExtractLinks` makes (`links.go`, `fileRefs`), each region read
+  by its syntax, keeping the include kind: so an include in a `<!--- --->`, `//` or `/* */`
+  comment, in a string or in prose is none, and the two can never disagree on what a file
+  includes. Not the links themselves: `<cfmodule template>` runs in a scope of its own. It
+  runs on every indexed file, so it reads in the walk's `includesOnly` mode, which scans the
+  attributes of `<cfinclude>` and `<cfdirectory>` alone and skips a file with no `include` in
+  it. A caller holding a parse asks `pr.Includes()`, which reuses its regions. A function that
+  includes its argument (`include "#arguments.template#"`, or through one call such as
+  `LCase`) is a wrapper, and an unqualified call of it in the same file with a literal path
+  is an include (`wrapperIncludes`): Wheels loads its routes through `$include(template=)`.
 - **Two computed paths are read as well.** `specs/#file#`, a whole name computed in a written
   directory, is that directory's `*.cfm` (`listedNameGlob`), but only beside a non-recursive
   `directoryList` of the same directory filtered to `*.cfm` (`listsTemplates`): spreadsheet-cfml's

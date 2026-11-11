@@ -36,12 +36,14 @@ func scalesLinearly(t *testing.T, small, large string, run func(string)) {
 	}
 }
 
-// commentEnd searched for the next close again after every nested open, so a
-// comment nested N deep read its body N times: 200,000 levels hung indexing.
+// The include scan's comment reader searched for the next close again after
+// every nested open, so a comment nested N deep read its body N times: 200,000
+// levels hung indexing. Includes are read by the document walk now, through
+// skipTagComment.
 func TestNestedCommentEndScalesLinearly(t *testing.T) {
 	nested := func(n int) string { return strings.Repeat("<!--- ", n) + strings.Repeat(" --->", n) }
 
-	scalesLinearly(t, nested(2000), nested(16000), func(s string) { _ = commentEnd(s, 0) })
+	scalesLinearly(t, nested(2000), nested(16000), func(s string) { _ = IncludeSites(s + `<cfinclude template="a.cfm">`) })
 }
 
 // Each call in a <cfset> with no span was found by rescanning the whole

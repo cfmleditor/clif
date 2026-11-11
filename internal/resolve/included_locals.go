@@ -122,7 +122,7 @@ func (r *Resolver) includerHeldUncached(variable, file string, g *includeGraph, 
 
 		dir := filepath.Dir(path)
 
-		for _, site := range parser.IncludeSites(hpr.Content) {
+		for _, site := range hpr.IncludeSites() {
 			if !slices.ContainsFunc(r.includeTargets(site.Path, path), func(t string) bool { return cfpath.SamePath(t, file) }) {
 				continue
 			}
