@@ -185,6 +185,16 @@ tokens of one plain scan):
   parse's spans would do. Each reader also walks the cached tokens again for
   its own names; one per-file index of calls and writes, built once, would
   answer all of them.
+- **The call index (`textCalls`, branch `code-index`).** Every `name (` in a
+  text's code is indexed by name once, on the text's `codeMemo` entry, and the
+  whole-file call readers look their names up instead of walking the tokens.
+  Measured against `pass-regressions` (five alternating runs, uncounted): no
+  difference, Mura 6.67s against 6.68s median CPU and ContentBox 2.06s against
+  2.03s. In a Mura profile the token walks it replaces (`codeCalls`) do not
+  register, and the resolver's whole-file tokenizing is about 2% of CPU; the
+  parse (`ParseWithOptions`) is 31%. It is kept for the shape it gives the
+  readers, not for speed. The index is built after the entry's size is
+  counted, so `codeMemo`'s budget does not include it.
 
 ## The plan
 

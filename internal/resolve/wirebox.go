@@ -157,7 +157,7 @@ func binderMaps(src string) [][2]string {
 		return out
 	}
 
-	for _, call := range codeCalls(textCode(src), "map") {
+	for _, call := range textCalls(src, "map") {
 		id, ok := soleString(call.args())
 		if !ok || strings.TrimSpace(id) == "" || strings.Contains(id, "#") {
 			continue

@@ -29,7 +29,7 @@ var entityMethods = map[string]bool{
 func superInitEntity(src string) (entity, arg string) {
 	var argument string
 
-	for _, call := range codeCalls(textCode(src), "init") {
+	for _, call := range textCalls(src, "init") {
 		if call.before(1).Kind != parser.TokDot || !isWord(call.before(2), "super") {
 			continue
 		}

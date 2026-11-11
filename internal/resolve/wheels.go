@@ -101,7 +101,7 @@ func wheelsAssociationCalls(src string) []wheelsAssociation {
 		return out
 	}
 
-	for _, call := range codeCalls(textCode(src), "hasMany", "belongsTo", "hasOne") {
+	for _, call := range textCalls(src, "hasMany", "belongsTo", "hasOne") {
 		pieces := call.pieces()
 
 		name, ok := soleString(firstArgValue(pieces, "name"))

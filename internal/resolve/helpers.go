@@ -84,7 +84,7 @@ func includedUDFPaths(text string) []string {
 
 	var out []string
 
-	for _, call := range codeCalls(textCode(text), "includeUDF") {
+	for _, call := range textCalls(text, "includeUDF") {
 		lit, ok := soleString(firstArgValue(call.pieces(), "udflibrary"))
 		if !ok || !lex.HasPrefixFold(lit, prefix) {
 			continue
