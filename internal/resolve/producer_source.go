@@ -34,7 +34,7 @@ type producerMethod struct {
 // own arguments and application context; the byte-checked lexical cache owns
 // the plans and refreshes them when a method changes.
 func producerMethods(content string) map[string]*producerMethod {
-	return newProducerPlans(content).all()
+	return newProducerPlans(content, parser.FunctionSpansOf("", content)).all()
 }
 
 // producerPlans is the source plans of a file's methods, made as they are
@@ -51,12 +51,16 @@ type producerPlans struct {
 	made   map[string]*producerMethod // tag plans made so far
 }
 
-func newProducerPlans(content string) *producerPlans {
+// newProducerPlans is content's plans: its script functions' from the
+// functions the parse found in it (spans, its FunctionSpans), its tag
+// functions' from its tags.
+func newProducerPlans(content string, spans []parser.FunctionSpan) *producerPlans {
 	p := &producerPlans{script: map[string]*producerMethod{}, made: map[string]*producerMethod{}}
+
+	scriptProducerMethods(content, spans, p.script)
 
 	for _, region := range parser.ClassifyRegions(content) {
 		if region.Kind == parser.RegionScript {
-			scriptProducerMethods(region.Text, p.script)
 			p.tags = append(p.tags, producerTag{name: "cfscript", body: region.Text})
 		}
 
@@ -210,110 +214,107 @@ func producerText(tokens []parser.Token) string {
 	return strings.Join(values, " ")
 }
 
-func scriptProducerMethods(source string, methods map[string]*producerMethod) {
-	// The whole region, scanned once, finds the function boundaries;
-	// individual method plans stay bounded even in large classes. It was
-	// first asked of producerTokens, which gives up past 4096 tokens: any
-	// real component scanned that much for nothing and then again in full.
-	var tokens []parser.Token
+// scriptProducerMethods plans each script function the parse found in
+// content (spans): the functions declared as statements and the named ones
+// nested in their bodies, each with a body. Tag functions are planned from
+// their tags, and a function assigned to a name has no plan. A nested
+// function does not displace a declared one of its name, which is often the
+// method of an inline component inside it. Individual method plans stay
+// bounded even in large classes.
+func scriptProducerMethods(content string, spans []parser.FunctionSpan, methods map[string]*producerMethod) {
+	declared := map[string]bool{}
 
-	// A script region: its strings are read as the parse reads them, or a
-	// quote inside a #...# ends one early and its braces count.
-	scanner := parser.NewScriptScanner(source)
-	for {
-		tok := scanner.NextSkipComments()
-		if tok.Kind == parser.TokEOF {
-			break
+	for i := range spans {
+		if spans[i].Kind == parser.FunctionDeclared && spans[i].Body >= 0 {
+			declared[strings.ToLower(spans[i].Name)] = true
+		}
+	}
+
+	for i := range spans {
+		s := &spans[i]
+		if s.Kind != parser.FunctionDeclared && s.Kind != parser.FunctionNested || s.Body < 0 || s.Params < 0 {
+			continue
 		}
 
+		name := strings.ToLower(s.Name)
+		if s.Kind == parser.FunctionNested && declared[name] {
+			continue
+		}
+		// The body is script, so its strings are read as the parse reads
+		// them, or a quote inside a #...# ends one early.
+		body := scriptTokens(s.BodyText(content))
+
+		if len(body) >= 4096 {
+			methods[name] = &producerMethod{body: []producerNode{{kind: "unsafe", expression: producerText(body)}}}
+
+			continue
+		}
+
+		methods[name] = scriptProducerMethod(producerSplit(scriptTokens(s.ParamsText(content))), body)
+	}
+}
+
+// scriptTokens is text's tokens, read as CFScript.
+func scriptTokens(text string) []parser.Token {
+	var tokens []parser.Token
+
+	scanner := parser.NewScriptScanner(text)
+	for tok := scanner.NextSkipComments(); tok.Kind != parser.TokEOF; tok = scanner.NextSkipComments() {
 		tokens = append(tokens, tok)
 	}
 
-	for i := 0; i+2 < len(tokens); i++ {
-		if !strings.EqualFold(tokens[i].Value, "function") || tokens[i+1].Kind != parser.TokIdent || tokens[i+2].Kind != parser.TokLParen {
+	return tokens
+}
+
+// scriptProducerMethod is the plan of a script function with params and the
+// tokens of its body.
+func scriptProducerMethod(params [][]parser.Token, body []parser.Token) *producerMethod {
+	method := &producerMethod{defaults: map[string]string{}}
+
+	for _, param := range params {
+		if len(param) == 0 {
 			continue
 		}
 
-		name := strings.ToLower(tokens[i+1].Value)
+		eq := -1
 
-		end := producerGroupEnd(tokens, i+2, parser.TokLParen, parser.TokRParen)
-		if end < 0 {
-			return
+		for j, t := range param {
+			if t.Kind == parser.TokEquals {
+				eq = j
+
+				break
+			}
 		}
 
-		params := producerSplit(tokens[i+3 : end])
-
-		start := end + 1
-		for start < len(tokens) && tokens[start].Kind != parser.TokLBrace && tokens[start].Kind != parser.TokSemicolon {
-			start++
+		header := param
+		if eq >= 0 {
+			header = param[:eq]
 		}
 
-		if start >= len(tokens) || tokens[start].Kind != parser.TokLBrace {
+		if len(header) == 0 {
 			continue
 		}
 
-		finish := producerGroupEnd(tokens, start, parser.TokLBrace, parser.TokRBrace)
-		if finish < 0 {
-			return
+		key := strings.ToLower(header[len(header)-1].Value)
+
+		method.parameters = append(method.parameters, key)
+		if eq >= 0 {
+			method.defaults[key] = producerText(param[eq+1:])
 		}
-
-		if finish-start > 4096 {
-			methods[name] = &producerMethod{body: []producerNode{{kind: "unsafe", expression: producerText(tokens[start+1 : finish])}}}
-			i = finish
-
-			continue
-		}
-
-		method := &producerMethod{defaults: map[string]string{}}
-
-		for _, param := range params {
-			if len(param) == 0 {
-				continue
-			}
-
-			eq := -1
-
-			for j, t := range param {
-				if t.Kind == parser.TokEquals {
-					eq = j
-
-					break
-				}
-			}
-
-			header := param
-			if eq >= 0 {
-				header = param[:eq]
-			}
-
-			if len(header) == 0 {
-				continue
-			}
-
-			key := strings.ToLower(header[len(header)-1].Value)
-
-			method.parameters = append(method.parameters, key)
-			if eq >= 0 {
-				method.defaults[key] = producerText(param[eq+1:])
-			}
-		}
-
-		p := producerScript{tokens: tokens[start+1 : finish]}
-
-		method.body = p.block()
-		if p.valid() {
-			method.sensitive = (producerSensitive(method.body) || producerCallBinding(method.body)) && !producerReturnsThis(method.body)
-			method.wanted = producerWanted(method.body)
-			methods[name] = method
-		} else {
-			expression := producerText(tokens[start+1 : finish])
-			method.body = []producerNode{{kind: "unsafe", expression: expression}}
-			method.sensitive = producerSensitive(method.body)
-			methods[name] = method
-		}
-
-		i = finish
 	}
+
+	p := producerScript{tokens: body}
+
+	method.body = p.block()
+	if p.valid() {
+		method.sensitive = (producerSensitive(method.body) || producerCallBinding(method.body)) && !producerReturnsThis(method.body)
+		method.wanted = producerWanted(method.body)
+	} else {
+		method.body = []producerNode{{kind: "unsafe", expression: producerText(body)}}
+		method.sensitive = producerSensitive(method.body)
+	}
+
+	return method
 }
 
 func producerGroupEnd(tokens []parser.Token, start int, open, closing parser.TokenKind) int {

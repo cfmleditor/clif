@@ -1354,8 +1354,18 @@ func (p *scriptParser) parse() {
 		case "function":
 			p.parseFunction(tok, "", "")
 		case "public", "private", "remote", "package":
-			p.parseAccessModified(tok)
+			p.parseAccessModified(tok, tok.Value)
 		case "component", "interface":
+			// `component function init()` returns a component: the word is a
+			// return type, not the component's header, which read the whole
+			// function as attributes and lost it.
+			if next := p.sc.PeekSkipComments(); next.Kind == TokIdent && identEq(next.Value, "function") {
+				p.sc.NextSkipComments()
+				p.parseFunction(tok, "", tok.Value)
+
+				continue
+			}
+
 			// An interface's attribute list is a component's — `interface
 			// extends="IBase"` left `extends` to be read as an assignment, and
 			// declared a variable called `extends`.
@@ -1398,6 +1408,10 @@ func (p *scriptParser) parse() {
 			case peek.Kind == TokIdent && identEq(peek.Value, "function"):
 				p.sc.NextSkipComments()
 				p.parseFunction(tok, "", tok.Value)
+			case peek.Kind == TokIdent && isFunctionModifier(tok.Value) && startsDeclaration(p.sc):
+				// `static numeric function f()`: the modifier starts the
+				// declaration, as an access word does.
+				p.parseAccessModified(tok, "")
 			case peek.Kind == TokDot:
 				if !p.parseDottedStatement(tok) {
 					return
@@ -1632,7 +1646,10 @@ func (p *scriptParser) attrValue() (Token, bool) {
 	return val, true
 }
 
-func (p *scriptParser) parseAccessModified(accessTok Token) {
+// parseAccessModified reads a declaration whose first word, accessTok, is its
+// access (access) or a modifier (static, final, abstract: access ""), and the
+// return type that may follow.
+func (p *scriptParser) parseAccessModified(accessTok Token, access string) {
 	next := p.sc.PeekSkipComments()
 	if next.Kind != TokIdent {
 		return
@@ -1640,12 +1657,35 @@ func (p *scriptParser) parseAccessModified(accessTok Token) {
 
 	if identEq(next.Value, "function") {
 		p.sc.NextSkipComments()
-		p.parseFunction(accessTok, accessTok.Value, "")
+		p.parseFunction(accessTok, access, "")
 
 		return
 	}
 
 	retType := p.sc.NextSkipComments()
+
+	// A modifier between the access and the return type (`package final any
+	// function`), or an access after a modifier (`final package function`),
+	// is not the return type; the word after it is.
+	for isFunctionModifier(retType.Value) || access == "" && isAccessModifier(retType.Value) {
+		after := p.sc.PeekSkipComments()
+		if after.Kind != TokIdent {
+			break
+		}
+
+		if isAccessModifier(retType.Value) {
+			access = retType.Value
+		}
+
+		if identEq(after.Value, "function") {
+			p.sc.NextSkipComments()
+			p.parseFunction(accessTok, access, "")
+
+			return
+		}
+
+		retType = p.sc.NextSkipComments()
+	}
 
 	var retVal chainBuilder
 	retVal.reset(retType.Value)
@@ -1661,18 +1701,65 @@ func (p *scriptParser) parseAccessModified(accessTok Token) {
 		}
 	}
 
+	// An array of a type, `private string[] function`, returns an array.
+	for p.sc.PeekSkipComments().Kind == TokLBracket {
+		saved := p.sc.Save()
+		p.sc.NextSkipComments()
+
+		if p.sc.NextSkipComments().Kind != TokRBracket {
+			p.sc.Restore(saved)
+
+			break
+		}
+
+		retVal.reset("array")
+	}
+
 	next2 := p.sc.PeekSkipComments()
 	if next2.Kind == TokIdent && identEq(next2.Value, "function") {
 		p.sc.NextSkipComments()
-		p.parseFunction(accessTok, accessTok.Value, retVal.String())
+		p.parseFunction(accessTok, access, retVal.String())
 	}
+}
+
+// startsDeclaration reports whether the scanner, just past a modifier, holds
+// the rest of a function's header: words, dots and `[]` up to `function`.
+// It looks without moving.
+func startsDeclaration(sc *Scanner) bool {
+	saved := sc.Save()
+	defer sc.Restore(saved)
+
+	for range 8 {
+		switch t := sc.NextSkipComments(); {
+		case t.Kind == TokIdent && identEq(t.Value, "function"):
+			return true
+		case t.Kind == TokIdent, t.Kind == TokDot, t.Kind == TokLBracket, t.Kind == TokRBracket:
+		default:
+			return false
+		}
+	}
+
+	return false
+}
+
+// isFunctionModifier reports whether word is a modifier a script function's
+// header may carry besides its access.
+func isFunctionModifier(word string) bool {
+	return identEq(word, "static") || identEq(word, "final") || identEq(word, "abstract")
 }
 
 // skipFunctionAttrs steps over a declaration's attributes (the shared
 // skipFunctionAttrs), reading each value as the expression it is: a string's
-// #...# spans and a bare call are recorded like any other.
-func (p *scriptParser) skipFunctionAttrs() {
-	skipFunctionAttrs(p.sc, func(v Token) {
+// #...# spans and a bare call are recorded like any other. It returns the
+// value of an access= attribute, "" when there is none.
+func (p *scriptParser) skipFunctionAttrs() string {
+	access := ""
+
+	skipFunctionAttrs(p.sc, func(name, v Token) {
+		if identEq(name.Value, "access") && (v.Kind == TokString || v.Kind == TokIdent) {
+			access = unquote(v.Value)
+		}
+
 		switch {
 		case v.Kind == TokString:
 			p.scanInterpolation(v)
@@ -1681,6 +1768,44 @@ func (p *scriptParser) skipFunctionAttrs() {
 		default:
 		}
 	})
+
+	return access
+}
+
+// functionSpan is the FunctionSpan of a function the walk has just read,
+// nil where the text has no place in a file (baseOffset < 0). The offsets
+// are the region's, from start (the declaration's first token), the
+// parameter list's parentheses and the body's braces.
+func (p *scriptParser) functionSpan(kind FunctionKind, name, access string, start Token, parens, braces [2]int, defaults map[string]string) *FunctionSpan {
+	if p.baseOffset < 0 {
+		return nil
+	}
+
+	base := p.baseOffset
+	s := &FunctionSpan{
+		Name: name, Access: access, Defaults: defaults, Kind: kind,
+		Line:   p.baseLine + int(start.Line),
+		Start:  base + start.Offset,
+		Params: -1, ParamsEnd: -1, Body: -1, BodyEnd: -1,
+	}
+
+	s.End = s.Start
+
+	if parens[0] >= 0 && parens[1] >= parens[0] {
+		s.Params, s.ParamsEnd = base+parens[0]+1, base+parens[1]
+		s.End = s.ParamsEnd + 1
+	}
+
+	switch {
+	case braces[0] >= 0 && braces[1] >= braces[0]:
+		s.Body, s.BodyEnd = base+braces[0]+1, base+braces[1]
+		s.End = s.BodyEnd + 1
+	case braces[0] < 0 && braces[1] >= 0:
+		s.End = base + braces[1] + 1 // past the `;` of a declaration without a body
+	default:
+	}
+
+	return s
 }
 
 func (p *scriptParser) parseFunction(startTok Token, access string, returnType string) {
@@ -1688,9 +1813,21 @@ func (p *scriptParser) parseFunction(startTok Token, access string, returnType s
 	docComment := p.sc.LastBlockComment
 	p.sc.LastBlockComment = ""
 
+	kind := FunctionDeclared
+	if p.inFunc != "" {
+		kind = FunctionNested
+	}
+
 	nameTok := p.sc.NextSkipComments()
 	if nameTok.Kind != TokIdent {
 		return
+	}
+
+	// `public function function startWorker()` returns a function: the
+	// keyword read first was its return type.
+	if identEq(nameTok.Value, "function") && p.sc.PeekSkipComments().Kind == TokIdent {
+		returnType = nameTok.Value
+		nameTok = p.sc.NextSkipComments()
 	}
 
 	lp := p.sc.NextSkipComments()
@@ -1698,7 +1835,7 @@ func (p *scriptParser) parseFunction(startTok Token, access string, returnType s
 		return
 	}
 
-	args := p.parseArgList()
+	args, closing, defaults := p.parseArgs()
 
 	// Apply JSDoc @param {type} annotations to arguments
 	if docComment != "" {
@@ -1723,10 +1860,16 @@ func (p *scriptParser) parseFunction(startTok Token, access string, returnType s
 	})
 
 	// Process body: set inFunc scope, parse assignments, then clear
-	p.skipFunctionAttrs()
+	stated := access
+	if attr := p.skipFunctionAttrs(); attr != "" {
+		stated = attr
+	}
 
-	endLine := p.parseBody(funcLine, args)
-	p.scopes = append(p.scopes, FuncScope{Name: nameTok.Value, Access: access, ReturnType: returnType, Start: funcLine, End: p.baseLine + endLine})
+	endLine, braces := p.parseBody(funcLine, args)
+	p.scopes = append(p.scopes, FuncScope{
+		Name: nameTok.Value, Access: access, ReturnType: returnType, Start: funcLine, End: p.baseLine + endLine,
+		span: p.functionSpan(kind, nameTok.Value, stated, startTok, [2]int{lp.Offset, closing}, braces, defaults),
+	})
 }
 
 // parseFunctionValue declares a method for a function assigned to a name, and
@@ -1771,18 +1914,17 @@ func (p *scriptParser) parseFunctionValue(name string, startTok Token) bool {
 			return false
 		}
 
-		p.sc.NextSkipComments() // consume (
-
 	case rhs.Kind == TokLParen && p.arrowFollowsParens():
-		p.sc.NextSkipComments() // consume (
 
 	default:
 		return false
 	}
 
+	lp := p.sc.NextSkipComments() // consume (
+
 	p.sc.LastBlockComment = ""
 
-	args := p.parseArgList()
+	args, closing, defaults := p.parseArgs()
 	if docComment != "" {
 		applyParameterDocs(docComment, args)
 	}
@@ -1793,9 +1935,16 @@ func (p *scriptParser) parseFunctionValue(name string, startTok Token) bool {
 		p.sc.NextSkipComments()
 	}
 
-	p.recordFunctionValue(name, startTok, args)
+	p.recordFunctionValue(name, startTok, args, functionParams{parens: [2]int{lp.Offset, closing}, defaults: defaults})
 
 	return true
+}
+
+// functionParams is where a function value's parameter list was and the
+// literal defaults it held, for its FunctionSpan.
+type functionParams struct {
+	parens   [2]int
+	defaults map[string]string
 }
 
 // arrowFollowsParens reports whether the (...) the scanner is positioned on is
@@ -1852,7 +2001,7 @@ func (p *scriptParser) skipParensQuiet() bool {
 
 // recordFunctionValue files the declaration and walks the body, as
 // parseFunction does for a declared method.
-func (p *scriptParser) recordFunctionValue(name string, startTok Token, args []Argument) {
+func (p *scriptParser) recordFunctionValue(name string, startTok Token, args []Argument, params functionParams) {
 	funcLine := p.baseLine + int(startTok.Line)
 
 	p.funcs = append(p.funcs, FunctionDef{
@@ -1862,8 +2011,11 @@ func (p *scriptParser) recordFunctionValue(name string, startTok Token, args []A
 		Arguments: args,
 	})
 
-	endLine := p.parseBody(funcLine, args)
-	p.scopes = append(p.scopes, FuncScope{Name: name, Start: funcLine, End: p.baseLine + endLine})
+	endLine, braces := p.parseBody(funcLine, args)
+	p.scopes = append(p.scopes, FuncScope{
+		Name: name, Start: funcLine, End: p.baseLine + endLine,
+		span: p.functionSpan(FunctionValue, name, "", startTok, params.parens, braces, params.defaults),
+	})
 }
 
 // declareLoopVar declares the loop variable of `for (var row in qry)`.
@@ -2073,11 +2225,27 @@ func (p *scriptParser) recordLiteralMemberCall() {
 }
 
 func (p *scriptParser) parseArgList() []Argument {
-	args := make([]Argument, 0, 4)
+	args, _, _ := p.parseArgs()
+
+	return args
+}
+
+// parseArgs is parseArgList with what a FunctionSpan keeps of the list: the
+// offset of its closing parenthesis in the region (-1 when it runs to the
+// end), and its literal defaults (FunctionSpan.Defaults).
+func (p *scriptParser) parseArgs() (args []Argument, closing int, defaults map[string]string) {
+	args = make([]Argument, 0, 4)
+	closing = -1
 
 	for {
 		tok := p.sc.NextSkipComments()
-		if tok.Kind == TokRParen || tok.Kind == TokEOF {
+		if tok.Kind == TokRParen {
+			closing = tok.Offset
+
+			break
+		}
+
+		if tok.Kind == TokEOF {
 			break
 		}
 
@@ -2144,30 +2312,54 @@ func (p *scriptParser) parseArgList() []Argument {
 		peek := p.sc.PeekSkipComments()
 		if peek.Kind == TokEquals {
 			p.sc.NextSkipComments()
-			p.skipDefault()
+
+			if literal, ok := p.skipDefault(); ok {
+				if defaults == nil {
+					defaults = make(map[string]string, 1)
+				}
+
+				defaults[strings.ToLower(name)] = literal
+			}
 		}
 
 		args = append(args, Argument{Name: name, Type: typeName, Required: required})
 	}
 
-	return args
+	return args, closing, defaults
 }
 
 // skipDefault consumes an argument's default value, recording any calls written
 // in it: `function load(id, dao = newDao())` calls newDao on every invocation
 // that omits it, and the scan walked past it a token at a time.
-func (p *scriptParser) skipDefault() {
+//
+// It returns the default when it is a literal string, one string token: its
+// contents, with a doubled quote read as one.
+func (p *scriptParser) skipDefault() (string, bool) {
 	depth := 0
+
+	var first Token
+
+	n := 0
 
 	for {
 		peek := p.sc.PeekSkipComments()
 		if peek.Kind == TokEOF {
-			return
+			return "", false
 		}
 
 		if depth == 0 && (peek.Kind == TokComma || peek.Kind == TokRParen) {
-			return
+			if n != 1 || first.Kind != TokString {
+				return "", false
+			}
+
+			return unquoteDoubled(first.Value), true
 		}
+
+		if n == 0 {
+			first = peek
+		}
+
+		n++
 
 		p.sc.NextSkipComments()
 
@@ -2187,20 +2379,32 @@ func (p *scriptParser) skipDefault() {
 }
 
 // parseBody processes { ... } or ; for a function body, extracting refs.
-// Sets inFunc/localVarSet on entry, clears on exit. Returns the line of the closing token.
-func (p *scriptParser) parseBody(funcLine int, args []Argument) int {
+// Sets inFunc/localVarSet on entry, clears on exit. Returns the line of the
+// closing token, and the region offsets of the body's braces ({-1, -1} when
+// it has no closed brace body; {-1, offset} for a declaration ended by the
+// `;` at offset).
+func (p *scriptParser) parseBody(funcLine int, args []Argument) (int, [2]int) {
 	tok := p.sc.PeekSkipComments()
 	if tok.Kind == TokSemicolon {
 		t := p.sc.NextSkipComments()
 
-		return int(t.Line)
+		return int(t.Line), [2]int{-1, t.Offset}
 	}
 
 	if tok.Kind != TokLBrace {
-		return int(tok.Line)
+		return int(tok.Line), [2]int{-1, -1}
 	}
 
 	p.sc.NextSkipComments() // consume {
+
+	return p.parseBraceBody(funcLine, args, tok)
+}
+
+// parseBraceBody is parseBody's work on a body whose `{`, tok, has been
+// consumed.
+func (p *scriptParser) parseBraceBody(funcLine int, args []Argument, tok Token) (int, [2]int) {
+	noBody := [2]int{-1, -1}
+	braces := [2]int{tok.Offset, -1}
 
 	// The body is a block: what it assigns runs before a return in it.
 	if p.flow != nil {
@@ -2259,7 +2463,7 @@ func (p *scriptParser) parseBody(funcLine int, args []Argument) int {
 				p.flow.dropBraceless()
 			}
 
-			return int(t.Line)
+			return int(t.Line), noBody
 		}
 
 		if p.flow != nil && len(p.flow.ends) > 0 {
@@ -2282,6 +2486,7 @@ func (p *scriptParser) parseBody(funcLine int, args []Argument) int {
 			depth--
 			if depth == 0 {
 				endLine = int(t.Line)
+				braces[1] = t.Offset
 			} else if p.flow != nil {
 				p.flow.close("")
 			}
@@ -2322,7 +2527,7 @@ func (p *scriptParser) parseBody(funcLine int, args []Argument) int {
 	p.returnVar, p.returnLine = prevReturnVar, prevReturnLine
 	p.bodyFunc = prevBodyFunc
 
-	return endLine
+	return endLine, braces
 }
 
 // openBracelessBody opens a block for the statement a braceless `if`, `else`,
@@ -4554,6 +4759,18 @@ func unquote(s string) string {
 	}
 
 	return s
+}
+
+// unquoteDoubled is a string token's contents with CFML's escape, a doubled
+// quote, read as the one quote it stands for.
+func unquoteDoubled(s string) string {
+	if len(s) < 2 || s[0] != '"' && s[0] != '\'' {
+		return s
+	}
+
+	q := s[:1]
+
+	return strings.ReplaceAll(s[1:len(s)-1], q+q, q)
 }
 
 // parseStandaloneNew handles `new com.path(args)` expressions that are not

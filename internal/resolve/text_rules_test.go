@@ -5,6 +5,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/cfmleditor/clif/internal/parser"
 )
 
 // The scanners in text_rules.go stand in for regular expressions, and the only
@@ -66,38 +68,88 @@ func TestTheTextScannersAreTheExpressionsTheyReplace(t *testing.T) {
 
 	const cases = 60000
 
-	var writes, assigns, bodies int
+	var assigns int
 
 	for range cases {
 		name := scannerNames[r.Intn(len(scannerNames))]
 		text := randomText(r, name)
-
-		if want, got := writesFunctionRegex(text, name), writesFunction(text, name); want != got {
-			t.Fatalf("writesFunction(%q, %q) = %v, the expression says %v", text, name, got, want)
-		} else if want {
-			writes++
-		}
 
 		if want, got := assignsNameRegex(text, name), assignsName(text, name); want != got {
 			t.Fatalf("assignsName(%q, %q) = %v, the expression says %v", text, name, got, want)
 		} else if want {
 			assigns++
 		}
-
-		if want, got := functionBodyNamedRegex(text, name), functionBodyNamed(text, name); want != got {
-			t.Fatalf("functionBodyNamed(%q, %q) = %q, the expression says %q", text, name, got, want)
-		} else if want != "" {
-			bodies++
-		}
 	}
 
 	// A comparison that never sees a match proves nothing. Each rule must have
-	// matched in a real share of the cases, and missed in most.
-	for name, n := range map[string]int{"writesFunction": writes, "assignsName": assigns, "functionBodyNamed": bodies} {
-		if n < cases/200 || n > cases*9/10 {
-			t.Errorf("%s answered yes in %d of %d cases: the generator no longer exercises it both ways", name, n, cases)
-		}
+	// matched in a real share of the cases, and missed in most. (writesFunction
+	// and functionBodyNamed were held to their expressions here too; they read
+	// the parse's functions now, which is not what any expression says: see
+	// TestTheFunctionReadersReadTheParsesFunctions.)
+	if assigns < cases/200 || assigns > cases*9/10 {
+		t.Errorf("assignsName answered yes in %d of %d cases: the generator no longer exercises it both ways", assigns, cases)
 	}
+}
+
+// hasWrittenFunc and functionBodyNamed read the functions the parse found
+// (parser.FunctionSpans), so they answer as the parse reads the file: a
+// function in a comment is none, a brace in a string does not end a body, a
+// '>' in a quoted attribute does not end a tag, and a function generated for
+// a property is not written.
+func TestTheFunctionReadersReadTheParsesFunctions(t *testing.T) {
+	t.Run("hasWrittenFunc", func(t *testing.T) {
+		for _, tt := range []struct {
+			text, name string
+			want       bool
+		}{
+			{"component { function init() {} }", "init", true},
+			{"component { public any function Init() {} }", "init", true},
+			{"component { function initFoo() {} }", "init", false},
+			{"component {\n// function init() {}\n}", "init", false},
+			{"component { x = \"function init() {}\"; }", "init", false},
+			{"component { this.init = function() {}; }", "init", true},
+			{"component accessors=true { property name=\"foo\"; }", "getFoo", false},
+			{"component accessors=true { property name=\"foo\"; function getFoo() {} }", "getFoo", true},
+			{"<cfcomponent><cffunction name=\"init\"></cffunction></cfcomponent>", "init", true},
+			{"<cfcomponent><cffunction hint=\"a > b\" name=\"init\"></cffunction></cfcomponent>", "init", true},
+			{"<cfcomponent><cffunction name=\"initFoo\"></cffunction></cfcomponent>", "init", false},
+			{"<cfcomponent><!--- <cffunction name=\"init\"></cffunction> ---></cfcomponent>", "init", false},
+		} {
+			pr := parser.Parse("file:///t/C.cfc", tt.text)
+			if got := hasWrittenFunc(pr, tt.name); got != tt.want {
+				t.Errorf("hasWrittenFunc(%q, %q) = %v, want %v", tt.text, tt.name, got, tt.want)
+			}
+		}
+	})
+
+	t.Run("functionBodyNamed", func(t *testing.T) {
+		for _, tt := range []struct{ text, name, want string }{
+			{"function init() { return this; }", "init", "return this;"},
+			{"function init() { if (a) { b(); } }", "init", "if (a) { b(); }"},
+			{"function init() { x = \"}\"; return x; }", "init", "x = \"}\"; return x;"},
+			{"/* function init() { a } */ function init() { b }", "init", "b"},
+			{"function init() { a } function init() { b }", "init", ""},
+			{"function init", "init", ""},
+			{"function init(", "init", ""},
+			{"function init() no braces", "init", ""},
+			{"function init() { unclosed", "init", ""},
+			{"function init();", "init", ""},
+			{"<cffunction name=\"init\"><cfargument name=\"a\">body()</cffunction>", "init", "body()"},
+			{"<cffunction name=\"init\">one</cffunction><cffunction name=\"init\">two</cffunction>", "init", ""},
+			{"<cffunction name=\"init\">one</cffunction><cffunction name=\"other\">two</cffunction>", "init", "one"},
+			{"<cffunction name=\"init\">no close", "init", ""},
+			{"<cffunction xname=\"init\">a</cffunction>", "init", ""},
+			{"<cffunction x name=\"init\">a</cffunction>", "init", "a"},
+			{"<cffunction hint=\"a>b\" name=\"init\">a</cffunction>", "init", "a"},
+			{"<cffunction name=\"init\">a</CFFUNCTION>", "init", "a"},
+			{"<!--- <cffunction name=\"init\">x</cffunction> ---><cffunction name=\"init\">a</cffunction>", "init", "a"},
+			{"<cffunction name=\"init\">a</cffunction> function init() { b }", "init", "a"},
+		} {
+			if got := functionBodyNamed(tt.text, parser.FunctionSpansOf("", tt.text), tt.name); got != tt.want {
+				t.Errorf("functionBodyNamed(%q, %q) = %q, want %q", tt.text, tt.name, got, tt.want)
+			}
+		}
+	})
 }
 
 // The shapes each expression is written for, one by one, so that a failure of
@@ -107,38 +159,6 @@ func TestTheTextScannersOnTheirOwnShapes(t *testing.T) {
 		text, name string
 		want       bool
 	}
-
-	t.Run("writesFunction", func(t *testing.T) {
-		for _, tt := range []c{
-			{"function init() {}", "init", true},
-			{"FUNCTION  Init  (", "init", true},
-			{"public function init(", "init", true},
-			{"function\n\tinit\n(", "init", true},
-			{"function initFoo(", "init", false},
-			{"function init", "init", false},
-			{"xfunction init(", "init", false},
-			{"_function init(", "init", false},
-			{"function\vinit(", "init", false},
-			{"function init\v(", "init", false},
-			{"function init\f(", "init", true},
-			{"<cffunction name=\"init\">", "init", true},
-			{"<CFFUNCTION hint=\"h\" NAME='init' output=\"false\">", "init", true},
-			{"<cffunction name = \"init\" >", "init", true},
-			{"<cffunction\nname=\"init\">", "init", true},
-			{"<cffunction name=\"initFoo\">", "init", false},
-			{"<cffunction name=init>", "init", false},
-			{"<cffunction>name=\"init\"", "init", false},
-			{"<cffunction names=\"init\">", "init", false},
-			{"<cffunction xname=\"init\">", "init", true}, // no \b before name here, unlike functionBodyNamed
-			{"<cffunction", "init", false},
-			{"name=\"init\"", "init", false},
-			{"<cffunctionname=\"init\">", "init", false},
-		} {
-			if got := writesFunction(tt.text, tt.name); got != tt.want || got != writesFunctionRegex(tt.text, tt.name) {
-				t.Errorf("writesFunction(%q, %q) = %v, want %v (expression %v)", tt.text, tt.name, got, tt.want, writesFunctionRegex(tt.text, tt.name))
-			}
-		}
-	})
 
 	t.Run("assignsName", func(t *testing.T) {
 		for _, tt := range []c{
@@ -198,32 +218,6 @@ func TestTheTextScannersOnTheirOwnShapes(t *testing.T) {
 		} {
 			if got := assignsName(tt.text, tt.name); got != tt.want || got != assignsNameRegex(tt.text, tt.name) {
 				t.Errorf("assignsName(%q, %q) = %v, want %v (expression %v)", tt.text, tt.name, got, tt.want, assignsNameRegex(tt.text, tt.name))
-			}
-		}
-	})
-
-	t.Run("functionBodyNamed", func(t *testing.T) {
-		for _, tt := range []struct{ text, name, want string }{
-			{"function init() { return this; }", "init", "return this;"},
-			{"function init() { if (a) { b(); } }", "init", "if (a) { b(); }"},
-			{"function init() { a } function init() { b }", "init", ""},
-			{"function init", "init", ""},
-			{"function init(", "init", ""},
-			{"function init() no braces", "init", ""},
-			{"function init() { unclosed", "init", ""},
-			{"<cffunction name=\"init\"><cfargument name=\"a\">body()</cffunction>", "init", "body()"},
-			{"<cffunction name=\"init\">one</cffunction><cffunction name=\"init\">two</cffunction>", "init", ""},
-			{"<cffunction name=\"init\">one</cffunction><cffunction name=\"other\">two</cffunction>", "init", "one"},
-			{"<cffunction name=\"init\">no close", "init", ""},
-			{"<cffunction xname=\"init\">a</cffunction>", "init", ""},
-			{"<cffunction x name=\"init\">a</cffunction>", "init", "a"},
-			{"<cffunctionx name=\"init\">a</cffunction>", "init", ""},
-			{"<cffunction hint=\"a>b\" name=\"init\">a</cffunction>", "init", ""},
-			{"<cffunction name=\"init\">a</CFFUNCTION>", "init", "a"},
-			{"<cffunction name=\"init\">a</cffunction> function init() { b }", "init", "a"},
-		} {
-			if got := functionBodyNamed(tt.text, tt.name); got != tt.want || got != functionBodyNamedRegex(tt.text, tt.name) {
-				t.Errorf("functionBodyNamed(%q, %q) = %q, want %q (expression %q)", tt.text, tt.name, got, tt.want, functionBodyNamedRegex(tt.text, tt.name))
 			}
 		}
 	})
@@ -360,36 +354,6 @@ func pickText(r *rand.Rand, pieces []string, most int) string {
 	}
 
 	return b.String()
-}
-
-// actionStartRe is run at the places the word function is. It is compared
-// with the expression it stands for on text built from its own pieces — its
-// word in either case and beside what almost makes a match — and the
-// comparison is of the submatch indices, so a capture that moved is a
-// failure too.
-func TestTheAnchoredExpressionsMatchWhatTheyReplace(t *testing.T) {
-	r := rand.New(rand.NewSource(13))
-
-	pieces := []string{
-		"\n", " ", "\t", "\v", "(", ")", ",", "\"", "'", "/", ".", "=", ";", "{", "}", "view(", "x",
-		"function", "FUNCTION", "functions", "xfunction", "function ", "function  run(", "function\tinit (", "function (", "function run", "function _x1(",
-	}
-
-	hits := 0
-
-	for range 40000 {
-		text := pickText(r, pieces, 14)
-
-		if want, got := actionStartRe.FindAllStringSubmatchIndex(text, -1), actionStartMatches(text); !slices.EqualFunc(want, got, slices.Equal) {
-			t.Fatalf("actionStartMatches(%q) = %v, the expression says %v", text, got, want)
-		} else {
-			hits += len(want)
-		}
-	}
-
-	if hits < 300 {
-		t.Errorf("the expression matched %d times: the generator does not exercise it", hits)
-	}
 }
 
 // initStoredArg's per-line test, and the scanner for it, on the lines of an

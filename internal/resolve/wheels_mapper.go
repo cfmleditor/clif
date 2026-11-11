@@ -246,7 +246,7 @@ func (r *Resolver) sourceInfo(path string) sourceInfo {
 
 	result := cached
 	if !ok || cached.content != content {
-		result = sourceInfo{associations: wheelsAssociations(content), content: content, derived: &sourceDerived{}}
+		result = sourceInfo{associations: wheelsAssociations(content), content: content, derived: &sourceDerived{path: path}}
 	}
 
 	result.size, result.modTime, result.gen = info.Size(), info.ModTime(), gen
@@ -280,6 +280,33 @@ type sourceDerived struct {
 	mentionsSelf    bool
 	wrappersOnce    sync.Once
 	wrappers        map[string]parser.IncludeWrapper
+	spansOnce       sync.Once
+	spans           []parser.FunctionSpan
+	path            string // the file content was read from, for its extension
+}
+
+// functionSpansOf is the functions the parse finds in content, read from
+// file just now: its source's, read once, when that holds the same text.
+func (r *Resolver) functionSpansOf(file, content string) []parser.FunctionSpan {
+	if source := r.sourceInfo(file); source.derived != nil && source.content == content {
+		return source.functionSpans()
+	}
+
+	return parser.FunctionSpansOf(file, content)
+}
+
+// functionSpans is the source's functions as the parse finds them
+// (parser.FunctionSpansOf, the functions-only reading of the parse's walk),
+// read once per source: the method maps and plans below are built from them
+// rather than finding the functions again.
+func (s *sourceInfo) functionSpans() []parser.FunctionSpan {
+	if s.derived == nil {
+		return parser.FunctionSpansOf("", s.content)
+	}
+
+	s.derived.spansOnce.Do(func() { s.derived.spans = parser.FunctionSpansOf(s.derived.path, s.content) })
+
+	return s.derived.spans
 }
 
 // sourcePlans is the source's producer plans (newProducerPlans), built on
@@ -290,7 +317,7 @@ func sourcePlans(s sourceInfo) *producerPlans {
 		return nil
 	}
 
-	s.derived.producersOnce.Do(func() { s.derived.producers = newProducerPlans(s.content) })
+	s.derived.producersOnce.Do(func() { s.derived.producers = newProducerPlans(s.content, s.functionSpans()) })
 
 	return s.derived.producers
 }
@@ -300,10 +327,10 @@ func sourcePlans(s sourceInfo) *producerPlans {
 // copies every body.
 func (s *sourceInfo) methodMap() map[string]wheelsMethod {
 	if s.derived == nil {
-		return wheelsMethods(s.content)
+		return wheelsMethods(s.content, s.functionSpans())
 	}
 
-	s.derived.methodsOnce.Do(func() { s.derived.methods = wheelsMethods(s.content) })
+	s.derived.methodsOnce.Do(func() { s.derived.methods = wheelsMethods(s.content, s.functionSpans()) })
 
 	return s.derived.methods
 }
@@ -416,128 +443,62 @@ func (r *Resolver) storeSourceInfo(path string, src *sourceInfo) {
 	r.mu.Unlock()
 }
 
-func wheelsMethods(content string) map[string]wheelsMethod {
-	// Bodies end at their braces, so strings are read as the parse reads them
-	// where the text is CFScript.
-	scanner := parser.NewSourceScanner(content)
-
+// wheelsMethods is the source's script methods by lowercased name, read from
+// the functions the parse found (spans, its FunctionSpans of content): each
+// function declared as a statement of the component or of a template's
+// script. Tag functions are left out by design, as are named functions
+// nested in another's body and functions assigned to a name, which no Wheels
+// loader copies; and so is a declaration with no body.
+func wheelsMethods(content string, spans []parser.FunctionSpan) map[string]wheelsMethod {
 	methods := make(map[string]wheelsMethod)
-	depth, componentDepth := 0, 0
 
-	// Whether an access modifier other than public came since the last
-	// statement boundary: all a function's header is read for. The tokens
-	// themselves used to be kept, and in a tag file, which has no braces or
-	// semicolons, that was a copy of every token in it (2.5 GB on tassweb).
-	restricted := false
-
-	for {
-		tok := scanner.NextSkipComments()
-		if tok.Kind == parser.TokEOF {
-			return methods
-		}
-
-		if tok.Kind == parser.TokIdent && strings.EqualFold(tok.Value, "component") && depth == 0 {
-			componentDepth = 1
-		}
-
-		if tok.Kind != parser.TokIdent || !strings.EqualFold(tok.Value, "function") || depth != componentDepth {
-			switch tok.Kind {
-			case parser.TokLBrace:
-				depth++
-				restricted = false
-			case parser.TokRBrace:
-				depth--
-				restricted = false
-			case parser.TokSemicolon:
-				restricted = false
-			default:
-				restricted = restricted || restrictedAccess(tok.Value)
-			}
-
+	for i := range spans {
+		s := &spans[i]
+		if s.Kind != parser.FunctionDeclared || s.Body < 0 || s.Params < 0 {
 			continue
 		}
 
-		name, method := wheelsReadMethod(scanner, restricted)
-		if name != "" {
-			methods[name] = method
+		if method, ok := wheelsReadMethod(content, s); ok {
+			methods[strings.ToLower(s.Name)] = method
 		}
-
-		restricted = false
-	}
-}
-
-// restrictedAccess reports whether word is an access modifier that keeps a
-// function from being public.
-func restrictedAccess(word string) bool {
-	return strings.EqualFold(word, "private") || strings.EqualFold(word, "package") || strings.EqualFold(word, "remote")
-}
-
-func wheelsReadMethod(scanner *parser.Scanner, restricted bool) (string, wheelsMethod) {
-	name := scanner.NextSkipComments()
-	if name.Kind != parser.TokIdent || scanner.NextSkipComments().Kind != parser.TokLParen {
-		return "", wheelsMethod{}
 	}
 
-	public := !restricted
+	return methods
+}
 
-	params := beanArguments(scanner)
+// wheelsReadMethod reads the method s declares in content: public unless it
+// states another access, its parameters, and its body as wheelsTokens text.
+func wheelsReadMethod(content string, s *parser.FunctionSpan) (wheelsMethod, bool) {
+	// The list with its closing parenthesis, which beanArguments reads to.
+	params := beanArguments(parser.NewScriptScanner(content[s.Params : s.ParamsEnd+1]))
 	if params == nil {
-		return "", wheelsMethod{}
+		return wheelsMethod{}, false
 	}
 
-	for tok := scanner.NextSkipComments(); tok.Kind != parser.TokLBrace; tok = scanner.NextSkipComments() {
-		if tok.Kind == parser.TokEOF || tok.Kind == parser.TokSemicolon {
-			return "", wheelsMethod{}
-		}
-
-		if tok.Kind == parser.TokIdent && strings.EqualFold(tok.Value, "access") {
-			if scanner.NextSkipComments().Kind != parser.TokEquals {
-				return "", wheelsMethod{}
-			}
-
-			value := scanner.NextSkipComments()
-			if value.Kind != parser.TokString || !strings.EqualFold(strings.Trim(value.Value, "\"'"), "public") {
-				public = false
-			}
-		}
-	}
+	public := s.Access == "" || strings.EqualFold(s.Access, "public")
 
 	var (
 		body   strings.Builder
 		tokens []parser.Token
 	)
 
-	braces := 1
-	for braces > 0 {
-		tok := scanner.NextSkipComments()
-		if tok.Kind == parser.TokEOF {
-			return "", wheelsMethod{}
-		}
+	scanner := parser.NewScriptScanner(s.BodyText(content))
 
-		if tok.Kind == parser.TokLBrace {
-			braces++
-		}
+	for tok := scanner.NextSkipComments(); tok.Kind != parser.TokEOF; tok = scanner.NextSkipComments() {
+		wheelsWriteToken(&body, tok)
 
-		if tok.Kind == parser.TokRBrace {
-			braces--
-		}
-
-		if braces > 0 {
-			wheelsWriteToken(&body, tok)
-
-			if len(tokens) <= 2048 {
-				tokens = append(tokens, tok)
-			}
+		if len(tokens) <= 2048 {
+			tokens = append(tokens, tok)
 		}
 	}
 
 	text := body.String()
 	parameter, modes := defaultSelfReturnModes(params, text)
 
-	return strings.ToLower(name.Value), wheelsMethod{
+	return wheelsMethod{
 		body: text, public: public, literalDefaults: wheelsLiteralDefaults(params), noArgsReturn: absentArgumentReturn(params, tokens),
 		selfDefaultParam: parameter, selfExcludedModes: modes,
-	}
+	}, true
 }
 
 func wheelsLiteralDefaults(params [][]parser.Token) bool {

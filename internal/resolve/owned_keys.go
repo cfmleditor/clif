@@ -188,7 +188,7 @@ func (r *Resolver) prefixFactoryIn(file, prefix string) string {
 		names = append(names, name)
 	}
 
-	for _, fn := range tagFunctionNames(source.content) {
+	for _, fn := range tagFunctions(source.content, source.functionSpans()) {
 		names = append(names, fn.name)
 	}
 
@@ -440,18 +440,18 @@ func functionSource(source *sourceInfo, name string) string {
 // the whole file for each was 4% of tassweb's scan.
 func (s *sourceInfo) tagFunctionBodies() map[string]string {
 	if s.derived == nil {
-		return tagFunctionBodies(s.content)
+		return tagFunctionBodies(s.content, s.functionSpans())
 	}
 
-	s.derived.tagBodiesOnce.Do(func() { s.derived.tagBodies = tagFunctionBodies(s.content) })
+	s.derived.tagBodiesOnce.Do(func() { s.derived.tagBodies = tagFunctionBodies(s.content, s.functionSpans()) })
 
 	return s.derived.tagBodies
 }
 
-func tagFunctionBodies(content string) map[string]string {
+func tagFunctionBodies(content string, spans []parser.FunctionSpan) map[string]string {
 	out := map[string]string{}
 
-	for _, fn := range tagFunctionNames(content) {
+	for _, fn := range tagFunctions(content, spans) {
 		if _, seen := out[fn.name]; !seen {
 			out[fn.name] = fn.body
 		}
@@ -464,38 +464,28 @@ func tagFunctionBodies(content string) map[string]string {
 // the text between its tag and its </cffunction>, "" when it has none.
 type tagFunction struct{ name, body string }
 
-// tagFunctionNames is the <cffunction>s in content whose name is a plain
-// identifier ([\w$]+), in order, read with parser.CFTags: a commented-out
-// function, or a '>' inside a hint, no longer ends or makes one.
-func tagFunctionNames(content string) []tagFunction {
+// tagFunctions is the <cffunction>s the parse found in content (spans, its
+// FunctionSpans) whose name is a plain identifier ([\w$]+), in order: a
+// commented-out function makes none, and a self-closing one has no body.
+func tagFunctions(content string, spans []parser.FunctionSpan) []tagFunction {
 	var out []tagFunction
 
-	tags := parser.CFTags(content, "cffunction")
-	for i := range tags {
-		if tags[i].Close {
+	for i := range spans {
+		s := &spans[i]
+		if s.Kind != parser.FunctionTag || !plainFunctionName(s.Name) {
 			continue
-		}
-
-		name, _ := tags[i].Attr("name")
-		if !plainFunctionName(name) {
-			continue
-		}
-
-		body := ""
-		if i+1 < len(tags) && tags[i+1].Close {
-			body = content[tags[i].End:tags[i+1].Start]
 		}
 
 		// A clone: the name is a slice of the whole file, which the map
 		// would otherwise keep alive.
-		out = append(out, tagFunction{strings.Clone(strings.ToLower(name)), body})
+		out = append(out, tagFunction{strings.Clone(strings.ToLower(s.Name)), s.BodyText(content)})
 	}
 
 	return out
 }
 
 // plainFunctionName reports whether name is [\w$]+, the names
-// tagFunctionNames reads.
+// tagFunctions reads.
 func plainFunctionName(name string) bool {
 	if name == "" {
 		return false

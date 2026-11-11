@@ -185,163 +185,28 @@ func blankSpans(content string, spans [][2]int) string {
 	return string(masked)
 }
 
-// scanApplicationSpans is scanApplication's answer as spans, its names copied
-// out of content.
+// scanApplicationSpans is applicationScan's work: the functions the parse
+// finds in content (FunctionSpansOf, its functions-only reading), each blanked
+// from its first header word to its end, and each a section but a function
+// assigned to a name, which is a value the constructor sets rather than a
+// method. A function nested in another is inside that one's span, and no
+// section either: an application's methods are its own, declared at the top.
 func scanApplicationSpans(content string) appScanResult {
-	spans, sections := scanApplication(content)
+	var held appScanResult
 
-	for i := range sections {
-		sections[i].name = strings.Clone(sections[i].name)
-	}
-
-	return appScanResult{blanked: spans, sections: sections}
-}
-
-// scanApplication is applicationScan's work.
-func scanApplication(content string) ([][2]int, []appSection) {
-	var (
-		spans    [][2]int
-		sections []appSection
-	)
-
-	// Functions are found by their braces, so strings are read as the parse
-	// reads them where the text is CFScript (NewScriptScanner).
-	sc := NewSourceScanner(content)
-
-	var header []Token
-
-	for {
-		t := sc.NextSkipComments()
-		if t.Kind == TokEOF {
-			break
-		}
-
-		if t.Kind != TokIdent {
-			if t.Kind == TokDot && len(header) > 0 {
-				header = append(header, t)
-			} else {
-				header = nil
-			}
-
+	spans := FunctionSpansOf("", content)
+	for i := range spans {
+		s := &spans[i]
+		if s.Kind == FunctionNested || s.End <= s.Start {
 			continue
 		}
 
-		start, name := t.Offset, ""
+		held.blanked = append(held.blanked, [2]int{s.Start, s.End})
 
-		var end int
-
-		switch {
-		case identEq(t.Value, "function"):
-			if applicationFunctionHeader(header) {
-				start = header[0].Offset
-			}
-
-			if next := sc.PeekSkipComments(); next.Kind == TokIdent {
-				name = strings.ToLower(next.Value)
-			}
-
-			skipMappingFunction(sc)
-			end = sc.pos
-		case identEq(t.Value, "cffunction"):
-			start = max(0, start-1)
-
-			name = applicationTagMethod(sc)
-
-			end = sc.pos
-		default:
-			if len(header) < 16 {
-				header = append(header, t)
-			} else {
-				header = nil
-			}
-
-			continue
-		}
-
-		header = nil
-
-		if end > start {
-			spans = append(spans, [2]int{start, end})
-		}
-
-		if name != "" {
-			sections = append(sections, appSection{name: name, start: start, end: end})
+		if s.Kind != FunctionValue && s.Name != "" {
+			held.sections = append(held.sections, appSection{name: strings.Clone(strings.ToLower(s.Name)), start: s.Start, end: s.End})
 		}
 	}
 
-	return spans, sections
-}
-
-// Access/modifier and return-type tokens are part of a declaration, not
-// executable constructor text. Keep arbitrary qualified component return types
-// while rejecting statement keywords as a purported return type.
-func applicationFunctionHeader(tokens []Token) bool {
-	if len(tokens) == 0 {
-		return false
-	}
-
-	start := 0
-	for start < len(tokens) {
-		switch strings.ToLower(tokens[start].Value) {
-		case "public", "private", "package", "remote", "static", "final", "abstract":
-			start++
-		default:
-			goto returnType
-		}
-	}
-
-	return true
-
-returnType:
-	for i := start; i < len(tokens); i++ {
-		if (i-start)%2 == 0 {
-			if tokens[i].Kind != TokIdent {
-				return false
-			}
-		} else if tokens[i].Kind != TokDot {
-			return false
-		}
-	}
-
-	switch strings.ToLower(tokens[start].Value) {
-	case "return", "var", "new", "component", "include", "import", "throw":
-		return false
-	}
-
-	return (len(tokens)-start)%2 == 1
-}
-
-func applicationTagMethod(sc *Scanner) (name string) {
-	for {
-		a := sc.NextSkipComments()
-		if a.Kind == TokEOF || a.Kind == TokGT {
-			break
-		}
-
-		if identEq(a.Value, "name") && sc.NextSkipComments().Kind == TokEquals {
-			value := sc.NextSkipComments()
-			if value.Kind == TokString {
-				name = strings.ToLower(strings.Trim(value.Value, `"'`))
-			}
-		}
-	}
-
-	for {
-		a := sc.NextSkipComments()
-		if a.Kind == TokEOF {
-			break
-		}
-
-		if a.Kind == TokSlash && identEq(sc.PeekSkipComments().Value, "cffunction") {
-			sc.NextSkipComments()
-
-			if sc.PeekSkipComments().Kind == TokGT {
-				sc.NextSkipComments()
-			}
-
-			break
-		}
-	}
-
-	return name
+	return held
 }

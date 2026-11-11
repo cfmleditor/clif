@@ -30,8 +30,6 @@ import (
 // A view no setView names (a partial rendered by renderView, a pager, a
 // sidebar) has no handoff, and its prc stays unknown.
 
-var actionStartRe = regexp.MustCompile(`(?i)\bfunction\s+(\w+)\s*\(`)
-
 // handoffAction is one handler action that renders a view, directly or
 // through the views that render it as a partial.
 type handoffAction struct {
@@ -40,6 +38,36 @@ type handoffAction struct {
 	start, setView int      // the lines the action starts on and renders on
 	body           string   // the action's source up to the render call
 	through        []string // the views between the action and this one, which must not assign the prc member
+}
+
+// handlerAction is where a function of a handler is written: its name, its
+// first byte, and where its parameters (or a <cffunction>'s body) open. A
+// render after that and before the next one's is the action's.
+type handlerAction struct {
+	name        string
+	start, open int
+}
+
+// handlerActions is the handler's functions the parse found (spans, its
+// FunctionSpans), in the order written: its methods and the named functions
+// nested in them, in either syntax. A function assigned to a name is a value
+// and not an action.
+func handlerActions(spans []parser.FunctionSpan) []handlerAction {
+	actions := make([]handlerAction, 0, len(spans))
+
+	for i := range spans {
+		s := &spans[i]
+
+		switch {
+		case s.Kind == parser.FunctionTag && s.Body >= 0:
+			actions = append(actions, handlerAction{name: s.Name, start: s.Start, open: s.Body})
+		case (s.Kind == parser.FunctionDeclared || s.Kind == parser.FunctionNested) && s.Params >= 0:
+			actions = append(actions, handlerAction{name: s.Name, start: s.Start, open: s.Params})
+		default:
+		}
+	}
+
+	return actions
 }
 
 // handoffIndex is every module's handler actions by the view each renders,
@@ -133,16 +161,16 @@ func (r *Resolver) moduleActions(dir string) map[string]renderers {
 		// The actions and line breaks of the handler, found once: each render
 		// used to search everything above it for its action and count lines
 		// from the top, quadratic in the handler's length.
-		actions := actionStartMatches(content)
+		actions := handlerActions(r.functionSpansOf(handler, content))
 		renders := viewRenders(content, name)
 		lines := parser.NewLineTable(content)
-		actionBefore := func(at int) []int {
-			i := sort.Search(len(actions), func(i int) bool { return actions[i][1] > at })
+		actionBefore := func(at int) *handlerAction {
+			i := sort.Search(len(actions), func(i int) bool { return actions[i].open > at })
 			if i == 0 {
 				return nil
 			}
 
-			return actions[i-1]
+			return &actions[i-1]
 		}
 
 		// The computed renders first, then the literal ones, as the two
@@ -164,10 +192,10 @@ func (r *Resolver) moduleActions(dir string) map[string]renderers {
 				entry.actions = append(entry.actions, handoffAction{
 					handler: handler,
 					leaf:    leaf,
-					name:    content[last[2]:last[3]],
-					start:   lines.LineOf(last[0]),
+					name:    last.name,
+					start:   lines.LineOf(last.start),
 					setView: lines.LineOf(render.at),
-					body:    content[last[0]:render.at],
+					body:    content[last.start:render.at],
 				})
 				out[view] = entry
 			}
@@ -182,10 +210,10 @@ func (r *Resolver) moduleActions(dir string) map[string]renderers {
 			entry := out[render.view]
 			entry.actions = append(entry.actions, handoffAction{
 				handler: handler,
-				name:    content[last[2]:last[3]],
-				start:   lines.LineOf(last[0]),
+				name:    last.name,
+				start:   lines.LineOf(last.start),
 				setView: lines.LineOf(render.at),
-				body:    content[last[0]:render.at],
+				body:    content[last.start:render.at],
 			})
 			out[render.view] = entry
 		}
