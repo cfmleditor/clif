@@ -616,7 +616,7 @@ with a quote rule of its own. They now read the scanner's tokens through
 the parse's rule, and a call's arguments are the tokens between its
 parentheses. Each `#…#` expression inside a string is read as code in a list
 of its own, through the parse's `parser.InterpolatedSpans`, so
-`"#renderView('x')#"` is still a render. The hand ports in `text_rules.go` that
+`"#renderView('x')#"` is still a render. The hand ports in `text_rules.go` (since deleted) that
 existed only to make those regexes fast went with them.
 `TestTheCallReadersReadOnlyCode` holds every reader to a commented-out or
 in-string call beside a real one, and fails on the regex readers. Left for
@@ -633,7 +633,7 @@ Elvis fallbacks, an init's argument copies, `duplicate()`, dotted names, a
 `loadBy`'s `returnFormat`. A reader standing for `FindStringSubmatch` returns
 the same slice. Each expression stays in `expression_shapes_test.go` as the
 oracle, checked on 200,000 generated texts per shape and under
-`FuzzExpressionShapes`. `localDeclRe` (a whole line) is left, since its input
+`FuzzExpressionShapes`. `localDeclRe` (a whole line) was left here, since its input
 is not one expression.
 
 ### Done: function finders read the parse
@@ -659,6 +659,67 @@ modifiers before or after the access, `component function`,
 `<cffunction>` in a `<cfscript>` string), now read. What remains:
 `<cffunction>` inside triple-backtick tag islands, which the parse blanks, and
 `mapping_sources.go`'s own function skipper.
+
+### Done: per-name write detectors
+
+The resolver asked whether code writes or guards a name with a regular
+expression built per name at run time and run over the text: `setsName`,
+`fw1Assigns`, `throughAssigns`, the last `prc.x =`, `membersWrittenOn`, the
+lazy getter's field writes, `leafLiteral`, `initStoredArg` and
+`quotedNameLines`; the structKeyExists, keyExists, isDefined, isInstanceOf and
+isNull guards; and a ColdBox test's `model=` attribute. Each counted a write or
+guard in a comment, or spelled inside a string, as code. They now read the
+scanner's tokens in `name_writes.go`: `codeWrites` finds the writes to a dotted
+name under a `writeRule` saying which spellings count (a scope before it, any
+qualifier, a member, compound operators), a write's `value()` ends with its
+statement, and the guards are `codeCalls`. Whole files go through a `textCache`
+(`codeOf`) or the parse's memo (`fileCode`), and windows are cut from the
+file's tokens, so a comment opened above a window is still one. `text_rules.go`,
+the hand ports that made the expressions fast, went with them.
+`TestTheWriteReadersReadOnlyCode` holds each to a commented-out or in-string
+write beside a real one. Left as expressions: the patterns built from a spelled
+value and matched against a name (interception points, Mura object paths,
+invoke selectors), and the Wheels self-dispatch, which already runs over the
+comment-free token stream.
+
+### Done: the last body regexes
+
+The resolver's last regular expressions over CFML bodies and files read the
+scanner's tokens and `parser.CFTags`: script `return` statements counted over a
+function (`scriptReturns`, `elementReadAt`), Lucee's script `loop … { }` and
+its attributes in the registry recipe (with its string-only brace walker
+`braceEnd`), a lazy getter's whole-body guard-and-return shape in tags and
+script, a Preside service's header, and a line's `var`/`local.` declaration
+(`lineDeclaresLocal`, which was `localDeclRe`). Each took a commented-out
+statement, or a word inside a string or a tag's hint, as code; a `}` in a
+comment ended a loop's body. The Preside reader still reads a comment on
+purpose, but only a `/**` doc comment in the script header, where the engine
+reads metadata; for a tag component it reads the `<cfcomponent>` attribute
+alone. `TestTheBodyReadersReadOnlyCode` holds each reader to a commented-out or
+in-string case beside a real one. `unresolved` is byte-identical on nine
+corpora, Preside's included.
+
+### Done: one brace rule
+
+Five readers counted braces or brackets with a rule of their own; they now take
+the parser's reading, and no brace in a string, in a `#…#` argument or in a
+comment opens or closes anything. The reaching walk's `braceEvents` reads
+script with `NewScriptScanner`, and `tagBlocks` asks the parse's region split
+(`ParseResult.RegionKindFrom`) in place of an extension check and a 200-byte
+look for `<cffunction>`, which changed 4,044 of 68,374 scope starts (mostly tag
+component pseudo-constructors and all-script `.cfm` files). The Application.cfc
+walk skips `FunctionSpansOf`'s spans in place of `skipMappingFunction`, which
+ran a body-less declaration, a `<cffunction />` or prose's "function" on
+through the code after it; its expression splitters are one token splitter.
+`controls` (guarded calls), `joinAssignmentLine` (`parser.OpenGroups`) and
+`componentAttr` (which stopped at a doc comment's `{struct}` and lost ColdBox
+`ColdBoxScheduler`'s and cbsecurity `User`'s `delegates`) read scanner tokens.
+`ApplicationSources` is identical on all 630 Application files.
+
+With these the resolver has no CFML reader left with rules of its own: what
+remains as regular expressions is user patterns, HQL, `tagSharedAssign`
+(anchored at a `CFTags` tag start), and patterns matched against names rather
+than CFML.
 
 ## Speed is an option of the one walker, not a second walker
 
