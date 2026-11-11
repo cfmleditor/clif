@@ -100,6 +100,9 @@ type ParseResult struct {
 	// spans is FunctionSpans' answer, behind a pointer since most parses are
 	// never asked for it.
 	spans *functionSpans
+	// assignments is Assignments' answer, recorded during the parse when
+	// ParseOptions.RecordAssignments asked; nil otherwise.
+	assignments *assignments
 	// customTags is CustomTagCalls' answer, for the content customTagsOf and
 	// the prefixes customTagsKey.
 	customTags    []CustomTagCall
@@ -221,6 +224,10 @@ type ParseOptions struct {
 	// outputContext), and reads a tag-free .cfm template as CFScript. It is
 	// the features.outputContextInterpolation switch turned off.
 	InterpolateAllText bool
+	// RecordAssignments records every write the parse reads (Assignments)
+	// as it runs, rather than on the first question. Off, nothing is read
+	// until Assignments is asked.
+	RecordAssignments bool
 }
 
 // Parse performs a full file parse: extracts function signatures, component refs,
@@ -329,6 +336,11 @@ func ParseWithOptions(fileURI uri.URI, content string, opts *ParseOptions) *Pars
 	pr.Regions, pr.contentLineIdx = pr.classifyRegions()
 	pr.regionsOf = pr.Content
 	pr.extractSignatures()
+
+	if opts.RecordAssignments {
+		pr.assignments = &assignments{of: content, list: pr.readAssignments()}
+	}
+
 	pr.logDebug("parse", "uri", string(fileURI), "funcs", len(pr.Funcs), "refs", len(pr.ComponentRefs), "dur", time.Since(start))
 
 	return pr
