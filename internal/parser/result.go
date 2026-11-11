@@ -2012,6 +2012,30 @@ func (pr *ParseResult) IncludeSites() []IncludeSite {
 	return includeSitesIn(pr.Content, regions)
 }
 
+// RegionKindFrom is the kind of the first of the parse's regions of Content
+// that ends after offset: the region offset is in, or, when offset is in the
+// blank text or the <cfscript> tag between two, the one after it. A line's
+// start asks about the code on that line, so a `<cfscript>function f() {`
+// line is script. RegionTag when no region ends after offset.
+func (pr *ParseResult) RegionKindFrom(offset int) RegionKind {
+	pr.mu.Lock()
+	regions, _ := pr.contentRegions()
+	pr.mu.Unlock()
+
+	i, _ := slices.BinarySearchFunc(regions, offset, func(r Region, offset int) int {
+		if r.Offset+len(r.Text) <= offset {
+			return -1
+		}
+
+		return 1
+	})
+	if i == len(regions) {
+		return RegionTag
+	}
+
+	return regions[i].Kind
+}
+
 // Includes is parser.ExtractIncludes of Content, from IncludeSites.
 func (pr *ParseResult) Includes() []string {
 	return includePaths(pr.IncludeSites())
