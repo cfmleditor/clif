@@ -3,6 +3,7 @@ package resolve
 import (
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/parser"
@@ -28,11 +29,6 @@ import (
 // that return, in script or in tags: the component every other write of the
 // field in the file creates in place. A write of anything else withholds the
 // answer.
-
-var (
-	lazyTagRe    = regexp.MustCompile(`(?is)^<cfif\s+(?:not\s+|!\s*)isObject\(\s*([\w.]+)\s*\)\s*>(.*)</cfif>\s*<cfreturn\s+([\w.]+)\s*/?>$`)
-	lazyScriptRe = regexp.MustCompile(`(?is)^if\s*\(\s*(?:not\s+|!\s*)isObject\(\s*([\w.]+)\s*\)\s*\)\s*\{([^{}]*)\}\s*return\s+([\w.]+)\s*;$`)
-)
 
 // lazyGetterReturn is the component fd returns when it is a lazy getter, or "".
 // It reads the file's text, not a parse of it: a parse asks for return types,
@@ -103,25 +99,139 @@ func functionBodyNamed(content string, spans []parser.FunctionSpan, name string)
 }
 
 // lazyField is the field body guards and returns, without a variables.
-// prefix, when body is only that guard and that return.
+// prefix, when body is only that guard and that return. The body is read as
+// the parse reads it, its tags by parser.CFTags and its script by the
+// scanner's tokens, so a comment is nothing and a string is one token: a
+// commented-out return or <cfif> is not one, nor the word inside a string.
 func lazyField(body string) string {
-	m := lazyTagRe.FindStringSubmatch(body)
-	if m == nil {
-		m = lazyScriptRe.FindStringSubmatch(body)
+	guarded, returned, ok := lazyTagShape(body)
+	if !ok {
+		guarded, returned, ok = lazyScriptShape(body)
 	}
 
-	// The guarded block only loads the field: one that returns, or opens
-	// another <cfif>, is not this shape.
-	if m == nil || strings.Contains(strings.ToLower(m[2]), "return") || strings.Contains(strings.ToLower(m[2]), "<cfif") {
+	if !ok {
 		return ""
 	}
 
-	guarded, returned := stripVariables(m[1]), stripVariables(m[3])
+	guarded, returned = stripVariables(guarded), stripVariables(returned)
 	if guarded == "" || !strings.EqualFold(guarded, returned) {
 		return ""
 	}
 
 	return guarded
+}
+
+// lazyTagShape reads body as `<cfif not isObject( X )> … </cfif>
+// <cfreturn Y>` and nothing else but comments, answering X and Y. The guarded
+// block only loads the field: one that returns, or opens another <cfif>, is
+// not this shape.
+func lazyTagShape(body string) (guarded, returned string, ok bool) {
+	tags := parser.CFTags(body)
+	if len(tags) < 3 {
+		return "", "", false
+	}
+
+	open, closing, ret := tags[0], tags[len(tags)-2], tags[len(tags)-1]
+	if open.Name != "cfif" || open.Close || closing.Name != "cfif" || !closing.Close || ret.Name != "cfreturn" || ret.Close {
+		return "", "", false
+	}
+
+	if !onlyComments(body[:open.Start]) || !onlyComments(body[closing.End:ret.Start]) || !onlyComments(body[ret.End:]) {
+		return "", "", false
+	}
+
+	for _, t := range tags[1 : len(tags)-2] {
+		if t.Name == "cfif" || t.Name == "cfreturn" {
+			return "", "", false
+		}
+	}
+
+	if holdsWord(significantTokens(body[open.End:closing.Start]), "return") {
+		return "", "", false
+	}
+
+	guarded, ok = notIsObject(significantTokens(open.Body()))
+	if !ok {
+		return "", "", false
+	}
+
+	returned, ok = soleName(significantTokens(ret.Body()))
+
+	return guarded, returned, ok
+}
+
+// lazyScriptShape reads body as `if ( !isObject( X ) ) { … } return Y;`,
+// answering X and Y. The guarded block holds no braces and no return.
+func lazyScriptShape(body string) (guarded, returned string, ok bool) {
+	tokens := significantTokens(body)
+	if len(tokens) < 4 || !isWord(tokens[0], "if") || tokens[1].Kind != parser.TokLParen {
+		return "", "", false
+	}
+
+	condEnd := producerGroupEnd(tokens, 1, parser.TokLParen, parser.TokRParen)
+	if condEnd < 0 || condEnd+1 >= len(tokens) || tokens[condEnd+1].Kind != parser.TokLBrace {
+		return "", "", false
+	}
+
+	guarded, ok = notIsObject(tokens[2:condEnd])
+	if !ok {
+		return "", "", false
+	}
+
+	blockEnd := -1
+
+	for i := condEnd + 2; i < len(tokens); i++ {
+		if tokens[i].Kind == parser.TokRBrace {
+			blockEnd = i
+
+			break
+		}
+
+		if tokens[i].Kind == parser.TokLBrace || isWord(tokens[i], "return") {
+			return "", "", false
+		}
+	}
+
+	rest := tokens[blockEnd+1:]
+	if blockEnd < 0 || len(rest) < 3 || !isWord(rest[0], "return") || rest[len(rest)-1].Kind != parser.TokSemicolon {
+		return "", "", false
+	}
+
+	returned, ok = soleName(rest[1 : len(rest)-1])
+
+	return guarded, returned, ok
+}
+
+// notIsObject reads a condition `not isObject( X )` or `!isObject( X )`,
+// answering the dotted name X.
+func notIsObject(tokens []parser.Token) (string, bool) {
+	if len(tokens) == 0 || !isWord(tokens[0], "not") && tokens[0].Kind != parser.TokBang {
+		return "", false
+	}
+
+	tokens = tokens[1:]
+	if len(tokens) < 3 || !isWord(tokens[0], "isObject") || tokens[1].Kind != parser.TokLParen || tokens[len(tokens)-1].Kind != parser.TokRParen {
+		return "", false
+	}
+
+	return soleName(tokens[2 : len(tokens)-1])
+}
+
+// soleName is the dotted name tokens are, when they are nothing else.
+func soleName(tokens []parser.Token) (string, bool) {
+	name, next := dottedAt(tokens, 0)
+
+	return name, name != "" && next == len(tokens)
+}
+
+// onlyComments reports whether text holds no code: whitespace and comments.
+func onlyComments(text string) bool {
+	return strings.TrimSpace(text) == "" || len(significantTokens(text)) == 0
+}
+
+// holdsWord reports whether any of tokens is the identifier word.
+func holdsWord(tokens []parser.Token, word string) bool {
+	return slices.ContainsFunc(tokens, func(t parser.Token) bool { return isWord(t, word) })
 }
 
 func stripVariables(name string) string {

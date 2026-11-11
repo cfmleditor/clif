@@ -20,7 +20,13 @@ func TestASourceKnowsWhetherItHoldsAnElementReturn(t *testing.T) {
 		{"tag", `<cffunction name="f"><cfreturn items[ 1 ]></cffunction>`, true},
 		{"returns a call", "component { function f() { return items.first(); } }", false},
 		{"returns a variable", "component { function f() { return items; } }", false},
-		{"an index with a newline", "component { function f() { return items[\n1 ]; } }", false},
+		// The returns are read from tokens, so an index written across lines
+		// is a read like any other; the regular expression stopped at the
+		// newline.
+		{"an index with a newline", "component { function f() { return items[\n1 ]; } }", true},
+		{"commented out", "component { function f() { // return items[ 1 ];\n return items; } }", false},
+		{"in a string", "component { function f() { x = \"return items[ 1 ];\"; return x; } }", false},
+		{"commented-out tag", `<cffunction name="f"><!--- <cfreturn items[ 1 ]> ---><cfreturn items></cffunction>`, false},
 		{"no return", "component { function f() { x = items[ 1 ]; } }", false},
 		{"empty", "", false},
 	} {

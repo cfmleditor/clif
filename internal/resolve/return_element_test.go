@@ -32,7 +32,17 @@ func TestAFunctionReturningAnElementOfAnEntityArrayReturnsTheEntity(t *testing.T
 		var found = unknownList();
 		return found[ 1 ];
 	}
+	// A return in a comment or a string is not one of its returns.
+	private any function loadQuietly( required numeric id ) {
+		var found = entityLoad( "LoadedItem" );
+		// return legacy[ 1 ];
+		if ( !arrayLen( found ) ) throw( "nothing to return" );
+		return found[ 1 ];
+	}
 	function run() {
+		var quiet = loadQuietly( 1 );
+		quiet.ready();
+		quiet.missingQuiet();
 		var one = load( 1 );
 		one.ready();
 		one.missingOne();
@@ -47,6 +57,11 @@ func TestAFunctionReturningAnElementOfAnEntityArrayReturnsTheEntity(t *testing.T
 	})
 
 	got := reasonsWith(t, &Resolver{}, dir, "Svc.cfc")
+
+	if got["quiet.ready"] != "" || got["quiet.missingQuiet"] == "" || got["quiet.missingQuiet"] == "variable 'quiet' has no component ref" {
+		t.Errorf("quiet: ready %q, missingQuiet %q; want the function typed past the commented-out and quoted returns",
+			got["quiet.ready"], got["quiet.missingQuiet"])
+	}
 
 	if got["one.ready"] != "" {
 		t.Errorf("one.ready: %q, want it resolved", got["one.ready"])
