@@ -48,18 +48,84 @@ func (r *Resolver) ensureFileIndexed(cfcPath string) (*index.Index, uri.URI, boo
 
 	cfcURI := cfpath.ToURI(cfcPath)
 
-	if !r.Index.HasFile(cfcURI) {
-		text, err := r.readText(cfcPath)
-		if err != nil {
-			return nil, "", false
-		}
-
-		// Indexed as a batch run indexes it (IndexForBatch), so a component's entry
-		// does not depend on whether a scan or a lookup reached it first.
-		r.Index.IndexParsed(cfcURI, text, r.ParseFile(cfcPath, text, IndexSpec()))
+	if !r.Index.HasFile(cfcURI) && !r.indexOnce(cfcPath, cfcURI) {
+		return nil, "", false
 	}
 
 	return r.Index, cfcURI, true
+}
+
+// indexOnce indexes cfcPath for a lookup, unless another lookup is indexing it
+// already, when it waits for that one: two workers of a scan reaching the same
+// unindexed component each parsed it, and one entry replaced the other (94 of
+// a Mura scan's parses). It reports whether the file is indexed after.
+//
+// An index parse looks other files up (an injected component's setters), so
+// a goroutine in the middle of one never waits: it parses, as before. Only a
+// goroutine indexing nothing waits, and what it waits on never waits itself,
+// so two workers cannot each wait on the other.
+func (r *Resolver) indexOnce(cfcPath string, cfcURI uri.URI) bool {
+	key, id := pathKey(cfcPath), goroutineID()
+
+	r.mu.Lock()
+	if done, busy := r.indexing[key]; busy && r.indexingBy[id] == 0 {
+		r.mu.Unlock()
+		<-done
+
+		return r.Index.HasFile(cfcURI)
+	} else if busy {
+		r.indexingBy[id]++
+		r.mu.Unlock()
+
+		defer func() {
+			r.mu.Lock()
+			r.indexingBy[id]--
+			r.mu.Unlock()
+		}()
+
+		return r.indexParsed(cfcPath, cfcURI)
+	}
+
+	if r.indexing == nil {
+		r.indexing, r.indexingBy = map[string]chan struct{}{}, map[uint64]int{}
+	}
+
+	done := make(chan struct{})
+	r.indexing[key] = done
+	r.indexingBy[id]++
+	r.mu.Unlock()
+
+	defer func() {
+		r.mu.Lock()
+		delete(r.indexing, key)
+
+		r.indexingBy[id]--
+		if r.indexingBy[id] == 0 {
+			delete(r.indexingBy, id)
+		}
+		r.mu.Unlock()
+		close(done)
+	}()
+
+	return r.indexParsed(cfcPath, cfcURI)
+}
+
+// indexParsed parses and indexes cfcPath, unless it is indexed already.
+func (r *Resolver) indexParsed(cfcPath string, cfcURI uri.URI) bool {
+	if r.Index.HasFile(cfcURI) {
+		return true
+	}
+
+	text, err := r.readText(cfcPath)
+	if err != nil {
+		return false
+	}
+
+	// Indexed as a batch run indexes it (IndexForBatch), so a component's entry
+	// does not depend on whether a scan or a lookup reached it first.
+	r.Index.IndexParsed(cfcURI, text, r.ParseFile(cfcPath, text, IndexSpec()))
+
+	return true
 }
 
 // LookupFuncWithExtends searches for a function in cfcPath, walking the
