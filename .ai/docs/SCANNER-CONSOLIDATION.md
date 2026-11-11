@@ -499,6 +499,33 @@ from a tag file (`objects.cfm`, one `<cfscript>` block) with pinned bodies
 tokenised alone. Reading the file plain and the pins as script made them
 differ; reading both by region makes them agree.
 
+### Done: one comment rule
+
+`<!--- --->` comments were skipped by six readers. The grammar's rule
+(`skip_cfml_comment_body` in tree-sitter-cfml's `scanner.h`): comments nest,
+an opener is `<!` and three or more dashes, a close three or more dashes and
+`>`.
+
+| Reader | Rule it had |
+|---|---|
+| `skipTagComment`, `skipCFMLComment`, `findScriptSkipSpans` | Nested, `<!---` and `--->`: the same rule written three times |
+| The scanner's comment token | Nested, but closed at `-->` |
+| `blockEvents` (reaching refs), `producerTags` (producer plans) | Not nested: closed at the first `--->` |
+
+Over the corpus 28 files nest a comment, and in 19 of them a CF tag follows
+the inner close while still inside the outer comment, which the two resolver
+walks read as live. They now share one reader, `parser.CFMLCommentEnd` /
+`SkipCFMLComment` (`internal/parser/comments.go`), written to the grammar's
+rule, dash runs included.
+
+`unresolved` is byte-identical on the eight corpora: none of the 19 files'
+commented-out tags reached a finding.
+
+Left as they are, since they ask something else of a comment:
+`precedingComment` (the doc comment just before a `<cffunction>`, found
+backwards), the region split's running depth count, and `scanSourceFacts`'
+test for a line that starts as a comment.
+
 ## Speed is an option of the one walker, not a second walker
 
 Some walkers exist because they do less. `globalScriptParser` reads only

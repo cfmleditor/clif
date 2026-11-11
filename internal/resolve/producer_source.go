@@ -1107,12 +1107,12 @@ func producerTags(source string) []producerTag {
 
 	for i := 0; i < len(source); {
 		if strings.HasPrefix(source[i:], "<!---") {
-			end := strings.Index(source[i+5:], "--->")
-			if end < 0 {
+			end, closed := parser.CFMLCommentEnd(source, i)
+			if !closed {
 				return nil
 			}
 
-			i += 5 + end + 4
+			i = end
 
 			continue
 		}

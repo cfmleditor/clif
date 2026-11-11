@@ -1170,7 +1170,7 @@ func collectCollectionTags(text string, offset int, functionAt func(int) string,
 
 		idx += pos
 		if strings.HasPrefix(text[idx:], "<!---") {
-			pos = skipCFMLComment(text, idx)
+			pos = SkipCFMLComment(text, idx)
 
 			continue
 		}

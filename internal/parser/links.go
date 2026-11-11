@@ -189,7 +189,7 @@ func tagFileRefs(text string, includesOnly bool, emit fileRefFunc) {
 // over whole: a closing tag's '>' is not an interrupted tag's.
 func tagNameAt(text string, i int) (j, k, next int) {
 	if strings.HasPrefix(text[i:], "<!---") {
-		return 0, 0, skipTagComment(text, i)
+		return 0, 0, SkipCFMLComment(text, i)
 	}
 
 	j = i + 1

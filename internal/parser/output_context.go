@@ -104,7 +104,7 @@ func outputContext(content string) (spans [][2]int, prefixes []string) {
 		i += pos
 
 		if strings.HasPrefix(content[i:], "<!---") {
-			pos = skipTagComment(content, i)
+			pos = SkipCFMLComment(content, i)
 
 			continue
 		}
@@ -184,31 +184,6 @@ func outputContext(content string) (spans [][2]int, prefixes []string) {
 	}
 
 	return spans, prefixes
-}
-
-// skipTagComment returns the offset just past the nested <!--- ---> comment
-// opening at i, or the end of content when it is unclosed.
-func skipTagComment(content string, i int) int {
-	depth := 0
-
-	for j := i; j < len(content); {
-		switch {
-		case strings.HasPrefix(content[j:], "<!---"):
-			depth++
-			j += 5
-		case strings.HasPrefix(content[j:], "--->"):
-			depth--
-			j += 4
-
-			if depth == 0 {
-				return j
-			}
-		default:
-			j++
-		}
-	}
-
-	return len(content)
 }
 
 func isTagNameByte(c byte) bool {

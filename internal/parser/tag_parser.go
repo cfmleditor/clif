@@ -156,7 +156,7 @@ func (p *tagParser) parse() {
 
 		// Skip CFML comments (nested)
 		if idx+4 < len(p.src) && p.src[idx:idx+5] == "<!---" {
-			pos = skipCFMLComment(p.src, idx)
+			pos = SkipCFMLComment(p.src, idx)
 
 			continue
 		}
