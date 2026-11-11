@@ -4844,7 +4844,7 @@ func (p *scriptParser) atStatementLevel() bool {
 // operator that takes a value or the word return.
 func structLiteralAt(src string, offset int) bool {
 	i := offset - 1
-	for i >= 0 && isRESpace(src[i]) {
+	for i >= 0 && lex.IsRegexpSpace(src[i]) {
 		i--
 	}
 

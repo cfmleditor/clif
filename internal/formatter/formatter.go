@@ -20,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cfmleditor/clif/internal/lex"
 	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
@@ -1268,7 +1269,7 @@ func (f *Formatter) spelledAs(canonical string, lt int) string {
 	}
 
 	start := i
-	for i < len(f.src) && isTagNameByte(f.src[i]) {
+	for i < len(f.src) && lex.IsWord(f.src[i]) {
 		i++
 	}
 
@@ -1277,13 +1278,6 @@ func (f *Formatter) spelledAs(canonical string, lt int) string {
 	}
 
 	return canonical
-}
-
-func isTagNameByte(b byte) bool {
-	return b >= 'a' && b <= 'z' ||
-		b >= 'A' && b <= 'Z' ||
-		b >= '0' && b <= '9' ||
-		b == '_'
 }
 
 // formatCFTag handles generic cf_tag nodes (cffunction, cfloop, etc.)

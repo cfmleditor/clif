@@ -5,6 +5,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/cfmleditor/clif/internal/lex"
 	"github.com/cfmleditor/clif/internal/parser"
 )
 
@@ -57,9 +58,9 @@ func scanSourceFacts(content string) lexicalSourceFacts {
 			continue
 		}
 
-		if sourceWord(content[i]) {
+		if lex.IsWord(content[i]) {
 			start := i
-			for i < len(content) && sourceWord(content[i]) {
+			for i < len(content) && lex.IsWord(content[i]) {
 				i++
 			}
 
@@ -202,14 +203,11 @@ func trimAssignmentRHS(text string) string {
 	return strings.TrimSpace(strings.TrimSuffix(strings.TrimSuffix(strings.TrimSpace(text), ";"), "/"))
 }
 
-// Preserve the old line-assignment grammar without a regular expression.
-// Whitespace and identifier characters deliberately retain its ASCII rules.
-func assignmentSpace(b byte) bool {
-	return b == ' ' || b == '\t' || b == '\r' || b == '\n' || b == '\f'
-}
-
+// trimAssignmentSpace drops leading \s. The line-assignment grammar this
+// replaced was a regular expression, and its whitespace and identifier
+// characters deliberately keep that expression's ASCII rules.
 func trimAssignmentSpace(s string) string {
-	for s != "" && assignmentSpace(s[0]) {
+	for s != "" && lex.IsRegexpSpace(s[0]) {
 		s = s[1:]
 	}
 
@@ -236,11 +234,11 @@ func assignmentPrefix(s, prefix string) (string, bool) {
 
 func matchSourceAssignment(line string) (name, rhs string, ok bool) {
 	line = trimAssignmentSpace(line)
-	if rest, ok := assignmentPrefix(line, "<cfset"); ok && rest != "" && assignmentSpace(rest[0]) {
+	if rest, ok := assignmentPrefix(line, "<cfset"); ok && rest != "" && lex.IsRegexpSpace(rest[0]) {
 		line = trimAssignmentSpace(rest)
 	}
 
-	if rest, ok := assignmentPrefix(line, "var"); ok && rest != "" && assignmentSpace(rest[0]) {
+	if rest, ok := assignmentPrefix(line, "var"); ok && rest != "" && lex.IsRegexpSpace(rest[0]) {
 		if name, rhs, matched := matchAssignmentBody(trimAssignmentSpace(rest)); matched {
 			return name, rhs, true
 		}
@@ -259,7 +257,7 @@ func matchAssignmentBody(line string) (name, rhs string, ok bool) {
 	}
 
 	end := 0
-	for end < len(line) && sourceWord(line[end]) {
+	for end < len(line) && lex.IsWord(line[end]) {
 		end++
 	}
 
@@ -277,7 +275,7 @@ func matchAssignmentBody(line string) (name, rhs string, ok bool) {
 	rest = rest[1:]
 
 	start := 0
-	for start < len(rest) && assignmentSpace(rest[start]) {
+	for start < len(rest) && lex.IsRegexpSpace(rest[start]) {
 		start++
 	}
 	// The former expression permitted whitespace to be the first RHS byte.
@@ -291,7 +289,7 @@ func matchAssignmentBody(line string) (name, rhs string, ok bool) {
 
 	end = len(rest)
 	trimEnd := func() {
-		for end > start+1 && assignmentSpace(rest[end-1]) {
+		for end > start+1 && lex.IsRegexpSpace(rest[end-1]) {
 			end--
 		}
 	}
@@ -315,5 +313,3 @@ func matchAssignmentBody(line string) (name, rhs string, ok bool) {
 
 	return name, rest[start:end], true
 }
-
-func sourceWord(c byte) bool { return callerWord(c) && c != '$' }

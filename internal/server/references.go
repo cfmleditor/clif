@@ -407,7 +407,7 @@ func newFoldSeek(text string, first byte, last int) foldSeek {
 
 	return foldSeek{
 		text: text,
-		lo:   lowerASCIIByte(first), up: upperASCIIByte(first),
+		lo:   lex.LowerASCII(first), up: upperASCIIByte(first),
 		loAt: -2, upAt: -2,
 		last: last,
 	}
@@ -461,7 +461,7 @@ func (s *foldSeek) advance(at int, c byte, i int) int {
 	return i + found
 }
 
-// upperASCIIByte is lowerASCIIByte's other half, for the two bytes a
+// upperASCIIByte is lex.LowerASCII's other half, for the two bytes a
 // case-insensitive match can begin with.
 func upperASCIIByte(b byte) byte {
 	if b >= 'a' && b <= 'z' {

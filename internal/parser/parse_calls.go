@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/conv"
+	"github.com/cfmleditor/clif/internal/lex"
 )
 
 // FuncCalls returns all variable.method() calls recorded for a function scope.
@@ -369,7 +370,7 @@ func (pr *ParseResult) scanLineForCalls(line string, lineNum int, caller string)
 // call, the component a resolver gives that call.
 func (pr *ParseResult) qualifiedTarget(line string, dot int) (varName, comp string) {
 	varStart := dot - 1
-	for varStart >= 0 && isLineIdentByte(line[varStart]) {
+	for varStart >= 0 && lex.IsIdent(line[varStart]) {
 		varStart--
 	}
 
@@ -395,7 +396,7 @@ func (pr *ParseResult) qualifiedTarget(line string, dot int) (varName, comp stri
 			}
 
 			fnStart := j - 1
-			for fnStart >= 0 && isLineIdentByte(line[fnStart]) {
+			for fnStart >= 0 && lex.IsIdent(line[fnStart]) {
 				fnStart--
 			}
 
@@ -404,12 +405,6 @@ func (pr *ParseResult) qualifiedTarget(line string, dot int) (varName, comp stri
 	}
 
 	return varName, comp
-}
-
-// isLineIdentByte is the identifier test scanLineForCalls has always used:
-// ASCII letters, digits, '_' and '$'.
-func isLineIdentByte(b byte) bool {
-	return b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b >= '0' && b <= '9' || b == '_' || b == '$'
 }
 
 // resolveVarComponent finds the component a variable resolves to from pr.ComponentRefs.

@@ -819,9 +819,9 @@ func textDeclaresLocal(text, name string) bool {
 		// \b after the name: its last character and the next differ in being
 		// word characters, or it ends the text on a word character.
 		end := i + len(name)
-		last := isRegexWordByte(text[end-1])
+		last := lex.IsWord(text[end-1])
 
-		if end < len(text) && last == isRegexWordByte(text[end]) || end == len(text) && !last {
+		if end < len(text) && last == lex.IsWord(text[end]) || end == len(text) && !last {
 			continue
 		}
 
@@ -852,12 +852,7 @@ func precededByArgumentName(text string, i int) bool {
 
 // wordStart is \b before text[i] when text[i] is a word character.
 func wordStart(text string, i int) bool {
-	return i == 0 || !isRegexWordByte(text[i-1])
-}
-
-// isRegexSpace is \s as RE2 reads it.
-func isRegexSpace(c byte) bool {
-	return c == ' ' || c == '\t' || c == '\n' || c == '\f' || c == '\r'
+	return i == 0 || !lex.IsWord(text[i-1])
 }
 
 // selfAssigned reports whether receiver, the receiver of the call assigned to
@@ -933,7 +928,7 @@ func windowDeclaresLocal(content string, from, to int, name string) bool {
 // allWordBytes reports whether name is a non-empty run of word characters.
 func allWordBytes(name string) bool {
 	for i := range len(name) {
-		if !isRegexWordByte(name[i]) {
+		if !lex.IsWord(name[i]) {
 			return false
 		}
 	}
@@ -954,12 +949,12 @@ func declarationsIn(content string) map[string][]localDeclaration {
 	out := map[string][]localDeclaration{}
 
 	for s := 0; s < len(content); s++ {
-		if !isRegexWordByte(content[s]) || s > 0 && isRegexWordByte(content[s-1]) {
+		if !lex.IsWord(content[s]) || s > 0 && lex.IsWord(content[s-1]) {
 			continue
 		}
 
 		e := s
-		for e < len(content) && isRegexWordByte(content[e]) {
+		for e < len(content) && lex.IsWord(content[e]) {
 			e++
 		}
 
@@ -992,7 +987,7 @@ func declarationsIn(content string) map[string][]localDeclaration {
 // starts.
 func varMarker(text string, i int) (int, bool) {
 	j := i
-	for j > 0 && isRegexSpace(text[j-1]) {
+	for j > 0 && lex.IsRegexpSpace(text[j-1]) {
 		j--
 	}
 
@@ -1012,7 +1007,7 @@ func argumentNameMarker(text string, i int) (int, bool) {
 	}
 
 	j := i - 1
-	for j > 0 && isRegexSpace(text[j-1]) {
+	for j > 0 && lex.IsRegexpSpace(text[j-1]) {
 		j--
 	}
 
@@ -1021,7 +1016,7 @@ func argumentNameMarker(text string, i int) (int, bool) {
 	}
 
 	j--
-	for j > 0 && isRegexSpace(text[j-1]) {
+	for j > 0 && lex.IsRegexpSpace(text[j-1]) {
 		j--
 	}
 
@@ -1032,7 +1027,7 @@ func argumentNameMarker(text string, i int) (int, bool) {
 	// [^>]* back to a "<cfargument" followed by a space character.
 	j -= 4
 	for k := j - 1; k >= 0 && text[k] != '>'; k-- {
-		if k+len("<cfargument") < j && strings.EqualFold(text[k:k+len("<cfargument")], "<cfargument") && isRegexSpace(text[k+len("<cfargument")]) {
+		if k+len("<cfargument") < j && strings.EqualFold(text[k:k+len("<cfargument")], "<cfargument") && lex.IsRegexpSpace(text[k+len("<cfargument")]) {
 			return k, true
 		}
 	}

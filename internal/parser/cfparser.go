@@ -614,7 +614,7 @@ func containsCFTag(s string) bool {
 		at := off + i
 		off = at + 1
 
-		if at+2 < len(s) && toLowerByte(s[at+1]) == 'c' && toLowerByte(s[at+2]) == 'f' {
+		if at+2 < len(s) && lex.LowerASCII(s[at+1]) == 'c' && lex.LowerASCII(s[at+2]) == 'f' {
 			return true
 		}
 	}

@@ -160,7 +160,7 @@ func scanAttributes(content string, names []string) []Ref {
 			continue
 		}
 
-		if !isNameStart(content[i]) || (i > 0 && isNamePart(content[i-1])) {
+		if !lex.IsWordStart(content[i]) || (i > 0 && isNamePart(content[i-1])) {
 			continue
 		}
 
@@ -208,7 +208,7 @@ func scanProperties(content string, names []string) []Ref {
 			at = i + 1
 		}
 
-		if at >= len(content) || !isNameStart(content[at]) {
+		if at >= len(content) || !lex.IsWordStart(content[at]) {
 			continue
 		}
 
@@ -417,7 +417,7 @@ func scanFunctionArgs(content string, names []string) []Ref {
 			continue
 		}
 
-		if !isNameStart(content[i]) || (i > 0 && isPropNamePart(content[i-1])) {
+		if !lex.IsWordStart(content[i]) || (i > 0 && isPropNamePart(content[i-1])) {
 			continue
 		}
 
@@ -553,15 +553,11 @@ func isURLDelimiter(c byte) bool {
 	}
 }
 
-func isNameStart(c byte) bool {
-	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c == '_'
-}
-
 func isNamePart(c byte) bool {
 	return isPropNamePart(c) || c == ':'
 }
 
 // isPropNamePart is isNamePart without the colon, for JavaScript object keys.
 func isPropNamePart(c byte) bool {
-	return isNameStart(c) || c >= '0' && c <= '9' || c == '-' || c == '$'
+	return lex.IsWordStart(c) || c >= '0' && c <= '9' || c == '-' || c == '$'
 }

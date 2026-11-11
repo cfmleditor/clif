@@ -4,6 +4,8 @@ import (
 	"math/rand"
 	"strings"
 	"testing"
+
+	"github.com/cfmleditor/clif/internal/lex"
 )
 
 // indexCFTagSlow and buildLineIdxSlow are the implementations these two
@@ -149,7 +151,7 @@ func hasScriptTagSlow(content string) bool {
 
 func containsCFTagSlow(s string) bool {
 	for i := range len(s) - 2 {
-		if s[i] == '<' && toLowerByte(s[i+1]) == 'c' && toLowerByte(s[i+2]) == 'f' {
+		if s[i] == '<' && lex.LowerASCII(s[i+1]) == 'c' && lex.LowerASCII(s[i+2]) == 'f' {
 			return true
 		}
 	}
