@@ -4,6 +4,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/cfmleditor/clif/internal/parser"
 )
 
 // The readers code_calls_test.go holds to its cases, each reduced to the
@@ -54,8 +56,9 @@ func readMuraObjectSites(text string) []string {
 		out = append(out, strconv.Itoa(s.line))
 	}
 
-	if blanked := withoutMuraObjectArgs(text); blanked != text {
-		out = append(out, "blanked:"+strconv.Itoa(strings.Count(blanked, "theFile")))
+	as := parser.AssignmentsOf("f.cfm", text)
+	if kept := outsideMuraObjectArgs(text, as); len(kept) != len(as) {
+		out = append(out, "blanked:"+strconv.Itoa(len(as)-len(kept)))
 	}
 
 	return out

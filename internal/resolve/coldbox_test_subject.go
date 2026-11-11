@@ -45,7 +45,7 @@ func (r *Resolver) coldboxTestSubject(variable string, pr *parser.ParseResult) s
 
 	// The attribute itself reads as an assignment to setsName; the file
 	// assigning the name anywhere else means it is not the base's mock.
-	if setsName(pr.Content[end:], name) {
+	if setsName(pr.Content[end:], func() []parser.Assignment { return between(pr.Assignments(), end, len(pr.Content)) }, name) {
 		return ""
 	}
 

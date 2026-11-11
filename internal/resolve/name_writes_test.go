@@ -13,6 +13,11 @@ import (
 	"github.com/cfmleditor/clif/internal/vfs"
 )
 
+// setsNameOf is setsName over text's own assignments, read as a component's.
+func setsNameOf(text, name string) bool {
+	return setsName(text, func() []parser.Assignment { return parser.AssignmentsOf("t.cfc", text) }, name)
+}
+
 // lineHolding is the 0-based line of text holding sub.
 func lineHolding(t *testing.T, text, sub string) int {
 	t.Helper()
@@ -40,12 +45,12 @@ func TestTheWriteReadersReadOnlyCode(t *testing.T) {
 		want string
 	}{
 		{
-			"setsName, commented out and quoted", func(_ *testing.T, text string) string { return strconv.FormatBool(setsName(text, "x")) },
+			"setsName, commented out and quoted", func(_ *testing.T, text string) string { return strconv.FormatBool(setsNameOf(text, "x")) },
 			"<cfscript>\n// x = 1;\n/* var x; for (x in a) {} */\ns = \"x = 2\";\n</cfscript>\n<!--- <cfloop item=\"x\" array=\"#a#\"> --->\n",
 			"false",
 		},
 		{
-			"setsName", func(_ *testing.T, text string) string { return strconv.FormatBool(setsName(text, "x")) },
+			"setsName", func(_ *testing.T, text string) string { return strconv.FormatBool(setsNameOf(text, "x")) },
 			"<cfscript>\n// x = 1;\ns = \"x = 2\";\n</cfscript>\n<cfset x = 3>\n",
 			"true",
 		},
@@ -89,7 +94,7 @@ func TestTheWriteReadersReadOnlyCode(t *testing.T) {
 		},
 		{
 			"the last prc.x written, one in a block comment after it", func(_ *testing.T, text string) string {
-				rhs, line, ok := lastMemberAssignmentAt(text, "prc", "x")
+				rhs, line, ok := lastMemberWrite(text, parser.AssignmentsOf("t.cfc", text), "prc", "x")
 
 				return fmt.Sprint(rhs, "@", line, " ", ok)
 			},
@@ -199,7 +204,7 @@ func readFieldWrites(t *testing.T, text string) string {
 	dir := t.TempDir()
 	writeFiles(t, dir, map[string]string{"A.cfc": "component {}", "B.cfc": "component {}"})
 
-	return filepath.Base((&Resolver{FS: vfs.OS{}, Index: index.New()}).fieldWrites(text, "svc", dir))
+	return filepath.Base((&Resolver{FS: vfs.OS{}, Index: index.New()}).fieldWrites(text, parser.AssignmentsOf("t.cfc", text), "svc", dir))
 }
 
 func readRegistryGuard(t *testing.T, text string) string {
@@ -235,9 +240,9 @@ func readTestSubject(t *testing.T, text string) string {
 
 // TestSetsNameOnItsShapes: what setsName takes for a write or a declaration of
 // a name, one shape at a time: the shapes the regular expression it replaced
-// took, read as tokens, so that a name spelled with spaces around its dot is
-// the same name, and one in a comment or a string is none, though one in a
-// #...# expression inside a string is code.
+// took, read from the parse's assignments, so that a name spelled with spaces
+// around its dot is the same name, and one in a comment, a string, a #...#
+// expression inside a string, an argument list or a grouping is none.
 func TestSetsNameOnItsShapes(t *testing.T) {
 	for _, tt := range []struct {
 		text, name string
@@ -260,7 +265,7 @@ func TestSetsNameOnItsShapes(t *testing.T) {
 		{"a.x = 1", "x", false},
 		{"$x = 1", "x", false},
 		{"_x = 1", "x", false},
-		{"(x = 1", "x", true},
+		{"(x = 1", "x", false}, // in a grouping, not a statement
 		{"local.x = 1", "x", true},
 		{"VARIABLES.x = 1", "x", true},
 		{"local . x = 1", "x", true},
@@ -295,9 +300,9 @@ func TestSetsNameOnItsShapes(t *testing.T) {
 		{"/* var x */", "x", false},
 		{"s = \"x = 1\"", "x", false},
 		{"<!--- <cfset x = 1> --->", "x", false},
-		{"s = \"#x = 1#\"", "x", true},
+		{"s = \"#x = 1#\"", "x", false}, // an expression in a string is no statement
 	} {
-		if got := setsName(tt.text, tt.name); got != tt.want {
+		if got := setsNameOf(tt.text, tt.name); got != tt.want {
 			t.Errorf("setsName(%q, %q) = %v, want %v", tt.text, tt.name, got, tt.want)
 		}
 	}
@@ -317,14 +322,14 @@ func TestAWriteValueEndsWithItsStatement(t *testing.T) {
 		{"if ( c ) { x = 1 }", "1"},
 		{"x = 1\ny = 2", "1"},
 	} {
-		writes := codeWrites(codeOf(tt.text), "x", writeRule{})
+		writes := writesTo(parser.AssignmentsOf("t.cfc", tt.text), "x", writeRule{})
 		if len(writes) != 1 {
 			t.Errorf("%q: %d writes, want 1", tt.text, len(writes))
 
 			continue
 		}
 
-		if got := tokensText(tt.text, writes[0].value()); got != tt.want {
+		if got := writes[0].ValueText(tt.text); got != tt.want {
 			t.Errorf("%q: value %q, want %q", tt.text, got, tt.want)
 		}
 	}

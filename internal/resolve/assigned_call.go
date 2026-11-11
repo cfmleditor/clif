@@ -152,7 +152,7 @@ func (r *Resolver) lastAssignment(variable, name, container string, scoped bool,
 			return f, false
 		}
 
-		f.rhs, f.at, ok = lastMemberWrite(pr.Content, fileCodeOn(pr, start, int(line)-1), container, name)
+		f.rhs, f.at, ok = lastMemberWrite(pr.Content, onLines(pr.Assignments(), start, int(line)-1), container, name)
 
 		return f, ok
 	}
@@ -1052,7 +1052,7 @@ func (r *Resolver) membersWrittenOn(pr *parser.ParseResult, line uint32, names .
 		start = scope.Start
 	}
 
-	var code [][]parser.Token
+	var writes []parser.Assignment
 
 	for _, name := range names {
 		name = strings.TrimPrefix(strings.ToLower(name), "local.")
@@ -1060,11 +1060,11 @@ func (r *Resolver) membersWrittenOn(pr *parser.ParseResult, line uint32, names .
 			continue
 		}
 
-		if code == nil {
-			code = fileCodeOn(pr, start, int(line))
+		if writes == nil {
+			writes = onLines(pr.Assignments(), start, int(line))
 		}
 
-		if len(codeWrites(code, name, writeRule{qualified: true, member: true})) > 0 {
+		if len(writesTo(writes, name, writeRule{qualified: true, member: true})) > 0 {
 			return true
 		}
 	}

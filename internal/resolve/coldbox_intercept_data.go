@@ -152,8 +152,9 @@ func interceptorSignature(pr *parser.ParseResult, caller, root string) bool {
 	}
 
 	body := sourceText(pr.Content, scope.Start, scope.End+1)
+	writes := func() []parser.Assignment { return onLines(pr.Assignments(), scope.Start, scope.End) }
 
-	return !setsName(body, root) && !setsName(body, "arguments."+root)
+	return !setsName(body, writes, root) && !setsName(body, writes, "arguments."+root)
 }
 
 // interceptSites are the workspace's announces, read once per scan from the

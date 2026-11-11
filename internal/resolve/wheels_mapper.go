@@ -282,6 +282,8 @@ type sourceDerived struct {
 	wrappers        map[string]parser.IncludeWrapper
 	spansOnce       sync.Once
 	spans           []parser.FunctionSpan
+	assignmentsOnce sync.Once
+	assigned        []parser.Assignment
 	path            string // the file content was read from, for its extension
 }
 

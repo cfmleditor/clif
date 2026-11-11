@@ -70,18 +70,6 @@ func TestWholeHashExpr(t *testing.T) {
 	}
 }
 
-func TestWithoutTags(t *testing.T) {
-	for in, want := range map[string]string{
-		`a<cfparam name="attributes.x" default="#y#">b<CFPARAM name="z">c`: "abc",
-		`<cfparameter x="1"><cfparam`:                                      `<cfparameter x="1"><cfparam`,
-		`no tags`:                                                          `no tags`,
-	} {
-		if got := withoutTags(in, "cfparam"); got != want {
-			t.Errorf("withoutTags(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
-
 // A panicked file declines every tag only when it calls cfmodule, whose tag
 // is in an attribute; naming the word in prose or a longer name does not.
 func TestCallsCFModule(t *testing.T) {

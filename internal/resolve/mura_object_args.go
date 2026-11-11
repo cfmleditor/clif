@@ -162,8 +162,8 @@ func (r *Resolver) muraTemplateSets(file, content, name string, scoped bool) boo
 		return sets
 	}
 
-	own := withoutMuraObjectArgs(content)
-	sets = setsName(own, "arguments."+name) || !scoped && setsName(own, name)
+	writes := func() []parser.Assignment { return outsideMuraObjectArgs(content, r.assignmentsIn(file, content)) }
+	sets = setsName(content, writes, "arguments."+name) || !scoped && setsName(content, writes, name)
 
 	o.mu.Lock()
 	if o.muraSets == nil {
@@ -293,25 +293,20 @@ func muraObjectSitesIn(content, file string) []muraObjectSite {
 	return out
 }
 
-// withoutMuraObjectArgs is content with the argument list of each
-// dspObject_include call blanked, newlines kept.
-func withoutMuraObjectArgs(content string) string {
+// outsideMuraObjectArgs is as, the assignments of content, less those inside
+// the argument list of a dspObject_include call: `iterator = iterator` there
+// passes the name on to the display object rather than setting it.
+func outsideMuraObjectArgs(content string, as []parser.Assignment) []parser.Assignment {
 	calls := muraObjectCalls(content)
 	if len(calls) == 0 {
-		return content
+		return as
 	}
 
-	b := []byte(content)
-
-	for _, call := range calls {
-		for i := call.tokens[call.at+1].Offset; i < call.tokens[call.closing].Offset; i++ {
-			if b[i] != '\n' {
-				b[i] = ' '
-			}
-		}
-	}
-
-	return string(b)
+	return slices.DeleteFunc(slices.Clone(as), func(a parser.Assignment) bool {
+		return slices.ContainsFunc(calls, func(call codeCall) bool {
+			return a.At >= call.tokens[call.at+1].Offset && a.At < call.tokens[call.closing].Offset
+		})
+	})
 }
 
 // muraObjectCalls are the dspObject_include calls in content's tokens: none

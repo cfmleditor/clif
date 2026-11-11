@@ -40,8 +40,8 @@ func TestTheCallReadersReadOnlyCode(t *testing.T) {
 		},
 		{
 			"dspObject_include()", readMuraObjectSites,
-			"<!--- #dspObject_include( theFile = \"old.cfm\" )# --->\n<cfoutput>#dspObject_include( theFile = \"new.cfm\", item = x )#</cfoutput>\n",
-			[]string{"1", "blanked:1"},
+			"<!--- #dspObject_include( theFile = \"old.cfm\" )# --->\n<cfoutput>#dspObject_include( theFile = \"new.cfm\", item = x )#</cfoutput>\n<cfscript>\n// dspObject_include( theFile = \"old.cfm\" );\ndspObject_include( theFile = \"new.cfm\", item = x );\n</cfscript>\n",
+			[]string{"1", "4", "blanked:1"},
 		},
 		{
 			"a write of prc.response, commented out", readPrcResponse,
