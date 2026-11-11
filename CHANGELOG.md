@@ -19,6 +19,8 @@
 
 ### Changed
 
+- Go 1.27.4, for a standard-library `net/http` advisory (GO-2026-6859) that failed `govulncheck`; `golang.org/x/sys` 0.50.0 and `modernc.org/sqlite` 1.62.0.
+
 - **Parse workers no longer queue on one lock to look up a resolver match.** The memo of which component an expression resolves to is shared by every parse worker of a batch run, and every miss took its single write lock: in a tassweb scan workers spent four seconds waiting on it. A shared set's memo is now 64 shards by expression (`resolverMemo`), each with its own lock, a 64th of the cap and 128 bytes to itself (arm64's cache line, two of amd64's); a set built for one parse, which shares its memo with nothing, keeps a single shard and the whole cap. The tassweb scan is about 5% faster in wall time (5.32s against 5.59s) and spends 0.6s less in the kernel, with the same user CPU (three runs each, alternated), and `unresolved` is byte-identical.
 
 - **The caller index holds file numbers, not paths.** Argument inference indexes, for every call-shaped name, the files it appears in, and each entry was a 16-byte copy of the path's string header, so a file was paid for once per name it calls. Each file is now numbered once (`callerIndex.add`) and a name lists 4-byte numbers: 19MB at a tassweb scan's peak against 38MB, with no measurable CPU change. `callerFiles` answers as before, each file once and sorted by path (`TestCallerFilesAreSortedPathsWhateverTheirNumbers`); a name's list is sorted by the first ask for it, outside the index's lock, and kept until a file is added under it; `unresolved` is byte-identical on tassweb and the 47 corpus projects.
