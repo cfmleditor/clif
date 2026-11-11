@@ -1,7 +1,6 @@
 package resolve
 
 import (
-	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -30,7 +29,7 @@ func guardedByExistsCheck(pr *parser.ParseResult, variable, funcName string, lin
 		return false
 	}
 
-	text, ok := guardText(pr, variable, funcName, line)
+	text, start, ok := guardText(pr, variable, funcName, line)
 	if !ok {
 		return false
 	}
@@ -40,8 +39,10 @@ func guardedByExistsCheck(pr *parser.ParseResult, variable, funcName string, lin
 		return false
 	}
 
-	for _, m := range existsGuard(variable, funcName).FindAllStringIndex(text, -1) {
-		if guards(text, m[0], m[1]) {
+	end := start + len(text)
+
+	for _, m := range existsGuards(fileCodeBetween(pr, start, end), variable, funcName) {
+		if m[1] <= end && guards(text, m[0]-start, m[1]-start) {
 			return true
 		}
 	}
@@ -50,10 +51,10 @@ func guardedByExistsCheck(pr *parser.ParseResult, variable, funcName string, lin
 }
 
 // guardText is the code of the function holding line, from its start to the
-// call to variable.funcName on that line.
-func guardText(pr *parser.ParseResult, variable, funcName string, line int) (string, bool) {
+// call to variable.funcName on that line, and the offset it starts at.
+func guardText(pr *parser.ParseResult, variable, funcName string, line int) (string, int, bool) {
 	if pr == nil || variable == "" {
-		return "", false
+		return "", 0, false
 	}
 
 	from := 0
@@ -63,19 +64,19 @@ func guardText(pr *parser.ParseResult, variable, funcName string, line int) (str
 
 	start, ok := lineOffset(pr.Content, from)
 	if !ok {
-		return "", false
+		return "", 0, false
 	}
 
 	at, ok := lineOffset(pr.Content, line)
 	if !ok {
-		return "", false
+		return "", 0, false
 	}
 
 	if i := parser.IndexFold(lineOfContent(pr.Content, line), variable+"."+funcName); i >= 0 {
 		at += i
 	}
 
-	return pr.Content[start:at], true
+	return pr.Content[start:at], start, true
 }
 
 // guards reports whether the check at text[from:to] guards the end of text:
@@ -88,14 +89,6 @@ func guards(text string, from, to int) bool {
 	}
 
 	return !negatedGuard(head) && controls(head, text[to:])
-}
-
-func existsGuard(variable, funcName string) *regexp.Regexp {
-	v, f := regexp.QuoteMeta(variable), regexp.QuoteMeta(funcName)
-
-	return compiledPattern(`(?i)structKeyExists\(\s*` + v + `\s*,\s*["']` + f + `["']\s*\)` +
-		`|\b` + v + `\.keyExists\(\s*["']` + f + `["']\s*\)` +
-		`|isDefined\(\s*["']` + v + `\.` + f + `["']\s*\)`)
 }
 
 // negatedGuard reports whether the text before a guard ends in a negation.
@@ -195,11 +188,12 @@ const (
 // batch runs (BatchTextCaches), and returns a function putting back the
 // budgets it replaced.
 func LimitTextCaches(bytes int) (restore func()) {
-	prevLines, prevDecls := lineStarts.setBudget(bytes), declaredNames.setBudget(bytes)
+	prevLines, prevDecls, prevCode := lineStarts.setBudget(bytes), declaredNames.setBudget(bytes), codeMemo.setBudget(bytes)
 
 	return func() {
 		lineStarts.setBudget(prevLines)
 		declaredNames.setBudget(prevDecls)
+		codeMemo.setBudget(prevCode)
 	}
 }
 
@@ -216,6 +210,7 @@ func BatchTextCaches() (done func()) {
 		if batchesRunning.Add(-1) == 0 {
 			lineStarts.trim()
 			declaredNames.trim()
+			codeMemo.trim()
 		}
 	}
 }
@@ -344,7 +339,7 @@ func (c *textCache[T]) of(content string, build func(string) T) T {
 // isInstanceOf() and Mura's utility.checkForInstanceOf() are read, under the
 // rules guardedByExistsCheck applies.
 func guardedInstanceOf(pr *parser.ParseResult, variable, funcName string, line int) []string {
-	text, ok := guardText(pr, variable, funcName, line)
+	text, start, ok := guardText(pr, variable, funcName, line)
 	if !ok {
 		return nil
 	}
@@ -353,13 +348,13 @@ func guardedInstanceOf(pr *parser.ParseResult, variable, funcName string, line i
 		return nil
 	}
 
-	re := compiledPattern(`(?i)\b(?:isInstanceOf|checkForInstanceOf)\(\s*` + regexp.QuoteMeta(variable) + `\s*,\s*["']([\w.]+)["']\s*\)`)
-
 	var comps []string
 
-	for _, m := range re.FindAllStringSubmatchIndex(text, -1) {
-		if guards(text, m[0], m[1]) {
-			comps = append(comps, text[m[2]:m[3]])
+	end := start + len(text)
+
+	for _, g := range instanceGuards(fileCodeBetween(pr, start, end), variable) {
+		if g.end <= end && guards(text, g.start-start, g.end-start) {
+			comps = append(comps, g.comp)
 		}
 	}
 

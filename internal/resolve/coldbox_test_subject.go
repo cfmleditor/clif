@@ -2,6 +2,7 @@ package resolve
 
 import (
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/parser"
@@ -37,14 +38,14 @@ func (r *Resolver) coldboxTestSubject(variable string, pr *parser.ParseResult) s
 		return ""
 	}
 
-	m := compiledPattern(`(?is)^[^{]*?\b(?:component|cfcomponent)\b[^{>]*?\b` + name + `\s*=\s*["']([\w.]+)["']`).FindStringSubmatchIndex(pr.Content)
-	if m == nil {
+	subject, end := componentAttribute(fileTokens(pr), name)
+	if subject == "" {
 		return ""
 	}
 
 	// The attribute itself reads as an assignment to setsName; the file
 	// assigning the name anywhere else means it is not the base's mock.
-	if setsName(pr.Content[m[1]:], name) {
+	if setsName(pr.Content[end:], name) {
 		return ""
 	}
 
@@ -52,7 +53,33 @@ func (r *Resolver) coldboxTestSubject(variable string, pr *parser.ParseResult) s
 		return ""
 	}
 
-	return r.ComponentPath(pr.Content[m[2]:m[3]], filepath.Dir(path))
+	return r.ComponentPath(subject, filepath.Dir(path))
+}
+
+// componentAttribute is the dotted name the component's declaration gives
+// attribute, `component model="a.b.C" {` or `<cfcomponent model="a.b.C">`,
+// and the offset just past it; "" when it gives none. The declaration is the
+// first component or cfcomponent before any brace.
+func componentAttribute(tokens []parser.Token, attribute string) (string, int) {
+	i := slices.IndexFunc(tokens, func(t parser.Token) bool {
+		return t.Kind == parser.TokLBrace || isWord(t, "component") || isWord(t, "cfcomponent")
+	})
+	if i < 0 || tokens[i].Kind == parser.TokLBrace {
+		return "", 0
+	}
+
+	for j := i + 1; j+2 < len(tokens) && tokens[j].Kind != parser.TokLBrace && tokens[j].Kind != parser.TokGT; j++ {
+		if !isWord(tokens[j], attribute) || !isAssignAt(tokens, j+1) {
+			continue
+		}
+
+		value := tokens[j+2]
+		if lit, ok := stringLiteral(value); ok && lit != "" && strings.IndexFunc(lit, func(r rune) bool { return r != '.' && !isWordRune(r) }) < 0 {
+			return lit, value.Offset + len(value.Value)
+		}
+	}
+
+	return "", 0
 }
 
 // coldboxTestBase is the ColdBox test base path's extends chain reaches,

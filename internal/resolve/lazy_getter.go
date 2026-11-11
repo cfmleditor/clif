@@ -135,14 +135,13 @@ func stripVariables(name string) string {
 // fieldWrites is the component every write of field in content agrees on, the ""
 // placeholder aside, or "".
 func (r *Resolver) fieldWrites(content, field, dir string) string {
-	// Anywhere, not only at a line's start: a write inside a one-line if is
-	// a write all the same, and one missed would be one not checked.
-	re := compiledPattern(`(?i)(?:^|[^\w.$])(?:variables\.)?` + regexp.QuoteMeta(field) + `\s*=\s*([^=][^;\n]*?)\s*(?:/?>|;|\n|$)`)
+	// Anywhere, not only at a statement's start: a write inside a one-line if
+	// is a write all the same, and one missed would be one not checked.
 	answer := ""
 
-	for _, m := range re.FindAllStringSubmatchIndex(content, -1) {
-		rhs := strings.TrimSpace(content[m[2]:m[3]])
-		if isEmptyLiteral(rhs) {
+	for _, w := range codeWrites(codeOf(content), field, writeRule{scopes: []string{"variables"}}) {
+		rhs := tokensText(content, w.value())
+		if rhs == "" || isEmptyLiteral(rhs) {
 			continue
 		}
 

@@ -925,54 +925,32 @@ func (r *Resolver) methodExistenceGuarded(pr *parser.ParseResult, call *parser.C
 		return false
 	}
 
-	text := methodGuardWindow(pr.Content, call.Line, 3, 3)
-
-	name := regexp.QuoteMeta(funcName)
-
-	// A reference of the method itself questioned, the way
-	// !isNull(driver.getBundleName) spells it.
-	refCheck := compiledPattern(`(?i)(?:^|[^\w])isNull\s*\(\s*[^\n()]*\.?[^\n()]*` + name + `\s*\)`)
-	if refCheck.MatchString(text) {
-		return true
+	line := int(call.Line)
+	if !mentions(sourceText(pr.Content, line-3, line+4), funcName) {
+		return false
 	}
 
-	// structKeyExists(recv, 'm') — a ternary, or an if whose branch calls
-	// it. A negated one reads the other way and does not guard.
-	keyCheck := compiledPattern(`(?i)\bstruct[Kk]ey[Ee]xists\s*\(\s*[^(),\n]*\s*,\s*["']\s*` + name + `\s*["']`)
-	for _, m := range keyCheck.FindAllStringIndex(text, -1) {
-		if precededBy(text, m[0], "!", "not ") {
+	for _, c := range codeCalls(fileCodeOn(pr, line-3, line+3), "isNull", "structKeyExists") {
+		if isWord(c.name(), "isNull") {
+			// A reference of the method itself questioned, the way
+			// !isNull(driver.getBundleName) spells it.
+			args := c.args()
+			if len(args) > 0 && isWord(args[len(args)-1], funcName) &&
+				!slices.ContainsFunc(args, func(t parser.Token) bool { return t.Kind == parser.TokLParen }) {
+				return true
+			}
+
 			continue
 		}
 
-		return true
-	}
-
-	return false
-}
-
-// methodGuardWindow is the lines around the call's own, from `before` above
-// to `after` below it. Call lines are 0-based.
-func methodGuardWindow(content string, line uint32, before, after int) string {
-	var lines []string
-
-	for at := int(line) - before; at <= int(line)+after; at++ {
-		if at < 0 {
+		// structKeyExists(recv, 'm') — a ternary, or an if whose branch
+		// calls it. A negated one reads the other way and does not guard.
+		pieces := c.pieces()
+		if len(pieces) != 2 || c.before(1).Kind == parser.TokBang || isWord(c.before(1), "not") {
 			continue
 		}
 
-		if l := lineOfContent(content, at); l != "" {
-			lines = append(lines, l)
-		}
-	}
-
-	return strings.Join(lines, "\n")
-}
-
-// precededBy is whether at is preceded by one of the words, which turns a
-// structKeyExists guard the other way.
-func precededBy(text string, at int, negs ...string) bool {
-	for _, neg := range negs {
-		if at >= len(neg) && strings.EqualFold(text[at-len(neg):at], neg) {
+		if lit, ok := soleString(pieces[1]); ok && strings.EqualFold(strings.TrimSpace(lit), funcName) {
 			return true
 		}
 	}

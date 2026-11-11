@@ -149,10 +149,11 @@ func (r *Resolver) lastAssignment(variable, name, container string, scoped bool,
 	var ok bool
 
 	if container != "" {
-		var idx int
+		if !mentions(sourceText(pr.Content, start, int(line)), container+"."+name) {
+			return f, false
+		}
 
-		f.rhs, idx, ok = lastMemberAssignmentAt(sourceText(pr.Content, start, int(line)), container, name)
-		f.at = start + idx
+		f.rhs, f.at, ok = lastMemberWrite(pr.Content, fileCodeOn(pr, start, int(line)-1), container, name)
 
 		return f, ok
 	}
@@ -1036,15 +1037,19 @@ func (r *Resolver) membersWrittenOn(pr *parser.ParseResult, line uint32, names .
 		start = scope.Start
 	}
 
-	text := sourceText(pr.Content, start, int(line)+1)
+	var code [][]parser.Token
 
 	for _, name := range names {
 		name = strings.TrimPrefix(strings.ToLower(name), "local.")
-		if !plainName(name) || strings.Contains(name, ".") {
+		if name == "" || strings.Contains(name, ".") {
 			continue
 		}
 
-		if compiledPattern(`(?i)\b` + regexp.QuoteMeta(name) + `\s*(?:\.\s*\w+|\[[^\]]*\])\s*=[^=]`).MatchString(text) {
+		if code == nil {
+			code = fileCodeOn(pr, start, int(line))
+		}
+
+		if len(codeWrites(code, name, writeRule{qualified: true, member: true})) > 0 {
 			return true
 		}
 	}
