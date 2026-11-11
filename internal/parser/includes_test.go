@@ -91,3 +91,75 @@ func TestAnIncludeThroughARootVariableIsRead(t *testing.T) {
 		t.Errorf("includes = %q", got)
 	}
 }
+
+// An include is read where the file's syntax makes it one: not in a script
+// comment, a string or a page's prose, which the scan for the keyword read as
+// live. One written in a script component, as a tag or a statement, is.
+func TestAnIncludeIsReadOnlyWhereItIsAStatement(t *testing.T) {
+	for _, tc := range []struct {
+		name, source string
+		want         []string
+	}{
+		{"line comment", "<cfscript>\n// include \"a.cfm\";\n</cfscript>", nil},
+		{"block comment", "<cfscript>\n/* include \"b.cfm\"; */\n</cfscript>", nil},
+		{"string", "<cfscript>\nx = 'please include \"c.cfm\" here';\n</cfscript>", nil},
+		{"prose", `<p>Remember to include "d.cfm" in your page</p>`, nil},
+		{"in a cfset", `<cfset include = "e.cfm">`, nil},
+		{"script component", "component {\nfunction f() {\n// include \"f.cfm\";\ninclude \"g.cfm\";\n}\n}", []string{"g.cfm"}},
+		{"tag in a script component", "component {\nfunction f() {\n<cfinclude template=\"h.cfm\">\n}\n}", []string{"h.cfm"}},
+		{"tagless template", "include \"i.cfm\";", []string{"i.cfm"}},
+		{"a doubled quote", `<cfinclude template="j""k.cfm">`, nil},
+		{"a '>' in another value", `<cfinclude x="a>b" template="l.cfm">`, []string{"l.cfm"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := ExtractIncludes(tc.source); !slices.Equal(got, tc.want) {
+				t.Fatalf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// Every include ExtractLinks links is one ExtractIncludes reads: the two are
+// one walk, the links the literal paths of every kind.
+func TestEveryLinkedIncludeIsAnInclude(t *testing.T) {
+	src := "<cfinclude template=\"a.cfm\">\n<cfmodule template=\"m.cfm\">\n<a href=\"p.cfm\">x</a>\n" +
+		"<cfscript>\ninclude \"b.cfm\";\ncfinclude(template=\"c.cfm\");\n// include \"no.cfm\";\n</cfscript>"
+
+	var linked []string
+
+	for _, l := range ExtractLinks(src) {
+		linked = append(linked, l.Path)
+	}
+
+	if want := []string{"a.cfm", "m.cfm", "p.cfm", "b.cfm", "c.cfm"}; !slices.Equal(linked, want) {
+		t.Fatalf("links %q, want %q", linked, want)
+	}
+
+	if got, want := ExtractIncludes(src), []string{"a.cfm", "b.cfm", "c.cfm"}; !slices.Equal(got, want) {
+		t.Fatalf("includes %q, want %q", got, want)
+	}
+}
+
+// A function that includes the template its argument names makes each
+// unqualified call of it in the same file an include: Wheels' Global.cfc loads
+// the routes through $include(template = "/config/routes.cfm"), which runs
+// them in Global's own variables scope. A call through another object, a
+// computed argument and an unrelated function are not.
+func TestACallOfAnIncludeWrapperIsAnInclude(t *testing.T) {
+	src := `component {
+	public void function $include(required string template) {
+		include "#LCase(arguments.template)#";
+	}
+	public void function loadRoutes() {
+		$include(template = "/config/routes.cfm");
+		$include("/config/positional.cfm");
+		application.wo.$include(template = "/config/other.cfm");
+		$include(template = path);
+		other(template = "/config/no.cfm");
+	}
+}`
+
+	if got, want := ExtractIncludes(src), []string{"/config/routes.cfm", "/config/positional.cfm"}; !slices.Equal(got, want) {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}

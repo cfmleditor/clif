@@ -359,9 +359,9 @@ now built on it:
 - `getAttr` and `attrSpan`;
 - `extractAllAttrs` and `TagAttributes`;
 - `parser.TagAttribute`, which replaces the ORM reader's regex;
-- `ExtractLinks`, whose `template=` and `include` values are read in CF mode.
+- `ExtractLinks`, whose `template=` values are read in CF mode and `href=` in HTML mode (see "Done: document links").
 
-`listingAttrs` is left until its regex-compatible reading is ruled on.
+`listingAttrs` is gone too: see "Done: includes".
 
 **`tagEnd`** now ignores a `<` inside the tag's quoted values
 (`tagStartOutsideQuotes`). A `<` starting a tag outside them still ends it,
@@ -384,6 +384,87 @@ deferred `listingAttrs` and the old ORM regex's shapes.
 
 All of these come from the earlier steps; the attribute and `tagEnd`
 changes move no finding.
+
+### Done: document links
+
+`ExtractLinks` read every line with its own rules: a `template=`, `href=` or
+`action=` anywhere on it, in a comment, in prose, in a `<cfset>` or as a CF
+tag's `action="list"` keyword. It now reads the file as the parse splits it
+(`internal/parser/links.go`), with the attribute scanner and the script
+scanner:
+
+- **Tag regions:** CF comments are skipped and each tag is read whole by
+  `attrScanner`, in CF mode for a CF tag and HTML mode for markup. `template`
+  links on a CF tag, `href` on markup, `action` only on `form`/`cfform`; a
+  value must be quoted, and an expression tag (`cfset`, `cfif`, `cfelseif`,
+  `cfreturn`) links nothing. A markup tag cut by a CF tag
+  (`<a <cfif x>class="on"</cfif> href="p.cfm">`) keeps its later attributes.
+- **Script regions:** the script scanner, skipping comments, reads
+  `include "x"`, `include template="x"` and `cfinclude(template="x")`, as
+  `includeScriptAt` does; `cfmodule(…)` and `module template=` come from the
+  custom tag scanner; a CF tag written among the statements is read as a tag.
+  A member call (`arr.include(…)`) and a struct key named `template` are not
+  links.
+- **Regions:** a tag-free file that begins with markup is markup, as in
+  `StructureSpans`, and `DocumentLinks` reuses the parse's regions.
+
+Over the corpus the old reader's extra links were junk (CF `action`
+keywords, prose, `data-action`, `#buildURL(action=…)#`) or paths in comments.
+The code map's include edges, which come from these links, differ on five of
+47 projects, and every edge lost is one that should go: an include inside a
+`<!--- --->` comment (cfwheels 1, cfdocs 4, Lucee 9, Mura 1), a struct key
+named `template` (RustCFML 2), or a Lucee admin `<cfmodule>` after the
+source's own unbalanced quote (`list=auto,…inherit"`), 1. No edge is added.
+
+### Done: includes
+
+`IncludeSites`, behind `ExtractIncludes`, the index's includes and every
+include scope the resolver reads, was a byte scan for the word `include`
+anywhere in the file that skipped `<!--- --->` comments alone. The code map
+took its include edges from the links instead, so the two could disagree.
+Includes are now the include kind of the links walk (`fileRefs` in
+`links.go`): `refInclude` for a `<cfinclude>` template or an include
+statement, `refTemplate`, `refHref`, `refAction`, and `refListing` for a
+`<cfdirectory>`. Links keep the literal paths of every kind; includes keep
+the include kind, computed paths read as before. An `includesOnly` mode
+scans the attributes of `<cfinclude>` and `<cfdirectory>` alone.
+
+- `listingAttrs` is replaced by the CF-mode attribute scanner, and the
+  listing's own `<cfinclude>` is read from the walk's include path
+  (`listingIncludePath`).
+- The resolver's `constructorIncludes` read script includes with a plain
+  scanner and a third rule; it reads `IncludeSites` now, and its scanner
+  (`NewScriptScanner`) only says which include statements stand in the
+  component body.
+- The Application.cfc walk (`mapping_sources.go`) still reads an include at
+  a keyword its own walk finds, with `includeFormAt`; the expression
+  differential holds those readers.
+
+- A function that includes the template an argument names is an include
+  wrapper (`wrapperIncludes`): Wheels' `Global.cfc` declares
+  `$include(template)` as `include "#LCase(arguments.template)#"` and loads
+  the routes with `$include(template = "/config/routes.cfm")`, which runs them
+  in its own variables scope. An unqualified call of the wrapper in the same
+  file, with a literal path by name or in its place, is an include there. The
+  old scan read these by accident, the `$` letting `include(template=` match;
+  without them cfwheels' `routes.cfm` lost `mapper()` and gained 4 findings.
+
+Over the 47 corpus projects the links are identical, and the includes differ
+on 20, all of them correct:
+
+| Change | Count |
+|---|---|
+| Lost: in a `//` or `/* */` comment | 10 |
+| Lost: in a string (`fileWrite(…, 'component { include "x.cfm"; }')`) | 3 |
+| Lost: `application.wo.$include(…)`, which runs the template in another object's scope | 7 |
+| Added: RustCFML's `renderWith(tpl = "x.cfm")`, a wrapper of `include "#arguments.tpl#"` | 1 |
+
+`unresolved` is byte-identical on RustCFML, cfwheels, Mura, FW/1,
+ContentBox, ColdBox, Slatwall and Lucee. The include scan costs more: 117ms
+against 65ms over the corpus's 57MB (best of five), most of it the region
+split and the script scanner. Callers that hold a parse (the server's
+indexing, DI sources, included locals) reuse its regions through
+`pr.Includes()` and `pr.IncludeSites()`.
 
 ## Speed is an option of the one walker, not a second walker
 

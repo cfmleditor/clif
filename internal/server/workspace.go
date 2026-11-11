@@ -193,7 +193,7 @@ func mb(b uint64) string {
 func (s *Server) applyIndexResult(fileURI uri.URI, pr *parser.ParseResult) {
 	s.index.IndexFileFromResult(fileURI, pr.Funcs, pr.ComponentRefs)
 	s.index.SetThisVars(fileURI, pr.ThisVars())
-	s.index.SetIncludes(fileURI, parser.ExtractIncludes(pr.Content))
+	s.index.SetIncludes(fileURI, pr.Includes())
 
 	// Extends and delegates, which IndexFileFromResult forgets: left unset,
 	// the resolver read and fully parsed each component the first time a

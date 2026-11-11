@@ -7,12 +7,12 @@ import (
 	"github.com/cfmleditor/clif/internal/lex"
 )
 
-// The scanners here read the include and directory-listing forms by hand. They
-// were regular expressions, and the include scan runs over every file the
-// index takes and over the open document on every edit that changes its
-// signatures: a whole-file pattern cost a 65,000-line component 10ms a
-// keystroke. Each mirrors the expression it replaced exactly, and
-// TestIncludeScannersMatchTheirExpressions holds them to it.
+// The scanners here read an include form by hand at a place a caller has
+// found, which the Application.cfc walk does (mapping_sources.go); and the
+// shapes of path an include may name. They were regular expressions, and each
+// mirrors the expression it replaced exactly:
+// TestIncludeScannersMatchTheirExpressions holds them to it. IncludeSites
+// finds includes with the document walk instead (includes.go).
 
 // isRegexpSpace is \s in Go's regexp syntax: no vertical tab.
 func isRegexpSpace(c byte) bool {
@@ -248,73 +248,6 @@ func isComputedPath(p string) bool {
 	return ok
 }
 
-// directoryTagEnd reads `^(?is)<cfdirectory\b[^>]*>` and returns the offset
-// past the '>'.
-func directoryTagEnd(s string) (int, bool) {
-	const open = "<cfdirectory"
-	if !lex.HasPrefixFold(s, open) || !wordEndAt(s, len(open)) {
-		return 0, false
-	}
-
-	end := strings.IndexByte(s[len(open):], '>')
-	if end < 0 {
-		return 0, false
-	}
-
-	return len(open) + end + 1, true
-}
-
-// listingAttrs reads every `(?i)\b([a-z]+)\s*=\s*["']([^"']*)["']` in a tag, in
-// order and without overlap, as name lowercased → value; a later name wins.
-func listingAttrs(s string) map[string]string {
-	attrs := map[string]string{}
-
-	for i := 0; i < len(s); {
-		if !lex.IsASCIILetter(s[i]) || !wordStartAt(s, i) {
-			i++
-
-			continue
-		}
-
-		j := i
-		for j < len(s) && lex.IsASCIILetter(s[j]) {
-			j++
-		}
-
-		name := s[i:j]
-
-		k := skipRegexpSpace(s, j)
-		if k >= len(s) || s[k] != '=' {
-			i = j
-
-			continue
-		}
-
-		k = skipRegexpSpace(s, k+1)
-		if k >= len(s) || !isQuote(s[k]) {
-			i = j
-
-			continue
-		}
-
-		v := k + 1
-		for v < len(s) && !isQuote(s[v]) {
-			v++
-		}
-
-		if v >= len(s) {
-			i = j
-
-			continue
-		}
-
-		attrs[strings.ToLower(name)] = s[k+1 : v]
-		i = v + 1
-	}
-
-	return attrs
-}
-
 // listingDir reads
 // `(?i)^#\s*getDirectoryFromPath\s*\(\s*getCurrentTemplatePath\s*\(\s*\)\s*\)\s*#([\w./-]+?)/?$`
 // and returns the directory it names.
@@ -353,51 +286,37 @@ func listingDir(s string) (string, bool) {
 	return rest, true
 }
 
-// listingIncludeAt reads
-// `^(?i)<cfinclude\b[^>]*?\btemplate\s*=\s*["']([\w./-]*)#\s*([\w$]+)\.name\s*#["']`
-// and returns the prefix, the query name, and the offset past the match.
-func listingIncludeAt(s string) (prefix, query string, end int, ok bool) {
-	const open = "<cfinclude"
-	if !lex.HasPrefixFold(s, open) || !wordEndAt(s, len(open)) {
-		return "", "", 0, false
+// listingIncludePath reads p, an include's template, as
+// `^([\w./-]*)#\s*([\w$]+)\.name\s*#$`: a directory and the name a listing's
+// query row holds, `dbUpdates/#rsUpdates.name#`. It returns the directory as
+// written and the query's name.
+func listingIncludePath(p string) (prefix, query string, ok bool) {
+	k := 0
+	for k < len(p) && (lex.IsWord(p[k]) || p[k] == '.' || p[k] == '/' || p[k] == '-') {
+		k++
 	}
 
-	ok = tagAttrValues(s, len(open), "template", func(j int) bool {
-		if j >= len(s) || !isQuote(s[j]) {
-			return false
-		}
+	if k >= len(p) || p[k] != '#' {
+		return "", "", false
+	}
 
-		k := j + 1
-		for k < len(s) && (lex.IsWord(s[k]) || s[k] == '.' || s[k] == '/' || s[k] == '-') {
-			k++
-		}
+	q := skipRegexpSpace(p, k+1)
 
-		if k >= len(s) || s[k] != '#' {
-			return false
-		}
+	r := q
+	for r < len(p) && (lex.IsWord(p[r]) || p[r] == '$') {
+		r++
+	}
 
-		q := skipRegexpSpace(s, k+1)
+	if r == q || !lex.HasPrefixFold(p[r:], ".name") {
+		return "", "", false
+	}
 
-		r := q
-		for r < len(s) && (lex.IsWord(s[r]) || s[r] == '$') {
-			r++
-		}
+	e := skipRegexpSpace(p, r+len(".name"))
+	if e != len(p)-1 || p[e] != '#' {
+		return "", "", false
+	}
 
-		if r == q || !lex.HasPrefixFold(s[r:], ".name") {
-			return false
-		}
-
-		e := skipRegexpSpace(s, r+len(".name"))
-		if e+1 >= len(s) || s[e] != '#' || !isQuote(s[e+1]) {
-			return false
-		}
-
-		prefix, query, end = s[j+1:k], s[q:r], e+2
-
-		return true
-	})
-
-	return prefix, query, end, ok
+	return p[:k], p[q:r], true
 }
 
 // ComputedPrefixTemplate reads an include whose directory is one computed span
