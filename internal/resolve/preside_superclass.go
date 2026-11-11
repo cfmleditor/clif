@@ -2,9 +2,9 @@ package resolve
 
 import (
 	"path/filepath"
-	"regexp"
 	"strings"
 
+	"github.com/cfmleditor/clif/internal/lex"
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
 )
@@ -16,13 +16,6 @@ import (
 // whose metadata, or an ancestor's, holds the key presideService. The key's
 // value is not read (StructKeyExists), so `@presideService false` counts too.
 // A component without it does not get them, whatever directory it is in.
-
-var (
-	// presideServiceRe is the key in a component's doc comment or among its
-	// attributes.
-	presideServiceRe = regexp.MustCompile(`(?i)@presideService\b|\bpresideService\s*=`)
-	cfcomponentRe    = regexp.MustCompile(`(?i)<cfcomponent\b[^>]*>`)
-)
 
 // presideSuperClassFunc is name as PresideSuperClass declares it, when a
 // component of chain is a Preside service. Every method it adds but init()
@@ -69,17 +62,65 @@ func (r *Resolver) presideSuperClass(path string) string {
 	return ""
 }
 
-// wantsPresideInjection reports whether a component's own header, the doc
-// comment and attributes before its body, holds the presideService key.
+// wantsPresideInjection reports whether a component's own header holds the
+// presideService key: an attribute of its <cfcomponent> tag, or, in script,
+// an attribute before the body's brace or an @presideService in a doc comment
+// (`/** … */`) there. Those are where the engine reads a component's metadata
+// from, so a comment is read on purpose, but only a doc comment in the
+// header: the key in a string, a line or block comment, or the body is none.
 func wantsPresideInjection(content string) bool {
-	header := content
-	if loc := cfcomponentRe.FindStringIndex(content); loc != nil {
-		header = content[:loc[1]]
-	} else if before, _, found := strings.Cut(content, "{"); found {
-		header = before
+	if !mentions(content, "presideService") {
+		return false
 	}
 
-	return presideServiceRe.MatchString(header)
+	if !parser.IsScriptSource(content) {
+		for _, tag := range parser.CFTags(content, "cfcomponent") {
+			if tag.Close {
+				continue
+			}
+
+			_, ok := tag.Attr("presideService")
+
+			return ok
+		}
+
+		return false
+	}
+
+	sc := parser.NewScriptScanner(content)
+
+	var previous parser.Token
+
+	for t := sc.Next(); t.Kind != parser.TokEOF && t.Kind != parser.TokLBrace; t = sc.Next() {
+		switch {
+		case t.Kind == parser.TokBlockComment && strings.HasPrefix(t.Value, "/**") && docTagged(t.Value, "@presideService"):
+			return true
+		case t.Kind == parser.TokEquals && isWord(previous, "presideService"):
+			return true
+		}
+
+		if t.Kind != parser.TokNewline && t.Kind != parser.TokBlockComment && t.Kind != parser.TokLineComment {
+			previous = t
+		}
+	}
+
+	return false
+}
+
+// docTagged reports whether the doc comment holds the annotation tag, a word
+// on its own, ignoring case.
+func docTagged(comment, tag string) bool {
+	for rest := comment; ; {
+		i := parser.IndexFold(rest, tag)
+		if i < 0 {
+			return false
+		}
+
+		rest = rest[i+len(tag):]
+		if rest == "" || !lex.IsWord(rest[0]) {
+			return true
+		}
+	}
 }
 
 // under reports whether path lies beneath dir, ignoring case.
