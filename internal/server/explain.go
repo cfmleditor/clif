@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/cfmleditor/clif/internal/lex"
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
 	"github.com/cfmleditor/clif/internal/resolve"
@@ -158,7 +159,7 @@ func nameBefore(s string) (name, before string) {
 	end := len(s)
 	start := end
 
-	for start > 0 && isNameByte(s[start-1]) {
+	for start > 0 && lex.IsIdent(s[start-1]) {
 		start--
 	}
 
@@ -169,13 +170,9 @@ func nameBefore(s string) (name, before string) {
 	rest := strings.TrimRight(s[:start], " \t")
 
 	wordStart := len(rest)
-	for wordStart > 0 && isNameByte(rest[wordStart-1]) {
+	for wordStart > 0 && lex.IsIdent(rest[wordStart-1]) {
 		wordStart--
 	}
 
 	return s[start:end], rest[wordStart:]
-}
-
-func isNameByte(b byte) bool {
-	return b == '_' || b == '$' || b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b >= '0' && b <= '9'
 }

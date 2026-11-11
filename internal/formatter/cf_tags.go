@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/cfmleditor/clif/internal/lex"
 	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
@@ -321,7 +322,7 @@ func hasBytesAtFold(src []byte, pos int, lit string) bool {
 	}
 
 	for k := range len(lit) {
-		if toLower(src[pos+k]) != toLower(lit[k]) {
+		if lex.LowerASCII(src[pos+k]) != lex.LowerASCII(lit[k]) {
 			return false
 		}
 	}

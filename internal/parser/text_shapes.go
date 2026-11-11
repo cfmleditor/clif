@@ -24,17 +24,9 @@ type textCursor struct {
 	i int
 }
 
-// isRESpace is a regular expression's \s: space, tab, newline, carriage
-// return and form feed.
-func isRESpace(c byte) bool {
-	return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f'
-}
-
-func isQuoteByte(c byte) bool { return c == '"' || c == '\'' }
-
 // spaces skips \s*.
 func (c *textCursor) spaces() {
-	for c.i < len(c.s) && isRESpace(c.s[c.i]) {
+	for c.i < len(c.s) && lex.IsRegexpSpace(c.s[c.i]) {
 		c.i++
 	}
 }
@@ -84,14 +76,14 @@ func (c *textCursor) run(in func(byte) bool) string {
 // replaces read one.
 func (c *textCursor) quoted(stop string, minLen int) (string, bool) {
 	from := c.i
-	if c.i >= len(c.s) || !isQuoteByte(c.s[c.i]) {
+	if c.i >= len(c.s) || !lex.IsQuote(c.s[c.i]) {
 		return "", false
 	}
 
 	c.i++
-	value := c.run(func(b byte) bool { return !isQuoteByte(b) && strings.IndexByte(stop, b) < 0 })
+	value := c.run(func(b byte) bool { return !lex.IsQuote(b) && strings.IndexByte(stop, b) < 0 })
 
-	if len(value) < minLen || c.i >= len(c.s) || !isQuoteByte(c.s[c.i]) {
+	if len(value) < minLen || c.i >= len(c.s) || !lex.IsQuote(c.s[c.i]) {
 		c.i = from
 
 		return "", false
@@ -236,13 +228,13 @@ func extendsFW1(content string) bool {
 
 		c.spaces()
 
-		if c.i >= len(c.s) || !isQuoteByte(c.s[c.i]) {
+		if c.i >= len(c.s) || !lex.IsQuote(c.s[c.i]) {
 			return false
 		}
 
 		c.i++
 
-		return c.fold("framework.one") && c.i < len(c.s) && isQuoteByte(c.s[c.i])
+		return c.fold("framework.one") && c.i < len(c.s) && lex.IsQuote(c.s[c.i])
 	})
 }
 
@@ -306,22 +298,24 @@ func servicePropertyAnnotations(content string) []serviceProperty {
 		from = i + 1
 		c := textCursor{s: content, i: i + len(tag)}
 
-		if !c.spaces1() || c.i >= len(content) || !isAlphaUnder(content[c.i]) {
+		if !c.spaces1() || c.i >= len(content) || !lex.IsWordStart(content[c.i]) {
 			continue
 		}
 
-		name := c.run(func(b byte) bool { return isAlphaUnder(b) || b >= '0' && b <= '9' || b == '.' || b == '[' || b == ']' })
+		name := c.run(func(b byte) bool {
+			return lex.IsWordStart(b) || b >= '0' && b <= '9' || b == '.' || b == '[' || b == ']'
+		})
 
 		if !c.spaces1() {
 			continue
 		}
 
-		kind := c.run(isAlpha)
+		kind := c.run(lex.IsASCIILetter)
 		if kind == "" || !c.byte('|') {
 			continue
 		}
 
-		target := c.run(func(b byte) bool { return !isRESpace(b) })
+		target := c.run(func(b byte) bool { return !lex.IsRegexpSpace(b) })
 		if target == "" {
 			continue
 		}
@@ -332,10 +326,6 @@ func servicePropertyAnnotations(content string) []serviceProperty {
 
 	return out
 }
-
-func isAlpha(b byte) bool { return b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' }
-
-func isAlphaUnder(b byte) bool { return isAlpha(b) || b == '_' }
 
 // mockClassName is the value of the first className="X" or className: "X" in
 // args that starts a word, X holding no #.
@@ -382,8 +372,8 @@ func hasMarkupEvidence(content string) bool {
 		switch {
 		case strings.HasPrefix(rest, "</"):
 			c := textCursor{s: rest, i: 2}
-			if c.i < len(rest) && isAlpha(rest[c.i]) {
-				c.run(func(b byte) bool { return isAlpha(b) || b >= '0' && b <= '9' || b == '-' })
+			if c.i < len(rest) && lex.IsASCIILetter(rest[c.i]) {
+				c.run(func(b byte) bool { return lex.IsASCIILetter(b) || b >= '0' && b <= '9' || b == '-' })
 				c.spaces()
 
 				if c.byte('>') {
@@ -614,7 +604,7 @@ func serviceMemberWriteAt(s string) (serviceWrite, bool) {
 
 // hashName steps over ["']#\s*(name)\s*#["'] and is the name.
 func (c *textCursor) hashName(isName func(byte) bool) (string, bool) {
-	if c.i >= len(c.s) || !isQuoteByte(c.s[c.i]) {
+	if c.i >= len(c.s) || !lex.IsQuote(c.s[c.i]) {
 		return "", false
 	}
 
@@ -633,7 +623,7 @@ func (c *textCursor) hashName(isName func(byte) bool) (string, bool) {
 
 	c.spaces()
 
-	if !c.byte('#') || c.i >= len(c.s) || !isQuoteByte(c.s[c.i]) {
+	if !c.byte('#') || c.i >= len(c.s) || !lex.IsQuote(c.s[c.i]) {
 		return "", false
 	}
 

@@ -10,6 +10,7 @@ import (
 
 	"github.com/cfmleditor/clif/internal/docs"
 	"github.com/cfmleditor/clif/internal/frameworkapi"
+	"github.com/cfmleditor/clif/internal/lex"
 	"github.com/cfmleditor/clif/internal/nativetype"
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
@@ -346,7 +347,7 @@ func declaresInterface(content string) bool {
 		at = i + 1
 
 		end := i + len("interface")
-		if end < len(content) && isRegexWordByte(content[end]) {
+		if end < len(content) && lex.IsWord(content[end]) {
 			continue
 		}
 
@@ -357,7 +358,7 @@ func declaresInterface(content string) bool {
 		// ^\s* in multi-line mode: only whitespace before it on its line, or
 		// a run of whitespace back to the start of the file.
 		j := i
-		for j > 0 && isRegexSpace(content[j-1]) && content[j-1] != '\n' {
+		for j > 0 && lex.IsRegexpSpace(content[j-1]) && content[j-1] != '\n' {
 			j--
 		}
 

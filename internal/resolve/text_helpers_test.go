@@ -1,6 +1,8 @@
 package resolve
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestPrecededByLocalDetectsPrefix(t *testing.T) {
 	text := "local.foo"
@@ -14,18 +16,6 @@ func TestPrecededByLocalDetectsPrefix(t *testing.T) {
 
 	if precededByLocal("foo", 3) {
 		t.Fatal("short text reported")
-	}
-}
-
-func TestIsRegexSpaceCoversWhitespace(t *testing.T) {
-	for _, c := range []byte{' ', '\t', '\n', '\f', '\r'} {
-		if !isRegexSpace(c) {
-			t.Errorf("isRegexSpace(%q) = false", c)
-		}
-	}
-
-	if isRegexSpace('a') {
-		t.Fatal("letter reported as space")
 	}
 }
 

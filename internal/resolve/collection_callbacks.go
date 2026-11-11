@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/cfmleditor/clif/internal/lex"
 	"github.com/cfmleditor/clif/internal/nativetype"
 
 	"github.com/cfmleditor/clif/internal/parser"
@@ -63,7 +64,7 @@ func (r *Resolver) queriedEntityElement(arguments, baseDir string) string {
 	// entity is read from the text before the first one, and must end in a
 	// space there, since the computed part could continue a name.
 	if hash := strings.IndexByte(query, '#'); hash >= 0 {
-		if hash == 0 || !isRegexSpace(query[hash-1]) {
+		if hash == 0 || !lex.IsRegexpSpace(query[hash-1]) {
 			return ""
 		}
 

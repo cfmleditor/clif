@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/conv"
+	"github.com/cfmleditor/clif/internal/lex"
 )
 
 // Links were read by scanning each line for `template=`, `include `, `href=`
@@ -114,7 +115,7 @@ func tagFileRefs(text string, includesOnly bool, emit fileRefFunc) {
 			}
 
 			// A path is quoted; an unquoted value is an expression or a word.
-			if a.valStart == 0 || !isQuoteByte(s[a.valStart-1]) {
+			if a.valStart == 0 || !lex.IsQuote(s[a.valStart-1]) {
 				continue
 			}
 
@@ -220,7 +221,7 @@ func tagStartOutsideQuotesEnd(s string) int {
 			if c == quote {
 				quote = 0
 			}
-		case isQuoteByte(c):
+		case lex.IsQuote(c):
 			quote = c
 		case c == '>':
 			return i
