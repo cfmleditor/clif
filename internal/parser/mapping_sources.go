@@ -157,6 +157,12 @@ func (s *mappingSourceState) content(content, file string, depth int) {
 		includes = literalIncludeSites(content)
 	}
 
+	// functions is where content declares its methods, as the parse reads
+	// them: strings by the parse's rule, comments skipped, a body-less
+	// declaration ending at its `;` or `/>`, and a word "function" in a
+	// page's prose or a closure passed as an argument no declaration.
+	functions := FunctionSpansOf(file, content)
+
 	// skipTo drops the includes the walk stepped over without running: those
 	// in a method's body, which a declaration does not execute.
 	skipTo := func(offset int) {
@@ -182,35 +188,26 @@ func (s *mappingSourceState) content(content, file string, depth int) {
 			includes = includes[1:]
 		}
 
-		if t.Kind != TokIdent || before == TokDot {
-			continue
+		// Declaring a method does not execute its mapping assignments or
+		// includes. Constructor extraction deliberately excludes even
+		// lifecycle methods. A method is one the parse finds, from its first
+		// modifier or <cffunction> to its closing brace or </cffunction>.
+		for len(functions) > 0 && functions[0].End <= t.Offset {
+			functions = functions[1:]
 		}
 
-		// Declaring a method does not execute its mapping assignments or includes.
-		// Constructor extraction deliberately excludes even lifecycle methods.
-		if identEq(t.Value, "function") {
-			skipMappingFunction(sc)
-			skipTo(sc.Pos())
-
-			continue
-		}
-
-		if identEq(t.Value, "cffunction") {
-			for {
-				end := sc.NextSkipComments()
-				if end.Kind == TokEOF {
-					break
-				}
-
-				if end.Kind == TokSlash && identEq(sc.PeekSkipComments().Value, "cffunction") {
-					sc.NextSkipComments()
-
-					break
-				}
+		if len(functions) > 0 && functions[0].Start <= t.Offset {
+			end := functions[0].End
+			for next := sc.PeekSkipComments(); next.Kind != TokEOF && next.Offset < end; next = sc.PeekSkipComments() {
+				sc.NextSkipComments()
 			}
 
-			skipTo(sc.Pos())
+			skipTo(end)
 
+			continue
+		}
+
+		if t.Kind != TokIdent || before == TokDot {
 			continue
 		}
 
@@ -258,34 +255,6 @@ func literalIncludeSites(content string) []IncludeSite {
 	slices.SortStableFunc(out, func(a, b IncludeSite) int { return a.Offset - b.Offset })
 
 	return out
-}
-
-func skipMappingFunction(sc *Scanner) {
-	paren, depth := 0, 0
-
-	for {
-		t := sc.NextSkipComments()
-		switch t.Kind {
-		case TokEOF:
-			return
-		case TokLParen:
-			paren++
-		case TokRParen:
-			paren--
-		case TokLBrace:
-			if paren == 0 {
-				depth++
-			}
-		case TokRBrace:
-			if paren == 0 {
-				depth--
-				if depth == 0 {
-					return
-				}
-			}
-		default:
-		}
-	}
 }
 
 func mappingSourceTarget(sc *Scanner) (target, key string, ok bool) {
@@ -461,12 +430,15 @@ func (s *mappingSourceState) mapping(key, expr, dir string) {
 	s.env["mapping:"+strings.ToLower(key)] = value
 }
 
+// mappingLiteral is a struct literal's entries, each key's value expression.
+// Its braces are the script scanner's, so a `}` in a value's string, or in a
+// quoted argument inside one's #...#, does not end the literal.
 func mappingLiteral(expr string) (map[string]string, bool) {
 	if emptyCollection(expr) {
 		return map[string]string{}, true
 	}
 
-	sc := NewScanner(expr)
+	sc := NewScriptScanner(expr)
 	if sc.NextSkipComments().Kind != TokLBrace {
 		return nil, false
 	}
@@ -484,8 +456,10 @@ func mappingLiteral(expr string) (map[string]string, bool) {
 			return nil, false
 		}
 
+		// The value runs from its first token to its last: a comment after
+		// it is not part of it.
 		start := sc.PeekSkipComments().Offset
-		depth := 0
+		end, depth := start, 0
 
 		for {
 			t := sc.PeekSkipComments()
@@ -494,12 +468,13 @@ func mappingLiteral(expr string) (map[string]string, bool) {
 			}
 
 			if depth == 0 && (t.Kind == TokComma || t.Kind == TokRBrace) {
-				out[strings.Trim(key.Value, `"'`)] = strings.TrimSpace(expr[start:t.Offset])
+				out[strings.Trim(key.Value, `"'`)] = expr[start:end]
 
 				break
 			}
 
 			sc.NextSkipComments()
+			end = sc.Pos()
 
 			switch t.Kind {
 			case TokLParen, TokLBrace, TokLBracket:
@@ -555,7 +530,7 @@ func slicedMappingPath(term string, env map[string]string, dir string) (string, 
 			continue
 		}
 
-		parts := splitPathArguments(args)
+		parts := splitTopLevel(args)
 		if len(parts) != 2 {
 			return "", false
 		}
@@ -615,33 +590,6 @@ func mappingLength(expr string, env map[string]string, dir string) (int, bool) {
 	return len([]rune(value)) + delta, ok
 }
 
-func splitPathArguments(args string) []string {
-	sc := NewScanner(args)
-	start, depth := 0, 0
-
-	var out []string
-
-	for {
-		t := sc.NextSkipComments()
-		if t.Kind == TokEOF {
-			return append(out, args[start:])
-		}
-
-		if t.Kind == TokComma && depth == 0 {
-			out = append(out, args[start:t.Offset])
-			start = t.Offset + 1
-		}
-
-		switch t.Kind {
-		case TokLParen:
-			depth++
-		case TokRParen:
-			depth--
-		default:
-		}
-	}
-}
-
 // replacedMappingPath evaluates reReplace and reReplaceNoCase of a path by a
 // literal pattern: ColdBox's test Application.cfc finds its root as
 // `REReplaceNoCase( this.mappings[ "/tests" ], "tests(\\|/)", "" )`. The
@@ -655,7 +603,7 @@ func replacedMappingPath(term string, env map[string]string, dir string) (string
 			continue
 		}
 
-		parts := splitPathArguments(args)
+		parts := splitTopLevel(args)
 		if len(parts) != 3 && len(parts) != 4 {
 			return "", false
 		}
@@ -737,7 +685,7 @@ func (s *mappingSourceState) customTagPaths(expr, dir string) {
 		}
 	default:
 		if args, ok := callArg(strings.TrimSpace(expr), "listAppend"); ok {
-			parts := splitTopLevel(args, ',')
+			parts := splitTopLevel(args)
 			if len(parts) >= 2 && envName(parts[0]) == customTagPathsVar {
 				raw = append(raw, splitPathList(s.env[customTagPathsVar])...)
 
@@ -788,37 +736,56 @@ func arrayElements(expr string) ([]string, bool) {
 		return nil, true
 	}
 
-	return splitTopLevel(body, ','), true
+	return splitTopLevel(body), true
 }
 
-// splitTopLevel splits expr at sep outside strings and brackets.
-func splitTopLevel(expr string, sep byte) []string {
-	var (
-		parts []string
-		depth int
-		quote byte
-		start int
-	)
+// splitTopLevel is expr's comma-separated parts: an argument list's
+// arguments or an array literal's elements, each from its first token to its
+// last, so a comment before or after one is not part of it. A comma, bracket
+// or brace counts where the script scanner reads one, so none in a string, in
+// a string's #...# argument or in a comment splits or nests anything. It
+// replaces a byte loop that ended a string at a quote inside its #...# and
+// split inside a comment, and a path-argument splitter that nested in
+// parentheses alone.
+func splitTopLevel(expr string) []string {
+	sc := NewScriptScanner(expr)
+	start, end, depth := -1, 0, 0
 
-	for i := range len(expr) {
-		c := expr[i]
+	var parts []string
 
-		switch {
-		case quote != 0:
-			if c == quote {
-				quote = 0
-			}
-		case c == '"' || c == '\'':
-			quote = c
-		case c == '(' || c == '[' || c == '{':
-			depth++
-		case c == ')' || c == ']' || c == '}':
-			depth--
-		case c == sep && depth == 0:
-			parts = append(parts, strings.TrimSpace(expr[start:i]))
-			start = i + 1
+	part := func() string {
+		if start < 0 {
+			return ""
 		}
+
+		return expr[start:end]
 	}
 
-	return append(parts, strings.TrimSpace(expr[start:]))
+	for {
+		t := sc.NextSkipComments()
+		if t.Kind == TokEOF {
+			return append(parts, part())
+		}
+
+		if t.Kind == TokComma && depth == 0 {
+			parts = append(parts, part())
+			start = -1
+
+			continue
+		}
+
+		switch t.Kind {
+		case TokLParen, TokLBracket, TokLBrace:
+			depth++
+		case TokRParen, TokRBracket, TokRBrace:
+			depth--
+		default:
+		}
+
+		if start < 0 {
+			start = t.Offset
+		}
+
+		end = sc.Pos()
+	}
 }

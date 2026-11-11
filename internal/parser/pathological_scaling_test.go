@@ -56,3 +56,30 @@ func TestATagExpressionOfManyCallsScalesLinearly(t *testing.T) {
 		_ = ParseWithOptions(uri.File("/x/p.cfm"), s, &ParseOptions{ExtractCalls: true, ScanAllScopes: true})
 	})
 }
+
+// The Application.cfc walk skips each method the parse finds by stepping its
+// scanner to the method's end, and reads the methods once for the file: a
+// constructor of many methods, each beside an assignment, is read in one pass.
+func TestTheMappingWalkOverManyMethodsScalesLinearly(t *testing.T) {
+	app := func(n int) string {
+		var b strings.Builder
+
+		b.WriteString("component {\n")
+
+		for i := range n {
+			b.WriteString("\tthis.mappings[\"/m\"] = \"/m\";\n\tfunction f() { if ( a ) { b = \"}\"; } }\n")
+
+			if i%2 == 0 {
+				b.WriteString("\tfunction g();\n")
+			}
+		}
+
+		b.WriteString("}\n")
+
+		return b.String()
+	}
+
+	scalesLinearly(t, app(500), app(4000), func(s string) {
+		_ = ApplicationSources("/app/Application.cfc", nil, func(string) ([]byte, error) { return []byte(s), nil }, nil)
+	})
+}
