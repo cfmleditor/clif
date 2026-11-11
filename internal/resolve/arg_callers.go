@@ -1311,10 +1311,13 @@ func (r *Resolver) fileTokens(pr *parser.ParseResult) []parser.Token {
 	o := r.owner()
 
 	return o.callerTokens.getWithin(&o.mu, pr, func() []parser.Token {
-		// allTokens sizes its slice from the file's length; a file of mostly
-		// comments or markup has far fewer tokens, and the cache counts the
-		// tokens, so the spare capacity is not kept.
-		tokens := allTokens(pr.Content)
+		// Tokenized here, not through allTokens: this cache keeps the list, and
+		// the shared memo keeping it too held each file's tokens twice and
+		// evicted the short windows the memo is for. tokenize sizes its slice
+		// from the file's length; a file of mostly comments or markup has far
+		// fewer tokens, and the cache counts the tokens, so the spare
+		// capacity is not kept.
+		tokens := tokenize(pr.Content)
 		if cap(tokens) > len(tokens)+len(tokens)/4 {
 			tokens = slices.Clone(tokens)
 		}
