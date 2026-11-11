@@ -203,6 +203,41 @@ func (s *Scanner) interpAt(pos int) bool {
 	return i < len(spans) && spans[i][0] <= pos && pos < spans[i][1]
 }
 
+// OpenGroups is how many parentheses, braces and brackets src, CFScript or a
+// CF expression, leaves open: each kind's opens less its closes, counted
+// where NewScriptScanner reads them, so none in a string, in a quoted
+// argument inside a string's #...#, or in a comment counts. The resolver asks
+// it of an assignment's line to know whether the statement runs on, where a
+// byte count joined `x = f( ")" )`'s next line and took
+// `x = "#g( "(" )#"` for unbalanced. Its scanner stays on the stack: it is
+// asked once per line an assignment lookup reads.
+func OpenGroups(src string) (parens, braces, brackets int) {
+	var sc Scanner
+
+	sc.reset(src)
+	sc.interpStrings = true
+
+	for {
+		switch sc.NextSkipComments().Kind {
+		case TokEOF:
+			return parens, braces, brackets
+		case TokLParen:
+			parens++
+		case TokRParen:
+			parens--
+		case TokLBrace:
+			braces++
+		case TokRBrace:
+			braces--
+		case TokLBracket:
+			brackets++
+		case TokRBracket:
+			brackets--
+		default:
+		}
+	}
+}
+
 // IsScriptSource reports whether content is CFScript as a whole, as
 // ClassifyRegions decides: a script component, or text with no CF tag. Only
 // such text should be read with NewScriptScanner.
