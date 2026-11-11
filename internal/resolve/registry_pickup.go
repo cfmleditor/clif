@@ -70,7 +70,7 @@ func (r *Resolver) indirectRegistryPickup(rhs string, line int, pr *parser.Parse
 // binds x to a and b over its body. A list the header spells dynamically
 // binds nothing this can read.
 func listLoopItems(content, name string, line int) []string {
-	lines := newLineIndex(content)
+	lines := parser.NewLineTable(content)
 
 	for _, m := range loopTagPartsRe.FindAllStringSubmatchIndex(content, -1) {
 		if content[m[2]:m[3]] != "" { // a close tag
@@ -89,7 +89,7 @@ func listLoopItems(content, name string, line int) []string {
 			continue
 		}
 
-		if line < lines.lineOf(m[1]) || line > lines.lineOf(end) {
+		if line < lines.LineOf(m[1]) || line > lines.LineOf(end) {
 			continue
 		}
 

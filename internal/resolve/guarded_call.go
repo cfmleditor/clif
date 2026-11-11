@@ -166,12 +166,7 @@ func isTagGuard(before string) bool {
 }
 
 func lineOffset(content string, n int) (int, bool) {
-	starts := lineStarts.of(content, lineStartsOf)
-	if n < 0 || n >= len(starts) {
-		return 0, false
-	}
-
-	return starts[n], true
+	return lineStarts.of(content, parser.NewLineTable).Start(n)
 }
 
 // lineStarts remembers the line table of the texts lineOffset was asked about
@@ -179,21 +174,7 @@ func lineOffset(content string, n int) (int, bool) {
 // it is asked once or more per call site a file holds, so a file was walked
 // again for each: 0.7s of tassweb's code map. A text is recognised by its
 // bytes, which for the same file's content is a pointer comparison.
-var lineStarts = &textCache[[]int]{size: func(s []int) int { return 8 * len(s) }}
-
-func lineStartsOf(content string) []int {
-	starts := []int{0}
-
-	for off := 0; ; {
-		i := strings.IndexByte(content[off:], '\n')
-		if i < 0 {
-			return starts
-		}
-
-		off += i + 1
-		starts = append(starts, off)
-	}
-}
+var lineStarts = &textCache[parser.LineTable]{size: func(s parser.LineTable) int { return 4 * len(s) }}
 
 const (
 	textCacheSlots = 64

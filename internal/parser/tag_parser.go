@@ -31,7 +31,7 @@ type tagParser struct {
 	extends       string
 	accessors     bool
 	persistent    bool
-	lineIndex     []int32 // byte offset of each line start
+	lineIndex     LineTable // byte offset of each line start
 	resolvers     []Resolver
 	resolverSet   *ResolverSet
 	extractLinks  bool // whether to extract document links
@@ -101,22 +101,12 @@ func newTagParser(src, fileURI string) *tagParser {
 }
 
 func (p *tagParser) buildLineIndex() {
-	p.lineIndex = buildLineIdx(p.src)
+	p.lineIndex = NewLineTable(p.src)
 }
 
-// lineAt returns the 0-based line number for a byte offset using binary search.
+// lineAt returns the 0-based line number for a byte offset.
 func (p *tagParser) lineAt(offset int) int {
-	lo, hi := 0, len(p.lineIndex)
-	for lo < hi {
-		mid := (lo + hi) / 2
-		if int(p.lineIndex[mid]) <= offset {
-			lo = mid + 1
-		} else {
-			hi = mid
-		}
-	}
-
-	return lo - 1
+	return p.lineIndex.LineOf(offset)
 }
 
 // parse scans through tag-based CFML extracting definitions.

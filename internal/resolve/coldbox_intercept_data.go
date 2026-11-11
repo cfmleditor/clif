@@ -205,7 +205,7 @@ func (r *Resolver) interceptSites() []interceptSite {
 func interceptSitesIn(content, file string) []interceptSite {
 	var out []interceptSite
 
-	lines := newLineIndex(content)
+	lines := parser.NewLineTable(content)
 
 	for _, start := range interceptStarts(content) {
 		tokens := significantTokens(content[start:min(len(content), start+renderWindow)])
@@ -218,7 +218,7 @@ func interceptSitesIn(content, file string) []interceptSite {
 			continue
 		}
 
-		site := interceptSite{file: file, line: lines.lineOf(start)}
+		site := interceptSite{file: file, line: lines.LineOf(start)}
 
 		for i, piece := range producerSplit(tokens[2:end]) {
 			if len(piece) == 0 {
