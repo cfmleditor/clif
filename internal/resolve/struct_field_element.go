@@ -1,7 +1,6 @@
 package resolve
 
 import (
-	"regexp"
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/conv"
@@ -34,11 +33,6 @@ import (
 // is the one service's, so the entity cannot differ between values.
 // An omitted asQuery is not read as an array: cborm's default is not in the
 // stubs, which drop defaults.
-
-var (
-	structFieldRe = regexp.MustCompile(`^(?:local\.)?(\w+)\.(\w+)$`)
-	keyedFieldRe  = regexp.MustCompile(`(?i)^(?:local\s*\.\s*)?(\w+)\s*\[\s*variables\s*\.\s*(\w+)\s*\]$`)
-)
 
 // fieldElement is the element of the collection field of the struct the call
 // expression returns, or "".

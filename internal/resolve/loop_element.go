@@ -2,7 +2,6 @@ package resolve
 
 import (
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -31,8 +30,6 @@ import (
 // Anything else gives no element type and the variable stays untyped.
 
 var (
-	loopPathRe     = regexp.MustCompile(`^(?:(local|variables|this|arguments)\.)?(\w+)$`)
-	indexedReadRe  = regexp.MustCompile(`^((?:local|variables|this|arguments)\.[\w.]+|[A-Za-z_]\w*)\s*\[[^\]]*\]$`)
 	maxElementHops = 4
 )
 
@@ -476,7 +473,7 @@ func (r *Resolver) elementOf(expression string, header, start int, caller string
 	}
 
 	// A field of the struct a local's call returned: results.comments.
-	if f := structFieldRe.FindStringSubmatch(expression); f != nil && !isScopeWord(f[1]) {
+	if f := structField(expression); f != nil && !isScopeWord(f[1]) {
 		if rhs, ok := r.localAssignmentIn(pr, f[1], start, header); ok {
 			return r.fieldElement(rhs, f[2], header, caller, pr, baseDir, leaf)
 		}
@@ -486,7 +483,7 @@ func (r *Resolver) elementOf(expression string, header, start int, caller string
 
 	// The same through a key the subclass spells: results[ variables.entityPlural ],
 	// where each subclass sets entityPlural to the name its service's struct uses.
-	if f := keyedFieldRe.FindStringSubmatch(expression); f != nil && !isScopeWord(f[1]) && leaf != "" {
+	if f := keyedField(expression); f != nil && !isScopeWord(f[1]) && leaf != "" {
 		key := r.leafLiteral(leaf, pr.URI.Path(), f[2])
 		if key == "" {
 			return ""
@@ -499,13 +496,13 @@ func (r *Resolver) elementOf(expression string, header, start int, caller string
 		return ""
 	}
 
-	m := loopPathRe.FindStringSubmatch(expression)
+	m := loopPath(expression)
 	if m == nil {
 		// An element read under a key — fields[idx], a struct-key element
 		// of a local — is the element of the collection the read indexes:
 		// the read's own brackets name no chain and no member. Only what
 		// the collection proves answers; a dynamic guess is no answer.
-		if k := indexedReadRe.FindStringSubmatch(expression); k != nil && !isScopeWord(k[1]) {
+		if k := indexedRead(expression); k != nil && !isScopeWord(k[1]) {
 			comp := r.elementOf(k[1], header, start, caller, pr, baseDir, depth+1, leaf)
 			if comp != "" && (!strings.HasPrefix(comp, "$") || strings.HasPrefix(comp, familyPrefix)) {
 				return comp
@@ -810,11 +807,8 @@ func returnsEntityArray(method, arguments string) bool {
 	case "findallwhere":
 		return true
 	case "list":
-		return asQueryFalseRe.MatchString(lower) && !strings.Contains(lower, "properties")
+		return asQueryFalseIn(lower) && !strings.Contains(lower, "properties")
 	}
 
 	return false
 }
-
-// asQueryFalseRe finds `asQuery = false` among a call's arguments.
-var asQueryFalseRe = regexp.MustCompile(`\basquery\s*[=:]\s*(?:false|no|0)\b`)

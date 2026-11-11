@@ -28,13 +28,6 @@ import (
 
 const maxAssignedDepth = 3
 
-// duplicateRe is a whole duplicate( name ) of a plain or scoped name, with the
-// optional deep-copy flag: the copy of a component is an instance of it.
-var duplicateRe = regexp.MustCompile(`(?i)^duplicate\s*\(\s*([A-Za-z_][\w.]*)\s*(?:,\s*(?:true|false)\s*)?\)$`)
-
-// propertyChainRe is a dotted name of two or more segments, no call or index.
-var propertyChainRe = regexp.MustCompile(`^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+$`)
-
 // lookupCtx is what a receiver lookup carries beyond the variable: how many
 // assignments deep it is (assignedFromCall), and, when the view handoff is
 // reading a handler action on behalf of one subclass, that leaf: the base's
@@ -56,7 +49,7 @@ type lookupCtx struct {
 func (r *Resolver) assignedKeyedElement(variable, rhs string, line uint32, caller string, pr *parser.ParseResult, baseDir string, tr *callTrace, depth int, leaf string) string {
 	// An element of what a call returns: `rc.order.getOrderDeliveries()[ i ]`
 	// is an element of the relationship the getter returns.
-	if m := chainKeyedReadRe.FindStringSubmatch(rhs); m != nil {
+	if m := chainKeyedRead(rhs); m != nil {
 		comp := r.elementOf(m[1], int(line), 0, caller, pr, baseDir, depth+1, leaf)
 		if comp != "" && !strings.HasPrefix(comp, "$") {
 			tr.addf("resolved %q to %q: it is assigned an element of %q, whose elements are %q", variable, comp, m[1], comp)
@@ -67,11 +60,11 @@ func (r *Resolver) assignedKeyedElement(variable, rhs string, line uint32, calle
 		return ""
 	}
 
-	if !exactKeyedReadRe.MatchString(rhs) {
+	if !isExactKeyedRead(rhs) {
 		return ""
 	}
 
-	k := indexedReadRe.FindStringSubmatch(rhs)
+	k := indexedRead(rhs)
 	if k == nil || isScopeWord(k[1]) {
 		return ""
 	}
@@ -94,13 +87,6 @@ func (r *Resolver) assignedKeyedElement(variable, rhs string, line uint32, calle
 
 	return comp
 }
-
-// exactKeyedReadRe is a whole keyed element read: the collection under one
-// key, no chain after it.
-// chainKeyedReadRe is the same read of what a call chain returns.
-var chainKeyedReadRe = regexp.MustCompile(`^([A-Za-z_]\w*(?:\.\w+)*?(?:\.\w+\s*\([^()]*\))+)\s*\[[^\]]*\]$`)
-
-var exactKeyedReadRe = regexp.MustCompile(`^(?:[A-Za-z_]\w*|(?:local|variables|this|arguments)\.[\w.]+)\s*\[[^\]]*\]$`)
 
 // assignedFamily is the family an assignment of the receiver proves over a
 // parse-time dynamic guess: the construction of a registry listing read —
@@ -257,7 +243,7 @@ func (r *Resolver) assignedFromCall(variable string, line uint32, caller string,
 	// `var mmRBF = application.rbFactory`: an alias of a name, which is
 	// typed as that name is at the line (Masa's form builder reads the
 	// resource bundle factory a startup template assigns).
-	if aliasRe.MatchString(rhs) && !strings.EqualFold(rhs, variable) && !strings.EqualFold(rhs, name) {
+	if isDottedName(rhs) && !strings.EqualFold(rhs, variable) && !strings.EqualFold(rhs, name) {
 		return r.aliasedComponent(variable, rhs, evalLine, evalCaller, pr, baseDir, tr, lookupCtx{depth: depth + 1, leaf: ctx.leaf, callers: ctx.callers})
 	}
 
@@ -300,7 +286,7 @@ func (r *Resolver) assignedFromCall(variable string, line uint32, caller string,
 func (r *Resolver) assignedShape(variable, rhs string, line, evalLine uint32, evalCaller string, pr *parser.ParseResult, baseDir string, tr *callTrace, ctx lookupCtx) string {
 	// `copy = duplicate( orig )` is a copy of orig, an instance of the same
 	// component: it is typed as orig is at the line.
-	if m := duplicateRe.FindStringSubmatch(rhs); m != nil && !strings.EqualFold(m[1], variable) && !strings.EqualFold(m[1], strings.TrimPrefix(strings.ToLower(variable), "local.")) {
+	if m := duplicateCall(rhs); m != nil && !strings.EqualFold(m[1], variable) && !strings.EqualFold(m[1], strings.TrimPrefix(strings.ToLower(variable), "local.")) {
 		// A function written onto either one (`orig.injected = function(){}`) is
 		// a member the component does not declare, and the duplicate carries
 		// it: Lucee's mixin tests. Such a pair has members the component does
@@ -330,7 +316,7 @@ func (r *Resolver) assignedShape(variable, rhs string, line, evalLine uint32, ev
 	}
 
 	// `x = dynamic.prop`: a property of a dynamic value is dynamic.
-	if prefix, _, ok := strings.CutLast(rhs, "."); ok && propertyChainRe.MatchString(rhs) {
+	if prefix, _, ok := strings.CutLast(rhs, "."); ok && isDottedName(rhs) {
 		if held, _ := r.receiverComponentD(prefix, evalLine, evalCaller, "", pr, baseDir, nil, lookupCtx{depth: ctx.depth + 1, leaf: ctx.leaf, callers: ctx.callers}); held == "$any" {
 			tr.addf("resolved %q to \"$any\": it is assigned a property of %q, which is dynamic", variable, prefix)
 
@@ -521,7 +507,7 @@ func (r *Resolver) typeBareCallExpr(method, args string, line uint32, caller str
 		return comp
 	}
 
-	if name := strings.TrimSpace(args); identRe.MatchString(name) {
+	if name := strings.TrimSpace(args); isIdent(name) {
 		start := 0
 		if scope, ok := enclosingScope(pr, line); ok {
 			start = scope.Start
@@ -539,8 +525,6 @@ func (r *Resolver) typeBareCallExpr(method, args string, line uint32, caller str
 
 	return ret
 }
-
-var identRe = regexp.MustCompile(`^[A-Za-z_]\w*$`)
 
 // registryListingConstruction is the family a component construction of a
 // registry listing read is a member of: createObject("component",
@@ -563,7 +547,7 @@ func (r *Resolver) registryListingConstruction(method, args string, pr *parser.P
 
 	path := strings.TrimSpace(producerText(pieces[1]))
 
-	m := listingReadRe.FindStringSubmatch(path)
+	m := listingRead(path)
 	if m == nil {
 		return ""
 	}
@@ -576,15 +560,8 @@ func (r *Resolver) registryListingConstruction(method, args string, pr *parser.P
 	return familyComp(fact)
 }
 
-// listingReadRe is a registry listing's element read: the struct the
-// listing merges into, under a key. Group 1 is the listing's name.
-var listingReadRe = regexp.MustCompile(`^((?:variables\.)?[A-Za-z_]\w*)\s*\[`)
-
 // localDeclRe is a line declaring a local: `var x`, `local.x`.
 var localDeclRe = regexp.MustCompile(`(?i)(?:^|[^\w.])(?:var\s+[\w$]|local\.)`)
-
-// aliasRe is a right-hand side that is a dotted name and nothing else.
-var aliasRe = regexp.MustCompile(`^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+$`)
 
 // chainCall is one call of a chain: its name and its argument text.
 type chainCall struct{ name, args string }

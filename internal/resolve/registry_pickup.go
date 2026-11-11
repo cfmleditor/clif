@@ -1,7 +1,6 @@
 package resolve
 
 import (
-	"regexp"
 	"slices"
 	"strings"
 
@@ -23,16 +22,12 @@ import (
 // every one of them answers it, since each holds the receiver on its turn.
 // A turn whose container is not one of the registries declines the pickup.
 
-// concatPickupRe is the read of the variables scope under a name an
-// identifier concatenated with a literal spells.
-var concatPickupRe = regexp.MustCompile(`(?i)^variables\.?\[\s*([A-Za-z_]\w*)\s*&\s*["']([^"']*)["']\s*\]$`)
-
 // indirectRegistryPickup is the families the variables read of rhs holds,
 // when its name is a bound list-loop item's concatenation with a literal and
 // the turns' containers are the template's own registries — line is the loop
 // header the read fills the collection of.
 func (r *Resolver) indirectRegistryPickup(rhs string, line int, pr *parser.ParseResult) string {
-	m := concatPickupRe.FindStringSubmatch(strings.TrimSpace(rhs))
+	m := concatPickup(strings.TrimSpace(rhs))
 	if m == nil {
 		return ""
 	}

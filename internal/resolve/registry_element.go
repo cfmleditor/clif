@@ -2,7 +2,6 @@ package resolve
 
 import (
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -210,12 +209,10 @@ func emptyLiteral(rhs []parser.Token) bool {
 // variables. spelling trimmed, or ok=false. The text is normalized the way
 // an element read's expression is, and the tail a tag assignment's
 // statement runs past — the `>` and the body after it — does not read.
-var duplicatePlainRe = regexp.MustCompile(`(?i)^duplicate\s*\(\s*(?:var\s+)?(?:variables\.)?([A-Za-z_]\w*)\s*\)`)
-
 func duplicatePlain(text string) (string, bool) {
 	text = strings.ReplaceAll(text, " . ", ".")
 
-	m := duplicatePlainRe.FindStringSubmatch(strings.TrimSpace(text))
+	m := duplicatePlainCall(strings.TrimSpace(text))
 	if m == nil {
 		return "", false
 	}
@@ -671,7 +668,7 @@ func producedComponent(text string) string {
 		return ""
 	}
 
-	m := createdComponent.FindStringSubmatch(text)
+	m := createdComponent(text)
 	if m == nil {
 		return ""
 	}
