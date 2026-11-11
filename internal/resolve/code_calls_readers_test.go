@@ -4,15 +4,27 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/cfmleditor/clif/internal/parser"
 )
 
 // The readers code_calls_test.go holds to its cases, each reduced to the
 // strings it read.
 
+// readerParse is the plain parse the call readers are given, of text as a
+// template when it opens with a tag and as a component otherwise.
+func readerParse(text string) *parser.ParseResult {
+	if strings.HasPrefix(strings.TrimSpace(text), "<") {
+		return plainParseText("/t/f.cfm", text)
+	}
+
+	return plainParseText("/t/f.cfc", text)
+}
+
 func readViewRenders(text string) []string {
 	var out []string
 
-	for _, r := range viewRenders(text, "app") {
+	for _, r := range viewRenders(readerParse(text), "app") {
 		if r.view != "" {
 			out = append(out, r.view)
 		} else {
@@ -26,7 +38,7 @@ func readViewRenders(text string) []string {
 func readRenderSites(text string) []string {
 	var out []string
 
-	for view, sites := range renderSites(text, "f.cfm", "app") {
+	for view, sites := range renderSites(readerParse(text), "f.cfm", "app") {
 		for _, s := range sites {
 			out = append(out, view+"@"+strconv.Itoa(s.line))
 		}
@@ -40,7 +52,7 @@ func readRenderSites(text string) []string {
 func readInterceptSites(text string) []string {
 	var out []string
 
-	for _, s := range interceptSitesIn(text, "f.cfc") {
+	for _, s := range interceptSitesIn(readerParse(text), "f.cfc") {
 		out = append(out, strconv.Itoa(s.line))
 	}
 
@@ -50,12 +62,13 @@ func readInterceptSites(text string) []string {
 func readMuraObjectSites(text string) []string {
 	var out []string
 
-	for _, s := range muraObjectSitesIn(text, "f.cfm") {
+	for _, s := range muraObjectSitesIn(readerParse(text), "f.cfm") {
 		out = append(out, strconv.Itoa(s.line))
 	}
 
-	if blanked := withoutMuraObjectArgs(text); blanked != text {
-		out = append(out, "blanked:"+strconv.Itoa(strings.Count(blanked, "theFile")))
+	as := parser.AssignmentsOf("f.cfm", text)
+	if kept := outsideMuraObjectArgs(readerParse(text), as); len(kept) != len(as) {
+		out = append(out, "blanked:"+strconv.Itoa(len(as)-len(kept)))
 	}
 
 	return out
@@ -74,7 +87,7 @@ func readCustomErrorTemplates(text string) []string { return customErrorTemplate
 func readFW1SetViews(text string) []string {
 	var out []string
 
-	for _, sv := range fw1SetViewsIn(text) {
+	for _, sv := range fw1SetViewsIn(readerParse(text)) {
 		out = append(out, sv.subsystem+":"+sv.target)
 	}
 
@@ -84,19 +97,29 @@ func readFW1SetViews(text string) []string {
 func readFW1ViewCalls(text string) []string {
 	var out []string
 
-	for _, c := range fw1ViewCalls(text) {
+	for _, c := range fw1ViewCalls(readerParse(text)) {
 		out = append(out, c.subsystem+":"+c.view)
 	}
 
 	return out
 }
 
-func readFW1RcCalls(text string) []string { return fw1RcCalls(text) }
+// readFW1RcCalls reads text as the body of an action, edit( rc ).
+func readFW1RcCalls(text string) []string {
+	pr := parser.ParseWithOptions("file:///t/c.cfc", "component {\nfunction edit( rc ) {\n"+text+"}\n}\n", &parser.ParseOptions{ExtractCalls: true, ScanAllScopes: true})
+
+	scope, ok := funcScope(pr, "edit")
+	if !ok {
+		return nil
+	}
+
+	return fw1RcCalls(pr, scope)
+}
 
 func readAssociations(text string) []string {
 	var out []string
 
-	for _, a := range wheelsAssociationCalls(text) {
+	for _, a := range wheelsAssociationCalls(readerParse(text)) {
 		out = append(out, strings.ToLower(a.kind)+":"+a.name+":"+a.model)
 	}
 
@@ -106,7 +129,7 @@ func readAssociations(text string) []string {
 func readBinderMaps(text string) []string {
 	var out []string
 
-	for _, m := range binderMaps(text) {
+	for _, m := range binderMaps(readerParse(text)) {
 		out = append(out, strings.ToLower(m[0])+"="+m[1])
 	}
 
@@ -114,7 +137,7 @@ func readBinderMaps(text string) []string {
 }
 
 func readSuperInit(text string) []string {
-	entity, arg := superInitEntity(text)
+	entity, arg := superInitEntity(readerParse(text))
 
 	switch {
 	case entity != "":
@@ -146,7 +169,7 @@ func readModuleHelpers(text string) []string { return helperSetting(text, true) 
 
 func readAppHelpers(text string) []string { return helperSetting(text, false) }
 
-func readIncludedUDFs(text string) []string { return includedUDFPaths(text) }
+func readIncludedUDFs(text string) []string { return includedUDFPaths(readerParse(text)) }
 
 func readComputedIncludes(text string) []string {
 	var out []string
@@ -161,7 +184,7 @@ func readComputedIncludes(text string) []string {
 func readPackageListings(text string) []string {
 	var out []string
 
-	for _, l := range packageListings(text) {
+	for _, l := range packageListings(readerParse(text)) {
 		out = append(out, l.pkg+">"+l.target)
 	}
 

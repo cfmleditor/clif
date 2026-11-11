@@ -79,7 +79,7 @@ func (r *Resolver) includerHeld(variable string, pr *parser.ParseResult, tr *cal
 	}
 
 	answer := ""
-	if !setsName(pr.Content, name) {
+	if !setsName(pr.Content, pr.Assignments, name) {
 		answer = r.includerHeldUncached(variable, file, g, extra, ctx)
 	}
 
@@ -201,19 +201,23 @@ func heldAt(comp, dir string, r *Resolver, comps *[]string, dynamic *bool) bool 
 }
 
 // setsName reports whether content assigns or declares name anywhere in its
-// code: an assignment (=, op= or ++/--, with a local. or variables. scope or
-// none), a var, a for-in loop variable, a cfset, a function's argument, or a
-// tag attribute naming it as the variable it fills. A write in a comment, or
-// spelled inside a string, sets nothing.
-func setsName(content, name string) bool {
+// code, as the parse reads its assignments (writes, asked only once content
+// mentions name): an assignment (=, op= or ++/--, with a local. or
+// variables. scope or none), a var, a for-in loop variable, a cfset, or a
+// CF tag's attribute or a named argument naming it as the variable it fills.
+// A write in a comment, spelled inside a string or in markup, sets nothing.
+func setsName(content string, writes func() []parser.Assignment, name string) bool {
 	// Every form below names the variable.
 	if name == "" || !mentions(content, name) {
 		return false
 	}
 
-	code := codeOf(content)
+	return setsNameIn(writes(), name)
+}
 
-	return len(codeWrites(code, name, writeRule{scopes: []string{"local", "variables"}, compound: true})) > 0 || declaresName(code, name)
+// setsNameIn is setsName over the assignments as.
+func setsNameIn(as []parser.Assignment, name string) bool {
+	return len(writesTo(as, name, writeRule{scopes: []string{"local", "variables"}, compound: true})) > 0 || declaresName(as, name)
 }
 
 // isCFMLScope reports whether s names one of CFML's own scopes. An FW/1 or

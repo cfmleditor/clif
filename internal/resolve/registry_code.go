@@ -19,11 +19,11 @@ type packageListing struct {
 	end         int
 }
 
-// packageListings are the listings in content's code.
-func packageListings(content string) []packageListing {
+// packageListings are the listings the parse pr recorded.
+func packageListings(pr *parser.ParseResult) []packageListing {
 	var out []packageListing
 
-	for _, call := range textCalls(content, "ComponentListPackageAsStruct") {
+	for _, call := range parsedCalls(pr, "ComponentListPackageAsStruct") {
 		pieces := call.pieces()
 		if len(pieces) != 2 {
 			continue

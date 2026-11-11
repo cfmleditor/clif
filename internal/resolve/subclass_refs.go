@@ -238,7 +238,7 @@ func (r *Resolver) leafLiteral(leaf, base, name string) string {
 		}
 
 		if text, err := r.readText(path); err == nil && mentions(text, "variables."+name) {
-			if lit := writtenLiteral(codeOf(text), "variables."+name); lit != "" {
+			if lit := writtenLiteral(r.assignmentsIn(path, text), "variables."+name); lit != "" {
 				return lit
 			}
 		}
@@ -254,12 +254,12 @@ func (r *Resolver) leafLiteral(leaf, base, name string) string {
 	return ""
 }
 
-// writtenLiteral is the first literal string code assigns name: a write
+// writtenLiteral is the first literal string writes assign name: a write
 // whose whole value is one string, not empty and with no quote or #...# in
 // it. "" when there is none.
-func writtenLiteral(code [][]parser.Token, name string) string {
-	for _, w := range codeWrites(code, name, writeRule{qualified: true}) {
-		if lit, ok := soleString(w.value()); ok && lit != "" && !strings.ContainsAny(lit, "\"'#") {
+func writtenLiteral(writes []parser.Assignment, name string) string {
+	for _, w := range writesTo(writes, name, writeRule{qualified: true}) {
+		if lit := w.Literal; w.HasLiteral && lit != "" && !strings.ContainsAny(lit, "\"'#") {
 			return lit
 		}
 	}

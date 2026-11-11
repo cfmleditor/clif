@@ -246,7 +246,8 @@ func (r *Resolver) sourceInfo(path string) sourceInfo {
 
 	result := cached
 	if !ok || cached.content != content {
-		result = sourceInfo{associations: wheelsAssociations(content), content: content, derived: &sourceDerived{path: path}}
+		result = sourceInfo{content: content, derived: &sourceDerived{path: path}}
+		result.associations = wheelsAssociations(content, func() *parser.ParseResult { return result.plainParse(path) })
 	}
 
 	result.size, result.modTime, result.gen = info.Size(), info.ModTime(), gen
@@ -282,6 +283,8 @@ type sourceDerived struct {
 	wrappers        map[string]parser.IncludeWrapper
 	spansOnce       sync.Once
 	spans           []parser.FunctionSpan
+	assignmentsOnce sync.Once
+	assigned        []parser.Assignment
 	path            string // the file content was read from, for its extension
 }
 

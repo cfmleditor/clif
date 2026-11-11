@@ -55,15 +55,15 @@ func (pr *ParseResult) AllVars() []VarDef {
 	defer pr.mu.Unlock()
 
 	if !pr.allVarsDone {
-		// Split as the parse splits the file: a markup template is no script
-		// region, though ClassifyRegions alone, without the file's name, would
-		// make it one.
-		regions, idx := pr.Regions, pr.contentLineIdx
-		if pr.regionsOf != pr.Content || regions == nil {
-			regions, idx = pr.classifyRegions()
-		}
-
-		pr.allVars = varDefs(varsAndScopesIn(pr.Content, regions, idx))
+		// A parse that did not keep its declarations (ParseOptions.KeepVars),
+		// or whose content an edit has changed since, is read again by the
+		// one walk, shallow, as ParseVars reads a file: split as this parse
+		// splits it, so a markup template is no script region.
+		pr.allVars = ParseWithOptions(pr.URI, pr.Content, &ParseOptions{
+			Shallow:            true,
+			KeepVars:           true,
+			InterpolateAllText: pr.interpolateAll,
+		}).allVars
 		pr.allVarsDone = true
 	}
 

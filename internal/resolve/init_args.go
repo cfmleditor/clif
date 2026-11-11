@@ -322,14 +322,12 @@ func initStoredArg(pr *parser.ParseResult, name string) string {
 
 	// The lines that write it: `[variables.]name = …`, or a call to its
 	// setter.
-	code := fileCode(pr)
-
 	var lines []int
-	for _, w := range codeWrites(code, name, writeRule{scopes: []string{"variables"}}) {
-		lines = append(lines, w.line())
+	for _, w := range writesTo(pr.Assignments(), name, writeRule{scopes: []string{"variables"}}) {
+		lines = append(lines, w.Line)
 	}
 
-	for _, c := range codeCalls(code, "set"+name) {
+	for _, c := range codeCalls(fileCode(pr), "set"+name) {
 		lines = append(lines, int(c.name().Line))
 	}
 

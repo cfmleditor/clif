@@ -46,9 +46,10 @@ type scriptParser struct {
 	pendingCalls        []pendingCall   // unresolved varName = funcCall(...) assignments
 	flow                *flowBlocks     // the blocks a function body opens; nil outside a full parse
 
-	// instantiations is a pointer, made on the first: a slice header here
-	// moved the struct up a size class, for a record most parses never fill.
-	instantiations *[]Instantiation
+	// extras holds the instantiations and the call-name filter, made on the
+	// first: a slice header here moved the struct up a size class, for
+	// records most parses never fill (call_names.go).
+	extras *scriptExtras
 
 	// The flags sit together: spread between the wider fields above, each
 	// was padded to eight bytes, and the struct fell into a larger size class.
@@ -134,7 +135,7 @@ func newScriptParser(src, fileURI string, baseLine int, resolvers []Resolver) *s
 // allocations of a tag parse.
 func (p *scriptParser) reset(src, fileURI string, baseLine int, resolvers []Resolver) {
 	sc, funcRefs, funcLinks, funcCalls := p.sc, p.funcRefs, p.funcLinks, p.funcCalls
-	calls, pending, inst := p.calls[:0], p.pendingCalls[:0], p.instantiations
+	calls, pending, extras := p.calls[:0], p.pendingCalls[:0], p.extras
 	funcs, scopes, vars, refs := p.funcs[:0], p.scopes[:0], p.vars[:0], p.componentRefs[:0]
 
 	*p = scriptParser{fileURI: fileURI, baseLine: baseLine, baseOffset: -1, resolvers: resolvers}
@@ -145,12 +146,13 @@ func (p *scriptParser) reset(src, fileURI string, baseLine int, resolvers []Reso
 	clear(funcLinks)
 	clear(funcCalls)
 
-	if inst != nil {
-		*inst = (*inst)[:0]
+	if extras != nil {
+		extras.instantiations = extras.instantiations[:0]
+		extras.callNames = nil
 	}
 
 	p.sc, p.funcRefs, p.funcLinks, p.funcCalls = sc, funcRefs, funcLinks, funcCalls
-	p.calls, p.pendingCalls, p.instantiations = calls, pending, inst
+	p.calls, p.pendingCalls, p.extras = calls, pending, extras
 	p.funcs, p.scopes, p.vars, p.componentRefs = funcs, scopes, vars, refs
 }
 
@@ -438,7 +440,7 @@ func (p *scriptParser) addCall(call *CallSite) {
 	// if it were statements, and `svc.save(force = true)` then declares a
 	// variable called `force`. See parseScriptTagAttrs for the other half of
 	// that class of bug.
-	if !p.extractCalls {
+	if !p.recordsCall(call.FuncName) {
 		return
 	}
 

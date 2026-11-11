@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"maps"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -58,10 +59,13 @@ type ParseResult struct {
 	ServicePropertyResolvers map[string]string
 	extractLinks             bool        // whether to extract links during global scan
 	extractCalls             bool        // whether to extract all call sites during parsing
-	findCalls                []string    // function names to scan for
+	findCalls                []string    // ParseOptions.FindCalls, lowercased
 	scanAllScopes            bool        // scan all lines including function bodies
 	shallow                  bool        // minimal parse mode
 	interpolateAll           bool        // ParseOptions.InterpolateAllText
+	keepVars                 bool        // ParseOptions.KeepVars
+	scopesOnly               bool        // ParseOptions.ScopesOnly
+	foundVars                [][]VarDef  // with keepVars, each region's declarations, on file lines
 	outputScanned            bool        // importPrefixes is computed
 	output                   outputState // where the tag walk stands in the output contexts
 	importPrefixes           []string    // <cfimport prefix="..."> values, lowercased
@@ -100,6 +104,9 @@ type ParseResult struct {
 	// spans is FunctionSpans' answer, behind a pointer since most parses are
 	// never asked for it.
 	spans *functionSpans
+	// assignments is Assignments' answer, recorded during the parse when
+	// ParseOptions.RecordAssignments asked; nil otherwise.
+	assignments *assignments
 	// customTags is CustomTagCalls' answer, for the content customTagsOf and
 	// the prefixes customTagsKey.
 	customTags    []CustomTagCall
@@ -213,14 +220,35 @@ type ParseOptions struct {
 	ServicePropertyResolvers map[string]string                       // "@serviceproperty" annotation kind → dot-path template
 	ExtractLinks             bool                                    // extract document links during global scan
 	ExtractCalls             bool                                    // extract all variable.method() call sites during parsing
-	FindCalls                []string                                // function names to find call sites for
-	ScanAllScopes            bool                                    // scan all lines including function bodies (for refs/deps)
-	Shallow                  bool                                    // minimal parse: signatures only, no refs/properties/args
+	// FindCalls is the function names to find call sites for, ignoring
+	// case, in Calls. With ExtractCalls it filters what that records; without
+	// it the walk records these names' calls alone, as ExtractCalls would,
+	// with their spans, receivers and chains, and nothing else changes
+	// (call_names.go).
+	FindCalls     []string
+	ScanAllScopes bool // scan all lines including function bodies (for refs/deps)
+	Shallow       bool // minimal parse: signatures only, no refs/properties/args
 	// InterpolateAllText scans #...# in all of a tag file's text, as the
 	// parser did before it learned where ColdFusion evaluates it (see
 	// outputContext), and reads a tag-free .cfm template as CFScript. It is
 	// the features.outputContextInterpolation switch turned off.
 	InterpolateAllText bool
+	// KeepVars keeps every variable declaration the walk records, so AllVars
+	// answers from this parse rather than walking the file again. ParseVars
+	// and an AllVars asked of a parse without it are a Shallow parse with it.
+	KeepVars bool
+	// ScopesOnly is for a reader that wants the functions' Scopes and
+	// FunctionSpans and nothing else: the tag regions are not walked, since
+	// the whole-file <cffunction> finder gives their functions' scopes and
+	// spans, and the script regions are walked as ever, since their
+	// functions are what that walk finds. Every other answer of such a parse
+	// is partial. FunctionSpansOf and FindFuncScopes read one; with Shallow,
+	// its scopes and spans are a full parse's.
+	ScopesOnly bool
+	// RecordAssignments records every write the parse reads (Assignments)
+	// as it runs, rather than on the first question. Off, nothing is read
+	// until Assignments is asked.
+	RecordAssignments bool
 }
 
 // Parse performs a full file parse: extracts function signatures, component refs,
@@ -312,10 +340,12 @@ func ParseWithOptions(fileURI uri.URI, content string, opts *ParseOptions) *Pars
 		ServicePropertyResolvers: opts.ServicePropertyResolvers,
 		extractLinks:             opts.ExtractLinks,
 		extractCalls:             opts.ExtractCalls,
-		findCalls:                opts.FindCalls,
+		findCalls:                lowerNames(opts.FindCalls),
 		scanAllScopes:            opts.ScanAllScopes,
 		shallow:                  opts.Shallow,
 		interpolateAll:           opts.InterpolateAllText,
+		keepVars:                 opts.KeepVars,
+		scopesOnly:               opts.ScopesOnly,
 	}
 	if len(pr.Resolvers) > 0 {
 		if opts.ResolverSet.Serves(pr.Resolvers) {
@@ -329,6 +359,11 @@ func ParseWithOptions(fileURI uri.URI, content string, opts *ParseOptions) *Pars
 	pr.Regions, pr.contentLineIdx = pr.classifyRegions()
 	pr.regionsOf = pr.Content
 	pr.extractSignatures()
+
+	if opts.RecordAssignments {
+		pr.assignments = &assignments{of: content, list: pr.readAssignments()}
+	}
+
 	pr.logDebug("parse", "uri", string(fileURI), "funcs", len(pr.Funcs), "refs", len(pr.ComponentRefs), "dur", time.Since(start))
 
 	return pr
@@ -380,7 +415,12 @@ func (pr *ParseResult) mergeRegions(tagScopes []FuncScope) []pendingCall {
 		// identically over the corpus and against tag-shaped text inside a JS
 		// string, which is the case it was written for — and which is not a
 		// skip region, because it contains `<cf`.
-		if r.Kind == RegionSkip && !pr.extractCalls {
+		if r.Kind == RegionSkip && !pr.walksCalls() {
+			continue
+		}
+
+		// The tag functions' scopes and spans come from tagScopes, below.
+		if pr.scopesOnly && r.Kind != RegionScript {
 			continue
 		}
 
@@ -488,6 +528,10 @@ func (pr *ParseResult) extractSignatures() {
 
 	// Sort scopes by start line to match function order.
 	sortScopes(pr.Scopes)
+
+	if pr.keepVars {
+		pr.allVars, pr.allVarsDone, pr.foundVars = varDefs(pr.foundVars, pr.Scopes), true, nil
+	}
 
 	if pr.extractCalls {
 		pr.fillCallers()
@@ -620,7 +664,8 @@ func (pr *ParseResult) mergeScriptRegion(r *Region, tagScopes []FuncScope, open 
 	sp.baseOffset = r.Offset
 	sp.resolverSet = pr.resolverSet
 	sp.extractLinks = pr.extractLinks
-	sp.extractCalls = pr.extractCalls
+	sp.extractCalls = pr.walksCalls()
+	sp.setCallNames(pr.callNames())
 	sp.builtinReturnLookup = pr.BuiltinReturnLookup
 	sp.argumentTypes = pr.argumentTypeLookup()
 
@@ -653,7 +698,14 @@ func (pr *ParseResult) mergeScriptRegion(r *Region, tagScopes []FuncScope, open 
 	key := sp.inFunc
 
 	sp.parse()
-	pr.keepScriptScopeVars(r, sp.vars)
+
+	if !pr.scopesOnly {
+		pr.keepScriptScopeVars(r, sp.vars)
+	}
+
+	if pr.keepVars {
+		pr.foundVars = append(pr.foundVars, sp.vars)
+	}
 
 	// What the block declared local stays local in the regions after it.
 	if key != "" {
@@ -726,7 +778,8 @@ func (pr *ParseResult) newRegionTagParser(r *Region, tagScopes []FuncScope) *tag
 	tp.resolvers = pr.Resolvers
 	tp.resolverSet = pr.resolverSet
 	tp.extractLinks = pr.extractLinks
-	tp.extractCalls = pr.extractCalls
+	tp.extractCalls = pr.walksCalls()
+	tp.callNames = pr.callNames()
 	tp.builtinReturnLookup = pr.BuiltinReturnLookup
 	tp.argumentTypes = pr.argumentTypeLookup()
 	tp.baseLine = r.StartLine
@@ -817,6 +870,15 @@ func (pr *ParseResult) mergeTagRegion(r *Region, tagScopes []FuncScope, open *op
 	seededReturn := seed >= 0 && tp.funcs[0].returnVar != ""
 
 	tp.parse()
+
+	if pr.keepVars {
+		vars := slices.Clone(tp.vars)
+		for i := range vars {
+			vars[i].Line += conv.Uint32(r.StartLine)
+		}
+
+		pr.foundVars = append(pr.foundVars, vars)
+	}
 
 	if seed >= 0 {
 		// A return this region found for the function it continues is at a
@@ -1265,54 +1327,35 @@ func (pr *ParseResult) replaceExpressions(comp string) string {
 	return comp
 }
 
-// appendResolverRefs scans content for function call sites (findCalls).
-// Resolver refs are now handled by the script/tag parsers during initial parse.
+// appendResolverRefs keeps in Calls the calls of the names the parse was
+// asked to find (findCalls), from every scope, in the order they are written.
 func (pr *ParseResult) appendResolverRefs() {
 	if len(pr.findCalls) == 0 {
 		return
 	}
 
-	if pr.extractCalls {
-		// Filter recorded calls by target function names
-		pr.filterCallsByName()
+	pr.filterCallsByName()
 
+	if pr.extractCalls {
 		return
 	}
 
-	content := pr.Content
-	lineNum := 0
-	scopeIdx := 0
-	currentFunc := ""
+	// Only these were recorded, and Calls now holds every one: FuncCalls of
+	// a parse that does not extract calls parses a body for its own.
+	pr.funcCallsMap = nil
+	pr.dropCallsIndex()
 
-	for content != "" {
-		nl := strings.IndexByte(content, '\n')
+	sort.SliceStable(pr.Calls, func(i, j int) bool { return callWrittenBefore(&pr.Calls[i], &pr.Calls[j]) })
+}
 
-		var line string
-
-		if nl < 0 {
-			line = content
-			content = ""
-		} else {
-			line = content[:nl]
-			content = content[nl+1:]
-		}
-
-		// Track current function scope
-		if scopeIdx < len(pr.Scopes) {
-			if lineNum > pr.Scopes[scopeIdx].End {
-				scopeIdx++
-				currentFunc = ""
-			}
-
-			if scopeIdx < len(pr.Scopes) && lineNum == pr.Scopes[scopeIdx].Start+1 {
-				currentFunc = pr.Scopes[scopeIdx].Name
-			}
-		}
-
-		pr.scanLineForCalls(line, lineNum, currentFunc)
-
-		lineNum++
+// callWrittenBefore reports whether a is written before b: by line, then by
+// where its span starts.
+func callWrittenBefore(a, b *CallSite) bool {
+	if a.Line != b.Line {
+		return a.Line < b.Line
 	}
+
+	return a.StartByte < b.StartByte
 }
 
 // filterCallsByName populates pr.Calls with calls from funcCallsMap and global

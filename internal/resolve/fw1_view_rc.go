@@ -2,6 +2,7 @@ package resolve
 
 import (
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/conv"
@@ -64,16 +65,12 @@ type fw1ViewCall struct {
 	subsystem, view string
 }
 
-// fw1ViewCalls are the view() calls in text's code whose first argument,
-// positionally or as path =, names a view by a literal.
-func fw1ViewCalls(text string) []fw1ViewCall {
-	if !mentions(text, "view") {
-		return nil
-	}
-
+// fw1ViewCalls are the view() calls the parse pr recorded whose first
+// argument, positionally or as path =, names a view by a literal.
+func fw1ViewCalls(pr *parser.ParseResult) []fw1ViewCall {
 	var out []fw1ViewCall
 
-	for _, call := range textCalls(text, "view") {
+	for _, call := range parsedCalls(pr, "view") {
 		lit, ok := soleString(firstArgValue(call.pieces(), "path"))
 		if !ok {
 			continue
@@ -188,11 +185,14 @@ func (r *Resolver) fw1Includers(app string) map[string][]string {
 			continue
 		}
 
+		text := string(data)
+		if !mentions(text, "view") {
+			continue
+		}
+
 		seen := map[string]bool{}
 
-		text := string(data)
-
-		for _, call := range fw1ViewCalls(text) {
+		for _, call := range fw1ViewCalls(r.plainParseOf(file, text)) {
 			if call.subsystem != "" && !strings.EqualFold(call.subsystem, filepath.Base(app)) {
 				continue
 			}
@@ -281,19 +281,19 @@ type fw1SetView struct {
 func (r *Resolver) fw1SetViews(hpr *parser.ParseResult) []fw1SetView {
 	o := r.owner()
 
-	return o.fw1SetViewCache.get(&o.mu, hpr, func() []fw1SetView { return fw1SetViewsIn(hpr.Content) })
+	return o.fw1SetViewCache.get(&o.mu, hpr, func() []fw1SetView { return fw1SetViewsIn(hpr) })
 }
 
-// fw1SetViewsIn are the setView( "section.item" ) calls in content's code,
-// the action named or not, with a subsystem or not: Slatwall's controllers
-// write `getFW().setView( action = "admin:product.detail" )`.
-func fw1SetViewsIn(content string) []fw1SetView {
+// fw1SetViewsIn are the setView( "section.item" ) calls the parse pr
+// recorded, the action named or not, with a subsystem or not: Slatwall's
+// controllers write `getFW().setView( action = "admin:product.detail" )`.
+func fw1SetViewsIn(pr *parser.ParseResult) []fw1SetView {
 	out := []fw1SetView{}
-	if !mentions(content, "setView") {
+	if !mentions(pr.Content, "setView") {
 		return out
 	}
 
-	for _, call := range textCalls(content, "setView") {
+	for _, call := range parsedCalls(pr, "setView") {
 		pieces := call.pieces()
 		if len(pieces) != 1 {
 			continue
@@ -370,14 +370,24 @@ func (r *Resolver) fw1ActionRc(file, action, name, funcName string) string {
 	return r.fw1ActionRcD(file, action, name, funcName, 0)
 }
 
-// fw1RcCalls are the names of the functions the code of body hands its rc
-// to, `detail( rc )`, `this.detail( arguments.rc )`, in order: a call on no
-// receiver but this, with rc its one argument, by position or as rc =.
-func fw1RcCalls(body string) []string {
+// fw1RcCalls are the names of the functions the function at scope of the
+// parse pr hands its rc to, `detail( rc )`, `this.detail( arguments.rc )`, in
+// order: a call on no receiver but this, with rc its one argument, by
+// position or as rc =.
+func fw1RcCalls(pr *parser.ParseResult, scope parser.FuncScope) []string {
 	var out []string
 
-	for _, call := range codeCalls(codeLists(allTokens(body))) {
-		if call.before(1).Kind == parser.TokDot && !isWord(call.before(2), "this") {
+	sites := slices.Clone(pr.FuncCalls(scope.Start, scope.End))
+	slices.SortStableFunc(sites, func(a, b parser.CallSite) int { return int(a.StartByte) - int(b.StartByte) })
+
+	for i := range sites {
+		site := &sites[i]
+		if site.Variable != "" || len(site.Chain) > 0 {
+			continue
+		}
+
+		call, ok := spanCall(pr.Content, site)
+		if !ok {
 			continue
 		}
 
@@ -444,7 +454,7 @@ func (r *Resolver) fw1ActionRcD(file, action, name, funcName string, depth int) 
 func (r *Resolver) fw1HandedRc(file string, hpr *parser.ParseResult, scope parser.FuncScope, name, funcName string, depth int) (string, bool) {
 	answer, handed := "", false
 
-	for _, target := range fw1RcCalls(sourceText(hpr.Content, scope.Start, scope.End+1)) {
+	for _, target := range fw1RcCalls(hpr, scope) {
 		callee, ok := funcScope(hpr, target)
 		if !ok || strings.EqualFold(callee.Name, scope.Name) || !fw1Assigns(hpr, callee, name) {
 			continue
@@ -484,5 +494,5 @@ func fw1Assigns(pr *parser.ParseResult, scope parser.FuncScope, name string) boo
 		return false
 	}
 
-	return len(codeWrites(fileCodeOn(pr, scope.Start, scope.End), "rc."+name, writeRule{qualified: true})) > 0
+	return len(writesTo(onLines(pr.Assignments(), scope.Start, scope.End), "rc."+name, writeRule{qualified: true})) > 0
 }

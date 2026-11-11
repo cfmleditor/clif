@@ -140,6 +140,8 @@ type pathCaches struct {
 	fw1IncluderCache    map[string]map[string][]string        // application dir → view → the views rendering it (fw1Includers)
 	boundEntityCache    map[string]string                     // service path → the entity it binds (boundEntity)
 	wrapperHosts        map[string][]string                   // template path → Wheels wrapper hosts (wheelsTemplateHosts)
+	indexing            map[string]chan struct{}              // path → done, while a lookup indexes it (ensureFileIndexed)
+	indexingBy          map[uint64]int                        // goroutine → index parses it is in (indexOnce)
 	wrapperCalls        map[string][]wrapperCall              // caller path + wrapper → its wrapper calls (wheelsWrapperCalls)
 	extraIncludeHosts   map[string][]includeHost              // template path → includes the graph cannot see (frameworkIncludeHosts)
 	muraEventFiles      map[string]bool                       // file → Mura calls it with an event (handsMuraEvent)

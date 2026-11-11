@@ -27,7 +27,7 @@ func (p *tagParser) scanInterpolatedText(text string, offset int) {
 	// Only calls are merged below, and a call needs a '('. Most interpolation in
 	// a tag file is `#user.name#` or `#i#`, so rejecting a chunk on one byte
 	// scan is what keeps this from costing a fifth of a tag parse.
-	if !p.extractCalls || strings.IndexByte(text, '#') < 0 || strings.IndexByte(text, '(') < 0 {
+	if !p.extractCalls || strings.IndexByte(text, '#') < 0 || strings.IndexByte(text, '(') < 0 || !p.mayCall(text) {
 		return
 	}
 
@@ -129,6 +129,7 @@ func (p *tagParser) expressionSubParse(expr string, line int, memberSets bool, o
 		}
 
 		sub.extractCalls = true
+		sub.setCallNames(p.callNames)
 		sub.parse()
 		p.keepMemberSets(sub, origin)
 
@@ -142,6 +143,7 @@ func (p *tagParser) expressionSubParse(expr string, line int, memberSets bool, o
 
 	sub.resolverSet = p.resolverSet
 	sub.extractCalls = true
+	sub.setCallNames(p.callNames)
 	sub.parse()
 
 	return sub
@@ -182,11 +184,14 @@ func exprKeyOf(call *CallSite, spanLines bool) exprCallKey {
 // the string paths ran, and only calls beyond those are added. With spanLines,
 // each call takes its line from its own source span.
 func (p *tagParser) mergeExpressionCalls(expr string, line int, topUp, spanLines bool, offsets ...int) {
-	if !p.extractCalls {
+	if !p.extractCalls || !p.mayCall(expr) {
 		return
 	}
 
-	memberSets := topUp && hasMemberSetShape(expr)
+	// A parse recording a few names' calls keeps nothing else, as a parse
+	// that extracts no call does not: the member writes the <cfset> sub-parse
+	// reads are an ExtractCalls parse's alone.
+	memberSets := topUp && p.callNames == nil && hasMemberSetShape(expr)
 	calls := strings.IndexByte(expr, '(') >= 0
 
 	if !calls {

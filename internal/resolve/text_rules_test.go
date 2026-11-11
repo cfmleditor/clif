@@ -83,16 +83,16 @@ func TestEveryPrefilterLiteralIsHeldByEveryCallItsReaderReads(t *testing.T) {
 	}
 
 	entity := func(s string) bool {
-		e, _ := superInitEntity(s)
+		e, _ := superInitEntity(readerParse(s))
 
 		return e != ""
 	}
 	argument := func(s string) bool {
-		_, a := superInitEntity(s)
+		_, a := superInitEntity(readerParse(s))
 
 		return a != ""
 	}
-	maps := func(s string) bool { return len(binderMaps(s)) > 0 }
+	maps := func(s string) bool { return len(binderMaps(readerParse(s))) > 0 }
 
 	pairs := []pair{
 		{"superInitEntity super", entity, "super"},
@@ -100,7 +100,7 @@ func TestEveryPrefilterLiteralIsHeldByEveryCallItsReaderReads(t *testing.T) {
 		{"superInitEntity argument", argument, "super"},
 		{"binderMaps map", maps, "map"},
 		{"binderMaps to", maps, "to"},
-		{"includedUDFPaths", func(s string) bool { return len(includedUDFPaths(s)) > 0 }, "includeUDF"},
+		{"includedUDFPaths", func(s string) bool { return len(includedUDFPaths(readerParse(s))) > 0 }, "includeUDF"},
 		{"helperSetting module", func(s string) bool { return len(helperSetting(s, true)) > 0 }, "applicationHelper"},
 		{"helperSetting application", func(s string) bool { return len(helperSetting(s, false)) > 0 }, "applicationHelper"},
 	}

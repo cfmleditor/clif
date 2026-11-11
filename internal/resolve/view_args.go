@@ -213,7 +213,11 @@ func (r *Resolver) viewArgSites(module string) map[string][]viewArgSite {
 					continue
 				}
 
-				for view, s := range renderSites(text, file, name) {
+				if !mentions(text, "view") {
+					continue
+				}
+
+				for view, s := range renderSites(r.plainParseOf(file, text), file, name) {
 					sites[view] = append(sites[view], s...)
 				}
 			}
@@ -231,16 +235,12 @@ func (r *Resolver) viewArgSites(module string) map[string][]viewArgSite {
 	return sites
 }
 
-// renderSites are the renders in content of a view of the module named
-// module, by view name: calls in the file's tokens, so none in a comment.
-func renderSites(content, file, module string) map[string][]viewArgSite {
+// renderSites are the renders of a view of the module named module that the
+// parse pr of file recorded, by view name: none in a comment.
+func renderSites(pr *parser.ParseResult, file, module string) map[string][]viewArgSite {
 	out := map[string][]viewArgSite{}
 
-	if !mentions(content, "view") {
-		return out
-	}
-
-	for _, call := range textCalls(content, viewRenderNames...) {
+	for _, call := range parsedCalls(pr, viewRenderNames...) {
 		view, args, ok := renderCall(call.args(), module)
 		if !ok {
 			continue
