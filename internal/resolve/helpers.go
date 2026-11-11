@@ -76,15 +76,15 @@ func helperSetting(text string, module bool) []string {
 	return nil
 }
 
-// includedUDFPaths are the templates text's code hands includeUDF under the
-// module's mapping, `includeUDF( "#moduleMapping#/helpers/x.cfm" )`, by
-// position or as udflibrary =: each path after the mapping.
-func includedUDFPaths(text string) []string {
+// includedUDFPaths are the templates the parse pr's calls hand includeUDF
+// under the module's mapping, `includeUDF( "#moduleMapping#/helpers/x.cfm" )`,
+// by position or as udflibrary =: each path after the mapping.
+func includedUDFPaths(pr *parser.ParseResult) []string {
 	const prefix = "#moduleMapping#/"
 
 	var out []string
 
-	for _, call := range textCalls(text, "includeUDF") {
+	for _, call := range parsedCalls(pr, "includeUDF") {
 		lit, ok := soleString(firstArgValue(call.pieces(), "udflibrary"))
 		if !ok || !lex.HasPrefixFold(lit, prefix) {
 			continue
@@ -381,7 +381,7 @@ func (r *Resolver) includedUDFs(moduleConfig string) []string {
 
 	var out []string
 
-	for _, rel := range includedUDFPaths(string(data)) {
+	for _, rel := range includedUDFPaths(r.plainParseOf(moduleConfig, string(data))) {
 		if filepath.Ext(rel) == "" {
 			rel += ".cfm"
 		}

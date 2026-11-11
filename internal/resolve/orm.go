@@ -21,16 +21,16 @@ var entityMethods = map[string]bool{
 	"new": true, "get": true, "getorfail": true, "findwhere": true,
 }
 
-// superInitEntity reads the entity src's code binds its service to: the
-// first super.init() whose first argument, positionally or as entityName =,
-// is a literal with no expression in it; else the first passing on an
+// superInitEntity reads the entity the parse pr's calls bind its service to:
+// the first super.init() whose first argument, positionally or as entityName
+// =, is a literal with no expression in it; else the first passing on an
 // argument of the service's own init, `super.init( entityName =
 // arguments.x )`, whose name is arg.
-func superInitEntity(src string) (entity, arg string) {
+func superInitEntity(pr *parser.ParseResult) (entity, arg string) {
 	var argument string
 
-	for _, call := range textCalls(src, "init") {
-		if call.before(1).Kind != parser.TokDot || !isWord(call.before(2), "super") {
+	for _, call := range parsedCalls(pr, "init") {
+		if !strings.EqualFold(call.site.Variable, "super") || len(call.site.Chain) > 0 {
 			continue
 		}
 
@@ -108,7 +108,7 @@ func (r *Resolver) boundEntityUncached(path string) string {
 
 		// Both forms call super.init(), which most components never mention.
 		if text := string(data); mentions(text, "super") && mentions(text, "init") {
-			entity, arg := superInitEntity(text)
+			entity, arg := superInitEntity(r.plainParseOf(path, text))
 			if entity != "" {
 				return entity
 			}

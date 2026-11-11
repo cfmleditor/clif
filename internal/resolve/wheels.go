@@ -91,17 +91,13 @@ type wheelsAssociation struct {
 	line              int
 }
 
-// wheelsAssociationCalls are the associations src declares in its code: a
+// wheelsAssociationCalls are the associations the parse pr records: a
 // hasMany, belongsTo or hasOne call whose first argument, positionally or as
 // name =, is a literal name.
-func wheelsAssociationCalls(src string) []wheelsAssociation {
+func wheelsAssociationCalls(pr *parser.ParseResult) []wheelsAssociation {
 	var out []wheelsAssociation
 
-	if !mentions(src, "hasMany") && !mentions(src, "belongsTo") && !mentions(src, "hasOne") {
-		return out
-	}
-
-	for _, call := range textCalls(src, "hasMany", "belongsTo", "hasOne") {
+	for _, call := range parsedCalls(pr, "hasMany", "belongsTo", "hasOne") {
 		pieces := call.pieces()
 
 		name, ok := soleString(firstArgValue(pieces, "name"))
@@ -152,8 +148,9 @@ func (r *Resolver) associationFunc(path, name string) *parser.FunctionDef {
 	return &def
 }
 
-// Association declarations depend only on source bytes, not caller mappings.
-func wheelsAssociations(src string) map[string]parser.FunctionDef {
+// Association declarations depend only on source bytes, not caller mappings:
+// src's, read from its parse, which parse gives.
+func wheelsAssociations(src string, parse func() *parser.ParseResult) map[string]parser.FunctionDef {
 	var definitions map[string]parser.FunctionDef
 
 	// An association is a call of one of these: a file with none is most
@@ -162,7 +159,7 @@ func wheelsAssociations(src string) map[string]parser.FunctionDef {
 		return definitions
 	}
 
-	for _, a := range wheelsAssociationCalls(src) {
+	for _, a := range wheelsAssociationCalls(parse()) {
 		assoc := a.name
 		singular := singularize(assoc)
 

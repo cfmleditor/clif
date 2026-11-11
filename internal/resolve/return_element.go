@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/parser"
-	cfpath "github.com/cfmleditor/clif/internal/path"
 )
 
 // A function that returns one element of a collection it holds, as Galaxie
@@ -53,16 +52,17 @@ func holdsElementRead(content string) bool {
 	return len(scriptReturns(textCode(content)[0]).reads) > 0 || len(tagReturns(content).reads) > 0
 }
 
-// plainParse is the source parsed with no resolver, lookup or option: a
-// function of its text alone, so it is the same for every caller and is kept
-// with the source. A parse is safe to share (its lazy parts are locked), and
-// every function of the file whose return is looked up asked for a fresh one.
+// plainParse is the source parsed with no resolver, lookup or option but the
+// framework readers' calls (plainParseText): a function of its text alone, so
+// it is the same for every caller and is kept with the source. A parse is
+// safe to share (its lazy parts are locked), and every function of the file
+// whose return is looked up asked for a fresh one.
 func (s *sourceInfo) plainParse(path string) *parser.ParseResult {
 	if s.derived == nil {
-		return parser.Parse(cfpath.ToURI(path), s.content)
+		return plainParseText(path, s.content)
 	}
 
-	s.derived.plainOnce.Do(func() { s.derived.plain = parser.Parse(cfpath.ToURI(path), s.content) })
+	s.derived.plainOnce.Do(func() { s.derived.plain = plainParseText(path, s.content) })
 
 	return s.derived.plain
 }
@@ -75,7 +75,7 @@ func (r *Resolver) plainParseOf(file, content string) *parser.ParseResult {
 		return source.plainParse(file)
 	}
 
-	return parser.Parse(cfpath.ToURI(file), content)
+	return plainParseText(file, content)
 }
 
 func (r *Resolver) elementReturn(fd *parser.FunctionDef) string {

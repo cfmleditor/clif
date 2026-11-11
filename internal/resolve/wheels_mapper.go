@@ -246,7 +246,8 @@ func (r *Resolver) sourceInfo(path string) sourceInfo {
 
 	result := cached
 	if !ok || cached.content != content {
-		result = sourceInfo{associations: wheelsAssociations(content), content: content, derived: &sourceDerived{path: path}}
+		result = sourceInfo{content: content, derived: &sourceDerived{path: path}}
+		result.associations = wheelsAssociations(content, func() *parser.ParseResult { return result.plainParse(path) })
 	}
 
 	result.size, result.modTime, result.gen = info.Size(), info.ModTime(), gen

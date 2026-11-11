@@ -161,7 +161,7 @@ func (r *Resolver) moduleActions(dir string) map[string]renderers {
 		// used to search everything above it for its action and count lines
 		// from the top, quadratic in the handler's length.
 		actions := handlerActions(r.functionSpansOf(handler, content))
-		renders := viewRenders(content, name)
+		renders := r.viewRendersIn(handler, content, name)
 		lines := parser.NewLineTable(content)
 		actionBefore := func(at int) *handlerAction {
 			i := sort.Search(len(actions), func(i int) bool { return actions[i].open > at })
@@ -233,7 +233,7 @@ func (r *Resolver) moduleActions(dir string) map[string]renderers {
 
 		parent := strings.ToLower(strings.TrimSuffix(filepath.ToSlash(rel), filepath.Ext(rel)))
 
-		for _, render := range viewRenders(text, name) {
+		for _, render := range r.viewRendersIn(file, text, name) {
 			if render.view == "" {
 				continue
 			}
@@ -258,20 +258,26 @@ type viewRender struct {
 	variable, rest string
 }
 
-// viewRenders are the setView, view() and renderView() calls in content
-// (ColdBox 7 renamed the second the first: an action calls it to render a
-// viewlet it returns, and a view to render a partial) that render a view of
-// the module named module: the view their first argument names,
-// positionally or as view =, when module = names no other module. The call
-// is read from the file's tokens, so one in a comment renders nothing.
-func viewRenders(content, module string) []viewRender {
+// viewRendersIn is viewRenders of file, which holds content, from its plain
+// parse; a file that never writes "view" has none and is not parsed for them.
+func (r *Resolver) viewRendersIn(file, content, module string) []viewRender {
 	if !mentions(content, "view") {
 		return nil
 	}
 
+	return viewRenders(r.plainParseOf(file, content), module)
+}
+
+// viewRenders are the setView, view() and renderView() calls the parse pr
+// recorded (ColdBox 7 renamed the second the first: an action calls it to
+// render a viewlet it returns, and a view to render a partial) that render a
+// view of the module named module: the view their first argument names,
+// positionally or as view =, when module = names no other module. The calls
+// are the parse's, so one in a comment renders nothing.
+func viewRenders(pr *parser.ParseResult, module string) []viewRender {
 	var out []viewRender
 
-	for _, call := range textCalls(content, viewRenderNames...) {
+	for _, call := range parsedCalls(pr, viewRenderNames...) {
 		pieces := call.pieces()
 
 		lit, ok := soleString(firstArgValue(pieces, "view"))

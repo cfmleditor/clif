@@ -184,7 +184,7 @@ func (r *Resolver) interceptSites() []interceptSite {
 			continue
 		}
 
-		sites = append(sites, interceptSitesIn(text, file)...)
+		sites = append(sites, interceptSitesIn(r.plainParseOf(file, text), file)...)
 	}
 
 	o.mu.Lock()
@@ -198,10 +198,11 @@ func (r *Resolver) interceptSites() []interceptSite {
 	return sites
 }
 
-// interceptSitesIn reads the announces in content: the state first, by
-// position or as state=, and the data second, or as data= or interceptData=.
-func interceptSitesIn(content, file string) []interceptSite {
-	calls := textCalls(content, interceptAnnouncers...)
+// interceptSitesIn reads the announces the parse pr of file recorded: the
+// state first, by position or as state=, and the data second, or as data= or
+// interceptData=.
+func interceptSitesIn(pr *parser.ParseResult, file string) []interceptSite {
+	calls := parsedCalls(pr, interceptAnnouncers...)
 	out := make([]interceptSite, 0, len(calls))
 
 	for _, call := range calls {

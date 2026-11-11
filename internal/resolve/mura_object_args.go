@@ -162,7 +162,7 @@ func (r *Resolver) muraTemplateSets(file, content, name string, scoped bool) boo
 		return sets
 	}
 
-	own := withoutMuraObjectArgs(content)
+	own := withoutMuraObjectArgs(r.muraObjectParse(file, content))
 	sets = setsName(own, "arguments."+name) || !scoped && setsName(own, name)
 
 	o.mu.Lock()
@@ -248,7 +248,7 @@ func (r *Resolver) muraObjectSites() []muraObjectSite {
 			continue
 		}
 
-		sites = append(sites, muraObjectSitesIn(text, file)...)
+		sites = append(sites, muraObjectSitesIn(r.muraObjectParse(file, text), file)...)
 	}
 
 	o.mu.Lock()
@@ -262,9 +262,10 @@ func (r *Resolver) muraObjectSites() []muraObjectSite {
 	return sites
 }
 
-// muraObjectSitesIn reads the dspObject_include calls in content.
-func muraObjectSitesIn(content, file string) []muraObjectSite {
-	calls := muraObjectCalls(content)
+// muraObjectSitesIn reads the dspObject_include calls the parse pr of file
+// recorded.
+func muraObjectSitesIn(pr *parser.ParseResult, file string) []muraObjectSite {
+	calls := parsedCalls(pr, "dspObject_include")
 	out := make([]muraObjectSite, 0, len(calls))
 
 	for _, call := range calls {
@@ -293,15 +294,15 @@ func muraObjectSitesIn(content, file string) []muraObjectSite {
 	return out
 }
 
-// withoutMuraObjectArgs is content with the argument list of each
-// dspObject_include call blanked, newlines kept.
-func withoutMuraObjectArgs(content string) string {
-	calls := muraObjectCalls(content)
+// withoutMuraObjectArgs is the text of the parse pr with the argument list of
+// each dspObject_include call it recorded blanked, newlines kept.
+func withoutMuraObjectArgs(pr *parser.ParseResult) string {
+	calls := parsedCalls(pr, "dspObject_include")
 	if len(calls) == 0 {
-		return content
+		return pr.Content
 	}
 
-	b := []byte(content)
+	b := []byte(pr.Content)
 
 	for _, call := range calls {
 		for i := call.tokens[call.at+1].Offset; i < call.tokens[call.closing].Offset; i++ {
@@ -314,14 +315,15 @@ func withoutMuraObjectArgs(content string) string {
 	return string(b)
 }
 
-// muraObjectCalls are the dspObject_include calls in content's tokens: none
-// in a comment or a string.
-func muraObjectCalls(content string) []codeCall {
+// muraObjectParse is the parse the dspObject_include calls of file, which
+// holds content, are read from: its plain parse, which records them, or, when
+// content never names the function, one that holds none and costs nothing.
+func (r *Resolver) muraObjectParse(file, content string) *parser.ParseResult {
 	if !mentions(content, "dspObject_include") {
-		return nil
+		return &parser.ParseResult{Content: content}
 	}
 
-	return textCalls(content, "dspObject_include")
+	return r.plainParseOf(file, content)
 }
 
 // muraObjectTarget is a pattern for the templates a theFile value can name:
