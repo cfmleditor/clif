@@ -147,6 +147,45 @@ ContentBox's `authors.cfc`, with the workspace indexed:
   too much to compare on. Passes are unchanged within noise: Mura 14.1 to
   14.5, ContentBox 11.4 to 11.8.
 
+## After the consolidation (2026-11-11)
+
+The consolidation rounds (#363–#370) replaced the resolver's regular
+expressions with token readers. Re-measured on `main` at 5d412ce against the
+build after #362 (51e3b71), with the counters above (tokens produced over the
+tokens of one plain scan):
+
+| | #362 | `main` | `pass-regressions` |
+|---|---|---|---|
+| ContentBox token passes | 11.7× | 18.2× | 16.1× |
+| Mura token passes | 14.2× | 20.6× | 17.4× |
+| ContentBox CPU / wall / RSS (best of 3) | 2.00s / 0.33s / 140MB | 2.00s / 0.36s / 158MB | 2.01s / 0.34s / 148MB |
+| Mura CPU / wall / RSS (best of 3) | 6.66s / 1.02s / 294MB | 6.84s / 1.13s / 331MB | 6.47s / 1.12s / 310MB |
+
+- **Time did not regress; passes and memory did.** Tokenizing a file costs
+  about what the regular expressions it replaced cost to run over it, so CPU
+  stayed within 3%. Each round compared timing only against its own base,
+  and passes were not counted, so the growth went unseen.
+- **Measure time with the counters off.** A shared atomic counter bumped per
+  token makes parallel workers contend, and the counted build ran 35% more
+  CPU on `main` than on #362, which the uncounted builds did not.
+- **Where the passes came from:** one reader after another tokenizing whole
+  files on its own (`computedIncludeOffsets`, `fw1ViewCalls`,
+  `muraObjectCalls`, `holdsElementRead`, the `#…#` expressions inside strings),
+  three separate whole-file token caches holding the same tokens (by text,
+  by path, on the parse), and word checks dropped or too broad.
+- **Fixed in `pass-regressions`:** one entry per text (`codeMemo`'s
+  `textTokens`: the raw tokens and the code lists) serves `textCode`,
+  `rawTokens` (the resolver's `fileTokens`) and the parse's `fileTokens`; the
+  word checks are back, with a tight one for computed includes
+  (`mayIncludeComputed`); and the include walk skips a script region that
+  names no include. `unresolved` is byte-identical on eight corpora.
+- **What is left:** the resolver still tokenizes whole files the parse has
+  already tokenized, in its own dialect (ContentBox: `viewRenders` on each
+  handler, `rawTokens`), and `FunctionSpansOf` walks a file again where a
+  parse's spans would do. Each reader also walks the cached tokens again for
+  its own names; one per-file index of calls and writes, built once, would
+  answer all of them.
+
 ## The plan
 
 Each step stands alone, lands as its own change, and keeps `unresolved --json`

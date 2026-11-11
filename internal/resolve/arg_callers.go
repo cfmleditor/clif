@@ -1288,30 +1288,13 @@ func (r *Resolver) callerOmitsArgument(call *parser.CallSite, pr *parser.ParseRe
 // fileTokens is pr's tokens, read once and shared by everything that walks a
 // whole file's tokens: caller inference and the closure, loop and guard
 // spans, which each tokenized the file again (half of a tassweb scan's
-// allocation). It shares only lexical work, never inferred types. Caller views
-// use the owning resolver's cache, which holds at most maxHeldTokens.
+// allocation). It shares only lexical work, never inferred types.
 func (r *Resolver) fileTokens(pr *parser.ParseResult) []parser.Token {
-	o := r.owner()
-
-	return o.callerTokens.getWithin(&o.mu, pr, func() []parser.Token {
-		// Tokenized here, not through allTokens: this cache keeps the list, and
-		// the shared memo keeping it too held each file's tokens twice and
-		// evicted the short windows the memo is for. tokenize sizes its slice
-		// from the file's length; a file of mostly comments or markup has far
-		// fewer tokens, and the cache counts the tokens, so the spare
-		// capacity is not kept.
-		tokens := tokenize(pr.Content)
-		if cap(tokens) > len(tokens)+len(tokens)/4 {
-			tokens = slices.Clone(tokens)
-		}
-
-		return tokens
-	}, maxHeldTokens)
+	// The text's one entry (rawTokens), shared with every other whole-file
+	// reader: this kept a cache of its own by path, and the same file was
+	// tokenized again for each.
+	return rawTokens(pr.Content)
 }
-
-// maxHeldTokens bounds fileTokens' cache: about 10 MB of tokens, enough for
-// the files a scan's workers are reading at once.
-const maxHeldTokens = 1 << 18
 
 // parsedFile is one candidate file's parse, as parseCallers hands it over.
 type parsedFile struct {

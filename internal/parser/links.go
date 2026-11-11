@@ -252,6 +252,12 @@ func scriptFileRefs(text string, includesOnly bool, emit fileRefFunc) {
 		return
 	}
 
+	// For includes alone, a region with neither an include nor a listing tag
+	// holds nothing to read: the index asks this of every file.
+	if includesOnly && IndexFold(text, "include") < 0 && IndexFold(text, "<cfdirectory") < 0 {
+		return
+	}
+
 	sc := NewScriptScanner(text)
 	prev := Token{Kind: TokSemicolon}
 

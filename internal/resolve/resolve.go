@@ -94,7 +94,6 @@ type Resolver struct {
 	diPolicies      []diPolicy // source-backed DI/1 injection contracts
 	discoveringDI   bool       // private policy discovery never re-enters injection lookup
 	sourceFacts     spanCache[lexicalSourceFacts]
-	callerTokens    spanCache[parser.Token]      // caller file URI → tokens for its current content
 	loopCache       spanCache[loopsByName]       // file URI → every loop its current text holds (loopsOf)
 	typeGuardCache  spanCache[receiverTypeGuard] // exact builtin checks in current source
 	closureCache    spanCache[closureSpan]       // file URI → every function literal its current text holds (closuresOf)

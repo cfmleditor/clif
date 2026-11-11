@@ -22,10 +22,27 @@ import (
 // list of its own. codeWrites finds the writes to a name in those lists under
 // a writeRule saying which spellings count; the guards are codeCalls.
 
-// codeMemo remembers codeOf's answer for the texts asked about most recently:
-// the same file, view or function body is asked about once per name it might
-// write.
-var codeMemo = &textCache[[][]parser.Token]{size: codeListsSize}
+// codeMemo keeps, for the texts asked about most recently, their tokens
+// (textCodeOf): the same file, view or function body is asked about once per
+// reader and once per name it might write.
+var codeMemo = &textCache[*textTokens]{size: textTokensSize}
+
+// textTokens is one text read once as code: its tokens as the scanner gives
+// them (newlines kept, comments skipped), and the code lists codeLists makes
+// of them. Every whole-file reader in the resolver takes one or the other.
+type textTokens struct {
+	raw   []parser.Token
+	lists [][]parser.Token
+}
+
+func textTokensSize(t *textTokens) int {
+	n := 48 + tokenBytes*cap(t.raw) + codeListsSize(t.lists)
+	if len(t.lists) > 0 && len(t.lists[0]) > 0 && len(t.raw) > 0 && &t.lists[0][0] == &t.raw[0] {
+		n -= tokenBytes * cap(t.lists[0]) // the top list is raw itself
+	}
+
+	return n
+}
 
 // tokenBytes is what a parser.Token holds.
 const tokenBytes = int(unsafe.Sizeof(parser.Token{}))
@@ -41,14 +58,12 @@ func codeListsSize(lists [][]parser.Token) int {
 
 // codeOf is textCode(text), remembered.
 func codeOf(text string) [][]parser.Token {
-	return codeMemo.of(text, textCode)
+	return textCode(text)
 }
 
 // fileCode is the code of pr's whole file, read once per parse.
 func fileCode(pr *parser.ParseResult) [][]parser.Token {
-	lists, _ := pr.Memo("codeLists", func() any { return codeLists(fileTokens(pr)) }).([][]parser.Token)
-
-	return lists
+	return textCode(pr.Content)
 }
 
 // fileCodeOn is the code of pr's lines from through to, 0-based and both

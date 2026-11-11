@@ -450,11 +450,9 @@ func builtFieldAppends(pr *parser.ParseResult, field, getter string) []appendVal
 
 // fileTokens is significantTokens of the whole file, once per parse.
 func fileTokens(pr *parser.ParseResult) []parser.Token {
-	tokens, _ := pr.Memo("significantTokens", func() any {
-		return significantTokens(pr.Content)
-	}).([]parser.Token)
-
-	return tokens
+	// The text's code (textCode), shared with every other whole-file reader:
+	// the same tokens, comments skipped and newlines dropped.
+	return textCode(pr.Content)[0]
 }
 
 // fieldBuiltByFile reports whether the file assigns the field an empty

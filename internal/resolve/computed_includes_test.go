@@ -1,8 +1,10 @@
 package resolve
 
 import (
+	"math/rand"
 	"regexp"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -61,6 +63,34 @@ func TestComputedIncludeOffsetsMatchTheExpression(t *testing.T) {
 
 		if got := computedIncludeOffsets(src); !slices.Equal(got, want) {
 			t.Errorf("computedIncludeOffsets(%q) = %v, want %v", src, got, want)
+		}
+	}
+}
+
+// mayIncludeComputed is only a check in front of the reader: on every text
+// where the reader finds a computed include, it must say yes.
+func TestTheComputedIncludeCheckHidesNoInclude(t *testing.T) {
+	texts := []string{
+		`<cfinclude template="#x#.cfm">`, `<cfinclude template = '#x#'>`, "<cfinclude\ttemplate\n=\n\"#a#\">",
+		`include "#x#";`, "include\f'#x#';", `include /* c */ "#x#";`, `include // c` + "\n" + `"#x#";`,
+		`<cfinclude <!--- c ---> template="#x#">`, `cfinclude( template = "#x#" );`, `include "x.cfm";`, `x = "#include#";`,
+	}
+
+	r := rand.New(rand.NewSource(7))
+	pieces := []string{"include", "INCLUDE", "<cfinclude", "template", " ", "\t", "\n", "\v", "\f", "=", "\"", "'", "#", "x", "/*", "*/", "//", "<!---", "--->", ";", "(", ")", ">"}
+
+	for range 20000 {
+		var b strings.Builder
+		for range r.Intn(14) {
+			b.WriteString(pieces[r.Intn(len(pieces))])
+		}
+
+		texts = append(texts, b.String())
+	}
+
+	for _, text := range texts {
+		if len(computedIncludesRead(text)) > 0 && !mayIncludeComputed(text) {
+			t.Fatalf("mayIncludeComputed(%q) is false, but the reader finds %v", text, computedIncludesRead(text))
 		}
 	}
 }
