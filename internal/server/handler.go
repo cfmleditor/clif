@@ -753,7 +753,7 @@ func (s *Server) reindexFromParseResult(docURI uri.URI, pr *parser.ParseResult) 
 
 	s.index.IndexFileFromResult(docURI, pr.Funcs, pr.ComponentRefs)
 	s.index.SetThisVars(docURI, pr.ThisVars())
-	s.index.SetIncludes(docURI, parser.ExtractIncludes(pr.Content))
+	s.index.SetIncludes(docURI, pr.Includes())
 	// The re-index above forgets the file's extends and delegates, and the
 	// resolver's answer to a forgotten one is to read the file from disk and
 	// parse it: the saved text rather than the buffer, and on a 65,000-line

@@ -1,7 +1,6 @@
 package parser
 
 import (
-	"maps"
 	"math/rand/v2"
 	"regexp"
 	"slices"
@@ -9,74 +8,52 @@ import (
 	"testing"
 )
 
-// The expressions the include scanners replaced, and the scan built on them as
-// it was, kept as the reference the scanners must agree with.
+// The expressions the include scanners replaced, kept as the reference the
+// scanners must agree with.
 var (
 	refIncludeTagAt    = regexp.MustCompile(`^(?i)<cfinclude\b[^>]*?\btemplate\s*=\s*["']([^"'#]+|(?:[^"'#*\\/][^"'#*\\]*/)?#[^"'#/]+#\.cfm|[^"'#*\\/][^"'#*\\]*/#[^"'#/]+#|#attributes\.\w+#|#[\w.]+#/[^"'#*\\]+)["']`)
 	refIncludeScriptAt = regexp.MustCompile(`^(?i)(?:cf)?include\s*\(?\s*(?:template\s*=\s*)?["']([^"'#]+|(?:[^"'#*\\/][^"'#*\\]*/)?#[^"'#/]+#\.cfm|[^"'#*\\/][^"'#*\\]*/#[^"'#/]+#|#attributes\.\w+#|#[\w.]+#/[^"'#*\\]+)["']`)
 	// refRootForm is the shape RootVariablePath narrows by the variable's name.
-	refRootForm           = regexp.MustCompile(`^#[\w.]+#/[^#*\\]+$`)
-	refDirectoryListing   = regexp.MustCompile(`(?is)<cfdirectory\b[^>]*>`)
-	refListingAttr        = regexp.MustCompile(`(?i)\b([a-z]+)\s*=\s*["']([^"']*)["']`)
-	refListingDir         = regexp.MustCompile(`(?i)^#\s*getDirectoryFromPath\s*\(\s*getCurrentTemplatePath\s*\(\s*\)\s*\)\s*#([\w./-]+?)/?$`)
-	refIncludeFromListing = regexp.MustCompile(`(?i)<cfinclude\b[^>]*?\btemplate\s*=\s*["']([\w./-]*)#\s*([\w$]+)\.name\s*#["']`)
+	refRootForm        = regexp.MustCompile(`^#[\w.]+#/[^#*\\]+$`)
+	refListingDir      = regexp.MustCompile(`(?i)^#\s*getDirectoryFromPath\s*\(\s*getCurrentTemplatePath\s*\(\s*\)\s*\)\s*#([\w./-]+?)/?$`)
+	refListingIncluded = regexp.MustCompile(`(?i)^([\w./-]*)#\s*([\w$]+)\.name\s*#$`)
 )
 
-func includeSitesRegexp(content string) []IncludeSite {
-	var (
-		out      []IncludeSite
-		comments [][2]int
-		scanned  bool
-	)
-
-	for i := indexFold(content, "include"); i >= 0; i = indexFoldFrom(content, "include", i+len("include")) {
-		start, re := includeFormAtRegexp(content, i)
-		if re == nil {
-			continue
-		}
-
-		m := re.FindStringSubmatchIndex(content[start:min(len(content), start+includeWindow)])
-		if m == nil {
-			continue
-		}
-
-		p := strings.TrimSpace(content[start+m[2] : start+m[3]])
-		if _, rooted := RootVariablePath(p); !rooted && refRootForm.MatchString(p) {
-			continue
-		}
-
-		if glob, ok := computedNameGlob(p); ok {
-			p = glob
-		} else if glob, dir, ok := listedNameGlob(p); ok {
-			if !listsTemplates(content, dir) {
-				continue
-			}
-
-			p = glob
-		}
-
-		attr, isAttr := AttributeInclude(p)
-		if isAttr {
-			p = "#attributes." + attr + "#"
-		}
-
-		if p == "" || strings.Contains(p, "://") || !isAttr && !isIncludable(p) {
-			continue
-		}
-
-		if !scanned {
-			comments = tagCommentSpans(content)
-			scanned = true
-		}
-
-		if inSpan(comments, start) {
-			continue
-		}
-
-		out = append(out, IncludeSite{Path: p, Offset: start})
+// siteAtRegexp reads the include at i, an "include", with the expressions.
+func siteAtRegexp(content string, i int) (IncludeSite, bool) {
+	start, re := includeFormAtRegexp(content, i)
+	if re == nil {
+		return IncludeSite{}, false
 	}
 
-	return append(out, directoryIncludesRegexp(content)...)
+	m := re.FindStringSubmatchIndex(content[start:min(len(content), start+includeWindow)])
+	if m == nil {
+		return IncludeSite{}, false
+	}
+
+	p := content[start+m[2] : start+m[3]]
+	if _, rooted := RootVariablePath(strings.TrimSpace(p)); !rooted && refRootForm.MatchString(strings.TrimSpace(p)) {
+		return IncludeSite{}, false
+	}
+
+	return includeSite(content, p, start)
+}
+
+// siteAtScanner reads the include at i with the scanners.
+func siteAtScanner(content string, i int) (IncludeSite, bool) {
+	start, form := includeFormAt(content, i)
+	if form == nil {
+		return IncludeSite{}, false
+	}
+
+	window := content[start:min(len(content), start+includeWindow)]
+
+	from, to, ok := form(window)
+	if !ok {
+		return IncludeSite{}, false
+	}
+
+	return includeSite(content, window[from:to], start)
 }
 
 func includeFormAtRegexp(content string, i int) (int, *regexp.Regexp) {
@@ -102,92 +79,18 @@ func includeFormAtRegexp(content string, i int) (int, *regexp.Regexp) {
 	return start, refIncludeScriptAt
 }
 
-func directoryIncludesRegexp(content string) []IncludeSite {
-	if indexFold(content, "cfdirectory") < 0 {
-		return nil
-	}
+// scannersAgree reports the first "include" in content the scanners and the
+// expressions read differently.
+func scannersAgree(t *testing.T, name, content string) {
+	t.Helper()
 
-	comments := tagCommentSpans(content)
-	listed := map[string]string{} // query name → directory, lowercased name
+	for i := indexFold(content, "include"); i >= 0; i = indexFoldFrom(content, "include", i+len("include")) {
+		got, gotOK := siteAtScanner(content, i)
+		want, wantOK := siteAtRegexp(content, i)
 
-	for _, at := range refDirectoryListing.FindAllStringIndex(content, -1) {
-		if inSpan(comments, at[0]) {
-			continue
+		if got != want || gotOK != wantOK {
+			t.Fatalf("%s: %q at %d: scanners %v %v, expressions %v %v", name, content, i, got, gotOK, want, wantOK)
 		}
-
-		attrs := map[string]string{}
-
-		for _, m := range refListingAttr.FindAllStringSubmatch(content[at[0]:at[1]], -1) {
-			attrs[strings.ToLower(m[1])] = m[2]
-		}
-
-		dir := refListingDir.FindStringSubmatch(attrs["directory"])
-		if !strings.EqualFold(attrs["action"], "list") || dir == nil || attrs["name"] == "" ||
-			strings.EqualFold(attrs["recurse"], "true") || strings.EqualFold(attrs["recurse"], "yes") ||
-			!strings.EqualFold(attrs["filter"], "*.cfm") || strings.Contains(dir[1], "..") {
-			continue
-		}
-
-		listed[strings.ToLower(attrs["name"])] = dir[1]
-	}
-
-	var out []IncludeSite
-
-	for _, at := range refIncludeFromListing.FindAllStringSubmatchIndex(content, -1) {
-		if inSpan(comments, at[0]) {
-			continue
-		}
-
-		m := []string{"", content[at[2]:at[3]], content[at[4]:at[5]]}
-
-		dir, ok := listed[strings.ToLower(m[2])]
-		if !ok || !strings.EqualFold(strings.TrimSuffix(m[1], "/"), dir) {
-			continue
-		}
-
-		out = append(out, IncludeSite{Path: dir + "/*.cfm", Offset: at[0]})
-	}
-
-	return out
-}
-
-// tagCommentSpans, for the reference scan, returns the outermost <!--- … --->
-// comments, which nest, as [start, end) offsets in source order. An unclosed
-// one runs to the end.
-func tagCommentSpans(s string) [][2]int {
-	var spans [][2]int
-
-	for i := 0; ; {
-		open := strings.Index(s[i:], "<!---")
-		if open < 0 {
-			return spans
-		}
-
-		open += i
-		depth := 1
-		j := open + len("<!---")
-
-		for depth > 0 {
-			nextOpen := strings.Index(s[j:], "<!---")
-			nextClose := strings.Index(s[j:], "--->")
-
-			if nextClose < 0 {
-				return append(spans, [2]int{open, len(s)})
-			}
-
-			if nextOpen >= 0 && nextOpen < nextClose {
-				depth++
-				j += nextOpen + len("<!---")
-
-				continue
-			}
-
-			depth--
-			j += nextClose + len("--->")
-		}
-
-		spans = append(spans, [2]int{open, j})
-		i = j
 	}
 }
 
@@ -246,11 +149,11 @@ var includeSamples = map[string]string{
 		`<cfinclude template="a/#q.name#">`,
 }
 
+// The include forms are read at a found keyword by the Application.cfc walk;
+// what IncludeSites finds is TestExtractIncludes' and its neighbours'.
 func TestIncludeScannersMatchTheirExpressions(t *testing.T) {
 	for name, src := range includeSamples {
-		if got, want := IncludeSites(src), includeSitesRegexp(src); !slices.Equal(got, want) {
-			t.Errorf("%s: scanners %v, expressions %v", name, got, want)
-		}
+		scannersAgree(t, name, src)
 	}
 
 	// Splice fragments of the samples together at random, so the scanners
@@ -264,8 +167,7 @@ func TestIncludeScannersMatchTheirExpressions(t *testing.T) {
 	}
 
 	pieces = append(pieces, " ", "\t", "\n", "\v", "=", "'", `"`, "#", ">", "<", "(", ")", ".", "/", "-", "$", "_", "<!---", "--->",
-		"include", "cfinclude", "<cfinclude", "<!--->", "<!--", "-->", "template", "<cfdirectory", "name", ".name", "q", "list", "*.cfm", "a.cfm",
-		"getDirectoryFromPath", "getCurrentTemplatePath", "directory", "filter", "action")
+		"include", "cfinclude", "<cfinclude", "<!--->", "<!--", "-->", "template", "a.cfm", "attributes", "x")
 	slices.Sort(pieces)
 
 	rng := rand.New(rand.NewPCG(3, 4))
@@ -276,26 +178,23 @@ func TestIncludeScannersMatchTheirExpressions(t *testing.T) {
 			b.WriteString(pieces[rng.IntN(len(pieces))])
 		}
 
-		src := b.String()
-		if got, want := IncludeSites(src), includeSitesRegexp(src); !slices.Equal(got, want) {
-			t.Fatalf("%q: scanners %v, expressions %v", src, got, want)
-		}
+		scannersAgree(t, "spliced", b.String())
 	}
 }
 
 func TestListingScannersMatchTheirExpressions(t *testing.T) {
 	rng := rand.New(rand.NewPCG(5, 6))
 	pieces := []string{"#", " ", "\t", "getDirectoryFromPath", "GETCURRENTTEMPLATEPATH", "getCurrentTemplatePath", "(", ")", "/", "a", ".", "-", "_", "x y", "#", "", "1"}
-	attrPieces := []string{" ", "a", "Name", "=", "'", `"`, "x", "1", "_", "-", ">", "action", "list", "\n", "é"}
+	includePieces := []string{"#", " ", "\t", "q", "$", ".name", ".NAME", ".nam", "/", "up", ".", "-", "_", "'", "x"}
 
 	for range 100000 {
-		var dir, tag strings.Builder
+		var dir, inc strings.Builder
 		for range rng.IntN(12) {
 			dir.WriteString(pieces[rng.IntN(len(pieces))])
 		}
 
-		for range rng.IntN(16) {
-			tag.WriteString(attrPieces[rng.IntN(len(attrPieces))])
+		for range rng.IntN(10) {
+			inc.WriteString(includePieces[rng.IntN(len(includePieces))])
 		}
 
 		gotDir, ok := listingDir(dir.String())
@@ -305,13 +204,11 @@ func TestListingScannersMatchTheirExpressions(t *testing.T) {
 			t.Fatalf("listingDir(%q) = %q, %v; expression %v", dir.String(), gotDir, ok, want)
 		}
 
-		wantAttrs := map[string]string{}
-		for _, m := range refListingAttr.FindAllStringSubmatch(tag.String(), -1) {
-			wantAttrs[strings.ToLower(m[1])] = m[2]
-		}
+		prefix, query, ok := listingIncludePath(inc.String())
 
-		if got := listingAttrs(tag.String()); !maps.Equal(got, wantAttrs) {
-			t.Fatalf("listingAttrs(%q) = %v; expression %v", tag.String(), got, wantAttrs)
+		want = refListingIncluded.FindStringSubmatch(inc.String())
+		if ok != (want != nil) || ok && (prefix != want[1] || query != want[2]) {
+			t.Fatalf("listingIncludePath(%q) = %q, %q, %v; expression %v", inc.String(), prefix, query, ok, want)
 		}
 	}
 }

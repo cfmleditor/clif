@@ -374,8 +374,10 @@ const (
 	// tokenizes faster than the map hashes it.
 	minMemoTokenText = 64
 	// maxMemoTokens bounds each of the memo's two generations, so the memo
-	// holds at most about 16 MB of tokens.
-	maxMemoTokens = 1 << 18
+	// holds at most about 8 MB of tokens. Whole files are tokenized by their
+	// own caches (fileTokens) or walked once (withoutComments), so what passes
+	// through here is function bodies and expression windows.
+	maxMemoTokens = 1 << 17
 )
 
 // tokenMemo is allTokens' memory, keyed by the text. A key shares the bytes of

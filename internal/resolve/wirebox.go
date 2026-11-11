@@ -266,7 +266,7 @@ func sameApplication(hit, baseDir string) bool {
 // properties are captured before configure(), and variables.conventions after.
 // Unknown control flow and child injector ownership are withheld.
 func moduleModelRoot(content, dir string) string {
-	key := textKey{text: content, extra: dir}
+	key := textKey{text: parser.FingerprintOf(content), extra: dir}
 
 	moduleRootMu.Lock()
 	root, ok := moduleRoots[key]
@@ -289,11 +289,15 @@ func moduleModelRoot(content, dir string) string {
 	return root
 }
 
-// textKey is a memo key: a file's text, and what else the answer depends on.
-type textKey struct{ text, extra string }
+// textKey is a memo key: a file's text, by its fingerprint so an entry holds
+// none of it, and what else the answer depends on.
+type textKey struct {
+	text  parser.TextFingerprint
+	extra string
+}
 
 // maxModuleMemo bounds the module memos, a count of files, cleared when
-// reached. A key holds its text alive.
+// reached.
 const maxModuleMemo = 1024
 
 // moduleRoots and moduleWrites keep moduleModelRoot's and moduleAssignments'
@@ -383,7 +387,7 @@ func readModuleModelRoot(content, dir string) string {
 // moduleAssignments reads literal dot/bracket writes in source order. A whole
 // conventions struct replaces earlier fields, including the default location.
 func moduleAssignments(source string, public bool) (map[string][]parser.Token, bool) {
-	key := textKey{text: source}
+	key := textKey{text: parser.FingerprintOf(source)}
 	if public {
 		key.extra = "public"
 	}
@@ -394,6 +398,16 @@ func moduleAssignments(source string, public bool) (map[string][]parser.Token, b
 
 	if !ok {
 		held.writes, held.ok = readModuleAssignments(source, public)
+		// The tokens are cut from the source; copied, an entry holds none of it.
+		for k, toks := range held.writes {
+			kept := make([]parser.Token, len(toks))
+			for i, t := range toks {
+				t.Value = strings.Clone(t.Value)
+				kept[i] = t
+			}
+
+			held.writes[k] = kept
+		}
 
 		moduleWriteMu.Lock()
 		if len(moduleWrites) >= maxModuleMemo {

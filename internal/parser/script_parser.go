@@ -906,7 +906,7 @@ func (p *scriptParser) isVarDeclaredLocal(name string) bool {
 // extractAllLinks scans source lines for document links, routing them to
 // global links or funcLinks based on which scope the line falls in.
 func (p *scriptParser) extractAllLinks() {
-	p.funcLinks = extractLinksByScope(p.sc.src, p.baseLine, p.scopes, p.funcLinks, &p.links)
+	p.funcLinks = extractLinksByScope(p.sc.src, true, p.baseLine, p.scopes, p.funcLinks, &p.links)
 }
 
 // parseVarDecl handles: var name = expr.
