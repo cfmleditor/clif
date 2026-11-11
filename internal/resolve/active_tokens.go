@@ -27,7 +27,14 @@ func walkActiveTokens(content string, window int, visit func(a *activeTokens, to
 			continue
 		}
 
-		a := &activeTokens{Scanner: parser.NewScanner(region.Text), Previous: []parser.Token{}, Region: region, window: window}
+		// A script region's strings are read as the parse reads them; a tag
+		// region's are markup's, which a # does not open.
+		sc := parser.NewScanner(region.Text)
+		if region.Kind == parser.RegionScript {
+			sc = parser.NewScriptScanner(region.Text)
+		}
+
+		a := &activeTokens{Scanner: sc, Previous: []parser.Token{}, Region: region, window: window}
 		active := region.Kind == parser.RegionScript
 
 		for {

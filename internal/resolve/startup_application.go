@@ -251,7 +251,7 @@ func constructorIncludes(content string, outerOnly bool) []string {
 			continue
 		}
 
-		sc := parser.NewScanner(region.Text)
+		sc := parser.NewSourceScanner(region.Text)
 		depth, owner := 0, 0
 		previous := parser.TokEOF
 

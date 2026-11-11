@@ -301,7 +301,7 @@ func TagAttributes(attrs string) map[string]string {
 // scriptCustomTags appends the custom tags text, a script region at base,
 // calls: cf_name(...), cfmodule(...) and Lucee's module statement.
 func scriptCustomTags(text string, base int, out []CustomTagCall) []CustomTagCall {
-	sc := NewScanner(text)
+	sc := NewScriptScanner(text)
 	prev := Token{Kind: TokSemicolon}
 
 	for {

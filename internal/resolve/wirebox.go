@@ -410,7 +410,7 @@ func moduleAssignments(source string, public bool) (map[string][]parser.Token, b
 
 func readModuleAssignments(source string, public bool) (map[string][]parser.Token, bool) {
 	result := map[string][]parser.Token{}
-	sc := parser.NewScanner(source)
+	sc := parser.NewSourceScanner(source)
 
 	var prefix []parser.Token
 

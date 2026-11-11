@@ -15,7 +15,7 @@ func StartupBeanBindings(content string) []StartupBeanBinding {
 
 	var out []StartupBeanBinding
 
-	sc := NewScanner(content)
+	sc := NewSourceScanner(content)
 	previous := TokEOF
 
 	for {
@@ -88,7 +88,7 @@ func StartupBeanBindings(content string) []StartupBeanBinding {
 }
 
 func serviceLoopEnd(content string, start int) (int, bool) {
-	sc := NewScanner(content[start:])
+	sc := NewSourceScanner(content[start:])
 	depth := 1
 
 	for {
@@ -109,7 +109,7 @@ func serviceLoopEnd(content string, start int) (int, bool) {
 }
 
 func serviceLoopBody(body, iterator string, values []string) ([]StartupBeanBinding, bool) {
-	sc := NewScanner(body)
+	sc := NewSourceScanner(body)
 
 	var out []StartupBeanBinding
 

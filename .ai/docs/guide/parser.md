@@ -128,6 +128,13 @@ the *formatter*, not the parser.
   speculative — unclosed nesting falls back to the plain quote-to-quote scan, so
   a token is never worse than before — and capped at `maxStringNesting` for the
   reason `maxArgNesting` exists.
+  **A walk that does not know its text's kind starts with `NewSourceScanner`**, not
+  `NewScanner`: it turns the rule on for text that is CFScript as a whole (`isScriptFile`)
+  and, in a tag file, for the strings inside its `<cfscript>` regions alone
+  (`scannerAux.scriptSpans`), leaving markup's strings plain. Every resolver and path walk
+  over a file, a function body or an expression goes through it, the resolver's shared
+  token memo (`allTokens`) included, so none reads a CFScript string by the tag rule.
+  `NewScanner` stays for text known to be markup and for the scanner's own probes.
 - **CFML's string escapes are not C's, and the scanner used C's.** A quote is
   escaped by **doubling** it (`"say ""hi"""`); a backslash is an ordinary
   character. Honouring `\` meant a string ending in one — `listLast( uri, "/\" )`,

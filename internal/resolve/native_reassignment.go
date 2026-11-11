@@ -44,7 +44,7 @@ type textShape struct {
 func statementShape(source string) (textShape, bool) {
 	var shape textShape
 
-	scanner := parser.NewScanner(source)
+	scanner := parser.NewSourceScanner(source)
 
 	for {
 		tok := scanner.NextSkipComments()
@@ -130,7 +130,7 @@ func blockClosedBetween(content string, fromLine, toLine int) bool {
 		return false
 	}
 
-	scanner := parser.NewScanner(content[from:to])
+	scanner := parser.NewSourceScanner(content[from:to])
 	depth := 0
 
 	for {

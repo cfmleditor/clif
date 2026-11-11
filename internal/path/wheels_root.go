@@ -58,7 +58,7 @@ func assumedWheelsBootstrap(content string) bool {
 }
 
 func outerRootStatementPair(content string) bool {
-	sc := parser.NewScanner(content)
+	sc := parser.NewSourceScanner(content)
 	depth := 0
 	previous := parser.TokEOF
 	needle := rootTokens(`application.wheelsdi=new wheels.Injector("wheels.Bindings"); application.wo=application.wheelsdi.getInstance("global");`)
@@ -100,7 +100,7 @@ func outerRootStatementPair(content string) bool {
 }
 
 func rootTokens(content string) string {
-	sc := parser.NewScanner(content)
+	sc := parser.NewSourceScanner(content)
 
 	var out strings.Builder
 
