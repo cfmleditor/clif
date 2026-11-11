@@ -88,6 +88,65 @@ behaviour change, not a cache. Consolidating them means deciding, case by
 case, which answer is right; the differential harnesses used here (parse
 every corpus file, compare the two answers) are the way to find the cases.
 
+## Second round (branch `parse-passes-2`)
+
+- **`withoutComments` is kept per source.** A forwarded field was checked by
+  tokenizing its file's whole text once per call. Mura went from 14.4× to
+  13.6×.
+- **`exprMemo` is split across 64 locks.** One lock made tassweb's workers
+  wait: the scheduler's sleeps and wakes rose by 1.5s of CPU.
+- **Handler parses repeated across views are left alone:** 274 on Mura, of
+  676. 133 are the same view's parse of the same handler run twice by
+  parallel workers. Waiting for the first would need deadlock detection
+  across goroutines: the re-entry guard (`handler_reentry.go`) tracks each
+  goroutine alone, so two workers could each wait on the other. The other 150
+  are different views, whose parses read different inputs.
+
+### Per editor action
+
+ContentBox's `authors.cfc`, with the workspace indexed:
+
+| Action | Passes |
+|---|---|
+| First open in a session | 11.9: the file's parse (about 2), plus the base handler's, injected services' and module configs' facts, read once |
+| A second component's open | 2.4 |
+| Reopening the first | 2.8 |
+| Folding, document links | 1.0 each |
+| Hover on a call | 0.9 |
+| A keystroke inside a function | ~0 |
+| A keystroke outside any function | 2.8 (the full reparse) |
+
+### tassweb
+
+46,000 files and 1.0GB; 6,930 components holding 657MB.
+
+- **Tokens:** a scan tokenizes about 0.96× the text of a single pass over
+  every file, because it never reads most templates.
+- **Full parses:** 14,736 of 321MB, about one per component read.
+- **No repeat passes to remove:** `unresolved` is byte-identical, wall time
+  is the same within noise, and CPU is about 1% higher than the build before
+  #356 (40.4s against 39.9s).
+- **Memory is about 80MB higher** (1,430MB against 1,350MB). It is held by
+  the memos: the text-keyed ones (application sections, managed metadata,
+  module reads) keep whole files alive, and so do the token memo's two
+  generations and the expression memos.
+- **Fixed in the same branch.** The memos now hold no file's text:
+  - The application-section, managed-metadata and module memos key by a
+    `TextFingerprint` (length and two 64-bit hashes) and copy what they keep.
+    The section memo keeps spans and rebuilds the constructor by a byte copy.
+  - Whole files no longer pass through the shared token memo: `fileTokens`
+    tokenizes into its own cache, and `withoutComments` walks a scanner.
+    Before, about 20MB of whole-file token lists a scan held twice, or used
+    once, evicted the expression windows the memo is for. Its generations
+    halve.
+  - `exprMemo`'s bound halves.
+
+  Peak live heap on tassweb (from `gctrace`) is now level with the build
+  before #356: 699MB and 693MB against 702MB and 690MB, with fewer
+  collections. Peak RSS moves by about 70MB between runs of the same build,
+  too much to compare on. Passes are unchanged within noise: Mura 14.1 to
+  14.5, ContentBox 11.4 to 11.8.
+
 ## The plan
 
 Each step stands alone, lands as its own change, and keeps `unresolved --json`

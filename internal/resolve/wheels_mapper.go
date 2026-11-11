@@ -258,24 +258,26 @@ func (r *Resolver) sourceInfo(path string) sourceInfo {
 // sourceDerived holds what is read from a source's content once, the first
 // time it is asked for, and shared by every copy of its sourceInfo.
 type sourceDerived struct {
-	producersOnce sync.Once
-	producers     *producerPlans
-	requestOnce   sync.Once
-	requestWrites map[string]int
-	startupOnce   sync.Once
-	startup       []parser.StartupVariableAssignment
-	fieldsOnce    sync.Once
-	fields        variablesReferences
-	methodsOnce   sync.Once
-	methods       map[string]wheelsMethod
-	tagBodiesOnce sync.Once
-	tagBodies     map[string]string
-	elementOnce   sync.Once
-	elementReads  bool
-	plainOnce     sync.Once
-	plain         *parser.ParseResult
-	selfOnce      sync.Once
-	mentionsSelf  bool
+	uncommentedOnce sync.Once
+	uncommented     string
+	producersOnce   sync.Once
+	producers       *producerPlans
+	requestOnce     sync.Once
+	requestWrites   map[string]int
+	startupOnce     sync.Once
+	startup         []parser.StartupVariableAssignment
+	fieldsOnce      sync.Once
+	fields          variablesReferences
+	methodsOnce     sync.Once
+	methods         map[string]wheelsMethod
+	tagBodiesOnce   sync.Once
+	tagBodies       map[string]string
+	elementOnce     sync.Once
+	elementReads    bool
+	plainOnce       sync.Once
+	plain           *parser.ParseResult
+	selfOnce        sync.Once
+	mentionsSelf    bool
 }
 
 // sourcePlans is the source's producer plans (newProducerPlans), built on
@@ -346,9 +348,23 @@ func (s *sourceInfo) requestWriteCounts() map[string]int {
 		return requestWriteCounts(withoutComments(s.content))
 	}
 
-	s.derived.requestOnce.Do(func() { s.derived.requestWrites = requestWriteCounts(withoutComments(s.content)) })
+	s.derived.requestOnce.Do(func() { s.derived.requestWrites = requestWriteCounts(s.withoutComments()) })
 
 	return s.derived.requestWrites
+}
+
+// withoutComments is the source with its comments blanked (withoutComments),
+// read once per source: a forwarded field is checked against it for every
+// call that reads it, and each check tokenized the whole file again (on Mura,
+// nearly twice its text in a scan).
+func (s *sourceInfo) withoutComments() string {
+	if s.derived == nil {
+		return withoutComments(s.content)
+	}
+
+	s.derived.uncommentedOnce.Do(func() { s.derived.uncommented = withoutComments(s.content) })
+
+	return s.derived.uncommented
 }
 
 // variablesReferences is how the source refers to its variables scope,

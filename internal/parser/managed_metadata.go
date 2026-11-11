@@ -12,7 +12,7 @@ import (
 // scan and handler parses of each DI/1-managed file. It is kept by those, and
 // is shared: prepareManagedSetterLookup only reads it.
 func (pr *ParseResult) managedPropertyMetadata() *ParseResult {
-	key := managedKey{uri: string(pr.URI), content: pr.Content, interpolateAll: pr.interpolateAll}
+	key := managedKey{uri: string(pr.URI), content: FingerprintOf(pr.Content), interpolateAll: pr.interpolateAll}
 
 	managedMu.Lock()
 	held, ok := managedMemo[key]
@@ -25,6 +25,9 @@ func (pr *ParseResult) managedPropertyMetadata() *ParseResult {
 	metadata := pr.readManagedPropertyMetadata()
 
 	if pr.regionsOf == pr.Content {
+		// What is kept is copied out of the file, so an entry holds none of it.
+		metadata = detachedMetadata(metadata)
+
 		managedMu.Lock()
 		if len(managedMemo) >= maxManagedMemo {
 			clear(managedMemo)
@@ -40,12 +43,29 @@ func (pr *ParseResult) managedPropertyMetadata() *ParseResult {
 // managedKey is what managedPropertyMetadata's answer depends on: the regions
 // come from the URI, the text and whether all text is interpolated.
 type managedKey struct {
-	uri, content   string
+	uri            string
+	content        TextFingerprint
 	interpolateAll bool
 }
 
+// detachedMetadata is metadata with its properties' strings copied, so it
+// holds no part of the text it was read from.
+func detachedMetadata(metadata *ParseResult) *ParseResult {
+	out := &ParseResult{Accessors: metadata.Accessors, Persistent: metadata.Persistent}
+
+	for _, p := range metadata.Properties {
+		attrs := make(map[string]string, len(p.attrs))
+		for k, v := range p.attrs {
+			attrs[strings.Clone(k)] = strings.Clone(v)
+		}
+
+		out.Properties = append(out.Properties, propertyDef{name: strings.Clone(p.name), typeName: strings.Clone(p.typeName), line: p.line, attrs: attrs})
+	}
+
+	return out
+}
+
 // maxManagedMemo bounds managedMemo, a count of files cleared when reached.
-// A key holds its text alive.
 const maxManagedMemo = 512
 
 var (

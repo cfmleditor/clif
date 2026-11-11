@@ -182,7 +182,8 @@ func (r *Resolver) privateSetterArgument(file, fn, param string, methods map[str
 		})
 	}
 
-	if !valid || read == 0 || read != callsInText(withoutComments(r.sourceInfo(file).content), fn) {
+	source := r.sourceInfo(file)
+	if !valid || read == 0 || read != callsInText(source.withoutComments(), fn) {
 		return ""
 	}
 
