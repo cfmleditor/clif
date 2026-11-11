@@ -33,7 +33,6 @@ var (
 	lazyTagRe     = regexp.MustCompile(`(?is)^<cfif\s+(?:not\s+|!\s*)isObject\(\s*([\w.]+)\s*\)\s*>(.*)</cfif>\s*<cfreturn\s+([\w.]+)\s*/?>$`)
 	lazyScriptRe  = regexp.MustCompile(`(?is)^if\s*\(\s*(?:not\s+|!\s*)isObject\(\s*([\w.]+)\s*\)\s*\)\s*\{([^{}]*)\}\s*return\s+([\w.]+)\s*;$`)
 	argumentTagRe = regexp.MustCompile(`(?is)<cfargument\b[^>]*>`)
-	placeholderRe = regexp.MustCompile(`^(?:""|'')$`)
 )
 
 // lazyGetterReturn is the component fd returns when it is a lazy getter, or "".
@@ -210,7 +209,7 @@ func (r *Resolver) fieldWrites(content, field, dir string) string {
 
 	for _, m := range re.FindAllStringSubmatchIndex(content, -1) {
 		rhs := strings.TrimSpace(content[m[2]:m[3]])
-		if placeholderRe.MatchString(rhs) {
+		if isEmptyLiteral(rhs) {
 			continue
 		}
 

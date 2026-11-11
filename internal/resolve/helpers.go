@@ -32,7 +32,6 @@ import (
 var (
 	moduleHelperRe = regexp.MustCompile(`(?is)this\.applicationHelper\s*=\s*\[([^\]]*)\]`)
 	appHelperRe    = regexp.MustCompile(`(?is)\bapplicationHelper\s*[:=]\s*(\[[^\]]*\]|"[^"]*"|'[^']*')`)
-	quotedRe       = regexp.MustCompile(`"([^"]*)"|'([^']*)'`)
 	includeUDFRe   = regexp.MustCompile(`(?i)includeUDF\(\s*(?:udflibrary\s*=\s*)?["']#moduleMapping#/([^"'#]+)["']`)
 )
 
@@ -290,8 +289,8 @@ func (r *Resolver) helpersIn(configFile string, re *regexp.Regexp, base string) 
 
 	var out []string
 
-	for _, q := range quotedRe.FindAllSubmatch(m[1], -1) {
-		rel := strings.TrimSpace(string(q[1]) + string(q[2]))
+	for _, q := range quotedValues(string(m[1])) {
+		rel := strings.TrimSpace(q)
 		if rel == "" || strings.Contains(rel, "#") {
 			continue
 		}

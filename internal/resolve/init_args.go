@@ -237,11 +237,6 @@ func quotedNameStartsRegex(content, name string) []int {
 	return starts
 }
 
-var (
-	initArgAssignRe = regexp.MustCompile(`(?i)^\s*(?:variables\.)?(\w+)\s*=\s*arguments\.(\w+)\s*;?\s*$`)
-	initArgSetRe    = regexp.MustCompile(`(?i)^\s*(?:this\.|variables\.)?set(\w+)\(\s*arguments\.(\w+)\s*\)\s*;?\s*$`)
-)
-
 // initArgMember is what variables.name holds when the file stores only an
 // init argument in it (initStoredArg): what every construction passes.
 func (r *Resolver) initArgMember(variable string, pr *parser.ParseResult, ctx lookupCtx) string {
@@ -369,9 +364,9 @@ func initStoredArg(pr *parser.ParseResult, name string) string {
 			continue
 		}
 
-		m := initArgAssignRe.FindStringSubmatch(line)
+		m := initArgAssign(line)
 		if m == nil {
-			m = initArgSetRe.FindStringSubmatch(line)
+			m = initArgSet(line)
 		}
 
 		if m == nil || !strings.EqualFold(m[1], name) || i < scope.Start || i > scope.End || param != "" && !strings.EqualFold(param, m[2]) {

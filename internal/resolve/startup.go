@@ -34,11 +34,7 @@ const maxStartupTemplates = 64
 // from other files.
 var sharedScopes = []string{"request", "session", "application", "server"}
 
-var (
-	tagSharedAssign  = regexp.MustCompile(`(?i)<cfset\s+(request|session|application|server)\.([A-Za-z_$][\w$]*)\s*=`)
-	createdComponent = regexp.MustCompile(`(?i)^createObject\s*\(\s*["']component["']\s*,\s*["']([^"']+)["']`)
-	newComponent     = regexp.MustCompile(`(?i)^new\s+(?:cfml:)?([A-Za-z_$#][\w$.#]*)\s*\(`)
-)
+var tagSharedAssign = regexp.MustCompile(`(?i)<cfset\s+(request|session|application|server)\.([A-Za-z_$][\w$]*)\s*=`)
 
 // componentFromConstruction returns the component as the resolver tracks it
 // for a createObject( "component", name ) construction: the dot path
@@ -122,7 +118,7 @@ func (r *Resolver) resolveCreatedChain(first, expression string, call *parser.Ca
 		return "", false
 	}
 
-	m := createdComponent.FindStringSubmatch(expression)
+	m := createdComponent(expression)
 	if m == nil {
 		return "", false
 	}
@@ -610,8 +606,8 @@ func (r *Resolver) typeOfChain(rhs, dir string, assigns []startupAssign, visitin
 	// A created component, alone or with init() on it. Anything else chained
 	// on it is a call on the instance, whose return is not the instance:
 	// `new Script().getLoose()` is no Script.
-	for _, re := range []*regexp.Regexp{createdComponent, newComponent} {
-		if m := re.FindStringSubmatch(rhs); m != nil {
+	for _, read := range []func(string) []string{createdComponent, newComponent} {
+		if m := read(rhs); m != nil {
 			return r.createdThenCalled(r.staticPath(m[1]), rhs, dir)
 		}
 	}

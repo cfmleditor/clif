@@ -158,15 +158,13 @@ func (r *Resolver) registriesReach(pr *parser.ParseResult) bool {
 // as a receiver names — the parser spells the read as the receiver with its
 // key off (`db[]`) — or "" when the variable is not one.
 func keyedReceiverStem(variable string) (stem string) {
-	m := keyedReceiverRe.FindStringSubmatch(strings.TrimSpace(variable))
+	m := keyedReceiver(strings.TrimSpace(variable))
 	if m == nil {
 		return ""
 	}
 
 	return m[1]
 }
-
-var keyedReceiverRe = regexp.MustCompile(`^([A-Za-z_]\w*)\[[^[\]]*\]$`)
 
 // speculativeReceiverOver is the guess a batch scan recorded for the
 // receiver, when the origin the lookup ran at proves nothing of its own —

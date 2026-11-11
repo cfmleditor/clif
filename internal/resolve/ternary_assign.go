@@ -2,7 +2,6 @@ package resolve
 
 import (
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 
@@ -73,11 +72,6 @@ func ternaryBranches(rhs string) ([]string, bool) {
 	return out, true
 }
 
-// nullCastRe is a null a conditional falls back to, however it is written:
-// `javacast( "null", … )` (`prc.x = rc.x ?: javacast( "null", "" )`), Lucee's
-// `nullValue()`, or the `null` literal.
-var nullCastRe = regexp.MustCompile(`(?i)^(?:javacast\s*\(\s*["']null["']|nullvalue\s*\(\s*\)$|null$)`)
-
 // sameVariable reports whether branch names variable, either spelling with
 // or without the variables scope.
 func sameVariable(branch, variable string) bool {
@@ -112,7 +106,7 @@ func (r *Resolver) assignedTernary(variable string, branches []string, line uint
 		// A null holds no component, and a branch naming the variable keeps
 		// what it already held (`x = isNull( x ) ? new X() : x`): neither
 		// says what the assignment sets it to.
-		if nullCastRe.MatchString(branch) || sameVariable(branch, variable) {
+		if isNullCast(branch) || sameVariable(branch, variable) {
 			continue
 		}
 
@@ -151,13 +145,13 @@ func (r *Resolver) assignedTernary(variable string, branches []string, line uint
 // ternaryBranch is what one branch of a conditional holds: a construction,
 // a name typed as any receiver is at line, or a chain of calls.
 func (r *Resolver) ternaryBranch(branch string, line uint32, caller string, pr *parser.ParseResult, baseDir string, ctx lookupCtx) string {
-	for _, re := range [...]interface{ FindStringSubmatch(string) []string }{createdComponent, newComponent} {
-		if m := re.FindStringSubmatch(branch); m != nil {
+	for _, read := range [...]func(string) []string{createdComponent, newComponent} {
+		if m := read(branch); m != nil {
 			return r.createdThenCalled(r.staticPath(m[1]), branch, baseDir)
 		}
 	}
 
-	if identRe.MatchString(branch) || aliasRe.MatchString(branch) {
+	if isIdent(branch) || isDottedName(branch) {
 		comp, _ := r.receiverComponentD(branch, line, caller, "", pr, baseDir, nil, lookupCtx{depth: ctx.depth + 1, leaf: ctx.leaf, callers: ctx.callers})
 
 		return comp
