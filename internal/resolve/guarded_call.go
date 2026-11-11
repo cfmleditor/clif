@@ -128,26 +128,31 @@ func controls(before, after string) bool {
 		}
 	}
 
+	// The braces and semicolons are the script scanner's: one in a string or
+	// a comment between the guard and the call ends nothing. A byte count
+	// took `log( "done; }" )` inside the guarded block for its end.
 	depth, opened := 0, false
+	scanner := parser.NewScriptScanner(after)
 
-	for i := range len(after) {
-		switch after[i] {
-		case '{':
+	for {
+		switch tok := scanner.NextSkipComments(); tok.Kind {
+		case parser.TokEOF:
+			return opened && depth > 0 || !opened && strings.Count(after, "\n") <= 1
+		case parser.TokLBrace:
 			depth++
 			opened = true
-		case '}':
+		case parser.TokRBrace:
 			depth--
 			if depth <= 0 {
 				return false
 			}
-		case ';':
+		case parser.TokSemicolon:
 			if !opened {
 				return false
 			}
+		default:
 		}
 	}
-
-	return opened && depth > 0 || !opened && strings.Count(after, "\n") <= 1
 }
 
 // isTagGuard reports whether the guard is in a <cfif> or <cfelseif>.

@@ -739,7 +739,7 @@ func localAssignmentAt(content, name string, start, header int) (string, int, bo
 		}
 
 		rhs = withoutTrailingComment(rhs, tag)
-		if strings.Count(rhs, "(") != strings.Count(rhs, ")") {
+		if parens, _, _ := parser.OpenGroups(rhs); parens != 0 {
 			return "", 0, false
 		}
 
