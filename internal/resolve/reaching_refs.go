@@ -473,7 +473,7 @@ func tagBlockEvent(name string, closing, selfClosed bool, offset int) (blockEven
 func braceEvents(text string, base int) []blockEvent {
 	var events []blockEvent
 
-	scanner := parser.NewScanner(text)
+	scanner := parser.NewSourceScanner(text)
 
 	for {
 		switch tok := scanner.NextSkipComments(); tok.Kind {

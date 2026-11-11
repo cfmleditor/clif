@@ -6,7 +6,7 @@ import "strings"
 // include of its actual page parameter. Nested branch bodies contribute no
 // mapping or alias facts. An unused method or a different include is no proof.
 func requestMappingBody(content string) (string, bool) {
-	sc := NewScanner(content)
+	sc := NewSourceScanner(content)
 
 	var tokens []Token
 

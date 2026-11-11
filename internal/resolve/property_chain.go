@@ -72,7 +72,7 @@ func (r *Resolver) publicPropertyComponent(component, name, baseDir string) stri
 func publicPropertyWrites(content, name string) map[int]int {
 	writes := make(map[int]int)
 
-	sc := parser.NewScanner(content)
+	sc := parser.NewSourceScanner(content)
 	for {
 		tok := sc.NextSkipComments()
 		if tok.Kind == parser.TokEOF {

@@ -234,7 +234,7 @@ func withoutComments(content string) string {
 	// Walked, not tokenized into a list through allTokens: the list was used
 	// once and thrown away, and passing whole files through the shared memo
 	// evicted the short windows it is there for.
-	sc := parser.NewScanner(content)
+	sc := parser.NewSourceScanner(content)
 	for t := sc.NextSkipComments(); t.Kind != parser.TokEOF; t = sc.NextSkipComments() {
 		for i := t.Offset; i < t.Offset+len(t.Value) && i < len(keep); i++ {
 			keep[i] = true

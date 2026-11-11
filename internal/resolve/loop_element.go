@@ -430,7 +430,7 @@ func (g *tokenGenerations) put(content string, tokens []parser.Token) {
 }
 
 func tokenize(content string) []parser.Token {
-	sc := parser.NewScanner(content)
+	sc := parser.NewSourceScanner(content)
 
 	// About one token per six bytes of CFML: sized up front, a file's tokens
 	// are not copied through every doubling on the way.

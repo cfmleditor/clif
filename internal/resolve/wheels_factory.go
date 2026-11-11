@@ -8,7 +8,7 @@ import (
 )
 
 func wheelsCallName(expression string) string {
-	scanner := parser.NewScanner(expression)
+	scanner := parser.NewSourceScanner(expression)
 	name := ""
 
 	for {
@@ -40,7 +40,7 @@ func (r *Resolver) wheelsFactoryReturnFor(def *parser.FunctionDef, expression, b
 		return ""
 	}
 
-	scanner := parser.NewScanner(expression)
+	scanner := parser.NewSourceScanner(expression)
 	for scanner.PeekSkipComments().Kind != parser.TokLParen {
 		if scanner.NextSkipComments().Kind == parser.TokEOF {
 			return ""
@@ -241,7 +241,7 @@ func (r *Resolver) wheelsFactoryConfig(file string) map[string]string {
 		return nil
 	}
 
-	scanner := parser.NewScanner(text)
+	scanner := parser.NewSourceScanner(text)
 	uses := 0
 
 	var config map[string]string
@@ -328,7 +328,7 @@ func (r *Resolver) wheelsFixedMapperReturn(def *parser.FunctionDef) string {
 // evidence only if exactly one matching root call occurs on its recorded line;
 // two different factories on one line must not borrow each other's arguments.
 func factoryCallExpression(content, name string, line int) string {
-	sc := parser.NewScanner(content)
+	sc := parser.NewSourceScanner(content)
 	expression := ""
 
 	for {

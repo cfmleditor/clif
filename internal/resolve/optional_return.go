@@ -35,7 +35,7 @@ func (r *Resolver) absentArgumentComponent(fd *parser.FunctionDef, expression, b
 		return ""
 	}
 
-	scanner := parser.NewScanner(expression)
+	scanner := parser.NewSourceScanner(expression)
 	for scanner.PeekSkipComments().Kind != parser.TokLParen {
 		if scanner.NextSkipComments().Kind == parser.TokEOF {
 			return ""

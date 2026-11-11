@@ -394,7 +394,7 @@ func producerWrites(tokens []parser.Token, j int) bool {
 }
 
 func objectPathMayWrite(content, property string) bool {
-	scanner := parser.NewScanner(content)
+	scanner := parser.NewSourceScanner(content)
 	previous := parser.TokEOF
 
 	for {

@@ -355,7 +355,7 @@ func sharedAssignments(content, dir string) []startupAssign {
 		out = appendAssign(out, content, m, '>', dir)
 	}
 
-	sc := parser.NewScanner(content)
+	sc := parser.NewSourceScanner(content)
 	previous := parser.Token{}
 
 	for {

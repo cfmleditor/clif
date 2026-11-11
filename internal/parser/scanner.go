@@ -86,7 +86,7 @@ type Scanner struct {
 	peekPos     int
 	peekComment string
 	// line and peekLine are int32 side by side, which is what leaves room in
-	// 128 bytes for replay; a file of two billion lines is not parsed.
+	// 120 bytes for aux; a file of two billion lines is not parsed.
 	line     int32
 	peekLine int32
 
@@ -99,14 +99,34 @@ type Scanner struct {
 	interpStrings bool
 	commentSeq    uint32
 
+	// aux holds what only some scanners need, behind one pointer so the
+	// scanner stays within 120 bytes: a replaying scanner's tokens, or a tag
+	// file's script regions. A pointer, so a copied cursor shares them.
+	aux *scannerAux
+}
+
+// scannerAux is a Scanner's rarely set state.
+type scannerAux struct {
 	// replay, when set, is src already tokenised (tokenize): NextSkipComments
 	// and PeekSkipComments read it instead of scanning, at the index peekPos
 	// holds (a replaying scanner never peeks), and pos is the offset of the
 	// token there. The passes after a parse walk a region's tokens several
 	// times over, and restore to a token's offset for every identifier;
-	// replaying makes each of those an index rather than a scan. A pointer,
-	// so a copied cursor shares the tokens and keeps its own index.
+	// replaying makes each of those an index rather than a scan.
 	replay *[]Token
+	// scriptSpans are the [start, end) offsets of the text's script regions:
+	// a string inside one reads as interpStrings reads it, one outside as
+	// plain. NewSourceScanner sets them for a tag file.
+	scriptSpans [][2]int
+}
+
+// replayTokens is the tokens a replaying scanner reads, or nil.
+func (s *Scanner) replayTokens() *[]Token {
+	if s.aux == nil {
+		return nil
+	}
+
+	return s.aux.replay
 }
 
 // NewScriptScanner is a scanner for text known to be CFScript: a string reads
@@ -120,6 +140,67 @@ func NewScriptScanner(src string) *Scanner {
 	sc.interpStrings = true
 
 	return sc
+}
+
+// NewSourceScanner is a scanner for text of any kind, read with the string
+// rule its kind needs: NewScriptScanner's where the text is CFScript as a
+// whole (IsScriptSource), a plain scanner's where it holds CF tags, whose
+// markup strings a `#` does not open. Every walk over a file, a function body
+// or an expression whose kind its caller does not know starts here, so none
+// reads CFScript's strings by the tag rule: a plain scanner lost every
+// function after ColdBox Router.cfc's "{#listLast( p, "{" )#)".
+//
+// In a file that mixes the two, each string reads by the rule of the region
+// it is in, as ClassifyRegions splits the file: a <cfscript> block's by
+// CFScript's, the markup around it by the plain one.
+func NewSourceScanner(src string) *Scanner {
+	sc := NewScanner(src)
+	if isScriptFile(src) {
+		sc.interpStrings = true
+
+		return sc
+	}
+
+	if IndexFold(src, "<cfscript") < 0 {
+		return sc
+	}
+
+	var spans [][2]int
+
+	regions, _ := splitCFScriptBlocks(src)
+	for _, r := range regions {
+		if r.Kind == RegionScript {
+			spans = append(spans, [2]int{r.Offset, r.Offset + len(r.Text)})
+		}
+	}
+
+	if spans != nil {
+		sc.aux = &scannerAux{scriptSpans: spans}
+	}
+
+	return sc
+}
+
+// interpAt reports whether a string starting at pos reads by CFScript's rule.
+func (s *Scanner) interpAt(pos int) bool {
+	if s.interpStrings || s.aux == nil {
+		return s.interpStrings
+	}
+
+	spans := s.aux.scriptSpans
+
+	i, _ := slices.BinarySearchFunc(spans, pos, func(sp [2]int, p int) int {
+		switch {
+		case sp[1] <= p:
+			return -1
+		case sp[0] > p:
+			return 1
+		default:
+			return 0
+		}
+	})
+
+	return i < len(spans) && spans[i][0] <= pos && pos < spans[i][1]
 }
 
 // IsScriptSource reports whether content is CFScript as a whole, as
@@ -159,18 +240,18 @@ var tokenPool = sync.Pool{New: func() any { return new([]Token) }}
 // read src. Only NextSkipComments, PeekSkipComments, Save and Restore move
 // it; LastBlockComment is not kept.
 func newReplayScanner(src string, toks *[]Token) *Scanner {
-	return &Scanner{src: src, replay: toks, pos: (*toks)[0].Offset, line: (*toks)[0].Line}
+	return &Scanner{src: src, aux: &scannerAux{replay: toks}, pos: (*toks)[0].Offset, line: (*toks)[0].Line}
 }
 
 // replayAt moves to the token at index i.
 func (s *Scanner) replayAt(i int) {
-	t := &(*s.replay)[i]
+	t := &(*s.aux.replay)[i]
 	s.peekPos, s.pos, s.line = i, t.Offset, t.Line
 }
 
 // replayNext takes the token at the replay index.
 func (s *Scanner) replayNext() Token {
-	toks := *s.replay
+	toks := *s.aux.replay
 	t := toks[s.peekPos]
 
 	if s.peekPos < len(toks)-1 {
@@ -182,7 +263,7 @@ func (s *Scanner) replayNext() Token {
 
 // replaySeek moves to the first token at or after offset pos.
 func (s *Scanner) replaySeek(pos int) {
-	toks := *s.replay
+	toks := *s.aux.replay
 
 	// The passes restore to the token they just read, or the one in front.
 	switch i := s.peekPos; {
@@ -245,7 +326,7 @@ func (s *Scanner) Save() ScannerState { return ScannerState{pos: s.pos, line: in
 // Restore resets the scanner to a previously saved state, dropping any cached
 // lookahead — it describes a position this may be moving away from.
 func (s *Scanner) Restore(st ScannerState) {
-	if s.replay != nil {
+	if s.replayTokens() != nil {
 		s.replaySeek(st.pos)
 
 		return
@@ -379,7 +460,7 @@ var singleByteStrings = func() [256]string {
 // handing back a Token plus a string and a bool copied 64 bytes through an
 // extra frame for every token in every function body the parser skips.
 func (s *Scanner) NextSkipComments() Token {
-	if s.replay != nil {
+	if s.replayTokens() != nil {
 		return s.replayNext()
 	}
 
@@ -413,8 +494,8 @@ func (s *Scanner) NextSkipComments() Token {
 // PeekSkipComments peeks at the next non-comment, non-newline token, caching it
 // so the matching NextSkipComments does not scan the same bytes again.
 func (s *Scanner) PeekSkipComments() Token {
-	if s.replay != nil {
-		return (*s.replay)[s.peekPos]
+	if s.replayTokens() != nil {
+		return (*s.aux.replay)[s.peekPos]
 	}
 
 	if s.peeked {
@@ -564,7 +645,7 @@ func (s *Scanner) scanString(start int, startLine int32) Token {
 	// The scan is speculative even then: when the nesting does not close before
 	// EOF the attempt is abandoned and the plain quote-to-quote scan runs from
 	// the same place, so a token can never be worse than it was.
-	if s.interpStrings {
+	if s.interpAt(start) {
 		savedPos, savedLine := s.pos, s.line
 		if s.scanQuoted(0) {
 			return Token{Kind: TokString, Value: s.src[start:s.pos], Offset: start, Line: startLine}

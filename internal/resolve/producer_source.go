@@ -186,7 +186,7 @@ func (c *tokenCache) put(source string, tokens []parser.Token) {
 }
 
 func scanProducerTokens(source string) []parser.Token {
-	scanner := parser.NewScanner(source)
+	scanner := parser.NewSourceScanner(source)
 
 	tokens := []parser.Token{}
 	for len(tokens) <= 4096 {

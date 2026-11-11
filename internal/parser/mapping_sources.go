@@ -61,7 +61,7 @@ type mappingSourceState struct {
 type mappingRequestSource struct{ file, content string }
 
 func mappingParentName(content string) string {
-	sc := NewScanner(content)
+	sc := NewSourceScanner(content)
 	for {
 		t := sc.NextSkipComments()
 		if t.Kind == TokEOF {
@@ -148,7 +148,7 @@ func relativeMappingParent(parent, file string) string {
 func (s *mappingSourceState) content(content, file string, depth int) {
 	s.env["@template"] = file
 	s.env["@baseTemplate"] = s.base
-	sc := NewScanner(content)
+	sc := NewSourceScanner(content)
 	previous := TokEOF
 
 	for {

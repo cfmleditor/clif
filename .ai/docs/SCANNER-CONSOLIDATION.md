@@ -465,6 +465,39 @@ against 65ms over the corpus's 57MB (best of five), most of it the region
 split and the script scanner. Callers that hold a parse (the server's
 indexing, DI sources, included locals) reuse its regions through
 `pr.Includes()` and `pr.IncludeSites()`.
+### Done: one string rule for every walk
+
+Section 5 gave three function finders the parse's string rule. 23 more
+scanners in the resolver and `internal/path`, and 7 whole-text walks in the parser, made a plain
+`parser.NewScanner` over a file, a function body or an expression, the
+resolver's shared token memo (`allTokens`) among them, and read every
+`"#f("x")#"` in CFScript as two strings with code between.
+
+`parser.NewSourceScanner` is the scanner for text whose kind the caller does
+not know. It reads strings by CFScript's rule where the text is CFScript as a
+whole (`isScriptFile`), and in a tag file inside its `<cfscript>` regions
+alone (`scannerAux.scriptSpans`, from the same split `ClassifyRegions`
+makes), leaving markup's strings plain. Every scanner in `internal/resolve`
+and `internal/path` starts with it, as do the parser's whole-text walks
+(`startup_loops`, `request_mappings`, `mapping_sources`,
+`application_sections`); `scriptCustomTags` and `walkActiveTokens`'s script
+regions take `NewScriptScanner`, since they know they hold script. The
+scanner's rarely set state, a replaying scanner's tokens and a tag file's
+script spans, shares one pointer (`aux`), so it stays within 120 bytes.
+
+- **Effect on tokens:** 854 of the corpus's 14,949 files now tokenise
+  differently, 718 script files and 136 tag files with `<cfscript>`.
+- **Effect on findings:** `unresolved` is byte-identical on RustCFML,
+  cfwheels, Mura, FW/1, ContentBox, ColdBox, Slatwall and Lucee. No answer
+  depended on those strings, but each walk now reads them as the parse does,
+  and a mismatch can no longer come from one.
+- **Cost:** none measurable in wall time (ContentBox and Mura, three
+  alternated runs each); Mura spends about 2% more CPU.
+
+The rule mattered once in testing: Wheels' mapper compares a method body read
+from a tag file (`objects.cfm`, one `<cfscript>` block) with pinned bodies
+tokenised alone. Reading the file plain and the pins as script made them
+differ; reading both by region makes them agree.
 
 ## Speed is an option of the one walker, not a second walker
 

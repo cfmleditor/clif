@@ -405,10 +405,7 @@ func (r *Resolver) storeSourceInfo(path string, src *sourceInfo) {
 func wheelsMethods(content string) map[string]wheelsMethod {
 	// Bodies end at their braces, so strings are read as the parse reads them
 	// where the text is CFScript.
-	scanner := parser.NewScanner(content)
-	if parser.IsScriptSource(content) {
-		scanner = parser.NewScriptScanner(content)
-	}
+	scanner := parser.NewSourceScanner(content)
 
 	methods := make(map[string]wheelsMethod)
 	depth, componentDepth := 0, 0
@@ -616,7 +613,7 @@ func selfDispatchPrefixSafe(prefix, name string) bool {
 }
 
 func wheelsTokens(source string) string {
-	scanner := parser.NewScanner(source)
+	scanner := parser.NewSourceScanner(source)
 
 	var result strings.Builder
 
@@ -669,7 +666,7 @@ func wheelsReturnsMapper(name string, methods map[string]wheelsMethod) bool {
 		active[name] = true
 		defer delete(active, name)
 
-		scanner := parser.NewScanner(body)
+		scanner := parser.NewSourceScanner(body)
 		returns := 0
 
 		for {

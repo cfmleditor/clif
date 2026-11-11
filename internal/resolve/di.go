@@ -909,7 +909,7 @@ func diFrameworkConfig(content string) (map[string][]parser.Token, bool) {
 }
 
 func diFrameworkConfigScript(content string, cfg map[string][]parser.Token) (map[string][]parser.Token, bool) {
-	sc := parser.NewScanner(content)
+	sc := parser.NewSourceScanner(content)
 	previous := []parser.Token{}
 	depth := 0
 	frameworkReference := false

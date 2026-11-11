@@ -130,7 +130,7 @@ func muraParameterInclude(source, method, parameter string) bool {
 // Remove lexical comments before matching the embedded renderer signature.
 // Quoted strings are retained; nested CFML comments cannot supply fake includes.
 func muraRendererSource(source string) string {
-	sc := parser.NewScanner(source)
+	sc := parser.NewSourceScanner(source)
 
 	var code strings.Builder
 
