@@ -51,7 +51,6 @@ var (
 
 	// <cfloop ...> and </cfloop>, for a listing loop's span. Group 1 is the
 	// close tag's slash, group 2 is the open tag's attribute text.
-	loopTagPartsRe = regexp.MustCompile(`(?is)<(/?)cfloop\b([^>]*)>`)
 
 	// Lucee's script loop statement: loop collection=driverNames ... { .
 	// Group 1 is the attribute text; the opening brace closes the match.
@@ -298,27 +297,24 @@ type registrySpan struct {
 // collection or struct names listingVar, and the item and index variables
 // its header binds.
 func listingLoopSpan(content, listingVar string, from int) (registrySpan, bool) {
-	for _, m := range loopTagPartsRe.FindAllStringSubmatchIndex(content, -1) {
-		if m[0] < from {
+	tags := parser.CFTags(content, "cfloop")
+	for i := range tags {
+		if tags[i].Start < from || tags[i].Close {
 			continue
 		}
 
-		if content[m[2]:m[3]] != "" { // a close tag
-			continue
-		}
-
-		attrs := loopAttrs(content[m[4]:m[5]])
+		attrs := tags[i].Attrs()
 
 		if !strings.EqualFold(loopIterated(attrs), listingVar) {
 			continue
 		}
 
-		end, ok := tagLoopEnd(content, m[1])
+		end, ok := tagLoopEnd(tags, i)
 		if !ok {
 			continue
 		}
 
-		return registrySpan{start: m[1], end: end, item: attrs["item"], index: attrs["index"]}, true
+		return registrySpan{start: tags[i].End, end: end, item: attrs["item"], index: attrs["index"]}, true
 	}
 
 	for _, m := range scriptLoopPartsRe.FindAllStringSubmatchIndex(content, -1) {
@@ -376,17 +372,13 @@ func loopAttrValue(a []string) string {
 	return ""
 }
 
-// tagLoopEnd walks cfloop tags from the open ending at after, answering the
-// offset of its matching close tag's start.
-func tagLoopEnd(content string, after int) (int, bool) {
+// tagLoopEnd is the offset of the </cfloop> that closes tags[open], a
+// parser.CFTags list of cfloop tags.
+func tagLoopEnd(tags []parser.CFTag, open int) (int, bool) {
 	depth := 1
 
-	for _, m := range loopTagPartsRe.FindAllStringSubmatchIndex(content, -1) {
-		if m[0] <= after {
-			continue
-		}
-
-		if content[m[2]:m[3]] == "" { // another open tag
+	for i := open + 1; i < len(tags); i++ {
+		if !tags[i].Close {
 			depth++
 
 			continue
@@ -395,7 +387,7 @@ func tagLoopEnd(content string, after int) (int, bool) {
 		depth--
 
 		if depth == 0 {
-			return m[0], true
+			return tags[i].Start, true
 		}
 	}
 

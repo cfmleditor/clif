@@ -31,8 +31,6 @@ import (
 // Anything else gives no element type and the variable stays untyped.
 
 var (
-	loopTagRe      = regexp.MustCompile(`(?is)<(/?)cfloop\b([^>]*)>`)
-	loopAttrRe     = regexp.MustCompile(`(?i)\b(array|collection|struct|index|item)\s*=\s*["']([^"']*)["']`)
 	loopPathRe     = regexp.MustCompile(`^(?:(local|variables|this|arguments)\.)?(\w+)$`)
 	indexedReadRe  = regexp.MustCompile(`^((?:local|variables|this|arguments)\.[\w.]+|[A-Za-z_]\w*)\s*\[[^\]]*\]$`)
 	maxElementHops = 4
@@ -277,10 +275,11 @@ func tagLoops(content string) []loopSpan {
 
 	lines := parser.NewLineTable(content)
 
-	for _, m := range loopTagRe.FindAllStringSubmatchIndex(content, -1) {
-		line := lines.LineOf(m[0])
+	tags := parser.CFTags(content, "cfloop")
+	for i := range tags {
+		line := lines.LineOf(tags[i].Start)
 
-		if m[3] > m[2] { // </cfloop>
+		if tags[i].Close {
 			if len(stack) == 0 {
 				continue
 			}
@@ -296,10 +295,7 @@ func tagLoops(content string) []loopSpan {
 			continue
 		}
 
-		attrs := map[string]string{}
-		for _, a := range loopAttrRe.FindAllStringSubmatch(content[m[4]:m[5]], -1) {
-			attrs[strings.ToLower(a[1])] = a[2]
-		}
+		attrs := tags[i].Attrs()
 
 		variable := attrs["index"]
 		if collection := attrs["collection"]; collection != "" {

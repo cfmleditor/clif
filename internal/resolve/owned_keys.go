@@ -2,10 +2,10 @@ package resolve
 
 import (
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 
+	"github.com/cfmleditor/clif/internal/lex"
 	"github.com/cfmleditor/clif/internal/parser"
 )
 
@@ -188,8 +188,8 @@ func (r *Resolver) prefixFactoryIn(file, prefix string) string {
 		names = append(names, name)
 	}
 
-	for _, m := range tagFunctionRe.FindAllStringSubmatch(strings.ToLower(source.content), -1) {
-		names = append(names, m[1])
+	for _, fn := range tagFunctionNames(source.content) {
+		names = append(names, fn.name)
 	}
 
 	for _, name := range names {
@@ -449,26 +449,63 @@ func (s *sourceInfo) tagFunctionBodies() map[string]string {
 }
 
 func tagFunctionBodies(content string) map[string]string {
-	lower := strings.ToLower(content)
 	out := map[string]string{}
 
-	for _, loc := range tagFunctionRe.FindAllStringSubmatchIndex(lower, -1) {
-		// A clone: a slice of lower would keep the whole lowercased copy of
-		// the file alive for as long as the map, 60MB over tassweb.
-		name := strings.Clone(lower[loc[2]:loc[3]])
-		if _, seen := out[name]; seen {
-			continue
+	for _, fn := range tagFunctionNames(content) {
+		if _, seen := out[fn.name]; !seen {
+			out[fn.name] = fn.body
 		}
-
-		body := ""
-		if end := strings.Index(lower[loc[1]:], "</cffunction"); end >= 0 {
-			body = content[loc[1] : loc[1]+end]
-		}
-
-		out[name] = body
 	}
 
 	return out
 }
 
-var tagFunctionRe = regexp.MustCompile(`<cffunction\b[^>]*?\bname\s*=\s*["']([\w$]+)["'][^>]*>`)
+// tagFunction is one <cffunction> of a tag component: its lowercased name and
+// the text between its tag and its </cffunction>, "" when it has none.
+type tagFunction struct{ name, body string }
+
+// tagFunctionNames is the <cffunction>s in content whose name is a plain
+// identifier ([\w$]+), in order, read with parser.CFTags: a commented-out
+// function, or a '>' inside a hint, no longer ends or makes one.
+func tagFunctionNames(content string) []tagFunction {
+	var out []tagFunction
+
+	tags := parser.CFTags(content, "cffunction")
+	for i := range tags {
+		if tags[i].Close {
+			continue
+		}
+
+		name, _ := tags[i].Attr("name")
+		if !plainFunctionName(name) {
+			continue
+		}
+
+		body := ""
+		if i+1 < len(tags) && tags[i+1].Close {
+			body = content[tags[i].End:tags[i+1].Start]
+		}
+
+		// A clone: the name is a slice of the whole file, which the map
+		// would otherwise keep alive.
+		out = append(out, tagFunction{strings.Clone(strings.ToLower(name)), body})
+	}
+
+	return out
+}
+
+// plainFunctionName reports whether name is [\w$]+, the names
+// tagFunctionNames reads.
+func plainFunctionName(name string) bool {
+	if name == "" {
+		return false
+	}
+
+	for i := range len(name) {
+		if c := name[i]; !lex.IsWord(c) && c != '$' {
+			return false
+		}
+	}
+
+	return true
+}

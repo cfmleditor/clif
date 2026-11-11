@@ -32,7 +32,6 @@ import (
 var (
 	lazyTagRe     = regexp.MustCompile(`(?is)^<cfif\s+(?:not\s+|!\s*)isObject\(\s*([\w.]+)\s*\)\s*>(.*)</cfif>\s*<cfreturn\s+([\w.]+)\s*/?>$`)
 	lazyScriptRe  = regexp.MustCompile(`(?is)^if\s*\(\s*(?:not\s+|!\s*)isObject\(\s*([\w.]+)\s*\)\s*\)\s*\{([^{}]*)\}\s*return\s+([\w.]+)\s*;$`)
-	argumentTagRe = regexp.MustCompile(`(?is)<cfargument\b[^>]*>`)
 	placeholderRe = regexp.MustCompile(`^(?:""|'')$`)
 )
 
@@ -94,7 +93,7 @@ func functionBodyNamed(content, name string) string {
 	}
 
 	if bodies := tagFunctionBodiesNamed(content, name, 2); len(bodies) == 1 {
-		return strings.TrimSpace(argumentTagRe.ReplaceAllString(bodies[0], ""))
+		return strings.TrimSpace(parser.WithoutCFTags(bodies[0], "cfargument"))
 	}
 
 	opens := scriptFunctionOpens(content, name, 2)
@@ -136,7 +135,7 @@ func braceBody(rest string) string {
 func functionBodyNamedRegex(content, name string) string {
 	tag := compiledPattern(`(?is)<cffunction\b[^>]*\bname\s*=\s*["']` + regexp.QuoteMeta(name) + `["'][^>]*>(.*?)</cffunction>`)
 	if all := tag.FindAllStringSubmatch(content, 2); len(all) == 1 {
-		return strings.TrimSpace(argumentTagRe.ReplaceAllString(all[0][1], ""))
+		return strings.TrimSpace(parser.WithoutCFTags(all[0][1], "cfargument"))
 	}
 
 	script := compiledPattern(`(?i)\bfunction\s+` + regexp.QuoteMeta(name) + `\s*\(`)

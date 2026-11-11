@@ -35,7 +35,9 @@ const maxStartupTemplates = 64
 var sharedScopes = []string{"request", "session", "application", "server"}
 
 var (
-	tagSharedAssign  = regexp.MustCompile(`(?i)<cfset\s+(request|session|application|server)\.([A-Za-z_$][\w$]*)\s*=`)
+	// tagSharedAssign is a <cfset> that writes a shared scope, matched at
+	// the start of a tag parser.CFTags reads, so one in a comment is none.
+	tagSharedAssign  = regexp.MustCompile(`(?i)^<cfset\s+(request|session|application|server)\.([A-Za-z_$][\w$]*)\s*=`)
 	createdComponent = regexp.MustCompile(`(?i)^createObject\s*\(\s*["']component["']\s*,\s*["']([^"']+)["']`)
 	newComponent     = regexp.MustCompile(`(?i)^new\s+(?:cfml:)?([A-Za-z_$#][\w$.#]*)\s*\(`)
 )
@@ -351,8 +353,20 @@ const maxAssignLen = 4096
 func sharedAssignments(content, dir string) []startupAssign {
 	var out []startupAssign
 
-	for _, m := range tagSharedAssign.FindAllStringSubmatchIndex(content, -1) {
-		out = appendAssign(out, content, m, '>', dir)
+	if parser.IndexFold(content, "<cfset") >= 0 {
+		tags := parser.CFTags(content, "cfset")
+		for i := range tags {
+			m := tagSharedAssign.FindStringSubmatchIndex(content[tags[i].Start:])
+			if m == nil {
+				continue
+			}
+
+			for k := range m {
+				m[k] += tags[i].Start
+			}
+
+			out = appendAssign(out, content, m, '>', dir)
+		}
 	}
 
 	sc := parser.NewSourceScanner(content)

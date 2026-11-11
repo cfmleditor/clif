@@ -72,24 +72,25 @@ func (r *Resolver) indirectRegistryPickup(rhs string, line int, pr *parser.Parse
 func listLoopItems(content, name string, line int) []string {
 	lines := parser.NewLineTable(content)
 
-	for _, m := range loopTagPartsRe.FindAllStringSubmatchIndex(content, -1) {
-		if content[m[2]:m[3]] != "" { // a close tag
+	tags := parser.CFTags(content, "cfloop")
+	for i := range tags {
+		if tags[i].Close {
 			continue
 		}
 
-		attrs := loopAttrs(content[m[4]:m[5]])
+		attrs := tags[i].Attrs()
 
 		list, ok := attrs["list"]
 		if !ok || !strings.EqualFold(attrs["item"], name) {
 			continue
 		}
 
-		end, ok := tagLoopEnd(content, m[1])
+		end, ok := tagLoopEnd(tags, i)
 		if !ok {
 			continue
 		}
 
-		if line < lines.LineOf(m[1]) || line > lines.LineOf(end) {
+		if line < lines.LineOf(tags[i].End) || line > lines.LineOf(end) {
 			continue
 		}
 

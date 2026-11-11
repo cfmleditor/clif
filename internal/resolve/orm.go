@@ -28,12 +28,10 @@ var superInitEntityRe = regexp.MustCompile(`(?is)\bsuper\.init\(\s*(?:entityName
 // passes on an argument of its own init, bound to that argument's default.
 var superInitArgRe = regexp.MustCompile(`(?is)\bsuper\.init\(\s*(?:entityName\s*=\s*)?(?:arguments\.)?([a-z_][\w]*)\s*[,)]`)
 
-// scriptInitRe and tagInitRe find the service's own init(): its parameter
-// list in script syntax, its body in tag syntax, where the <cfargument>s are.
+// scriptInitRe finds the service's own init() in script syntax, its parameter
+// list; in tag syntax its <cfargument>s are read with parser.CFTags.
 var (
 	scriptInitRe = regexp.MustCompile(`(?is)\bfunction\s+init\s*\(([^)]*)\)`)
-	tagInitRe    = regexp.MustCompile(`(?is)<cffunction\s[^>]*\bname\s*=\s*["']init["'][^>]*>(.*?)</cffunction>`)
-	cfargumentRe = regexp.MustCompile(`(?is)<cfargument\s[^>]*>`)
 
 	// paramDefaultRe is a script parameter with a literal default.
 	paramDefaultRe = regexp.MustCompile(`(?is)(?:^|[,\s])([a-z_]\w*)\s*=\s*["']([^"'#]+)["']`)
@@ -125,17 +123,33 @@ func initArgumentDefault(src []byte, name string) string {
 		}
 	}
 
-	m := tagInitRe.FindSubmatch(src)
-	if m == nil {
-		return ""
-	}
+	// The <cfargument>s between <cffunction name="init"> and its close.
+	inInit := false
 
-	for _, tag := range cfargumentRe.FindAll(m[1], -1) {
-		if !strings.EqualFold(tagAttr(tag, "name"), name) {
+	tags := parser.CFTags(string(src), "cffunction", "cfargument")
+	for i := range tags {
+		tag := &tags[i]
+
+		if tag.Name == "cffunction" {
+			if inInit {
+				return "" // its close, or a function after it
+			}
+
+			fn, _ := tag.Attr("name")
+			inInit = !tag.Close && strings.EqualFold(fn, "init")
+
 			continue
 		}
 
-		if d := tagAttr(tag, "default"); d != "" && !strings.Contains(d, "#") {
+		if !inInit || tag.Close {
+			continue
+		}
+
+		if arg, _ := tag.Attr("name"); !strings.EqualFold(arg, name) {
+			continue
+		}
+
+		if d, _ := tag.Attr("default"); d != "" && !strings.Contains(d, "#") {
 			return strings.TrimSpace(d)
 		}
 
@@ -143,12 +157,4 @@ func initArgumentDefault(src []byte, name string) string {
 	}
 
 	return ""
-}
-
-// tagAttr is the value of attribute attr in tag, or "", read as the parse
-// reads a CF tag's attributes (parser.TagAttribute). Its own pattern took
-// letters alone for a name and quoted values alone, so `show3d` and
-// `default=0` were never read.
-func tagAttr(tag []byte, attr string) string {
-	return parser.TagAttribute(string(tag), attr)
 }
