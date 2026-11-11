@@ -159,31 +159,59 @@ func isIdentName(s string) bool {
 	return true
 }
 
-// wrapperIncludes is the includes made through a function of content that
-// includes the template one of its arguments names: Wheels' Global.cfc
-// declares $include(template) as `include "#LCase(arguments.template)#"` and
-// loads the application's routes with $include(template = "/config/routes.cfm"),
-// which runs them in Global's own variables scope. A call of the function in
-// the same file, unqualified and with a literal path for that argument, named
-// or in its place, is an include there. A call through another object runs the
-// template in that object's scope, and is none of this file's.
-//
-// argIncludes holds each include of an argument, the argument's name as its
-// Path. Finding the function and its arguments takes a parse, which only a
-// file with such an include pays for.
-func wrapperIncludes(content string, regions []Region, argIncludes []IncludeSite) []IncludeSite {
-	scopes := FindFuncScopes(content)
+// IncludeWrapper is a function that includes the template one of its
+// arguments names: Param, lowercased, at Position among its arguments.
+type IncludeWrapper struct {
+	Param    string
+	Position int
+}
 
-	var defs []FunctionDef
-
-	// param is each wrapper's included argument by lowercased function name,
-	// and position its place in the function's arguments.
-	type param struct {
-		name     string
-		position int
+// IncludeWrappers is the functions content declares that include the
+// template an argument names, `include "#arguments.template#"` or through one
+// call (`#LCase(arguments.template)#`), by lowercased name. Wheels' Global.cfc
+// declares $include so; a call of one is an include into the variables scope
+// of the component whose method runs it. Finding them takes a parse, which
+// only a file with such an include pays for.
+func IncludeWrappers(content string) map[string]IncludeWrapper {
+	if IndexFold(content, "arguments.") < 0 || IndexFold(content, "include") < 0 {
+		return nil
 	}
 
-	params := map[string]param{}
+	var argIncludes []IncludeSite
+
+	emit := func(kind fileRefKind, at, start, end int) {
+		if kind != refInclude {
+			return
+		}
+
+		if param, ok := argumentInclude(content[start:end]); ok {
+			argIncludes = append(argIncludes, IncludeSite{Path: param, Offset: at})
+		}
+	}
+
+	regions, _ := ClassifyRegionsIdx(content)
+
+	regions = fileRegions(content, regions)
+	for i := range regions {
+		regionFileRefs(&regions[i], true, emit)
+	}
+
+	return includeWrappersIn(content, argIncludes)
+}
+
+// includeWrappersIn is IncludeWrappers from argIncludes, each include of an
+// argument in content with the argument's name as its Path.
+func includeWrappersIn(content string, argIncludes []IncludeSite) map[string]IncludeWrapper {
+	if len(argIncludes) == 0 {
+		return nil
+	}
+
+	scopes := FindFuncScopes(content)
+
+	var (
+		defs     []FunctionDef
+		wrappers map[string]IncludeWrapper
+	)
 
 	for _, inc := range argIncludes {
 		line := strings.Count(content[:inc.Offset], "\n")
@@ -211,12 +239,32 @@ func wrapperIncludes(content string, regions []Region, argIncludes []IncludeSite
 
 			for k, a := range defs[i].Arguments {
 				if strings.EqualFold(a.Name, inc.Path) {
-					params[strings.ToLower(fn)] = param{inc.Path, k}
+					if wrappers == nil {
+						wrappers = map[string]IncludeWrapper{}
+					}
+
+					wrappers[strings.ToLower(fn)] = IncludeWrapper{Param: inc.Path, Position: k}
 				}
 			}
 		}
 	}
 
+	return wrappers
+}
+
+// wrapperIncludes is the includes made through an include wrapper content
+// declares (IncludeWrappers): Wheels' Global.cfc loads the application's
+// routes with $include(template = "/config/routes.cfm"), which runs them in
+// Global's own variables scope. A call of the function in the same file,
+// unqualified and with a literal path for that argument, named or in its
+// place, is an include there. A call through another object runs the template
+// in that object's scope, which the resolver decides
+// (wheels_include_wrapper.go).
+//
+// argIncludes holds each include of an argument, the argument's name as its
+// Path.
+func wrapperIncludes(content string, regions []Region, argIncludes []IncludeSite) []IncludeSite {
+	params := includeWrappersIn(content, argIncludes)
 	if len(params) == 0 {
 		return nil
 	}
@@ -248,7 +296,7 @@ func wrapperIncludes(content string, regions []Region, argIncludes []IncludeSite
 
 			sc.NextSkipComments()
 
-			if tmpl, ok := wrapperArgument(sc, p.name, p.position); ok {
+			if tmpl, ok := wrapperArgument(sc, p.Param, p.Position); ok {
 				if site, ok := includeSite(content, tmpl, r.Offset+t.Offset); ok {
 					out = append(out, site)
 				}

@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"maps"
 	"slices"
 	"testing"
 )
@@ -161,5 +162,27 @@ func TestACallOfAnIncludeWrapperIsAnInclude(t *testing.T) {
 
 	if got, want := ExtractIncludes(src), []string{"/config/routes.cfm", "/config/positional.cfm"}; !slices.Equal(got, want) {
 		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+// IncludeWrappers names each function that includes an argument, with the
+// argument and its place: the fact both the include scan and the resolver's
+// Wheels wrapper proof read.
+func TestIncludeWrappersNameTheArgumentAndItsPlace(t *testing.T) {
+	src := `component {
+	function $include(required string template) { include "#LCase(arguments.template)#"; }
+	function render(string layout = "", required string tpl) { include "#arguments.tpl#"; }
+	function other(required string x) { include "fixed.cfm"; }
+	function computed(required string x) { include "#arguments.x & '.cfm'#"; }
+}`
+
+	got := IncludeWrappers(src)
+
+	want := map[string]IncludeWrapper{
+		"$include": {Param: "template", Position: 0},
+		"render":   {Param: "tpl", Position: 1},
+	}
+	if !maps.Equal(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
 	}
 }

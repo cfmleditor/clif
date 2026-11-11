@@ -18,9 +18,14 @@ import (
 // performs it. A wrapper call made bare from a component includes into that
 // component.
 //
-// The wrappers are checked against Global's pinned bodies, and only a literal
-// mapping-absolute path is read: $resolveGlobalIncludeTemplate returns such a
-// path as it is, and $tryIncludeTemplate includes it.
+// A wrapper is proven one of two ways. Older Wheels includes the argument in
+// the wrapper itself, `include "#LCase(arguments.template)#"`, which the
+// parser reads as it reads any include wrapper (parser.IncludeWrappers, the
+// same fact that makes a bare call in Global.cfc an include there). Newer
+// Wheels routes it through two helpers, checked against their pinned bodies:
+// $resolveGlobalIncludeTemplate returns a mapping-absolute path as it is, and
+// $tryIncludeTemplate includes it. Either way only a literal
+// mapping-absolute path is read.
 
 var wheelsIncludeWrappers = map[string]string{
 	"$include":                `$tryIncludeTemplate($resolveGlobalIncludeTemplate(arguments.template));`,
@@ -205,11 +210,24 @@ func (r *Resolver) wheelsWrapperHost(tokens []parser.Token, i int, caller, wrapp
 	}
 
 	def := r.lookupFunc(host, wrapper, 0)
-	if def == nil || !def.URI.IsFile() || !r.wheelsIncludeWrapperPinned(def.URI.Path(), wrapper) {
+	if def == nil || !def.URI.IsFile() || !r.wheelsIncludeWrapperProven(def.URI.Path(), wrapper) {
 		return ""
 	}
 
 	return host
+}
+
+// wheelsIncludeWrapperProven reports whether global's wrapper includes the
+// template its call names: it includes its template argument itself, first
+// among its arguments, as wrapperTemplateLiteral reads a call; or it and the
+// two methods it calls are the pinned ones.
+func (r *Resolver) wheelsIncludeWrapperProven(global, wrapper string) bool {
+	source := r.sourceInfo(global)
+	if w, ok := source.includeWrappers()[strings.ToLower(wrapper)]; ok && w.Position == 0 && (w.Param == "template" || w.Param == "$template") {
+		return true
+	}
+
+	return r.wheelsIncludeWrapperPinned(global, wrapper)
 }
 
 // wheelsIncludeWrapperPinned reports whether global declares wrapper, and the

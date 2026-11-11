@@ -526,6 +526,24 @@ Left as they are, since they ask something else of a comment:
 backwards), the region split's running depth count, and `scanSourceFacts`'
 test for a line that starts as a comment.
 
+### Done: one include-wrapper fact
+
+Two readers knew that a function can include the template its argument
+names. The include scan (#364) read any such function, but only for calls in
+the same file. The resolver's Wheels reader (`wheels_include_wrapper.go`)
+reads calls across files and decides where the include runs
+(`application.wo.$include(…)` runs in `Global`), but proved a wrapper only
+against newer Wheels' pinned bodies, which route the include through
+`$resolveGlobalIncludeTemplate` and `$tryIncludeTemplate`. Older Wheels, the
+corpus's own `Global.cfc`, writes `include "#LCase(arguments.template)#"` in
+the wrapper itself, and was never proven.
+
+The parser now exports the fact, `parser.IncludeWrappers` (function, argument,
+position), and both read it: the include scan for same-file calls, and the
+resolver as a second proof beside the pinned bodies (`wheelsIncludeWrapperProven`,
+cached per source). `unresolved` is byte-identical on cfwheels: the templates
+it includes through `application.wo` have no findings on `main` to lose.
+
 ## Speed is an option of the one walker, not a second walker
 
 Some walkers exist because they do less. `globalScriptParser` reads only

@@ -68,3 +68,43 @@ func TestATemplateAWheelsWrapperIncludesIsItsIncluders(t *testing.T) {
 		t.Errorf("debug.cfm: resolved through a wrapper that includes nothing")
 	}
 }
+
+// Older Wheels includes the template in the wrapper itself,
+// `include "#LCase(arguments.template)#"`, which matches no pinned body; the
+// parser's include-wrapper fact proves it. A wrapper that includes some other
+// argument, or one that is not first, proves nothing for a template= call.
+func TestAnOlderWheelsWrapperIsProvenByItsOwnInclude(t *testing.T) {
+	global := func(wrapper string) string {
+		return `component {
+	` + wrapper + `
+	public string function urlFor() { return ""; }
+}`
+	}
+
+	for _, tc := range []struct {
+		name, wrapper string
+		proven        bool
+	}{
+		{"its own include", `public void function $include(required string template) { include "#LCase(arguments.template)#"; }`, true},
+		{"a bare argument", `public void function $include(required string template) { include "#arguments.template#"; }`, true},
+		{"another argument", `public void function $include(required string template, string other = "") { include "#arguments.other#"; }`, false},
+		{"not first", `public void function $include(string other = "", required string template) { include "#arguments.template#"; }`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			files := map[string]string{
+				"Application.cfc":         `component { this.mappings["/wheels"] = getDirectoryFromPath(getCurrentTemplatePath()) & "wheels/"; }`,
+				"wheels/Global.cfc":       global(tc.wrapper),
+				"wheels/events/debug.cfm": `<cfoutput>#urlFor()#</cfoutput>`,
+				"public/Page.cfm":         `<cfscript>application.wo.$include(template = "/wheels/events/debug.cfm");</cfscript>`,
+			}
+
+			dir := t.TempDir()
+			writeFiles(t, dir, files)
+
+			got := reasonsWith(t, &Resolver{InferArgsFiles: cfmlFilesIn(t, dir)}, dir, "wheels/events/debug.cfm")["urlFor"]
+			if (got == "") != tc.proven {
+				t.Errorf("urlFor: %q, proven %v", got, tc.proven)
+			}
+		})
+	}
+}
