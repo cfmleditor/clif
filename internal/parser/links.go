@@ -18,21 +18,58 @@ import (
 // include statements and template arguments the scanner reads, which skips
 // comments.
 
-// linkAttr reports whether attribute attr of tag name, a CF tag when cf,
-// names a file to link: template on a CF tag (cfinclude, cfmodule), href on a
-// markup tag, action on a form. A CF tag's action is an operation (cffile
-// action="move"), not a path, and was linked on every one.
-func linkAttr(name, attr string, cf bool) bool {
+// fileRefKind is what a path a file names is to it.
+type fileRefKind uint8
+
+const (
+	// refInclude is a cfinclude's template or an include statement's path:
+	// the file runs in this one's variables scope.
+	refInclude fileRefKind = iota + 1
+	// refTemplate is the template of another CF tag or call, cfmodule's.
+	refTemplate
+	// refHref is a markup tag's href.
+	refHref
+	// refAction is a form's action.
+	refAction
+	// refListing is a <cfdirectory> tag, whole: a directory listing an
+	// include of each name it finds may follow.
+	refListing
+)
+
+// fileRefFunc receives each path the walk finds: its kind, the offset its
+// statement or tag starts at, and the path's bounds, quotes excluded. A
+// listing's bounds are its tag's.
+type fileRefFunc func(kind fileRefKind, at, start, end int)
+
+// attrRef is the kind of path attribute attr of tag name, a CF tag when cf,
+// names, or 0 for none: template on a CF tag (an include on cfinclude), href
+// on a markup tag, action on a form. A CF tag's action is an operation
+// (cffile action="move"), not a path, and was linked on every one.
+func attrRef(name, attr string, cf bool) fileRefKind {
 	switch {
 	case strings.EqualFold(attr, "template"):
-		return cf
+		if !cf {
+			return 0
+		}
+
+		if strings.EqualFold(name, "cfinclude") {
+			return refInclude
+		}
+
+		return refTemplate
 	case strings.EqualFold(attr, "href"):
-		return !cf
+		if cf {
+			return 0
+		}
+
+		return refHref
 	case strings.EqualFold(attr, "action"):
-		return strings.EqualFold(name, "form") || strings.EqualFold(name, "cfform")
-	default:
-		return false
+		if strings.EqualFold(name, "form") || strings.EqualFold(name, "cfform") {
+			return refAction
+		}
 	}
+
+	return 0
 }
 
 // expressionTag reports whether a CF tag's text after its name is an
@@ -47,23 +84,22 @@ func expressionTag(name string) bool {
 	}
 }
 
-// linkable reports whether path is one a link is made for: a literal file
-// path, not computed (#...#) and not a URL.
-func linkable(path string) bool {
-	return strings.TrimSpace(path) != "" && !strings.Contains(path, "#") && !strings.Contains(path, "://")
-}
-
-// tagLinkSpans calls emit with the span of each link in text, markup read as
-// a tag region is. A markup tag a CF tag interrupts (<a <cfif x>id="y"</cfif>
-// href="z">) ends where the CF tag begins (tagEnd), and its attributes after
-// the CF tags are read from the text between them, up to its own '>'.
-func tagLinkSpans(text string, emit func(start, end int)) {
+// tagFileRefs calls emit for each path in text, markup read as a tag region
+// is. A markup tag a CF tag interrupts (<a <cfif x>id="y"</cfif> href="z">)
+// ends where the CF tag begins (tagEnd), and its attributes after the CF tags
+// are read from the text between them, up to its own '>'.
+//
+// includesOnly reads only what an include needs, <cfinclude> and
+// <cfdirectory>: the index asks that of every file, and most tags in one name
+// no path. It skips work, not a rule.
+func tagFileRefs(text string, includesOnly bool, emit fileRefFunc) {
 	ends := newTagEnds(text)
 
-	// outer is the markup tag interrupted by a CF tag, still open; "" for none.
-	outer := ""
+	// outer is the markup tag interrupted by a CF tag, still open, and
+	// outerAt where it began; "" for none.
+	outer, outerAt := "", 0
 
-	attrs := func(s string, base int, name string, cf bool) {
+	attrs := func(s string, base, at int, name string, cf bool) {
 		mode := htmlAttrs
 		if cf {
 			mode = cfAttrs
@@ -78,9 +114,12 @@ func tagLinkSpans(text string, emit func(start, end int)) {
 			}
 
 			// A path is quoted; an unquoted value is an expression or a word.
-			quoted := a.valStart > 0 && isQuoteByte(s[a.valStart-1])
-			if quoted && linkAttr(name, s[a.nameStart:a.nameEnd], cf) && linkable(s[a.valStart:a.valEnd]) {
-				emit(base+a.valStart, base+a.valEnd)
+			if a.valStart == 0 || !isQuoteByte(s[a.valStart-1]) {
+				continue
+			}
+
+			if kind := attrRef(name, s[a.nameStart:a.nameEnd], cf); kind != 0 {
+				emit(kind, at, base+a.valStart, base+a.valEnd)
 			}
 		}
 	}
@@ -98,10 +137,10 @@ func tagLinkSpans(text string, emit func(start, end int)) {
 		if outer != "" && i > pos {
 			seg := text[pos:i]
 			if gt := tagStartOutsideQuotesEnd(seg); gt >= 0 {
-				attrs(seg[:gt], pos, outer, false)
+				attrs(seg[:gt], pos, outerAt, outer, false)
 				outer = ""
 			} else {
-				attrs(seg, pos, outer, false)
+				attrs(seg, pos, outerAt, outer, false)
 			}
 		}
 
@@ -109,54 +148,65 @@ func tagLinkSpans(text string, emit func(start, end int)) {
 			return
 		}
 
-		if strings.HasPrefix(text[i:], "<!---") {
-			pos = skipTagComment(text, i)
-
-			continue
-		}
-
-		j := i + 1
-		if j < len(text) && text[j] == '/' {
-			// A closing tag, stepped over whole: its '>' is not an
-			// interrupted tag's.
-			if gt := strings.IndexByte(text[j:], '>'); gt >= 0 {
-				pos = j + gt + 1
-			} else {
-				pos = len(text)
-			}
-
-			continue
-		}
-
-		k := j
-		for k < len(text) && isTagNameByte(text[k]) {
-			k++
-		}
-
+		j, k, next := tagNameAt(text, i)
 		if k == j {
-			pos = i + 1
+			pos = next
 
 			continue
 		}
 
 		end := tagEnd(&ends, k)
-		tag := text[i:end]
+		name := text[j:k]
 
 		// A CF tag's values are read as CF reads them, a custom tag's included
 		// (<cf_x>, <p:x>); any other tag's as markup's.
-		name := text[j:k]
 		cf := HasPrefixFold(name, "cf") || strings.IndexByte(name, ':') > 0
 
-		if !cf || !expressionTag(name) {
-			attrs(tag, i, name, cf)
-		}
+		switch {
+		case strings.EqualFold(name, "cfdirectory"):
+			emit(refListing, i, i, end)
+		case includesOnly:
+			if strings.EqualFold(name, "cfinclude") {
+				attrs(text[i:end], i, i, name, true)
+			}
+		default:
+			if !cf || !expressionTag(name) {
+				attrs(text[i:end], i, i, name, cf)
+			}
 
-		if !cf && (end >= len(text) || text[end-1] != '>') {
-			outer = name
+			if !cf && (end >= len(text) || text[end-1] != '>') {
+				outer, outerAt = name, i
+			}
 		}
 
 		pos = end
 	}
+}
+
+// tagNameAt reads the '<' at i: the bounds of the name of a tag opening
+// there, or, when none does (a comment, a closing tag, a stray '<'), an empty
+// name and where the walk goes on. A comment and a closing tag are stepped
+// over whole: a closing tag's '>' is not an interrupted tag's.
+func tagNameAt(text string, i int) (j, k, next int) {
+	if strings.HasPrefix(text[i:], "<!---") {
+		return 0, 0, skipTagComment(text, i)
+	}
+
+	j = i + 1
+	if j < len(text) && text[j] == '/' {
+		if gt := strings.IndexByte(text[j:], '>'); gt >= 0 {
+			return 0, 0, j + gt + 1
+		}
+
+		return 0, 0, len(text)
+	}
+
+	k = j
+	for k < len(text) && isTagNameByte(text[k]) {
+		k++
+	}
+
+	return j, k, i + 1
 }
 
 // tagStartOutsideQuotesEnd is the offset of the first '>' in s outside quoted
@@ -180,17 +230,20 @@ func tagStartOutsideQuotesEnd(s string) int {
 	return -1
 }
 
-// scriptLinkSpans calls emit with the span of each link in text, CFScript:
-// the path of an include statement (include "x", Lucee's include
-// template="x"), and the template of a cfmodule( template = "x" ) or a module
-// statement, as the custom tag scanner reads them. A template = elsewhere, a
-// struct's key, is no link.
-func scriptLinkSpans(text string, emit func(start, end int)) {
-	calls := scriptCustomTags(text, 0, nil)
-	for i := range calls {
-		c := &calls[i]
-		if c.Kind == CustomTagModuleTemplate && !c.Dynamic && linkable(c.Name) {
-			emit(c.Start, c.End)
+// scriptFileRefs calls emit for each path in text, CFScript: the path of an
+// include statement (include "x", Lucee's include template="x", the call
+// cfinclude(template="x")), the template of a cfmodule( template = "x" ) or a
+// module statement as the custom tag scanner reads them, and a CF tag written
+// among the statements, read as the tag it is. A template = elsewhere, a
+// struct's key, names nothing. includesOnly is tagFileRefs'.
+func scriptFileRefs(text string, includesOnly bool, emit fileRefFunc) {
+	if !includesOnly {
+		calls := scriptCustomTags(text, 0, nil)
+		for i := range calls {
+			c := &calls[i]
+			if c.Kind == CustomTagModuleTemplate && !c.Dynamic {
+				emit(refTemplate, c.Start, c.Start, c.End)
+			}
 		}
 	}
 
@@ -210,26 +263,25 @@ func scriptLinkSpans(text string, emit func(start, end int)) {
 		before := prev
 		prev = t
 
-		// A CF tag written among the statements (<cfinclude template="x">) is
-		// read as the tag it is.
 		if t.Kind == TokLT {
 			if next := sc.PeekSkipComments(); next.Kind == TokIdent && HasPrefixFold(next.Value, "cf") {
 				if gt := tagStartOutsideQuotesEnd(text[t.Offset:]); gt >= 0 {
 					base := t.Offset
-					tagLinkSpans(text[base:base+gt+1], func(start, end int) { emit(base+start, base+end) })
+					tagFileRefs(text[base:base+gt+1], includesOnly, func(kind fileRefKind, at, start, end int) {
+						emit(kind, base+at, base+start, base+end)
+					})
 				}
 			}
 
 			continue
 		}
 
-		// After a '<' the keyword is the tag's name, read above.
+		// After a '<' the keyword is the tag's name, read above; after a '.'
+		// it is a member call, arr.include(x).
 		if t.Kind != TokIdent || before.Kind == TokDot || before.Kind == TokLT || !identEq(t.Value, "include") && !identEq(t.Value, "cfinclude") {
 			continue
 		}
 
-		// include "x", include template="x", and the call form
-		// cfinclude(template="x"), as includeScriptAt reads them.
 		next := sc.PeekSkipComments()
 		if next.Kind == TokLParen {
 			sc.NextSkipComments()
@@ -247,24 +299,47 @@ func scriptLinkSpans(text string, emit func(start, end int)) {
 			}
 		}
 
-		if next.Kind == TokString {
+		if next.Kind == TokString && len(next.Value) >= 2 {
 			sc.NextSkipComments()
 
 			prev = next
-			emitString(next, emit)
+			emit(refInclude, t.Offset, next.Offset+1, next.Offset+len(next.Value)-1)
 		}
 	}
 }
 
-// emitString emits the inside of a string token, when it is a linkable path.
-func emitString(t Token, emit func(start, end int)) {
-	if len(t.Value) < 2 {
-		return
+// regionFileRefs calls emit for each path in r, a region of content, at
+// content's offsets.
+func regionFileRefs(r *Region, includesOnly bool, emit fileRefFunc) {
+	shifted := func(kind fileRefKind, at, start, end int) {
+		emit(kind, r.Offset+at, r.Offset+start, r.Offset+end)
 	}
 
-	if inner := t.Value[1 : len(t.Value)-1]; linkable(inner) {
-		emit(t.Offset+1, t.Offset+len(t.Value)-1)
+	switch r.Kind {
+	case RegionScript:
+		scriptFileRefs(r.Text, includesOnly, shifted)
+	case RegionTag:
+		tagFileRefs(r.Text, includesOnly, shifted)
+	case RegionSkip:
 	}
+}
+
+// fileRegions is regions, split from content, as the path walk reads them. A
+// file with no CF tag is one script region to ClassifyRegions, which is the
+// parse's rule; one that begins with markup is read as the markup it is, as
+// StructureSpans reads it.
+func fileRegions(content string, regions []Region) []Region {
+	if len(regions) == 1 && regions[0].Kind == RegionScript && len(regions[0].Text) == len(content) && startsWithMarkup(content) {
+		return []Region{{Kind: RegionTag, Text: content}}
+	}
+
+	return regions
+}
+
+// isLink reports whether a path of kind names a file a document links: a
+// literal path, not computed (#...#) and not a URL, and not a listing.
+func isLink(kind fileRefKind, path string) bool {
+	return kind != refListing && strings.TrimSpace(path) != "" && !strings.Contains(path, "#") && !strings.Contains(path, "://")
 }
 
 // regionLinks is the links in text, a region (script or not), with lines
@@ -275,7 +350,11 @@ func regionLinks(text string, script bool, baseLine int) []DocumentLink {
 		idx   []int32
 	)
 
-	emit := func(start, end int) {
+	emit := func(kind fileRefKind, _, start, end int) {
+		if !isLink(kind, text[start:end]) {
+			return
+		}
+
 		if idx == nil {
 			idx = buildLineIdx(text)
 		}
@@ -292,9 +371,9 @@ func regionLinks(text string, script bool, baseLine int) []DocumentLink {
 	}
 
 	if script {
-		scriptLinkSpans(text, emit)
+		scriptFileRefs(text, false, emit)
 	} else {
-		tagLinkSpans(text, emit)
+		tagFileRefs(text, false, emit)
 	}
 
 	return links
@@ -310,43 +389,33 @@ func ExtractLinks(content string) []DocumentLink {
 }
 
 // linksInRegions is ExtractLinks over regions already split from content,
-// with their line index (nil to build one). A file with no CF tag is one
-// script region to ClassifyRegions, which is the parse's rule; one that
-// begins with markup is read as the markup it is, as StructureSpans reads it.
+// with their line index (nil to build one).
 func linksInRegions(content string, regions []Region, idx []int32) []DocumentLink {
-	if len(regions) == 1 && regions[0].Kind == RegionScript && len(regions[0].Text) == len(content) && startsWithMarkup(content) {
-		regions = []Region{{Kind: RegionTag, Text: content}}
-	}
-
 	if idx == nil {
 		idx = buildLineIdx(content)
 	}
 
 	var links []DocumentLink
 
-	for _, r := range regions {
-		if r.Kind == RegionSkip {
-			continue
+	emit := func(kind fileRefKind, _, start, end int) {
+		if !isLink(kind, content[start:end]) {
+			return
 		}
 
-		emit := func(start, end int) {
-			start, end = r.Offset+start, r.Offset+end
-			line := lineAtOffset(idx, start)
-			lineStart := int(idx[line])
+		line := lineAtOffset(idx, start)
+		lineStart := int(idx[line])
 
-			links = append(links, DocumentLink{
-				Path:  content[start:end],
-				Line:  conv.Uint32(line),
-				Start: conv.Uint32(start - lineStart),
-				End:   conv.Uint32(end - lineStart),
-			})
-		}
+		links = append(links, DocumentLink{
+			Path:  content[start:end],
+			Line:  conv.Uint32(line),
+			Start: conv.Uint32(start - lineStart),
+			End:   conv.Uint32(end - lineStart),
+		})
+	}
 
-		if r.Kind == RegionScript {
-			scriptLinkSpans(r.Text, emit)
-		} else {
-			tagLinkSpans(r.Text, emit)
-		}
+	regions = fileRegions(content, regions)
+	for i := range regions {
+		regionFileRefs(&regions[i], false, emit)
 	}
 
 	return links

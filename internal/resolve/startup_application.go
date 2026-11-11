@@ -239,19 +239,41 @@ func constructorDeclarationIncludes(content string) []string {
 	return constructorIncludes(content, true)
 }
 
+// constructorIncludes is the includes of content, a constructor, as
+// parser.IncludeSites reads them, one per statement. outerOnly keeps the
+// literal ones that are statements of the component's own body, outside any
+// block, which run whenever the constructor does.
 func constructorIncludes(content string, outerOnly bool) []string {
+	var outer map[int]bool
+	if outerOnly {
+		outer = outerIncludeStatements(content)
+	}
+
 	var includes []string
 
-	for _, region := range parser.ClassifyRegions(content) {
-		if region.Kind != parser.RegionScript {
-			if !outerOnly {
-				includes = append(includes, parser.ExtractIncludes(region.Text)...)
-			}
-
+	for _, site := range parser.IncludeSites(content) {
+		if outerOnly && (!outer[site.Offset] || strings.ContainsAny(site.Path, "#*")) {
 			continue
 		}
 
-		sc := parser.NewScanner(region.Text)
+		includes = append(includes, site.Path)
+	}
+
+	return includes
+}
+
+// outerIncludeStatements is the offsets of the include statements in
+// content's script that stand in the component's body itself: at its brace
+// depth, and first in their statement.
+func outerIncludeStatements(content string) map[int]bool {
+	var out map[int]bool
+
+	for _, region := range parser.ClassifyRegions(content) {
+		if region.Kind != parser.RegionScript {
+			continue
+		}
+
+		sc := parser.NewScriptScanner(region.Text)
 		depth, owner := 0, 0
 		previous := parser.TokEOF
 
@@ -261,32 +283,25 @@ func constructorIncludes(content string, outerOnly bool) []string {
 				break
 			}
 
-			if strings.EqualFold(t.Value, "component") {
+			switch {
+			case strings.EqualFold(t.Value, "component"):
 				owner = 1
-			}
-
-			if t.Kind == parser.TokLBrace {
+			case t.Kind == parser.TokLBrace:
 				depth++
-			}
-
-			if t.Kind == parser.TokRBrace {
+			case t.Kind == parser.TokRBrace:
 				depth--
-			}
-
-			if strings.EqualFold(t.Value, "include") && (!outerOnly || depth == owner && (previous == parser.TokEOF || previous == parser.TokLBrace || previous == parser.TokSemicolon)) {
-				value := sc.NextSkipComments()
-				if value.Kind == parser.TokString && !strings.Contains(value.Value, "#") {
-					includes = append(includes, strings.Trim(value.Value, `"'`))
+			case t.Kind == parser.TokIdent && (strings.EqualFold(t.Value, "include") || strings.EqualFold(t.Value, "cfinclude")) &&
+				depth == owner && (previous == parser.TokEOF || previous == parser.TokLBrace || previous == parser.TokSemicolon):
+				if out == nil {
+					out = map[int]bool{}
 				}
 
-				previous = value.Kind
-
-				continue
+				out[region.Offset+t.Offset] = true
 			}
 
 			previous = t.Kind
 		}
 	}
 
-	return includes
+	return out
 }

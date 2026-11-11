@@ -27,14 +27,20 @@ const includeWindow = 512
 // form off prose that happens to say `include "…"`. An include inside a
 // <!--- ---> comment is skipped, since a commented-out include is not a live one.
 //
-// It runs on every file the index takes, so it looks for the keyword and
-// matches only there. The first version ran two case-insensitive patterns over
-// the whole file and copied it to blank its comments, which on tassweb took the
-// index pass from 1.5s to 5.5s.
+// Includes are found by the walk document links use (fileRefs), with only
+// what an include needs read: one reading of what is a statement, a comment
+// and a tag. This scan used to find the keyword anywhere, so a commented-out
+// `// include "x.cfm"`, one in a string and one in a page's prose were each
+// read as live.
 func ExtractIncludes(content string) []string {
+	return includePaths(IncludeSites(content))
+}
+
+// includePaths is the paths of sites, in order and without duplicates.
+func includePaths(sites []IncludeSite) []string {
 	var out []string
 
-	for _, site := range IncludeSites(content) {
+	for _, site := range sites {
 		if !slices.ContainsFunc(out, func(s string) bool { return strings.EqualFold(s, site.Path) }) {
 			out = append(out, site.Path)
 		}
@@ -56,108 +62,235 @@ type IncludeSite struct {
 // The script and tag forms come first, in source order, then the directory
 // listings' globs.
 func IncludeSites(content string) []IncludeSite {
+	if IndexFold(content, "include") < 0 {
+		return nil
+	}
+
+	regions, _ := ClassifyRegionsIdx(content)
+
+	return includeSitesIn(content, regions)
+}
+
+// includeSitesIn is IncludeSites over regions already split from content.
+func includeSitesIn(content string, regions []Region) []IncludeSite {
+	if IndexFold(content, "include") < 0 {
+		return nil
+	}
+
 	var (
 		out      []IncludeSite
-		comments [][2]int
 		listed   map[string]string // query name → directory, lowercased name
-		dirEnd   int               // where the last listing tag ended
+		fromList []IncludeSite     // includes of a listing's names: Path is the template as written
+		wrappers []IncludeSite     // includes of an argument: Path is the argument's name
 	)
 
-	// One walk over the text finds the three things the scan needs: each
-	// include keyword, each <cfdirectory, and each <!--- comment, which is
-	// stepped over whole as soon as it is met, so nothing inside one is ever
-	// read. It was three searches over the whole text, and on a 65,000-line
-	// component they ran on every edit that changed a signature.
-	for i := 0; i < len(content); {
-		// A tight loop to the next byte that can start anything, then the
-		// byte after it tested inline before any prefix is compared: an 'i'
-		// starts one identifier in three, and a '<' every tag.
-		for i < len(content) && !includeScanByte[content[i]] {
-			i++
-		}
-
-		if i+1 >= len(content) {
-			break
-		}
-
-		c := content[i]
-		if !includeScanNext(c, content[i+1]) {
-			i++
-
-			continue
-		}
-
-		if c == '<' {
-			if strings.HasPrefix(content[i:], "<!---") {
-				end := commentEnd(content, i)
-				comments = append(comments, [2]int{i, end})
-				i = end
-
-				continue
+	emit := func(kind fileRefKind, at, start, end int) {
+		switch kind {
+		case refListing:
+			if dir, name, ok := qualifyingListing(content[start:end]); ok {
+				listed = withListing(listed, name, dir)
+			}
+		case refInclude:
+			raw := content[start:end]
+			if _, _, ok := listingIncludePath(raw); ok {
+				fromList = append(fromList, IncludeSite{Path: raw, Offset: at})
 			}
 
-			if i >= dirEnd {
-				end, dir, name, ok := listingAt(content, i)
-				dirEnd = max(dirEnd, end)
-
-				if ok {
-					listed = withListing(listed, name, dir)
-				}
+			if site, ok := includeSite(content, raw, at); ok {
+				out = append(out, site)
+			} else if param, ok := argumentInclude(raw); ok {
+				wrappers = append(wrappers, IncludeSite{Path: param, Offset: at})
 			}
-
-			i++
-
-			continue
+		case refTemplate, refHref, refAction:
 		}
+	}
 
-		// c is 'i' or 'I'.
-		if !lex.HasPrefixFold(content[i:], "include") {
-			i++
+	regions = fileRegions(content, regions)
+	for i := range regions {
+		regionFileRefs(&regions[i], true, emit)
+	}
 
-			continue
-		}
-
-		if site, ok := includeSiteAt(content, i); ok {
-			out = append(out, site)
-		}
-
-		i += len("include")
+	if len(wrappers) > 0 {
+		out = append(out, wrapperIncludes(content, regions, wrappers)...)
 	}
 
 	if len(listed) > 0 {
-		out = append(out, listingIncludes(content, listed, comments)...)
+		out = append(out, listingIncludes(fromList, listed)...)
 	}
 
 	return out
 }
 
-// includeScanByte marks the bytes IncludeSites stops at: the '<' that opens a
-// comment or a <cfdirectory, and the first letter of an include keyword.
-var includeScanByte = [256]bool{'<': true, 'i': true, 'I': true}
-
-// includeScanNext reports whether next can follow c in what IncludeSites
-// looks for: "<!---", "<cfdirectory" or "include".
-func includeScanNext(c, next byte) bool {
-	if c == '<' {
-		return next == '!' || next|0x20 == 'c'
+// argumentInclude reports the lowercased argument whose value a function
+// includes, when raw is that one argument, bare or through one call:
+// `#arguments.template#`, `#LCase(arguments.template)#`.
+func argumentInclude(raw string) (string, bool) {
+	if len(raw) < len("#arguments.x#") || raw[0] != '#' || raw[len(raw)-1] != '#' || strings.Count(raw, "#") != 2 {
+		return "", false
 	}
 
-	return next|0x20 == 'n'
+	expr := strings.TrimSpace(raw[1 : len(raw)-1])
+
+	// One wrapping call, LCase(...) or trim(...).
+	if open := strings.IndexByte(expr, '('); open > 0 && expr[len(expr)-1] == ')' && isIdentName(expr[:open]) {
+		expr = strings.TrimSpace(expr[open+1 : len(expr)-1])
+	}
+
+	const prefix = "arguments."
+	if !lex.HasPrefixFold(expr, prefix) || !isIdentName(expr[len(prefix):]) {
+		return "", false
+	}
+
+	return strings.ToLower(expr[len(prefix):]), true
 }
 
-// listingAt reads a <cfdirectory> tag at i, returning where it ends — a tag
-// that begins inside it is read as part of it, as a whole-file match would —
-// or 0 when none starts there, and the directory and query name when it is a
-// listing listingIncludes can follow.
-func listingAt(content string, i int) (end int, dir, name string, ok bool) {
-	n, found := directoryTagEnd(content[i:])
-	if !found {
-		return 0, "", "", false
+// isIdentName reports whether s is one CFML identifier.
+func isIdentName(s string) bool {
+	if s == "" || !isIdentStart(s[0]) {
+		return false
 	}
 
-	dir, name, ok = qualifyingListing(content[i : i+n])
+	for i := 1; i < len(s); i++ {
+		if !isIdentPart(s[i]) {
+			return false
+		}
+	}
 
-	return i + n, dir, name, ok
+	return true
+}
+
+// wrapperIncludes is the includes made through a function of content that
+// includes the template one of its arguments names: Wheels' Global.cfc
+// declares $include(template) as `include "#LCase(arguments.template)#"` and
+// loads the application's routes with $include(template = "/config/routes.cfm"),
+// which runs them in Global's own variables scope. A call of the function in
+// the same file, unqualified and with a literal path for that argument, named
+// or in its place, is an include there. A call through another object runs the
+// template in that object's scope, and is none of this file's.
+//
+// argIncludes holds each include of an argument, the argument's name as its
+// Path. Finding the function and its arguments takes a parse, which only a
+// file with such an include pays for.
+func wrapperIncludes(content string, regions []Region, argIncludes []IncludeSite) []IncludeSite {
+	scopes := FindFuncScopes(content)
+
+	var defs []FunctionDef
+
+	// param is each wrapper's included argument by lowercased function name,
+	// and position its place in the function's arguments.
+	type param struct {
+		name     string
+		position int
+	}
+
+	params := map[string]param{}
+
+	for _, inc := range argIncludes {
+		line := strings.Count(content[:inc.Offset], "\n")
+
+		var fn string
+
+		for _, sc := range scopes {
+			if sc.Start <= line && line <= sc.End {
+				fn = sc.Name // the innermost, which comes last
+			}
+		}
+
+		if fn == "" {
+			continue
+		}
+
+		if defs == nil {
+			defs = ParseFunctionDefs("", content)
+		}
+
+		for i := range defs {
+			if !strings.EqualFold(defs[i].Name, fn) {
+				continue
+			}
+
+			for k, a := range defs[i].Arguments {
+				if strings.EqualFold(a.Name, inc.Path) {
+					params[strings.ToLower(fn)] = param{inc.Path, k}
+				}
+			}
+		}
+	}
+
+	if len(params) == 0 {
+		return nil
+	}
+
+	var out []IncludeSite
+
+	for i := range regions {
+		r := &regions[i]
+		if r.Kind != RegionScript {
+			continue
+		}
+
+		sc := NewScriptScanner(r.Text)
+		prev := Token{Kind: TokSemicolon}
+
+		for {
+			t := sc.NextSkipComments()
+			if t.Kind == TokEOF {
+				break
+			}
+
+			before := prev
+			prev = t
+
+			p, ok := params[strings.ToLower(t.Value)]
+			if t.Kind != TokIdent || !ok || before.Kind == TokDot || sc.PeekSkipComments().Kind != TokLParen {
+				continue
+			}
+
+			sc.NextSkipComments()
+
+			if tmpl, ok := wrapperArgument(sc, p.name, p.position); ok {
+				if site, ok := includeSite(content, tmpl, r.Offset+t.Offset); ok {
+					out = append(out, site)
+				}
+			}
+		}
+	}
+
+	return out
+}
+
+// wrapperArgument reads a call's arguments from just past its '(' for the
+// literal string given for the argument called name, at position among them:
+// by name, or in its place when the call names none.
+func wrapperArgument(sc *Scanner, name string, position int) (string, bool) {
+	for k := 0; ; k++ {
+		t := sc.NextSkipComments()
+
+		var value Token
+
+		if t.Kind == TokIdent {
+			if op := sc.PeekSkipComments(); op.Kind == TokEquals || op.Kind == TokColon {
+				sc.NextSkipComments()
+
+				if v := sc.NextSkipComments(); strings.EqualFold(t.Value, name) && v.Kind == TokString {
+					value = v
+				}
+			}
+		} else if t.Kind == TokString && k == position {
+			value = t
+		}
+
+		// The argument ends at a ',' or the call's ')'; anything more makes
+		// it an expression, not a literal.
+		end := sc.NextSkipComments()
+		if value.Kind == TokString && len(value.Value) >= 2 && (end.Kind == TokComma || end.Kind == TokRParen) {
+			return value.Value[1 : len(value.Value)-1], true
+		}
+
+		if end.Kind != TokComma {
+			return "", false
+		}
+	}
 }
 
 // withListing records a listing, making the map on first use: most files have
@@ -172,19 +305,15 @@ func withListing(listed map[string]string, name, dir string) map[string]string {
 	return listed
 }
 
-// includeSiteAt reads the include whose keyword starts at i, if it is one.
-func includeSiteAt(content string, i int) (IncludeSite, bool) {
-	start, form := includeFormAt(content, i)
-	if form == nil {
+// includeSite reads raw, the path an include statement at gives, as the site
+// it is: a literal template, or a computed path the resolver can read
+// (isComputedPath), as a glob where that is what it names.
+func includeSite(content, raw string, at int) (IncludeSite, bool) {
+	if raw == "" || strings.ContainsAny(raw, `"'`) || strings.Contains(raw, "#") && !isComputedPath(raw) {
 		return IncludeSite{}, false
 	}
 
-	from, to, ok := form(content[start:min(len(content), start+includeWindow)])
-	if !ok {
-		return IncludeSite{}, false
-	}
-
-	p := strings.TrimSpace(content[start+from : start+to])
+	p := strings.TrimSpace(raw)
 	if glob, ok := computedNameGlob(p); ok {
 		p = glob
 	} else if glob, dir, ok := listedNameGlob(p); ok {
@@ -194,20 +323,21 @@ func includeSiteAt(content string, i int) (IncludeSite, bool) {
 
 		p = glob
 	} else if attr, ok := AttributeInclude(p); ok {
-		return IncludeSite{Path: "#attributes." + attr + "#", Offset: start}, true
+		return IncludeSite{Path: "#attributes." + attr + "#", Offset: at}, true
 	}
 
 	if p == "" || strings.Contains(p, "://") || !isIncludable(p) {
 		return IncludeSite{}, false
 	}
 
-	return IncludeSite{Path: p, Offset: start}, true
+	return IncludeSite{Path: p, Offset: at}, true
 }
 
 // includeFormAt decides which form the "include" found at i begins, and where
 // that form starts: "<cfinclude" at the '<', "cfinclude" or "include" at the
 // keyword. It returns a nil reader for an occurrence that is neither — the
-// tail of a longer identifier or a member call such as arr.include(…).
+// tail of a longer identifier or a member call such as arr.include(…). The
+// Application.cfc walk (mapping_sources.go) reads its includes with it.
 func includeFormAt(content string, i int) (int, func(string) (int, int, bool)) {
 	start := i
 	if i >= 2 && strings.EqualFold(content[i-2:i], "cf") {
@@ -243,72 +373,12 @@ func isIncludable(p string) bool {
 	return ext == ".cfm" || ext == ".cfml"
 }
 
-// commentEnd is the offset past the ---> that closes the <!--- at open,
-// counting the comments nested in it; the end of s when it is never closed.
-func commentEnd(s string, open int) int {
-	depth := 1
-	j := open + len("<!---")
-
-	// closeAt is the next "--->" at or after j, found again only once j has
-	// passed it: searching afresh after each nested open read the whole body
-	// of a comment once per level, and 200,000 nested comments hung indexing.
-	closeAt := -1
-
-	for depth > 0 {
-		if closeAt < j {
-			c := strings.Index(s[j:], "--->")
-			if c < 0 {
-				return len(s)
-			}
-
-			closeAt = j + c
-		}
-
-		nextClose := closeAt - j
-
-		// A nested open matters only if it starts before the close, so the
-		// search for one stops there — it may still run into the close, as
-		// in "<!--->". Unbounded, it read on to the next comment in the file,
-		// a second pass over the text for every comment in it.
-		nextOpen := strings.Index(s[j:min(len(s), j+nextClose+len("<!---")-1)], "<!---")
-
-		if nextOpen >= 0 && nextOpen < nextClose {
-			depth++
-			j += nextOpen + len("<!---")
-
-			continue
-		}
-
-		depth--
-		j += nextClose + len("--->")
-	}
-
-	return j
-}
-
-// inSpan reports whether pos falls inside one of spans, which are sorted and
-// do not overlap.
-func inSpan(spans [][2]int, pos int) bool {
-	k, _ := slices.BinarySearchFunc(spans, pos, func(sp [2]int, p int) int {
-		switch {
-		case sp[1] <= p:
-			return -1
-		case sp[0] > p:
-			return 1
-		default:
-			return 0
-		}
-	})
-
-	return k < len(spans) && spans[k][0] <= pos && pos < spans[k][1]
-}
-
 // qualifyingListing reads one <cfdirectory> tag and reports the directory
 // and lowercased query name of a listing listingIncludes can follow: a
 // literal directory beside the listing file, not recursive, and filtered to
 // templates. Anything computed is not a static answer.
 func qualifyingListing(tag string) (dir, name string, ok bool) {
-	attrs := listingAttrs(tag)
+	attrs := tagAttrMap(tag, cfAttrs)
 
 	dir, ok = listingDir(attrs["directory"])
 	if !strings.EqualFold(attrs["action"], "list") || !ok || attrs["name"] == "" ||
@@ -325,37 +395,21 @@ func qualifyingListing(tag string) (dir, name string, ok bool) {
 // database updates this way: configBean lists dbUpdates/*.cfm and includes
 // every one, so each runs in configBean's variables scope.
 //
-// The include is a glob, `sub/*.cfm`, which the resolver expands. listed is
-// the qualifying listings by query name, and comments the file's comments.
-func listingIncludes(content string, listed map[string]string, comments [][2]int) []IncludeSite {
+// The include is a glob, `sub/*.cfm`, which the resolver expands. includes
+// is the includes of a listing's names (listingIncludePath), with the
+// template as written, and listed the qualifying listings by query name.
+func listingIncludes(includes []IncludeSite, listed map[string]string) []IncludeSite {
 	var out []IncludeSite
 
-	const include = "<cfinclude"
-
-	end := 0
-
-	for i := indexFold(content, include); i >= 0; i = indexFoldFrom(content, include, i+len(include)) {
-		if i < end {
-			continue
-		}
-
-		prefix, query, n, ok := listingIncludeAt(content[i:])
-		if !ok {
-			continue
-		}
-
-		end = i + n
-
-		if inSpan(comments, i) {
-			continue
-		}
+	for _, inc := range includes {
+		prefix, query, _ := listingIncludePath(inc.Path)
 
 		dir, ok := listed[strings.ToLower(query)]
 		if !ok || !strings.EqualFold(strings.TrimSuffix(prefix, "/"), dir) {
 			continue
 		}
 
-		out = append(out, IncludeSite{Path: dir + "/*.cfm", Offset: i})
+		out = append(out, IncludeSite{Path: dir + "/*.cfm", Offset: inc.Offset})
 	}
 
 	return out
