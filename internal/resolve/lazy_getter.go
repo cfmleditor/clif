@@ -62,7 +62,7 @@ func (r *Resolver) lazyGetterReturn(fd *parser.FunctionDef) string {
 
 	if guarded {
 		if field := lazyField(functionBodyNamed(content, r.functionSpansOf(path, content), fd.Name)); field != "" {
-			answer = r.fieldWrites(content, field, filepath.Dir(path))
+			answer = r.fieldWrites(content, r.assignmentsIn(path, content), field, filepath.Dir(path))
 		}
 	}
 
@@ -241,15 +241,15 @@ func stripVariables(name string) string {
 	return name
 }
 
-// fieldWrites is the component every write of field in content agrees on, the ""
-// placeholder aside, or "".
-func (r *Resolver) fieldWrites(content, field, dir string) string {
+// fieldWrites is the component every write of field in writes, read from
+// content, agrees on, the "" placeholder aside, or "".
+func (r *Resolver) fieldWrites(content string, writes []parser.Assignment, field, dir string) string {
 	// Anywhere, not only at a statement's start: a write inside a one-line if
 	// is a write all the same, and one missed would be one not checked.
 	answer := ""
 
-	for _, w := range codeWrites(codeOf(content), field, writeRule{scopes: []string{"variables"}}) {
-		rhs := tokensText(content, w.value())
+	for _, w := range writesTo(writes, field, writeRule{scopes: []string{"variables"}}) {
+		rhs := w.ValueText(content)
 		if rhs == "" || isEmptyLiteral(rhs) {
 			continue
 		}

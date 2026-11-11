@@ -494,5 +494,5 @@ func fw1Assigns(pr *parser.ParseResult, scope parser.FuncScope, name string) boo
 		return false
 	}
 
-	return len(codeWrites(fileCodeOn(pr, scope.Start, scope.End), "rc."+name, writeRule{qualified: true})) > 0
+	return len(writesTo(onLines(pr.Assignments(), scope.Start, scope.End), "rc."+name, writeRule{qualified: true})) > 0
 }

@@ -25,7 +25,7 @@ func (r *Resolver) publicPropertyComponent(component, name, baseDir string) stri
 			return ""
 		}
 
-		writes := publicPropertyWrites(text, name)
+		writes := publicPropertyWrites(r.assignmentsIn(path, text), name)
 		if len(writes) > 0 {
 			value := ""
 
@@ -69,57 +69,37 @@ func (r *Resolver) publicPropertyComponent(component, name, baseDir string) stri
 	return ""
 }
 
-func publicPropertyWrites(content, name string) map[int]int {
+// publicPropertyWrites counts, by line, the writes in as to this.name: `this.name
+// = …` and `this[ "name" ] = …`, and `this[ key ] = …` with any other key,
+// which may be name.
+func publicPropertyWrites(as []parser.Assignment, name string) map[int]int {
 	writes := make(map[int]int)
 
-	sc := parser.NewSourceScanner(content)
-	for {
-		tok := sc.NextSkipComments()
-		if tok.Kind == parser.TokEOF {
-			return writes
-		}
-
-		if tok.Kind != parser.TokIdent || !strings.EqualFold(tok.Value, "this") {
+	for i := range as {
+		a := &as[i]
+		if a.Op != parser.AssignSet {
 			continue
 		}
 
-		state := sc.Save()
-		field := ""
-
-		switch sc.NextSkipComments().Kind {
-		case parser.TokDot:
-			member := sc.NextSkipComments()
-			if member.Kind == parser.TokIdent {
-				field = member.Value
-			}
-		case parser.TokLBracket:
-			member := sc.NextSkipComments()
-			if member.Kind == parser.TokString && !strings.Contains(member.Value, "#") {
-				field = strings.Trim(member.Value, `"'`)
-			} else {
-				field = name
-			}
-
-			depth := 1
-			for depth > 0 {
-				token := sc.NextSkipComments()
-				switch token.Kind {
-				case parser.TokEOF:
-					return writes
-				case parser.TokLBracket:
-					depth++
-				case parser.TokRBracket:
-					depth--
-				default:
-				}
-			}
-		default:
+		steps := targetSteps(a.Target)
+		if len(steps) != 2 || !strings.EqualFold(steps[0], "this") {
+			continue
 		}
 
-		if strings.EqualFold(field, name) && sc.NextSkipComments().Kind == parser.TokEquals && sc.PeekSkipComments().Kind != parser.TokEquals {
-			writes[int(tok.Line)]++
+		field := steps[1]
+		if strings.HasPrefix(field, "[") {
+			field = name
+
+			key := strings.TrimSpace(steps[1][1 : len(steps[1])-1])
+			if len(key) >= 2 && (key[0] == '"' || key[0] == '\'') && key[len(key)-1] == key[0] && !strings.ContainsAny(key, "#") {
+				field = key[1 : len(key)-1]
+			}
 		}
 
-		sc.Restore(state)
+		if strings.EqualFold(field, name) {
+			writes[a.Line]++
+		}
 	}
+
+	return writes
 }

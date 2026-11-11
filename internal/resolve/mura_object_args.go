@@ -162,8 +162,8 @@ func (r *Resolver) muraTemplateSets(file, content, name string, scoped bool) boo
 		return sets
 	}
 
-	own := withoutMuraObjectArgs(r.muraObjectParse(file, content))
-	sets = setsName(own, "arguments."+name) || !scoped && setsName(own, name)
+	writes := func() []parser.Assignment { return outsideMuraObjectArgs(r.muraObjectParse(file, content), r.assignmentsIn(file, content)) }
+	sets = setsName(content, writes, "arguments."+name) || !scoped && setsName(content, writes, name)
 
 	o.mu.Lock()
 	if o.muraSets == nil {
@@ -294,25 +294,21 @@ func muraObjectSitesIn(pr *parser.ParseResult, file string) []muraObjectSite {
 	return out
 }
 
-// withoutMuraObjectArgs is the text of the parse pr with the argument list of
-// each dspObject_include call it recorded blanked, newlines kept.
-func withoutMuraObjectArgs(pr *parser.ParseResult) string {
+// outsideMuraObjectArgs is as, the assignments of pr's text, less those
+// inside the argument list of a dspObject_include call pr recorded:
+// `iterator = iterator` there passes the name on to the display object rather
+// than setting it.
+func outsideMuraObjectArgs(pr *parser.ParseResult, as []parser.Assignment) []parser.Assignment {
 	calls := parsedCalls(pr, "dspObject_include")
 	if len(calls) == 0 {
-		return pr.Content
+		return as
 	}
 
-	b := []byte(pr.Content)
-
-	for _, call := range calls {
-		for i := call.tokens[call.at+1].Offset; i < call.tokens[call.closing].Offset; i++ {
-			if b[i] != '\n' {
-				b[i] = ' '
-			}
-		}
-	}
-
-	return string(b)
+	return slices.DeleteFunc(slices.Clone(as), func(a parser.Assignment) bool {
+		return slices.ContainsFunc(calls, func(call parsedCall) bool {
+			return a.At >= call.tokens[call.at+1].Offset && a.At < call.tokens[call.closing].Offset
+		})
+	})
 }
 
 // muraObjectParse is the parse the dspObject_include calls of file, which

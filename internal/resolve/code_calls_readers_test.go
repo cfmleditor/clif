@@ -66,8 +66,9 @@ func readMuraObjectSites(text string) []string {
 		out = append(out, strconv.Itoa(s.line))
 	}
 
-	if blanked := withoutMuraObjectArgs(readerParse(text)); blanked != text {
-		out = append(out, "blanked:"+strconv.Itoa(strings.Count(blanked, "theFile")))
+	as := parser.AssignmentsOf("f.cfm", text)
+	if kept := outsideMuraObjectArgs(readerParse(text), as); len(kept) != len(as) {
+		out = append(out, "blanked:"+strconv.Itoa(len(as)-len(kept)))
 	}
 
 	return out

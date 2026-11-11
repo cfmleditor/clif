@@ -61,7 +61,7 @@ func (r *Resolver) customTagAttribute(variable string, pr *parser.ParseResult, t
 
 	// A tag that sets the attribute reads its own value; a cfparam only
 	// fills one that was not passed.
-	if setsName(withoutTags(pr.Content, "cfparam"), "attributes."+rest) {
+	if setsName(pr.Content, func() []parser.Assignment { return withoutTag(pr.Assignments(), "cfparam") }, "attributes."+rest) {
 		return ""
 	}
 
@@ -471,47 +471,6 @@ func wholeHashExpr(raw string) (string, bool) {
 	expr := raw[1 : len(raw)-1]
 
 	return expr, !strings.Contains(expr, "#")
-}
-
-// withoutTags is content with every <name …> tag cut out, name matched
-// without case and ending at a non-name byte, the tag running to its first >.
-func withoutTags(content, name string) string {
-	open := "<" + name
-
-	i := parser.IndexFold(content, open)
-	if i < 0 {
-		return content
-	}
-
-	var b strings.Builder
-
-	for i >= 0 {
-		end := i + len(open)
-		if end < len(content) && lex.IsWord(content[end]) {
-			b.WriteString(content[:end])
-			content = content[end:]
-		} else {
-			b.WriteString(content[:i])
-
-			gt := strings.IndexByte(content[end:], '>')
-			if gt < 0 {
-				// A tag never closed is no tag: its text stays.
-				b.WriteString(content[i:])
-
-				content = ""
-
-				break
-			}
-
-			content = content[end+gt+1:]
-		}
-
-		i = parser.IndexFold(content, open)
-	}
-
-	b.WriteString(content)
-
-	return b.String()
 }
 
 // attributeIncludeTargets is what `<cfinclude template="#attributes.name#">`

@@ -35,7 +35,8 @@ type handoffAction struct {
 	handler, name  string   // the handler's path and the action's name
 	leaf           string   // the subclass whose literals gave the view its name, or "" for a literal one
 	start, setView int      // the lines the action starts on and renders on
-	body           string   // the action's source up to the render call
+	content        string   // the handler's source
+	from, to       int      // the action's source up to the render call: its offsets in content
 	through        []string // the views between the action and this one, which must not assign the prc member
 }
 
@@ -194,7 +195,9 @@ func (r *Resolver) moduleActions(dir string) map[string]renderers {
 					name:    last.name,
 					start:   lines.LineOf(last.start),
 					setView: lines.LineOf(render.at),
-					body:    content[last.start:render.at],
+					content: content,
+					from:    last.start,
+					to:      render.at,
 				})
 				out[view] = entry
 			}
@@ -212,7 +215,9 @@ func (r *Resolver) moduleActions(dir string) map[string]renderers {
 				name:    last.name,
 				start:   lines.LineOf(last.start),
 				setView: lines.LineOf(render.at),
-				body:    content[last.start:render.at],
+				content: content,
+				from:    last.start,
+				to:      render.at,
 			})
 			out[render.view] = entry
 		}
@@ -480,7 +485,7 @@ func (r *Resolver) viewPrcElement(name string, pr *parser.ParseResult, depth int
 			return ""
 		}
 
-		rhs, ok := lastPrcAssignment(a.body, name)
+		rhs, ok := r.lastPrcAssignment(a, name)
 		if !ok {
 			return ""
 		}
@@ -513,7 +518,7 @@ func (r *Resolver) throughAssigns(views []string, name string) bool {
 
 	for _, v := range views {
 		text, err := r.readText(v)
-		if err != nil || mentions(text, "prc."+name) && len(codeWrites(codeOf(text), "prc."+name, writeRule{qualified: true})) > 0 {
+		if err != nil || mentions(text, "prc."+name) && len(writesTo(r.assignmentsIn(v, text), "prc."+name, writeRule{qualified: true})) > 0 {
 			return true
 		}
 	}
@@ -531,55 +536,41 @@ func prcMember(variable string) (string, bool) {
 	return name, true
 }
 
-// lastPrcAssignment is the right-hand side of the last `prc.name = …` in body's
-// code, when it is written on one line.
-func lastPrcAssignment(body, name string) (string, bool) {
-	return lastMemberAssignment(body, "prc", name)
-}
+// lastPrcAssignment is the right-hand side of the last `prc.name = …` in the
+// action a up to its render, when it is written on one line.
+func (r *Resolver) lastPrcAssignment(a *handoffAction, name string) (string, bool) {
+	if !mentions(a.content[a.from:a.to], "prc."+name) {
+		return "", false
+	}
 
-// lastMemberAssignment is lastPrcAssignment for any container.
-func lastMemberAssignment(body, container, name string) (string, bool) {
-	rhs, _, ok := lastMemberAssignmentAt(body, container, name)
+	rhs, _, ok := lastMemberWrite(a.content, between(r.assignmentsIn(a.handler, a.content), a.from, a.to), "prc", name)
 
 	return rhs, ok
 }
 
-// lastMemberAssignmentAt is lastMemberAssignment with the line of body the
-// assignment is on.
-func lastMemberAssignmentAt(body, container, name string) (string, int, bool) {
-	if !mentions(body, container+"."+name) {
-		return "", 0, false
-	}
-
-	return lastMemberWrite(body, codeOf(body), container, name)
-}
-
-// lastMemberWrite is the value of the last statement in code, read from
+// lastMemberWrite is the value of the last statement in writes, read from
 // content, that assigns container.name (or arguments.container.name), and
 // the line it is on. The value is written on one line, as a <cfset> or a
 // script statement; one that runs on is not read.
-func lastMemberWrite(content string, code [][]parser.Token, container, name string) (string, int, bool) {
-	var (
-		last  codeWrite
-		found bool
-	)
+func lastMemberWrite(content string, writes []parser.Assignment, container, name string) (string, int, bool) {
+	var last *parser.Assignment
 
-	for _, w := range codeWrites(code, container+"."+name, writeRule{scopes: []string{"arguments"}}) {
-		if w.startsStatement() {
-			last, found = w, true
+	for _, w := range writesTo(writes, container+"."+name, writeRule{scopes: []string{"arguments"}}) {
+		if w.StartsStatement() {
+			last = w
 		}
 	}
 
-	if !found {
+	if last == nil {
 		return "", 0, false
 	}
 
-	value := last.value()
-	if len(value) == 0 || endLine(value[len(value)-1]) != value[0].Line {
+	value := last.ValueText(content)
+	if value == "" || strings.ContainsAny(value, "\r\n") {
 		return "", 0, false
 	}
 
-	return tokensText(content, value), last.line(), true
+	return value, last.Line, true
 }
 
 // pathsOf is comp with each alternative (a|b) replaced by its file where one
