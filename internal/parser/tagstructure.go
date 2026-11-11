@@ -77,7 +77,7 @@ func tagStructure(content string, script [][2]int, idx []int32, spans []Span) []
 			end := len(content)
 
 			if strings.HasPrefix(rest, "<!---") {
-				end = skipCFMLComment(content, lt)
+				end = SkipCFMLComment(content, lt)
 			} else if c := strings.Index(rest[4:], "-->"); c >= 0 {
 				end = lt + 4 + c + 3
 			}

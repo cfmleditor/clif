@@ -371,12 +371,7 @@ func blockEvents(text string, tag bool) []blockEvent {
 		i += lt
 
 		if strings.HasPrefix(text[i:], "<!---") {
-			end := strings.Index(text[i:], "--->")
-			if end < 0 {
-				break
-			}
-
-			i += end + len("--->")
+			i = parser.SkipCFMLComment(text, i)
 
 			continue
 		}

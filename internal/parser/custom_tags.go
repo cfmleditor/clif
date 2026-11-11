@@ -189,7 +189,7 @@ func tagCustomTags(text string, base int, imports map[string]string, prefixes []
 		i += pos
 
 		if strings.HasPrefix(text[i:], "<!---") {
-			pos = skipTagComment(text, i)
+			pos = SkipCFMLComment(text, i)
 
 			continue
 		}

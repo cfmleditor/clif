@@ -551,30 +551,8 @@ func (s *Scanner) skipWhitespaceNoNewline() {
 }
 
 func (s *Scanner) scanCFComment(start int, startLine int32) Token {
-	s.pos += 5 // skip <!---
-	depth := 1
-
-	for s.pos < len(s.src) && depth > 0 {
-		if s.pos+4 < len(s.src) && s.src[s.pos:s.pos+5] == "<!---" {
-			depth++
-			s.pos += 5
-
-			continue
-		}
-
-		if s.pos+2 < len(s.src) && s.src[s.pos] == '-' && s.src[s.pos+1] == '-' && s.src[s.pos+2] == '>' {
-			depth--
-			s.pos += 3
-
-			continue
-		}
-
-		if s.src[s.pos] == '\n' {
-			s.line++
-		}
-
-		s.pos++
-	}
+	s.pos = SkipCFMLComment(s.src, start)
+	s.line += int32(strings.Count(s.src[start:s.pos], "\n")) //nolint:gosec // a comment's line count fits
 
 	return Token{Kind: TokCFComment, Value: s.src[start:s.pos], Offset: start, Line: startLine}
 }

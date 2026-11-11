@@ -651,23 +651,7 @@ func findScriptSkipSpans(content string) []scriptSkipSpan {
 		i += pos
 
 		if i+4 < len(content) && content[i:i+5] == "<!---" {
-			depth := 1
-			j := i + 5
-
-			for j < len(content) && depth > 0 {
-				switch {
-				case j+4 < len(content) && content[j:j+5] == "<!---":
-					depth++
-					j += 5
-				case j+3 < len(content) && content[j:j+4] == "--->":
-					depth--
-					j += 4
-				default:
-					j++
-				}
-			}
-
-			pos = j
+			pos = SkipCFMLComment(content, i)
 
 			continue
 		}
@@ -813,7 +797,7 @@ func nextCFScriptOpen(content string, pos int) int {
 		i += pos
 
 		if i+4 < len(content) && content[i:i+5] == "<!---" {
-			pos = skipCFMLComment(content, i)
+			pos = SkipCFMLComment(content, i)
 
 			continue
 		}
@@ -826,28 +810,6 @@ func nextCFScriptOpen(content string, pos int) int {
 	}
 
 	return -1
-}
-
-// skipCFMLComment returns the offset just past the <!--- ... ---> that opens
-// at i, honouring nested comments, or len(content) if it never closes.
-func skipCFMLComment(content string, i int) int {
-	depth := 1
-	j := i + 5
-
-	for j < len(content) && depth > 0 {
-		switch {
-		case j+4 < len(content) && content[j:j+5] == "<!---":
-			depth++
-			j += 5
-		case j+3 < len(content) && content[j:j+4] == "--->":
-			depth--
-			j += 4
-		default:
-			j++
-		}
-	}
-
-	return j
 }
 
 // indexCFTag finds "<" followed by suffix (case-insensitive) in s.
