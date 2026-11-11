@@ -202,6 +202,82 @@ type FuncScope struct {
 	ReturnType string
 	Start      int
 	End        int
+
+	// span is where the script walk found the function, carried from the
+	// walk to the parse's FunctionSpans and cleared before the scope is
+	// kept, so a kept scope is its lines alone.
+	span *FunctionSpan
+}
+
+// FunctionKind is how a function the parse found is written.
+type FunctionKind uint8
+
+// FunctionKind values.
+const (
+	// FunctionDeclared is `function f() {}` written as a statement of the
+	// component, or of a template's script: a method.
+	FunctionDeclared FunctionKind = iota + 1
+	// FunctionNested is a named function written inside another's body,
+	// which CFML hoists into the component.
+	FunctionNested
+	// FunctionValue is a function assigned to a name outside any function:
+	// `this.f = function() {}`, `variables.f = (a) => a`.
+	FunctionValue
+	// FunctionTag is a <cffunction>.
+	FunctionTag
+)
+
+// FunctionSpan is where a function the parse found is written, by byte
+// offset in the parsed text. It is the parse's answer to "which functions
+// does this file declare, and where", for a reader that needs the text of a
+// declaration rather than its signature: the walk that fills Funcs and
+// Scopes finds it, so the two cannot disagree.
+type FunctionSpan struct {
+	Name string
+	// Access is the access the declaration states: a script function's
+	// modifier, or its access= attribute, which wins; a <cffunction>'s
+	// access attribute. "" when it states none.
+	Access string
+	// Defaults are a script function's literal argument defaults, by the
+	// argument's lowercased name: the contents of a default written as one
+	// string. nil when it has none. A <cffunction>'s
+	// are its <cfargument> tags, inside its body.
+	Defaults map[string]string
+	Kind     FunctionKind
+	// Line is the line the declaration starts on, its FuncScope's Start.
+	Line int
+	// Start is the declaration's first byte: its first modifier or return
+	// type word before `function`, the name a function value is assigned
+	// to, or the `<` of <cffunction>. End is just past its last: past the
+	// body's `}`, or past </cffunction>.
+	Start, End int
+	// Params and ParamsEnd bound a script function's parameter list, just
+	// inside its parentheses; both -1 for a <cffunction>.
+	Params, ParamsEnd int
+	// Body and BodyEnd bound the body's text: between a script function's
+	// braces, or between the <cffunction> tag and </cffunction>. Both -1 for
+	// a declaration with no body (`;`, an unclosed tag).
+	Body, BodyEnd int
+}
+
+// BodyText is the span's body in content, the text it was found in; "" when
+// it has none.
+func (s *FunctionSpan) BodyText(content string) string {
+	if s.Body < 0 || s.BodyEnd > len(content) || s.Body > s.BodyEnd {
+		return ""
+	}
+
+	return content[s.Body:s.BodyEnd]
+}
+
+// ParamsText is the span's parameter list in content, inside its
+// parentheses; "" for a <cffunction>.
+func (s *FunctionSpan) ParamsText(content string) string {
+	if s.Params < 0 || s.ParamsEnd > len(content) || s.Params > s.ParamsEnd {
+		return ""
+	}
+
+	return content[s.Params:s.ParamsEnd]
 }
 
 // ComponentRef represents a reference to a component instance.

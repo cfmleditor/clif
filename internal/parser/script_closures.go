@@ -65,7 +65,7 @@ func (p *scriptParser) skipNestedFunction(tok Token, _ int) {
 	// The argument list goes through parseArgList rather than scanParenBody so
 	// the signature reaches signature help; both record the calls an argument
 	// default holds, since parseArgList routes one through skipDefault.
-	args := p.parseArgList()
+	args, closing, defaults := p.parseArgs()
 	funcLine := p.baseLine + int(tok.Line)
 
 	p.funcs = append(p.funcs, FunctionDef{
@@ -75,16 +75,32 @@ func (p *scriptParser) skipNestedFunction(tok Token, _ int) {
 		Arguments: args,
 	})
 
-	p.skipFunctionAttrs()
+	access := ""
+	if isAccessModifier(tok.Value) {
+		access = tok.Value
+	}
+
+	if attr := p.skipFunctionAttrs(); attr != "" {
+		access = attr
+	}
 
 	// The calls written in its body are its own: a receiver among its
 	// arguments is typed from its signature, which is read by caller.
 	prevBodyFunc := p.bodyFunc
 	p.bodyFunc = len(p.funcs)
-	endLine := p.scanNestedFunctionBody(argNames(args))
+	endLine, braces := p.scanNestedFunctionBody(argNames(args))
 	p.bodyFunc = prevBodyFunc
 
-	p.scopes = append(p.scopes, FuncScope{Name: nameTok.Value, Start: funcLine, End: p.baseLine + endLine})
+	p.scopes = append(p.scopes, FuncScope{
+		Name: nameTok.Value, Start: funcLine, End: p.baseLine + endLine,
+		span: p.functionSpan(FunctionNested, nameTok.Value, access, tok, [2]int{lp.Offset, closing}, braces, defaults),
+	})
+}
+
+// isAccessModifier reports whether word is one of CFScript's access
+// modifiers.
+func isAccessModifier(word string) bool {
+	return identEq(word, "public") || identEq(word, "private") || identEq(word, "package") || identEq(word, "remote")
 }
 
 // scanNestedFunctionBody consumes a nested function's `{ ... }` or `;`,
@@ -100,22 +116,28 @@ func (p *scriptParser) skipNestedFunction(tok Token, _ int) {
 // closure's code runs from and matches what an argument-position closure
 // already did. An anonymous closure declares no scope of its own — it is a
 // value, for the reason parseFunctionValue gives — so the line this returns is
-// read only by the named branch, which does.
-func (p *scriptParser) scanNestedFunctionBody(params []string) int {
+// read only by the named branch, which does, with the region offsets of the
+// body's braces ({-1, -1} when it has none).
+func (p *scriptParser) scanNestedFunctionBody(params []string) (int, [2]int) {
 	tok := p.sc.PeekSkipComments()
 	if tok.Kind == TokSemicolon {
 		p.sc.NextSkipComments()
 
-		return int(tok.Line)
+		return int(tok.Line), [2]int{-1, tok.Offset}
 	}
 
 	if tok.Kind != TokLBrace {
-		return int(tok.Line)
+		return int(tok.Line), [2]int{-1, -1}
 	}
 
 	p.sc.NextSkipComments()
 
-	return p.scanClosureBody(int(tok.Line), params)
+	line, closing := p.scanClosureBody(int(tok.Line), params)
+	if closing < 0 {
+		return line, [2]int{-1, -1}
+	}
+
+	return line, [2]int{tok.Offset, closing}
 }
 
 // argNames is the names of args, a closure's parameters.
@@ -168,7 +190,8 @@ func (p *scriptParser) scopeToClosure(refsBefore, pendingBefore, from, to, byteF
 }
 
 // scanClosureBody consumes the body of a closure, an anonymous or arrow
-// function, whose `{` has been consumed, and returns the line of its `}`.
+// function, whose `{` has been consumed, and returns the line of its `}` and
+// that brace's region offset (-1 when the text ends first).
 //
 // Inside a function it is read as statements, the way the function's own body
 // is: `it( "x", () => { var t = prepareMock( … ); t.go(); } )` declares `t`
@@ -182,7 +205,7 @@ func (p *scriptParser) scopeToClosure(refsBefore, pendingBefore, from, to, byteF
 //
 // Top-level closure locals use the empty-name function-ref bucket. Their
 // closure byte spans keep them out of the file's globals and sibling callbacks.
-func (p *scriptParser) scanClosureBody(line int, params []string) int {
+func (p *scriptParser) scanClosureBody(line int, params []string) (last, closing int) {
 	byteFrom := p.sc.pos - 1
 	statements := p.argNesting < maxArgNesting
 	prevInClosure, prevLocals := p.inClosure, p.localVarSet
@@ -217,7 +240,7 @@ func (p *scriptParser) scanClosureBody(line int, params []string) int {
 	}()
 
 	depth := 1
-	last := line
+	last, closing = line, -1
 
 	defer func() {
 		if statements {
@@ -234,11 +257,14 @@ func (p *scriptParser) scanClosureBody(line int, params []string) int {
 
 		switch t.Kind {
 		case TokEOF:
-			return last
+			return last, -1
 		case TokLBrace:
 			depth++
 		case TokRBrace:
 			depth--
+			if depth == 0 {
+				closing = t.Offset
+			}
 		case TokIdent:
 			if statements {
 				p.handleBodyToken(t, depth, afterLT)
@@ -252,5 +278,5 @@ func (p *scriptParser) scanClosureBody(line int, params []string) int {
 		}
 	}
 
-	return last
+	return last, closing
 }

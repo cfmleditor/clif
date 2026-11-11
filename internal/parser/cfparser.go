@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"slices"
 	"sort"
 	"strings"
 
@@ -91,20 +92,54 @@ func varsAndScopes(content string) (found [][]VarDef, scopes []FuncScope) {
 // varsAndScopesIn is varsAndScopes over regions already split from content,
 // with their line index (nil to build one).
 func varsAndScopesIn(content string, regions []Region, idx LineTable) (found [][]VarDef, scopes []FuncScope) {
-	found = make([][]VarDef, len(regions))
+	found, scopes, _ = walkRegions(content, regions, idx, true)
+
+	return found, scopes
+}
+
+// walkRegions is varsAndScopesIn, with the FunctionSpans of what it found.
+// Without vars it is the functions-only reading: a tag region's declarations
+// are not read, and found is nil; a script region is walked as ever, since
+// its functions are what the walk finds.
+func walkRegions(content string, regions []Region, idx LineTable, vars bool) (found [][]VarDef, scopes []FuncScope, spans []FunctionSpan) {
+	if vars {
+		found = make([][]VarDef, len(regions))
+	}
+
 	hasTag := false
+
+	keep := func(sc *FuncScope) {
+		if sc.span != nil {
+			spans = append(spans, *sc.span)
+			sc.span = nil
+		}
+	}
 
 	for i, r := range regions {
 		if r.Kind == RegionScript {
 			sp := newScriptParser(r.Text, "", r.StartLine, nil).asCFScript()
+			sp.baseOffset = r.Offset
 			sp.parse()
-			found[i] = sp.vars
+
+			for j := range sp.scopes {
+				keep(&sp.scopes[j])
+			}
+
+			if vars {
+				found[i] = sp.vars
+			}
+
 			scopes = append(scopes, sp.scopes...)
 
 			continue
 		}
 
 		hasTag = true
+
+		if !vars {
+			continue
+		}
+
 		tp := newTagParser(r.Text, "")
 		tp.parse()
 
@@ -121,7 +156,9 @@ func varsAndScopesIn(content string, regions []Region, idx LineTable) (found [][
 			seen[sc.Start] = true
 		}
 
-		for _, sc := range findTagFuncScopesIdx(content, 0, idx) {
+		for _, sc := range findTagFuncScopesIdx(content, 0, idx, regions) {
+			keep(&sc)
+
 			if !seen[sc.Start] {
 				seen[sc.Start] = true
 				scopes = append(scopes, sc)
@@ -130,8 +167,9 @@ func varsAndScopesIn(content string, regions []Region, idx LineTable) (found [][
 	}
 
 	sortScopes(scopes)
+	slices.SortStableFunc(spans, func(a, b FunctionSpan) int { return a.Start - b.Start })
 
-	return found, scopes
+	return found, scopes, spans
 }
 
 // varDefs is ParseVars' answer from each region's declarations, found, and
@@ -237,7 +275,8 @@ func FindFuncScopes(content string) []FuncScope {
 // carry after its parameter list — `localmode=true`, `skip="true"`,
 // `restPath="x" httpMethod="GET"`, `cachedWithin=createTimeSpan(0,1,0,0)` — so
 // the next token is the body's `{`, or the `;` of an abstract declaration. A
-// value is optional, as in tag syntax.
+// value is optional, as in tag syntax, and Lucee also takes a colon for the
+// `=` (`secured:api`, `access:"remote"`).
 //
 // Every reader of a declaration expected the `{` straight after the `)`, and
 // finding an attribute there it recorded a scope ending on the function's own
@@ -247,16 +286,17 @@ func FindFuncScopes(content string) []FuncScope {
 // after an arrow function's parameters comes an expression, and consuming an
 // identifier there would take the receiver off a call.
 //
-// A value is an expression, and value is called with its first token once
-// that is consumed; it must leave the scanner past the value. That is how the
-// script parser records `createTimeSpan` in either spelling — a bare call, or
-// inside a string's #...# — as the component-level read of the body used to.
-// With value nil, a call's argument list is skipped.
-func skipFunctionAttrs(sc *Scanner, value func(Token)) {
+// A value is an expression, and value is called with the attribute's name
+// and the value's first token once that is consumed; it must leave the
+// scanner past the value. That is how the script parser records
+// `createTimeSpan` in either spelling — a bare call, or inside a string's
+// #...# — as the component-level read of the body used to. With value nil, a
+// call's argument list is skipped.
+func skipFunctionAttrs(sc *Scanner, value func(name, v Token)) {
 	for sc.PeekSkipComments().Kind == TokIdent {
-		sc.NextSkipComments()
+		name := sc.NextSkipComments()
 
-		if sc.PeekSkipComments().Kind != TokEquals {
+		if k := sc.PeekSkipComments().Kind; k != TokEquals && k != TokColon {
 			continue
 		}
 
@@ -271,7 +311,7 @@ func skipFunctionAttrs(sc *Scanner, value func(Token)) {
 
 		switch {
 		case value != nil:
-			value(v)
+			value(name, v)
 		case v.Kind == TokIdent && sc.PeekSkipComments().Kind == TokLParen:
 			sc.NextSkipComments()
 			skipToClose(sc, TokLParen, TokRParen)
@@ -305,12 +345,30 @@ func skipToClose(sc *Scanner, open, closing TokenKind) Token {
 	return last
 }
 
+// inScriptRegion reports whether offset at falls inside the text of one of
+// regions' script regions.
+func inScriptRegion(regions []Region, at int) bool {
+	for i := range regions {
+		r := &regions[i]
+		if r.Kind == RegionScript && at >= r.Offset && at < r.Offset+len(r.Text) {
+			return true
+		}
+	}
+
+	return false
+}
+
 // findTagFuncScopesIdx finds <cffunction>...</cffunction> boundaries, for a
 // caller holding a line index for exactly this src. ClassifyRegions builds one over the whole file on its
 // way to the regions, and extractSignatures then asked for the scopes of that
 // same whole file — so the index was built twice over one string, every parse.
 // A nil idx means build one.
-func findTagFuncScopesIdx(src string, baseLine int, idx LineTable) []FuncScope {
+//
+// A `<cffunction` inside one of the file's script regions (regions, in file
+// order) is text, not a tag: a string such as `assert( "a <cffunction> …" )`
+// in a <cfscript> block took the next function's </cffunction> as its own and
+// swallowed that function.
+func findTagFuncScopesIdx(src string, baseLine int, idx LineTable, regions []Region) []FuncScope {
 	// A modest capacity rather than a counted one. Counting <cffunction first
 	// sizes the slice exactly, but it is a second pass over the whole source and
 	// it runs on script components too, where it scans everything to find
@@ -360,6 +418,12 @@ func findTagFuncScopesIdx(src string, baseLine int, idx LineTable) []FuncScope {
 			continue
 		}
 
+		if inScriptRegion(regions, i) {
+			pos = i + 11
+
+			continue
+		}
+
 		startLine := baseLine + idx.LineOf(i)
 
 		end := min(i+200, len(src))
@@ -368,22 +432,54 @@ func findTagFuncScopesIdx(src string, baseLine int, idx LineTable) []FuncScope {
 		funcAccess := getAttr(src[i:end], "access")
 		funcReturn := getAttr(src[i:end], "returntype")
 
+		// The span reads the whole tag, which ends at its own '>' rather than
+		// 200 bytes on, and its body starts past that.
+		span := &FunctionSpan{Kind: FunctionTag, Line: startLine, Start: i, Params: -1, ParamsEnd: -1, Body: -1, BodyEnd: -1}
+		bodyFrom := -1
+
+		if gt := tagEndIndex(src[i:]); gt >= 0 {
+			tag := src[i : i+gt+1]
+			span.Name, span.Access = getAttr(tag, "name"), getAttr(tag, "access")
+			bodyFrom = i + gt + 1
+
+			// `<cffunction name="x" />`, an interface's, has no body: the
+			// next </cffunction> closes the function after it, which the
+			// search for it here used to swallow.
+			if strings.HasSuffix(strings.TrimRight(tag[:len(tag)-1], " \t\r\n"), "/") {
+				span.End = bodyFrom
+				scopes = append(scopes, FuncScope{Name: funcName, Access: funcAccess, ReturnType: funcReturn, Start: startLine, End: startLine, span: span})
+				pos = bodyFrom
+
+				continue
+			}
+		} else {
+			span.Name, span.Access = funcName, funcAccess
+		}
+
 		closeIdx := indexCFTag(src[i+11:], "/cffunction")
 		if closeIdx < 0 {
-			scopes = append(scopes, FuncScope{Name: funcName, Access: funcAccess, ReturnType: funcReturn, Start: startLine, End: baseLine + len(idx) - 1})
+			span.End = len(src)
+			scopes = append(scopes, FuncScope{Name: funcName, Access: funcAccess, ReturnType: funcReturn, Start: startLine, End: baseLine + len(idx) - 1, span: span})
 
 			break
 		}
 
 		closeEnd := i + 11 + closeIdx
+
+		if bodyFrom >= 0 && bodyFrom <= closeEnd {
+			span.Body, span.BodyEnd = bodyFrom, closeEnd
+		}
+
 		gt := strings.IndexByte(src[closeEnd:], '>')
 
 		if gt >= 0 {
 			closeEnd += gt + 1
 		}
 
+		span.End = closeEnd
+
 		endLine := baseLine + idx.LineOf(closeEnd)
-		scopes = append(scopes, FuncScope{Name: funcName, Access: funcAccess, ReturnType: funcReturn, Start: startLine, End: endLine})
+		scopes = append(scopes, FuncScope{Name: funcName, Access: funcAccess, ReturnType: funcReturn, Start: startLine, End: endLine, span: span})
 		pos = closeEnd
 	}
 
