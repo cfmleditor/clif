@@ -162,7 +162,9 @@ func (r *Resolver) muraTemplateSets(file, content, name string, scoped bool) boo
 		return sets
 	}
 
-	writes := func() []parser.Assignment { return outsideMuraObjectArgs(r.muraObjectParse(file, content), r.assignmentsIn(file, content)) }
+	writes := func() []parser.Assignment {
+		return outsideMuraObjectArgs(r.muraObjectParse(file, content), r.assignmentsIn(file, content))
+	}
 	sets = setsName(content, writes, "arguments."+name) || !scoped && setsName(content, writes, name)
 
 	o.mu.Lock()

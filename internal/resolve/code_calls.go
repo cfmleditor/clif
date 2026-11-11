@@ -111,48 +111,6 @@ func rawTokens(text string) []parser.Token {
 	return codeMemo.of(text, textCodeOf).raw
 }
 
-// textCalls is codeCalls(textCode(text), names...), answered from the text's
-// call index: the file's tokens are walked once for every name asked about.
-// No reader asks it now; the framework readers take the parse's calls
-// (parsedCalls).
-func textCalls(text string, names ...string) []codeCall {
-	entry := codeMemo.of(text, textCodeOf)
-	entry.callsOnce.Do(func() { entry.calls = indexCalls(entry.lists) })
-
-	var out []codeCall
-
-	for _, name := range names {
-		for _, c := range entry.calls[strings.ToLower(name)] {
-			list := entry.lists[c.list]
-			if closing := producerGroupEnd(list, int(c.at)+1, parser.TokLParen, parser.TokRParen); closing > 0 {
-				out = append(out, codeCall{tokens: list, at: int(c.at), closing: closing})
-			}
-		}
-	}
-
-	if len(names) > 1 || len(entry.lists) > 1 {
-		slices.SortStableFunc(out, func(a, b codeCall) int { return a.name().Offset - b.name().Offset })
-	}
-
-	return out
-}
-
-// indexCalls is every `name (` in lists, by lowercased name, in order.
-func indexCalls(lists [][]parser.Token) map[string][]callAt {
-	calls := map[string][]callAt{}
-
-	for l, list := range lists {
-		for i := 0; i+1 < len(list); i++ {
-			if list[i].Kind == parser.TokIdent && list[i+1].Kind == parser.TokLParen {
-				name := strings.ToLower(list[i].Value)
-				calls[name] = append(calls[name], callAt{int32(l), int32(i)})
-			}
-		}
-	}
-
-	return calls
-}
-
 // readerCallNames are the calls the resolver's framework readers read:
 // renders, announcements, Wheels associations, WireBox's map().to(), cborm's
 // super.init(), includeUDF, Lucee's package listings and Mura's display
