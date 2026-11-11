@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/conv"
-	"github.com/cfmleditor/clif/internal/lex"
 )
 
 // FuncCalls returns all variable.method() calls recorded for a function scope.
@@ -170,6 +169,29 @@ func (pr *ParseResult) CallsNamed(names ...string) []CallSite {
 	return out
 }
 
+// CallsWritten is the calls of names (compared case-insensitively) in the
+// order they are written: by line, then by where each starts. It answers for
+// a parse that extracts every call, and for one asked to find these names'
+// calls (ParseOptions.FindCalls); a name the parse recorded no calls of has
+// none.
+func (pr *ParseResult) CallsWritten(names ...string) []CallSite {
+	var out []CallSite
+
+	if pr.extractCalls {
+		out = pr.CallsNamed(names...)
+	} else {
+		for i := range pr.Calls {
+			if namedIn(names, pr.Calls[i].FuncName) {
+				out = append(out, pr.Calls[i])
+			}
+		}
+	}
+
+	sort.SliceStable(out, func(i, j int) bool { return callWrittenBefore(&out[i], &out[j]) })
+
+	return out
+}
+
 // dropCallsIndex forgets callsAt's index: a bucket that grows under its key
 // changes none of the counts the index is checked against.
 func (pr *ParseResult) dropCallsIndex() {
@@ -297,7 +319,6 @@ func (pr *ParseResult) funcCallsUncached(funcStart, funcEnd int) []CallSite {
 	return calls
 }
 
-// callerAtLine returns the enclosing function name for a given line number.
 // fillCallers names the enclosing function of every call recorded without one.
 //
 // A parser names a call's caller from the functions it has parsed itself, and
@@ -325,86 +346,6 @@ func (pr *ParseResult) fillCallers() {
 	for _, calls := range pr.funcCallsMap {
 		fill(calls)
 	}
-}
-
-func (pr *ParseResult) callerAtLine(lineNum int) string {
-	for _, sc := range pr.Scopes {
-		if lineNum > sc.Start && lineNum < sc.End {
-			return sc.Name
-		}
-	}
-
-	return ""
-}
-
-// scanLineForCalls checks a line for calls to any of pr.findCalls targets.
-func (pr *ParseResult) scanLineForCalls(line string, lineNum int, caller string) {
-	lower := strings.ToLower(line)
-	trimmed := strings.TrimSpace(lower)
-	// Skip function definition lines
-	if strings.HasPrefix(trimmed, "function ") || strings.Contains(trimmed, " function ") ||
-		strings.HasPrefix(trimmed, "<cffunction") {
-		return
-	}
-
-	for _, target := range pr.findCalls {
-		t := strings.ToLower(target)
-		if idx := strings.Index(lower, "."+t+"("); idx >= 0 {
-			varName, comp := pr.qualifiedTarget(line, idx)
-
-			pr.Calls = append(pr.Calls, CallSite{
-				FuncName: target, Component: comp, Variable: varName, Line: conv.Uint32(lineNum), Caller: caller,
-				Resolved: comp != "", Text: strings.TrimSpace(line),
-			})
-		} else if strings.Contains(lower, " "+t+"(") || strings.Contains(lower, "="+t+"(") || strings.HasPrefix(lower, t+"(") {
-			pr.Calls = append(pr.Calls, CallSite{
-				FuncName: target, Line: conv.Uint32(lineNum), Caller: caller,
-				Resolved: false, Text: strings.TrimSpace(line),
-			})
-		}
-	}
-}
-
-// qualifiedTarget reads the receiver of a call whose dot is at dot: the
-// variable before it and its component, or, when the receiver is itself a
-// call, the component a resolver gives that call.
-func (pr *ParseResult) qualifiedTarget(line string, dot int) (varName, comp string) {
-	varStart := dot - 1
-	for varStart >= 0 && lex.IsIdent(line[varStart]) {
-		varStart--
-	}
-
-	varName = line[varStart+1 : dot]
-	comp = pr.resolveVarComponent(varName)
-
-	// If no variable match, try resolving call expression before the dot
-	if comp != "" || dot == 0 || line[dot-1] != ')' || len(pr.Resolvers) == 0 {
-		return varName, comp
-	}
-
-	// Find matching open paren
-	depth := 0
-
-	for j := dot - 1; j >= 0; j-- {
-		switch line[j] {
-		case ')':
-			depth++
-		case '(':
-			depth--
-			if depth != 0 {
-				continue
-			}
-
-			fnStart := j - 1
-			for fnStart >= 0 && lex.IsIdent(line[fnStart]) {
-				fnStart--
-			}
-
-			return varName, ResolveFromCall(line[fnStart+1:dot], pr.Resolvers)
-		}
-	}
-
-	return varName, comp
 }
 
 // resolveVarComponent finds the component a variable resolves to from pr.ComponentRefs.

@@ -9,7 +9,7 @@ import (
 // setCallSpan records a lexical origin only while the scanner is still at the
 // argument list. Synthetic or already-consumed calls remain explicitly unknown.
 func (p *scriptParser) setCallSpan(call *CallSite) {
-	if call.HasSpan || p.baseOffset < 0 {
+	if call.HasSpan || p.baseOffset < 0 || !p.recordsCall(call.FuncName) {
 		return
 	}
 

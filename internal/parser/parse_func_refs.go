@@ -171,8 +171,6 @@ func (pr *ParseResult) funcRefsUncached(funcStart, funcEnd int) ([]ComponentRef,
 		refs, links = pr.parseTagBody(body, start, funcStart)
 	}
 
-	pr.scanBodyForCalls(start, end, funcStart, funcEnd)
-
 	refs = pr.resolveMethodReturnRefs(funcStart, funcEnd, refs)
 
 	// This re-parse never reaches applyChainedReturnLookup, so a chained
@@ -280,51 +278,6 @@ func (pr *ParseResult) parseTagBody(body string, start, funcStart int) ([]Compon
 	}
 
 	return refs, links
-}
-
-// scanBodyForCalls records the calls of the names the parse was asked to find
-// (ParseOptions.FindCalls) that a function body holds, line by line. It is
-// for exportDeps, and does nothing when the parse extracts calls itself.
-func (pr *ParseResult) scanBodyForCalls(start, end, funcStart, funcEnd int) {
-	if len(pr.findCalls) == 0 || pr.extractCalls {
-		return
-	}
-
-	lineNum := funcStart + 1
-
-	// Only the scopes overlapping this function can hold its lines, in
-	// the order callerAtLine scans them.
-	var near []FuncScope
-
-	for _, sc := range pr.Scopes {
-		if sc.End > funcStart && sc.Start < funcEnd {
-			near = append(near, sc)
-		}
-	}
-
-	scopeAt := scopeIndex(near, false)
-
-	scan := pr.Content[start:end]
-	for scan != "" {
-		nl := strings.IndexByte(scan, '\n')
-
-		var line string
-		if nl < 0 {
-			line = scan
-			scan = ""
-		} else {
-			line = scan[:nl]
-			scan = scan[nl+1:]
-		}
-
-		caller := ""
-		if k := scopeAt(lineNum); k >= 0 {
-			caller = near[k].Name
-		}
-
-		pr.scanLineForCalls(line, lineNum, caller)
-		lineNum++
-	}
 }
 
 // resolveMethodReturnRefs scans a function body for x = y.method() assignments
