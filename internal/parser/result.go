@@ -4,7 +4,6 @@ import (
 	"cmp"
 	"maps"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -70,7 +69,7 @@ type ParseResult struct {
 	// contentLineIdx is the line index ClassifyRegions built over Content on its
 	// way to the regions, kept so extractSignatures does not build a second one
 	// over the same string. nil for a script file, which never needs it.
-	contentLineIdx []int32
+	contentLineIdx LineTable
 
 	// Lazy global var caches (protected by mu).
 	mu            sync.Mutex
@@ -188,7 +187,7 @@ type ParseResult struct {
 	// lineStarts holds the byte offset of each line of lineStartsContent, so
 	// a function body is sliced without walking the file from its start.
 	lineStartsMu      sync.Mutex
-	lineStarts        []int
+	lineStarts        LineTable
 	lineStartsContent string
 }
 
@@ -245,7 +244,7 @@ func Parse(fileURI uri.URI, content string, resolvers ...[]Resolver) *ParseResul
 // classifyRegions is ClassifyRegionsIdx for this file, which also knows its
 // name: a .cfm template with no CF tags that is HTML is text, not CFScript,
 // unless InterpolateAllText asks for the old reading.
-func (pr *ParseResult) classifyRegions() ([]Region, []int32) {
+func (pr *ParseResult) classifyRegions() ([]Region, LineTable) {
 	if !pr.interpolateAll && isMarkupTemplate(string(pr.URI), pr.Content) {
 		return splitCFScriptBlocks(pr.Content)
 	}
@@ -1418,64 +1417,25 @@ func atoi(s string) int {
 // functions quadratic in its length. Comparing the cached content is cheap:
 // two strings sharing their bytes compare equal without reading them.
 func (pr *ParseResult) lineOffsets(startLine, endLine int) (start, end int) {
-	return offsetsFromTable(pr.lineStartsTable(), len(pr.Content), startLine, endLine)
+	return pr.lineStartsTable().Span(startLine, endLine, len(pr.Content))
 }
 
 // lineAt is the 0-based line holding byte offset off of Content, from the
 // same table lineOffsets reads.
 func (pr *ParseResult) lineAt(off int) int {
-	starts := pr.lineStartsTable()
-
-	return sort.Search(len(starts), func(i int) bool { return starts[i] > off }) - 1
+	return pr.lineStartsTable().LineOf(off)
 }
 
-func (pr *ParseResult) lineStartsTable() []int {
+func (pr *ParseResult) lineStartsTable() LineTable {
 	pr.lineStartsMu.Lock()
 	defer pr.lineStartsMu.Unlock()
 
 	if pr.lineStarts == nil || pr.lineStartsContent != pr.Content {
-		pr.lineStarts = lineStartTable(pr.Content)
+		pr.lineStarts = NewLineTable(pr.Content)
 		pr.lineStartsContent = pr.Content
 	}
 
 	return pr.lineStarts
-}
-
-func lineStartTable(content string) []int {
-	starts := make([]int, 1, strings.Count(content, "\n")+1)
-
-	for i := 0; ; {
-		idx := strings.IndexByte(content[i:], '\n')
-		if idx < 0 {
-			return starts
-		}
-
-		i += idx + 1
-		starts = append(starts, i)
-	}
-}
-
-func offsetsFromTable(starts []int, size, startLine, endLine int) (start, end int) {
-	if startLine < 0 {
-		startLine = 0
-	}
-
-	if startLine >= len(starts) {
-		return -1, -1
-	}
-
-	start = starts[startLine]
-
-	switch {
-	case endLine < startLine:
-		end = start
-	case endLine+1 < len(starts):
-		end = starts[endLine+1]
-	default:
-		end = size
-	}
-
-	return start, end
 }
 
 func (pr *ParseResult) logDebug(msg string, keysAndValues ...any) {
@@ -2009,7 +1969,7 @@ func (pr *ParseResult) DocumentLinks() []DocumentLink {
 // contentRegions is Content split as the parse splits it, which knows a
 // markup template by its name: its own regions when they are of this
 // content. pr.mu is held.
-func (pr *ParseResult) contentRegions() ([]Region, []int32) {
+func (pr *ParseResult) contentRegions() ([]Region, LineTable) {
 	if pr.regionsOf == pr.Content && pr.Regions != nil {
 		return pr.Regions, pr.contentLineIdx
 	}

@@ -40,7 +40,7 @@ const maxTagSearch = 64
 // that is how `<cfset>`, `<br>` and an unclosed `<p>` fall out without a list
 // of which tags have bodies. isBodilessTag is only there to keep the stack
 // short.
-func tagStructure(content string, script [][2]int, idx []int32, spans []Span) []Span {
+func tagStructure(content string, script [][2]int, idx LineTable, spans []Span) []Span {
 	var stack []tagFrame
 
 	// A page has about one span in four lines. Growing the slice from nothing

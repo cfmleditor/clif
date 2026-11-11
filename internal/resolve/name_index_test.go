@@ -308,8 +308,8 @@ func TestLimitTextCachesRestoresAndBatchesLiftIt(t *testing.T) {
 		t.Errorf("budget %d while a batch runs, want the batch default", lineStarts.budgetNow())
 	}
 
-	lineStarts.of(text, lineStartsOf)
-	lineStarts.of(text+"other", lineStartsOf)
+	lineStarts.of(text, parser.NewLineTable)
+	lineStarts.of(text+"other", parser.NewLineTable)
 	done()
 
 	if held := heldBytes(lineStarts); held > 1<<10 {

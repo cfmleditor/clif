@@ -157,7 +157,7 @@ func (r *Resolver) moduleActions(dir string) map[string]renderers {
 		// from the top, quadratic in the handler's length.
 		actions := actionStartMatches(content)
 		starts := renderStarts(content)
-		lines := newLineIndex(content)
+		lines := parser.NewLineTable(content)
 		actionBefore := func(at int) []int {
 			i := sort.Search(len(actions), func(i int) bool { return actions[i][1] > at })
 			if i == 0 {
@@ -189,8 +189,8 @@ func (r *Resolver) moduleActions(dir string) map[string]renderers {
 					handler: handler,
 					leaf:    leaf,
 					name:    content[last[2]:last[3]],
-					start:   lines.lineOf(last[0]),
-					setView: lines.lineOf(m[0]),
+					start:   lines.LineOf(last[0]),
+					setView: lines.LineOf(m[0]),
 					body:    content[last[0]:m[0]],
 				})
 				out[view] = entry
@@ -207,8 +207,8 @@ func (r *Resolver) moduleActions(dir string) map[string]renderers {
 			entry.actions = append(entry.actions, handoffAction{
 				handler: handler,
 				name:    content[last[2]:last[3]],
-				start:   lines.lineOf(last[0]),
-				setView: lines.lineOf(m[0]),
+				start:   lines.LineOf(last[0]),
+				setView: lines.LineOf(m[0]),
 				body:    content[last[0]:m[0]],
 			})
 			out[view] = entry

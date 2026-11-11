@@ -116,7 +116,7 @@ func (pr *ParseResult) CustomTagCalls(prefixes []string) []CustomTagCall {
 	return calls
 }
 
-func customTagCalls(regions []Region, idx []int32, content string, prefixes []string) []CustomTagCall {
+func customTagCalls(regions []Region, idx LineTable, content string, prefixes []string) []CustomTagCall {
 	// The longest prefix decides: "cfa" before "cf".
 	prefixes = slices.SortedFunc(slices.Values(prefixes), func(a, b string) int { return cmp.Compare(len(b), len(a)) })
 
@@ -140,11 +140,11 @@ func customTagCalls(regions []Region, idx []int32, content string, prefixes []st
 	}
 
 	if len(out) > 0 && idx == nil {
-		idx = buildLineIdx(content)
+		idx = NewLineTable(content)
 	}
 
 	for i := range out {
-		out[i].Line = lineAtOffset(idx, out[i].Start)
+		out[i].Line = idx.LineOf(out[i].Start)
 	}
 
 	return out

@@ -101,7 +101,7 @@ func TestBuildLineIdxMatchesTheScanItReplaced(t *testing.T) {
 	}
 
 	for _, src := range fixed {
-		assertSameInts(t, src, buildLineIdx(src), buildLineIdxSlow(src))
+		assertSameInts(t, src, NewLineTable(src), buildLineIdxSlow(src))
 	}
 
 	rng := rand.New(rand.NewSource(2))
@@ -114,7 +114,7 @@ func TestBuildLineIdxMatchesTheScanItReplaced(t *testing.T) {
 		}
 
 		src := b.String()
-		assertSameInts(t, src, buildLineIdx(src), buildLineIdxSlow(src))
+		assertSameInts(t, src, NewLineTable(src), buildLineIdxSlow(src))
 	}
 }
 
@@ -124,12 +124,12 @@ func assertSameInts(t *testing.T, src string, got []int32, want []int) {
 	t.Helper()
 
 	if len(got) != len(want) {
-		t.Fatalf("buildLineIdx(%q) has %d entries, want %d", src, len(got), len(want))
+		t.Fatalf("NewLineTable(%q) has %d entries, want %d", src, len(got), len(want))
 	}
 
 	for i := range got {
 		if int(got[i]) != want[i] {
-			t.Fatalf("buildLineIdx(%q)[%d] = %d, want %d", src, i, got[i], want[i])
+			t.Fatalf("NewLineTable(%q)[%d] = %d, want %d", src, i, got[i], want[i])
 		}
 	}
 }
@@ -211,6 +211,6 @@ func BenchmarkBuildLineIdx(b *testing.B) {
 	b.ReportAllocs()
 
 	for b.Loop() {
-		_ = buildLineIdx(src)
+		_ = NewLineTable(src)
 	}
 }

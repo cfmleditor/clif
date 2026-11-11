@@ -806,11 +806,11 @@ func (pr *ParseResult) collectWrites(cache *expressionWriteCache) []collectionWr
 
 	lines := pr.contentLineIdx
 	if lines == nil {
-		lines = buildLineIdx(pr.Content)
+		lines = NewLineTable(pr.Content)
 	}
 
 	functionAt := func(offset int) string {
-		line := sort.Search(len(lines), func(i int) bool { return int(lines[i]) > offset }) - 1
+		line := lines.LineOf(offset)
 
 		idx := sort.Search(len(pr.Scopes), func(i int) bool { return pr.Scopes[i].Start > line }) - 1
 		if idx >= 0 && line <= pr.Scopes[idx].End {
