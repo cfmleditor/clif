@@ -1048,7 +1048,7 @@ func (p *tagParser) addCall(call *CallSite) {
 // extractAllLinks scans source lines for document links, routing them to
 // global links or funcLinks based on which scope the line falls in.
 func (p *tagParser) extractAllLinks() {
-	p.funcLinks = extractLinksByScope(p.src, 0, p.scopes, p.funcLinks, &p.links)
+	p.funcLinks = extractLinksByScope(p.src, false, 0, p.scopes, p.funcLinks, &p.links)
 }
 
 // isWhitespace returns true if the byte is any whitespace character.
@@ -1099,63 +1099,32 @@ func hasCFTagPrefix(tag, prefix string) bool {
 	return isWhitespace(c)
 }
 
-// extractLinksByScope extracts the links on every line of src, which starts at
-// line lineNum, filing each under the function whose scope holds its line,
-// else in links. The two parsers share it: scopes are in line order, so one
-// pass keeps a cursor into them.
-func extractLinksByScope(src string, lineNum int, scopes []FuncScope, funcLinks map[string][]DocumentLink, links *[]DocumentLink) map[string][]DocumentLink {
+// extractLinksByScope files the links in src (a script region when script,
+// else markup; regionLinks), its lines counted from lineNum, under the
+// function each is in, or in links when it is in none.
+func extractLinksByScope(src string, script bool, lineNum int, scopes []FuncScope, funcLinks map[string][]DocumentLink, links *[]DocumentLink) map[string][]DocumentLink {
 	scopeIdx := 0
 
-	// The function whose lines are being read, its key and links, filed once
-	// it is left rather than looked up and stored again for every line.
-	open, openKey := -1, ""
+	for _, link := range regionLinks(src, script, lineNum) {
+		line := int(link.Line)
 
-	var fl []DocumentLink
-
-	flush := func() {
-		if open >= 0 {
-			funcLinks[openKey] = fl
-		}
-	}
-
-	for src != "" {
-		nl := strings.IndexByte(src, '\n')
-
-		var line string
-		if nl < 0 {
-			line = src
-			src = ""
-		} else {
-			line = src[:nl]
-			src = src[nl+1:]
-		}
-
-		// Advance past finished scopes
-		for scopeIdx < len(scopes) && lineNum > scopes[scopeIdx].End {
+		for scopeIdx < len(scopes) && line > scopes[scopeIdx].End {
 			scopeIdx++
 		}
 
-		if scopeIdx < len(scopes) && lineNum > scopes[scopeIdx].Start && lineNum < scopes[scopeIdx].End {
+		if scopeIdx < len(scopes) && line > scopes[scopeIdx].Start && line < scopes[scopeIdx].End {
 			if funcLinks == nil {
 				funcLinks = make(map[string][]DocumentLink)
 			}
 
-			if open != scopeIdx {
-				flush()
+			key := funcKey(scopes[scopeIdx].Start, scopes[scopeIdx].End)
+			funcLinks[key] = append(funcLinks[key], link)
 
-				open, openKey = scopeIdx, funcKey(scopes[scopeIdx].Start, scopes[scopeIdx].End)
-				fl = funcLinks[openKey]
-			}
-
-			extractLinksFromLine(line, lineNum, &fl)
-		} else {
-			extractLinksFromLine(line, lineNum, links)
+			continue
 		}
 
-		lineNum++
+		*links = append(*links, link)
 	}
-
-	flush()
 
 	return funcLinks
 }

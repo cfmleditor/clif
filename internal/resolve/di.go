@@ -425,7 +425,7 @@ func (r *Resolver) diSources(d *Resolver) []diSource {
 
 		for _, source := range r.diExecutionSources(d, file, text) {
 			sources = append(sources, source)
-			for _, raw := range parser.ExtractIncludes(source.pr.Content) {
+			for _, raw := range source.pr.Includes() {
 				if target := r.IncludePath(raw, source.file); target != "" {
 					queue = append(queue, target)
 				}

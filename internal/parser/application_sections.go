@@ -35,16 +35,6 @@ func ApplicationConstructor(content string) string {
 	return constructor
 }
 
-// maskedText is masked as a string: content itself when nothing was blanked,
-// which saves copying a file that declares no function.
-func maskedText(masked []byte, content string) string {
-	if string(masked) == content {
-		return content
-	}
-
-	return string(masked)
-}
-
 // ApplicationMethod is ApplicationSections' methods[name], building only
 // that method's projection: "" and true when the name is declared twice.
 func ApplicationMethod(content, name string) (string, bool) {
@@ -135,50 +125,84 @@ func (s appSection) projection(content string) string {
 // applicationScan is content with every function blanked (the constructor),
 // and the named functions it found, in order. It is asked of the same text
 // by many lookups, several of them twice for one file (the constructor, then
-// the sections), so the answers are kept by content: hashing the text is far
-// cheaper than tokenising it. What it returns is shared and must not change.
+// the sections), so the answers are kept, by the text's fingerprint and as
+// spans: an entry holds no copy of the file, and the constructor is built
+// again from its spans by one byte copy, which is no scan. What it returns is
+// shared and must not change.
 func applicationScan(content string) (string, []appSection) {
-	appScanMu.Lock()
-	held, ok := appScans[content]
-	appScanMu.Unlock()
-
-	if ok {
-		return held.constructor, held.sections
-	}
-
-	masked, sections := scanApplication(content)
-	held = appScanResult{constructor: maskedText(masked, content), sections: sections}
+	key := FingerprintOf(content)
 
 	appScanMu.Lock()
-	if len(appScans) >= maxAppScans {
-		clear(appScans)
-	}
-
-	appScans[content] = held
+	held, ok := appScans[key]
 	appScanMu.Unlock()
 
-	return held.constructor, held.sections
+	if !ok {
+		held = scanApplicationSpans(content)
+
+		appScanMu.Lock()
+		if len(appScans) >= maxAppScans {
+			clear(appScans)
+		}
+
+		appScans[key] = held
+		appScanMu.Unlock()
+	}
+
+	return blankSpans(content, held.blanked), held.sections
 }
 
-// maxAppScans bounds applicationScan's memo. A key holds its text alive, so
-// the bound is a count of files, cleared when reached.
-const maxAppScans = 256
+// maxAppScans bounds applicationScan's memo, a count of files cleared when
+// reached.
+const maxAppScans = 1024
 
 type appScanResult struct {
-	constructor string
-	sections    []appSection
+	blanked  [][2]int // every function's span, named or not
+	sections []appSection
 }
 
 var (
 	appScanMu sync.Mutex
-	appScans  = map[string]appScanResult{}
+	appScans  = map[TextFingerprint]appScanResult{}
 )
 
-// scanApplication is applicationScan's work.
-func scanApplication(content string) ([]byte, []appSection) {
+// blankSpans is content with each span blanked but its line breaks: content
+// itself, uncopied, when there is none.
+func blankSpans(content string, spans [][2]int) string {
+	if len(spans) == 0 {
+		return content
+	}
+
 	masked := []byte(content)
 
-	var sections []appSection
+	for _, sp := range spans {
+		for i := sp[0]; i < sp[1]; i++ {
+			if masked[i] != '\n' && masked[i] != '\r' {
+				masked[i] = ' '
+			}
+		}
+	}
+
+	return string(masked)
+}
+
+// scanApplicationSpans is scanApplication's answer as spans, its names copied
+// out of content.
+func scanApplicationSpans(content string) appScanResult {
+	spans, sections := scanApplication(content)
+
+	for i := range sections {
+		sections[i].name = strings.Clone(sections[i].name)
+	}
+
+	return appScanResult{blanked: spans, sections: sections}
+}
+
+// scanApplication is applicationScan's work.
+func scanApplication(content string) ([][2]int, []appSection) {
+	var (
+		spans    [][2]int
+		sections []appSection
+	)
 
 	// Functions are found by their braces, so strings are read as the parse
 	// reads them where the text is CFScript (NewScriptScanner).
@@ -237,10 +261,8 @@ func scanApplication(content string) ([]byte, []appSection) {
 
 		header = nil
 
-		for i := start; i < end; i++ {
-			if masked[i] != '\n' && masked[i] != '\r' {
-				masked[i] = ' '
-			}
+		if end > start {
+			spans = append(spans, [2]int{start, end})
 		}
 
 		if name != "" {
@@ -248,7 +270,7 @@ func scanApplication(content string) ([]byte, []appSection) {
 		}
 	}
 
-	return masked, sections
+	return spans, sections
 }
 
 // Access/modifier and return-type tokens are part of a declaration, not

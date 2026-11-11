@@ -1354,175 +1354,6 @@ func (pr *ParseResult) filterCallsByName() {
 	}
 }
 
-// extractLinksFromLine extracts file path references from a single line, in
-// linkAttrs order and left to right within each.
-func extractLinksFromLine(line string, lineNum int, links *[]DocumentLink) {
-	// Quick reject: all link attrs contain '=' or "include " — check for quote presence
-	if !strings.ContainsAny(line, "\"'") {
-		return
-	}
-
-	// Three of the four names end in '=', so a line without one, or whose
-	// '=' follow none of them, needs only the "include " search. Most tag
-	// lines have an '=' and none of the names; testing the bytes before each
-	// '=' replaced three whole-line case-insensitive searches per line.
-	hasEq := strings.IndexByte(line, '=') >= 0
-
-	for _, attr := range linkAttrs {
-		if attr[len(attr)-1] == '=' && (!hasEq || !precedesEquals(line, attr[:len(attr)-1])) {
-			continue
-		}
-
-		idx := 0
-
-		for {
-			pos := indexFold(line[idx:], attr)
-			if pos < 0 {
-				break
-			}
-
-			pos += idx + len(attr)
-			for pos < len(line) && (line[pos] == ' ' || line[pos] == '\t') {
-				pos++
-			}
-
-			if pos >= len(line) {
-				break
-			}
-
-			q := line[pos]
-			if q != '"' && q != '\'' {
-				idx = pos
-
-				continue
-			}
-
-			start := pos + 1
-
-			end := strings.IndexByte(line[start:], q)
-			if end < 0 {
-				break
-			}
-
-			end += start
-			path := line[start:end]
-
-			if path != "" && !strings.Contains(path, "#") && !strings.Contains(path, "://") {
-				*links = append(*links, DocumentLink{
-					Path:  path,
-					Line:  conv.Uint32(lineNum),
-					Start: conv.Uint32(start),
-					End:   conv.Uint32(end),
-				})
-			}
-
-			idx = end + 1
-		}
-	}
-}
-
-// precedesEquals reports whether name, case-insensitively, stands directly
-// before some '=' in line.
-func precedesEquals(line, name string) bool {
-	for i := strings.IndexByte(line, '='); i >= 0; {
-		if i >= len(name) && strings.EqualFold(line[i-len(name):i], name) {
-			return true
-		}
-
-		next := strings.IndexByte(line[i+1:], '=')
-		if next < 0 {
-			return false
-		}
-
-		i += next + 1
-	}
-
-	return false
-}
-
-// linkAttrs are the attribute names that contain file paths.
-var linkAttrs = []string{"template=", "include ", "href=", "action="}
-
-// ExtractLinks scans content for file path references (cfinclude, href, etc.).
-func ExtractLinks(content string) []DocumentLink {
-	var links []DocumentLink
-
-	lineNum := 0
-
-	for content != "" {
-		nl := strings.IndexByte(content, '\n')
-
-		var line string
-
-		if nl < 0 {
-			line = content
-			content = ""
-		} else {
-			line = content[:nl]
-			content = content[nl+1:]
-		}
-
-		for _, attr := range linkAttrs {
-			idx := 0
-
-			for {
-				pos := indexFold(line[idx:], attr)
-				if pos < 0 {
-					break
-				}
-
-				pos += idx + len(attr)
-				// Skip whitespace and find opening quote
-				for pos < len(line) && (line[pos] == ' ' || line[pos] == '\t') {
-					pos++
-				}
-
-				if pos >= len(line) {
-					break
-				}
-
-				q := line[pos]
-				if q != '"' && q != '\'' {
-					idx = pos
-
-					continue
-				}
-
-				start := pos + 1
-
-				// template= and include name a CF template, whose value is read
-				// as a CF tag's is; href= and action= are markup's.
-				mode := htmlAttrs
-				if attr == "template=" || attr == "include " {
-					mode = cfAttrs
-				}
-
-				end := quotedValueEnd(line, pos, mode)
-				if end < 0 {
-					break
-				}
-
-				path := line[start:end]
-
-				if path != "" && !strings.Contains(path, "#") && !strings.Contains(path, "://") {
-					links = append(links, DocumentLink{
-						Path:  path,
-						Line:  uint32(lineNum),
-						Start: conv.Uint32(start),
-						End:   conv.Uint32(end),
-					})
-				}
-
-				idx = end + 1
-			}
-		}
-
-		lineNum++
-	}
-
-	return links
-}
-
 func sortScopes(scopes []FuncScope) {
 	for i := 1; i < len(scopes); i++ {
 		for j := i; j > 0 && scopes[j].Start < scopes[j-1].Start; j-- {
@@ -2162,7 +1993,9 @@ func (pr *ParseResult) DocumentLinks() []DocumentLink {
 	defer pr.mu.Unlock()
 
 	if pr.textLinks == nil || pr.textLinksOf != pr.Content {
-		pr.textLinks = ExtractLinks(pr.Content)
+		regions, idx := pr.contentRegions()
+
+		pr.textLinks = linksInRegions(pr.Content, regions, idx)
 		if pr.textLinks == nil {
 			pr.textLinks = []DocumentLink{}
 		}
@@ -2171,4 +2004,34 @@ func (pr *ParseResult) DocumentLinks() []DocumentLink {
 	}
 
 	return pr.textLinks
+}
+
+// contentRegions is Content split as the parse splits it, which knows a
+// markup template by its name: its own regions when they are of this
+// content. pr.mu is held.
+func (pr *ParseResult) contentRegions() ([]Region, []int32) {
+	if pr.regionsOf == pr.Content && pr.Regions != nil {
+		return pr.Regions, pr.contentLineIdx
+	}
+
+	return pr.classifyRegions()
+}
+
+// IncludeSites is parser.IncludeSites of Content, read in the parse's own
+// regions rather than a second split.
+func (pr *ParseResult) IncludeSites() []IncludeSite {
+	if IndexFold(pr.Content, "include") < 0 {
+		return nil
+	}
+
+	pr.mu.Lock()
+	regions, _ := pr.contentRegions()
+	pr.mu.Unlock()
+
+	return includeSitesIn(pr.Content, regions)
+}
+
+// Includes is parser.ExtractIncludes of Content, from IncludeSites.
+func (pr *ParseResult) Includes() []string {
+	return includePaths(pr.IncludeSites())
 }
