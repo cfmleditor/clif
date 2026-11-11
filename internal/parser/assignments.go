@@ -16,11 +16,17 @@ import (
 // The parse reads those writes instead, over its own regions: each script
 // region's tokens with its SQL and Java islands blanked (blankNonScript), the
 // body of each <cfset> the walk's tag reader finds (CFTags), and the
-// attributes of the CF tags that name a variable they fill. A value ends where
-// the parse ends an expression (newlineEndsStatement, a ";", or the bracket
-// around it). It is recorded only when asked: ParseOptions.RecordAssignments
-// records it during the parse, and Assignments reads it from any parse, once
-// per version; AssignmentsOf reads it from text there is no parse of.
+// attributes of the CF tags that name a variable they fill. It takes the
+// parse's rules: a write stands only where a statement can
+// (atStatementLevel), so a named argument and a struct literal's key are
+// none; `ident ident =` is a script-syntax tag whose attributes are not
+// assignments (looksLikeTagAttrs); and a value ends where the parse ends an
+// expression (newlineEndsStatement, a ";", a "," or the bracket around it).
+// It is recorded only when asked: ParseOptions.RecordAssignments records it
+// during the parse, and Assignments reads it from any parse, once per
+// version; AssignmentsOf reads it from text there is no parse of. A record
+// is a function of the text alone, so the function holding one is the
+// parse's FuncScopeAt(Line).
 
 // AssignOp is how an Assignment writes its target.
 type AssignOp uint8
@@ -36,9 +42,11 @@ const (
 	AssignVar
 	// AssignForIn is the loop variable of `for ( [var] target in … )`.
 	AssignForIn
-	// AssignAttribute is a CF tag's attribute that names the variable the tag
-	// fills (variableAttributes): Target is the attribute's name, lowercased,
-	// and Literal the variable it names.
+	// AssignAttribute is an attribute that names the variable its tag fills
+	// (variableAttributes): a CF tag's, a script-syntax tag's, or a call's
+	// named argument (cfhttp( result = "r" )). Target is the attribute's
+	// name, lowercased, and Literal the variable it names when it is a
+	// quoted string.
 	AssignAttribute
 )
 
@@ -53,14 +61,14 @@ type Assignment struct {
 	// AssignVar, AssignForIn and AssignAttribute.
 	Operator string
 	// Tag is the CF tag the write was read from, lowercased ("cfset",
-	// "cfloop", …), or "" in script.
+	// "cfloop", …), or "" in script; for an AssignAttribute in script, the
+	// script-syntax tag ("param", "lock") or the function called.
 	Tag string
 	// Literal is the value when it is one quoted string and nothing else,
-	// without its quotes, as written; HasLiteral says it is one. An
-	// AssignAttribute's value is always its Literal.
+	// without its quotes, as written; HasLiteral says it is one.
 	Literal string
-	// At is the offset of the target's first byte in the content, and Line
-	// its 0-based line.
+	// At is the offset of the target's first byte in the content (a CF
+	// tag's attribute: its value's), and Line its 0-based line.
 	At, Line int
 	// Statement is where the statement holding the write begins: At when the
 	// write is the first thing its statement does, the `var` before it, or
