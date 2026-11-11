@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"hash/maphash"
 	"strings"
 	"sync"
 )
@@ -16,25 +17,42 @@ import (
 // entry keeps no file alive. The memo is bounded by a count, cleared when
 // reached.
 type exprMemo[T any] struct {
-	mu sync.Mutex
-	m  map[string]T
+	shards [exprMemoShards]exprMemoShard[T]
 }
 
-// maxExprMemo bounds each exprMemo.
-const maxExprMemo = 1 << 15
+// exprMemoShard is one lock's share of an exprMemo. Every worker of a scan
+// reads every write's right-hand side through these memos, and behind one
+// lock the waiting cost more than the scans they save (tassweb: the
+// scheduler's sleeps and wakes rose by a second and a half of CPU).
+type exprMemoShard[T any] struct {
+	mu sync.Mutex
+	m  map[string]T
+	_  [40]byte // apart from the next shard's lock
+}
+
+// exprMemoShards is how many locks an exprMemo is split across.
+const exprMemoShards = 64
+
+// maxExprMemo bounds each exprMemo, spread over its shards: about 2MB of keys
+// at most, beside the answers.
+const maxExprMemo = 1 << 14
 
 // maxExprKey is the longest expression kept: a longer one is answered afresh,
 // since copying it would cost about what the scan does.
 const maxExprKey = 512
+
+var exprMemoSeed = maphash.MakeSeed()
 
 func (e *exprMemo[T]) get(expr string, answer func(string) T) T {
 	if len(expr) > maxExprKey {
 		return answer(expr)
 	}
 
-	e.mu.Lock()
-	held, ok := e.m[expr]
-	e.mu.Unlock()
+	sh := &e.shards[maphash.String(exprMemoSeed, expr)%exprMemoShards]
+
+	sh.mu.Lock()
+	held, ok := sh.m[expr]
+	sh.mu.Unlock()
 
 	if ok {
 		return held
@@ -42,13 +60,13 @@ func (e *exprMemo[T]) get(expr string, answer func(string) T) T {
 
 	held = answer(expr)
 
-	e.mu.Lock()
-	if e.m == nil || len(e.m) >= maxExprMemo {
-		e.m = make(map[string]T)
+	sh.mu.Lock()
+	if sh.m == nil || len(sh.m) >= maxExprMemo/exprMemoShards {
+		sh.m = make(map[string]T)
 	}
 
-	e.m[strings.Clone(expr)] = held
-	e.mu.Unlock()
+	sh.m[strings.Clone(expr)] = held
+	sh.mu.Unlock()
 
 	return held
 }
