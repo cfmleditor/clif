@@ -1,8 +1,8 @@
 package parser
 
 import (
+	"cmp"
 	"slices"
-	"sort"
 	"strings"
 
 	"go.lsp.dev/uri"
@@ -11,168 +11,38 @@ import (
 	"github.com/cfmleditor/clif/internal/lex"
 )
 
-// ParseFunctionDefs extracts function definitions from CFC content.
+// The entry points below are readings of one parse, ParseWithOptions,
+// shallow so that nothing is typed or settled after the walk. They used to
+// run the script and tag walkers themselves, without the parse's region split
+// by file name, its output-context gate, the whole-file tag function scopes it
+// gives the tag walk, or its seeding of a <cfscript> island with the tag
+// function it sits in, so their answers could differ from a parse of the same
+// file.
+
+// ParseFunctionDefs extracts function definitions from CFC content: a
+// shallow parse's Funcs.
 func ParseFunctionDefs(fileURI uri.URI, content string) []FunctionDef {
-	regions := ClassifyRegions(content)
-
-	var defs []FunctionDef
-
-	for _, r := range regions {
-		if r.Kind == RegionScript {
-			sp := newScriptParser(r.Text, string(fileURI), r.StartLine, nil).asCFScript()
-			sp.parse()
-			defs = append(defs, sp.funcs...)
-		} else {
-			tp := newTagParser(r.Text, string(fileURI))
-			tp.parse()
-			// Adjust lines by region start
-			for i := range tp.funcs {
-				tp.funcs[i].Line += conv.Uint32(r.StartLine)
-			}
-
-			defs = append(defs, tp.funcs...)
-		}
-	}
-
-	return defs
+	return ParseWithOptions(fileURI, content, &ParseOptions{Shallow: true}).Funcs
 }
 
-// ParseComponentRefs extracts component references from source content.
+// ParseComponentRefs extracts component references from source content: a
+// shallow parse's ComponentRefs, in line order.
 func ParseComponentRefs(fileURI uri.URI, content string) []ComponentRef {
-	regions := ClassifyRegions(content)
-
-	var refs []ComponentRef
-
-	for _, r := range regions {
-		if r.Kind == RegionScript {
-			sp := newScriptParser(r.Text, string(fileURI), r.StartLine, nil).asCFScript()
-			sp.parse()
-			refs = append(refs, sp.componentRefs...)
-		} else {
-			tp := newTagParser(r.Text, string(fileURI))
-			tp.parse()
-
-			for i := range tp.componentRefs {
-				tp.componentRefs[i].Line += conv.Uint32(r.StartLine)
-			}
-
-			refs = append(refs, tp.componentRefs...)
-		}
-	}
-
-	sort.Slice(refs, func(i, j int) bool { return refs[i].Line < refs[j].Line })
+	refs := ParseWithOptions(fileURI, content, &ParseOptions{Shallow: true}).ComponentRefs
+	slices.SortStableFunc(refs, func(a, b ComponentRef) int { return cmp.Compare(a.Line, b.Line) })
 
 	return refs
 }
 
-// ParseVars extracts variable declarations from content.
+// ParseVars extracts variable declarations from content: AllVars of a
+// shallow parse that keeps them (ParseOptions.KeepVars). Each is found once
+// by name and line, with its function, and a var or local outside any
+// function is read as variables.
 func ParseVars(content string) []VarDef {
-	found, scopes := varsAndScopes(content)
-
-	return varDefs(found, scopes)
+	return ParseWithOptions("", content, &ParseOptions{Shallow: true, KeepVars: true}).allVars
 }
 
-// varsAndScopes is what each region of content declares, in region order,
-// and the file's function scopes, from one walk of each region. The scopes
-// are found as the parse finds them (extractSignatures): a script region's by
-// its script walk, the tag functions by one pass over the whole file, so a
-// <cffunction> whose body a <cfscript> block splits ends where it ends.
-//
-// A separate finder (findFuncScopesIn) used to supply them, walking every
-// region a second time. Judged against the tree-sitter grammar over the
-// corpus it was wrong where the two differed: it ended 1,381 tag functions
-// early, at the first <cfscript> in their body, and missed 339 script
-// functions the script walk finds (.ai/docs/SCANNER-CONSOLIDATION.md).
-func varsAndScopes(content string) (found [][]VarDef, scopes []FuncScope) {
-	regions, idx := ClassifyRegionsIdx(content)
-
-	return varsAndScopesIn(content, regions, idx)
-}
-
-// varsAndScopesIn is varsAndScopes over regions already split from content,
-// with their line index (nil to build one).
-func varsAndScopesIn(content string, regions []Region, idx LineTable) (found [][]VarDef, scopes []FuncScope) {
-	found, scopes, _ = walkRegions(content, regions, idx, true)
-
-	return found, scopes
-}
-
-// walkRegions is varsAndScopesIn, with the FunctionSpans of what it found.
-// Without vars it is the functions-only reading: a tag region's declarations
-// are not read, and found is nil; a script region is walked as ever, since
-// its functions are what the walk finds.
-func walkRegions(content string, regions []Region, idx LineTable, vars bool) (found [][]VarDef, scopes []FuncScope, spans []FunctionSpan) {
-	if vars {
-		found = make([][]VarDef, len(regions))
-	}
-
-	hasTag := false
-
-	keep := func(sc *FuncScope) {
-		if sc.span != nil {
-			spans = append(spans, *sc.span)
-			sc.span = nil
-		}
-	}
-
-	for i, r := range regions {
-		if r.Kind == RegionScript {
-			sp := newScriptParser(r.Text, "", r.StartLine, nil).asCFScript()
-			sp.baseOffset = r.Offset
-			sp.parse()
-
-			for j := range sp.scopes {
-				keep(&sp.scopes[j])
-			}
-
-			if vars {
-				found[i] = sp.vars
-			}
-
-			scopes = append(scopes, sp.scopes...)
-
-			continue
-		}
-
-		hasTag = true
-
-		if !vars {
-			continue
-		}
-
-		tp := newTagParser(r.Text, "")
-		tp.parse()
-
-		for j := range tp.vars {
-			tp.vars[j].Line += conv.Uint32(r.StartLine)
-		}
-
-		found[i] = tp.vars
-	}
-
-	if hasTag {
-		seen := make(map[int]bool, len(scopes))
-		for _, sc := range scopes {
-			seen[sc.Start] = true
-		}
-
-		for _, sc := range findTagFuncScopesIdx(content, 0, idx, regions) {
-			keep(&sc)
-
-			if !seen[sc.Start] {
-				seen[sc.Start] = true
-				scopes = append(scopes, sc)
-			}
-		}
-	}
-
-	sortScopes(scopes)
-	slices.SortStableFunc(spans, func(a, b FunctionSpan) int { return a.Start - b.Start })
-
-	return found, scopes, spans
-}
-
-// varDefs is ParseVars' answer from each region's declarations, found, and
+// varDefs is AllVars' answer from each region's declarations, found, and
 // the file's function scopes: each declaration once by name and line, with
 // its function, and a var or local outside any function read as variables.
 func varDefs(found [][]VarDef, scopes []FuncScope) []VarDef {
@@ -263,12 +133,10 @@ func VarsInFunc(content string, funcStart, funcEnd int) []string {
 	return names
 }
 
-// FindFuncScopes returns function line ranges in the content, as the parse
-// finds them (varsAndScopes).
+// FindFuncScopes returns function line ranges in the content: the Scopes of
+// a shallow parse that reads nothing else (ParseOptions.ScopesOnly).
 func FindFuncScopes(content string) []FuncScope {
-	_, scopes := varsAndScopes(content)
-
-	return scopes
+	return ParseWithOptions("", content, &ParseOptions{Shallow: true, ScopesOnly: true}).Scopes
 }
 
 // skipFunctionAttrs consumes the attributes a script function declaration may

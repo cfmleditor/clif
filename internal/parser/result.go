@@ -62,6 +62,9 @@ type ParseResult struct {
 	scanAllScopes            bool        // scan all lines including function bodies
 	shallow                  bool        // minimal parse mode
 	interpolateAll           bool        // ParseOptions.InterpolateAllText
+	keepVars                 bool        // ParseOptions.KeepVars
+	scopesOnly               bool        // ParseOptions.ScopesOnly
+	foundVars                [][]VarDef  // with keepVars, each region's declarations, on file lines
 	outputScanned            bool        // importPrefixes is computed
 	output                   outputState // where the tag walk stands in the output contexts
 	importPrefixes           []string    // <cfimport prefix="..."> values, lowercased
@@ -221,6 +224,18 @@ type ParseOptions struct {
 	// outputContext), and reads a tag-free .cfm template as CFScript. It is
 	// the features.outputContextInterpolation switch turned off.
 	InterpolateAllText bool
+	// KeepVars keeps every variable declaration the walk records, so AllVars
+	// answers from this parse rather than walking the file again. ParseVars
+	// and an AllVars asked of a parse without it are a Shallow parse with it.
+	KeepVars bool
+	// ScopesOnly is for a reader that wants the functions' Scopes and
+	// FunctionSpans and nothing else: the tag regions are not walked, since
+	// the whole-file <cffunction> finder gives their functions' scopes and
+	// spans, and the script regions are walked as ever, since their
+	// functions are what that walk finds. Every other answer of such a parse
+	// is partial. FunctionSpansOf and FindFuncScopes read one; with Shallow,
+	// its scopes and spans are a full parse's.
+	ScopesOnly bool
 }
 
 // Parse performs a full file parse: extracts function signatures, component refs,
@@ -316,6 +331,8 @@ func ParseWithOptions(fileURI uri.URI, content string, opts *ParseOptions) *Pars
 		scanAllScopes:            opts.ScanAllScopes,
 		shallow:                  opts.Shallow,
 		interpolateAll:           opts.InterpolateAllText,
+		keepVars:                 opts.KeepVars,
+		scopesOnly:               opts.ScopesOnly,
 	}
 	if len(pr.Resolvers) > 0 {
 		if opts.ResolverSet.Serves(pr.Resolvers) {
@@ -381,6 +398,11 @@ func (pr *ParseResult) mergeRegions(tagScopes []FuncScope) []pendingCall {
 		// string, which is the case it was written for — and which is not a
 		// skip region, because it contains `<cf`.
 		if r.Kind == RegionSkip && !pr.extractCalls {
+			continue
+		}
+
+		// The tag functions' scopes and spans come from tagScopes, below.
+		if pr.scopesOnly && r.Kind != RegionScript {
 			continue
 		}
 
@@ -488,6 +510,10 @@ func (pr *ParseResult) extractSignatures() {
 
 	// Sort scopes by start line to match function order.
 	sortScopes(pr.Scopes)
+
+	if pr.keepVars {
+		pr.allVars, pr.allVarsDone, pr.foundVars = varDefs(pr.foundVars, pr.Scopes), true, nil
+	}
 
 	if pr.extractCalls {
 		pr.fillCallers()
@@ -653,7 +679,14 @@ func (pr *ParseResult) mergeScriptRegion(r *Region, tagScopes []FuncScope, open 
 	key := sp.inFunc
 
 	sp.parse()
-	pr.keepScriptScopeVars(r, sp.vars)
+
+	if !pr.scopesOnly {
+		pr.keepScriptScopeVars(r, sp.vars)
+	}
+
+	if pr.keepVars {
+		pr.foundVars = append(pr.foundVars, sp.vars)
+	}
 
 	// What the block declared local stays local in the regions after it.
 	if key != "" {
@@ -817,6 +850,15 @@ func (pr *ParseResult) mergeTagRegion(r *Region, tagScopes []FuncScope, open *op
 	seededReturn := seed >= 0 && tp.funcs[0].returnVar != ""
 
 	tp.parse()
+
+	if pr.keepVars {
+		vars := slices.Clone(tp.vars)
+		for i := range vars {
+			vars[i].Line += conv.Uint32(r.StartLine)
+		}
+
+		pr.foundVars = append(pr.foundVars, vars)
+	}
 
 	if seed >= 0 {
 		// A return this region found for the function it continues is at a

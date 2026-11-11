@@ -3,6 +3,8 @@ package parser
 import (
 	"slices"
 	"strings"
+
+	"go.lsp.dev/uri"
 )
 
 // functionSpans is a parse's FunctionSpans, for the content they were found
@@ -53,25 +55,16 @@ func (pr *ParseResult) FunctionSpans() []FunctionSpan {
 		return s.list
 	}
 
-	return ParseWithOptions(pr.URI, pr.Content, &ParseOptions{Shallow: true}).FunctionSpans()
+	return FunctionSpansOf(string(pr.URI), pr.Content)
 }
 
-// FunctionSpansOf is FunctionSpans for text there is no parse of: the
-// functions-only reading of the one walk, each region read by the script
-// walk or the tag function finder the parse uses (varsAndScopes), with
-// nothing settled after. It answers as a parse of content would. file is
-// the URI or path the text came from, or "": it is read only for its
-// extension, as the parse reads it, so a tag-free .cfm page of markup is
-// not read as script.
+// FunctionSpansOf is FunctionSpans for text there is no parse of: those of a
+// shallow parse of content that reads nothing else (ParseOptions.ScopesOnly),
+// so it answers as a parse of content does. file is the URI or path the text
+// came from, or "": it is read only for its extension, as the parse reads it,
+// so a tag-free .cfm page of markup is not read as script.
 func FunctionSpansOf(file, content string) []FunctionSpan {
-	regions, idx := ClassifyRegionsIdx(content)
-	if isMarkupTemplate(file, content) {
-		regions, idx = splitCFScriptBlocks(content)
-	}
-
-	_, _, spans := walkRegions(content, regions, idx, false)
-
-	return spans
+	return ParseWithOptions(uri.URI(file), content, &ParseOptions{Shallow: true, ScopesOnly: true}).FunctionSpans()
 }
 
 // FunctionSpanNamed is the one span in spans called name (any case), and

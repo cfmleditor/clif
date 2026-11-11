@@ -206,13 +206,13 @@ func includeWrappersIn(content string, argIncludes []IncludeSite) map[string]Inc
 		return nil
 	}
 
-	scopes := FindFuncScopes(content)
+	// One shallow parse says both which function holds each include and what
+	// that function's arguments are.
+	parsed := ParseWithOptions("", content, &ParseOptions{Shallow: true})
+	scopes, defs := parsed.Scopes, parsed.Funcs
 	lines := NewLineTable(content)
 
-	var (
-		defs     []FunctionDef
-		wrappers map[string]IncludeWrapper
-	)
+	var wrappers map[string]IncludeWrapper
 
 	for _, inc := range argIncludes {
 		line := lines.LineOf(inc.Offset)
@@ -227,10 +227,6 @@ func includeWrappersIn(content string, argIncludes []IncludeSite) map[string]Inc
 
 		if fn == "" {
 			continue
-		}
-
-		if defs == nil {
-			defs = ParseFunctionDefs("", content)
 		}
 
 		for i := range defs {
