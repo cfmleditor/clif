@@ -422,6 +422,11 @@ type Region struct {
 	// after it, so whether text is in an output context is a question about
 	// the file, answered at Offset plus the region-local position.
 	Offset int
+	// Island is set on a tag region cut from a script's ```…``` template (a
+	// Lucee tag island): it lies inside the script region before it, which
+	// holds it as blanks, and its code belongs to the script function around
+	// it (splitTagIslands).
+	Island bool
 }
 
 // Resolver maps a call pattern to a component path.

@@ -84,8 +84,26 @@ func newTagEnds(s string) tagEnds {
 }
 
 // at is tagEndIndex(t.s[from:]): the offset of the '>' ending the tag that
-// opens at from, relative to from, or -1 when the tag has no end.
+// opens at from, relative to from, or -1 when the tag has no end. The '>' of
+// an arrow function's `=>` is not one (arrowContinues).
 func (t *tagEnds) at(from int) int {
+	end := t.atRaw(from)
+
+	for end > 0 && arrowContinues(t.s, from+end) {
+		next := t.atRaw(from + end + 1)
+		if next < 0 {
+			break
+		}
+
+		end += 1 + next
+		t.ltFrom = -1
+	}
+
+	return end
+}
+
+// atRaw is at, reading every '>' outside a quote or comment as the end.
+func (t *tagEnds) atRaw(from int) int {
 	t.ltFrom = -1
 
 	if from > t.lastGT {

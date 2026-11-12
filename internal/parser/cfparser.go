@@ -408,10 +408,12 @@ func ClassifyRegions(content string) []Region {
 // that wants it.
 func ClassifyRegionsIdx(content string) ([]Region, LineTable) {
 	if isScriptFile(content) {
-		return []Region{{Kind: RegionScript, StartLine: 0, Text: content}}, nil
+		return splitTagIslands([]Region{{Kind: RegionScript, StartLine: 0, Text: content}}), nil
 	}
 
-	return splitCFScriptBlocks(content)
+	regions, lines := splitCFScriptBlocks(content)
+
+	return splitTagIslands(regions), lines
 }
 
 // isScriptFile checks whether the first non-whitespace, non-comment token

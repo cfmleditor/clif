@@ -306,7 +306,9 @@ func Parse(fileURI uri.URI, content string, resolvers ...[]Resolver) *ParseResul
 // unless InterpolateAllText asks for the old reading.
 func (pr *ParseResult) classifyRegions() ([]Region, LineTable) {
 	if !pr.interpolateAll && isMarkupTemplate(string(pr.URI), pr.Content) {
-		return splitCFScriptBlocks(pr.Content)
+		regions, lines := splitCFScriptBlocks(pr.Content)
+
+		return splitTagIslands(regions), lines
 	}
 
 	return ClassifyRegionsIdx(pr.Content)
@@ -488,9 +490,14 @@ func (pr *ParseResult) mergeRegions(tagScopes []FuncScope) []pendingCall {
 			continue
 		}
 
-		if r.Kind == RegionScript {
+		switch {
+		case r.Kind == RegionScript:
 			allPendingCalls = append(allPendingCalls, pr.mergeScriptRegion(&r, tagScopes, &open)...)
-		} else {
+		case r.Island:
+			// A tag island's code is the script function's around it, whose
+			// scope the script region before it has just filed.
+			allPendingCalls = append(allPendingCalls, pr.mergeTagRegion(&r, slices.Concat(tagScopes, pr.Scopes), &open)...)
+		default:
 			allPendingCalls = append(allPendingCalls, pr.mergeTagRegion(&r, tagScopes, &open)...)
 		}
 	}
