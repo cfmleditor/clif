@@ -207,7 +207,7 @@ the counting on; in every other build it compiles away.
   runs an `unresolved` scan of the repo's fixtures and of the bundled
   framework stubs, and fails when the scan reads its text more times, or
   parses each file more times, than it does now (ceilings about 5% above:
-  testdata 5.2 passes and 2.5 parses a file, the stubs 2.5 and 2.3). `make
+  testdata 4.9 passes and 2.5 parses a file, the stubs 2.5 and 2.3). `make
   check` and CI's test job run it, alone, since the resolver's caches outlive
   a test. With `CLIF_PASSES_CORPUS` it reports any directories as well. An
   extra walk of each parsed file takes it from 5.6 to 7.7 and fails it.
@@ -276,6 +276,42 @@ is 19.0 (from 20.4). The stubs' batch scan fell from 2.87 to 2.38 passes and
 ContentBox's from 12.45 to 12.07; the ceilings are now 5.2 (testdata) and 2.5
 (stubs). A references-only reading (`FileRefsOnly`) is not counted as a parse,
 since it replaces walks that never were; its tokens count as passes.
+
+**First open, attributed.** Each scanner recorded who made it (a temporary
+hook, not committed), on ContentBox `authors.cfc`'s first open:
+
+| Reader | 7f35e71 | before | after |
+|---|---|---|---|
+| Parse walks: the resolver's (`ParseFile`) | 1.9 (6 parses) | 2.8 | 2.8 |
+| Parse walks: the readers' plain parse (`plainParseText`) | | 3.5 | 3.5 |
+| Parse walks: function spans (`FunctionSpansOf`, source facts) | | 2.4 | 1.6 to 2.4 |
+| Wheels and producer function finders (own walks) | 4.1 | | |
+| Function bodies, Wheels reader and producer plans | | 3.3 | 1.7 |
+| `holdsElementRead` | | 1.1 | 0 |
+| Module configs (WireBox: constructor and assignments) | 3.6 | 3.6 | 3.6 |
+| Total | 12.0 | 19.0 | 15.7 |
+
+- **Fixed:** the Wheels method reader and the producer plans tokenized the
+  same bodies each for itself; a source keeps them once
+  (`sourceInfo.functionBodies`). `holdsElementRead` tokenized every file that
+  mentions `return`; `mayReadElement`, a byte check that errs towards yes,
+  skips 14,385 of 14,996 corpus files and never one of the 230 with an
+  element read. A source whose plain parse is made already takes its spans
+  from it (the order the open asks in decides whether it is).
+- **Tried and dropped:** taking every source's spans from its plain parse.
+  A source asked only for its functions then pays for the heavier parse,
+  and first open rose to 19.9.
+- **Left:** the file the open reads facts from is parsed by the resolver
+  (with lookups) and again as a plain parse (without, so it cannot cycle),
+  about 3 passes each. One parse serving both needs the lookup-dependent
+  typing applied after a lookup-free walk; that is a design change, worth
+  about 3 of the remaining 3.7 passes over 7f35e71. In time, first open is
+  about 16ms against 13ms (the handler's own work; what it starts in the
+  background is counted in passes, not here).
+- **Batch scans** fell with it, measured in the same order: Mura 13.9 to
+  14.1 down to 13.3 to 13.5, ContentBox 12.2 to 12.3 down to 11.7 to 12.0,
+  testdata 4.95 to 4.69 (ceiling now 4.9).
+
 
 ## The plan
 
