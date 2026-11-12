@@ -20,7 +20,15 @@ func TestCFMLCommentEndIsTheGrammarsRule(t *testing.T) {
 		{"html close does not close", `<!--- a --> b ---> c`, " c", true},
 		{"longer dashes close", `<!--- a ----> b`, " b", true},
 		{"longer dashes open", `<!---- a <!----- b ---> c ---> d`, " d", true},
-		{"an opener's dashes are its own", `<!------> a ---> b`, " b", true},
+		{"an opener's dashes are its own", `<!------ a ---> b`, " b", true},
+		// Dashes alone close as the grammar's comment scanner closes them:
+		// three after "<!--" and a '>'. A nested one opens on three and
+		// closes on three more.
+		{"dashes alone close", `<!------> a ---> b`, " a ---> b", true},
+		{"five dashes alone close", `<!-----> a`, " a", true},
+		{"a long run of dashes closes", `<!------------------> <cfset a = 1>`, " <cfset a = 1>", true},
+		{"nested dashes alone open and close", `<!--- a <!------> b ---> c`, " c", true},
+		{"nested five dashes open", `<!--- a <!-----> b ---> c ---> d`, " d", true},
 		{"two dashes do not open", `<!--- a <!-- b ---> c`, " c", true},
 		{"unclosed", `<!--- a <!--- b --->`, "", false},
 	} {

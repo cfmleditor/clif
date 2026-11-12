@@ -43,6 +43,32 @@ func looksLikeCallSpan(body string) bool {
 // cannot swallow the rest of the file — the tag is read exactly as it was
 // before, which is the behaviour this replaces.
 func tagEndIndex(s string) int {
+	end := tagEndIndexRaw(s)
+
+	for end > 0 && arrowContinues(s, end) {
+		next := tagEndIndexRaw(s[end+1:])
+		if next < 0 {
+			break
+		}
+
+		end += 1 + next
+	}
+
+	return end
+}
+
+// arrowContinues reports whether the '>' at gt in s is an arrow function's
+// `=>`, which ends no tag: `<cfset double = (x) => x * 2>` is one tag, as the
+// grammar reads it, where the walk ended it at the arrow and read `x * 2>`
+// as text. In markup `=>` is no attribute the grammar reads either. A tag with
+// no '>' after its arrow keeps the arrow's, as it ended before.
+func arrowContinues(s string, gt int) bool {
+	return gt > 0 && s[gt-1] == '='
+}
+
+// tagEndIndexRaw is tagEndIndex, reading every '>' outside a quote or comment
+// as the end.
+func tagEndIndexRaw(s string) int {
 	// The bulk of the scan stays an IndexByte: a quote before the next '>' is
 	// what makes a false end possible, and only then is there anything to skip.
 	// A byte-at-a-time version of this cost 9% of a tag parse — it ran over

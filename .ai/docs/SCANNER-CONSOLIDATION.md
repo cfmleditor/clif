@@ -829,10 +829,12 @@ lookups, 1,039,713 reassignment checks, 547,580 reach checks) found every
 difference to be the line reader taking markup, JavaScript, comments, tag and
 script-tag attributes, named arguments or struct keys for assignments,
 missing one not first on its line, joining a value wrongly, or missing a
-reassignment its guard gave up on. The exceptions are parse gaps the new
-reader inherits: a `<!-----…----->` comment of dashes alone never closes,
-which hides 16 files' code from the region split and `CFTags`; Lucee tag
-islands in script; and `=>` inside a `<cfset>`. `unresolved` is
+reassignment its guard gave up on. The exceptions were parse gaps the new
+reader inherited, since closed: a `<!-----…----->` comment of dashes alone
+never closed, which hid 16 files' code from the region split and `CFTags`
+(`CFMLCommentEnd` now closes it as the grammar's comment scanner does);
+Lucee tag islands in script (`splitTagIslands` cuts each into a tag region);
+and `=>` inside a `<cfset>` (`arrowContinues`). `unresolved` is
 byte-identical on seven of the eight corpora; RustCFML loses 2 findings, both
 assignments inside a one-line `if` block that the line reader could not see.
 

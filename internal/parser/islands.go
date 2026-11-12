@@ -272,3 +272,121 @@ func javaBlockEnd(src string, open int) int {
 
 	return -1
 }
+
+// A script may also hold CFML tags, in a Lucee tag island:
+//
+//	function render() {
+//		```<cfoutput>#greeting()#</cfoutput>```
+//	}
+//
+// The grammar reads the island's content as tag CFML (cfml_template). The
+// script scanner read it as script, so a <cfset x = …> became an assignment
+// whose value ran on past the island into the next statement, a tag's
+// attribute became one too, and a <cffunction> in one was no function.
+// splitTagIslands blanks each island in its script region, byte for byte and
+// keeping every newline, and gives its content a tag region of its own after
+// that script region, so every reader of regions reads it as tags. The
+// region-level parse files what that tag region holds under the script
+// function around it. A query's SQL island is left to blankNonScript.
+
+// splitTagIslands is regions with each script region's tag islands cut out
+// into tag regions of their own; regions itself when there are none.
+func splitTagIslands(regions []Region) []Region {
+	var out []Region
+
+	for i := range regions {
+		r := regions[i]
+
+		var islands [][2]int
+		if r.Kind == RegionScript && strings.Contains(r.Text, "```") {
+			islands = tagIslands(r.Text)
+		}
+
+		if len(islands) == 0 {
+			if out != nil {
+				out = append(out, r)
+			}
+
+			continue
+		}
+
+		if out == nil {
+			out = append(make([]Region, 0, len(regions)+len(islands)), regions[:i]...)
+		}
+
+		text := r.Text
+		b := []byte(text)
+
+		for _, is := range islands {
+			for j := is[0] - 3; j < is[1]+3; j++ {
+				if b[j] != '\n' && b[j] != '\r' {
+					b[j] = ' '
+				}
+			}
+		}
+
+		r.Text = string(b)
+		out = append(out, r)
+
+		for _, is := range islands {
+			out = append(out, Region{
+				Kind:      RegionTag,
+				StartLine: r.StartLine + strings.Count(text[:is[0]], "\n"),
+				Text:      text[is[0]:is[1]],
+				Offset:    r.Offset + is[0],
+				Island:    true,
+			})
+		}
+	}
+
+	if out == nil {
+		return regions
+	}
+
+	return out
+}
+
+// tagIslands are the content spans of src's tag islands: each ``` the script
+// scanner meets as code, not in a string or a comment, to the next ```. A
+// query's SQL island is not one.
+func tagIslands(src string) [][2]int {
+	var out [][2]int
+
+	for pos := 0; pos < len(src); {
+		open := scriptBackticks(src, pos)
+		if open < 0 {
+			break
+		}
+
+		from := open + 3
+
+		end := strings.Index(src[from:], "```")
+		if end < 0 {
+			break
+		}
+
+		end += from
+
+		if !opensScriptQuery(src, open) {
+			out = append(out, [2]int{from, end})
+		}
+
+		pos = end + 3
+	}
+
+	return out
+}
+
+// scriptBackticks is the offset of the first ``` at or after pos that the
+// script scanner reads as code, or -1.
+func scriptBackticks(src string, pos int) int {
+	sc := NewScriptScanner(src[pos:])
+
+	for tok := sc.NextSkipComments(); tok.Kind != TokEOF; tok = sc.NextSkipComments() {
+		if at := pos + tok.Offset; tok.Value == "`" && strings.HasPrefix(src[at:], "```") {
+			return at
+		}
+	}
+
+	return -1
+}
