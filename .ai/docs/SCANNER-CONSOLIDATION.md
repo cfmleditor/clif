@@ -785,6 +785,57 @@ receiver typing and wants its own differential.
 
 For all three, `unresolved` is byte-identical on eight corpora.
 
+### Done: guards and request counts read the parse
+
+The guards (`guardedByExistsCheck`, `guardedInstanceOf`,
+`methodExistenceGuarded`) no longer walk a window of the file's tokens. They
+read the calls the parse recorded (`guardCalls`): its own when it holds them
+(`ParseResult.RecordsCallsOf`), the file's plain parse's otherwise, which now
+records `structKeyExists`, `keyExists`, `isDefined`, `isNull`,
+`isInstanceOf`, `checkForInstanceOf` and `structInsert`. Over 14,996 files
+every guard answers as the token walk did, on 790,759 questions (659 of them
+held), and the plain parse and an `ExtractCalls` parse agree on every one. A
+guard written in markup outside any output now guards nothing.
+`requestWriteCounts` counts the parse's assignments and `structInsert(
+request, "k" )` calls rather than searching the text. It differs from the
+search on 60 keys, all corrections: 37 keys beginning with `$`, which the
+search could not read; 9 written through `variable=`, `returnVariable=` or
+`result=`; 5 compound or step writes; and 9 the search wrongly took for
+writes (a member of another variable named `request`, and `objectname=` read
+as `name=`). Its comparison with the producer plans' count stays
+conservative either way. `fileCodeOn` and `fileCodeBetween` are gone. Still
+on the scanner: the check that a guard controls the call it precedes
+(`controls`), which needs an `if` block's span on the call record, and the
+producer plans' statement reader. `unresolved` is byte-identical on eight
+corpora.
+
+### Done: receiver typing reads the parse's assignments
+
+Receiver typing's last-assignment lookup (`localAssignmentAt`), the native
+reassignment and reach checks (`nativeReassignedAt`,
+`nativeClaimMayNotReach`), `reachingUnion`'s walk back through a name's
+assignments, `criteriaList` and `assignedFromUntypedFunction` read the
+parse's `Assignment` records (`lastAssignmentTo`) in place of a table of
+lines beginning `name =` (`matchSourceAssignment`), whose values
+`joinAssignmentLine` joined over the lines after them. A typing assignment is
+an `=` that starts its statement or is a `var` declaration, to the name bare
+or after `local.` or `variables.`; a for loop's initializer is not one. Its
+value is `Assignment.ValueLine`, the parse's value written as one line. The
+line reader's guard against named arguments, which tokenised everything above
+an assignment and gave up past 4,096 tokens or when markup above left a
+bracket open, is gone with it, as are `contentFacts` and
+`parser.WithoutTrailingComment`. A differential over 14,996 files (683,323
+lookups, 1,039,713 reassignment checks, 547,580 reach checks) found every
+difference to be the line reader taking markup, JavaScript, comments, tag and
+script-tag attributes, named arguments or struct keys for assignments,
+missing one not first on its line, joining a value wrongly, or missing a
+reassignment its guard gave up on. The exceptions are parse gaps the new
+reader inherits: a `<!-----…----->` comment of dashes alone never closes,
+which hides 16 files' code from the region split and `CFTags`; Lucee tag
+islands in script; and `=>` inside a `<cfset>`. `unresolved` is
+byte-identical on seven of the eight corpora; RustCFML loses 2 findings, both
+assignments inside a one-line `if` block that the line reader could not see.
+
 ## Speed is an option of the one walker, not a second walker
 
 Some walkers exist because they do less. `globalScriptParser` reads only
