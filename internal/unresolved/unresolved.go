@@ -683,7 +683,7 @@ func isOutside(rel string) bool {
 // Parse is file parsed as a scan checks it: with the resolver's lookups, so
 // what a variable is assigned from is typed the same way in both commands.
 func Parse(resolver *resolve.Resolver, file, content string) *parser.ParseResult {
-	return resolver.ParseFile(file, content, resolve.BatchSpec())
+	return resolver.ScanParse(file, content)
 }
 
 // ruleTally counts calls by the classify rule that decided them.

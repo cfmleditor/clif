@@ -1,10 +1,13 @@
 package resolve
 
 import (
+	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/cfmleditor/clif/internal/index"
 	"github.com/cfmleditor/clif/internal/parser"
+	"github.com/cfmleditor/clif/internal/vfs"
 )
 
 // startFlight makes key's flight on a goroutine of its own, as another worker
@@ -113,5 +116,25 @@ func TestALongWaitGivesUp(t *testing.T) {
 
 	if got, mine := r.joinHandlerFlight("/w/d.cfc"); mine || got != nil {
 		t.Fatalf("a flight that never landed answered: %+v", got)
+	}
+}
+
+// The scan takes the parse a caller's inference already made of the file, and
+// parses again when the file's text changed since.
+func TestTheScanTakesTheCallersParse(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "A.cfc")
+	r := &Resolver{FS: vfs.OS{}, Index: index.New()}
+	held := &parser.ParseResult{Content: "component {}"}
+
+	view := r.forCaller(dir)
+	view.handlerCache = map[string]*parser.ParseResult{pathKey(file): held}
+
+	if got := r.ScanParse(file, "component {}"); got != held {
+		t.Fatal("the scan parsed a file the caller's inference already holds")
+	}
+
+	if got := r.ScanParse(file, "component { function f() {} }"); got == held || len(got.Funcs) != 1 {
+		t.Errorf("the scan took a parse of other text: %+v", got)
 	}
 }

@@ -358,8 +358,26 @@ func (r *Resolver) moduleFiles(module, sub, ext string) []string {
 	return out
 }
 
-// handlerParse is a handler parsed as a scan parses it, once for the life of
-// the resolver, as handoffIndex is.
+// ScanParse is file, holding content, parsed as a batch scan parses it
+// (BatchSpec). It is the parse the argument inference of the file's callers
+// reads (handlerParse, in the view for the file's own application), and when
+// that view already holds it the scan takes it rather than parsing again: a
+// scan parsed each file once for itself and again as a caller of what it
+// calls, with options that differed only in what the second left out. The
+// scan's own parse is not kept for later: kept for every file it cost Lucee
+// 18% more memory, for the share of files a caller's inference never asks.
+// A parse held for other text, as when the file changed since, is not used.
+func (r *Resolver) ScanParse(file, content string) *parser.ParseResult {
+	if pr, ok := r.forCaller(filepath.Dir(file)).cachedHandlerParse(pathKey(file)); ok && pr.Content == content {
+		return pr
+	}
+
+	return r.ParseFile(file, content, BatchSpec())
+}
+
+// handlerParse is a handler parsed as a scan parses it (BatchSpec, the same
+// options ScanParse uses), once for the life of the resolver, as handoffIndex
+// is.
 func (r *Resolver) handlerParse(path string) *parser.ParseResult {
 	key := pathKey(path)
 
@@ -418,20 +436,12 @@ func (r *Resolver) parseHandler(path, key string) (*parser.ParseResult, bool) {
 
 	handlerParses.Add(1)
 
-	text, err := r.readText(path)
+	content, err := r.readText(path)
 	if err != nil {
 		return nil, false
 	}
 
-	content := text
-
-	pr := parser.ParseWithOptions(cfpath.ToURI(path), content, &parser.ParseOptions{
-		Resolvers: r.Resolvers, ResolverSet: r.parseResolverSet(r.Resolvers), FuncLookup: r.FuncLookup(filepath.Dir(path)),
-		BeanLookup: r.InjectionBeanLookup(path), PropertyBeanLookup: r.InjectionPropertyLookup(path),
-		SetterLookup: r.SetterLookup(path), ConstructorLookup: r.ConstructorLookup(path),
-		ExtractCalls: true, ScanAllScopes: true,
-	})
-	pr.FuncLookup = r.FuncLookup(filepath.Dir(path))
+	pr := r.ParseFile(path, content, BatchSpec())
 
 	// A parse that read an unfinished outer file is that caller's answer, not
 	// this file's (handler_reentry.go).
