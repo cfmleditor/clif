@@ -96,3 +96,77 @@ func TestCodeAfterAnAllDashCommentIsRead(t *testing.T) {
 		t.Errorf("calls %v, want svc.run", calls)
 	}
 }
+
+// A function body read alone, as after an edit inside it, reads its tag
+// island as the whole parse does: as tags, in the function's scope, and not
+// again as script.
+func TestABodyReadAloneReadsItsTagIsland(t *testing.T) {
+	src := "component {\n function a() {\n  ```<cfset var x = svc.make()>```\n  x.go();\n }\n}"
+	pr := ParseWithOptions("file:///t.cfc", src, &ParseOptions{ExtractCalls: true})
+
+	names := func() []string {
+		var out []string
+		for _, c := range pr.FuncCalls(1, 4) {
+			out = append(out, c.Variable+"."+c.FuncName)
+		}
+
+		slices.Sort(out)
+
+		return out
+	}
+
+	before := names()
+
+	pr.ApplyEdit(3, 2, 3, 2, " ")
+
+	if after := names(); !slices.Equal(after, before) {
+		t.Errorf("a()'s calls after an edit %v, want %v as the whole parse read them", after, before)
+	}
+}
+
+// A <cffunction> in a tag island has a scope of its own, in a parse that
+// reads scopes alone as in the whole parse.
+func TestAnIslandFunctionHasAScope(t *testing.T) {
+	src := "component {\n ```\n <cffunction name=\"tagged\">\n  <cfreturn 1>\n </cffunction>\n ```\n function b() { return 2; }\n}"
+
+	for _, opts := range []*ParseOptions{{}, {Shallow: true, ScopesOnly: true}} {
+		pr := ParseWithOptions("file:///t.cfc", src, opts)
+
+		var names []string
+		for _, s := range pr.Scopes {
+			names = append(names, s.Name)
+		}
+
+		if !slices.Contains(names, "tagged") {
+			t.Errorf("scopes %v (scopes only %v), want the island's tagged", names, opts.ScopesOnly)
+		}
+	}
+}
+
+// A <cffunction> after a comment of five dashes is a function with a scope:
+// the scope pre-pass reads comments with the one comment reader.
+func TestAFunctionAfterAFiveDashCommentHasAScope(t *testing.T) {
+	src := "<!----->\n<cfcomponent>\n<cffunction name=\"f\">\n<cfset var x = createObject(\"component\", \"a.B\")>\n</cffunction>\n</cfcomponent>"
+	pr := ParseWithOptions("file:///t.cfc", src, &ParseOptions{ExtractCalls: true})
+
+	if len(pr.Scopes) != 1 || pr.Scopes[0].Name != "f" {
+		t.Fatalf("scopes %+v, want f", pr.Scopes)
+	}
+
+	if refs, _ := pr.FuncRefs(pr.Scopes[0].Start, pr.Scopes[0].End); len(refs) != 1 {
+		t.Errorf("f's refs %+v, want x", refs)
+	}
+}
+
+// A '<' in an arrow's body is an operator, and markup's `value=>` is an
+// attribute, not an arrow.
+func TestArrowsAndMarkupEndTagsAsTheGrammarDoes(t *testing.T) {
+	src := "<cfset f = (a, b) => a<b>\n<cfset g = 1>"
+	if tags := CFTags(src, "cfset"); len(tags) != 2 || tags[0].Body() != "f = (a, b) => a<b" {
+		t.Errorf("cfset tags %+v", tags)
+	}
+
+	if end := tagEndIndex("<option value=>None</option>"); end != len("<option value=") {
+		t.Errorf("markup `value=>` ended at %d, want its '>'", end)
+	}
+}

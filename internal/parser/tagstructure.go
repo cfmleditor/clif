@@ -203,6 +203,16 @@ func tagEnd(ends *tagEnds, from int) int {
 		lt = ends.ltAt
 	} else {
 		lt = strings.IndexByte(content[from:from+gt], '<')
+
+		// A '<' in an arrow function's body, past its `=>`, is an operator,
+		// not a tag the tag holds: the tag runs past the arrow (tagEnds.at).
+		// Only the text before the '<' is searched, so a tag with no end does
+		// not cost a scan to the end of the file for an arrow.
+		if lt > 0 {
+			if arrow := strings.Index(content[from:from+lt], "=>"); arrow >= 0 && arrowContinues(content[from:], arrow+1) {
+				lt = -1
+			}
+		}
 	}
 
 	if lt >= 0 {

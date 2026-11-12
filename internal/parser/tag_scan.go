@@ -60,10 +60,20 @@ func tagEndIndex(s string) int {
 // arrowContinues reports whether the '>' at gt in s is an arrow function's
 // `=>`, which ends no tag: `<cfset double = (x) => x * 2>` is one tag, as the
 // grammar reads it, where the walk ended it at the arrow and read `x * 2>`
-// as text. In markup `=>` is no attribute the grammar reads either. A tag with
-// no '>' after its arrow keeps the arrow's, as it ended before.
+// as text. An arrow follows its parameters' ')' or a space; an attribute's
+// `=` follows its name, so markup's `<option value=>` still ends at its '>'.
+// A tag with no '>' after its arrow keeps the arrow's, as it ended before.
 func arrowContinues(s string, gt int) bool {
-	return gt > 0 && s[gt-1] == '='
+	if gt < 2 || s[gt-1] != '=' {
+		return false
+	}
+
+	switch s[gt-2] {
+	case ')', ' ', '\t', '\n', '\r':
+		return true
+	}
+
+	return false
 }
 
 // tagEndIndexRaw is tagEndIndex, reading every '>' outside a quote or comment

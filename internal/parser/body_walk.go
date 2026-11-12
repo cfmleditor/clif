@@ -208,7 +208,9 @@ func (pr *ParseResult) bodyRegions(body *FuncScope) []Region {
 			start = pr.lineAt(lo)
 		}
 
-		cut = append(cut, Region{Kind: r.Kind, StartLine: start, Offset: lo, Text: pr.Content[lo:hi]})
+		// From the region's own text, not the file's: a script region holds
+		// its tag islands as blanks, and the island is a region of its own.
+		cut = append(cut, Region{Kind: r.Kind, StartLine: start, Offset: lo, Text: r.Text[lo-r.Offset : hi-r.Offset], Island: r.Island})
 	}
 
 	return cut
@@ -370,6 +372,14 @@ func (pr *ParseResult) shiftSplit(old string, startOff, removed int, newText str
 	delta := len(newText) - removed
 	lineDelta := strings.Count(newText, "\n") - strings.Count(old[startOff:endOff], "\n")
 	editLine := strings.Count(old[:startOff], "\n")
+
+	// A file with tag islands is split again: a script region holds its
+	// islands as blanks, which text cut from content would not.
+	for i := range b.regions {
+		if b.regions[i].Island {
+			return
+		}
+	}
 
 	regions := make([]Region, len(b.regions))
 	holders := 0
