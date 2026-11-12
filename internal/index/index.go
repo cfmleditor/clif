@@ -671,6 +671,14 @@ func (idx *Index) indexParseResult(fileURI uri.URI, content string, pr *parser.P
 	refs := parser.CompactRefs(pr.ComponentRefs)
 	thisVars := cloneStrings(pr.ThisVars())
 
+	// The includes the parse's walk recorded, when it parsed this text.
+	var includes []string
+	if pr.Content == content {
+		includes = pr.Includes()
+	} else {
+		includes = parser.ExtractIncludes(content)
+	}
+
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
 
@@ -694,7 +702,7 @@ func (idx *Index) indexParseResult(fileURI uri.URI, content string, pr *parser.P
 		idx.entityRead[fk] = struct{}{}
 	}
 
-	idx.setIncludesLocked(fileURI, parser.ExtractIncludes(content))
+	idx.setIncludesLocked(fileURI, includes)
 
 	fileDefs := make([]*parser.FunctionDef, 0, len(funcs))
 

@@ -42,8 +42,9 @@ func (s *Server) handleDocumentLink(_ context.Context, rawParams []byte) (any, e
 
 	var docLinks []parser.DocumentLink
 	if pr != nil {
-		// The document cache's parse does not extract links: they are read
-		// from its text here, once per content.
+		// The document cache's parse records includes, not links: they are
+		// read here, once per content, by a parse that reads the file's
+		// references alone.
 		docLinks = pr.DocumentLinks()
 	} else {
 		// Fallback: full scan

@@ -118,6 +118,23 @@ type scannerAux struct {
 	// a string inside one reads as interpStrings reads it, one outside as
 	// plain. NewSourceScanner sets them for a tag file.
 	scriptSpans [][2]int
+	// refs, set on a parse's scanner of a script region, records the file
+	// references in the tokens the walk reads (file_refs.go): each one is
+	// handed over as it is first produced, past any comment.
+	refs *scriptRefs
+}
+
+// watch has s hand each token it produces to w (nil to stop).
+func (s *Scanner) watch(w *scriptRefs) {
+	if s.aux == nil {
+		if w == nil {
+			return
+		}
+
+		s.aux = &scannerAux{}
+	}
+
+	s.aux.refs = w
 }
 
 // replayTokens is the tokens a replaying scanner reads, or nil.
@@ -525,6 +542,10 @@ func (s *Scanner) NextSkipComments() Token {
 		case TokCFComment, TokLineComment, TokNewline:
 			continue
 		default:
+			if s.aux != nil && s.aux.refs != nil {
+				s.aux.refs.see(tok)
+			}
+
 			return tok
 		}
 	}

@@ -109,10 +109,10 @@ func (pr *ParseResult) oldParseScriptBody(body string, start, funcStart int) ([]
 	sp := newScriptParser(body, string(pr.URI), funcStart, pr.Resolvers)
 	sp.baseOffset = start
 	sp.resolverSet = pr.resolverSet
-	sp.extractLinks = true
 	sp.argumentTypes = pr.argumentTypeLookup()
 	sp.imports = pr.imports
 	sp.parse()
+	sp.fileLinks(oldRegionLinks(body, true, funcStart))
 	sp.componentRefs, sp.funcRefs = pr.oldTypeBodyPendingCalls(sp.componentRefs, sp.funcRefs, sp.pendingCalls)
 
 	refs, links := sp.componentRefs, sp.links
@@ -136,9 +136,9 @@ func (pr *ParseResult) oldParseTagBody(body string, start, funcStart int) ([]Com
 	tp.srcOffset = start
 	tp.resolvers = pr.Resolvers
 	tp.resolverSet = pr.resolverSet
-	tp.extractLinks = true
 	tp.argumentTypes = pr.argumentTypeLookup()
 	tp.parse()
+	tp.fileLinks(oldRegionLinks(body, false, 0))
 	tp.componentRefs, tp.funcRefs = pr.oldTypeBodyPendingCalls(tp.componentRefs, tp.funcRefs, tp.pendingCalls)
 
 	refs, links := tp.componentRefs, tp.links

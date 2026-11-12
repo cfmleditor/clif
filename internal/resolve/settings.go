@@ -320,10 +320,20 @@ type resolverSetKey struct {
 func (r *Resolver) IndexForBatch(f, content string) (includes []string) {
 	r.IndexCallerFile(f, content)
 
-	if !cfpath.IsCFCFile(f) {
-		r.recordTagCalls(f, content, nil)
+	// The custom tag calls are read only where an argument is inferred from
+	// them, and recorded by the same walk as the includes.
+	tags := len(r.InferArgsFiles) > 0 && mayCallCustomTag(content)
 
-		includes = parser.ExtractIncludes(content)
+	if !cfpath.IsCFCFile(f) {
+		// One parse reading the file's references alone, read as text with
+		// no name (parser.IncludeSites), serves both.
+		var refs *parser.ParseResult
+		if tags || parser.IndexFold(content, "include") >= 0 {
+			refs = parser.ParseWithOptions("", content, &parser.ParseOptions{FileRefsOnly: true, ExtractLinks: tags})
+			includes = refs.Includes()
+		}
+
+		r.recordTagCalls(f, content, refs)
 		r.Index.SetIncludes(cfpath.ToURI(f), includes)
 
 		return includes
@@ -333,7 +343,9 @@ func (r *Resolver) IndexForBatch(f, content string) (includes []string) {
 	// and not by what another file's function declares it returns: indexing runs
 	// in parallel, and a return read from a file not yet indexed would make the
 	// index depend on which worker got there first.
-	pr := r.ParseFile(f, content, IndexSpec())
+	spec := IndexSpec()
+	spec.Links = tags
+	pr := r.ParseFile(f, content, spec)
 	r.recordTagCalls(f, content, pr)
 	r.Index.IndexParsed(cfpath.ToURI(f), content, pr)
 

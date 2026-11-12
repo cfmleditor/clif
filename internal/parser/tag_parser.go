@@ -34,8 +34,10 @@ type tagParser struct {
 	lineIndex     LineTable // byte offset of each line start
 	resolvers     []Resolver
 	resolverSet   *ResolverSet
-	extractLinks  bool // whether to extract document links
-	extractCalls  bool // whether to extract all call sites
+	// refs reads the region's file references at each tag the walk meets,
+	// when the parse records them (file_refs.go).
+	refs         *tagRefReader
+	extractCalls bool // whether to extract all call sites
 	// callNames, lowercased, are the only names whose calls are recorded
 	// (call_names.go); nil records every call.
 	callNames []string
@@ -134,6 +136,10 @@ func (p *tagParser) parse() {
 
 		idx += pos
 
+		if p.refs != nil {
+			p.refs.reach(idx)
+		}
+
 		// Everything between the previous tag and this one is text, and in a
 		// tag file that is where #...# interpolation lives: a <cfoutput> body,
 		// and the attribute list of any tag the fast skip below declines (which
@@ -193,8 +199,8 @@ func (p *tagParser) parse() {
 		p.stampFlow(mark)
 	}
 
-	if p.extractLinks {
-		p.extractAllLinks()
+	if p.refs != nil {
+		p.refs.reach(len(p.src))
 	}
 }
 
@@ -1053,10 +1059,10 @@ func (p *tagParser) addCall(call *CallSite) {
 	}
 }
 
-// extractAllLinks scans source lines for document links, routing them to
-// global links or funcLinks based on which scope the line falls in.
-func (p *tagParser) extractAllLinks() {
-	p.funcLinks = extractLinksByScope(p.src, false, 0, p.scopes, p.funcLinks, &p.links)
+// fileLinks files links, the region's, under the function each is in, or
+// in p.links when it is in none.
+func (p *tagParser) fileLinks(links []DocumentLink) {
+	p.funcLinks = extractLinksByScope(links, p.scopes, p.funcLinks, &p.links)
 }
 
 // isWhitespace returns true if the byte is any whitespace character.
@@ -1097,13 +1103,12 @@ func hasCFTagPrefix(tag, prefix string) bool {
 	return isWhitespace(c)
 }
 
-// extractLinksByScope files the links in src (a script region when script,
-// else markup; regionLinks), its lines counted from lineNum, under the
-// function each is in, or in links when it is in none.
-func extractLinksByScope(src string, script bool, lineNum int, scopes []FuncScope, funcLinks map[string][]DocumentLink, links *[]DocumentLink) map[string][]DocumentLink {
+// extractLinksByScope files found, a region's links, under the function
+// each is in, or in links when it is in none.
+func extractLinksByScope(found []DocumentLink, scopes []FuncScope, funcLinks map[string][]DocumentLink, links *[]DocumentLink) map[string][]DocumentLink {
 	scopeIdx := 0
 
-	for _, link := range regionLinks(src, script, lineNum) {
+	for _, link := range found {
 		line := int(link.Line)
 
 		for scopeIdx < len(scopes) && line > scopes[scopeIdx].End {
