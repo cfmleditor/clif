@@ -5,10 +5,6 @@ package parser
 import (
 	"slices"
 	"strings"
-	"time"
-
-	"github.com/cfmleditor/clif/internal/conv"
-	"github.com/cfmleditor/clif/internal/log"
 )
 
 // GlobalVars returns this.x and variables.x names declared outside any function.
@@ -70,8 +66,11 @@ func (pr *ParseResult) AllVars() []VarDef {
 	return pr.allVars
 }
 
-// FuncVars returns local/arguments variable names within the function at [start, end].
-// Results are cached; call InvalidateFunc to force re-parse.
+// FuncVars returns the local and arguments names declared on the lines of the
+// function at [start, end], nested functions and closures included: the
+// parse's walk's declarations there, or, where an edit has changed the body
+// since, its walk of that body alone. Results are cached; InvalidateFunc
+// marks a body changed.
 func (pr *ParseResult) FuncVars(funcStart, funcEnd int) []string {
 	key := funcKey(funcStart, funcEnd)
 
@@ -83,9 +82,17 @@ func (pr *ParseResult) FuncVars(funcStart, funcEnd int) []string {
 	}
 	pr.funcVarsMu.Unlock()
 
-	vars := pr.parseFuncBody(funcStart, funcEnd)
+	b := &pr.bodies
+	b.mu.Lock()
+	pr.readBody(FuncScope{Start: funcStart, End: funcEnd}, false)
+	vars := b.funcVarNames(funcStart, funcEnd)
+	b.mu.Unlock()
 
 	pr.funcVarsMu.Lock()
+	if pr.funcVars == nil {
+		pr.funcVars = make(map[string][]string)
+	}
+
 	pr.funcVars[key] = vars
 	pr.funcVarsMu.Unlock()
 
@@ -323,23 +330,7 @@ func (pr *ParseResult) HasScopedAssignment(scope Scope, name string) bool {
 		}
 	}
 
-	pr.mu.Lock()
-	cached, ok := pr.anyScopedVars[scope]
-	pr.mu.Unlock()
-
-	if !ok {
-		cached = pr.computeAnyScopedVars(scope)
-
-		pr.mu.Lock()
-		if pr.anyScopedVars == nil {
-			pr.anyScopedVars = make(map[Scope][]string)
-		}
-
-		pr.anyScopedVars[scope] = cached
-		pr.mu.Unlock()
-	}
-
-	for _, n := range cached {
+	for _, n := range pr.anyScopedNames(scope) {
 		if strings.EqualFold(n, name) {
 			return true
 		}
@@ -348,103 +339,50 @@ func (pr *ParseResult) HasScopedAssignment(scope Scope, name string) bool {
 	return false
 }
 
-// computeAnyScopedVars scans every function body in the file for assignments in the
-// given scope, so HasScopedAssignment can find a VARIABLES./THIS.-scoped assignment
-// regardless of which function set it.
-func (pr *ParseResult) computeAnyScopedVars(scope Scope) []string {
+// anyScopedNames is every name the walk declared in scope (ScopeVariables or
+// ScopeThis) inside any function body, in the order it met them, each once,
+// with every body an edit changed walked again first.
+func (pr *ParseResult) anyScopedNames(scope Scope) []string {
+	b := &pr.bodies
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if names, ok := b.anyScoped[scope]; ok {
+		return names
+	}
+
+	scopes := slices.Clone(pr.Scopes)
+	for _, s := range scopes {
+		pr.readBody(s, false)
+	}
+
+	inFunc := scopeIndex(scopes, true)
 	seen := make(map[string]bool)
 
 	var names []string
 
-	for _, fs := range pr.Scopes {
-		start, end := pr.lineOffsets(fs.Start, fs.End)
-		if start < 0 {
-			continue
-		}
+	for i := range b.vars {
+		v := &b.vars[i]
+		if v.Scope == scope && !seen[v.Name] && inFunc(int(v.Line)) >= 0 {
+			seen[v.Name] = true
 
-		body := pr.Content[start:end]
-
-		regionKind := RegionScript
-
-		for _, r := range pr.Regions {
-			if r.StartLine <= fs.Start {
-				regionKind = r.Kind
-			}
-		}
-
-		var bodyVars []VarDef
-
-		if regionKind == RegionScript {
-			sp := newScriptParser(body, "", fs.Start, nil)
-			sp.parse()
-			bodyVars = sp.vars
-		} else {
-			tp := newTagParser(body, "")
-			tp.parse()
-			bodyVars = tp.vars
-		}
-
-		for _, v := range bodyVars {
-			if v.Scope == scope && !seen[v.Name] {
-				seen[v.Name] = true
-
-				names = append(names, v.Name)
-			}
+			names = append(names, v.Name)
 		}
 	}
+
+	if b.anyScoped == nil {
+		b.anyScoped = make(map[Scope][]string)
+	}
+
+	b.anyScoped[scope] = names
 
 	return names
 }
 
-// InvalidateFunc clears the body-dependent variable, ref and link caches.
+// InvalidateFunc marks the body of the function at [start, end] changed: the
+// next question about it, or about a function nested in it, walks it again.
 func (pr *ParseResult) InvalidateFunc(funcStart, funcEnd int) {
-	key := funcKey(funcStart, funcEnd)
-
-	pr.funcVarsMu.Lock()
-	delete(pr.funcVars, key)
-	pr.funcVarsMu.Unlock()
-	// Ref and link answers depend on the current body as well as its vars.
-	pr.funcRefsMu.Lock()
-	delete(pr.funcRefsMap, key)
-	pr.memberSnapshot = nil
-	delete(pr.funcLinksMap, key)
-	pr.funcRefsMu.Unlock()
-}
-
-// parseFuncBody parses a single function body for variable declarations.
-func (pr *ParseResult) parseFuncBody(funcStart, funcEnd int) (names []string) {
-	defer func() {
-		if r := recover(); r != nil {
-			log.Recovered(pr.log, "parse panic in parseFuncBody", r, "uri", string(pr.URI), "funcStart", funcStart)
-		}
-	}()
-
-	start, end := pr.lineOffsets(funcStart, funcEnd)
-	if start < 0 {
-		return nil
-	}
-
-	body := pr.Content[start:end]
-
-	t := time.Now()
-	sp := newScriptParser(body, "", 0, nil)
-	sp.parse()
-
-	seen := make(map[string]bool)
-
-	for _, v := range sp.vars {
-		if v.Scope == ScopeLocal || v.Scope == ScopeArguments {
-			if !seen[v.Name] {
-				seen[v.Name] = true
-
-				names = append(names, v.Name)
-			}
-		}
-	}
-
-	pr.logDebug("parseFuncBody", "uri", string(pr.URI), "funcStart", funcStart, "vars", len(names), "dur", time.Since(t))
-
-	return names
+	pr.staleBody(funcStart, funcEnd)
 }
 
 // scopedVarsLocked fills variablesVars, thisVars and globalVars from one scan
@@ -483,58 +421,39 @@ func (pr *ParseResult) computeScopedVars() (variables, this []string) {
 		}
 	}
 
-	for _, r := range pr.Regions {
-		if r.Kind == RegionSkip {
-			continue
-		}
+	b := &pr.bodies
+	b.mu.Lock()
+	defer b.mu.Unlock()
 
-		var regionVars []VarDef
-
-		// A script region's declarations are the main script walk's: kept from
-		// the parse, or, where an edit inside a function has moved its lines,
-		// walked again by the same rules.
-		if kept, ok := pr.keptScriptScopeVars(r.Offset); ok && r.Kind == RegionScript {
-			regionVars = kept
-		} else if r.Kind == RegionScript {
-			sp := newScriptParser(r.Text, "", r.StartLine, nil).asCFScript()
-			sp.parse()
-			regionVars = sp.vars
-		} else if kept, ok := pr.keptTagScopeVars(r.Offset); ok {
-			regionVars = kept
-		} else {
-			tp := newTagParser(r.Text, "")
-			tp.parse()
-
-			for i := range tp.vars {
-				tp.vars[i].Line += conv.Uint32(r.StartLine)
-			}
-
-			regionVars = tp.vars
-		}
-
-		for i := range regionVars {
-			v := &regionVars[i]
-			if v.Scope != ScopeVariables && v.Scope != ScopeThis && v.Scope != ScopeLocal {
-				continue
-			}
-
-			if fs := findFuncScope(int(v.Line), pr.Scopes); fs.Start != -1 {
-				continue // inside a function
-			}
-
-			// A var or local outside any function is a variables one.
-			if v.Scope == ScopeLocal {
-				top := *v
-				top.Scope = ScopeVariables
-				v = &top
-			}
-
-			note(v)
-		}
+	initScope := pr.initFuncScope()
+	if initScope.Start != -1 {
+		pr.readBody(initScope, false)
 	}
 
-	for i, bodyVars := 0, pr.initBodyVars(); i < len(bodyVars); i++ {
-		note(&bodyVars[i])
+	inFunc := scopeIndex(pr.Scopes, true)
+
+	// The walk's declarations outside every function. A var or local there
+	// is a variables one in a script region; a tag region's <cfset var> there
+	// declares nothing.
+	for i := range b.vars {
+		v := b.vars[i].VarDef
+
+		switch {
+		case v.Scope != ScopeVariables && v.Scope != ScopeThis && v.Scope != ScopeLocal,
+			v.Scope == ScopeLocal && b.vars[i].tag,
+			inFunc(int(v.Line)) >= 0:
+			continue
+		case v.Scope == ScopeLocal:
+			v.Scope = ScopeVariables
+		}
+
+		note(&v)
+	}
+
+	if initScope.Start != -1 {
+		for _, v := range b.varsOn(initScope.Start, initScope.End) {
+			note(&v.VarDef)
+		}
 	}
 
 	return vars.names, thisNames.names
@@ -551,41 +470,6 @@ func (n *scopeNames) add(name string) {
 		n.seen[name] = true
 		n.names = append(n.names, name)
 	}
-}
-
-// initBodyVars is every variable the init() function's body declares, nil
-// when the file has no init().
-func (pr *ParseResult) initBodyVars() []VarDef {
-	initScope := pr.initFuncScope()
-	if initScope.Start == -1 {
-		return nil
-	}
-
-	start, end := pr.lineOffsets(initScope.Start, initScope.End)
-	if start < 0 {
-		return nil
-	}
-
-	body := pr.Content[start:end]
-	regionKind := RegionScript
-
-	for _, r := range pr.Regions {
-		if r.StartLine <= initScope.Start {
-			regionKind = r.Kind
-		}
-	}
-
-	if regionKind == RegionScript {
-		sp := newScriptParser(body, "", initScope.Start, nil)
-		sp.parse()
-
-		return sp.vars
-	}
-
-	tp := newTagParser(body, "")
-	tp.parse()
-
-	return tp.vars
 }
 
 // initFuncScope returns the FuncScope for the init() function, or {-1,-1} if not found.

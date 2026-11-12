@@ -6,8 +6,6 @@ import (
 	"slices"
 	"sort"
 	"strings"
-
-	"github.com/cfmleditor/clif/internal/conv"
 )
 
 // FuncCalls returns all variable.method() calls recorded for a function scope.
@@ -18,12 +16,36 @@ import (
 // back to every call in the file, so a leaf method was handed its siblings'
 // calls — `deps` drew an edge out of an empty function, labelled with another
 // function's line. Callers wanting the whole file ask AllCalls for it.
+//
+// Without ExtractCalls the parse recorded no calls, and the function's are
+// those of the parse's walk of the body holding it, made for the question.
 func (pr *ParseResult) FuncCalls(funcStart, funcEnd int) []CallSite {
+	scope := FuncScope{Start: funcStart, End: funcEnd}
+	key := funcKey(funcStart, funcEnd)
+
+	b := &pr.bodies
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
 	if pr.extractCalls {
-		return pr.funcCallsMap[funcKey(funcStart, funcEnd)]
+		pr.readBody(scope, true)
+
+		return pr.funcCallsMap[key]
 	}
 
-	return pr.funcCallsUncached(funcStart, funcEnd)
+	// The calls need none of the typing passes but the runtime expressions
+	// a call's component is read through.
+	body := pr.bodyOf(scope)
+	walk := pr.walkBody(body, true, true)
+	walk.applyExpressionMappings()
+
+	for k, pk := range pr.bodyKeys(body, walk) {
+		if pk == key {
+			return walk.funcCallsMap[k]
+		}
+	}
+
+	return walk.funcCallsMap[key]
 }
 
 // AllCalls returns every call site in the file, wherever it was made: the ones
@@ -266,57 +288,6 @@ func (pr *ParseResult) callsAt(names []string) []callAt {
 // AllCalls returns them.
 func sortCallsLikeAllCalls(all []CallSite) {
 	sort.SliceStable(all, func(i, j int) bool { return callsInAllCallsOrder(&all[i], &all[j]) })
-}
-
-// funcCallsUncached parses a function body on-demand to extract call sites.
-func (pr *ParseResult) funcCallsUncached(funcStart, funcEnd int) []CallSite {
-	start, end := pr.lineOffsets(funcStart, funcEnd)
-	if start < 0 {
-		return nil
-	}
-
-	body := pr.Content[start:end]
-
-	regionKind := RegionScript
-
-	for _, r := range pr.Regions {
-		if r.StartLine <= funcStart {
-			regionKind = r.Kind
-		}
-	}
-
-	var calls []CallSite
-
-	if regionKind == RegionScript {
-		sp := newScriptParser(body, string(pr.URI), funcStart, pr.Resolvers)
-		sp.baseOffset = start
-		sp.resolverSet = pr.resolverSet
-		sp.extractCalls = true
-		sp.parse()
-		calls = append(calls, sp.calls...)
-
-		for _, c := range sp.funcCalls {
-			calls = append(calls, c...)
-		}
-	} else {
-		tp := newTagParser(body, string(pr.URI))
-		tp.srcOffset = start
-		tp.resolvers = pr.Resolvers
-		tp.resolverSet = pr.resolverSet
-		tp.extractCalls = true
-		tp.parse()
-		calls = append(calls, tp.calls...)
-
-		for _, c := range tp.funcCalls {
-			calls = append(calls, c...)
-		}
-
-		for i := range calls {
-			calls[i].Line += conv.Uint32(funcStart)
-		}
-	}
-
-	return calls
 }
 
 // fillCallers names the enclosing function of every call recorded without one.

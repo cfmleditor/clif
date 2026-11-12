@@ -4,9 +4,6 @@ package parser
 
 import (
 	"slices"
-	"strings"
-
-	"github.com/cfmleditor/clif/internal/conv"
 )
 
 // FuncComponentRefs returns cached component refs for a function scope.
@@ -91,333 +88,40 @@ func (pr *ParseResult) FuncLinks(funcStart, funcEnd int) []DocumentLink {
 	return nil
 }
 
+// cachedFuncRefs is the refs and links the parse filed under the function at
+// [start, end]: those of its walk, typed by its passes, or, where it did not
+// type them (Shallow) or an edit has changed the body since, those of its walk
+// of that body alone. A function with none has none: an assignment that is
+// not the function's own (`y = …` without var) is filed for the file, and a
+// function nested in this one has its own.
 func (pr *ParseResult) cachedFuncRefs(funcStart, funcEnd int) ([]ComponentRef, []DocumentLink) {
+	b := &pr.bodies
+	b.mu.Lock()
+	pr.readBody(FuncScope{Start: funcStart, End: funcEnd}, true)
+	b.mu.Unlock()
+
 	key := funcKey(funcStart, funcEnd)
 
 	pr.funcRefsMu.Lock()
 	defer pr.funcRefsMu.Unlock()
 
-	if pr.funcRefsMap != nil {
-		if cached, ok := pr.funcRefsMap[key]; ok {
-			links := pr.funcLinksMap[key]
-
-			return cached, links
-		}
-	}
-
-	refs, links := pr.funcRefsUncached(funcStart, funcEnd)
-
-	if pr.funcRefsMap == nil {
-		pr.funcRefsMap = make(map[string][]ComponentRef)
-	}
-
-	if pr.funcLinksMap == nil {
-		pr.funcLinksMap = make(map[string][]DocumentLink)
-	}
-
-	pr.funcRefsMap[key] = refs
-	pr.funcLinksMap[key] = links
-
-	return refs, links
-}
-
-// typeBodyPendingCalls types the assignments a function body parsed on its
-// own made from calls, as the full parse types them: without it
-// `variables.y = variables.y.next()` and `z = make()` added no ref, and the
-// variable kept its first type wherever FuncRefs parsed the body itself:
-// for a function the parse filed no ref under, and for every function after
-// an edit. Chained refs are settled as applyChainedReturnLookup settles them.
-// The body's refs are its own, keyed as its parser keyed them; a receiver is
-// also looked up among the file's.
-func (pr *ParseResult) typeBodyPendingCalls(global []ComponentRef, local map[string][]ComponentRef, calls []pendingCall) ([]ComponentRef, map[string][]ComponentRef) {
-	body := &ParseResult{
-		URI: pr.URI, FuncLookup: pr.FuncLookup, Resolvers: pr.Resolvers, resolverSet: pr.resolverSet,
-		ComponentRefs: global, funcRefsMap: local,
-	}
-
-	// The file's refs hold the body's own as well, from the parse or shifted
-	// by an edit, so they are read as they are rather than copied with the
-	// body's for every function asked about.
-	if len(calls) > 0 {
-		globals := pr.ComponentRefs
-		if len(globals) == 0 {
-			globals = global
-		}
-
-		body.typePendingCalls(calls, pr.funcReturnsFor(calls), globals)
-	}
-
-	body.applyChainedReturnLookup()
-
-	return body.ComponentRefs, body.funcRefsMap
-}
-
-func (pr *ParseResult) funcRefsUncached(funcStart, funcEnd int) ([]ComponentRef, []DocumentLink) {
-	start, end := pr.lineOffsets(funcStart, funcEnd)
-	if start < 0 {
-		return nil, nil
-	}
-
-	body := pr.Content[start:end]
-
-	var (
-		refs  []ComponentRef
-		links []DocumentLink
-	)
-
-	if pr.regionKindAt(funcStart) == RegionScript {
-		refs, links = pr.parseScriptBody(body, start, funcStart)
-	} else {
-		refs, links = pr.parseTagBody(body, start, funcStart)
-	}
-
-	refs = pr.resolveMethodReturnRefs(funcStart, funcEnd, refs)
-
-	// This re-parse never reaches applyChainedReturnLookup, so a chained
-	// assignment is typed by its rest here or it keeps its first call's type.
-	typ := dynamicIfTyped
-	if pr.FuncLookup != nil {
-		typ = pr.walkChainRest
-	}
-
-	for i := range refs {
-		if len(refs[i].ChainRest) > 0 {
-			refs[i].Component = strictChainComponent(&refs[i], typ(refs[i].Component, refs[i].ChainRest))
-			refs[i].ChainRest = nil
-		}
-	}
-
-	if pr.hasMemberBinding(body) {
-		// A fresh full parse owns its slices and computes member identities once
-		// per edited document, rather than repeating whole-file work per function.
-		if pr.memberSnapshot == nil || pr.memberSnapshotContent != pr.Content {
-			pr.memberSnapshot = ParseWithOptions(pr.URI, pr.Content, &ParseOptions{
-				Resolvers: pr.Resolvers, PropertyResolvers: pr.PropertyResolvers,
-				FuncLookup: pr.FuncLookup, BeanLookup: pr.BeanLookup,
-				SetterLookup: pr.SetterLookup, ConstructorLookup: pr.ConstructorLookup,
-				PropertyBeanLookup: pr.PropertyBeanLookup, BuiltinReturnLookup: pr.BuiltinReturnLookup,
-				ExpressionMappings: pr.expressionMappings, ServicePropertyResolvers: pr.ServicePropertyResolvers,
-			})
-			pr.memberSnapshotContent = pr.Content
-		}
-
-		refs = slices.Clone(pr.memberSnapshot.funcRefsMap[funcKey(funcStart, funcEnd)])
-	}
-
-	return refs, links
-}
-
-// regionKindAt is the kind of the region the function starting on line
-// funcStart is in: the last region that starts at or before it.
-func (pr *ParseResult) regionKindAt(funcStart int) RegionKind {
-	kind := RegionScript
-
-	for _, r := range pr.Regions {
-		if r.StartLine <= funcStart {
-			kind = r.Kind
-		}
-	}
-
-	return kind
-}
-
-// parseScriptBody is the refs and links of a function body written in
-// CFScript, parsed on its own: its own and those of any function nested in it.
-func (pr *ParseResult) parseScriptBody(body string, start, funcStart int) ([]ComponentRef, []DocumentLink) {
-	sp := newScriptParser(body, string(pr.URI), funcStart, pr.Resolvers)
-	sp.baseOffset = start
-	sp.resolverSet = pr.resolverSet
-	sp.extractLinks = true
-	sp.argumentTypes = pr.argumentTypeLookup()
-	sp.imports = pr.imports
-	sp.parse()
-	sp.componentRefs, sp.funcRefs = pr.typeBodyPendingCalls(sp.componentRefs, sp.funcRefs, sp.pendingCalls)
-
-	refs, links := sp.componentRefs, sp.links
-
-	// Include function-scoped refs (nested functions in body)
-	for _, r := range sp.funcRefs {
-		refs = append(refs, r...)
-	}
-
-	for _, l := range sp.funcLinks {
-		links = append(links, l...)
-	}
-
-	return refs, links
-}
-
-// parseTagBody is parseScriptBody for a body written in tags. The tag parser
-// counts lines from the body's first, so they are moved back by funcStart.
-func (pr *ParseResult) parseTagBody(body string, start, funcStart int) ([]ComponentRef, []DocumentLink) {
-	tp := newTagParser(body, string(pr.URI))
-	tp.srcOffset = start
-	tp.resolvers = pr.Resolvers
-	tp.resolverSet = pr.resolverSet
-	tp.extractLinks = true
-	tp.argumentTypes = pr.argumentTypeLookup()
-	tp.parse()
-	tp.componentRefs, tp.funcRefs = pr.typeBodyPendingCalls(tp.componentRefs, tp.funcRefs, tp.pendingCalls)
-
-	refs, links := tp.componentRefs, tp.links
-
-	for _, r := range tp.funcRefs {
-		refs = append(refs, r...)
-	}
-
-	for _, l := range tp.funcLinks {
-		links = append(links, l...)
-	}
-
-	for i := range refs {
-		refs[i].Line += conv.Uint32(funcStart)
-	}
-
-	for i := range links {
-		links[i].Line += conv.Uint32(funcStart)
-	}
-
-	return refs, links
-}
-
-// resolveMethodReturnRefs scans a function body for x = y.method() assignments
-// where y has a known component ref and method declares a return type.
-func (pr *ParseResult) resolveMethodReturnRefs(funcStart, funcEnd int, existingRefs []ComponentRef) []ComponentRef {
-	start, end := pr.lineOffsets(funcStart, funcEnd)
-	if start < 0 {
-		return existingRefs
-	}
-
-	body := pr.Content[start:end]
-	lineNum := funcStart + 1
-
-	// Combine global + existing function refs for lookup
-	allRefs := make([]ComponentRef, 0, len(pr.ComponentRefs)+len(existingRefs))
-	allRefs = append(allRefs, pr.ComponentRefs...)
-	allRefs = append(allRefs, existingRefs...)
-
-	for body != "" {
-		nl := strings.IndexByte(body, '\n')
-
-		var line string
-		if nl < 0 {
-			line = body
-			body = ""
-		} else {
-			line = body[:nl]
-			body = body[nl+1:]
-		}
-
-		// Look for: varName = something.method(
-		eqIdx := strings.IndexByte(line, '=')
-		if eqIdx < 0 || (eqIdx+1 < len(line) && line[eqIdx+1] == '=') {
-			lineNum++
-
-			continue
-		}
-
-		rhs := strings.TrimSpace(line[eqIdx+1:])
-		// Find pattern: ident.ident(
-		dotIdx := strings.IndexByte(rhs, '.')
-		if dotIdx <= 0 {
-			lineNum++
-
-			continue
-		}
-
-		parenIdx := strings.IndexByte(rhs[dotIdx:], '(')
-		if parenIdx < 0 {
-			lineNum++
-
-			continue
-		}
-
-		baseVar := strings.TrimSpace(rhs[:dotIdx])
-		methodName := strings.TrimSpace(rhs[dotIdx+1 : dotIdx+parenIdx])
-
-		if baseVar == "" || methodName == "" || !isIdentifier(baseVar) || !isIdentifier(methodName) {
-			lineNum++
-
-			continue
-		}
-
-		// Find component for baseVar
-		var baseComp string
-
-		for i := range allRefs {
-			ref := &allRefs[i]
-
-			if strings.EqualFold(ref.Variable, baseVar) {
-				baseComp = ref.Component
-
-				break
-			}
-		}
-
-		if baseComp == "" {
-			lineNum++
-
-			continue
-		}
-
-		// Look up the method's return type in the component
-		retComp := pr.lookupMethodReturn(baseComp, methodName)
-		if retComp == "" {
-			lineNum++
-
-			continue
-		}
-
-		// Extract LHS variable name
-		lhs := strings.TrimSpace(line[:eqIdx])
-
-		varName := lhs
-		if _, after, ok := strings.CutLast(lhs, " "); ok {
-			varName = strings.TrimSpace(after)
-		}
-
-		if dotIdx := strings.LastIndexByte(varName, '.'); dotIdx >= 0 {
-			varName = varName[dotIdx+1:]
-		}
-
-		if varName != "" && isIdentifier(varName) {
-			existingRefs = append(existingRefs, ComponentRef{
-				Variable: varName, Component: retComp, URI: pr.URI, Line: conv.Uint32(lineNum),
-			})
-			allRefs = append(allRefs, existingRefs[len(existingRefs)-1])
-		}
-
-		lineNum++
-	}
-
-	return existingRefs
-}
-
-// lookupMethodReturn finds a method's ReturnComponent in a component.
-// Uses FuncLookup callback if available (for cross-file resolution via index).
-func (pr *ParseResult) lookupMethodReturn(component, methodName string) string {
-	if pr.FuncLookup != nil {
-		if ret := pr.FuncLookup(component, methodName); ret != "" {
-			return ret
-		}
-	}
-
-	// Fallback: check same-file functions
-	for i := range pr.Funcs {
-		f := &pr.Funcs[i]
-
-		if strings.EqualFold(f.Name, methodName) {
-			if f.ReturnComponent != "" {
-				return f.ReturnComponent
-			}
-
-			if isComponentType(f.ReturnType) {
-				return f.ReturnType
+	refs := pr.funcRefsMap[key]
+
+	// A closure written outside every function, on the function's lines (a
+	// one-line template), is the function's by line, as FuncVars counts its
+	// declarations: the resolver reads the function's refs for any line in
+	// it. Each carries its closure's span, so it is in force only inside it.
+	if closures := pr.funcRefsMap[""]; len(closures) > 0 {
+		refs = slices.Clip(refs)
+
+		for i := range closures {
+			if line := int(closures[i].Line); line >= funcStart && line <= funcEnd {
+				refs = append(refs, closures[i])
 			}
 		}
 	}
 
-	return ""
+	return refs, pr.funcLinksMap[key]
 }
 
 func isIdentifier(s string) bool {

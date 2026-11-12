@@ -51,22 +51,26 @@ func TestATagRegionsFindingsAreOnTheLinesOfTheFile(t *testing.T) {
 		t.Fatal("no scope for load")
 	}
 
-	refs, funcLinks := pr.FuncRefs(load.Start, load.End)
+	// The function's links are those the parse filed under it: after.cfm, in
+	// the region after the <cfscript> block, is filed for the file (above),
+	// as the walk of that region files it.
+	_, funcLinks := pr.FuncRefs(load.Start, load.End)
 
 	inFunc := map[string]uint32{}
 	for _, l := range funcLinks {
 		inFunc[l.Path] = l.Line
 	}
 
-	for path, line := range map[string]uint32{"inner.cfm": 6, "after.cfm": 11} {
+	for path, line := range map[string]uint32{"inner.cfm": 6} {
 		if got, ok := inFunc[path]; !ok || got != line {
 			t.Errorf("function link %s on line %d (found %v), want %d", path, got, ok, line)
 		}
 	}
 
+	// An unscoped <cfset> writes the variables scope: the file's refs.
 	byVar := map[string]ComponentRef{}
-	for i := range refs {
-		byVar[refs[i].Variable] = refs[i]
+	for i := range pr.ComponentRefs {
+		byVar[pr.ComponentRefs[i].Variable] = pr.ComponentRefs[i]
 	}
 
 	if a := byVar["a"]; a.Component != "app.One" || a.Line != 5 {

@@ -94,6 +94,9 @@ type tagParser struct {
 	// contain.
 	baseLine    int
 	knownScopes []FuncScope
+	// outputAt is the output state at each function this region opens
+	// where it is not the empty one, on the region's lines.
+	outputAt []functionOutput
 }
 
 func newTagParser(src, fileURI string) *tagParser {
@@ -583,6 +586,13 @@ func (p *tagParser) enterFunctionScope(tagEnd, line int) {
 
 	p.inFunc = funcKey(line, endLine)
 	p.scopes = append(p.scopes, FuncScope{Start: line, End: endLine})
+
+	// A function opened inside a <cfoutput>, or in a component whose output
+	// is on, is noted with the state the walk had there: a walk of its body
+	// alone starts from it (ParseOptions.Body).
+	if p.gated && (p.output.depth > 0 || p.output.compOut) {
+		p.outputAt = append(p.outputAt, functionOutput{line: line, state: outputState{depth: p.output.depth, compOut: p.output.compOut}})
+	}
 
 	// The set starts nil and is built on first write. It was a map per
 	// <cffunction> whether or not the function declared anything local, which on

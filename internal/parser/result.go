@@ -81,20 +81,15 @@ type ParseResult struct {
 	variablesVars []string
 	thisVars      []string
 	scopedDone    bool // the three above, from one scan
-	// tagScopeVars is, for each tag region by its offset, the variables- and
-	// this-scope declarations the parse's own walk recorded there, kept so
-	// computeScopedVars need not walk the region again; tagScopeVarsOf is the
-	// Content they were read from, since an edit inside a function moves lines
-	// without reparsing the regions.
-	tagScopeVars   map[int][]VarDef
-	tagScopeVarsOf string
-	// scriptScopeVars is tagScopeVars for each script region: the
-	// declarations the main parse's script walk recorded there, valid while
-	// tagScopeVarsOf is (see keepScriptScopeVars).
-	scriptScopeVars map[int][]VarDef
 	// collectionTags is, for each tag region by its offset, where the parse's
-	// walk met the tags collectWrites reads, valid while tagScopeVarsOf is.
-	collectionTags map[int][]int
+	// walk met the tags collectWrites reads; collectionTagsOf is the Content
+	// they were read from, since an edit inside a function moves lines without
+	// reparsing the regions.
+	collectionTags   map[int][]int
+	collectionTagsOf string
+	// bodies is what the walk read of the function bodies, and what is still
+	// to be read again after an edit (body_walk.go).
+	bodies bodyState
 	// textLinks is DocumentLinks' answer, for the content textLinksOf.
 	textLinks   []DocumentLink
 	textLinksOf string
@@ -118,11 +113,6 @@ type ParseResult struct {
 	allVars      []VarDef
 	declareScans map[string]bool // mayDeclare's answers, by lowercased name
 	allVarsDone  bool
-
-	// anyScopedVars caches, per Scope, every name ever assigned in that scope
-	// anywhere in the file (see HasScopedAssignment) — unlike variablesVars/thisVars,
-	// which only look outside functions and inside init().
-	anyScopedVars map[Scope][]string
 
 	// memberSets are the `a.m = …` assignments met; see AssignsMember.
 	memberSets []pendingCall
@@ -245,6 +235,23 @@ type ParseOptions struct {
 	// is partial. FunctionSpansOf and FindFuncScopes read one; with Shallow,
 	// its scopes and spans are a full parse's.
 	ScopesOnly bool
+	// Body narrows the walk to one function's lines, Body.Start to Body.End.
+	// The file is split into regions and its tag functions found as for the
+	// whole file, and each region is walked only where it meets those lines,
+	// its walker seeded as the whole walk seeds it there: a <cfscript> island
+	// with the tag function around it, a tag region with the file's tag
+	// function scopes and its output context. The result holds that
+	// function's variables, refs, links and (with ExtractCalls) calls, and
+	// those of the functions nested in it, filed as a whole parse files them.
+	// The lazy readers (FuncVars, FuncRefs, FuncCalls, HasScopedAssignment)
+	// read a function with it where the parse they are asked of did not walk
+	// its body, or an edit has changed it since.
+	Body *FuncScope
+	// context is the parse a lazy reader reads a body of: its regions, tag
+	// function scopes and imports seed the walk, and its functions and
+	// file-level refs type what the body assigns, as they type it in the
+	// whole parse.
+	context *ParseResult
 	// RecordAssignments records every write the parse reads (Assignments)
 	// as it runs, rather than on the first question. Off, nothing is read
 	// until Assignments is asked.
@@ -355,6 +362,11 @@ func ParseWithOptions(fileURI uri.URI, content string, opts *ParseOptions) *Pars
 		keepVars:                 opts.KeepVars,
 		scopesOnly:               opts.ScopesOnly,
 	}
+	if opts.Body != nil {
+		body := *opts.Body
+		pr.bodies.only, pr.bodies.context = &body, opts.context
+	}
+
 	if len(pr.Resolvers) > 0 {
 		if opts.ResolverSet.Serves(pr.Resolvers) {
 			pr.resolverSet = opts.ResolverSet.ForParse()
@@ -364,7 +376,18 @@ func ParseWithOptions(fileURI uri.URI, content string, opts *ParseOptions) *Pars
 	}
 
 	start := time.Now()
-	pr.Regions, pr.contentLineIdx = pr.classifyRegions()
+
+	if ctx := pr.bodies.context; ctx != nil {
+		pr.Regions, pr.contentLineIdx = ctx.walkRegions()
+		pr.lineStarts, pr.lineStartsContent = ctx.lineStartsTable(), pr.Content
+
+		if ctx.outputScanned {
+			pr.importPrefixes, pr.outputScanned = ctx.importPrefixes, true
+		}
+	} else {
+		pr.Regions, pr.contentLineIdx = pr.classifyRegions()
+	}
+
 	pr.regionsOf = pr.Content
 	pr.extractSignatures()
 
@@ -387,6 +410,10 @@ func ParseWithOptions(fileURI uri.URI, content string, opts *ParseOptions) *Pars
 // tracking in every region it spans, not just the region containing its
 // opening <cffunction> tag.
 func (pr *ParseResult) tagFunctionScopes() (scopes []FuncScope, hasTagRegion bool) {
+	if ctx := pr.bodies.context; ctx != nil {
+		return ctx.walkTagScopes()
+	}
+
 	for _, r := range pr.Regions {
 		if r.Kind == RegionTag {
 			return findTagFuncScopesIdx(pr.Content, 0, pr.contentLineIdx, pr.Regions), true
@@ -407,9 +434,16 @@ func (pr *ParseResult) mergeRegions(tagScopes []FuncScope) []pendingCall {
 
 	// The tag regions share one output state, in file order, from the top.
 	pr.output = outputState{}
-	pr.tagScopeVars, pr.tagScopeVarsOf, pr.collectionTags, pr.scriptScopeVars = nil, pr.Content, nil, nil
+	pr.collectionTags, pr.collectionTagsOf = nil, pr.Content
+	pr.bodies.vars, pr.bodies.outputAt = pr.bodies.vars[:0], nil
 
-	for _, r := range pr.Regions {
+	regions := pr.Regions
+	if body := pr.bodies.only; body != nil {
+		regions = pr.bodyRegions(body)
+		pr.output = pr.outputAtBody(regions)
+	}
+
+	for _, r := range regions {
 		// A RegionSkip is a literal <script> block, left out of the script
 		// regions so its JavaScript is never fed to the CFScript scanner. Its
 		// `#...#` spans are CFML all the same — a <script> body inside
@@ -453,6 +487,11 @@ func (pr *ParseResult) addTagScopes(tagScopes []FuncScope) {
 	}
 
 	for _, sc := range tagScopes {
+		// A body's walk keeps the functions on its lines alone.
+		if body := pr.bodies.only; body != nil && (sc.Start < body.Start || sc.End > body.End) {
+			continue
+		}
+
 		// Every tag function's span is kept, whichever walk filed its scope.
 		pr.keepSpan(&sc)
 
@@ -502,7 +541,12 @@ func (pr *ParseResult) extractSignatures() {
 		}
 	}()
 
-	pr.prepareManagedSetterLookup()
+	if ctx := pr.bodies.context; ctx != nil {
+		// A body's walk takes the metadata its file's parse read.
+		pr.managedSetterLookup = ctx.managedSetterLookup
+	} else {
+		pr.prepareManagedSetterLookup()
+	}
 
 	if pr.FuncLookup != nil {
 		lookup := pr.FuncLookup
@@ -541,6 +585,12 @@ func (pr *ParseResult) extractSignatures() {
 		pr.allVars, pr.allVarsDone, pr.foundVars = varDefs(pr.foundVars, pr.Scopes), true, nil
 	}
 
+	pr.bodies.walked(pr)
+
+	if pr.bodies.only == nil {
+		pr.keepSplit(tagScopes, hasTagRegion)
+	}
+
 	if pr.extractCalls {
 		pr.fillCallers()
 	}
@@ -557,7 +607,14 @@ func (pr *ParseResult) extractSignatures() {
 		return
 	}
 
+	if pr.bodies.only != nil {
+		pr.settleBody(allPendingCalls)
+
+		return
+	}
+
 	pr.settleSignatures(allPendingCalls)
+	pr.bodies.settled = true
 }
 
 // markStructReturns flags each function one of whose returns is a struct
@@ -705,10 +762,15 @@ func (pr *ParseResult) mergeScriptRegion(r *Region, tagScopes []FuncScope, open 
 
 	key := sp.inFunc
 
+	// A body's walk starts where the whole walk had read the file's imports.
+	if ctx := pr.bodies.context; ctx != nil && len(ctx.imports) > 0 {
+		sp.imports = maps.Clone(ctx.imports)
+	}
+
 	sp.parse()
 
-	if !pr.scopesOnly {
-		pr.keepScriptScopeVars(r, sp.vars)
+	if !pr.scopesOnly && r.Kind == RegionScript {
+		pr.bodies.keep(sp.vars, false)
 	}
 
 	if pr.keepVars {
@@ -879,13 +941,23 @@ func (pr *ParseResult) mergeTagRegion(r *Region, tagScopes []FuncScope, open *op
 
 	tp.parse()
 
-	if pr.keepVars {
-		vars := slices.Clone(tp.vars)
-		for i := range vars {
-			vars[i].Line += conv.Uint32(r.StartLine)
-		}
+	// The walk's declarations, on file lines: the tag parser is done with
+	// them, and nothing after this reads them on the region's.
+	vars := tp.vars
+	for i := range vars {
+		vars[i].Line += conv.Uint32(r.StartLine)
+	}
 
+	if pr.keepVars {
 		pr.foundVars = append(pr.foundVars, vars)
+	}
+
+	if r.Kind == RegionTag {
+		pr.bodies.keep(vars, true)
+	}
+
+	for _, at := range tp.outputAt {
+		pr.bodies.noteOutput(at.line+r.StartLine, at.state)
 	}
 
 	if seed >= 0 {
@@ -1902,89 +1974,14 @@ func guessedMethod(c *pendingCall) string {
 }
 
 // keepRegionFacts keeps what a tag region's walk found that later passes would
-// otherwise walk the region again for: its scope declarations and where it met
-// the tags the collection passes read.
+// otherwise walk the region again for: where it met the tags the collection
+// passes read.
 func (pr *ParseResult) keepRegionFacts(r *Region, tp *tagParser) {
-	pr.keepTagScopeVars(r, tp.vars)
-
 	if pr.collectionTags == nil {
 		pr.collectionTags = map[int][]int{}
 	}
 
 	pr.collectionTags[r.Offset] = tp.collectionTags
-}
-
-// keepTagScopeVars keeps the variables- and this-scope declarations a tag
-// region's walk recorded, on file lines, for computeScopedVars. Re-indexing
-// after every edit asked for them, and a second walk of the region was 10ms
-// of each edit outside a function on a 58,000-line component.
-func (pr *ParseResult) keepTagScopeVars(r *Region, vars []VarDef) {
-	var kept []VarDef
-
-	for _, v := range vars {
-		if v.Scope == ScopeVariables || v.Scope == ScopeThis {
-			v.Line += conv.Uint32(r.StartLine)
-			kept = append(kept, v)
-		}
-	}
-
-	if pr.tagScopeVars == nil {
-		pr.tagScopeVars = map[int][]VarDef{}
-	}
-
-	pr.tagScopeVars[r.Offset] = kept
-}
-
-// keepScriptScopeVars keeps the declarations a script region's parse
-// recorded, on file lines, that can be variables- or this-scope ones: those
-// scopes, and a var or local, which outside any function is variables.
-// computeScopedVars reads them in place of a second walk of the region.
-//
-// That second walk, the global scanner, read every member assignment a.b =
-// as declaring b, and a == in a condition as an assignment; judged against
-// the tree-sitter grammar over the corpus it declared some 3,400 variables
-// that were none and missed 391 this walk finds
-// (.ai/docs/SCANNER-CONSOLIDATION.md).
-func (pr *ParseResult) keepScriptScopeVars(r *Region, vars []VarDef) {
-	var kept []VarDef
-
-	for _, v := range vars {
-		switch v.Scope {
-		case ScopeVariables, ScopeThis, ScopeLocal:
-			kept = append(kept, v)
-		default:
-		}
-	}
-
-	if pr.scriptScopeVars == nil {
-		pr.scriptScopeVars = map[int][]VarDef{}
-	}
-
-	pr.scriptScopeVars[r.Offset] = kept
-}
-
-// keptScriptScopeVars is what keepScriptScopeVars kept for the script region
-// at offset, when the regions were read from the current content.
-func (pr *ParseResult) keptScriptScopeVars(offset int) ([]VarDef, bool) {
-	if pr.scriptScopeVars == nil || !pr.regionFactsCurrent() {
-		return nil, false
-	}
-
-	vars, ok := pr.scriptScopeVars[offset]
-
-	return vars, ok
-}
-
-// keptTagScopeVars is what keepTagScopeVars kept for the tag region at
-// offset, when the regions were read from the current content.
-func (pr *ParseResult) keptTagScopeVars(offset int) ([]VarDef, bool) {
-	if pr.tagScopeVars == nil || !pr.regionFactsCurrent() {
-		return nil, false
-	}
-
-	vars, ok := pr.tagScopeVars[offset]
-
-	return vars, ok
 }
 
 // keptCollectionTags is where the parse's walk met the tags collectWrites
@@ -2004,11 +2001,11 @@ func (pr *ParseResult) keptCollectionTags(offset int) ([]int, bool) {
 // kept alive by it.
 func (pr *ParseResult) regionFactsCurrent() bool {
 	// Equal strings sharing their bytes compare without reading them.
-	if pr.tagScopeVarsOf == pr.Content {
+	if pr.collectionTagsOf == pr.Content {
 		return true
 	}
 
-	pr.tagScopeVars, pr.tagScopeVarsOf, pr.collectionTags, pr.scriptScopeVars = nil, "", nil, nil
+	pr.collectionTags, pr.collectionTagsOf = nil, ""
 
 	return false
 }
