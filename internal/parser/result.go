@@ -254,6 +254,10 @@ type ParseOptions struct {
 // Parse performs a full file parse: extracts function signatures, component refs,
 // and function scopes. Function bodies are NOT parsed for variables until requested.
 func Parse(fileURI uri.URI, content string, resolvers ...[]Resolver) *ParseResult {
+	if countScans {
+		scanCounts.parses.Add(1)
+	}
+
 	pr := &ParseResult{
 		URI:      fileURI,
 		Content:  content,
@@ -318,6 +322,10 @@ func (pr *ParseResult) outputGate() (state *outputState, prefixes []string, gate
 // ParseWithOptions performs a full file parse with extended options. opts is
 // only read; nil means the zero options.
 func ParseWithOptions(fileURI uri.URI, content string, opts *ParseOptions) *ParseResult {
+	if countScans {
+		scanCounts.parses.Add(1)
+	}
+
 	if opts == nil {
 		opts = &ParseOptions{}
 	}

@@ -58,6 +58,12 @@ jobs:
       - name: Test
         run: go test -short ./...
 
+      # How many times a batch scan reads its files, counted by a scanner
+      # built with the passcount tag; alone, since the resolver's caches
+      # outlive a test (cmd/clif/scan_passes_test.go).
+      - name: Scan passes
+        run: go test -tags passcount -run TestABatchScanReadsEachFileFewTimes ./cmd/clif/
+
   race:
     name: Race detector
     runs-on: ubuntu-latest
