@@ -2576,12 +2576,11 @@ func TestResolverMatch_PipeDelimitedPrefix_AssignmentCallSite(t *testing.T) {
 
 	pr := ParseWithOptions(testURI, content, &ParseOptions{Resolvers: resolvers, ScanAllScopes: true})
 
-	scope := pr.Scopes[0]
-	refs := pr.FuncComponentRefs(scope.Start, scope.End)
-
+	// An unscoped assignment in a function writes the variables scope, so
+	// the parse files its ref for the file.
 	found := ""
 
-	for _, ref := range refs {
+	for _, ref := range pr.ComponentRefs {
 		if ref.Variable == "template" {
 			found = ref.Component
 		}
@@ -2639,12 +2638,11 @@ func TestResolverMatch_PipeDelimitedPrefix_ScriptBareNameFallback(t *testing.T) 
 	}
 }`
 	pr := ParseWithOptions(testURI, content, &ParseOptions{Resolvers: resolvers, ScanAllScopes: true})
-	scope := pr.Scopes[0]
-	refs := pr.FuncComponentRefs(scope.Start, scope.End)
 
+	// Unscoped, so filed for the file (see the test above).
 	found := ""
 
-	for _, ref := range refs {
+	for _, ref := range pr.ComponentRefs {
 		if ref.Variable == "svc" {
 			found = ref.Component
 		}
