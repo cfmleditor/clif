@@ -37,3 +37,15 @@ func TestApplicationSectionsMaskDeclarationHeaders(t *testing.T) {
 		}
 	}
 }
+
+// Lookups asking for one text's sections share one scan of it.
+func TestApplicationScanIsSharedPerText(t *testing.T) {
+	source := "component { function onRequest() { include 'x.cfm'; } function onApplicationStart() {} }"
+
+	_, first := applicationScan(source)
+	_, second := applicationScan(string([]byte(source)))
+
+	if len(first) == 0 || &first[0] != &second[0] {
+		t.Fatal("a second lookup of the same text scanned it again")
+	}
+}

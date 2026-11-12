@@ -132,23 +132,30 @@ func (s appSection) projection(content string) string {
 func applicationScan(content string) (string, []appSection) {
 	key := FingerprintOf(content)
 
+	// Lookups that ask for a text together wait on one scan of it: they did
+	// each scan it, which on a parallel MasaCMS scan was most of the scans.
 	appScanMu.Lock()
-	held, ok := appScans[key]
-	appScanMu.Unlock()
 
+	entry, ok := appScans[key]
 	if !ok {
-		held = scanApplicationSpans(content)
-
-		appScanMu.Lock()
 		if len(appScans) >= maxAppScans {
 			clear(appScans)
 		}
 
-		appScans[key] = held
-		appScanMu.Unlock()
+		entry = &appScanEntry{}
+		appScans[key] = entry
 	}
+	appScanMu.Unlock()
 
-	return blankSpans(content, held.blanked), held.sections
+	entry.once.Do(func() { entry.result = scanApplicationSpans(content) })
+
+	return blankSpans(content, entry.result.blanked), entry.result.sections
+}
+
+// appScanEntry is one text's scan, made once by whichever lookup asks first.
+type appScanEntry struct {
+	once   sync.Once
+	result appScanResult
 }
 
 // maxAppScans bounds applicationScan's memo, a count of files cleared when
@@ -162,7 +169,7 @@ type appScanResult struct {
 
 var (
 	appScanMu sync.Mutex
-	appScans  = map[TextFingerprint]appScanResult{}
+	appScans  = map[TextFingerprint]*appScanEntry{}
 )
 
 // blankSpans is content with each span blanked but its line breaks: content

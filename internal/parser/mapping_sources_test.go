@@ -155,3 +155,30 @@ func TestApplicationSourcesSplitExpressionsAtCode(t *testing.T) {
 		t.Errorf("custom tag paths %q, want %q", got.CustomTagPaths, want)
 	}
 }
+
+// The mapping walk keeps one reading of each text, and a text read for
+// another kind of file is a reading of its own.
+func TestMappingFactsKeepOneReadingPerText(t *testing.T) {
+	var facts MappingFacts
+
+	text := "component { function onRequest() {} }"
+	first := facts.fact("/a/Application.cfc", text)
+
+	if facts.fact("/b/Application.cfc", string([]byte(text))) != first {
+		t.Fatal("the same text in another file was read again")
+	}
+
+	if facts.fact("/a/Application.cfm", text) == first {
+		t.Error("a .cfm reading shares a .cfc one, though the extension decides how a page is read")
+	}
+
+	if spans := first.functionSpans("/a/Application.cfc"); len(spans) != 1 || spans[0].Name != "onRequest" {
+		t.Errorf("spans %+v, want onRequest", spans)
+	}
+
+	facts.Clear()
+
+	if facts.fact("/a/Application.cfc", text) == first {
+		t.Error("Clear kept the reading")
+	}
+}

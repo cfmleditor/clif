@@ -118,6 +118,7 @@ type pathCaches struct {
 	helpers             *helperSet                            // application helper templates, per set of config files
 	wb                  *wireboxWorkspace                     // what ModuleConfig.cfc and config/WireBox.cfc say about ids, per set of files
 	fw1Scopes           map[string]fw1Scope                   // nearest application's source-defined injection scope
+	fw1Parses           map[string]*fw1ParseEntry             // readFW1Scope's parses, by file (fw1Parse), on the owner
 	startupCache        map[string][]startupAssign            // app root → its startup templates' shared-scope assignments
 	startupFileFacts    map[string]*startupFileFacts          // startup source → what its text states (startupFacts), on the owner
 	sourceInfos         map[string]sourceInfo                 // source-checked method bodies; refreshed when bytes change
