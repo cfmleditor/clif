@@ -3,6 +3,7 @@ package resolve
 import (
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
@@ -70,7 +71,7 @@ func (r *Resolver) readFW1Scope(appDir string) fw1Scope {
 		return fw1Scope{}
 	}
 
-	pr := parser.ParseWithOptions(cfpath.ToURI(file), text, &parser.ParseOptions{ExtractCalls: true, ScanAllScopes: true})
+	pr := r.fw1Parse(file, text)
 
 	base := r.ComponentPath(pr.Extends, appDir)
 	if pr.Extends == "" || base == "" {
@@ -82,7 +83,7 @@ func (r *Resolver) readFW1Scope(appDir string) fw1Scope {
 		return fw1Scope{}
 	}
 
-	framework := parser.ParseWithOptions(cfpath.ToURI(base), text, &parser.ParseOptions{ExtractCalls: true, ScanAllScopes: true})
+	framework := r.fw1Parse(base, text)
 
 	methods := map[string]bool{}
 	for i := range framework.Funcs {
@@ -275,4 +276,39 @@ func (r *Resolver) fw1BaseAtApplication(base, appDir string) bool {
 	}
 
 	return false
+}
+
+// fw1Parse is file, which holds text, parsed as readFW1Scope reads it: with no
+// lookup, so it is the same for every view and kept on the owner. Each
+// application root's view reads its own scope, and workers that miss one
+// together each read it; they all parsed the same Application.cfc and the
+// same framework, 18 of 21 parses on MasaCMS. A caller must not change it.
+func (r *Resolver) fw1Parse(file, text string) *parser.ParseResult {
+	o := r.owner()
+
+	o.mu.Lock()
+
+	entry := o.fw1Parses[file]
+	if entry == nil || entry.text != text {
+		if o.fw1Parses == nil {
+			o.fw1Parses = map[string]*fw1ParseEntry{}
+		}
+
+		entry = &fw1ParseEntry{text: text}
+		o.fw1Parses[file] = entry
+	}
+	o.mu.Unlock()
+
+	entry.once.Do(func() {
+		entry.pr = parser.ParseWithOptions(cfpath.ToURI(file), text, &parser.ParseOptions{ExtractCalls: true, ScanAllScopes: true})
+	})
+
+	return entry.pr
+}
+
+// fw1ParseEntry is one file's parse for the text it held when asked.
+type fw1ParseEntry struct {
+	once sync.Once
+	text string
+	pr   *parser.ParseResult
 }

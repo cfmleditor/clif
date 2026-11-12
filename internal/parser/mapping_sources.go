@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/cfmleditor/clif/internal/lex"
 )
@@ -35,7 +36,16 @@ type AppSources struct {
 // as MappingSourcesWithParent describes, in one walk: a caller that wants both
 // does not read the file twice.
 func ApplicationSources(file string, initial map[string]string, read func(string) ([]byte, error), parent func(string, string) string) AppSources {
-	s := &mappingSourceState{mappings: map[string]string{}, defaults: initial, env: map[string]string{}, seen: map[string]bool{}, read: read, base: file, parent: parent}
+	return ApplicationSourcesWith(file, initial, read, parent, nil)
+}
+
+// ApplicationSourcesWith is ApplicationSources keeping what it reads from each
+// file's text in facts, which may be nil. Every application directory walks its
+// own Application file and, through it, the parents and includes it shares
+// with the others: a MasaCMS scan read the same few files' functions 86 times
+// over 95 walks.
+func ApplicationSourcesWith(file string, initial map[string]string, read func(string) ([]byte, error), parent func(string, string) string, facts *MappingFacts) AppSources {
+	s := &mappingSourceState{mappings: map[string]string{}, defaults: initial, env: map[string]string{}, seen: map[string]bool{}, read: read, base: file, parent: parent, facts: facts}
 	s.file(file, 0)
 
 	if source := s.requestMethod; source != nil {
@@ -57,6 +67,59 @@ type mappingSourceState struct {
 	// customTags is this.customTagPaths, each directory absolute; see
 	// ApplicationSources.
 	customTags []string
+	facts      *MappingFacts
+}
+
+// MappingFacts keeps what the mapping walk reads from a text alone: where its
+// functions are and its literal includes. It is keyed by the text itself and
+// its file's extension, so a changed file is a new entry, and a file and the onRequest body cut from it
+// do not displace each other. The zero value is ready to use.
+type MappingFacts struct{ m sync.Map }
+
+type mappingFact struct {
+	content   string
+	spansOnce sync.Once
+	spans     []FunctionSpan
+	incOnce   sync.Once
+	includes  []IncludeSite
+}
+
+// Clear forgets every text.
+func (f *MappingFacts) Clear() { f.m.Clear() }
+
+// mappingFactKey is a text and its file's extension, which decides whether a
+// tag-free page is read as script.
+type mappingFactKey struct{ ext, content string }
+
+// fact is content's entry. Walks that meet a text together share one entry,
+// and its onces read it for all of them.
+func (f *MappingFacts) fact(file, content string) *mappingFact {
+	key := mappingFactKey{ext: strings.ToLower(filepath.Ext(file)), content: content}
+
+	if held, ok := f.m.Load(key); ok {
+		fact, _ := held.(*mappingFact)
+
+		return fact
+	}
+
+	held, _ := f.m.LoadOrStore(key, &mappingFact{content: content})
+	fact, _ := held.(*mappingFact)
+
+	return fact
+}
+
+// functionSpans is FunctionSpansOf the file's text, read once.
+func (m *mappingFact) functionSpans(file string) []FunctionSpan {
+	m.spansOnce.Do(func() { m.spans = FunctionSpansOf(file, m.content) })
+
+	return m.spans
+}
+
+// literalIncludes is literalIncludeSites of the file's text, read once.
+func (m *mappingFact) literalIncludes() []IncludeSite {
+	m.incOnce.Do(func() { m.includes = literalIncludeSites(m.content) })
+
+	return m.includes
 }
 
 type mappingRequestSource struct{ file, content string }
@@ -152,8 +215,18 @@ func (s *mappingSourceState) content(content, file string, depth int) {
 	sc := NewSourceScanner(content)
 	previous := TokEOF
 
+	var fact *mappingFact
+	if s.facts != nil {
+		fact = s.facts.fact(file, content)
+	}
+
 	var includes []IncludeSite
-	if s.read != nil {
+
+	switch {
+	case s.read == nil:
+	case fact != nil:
+		includes = fact.literalIncludes()
+	default:
 		includes = literalIncludeSites(content)
 	}
 
@@ -161,7 +234,12 @@ func (s *mappingSourceState) content(content, file string, depth int) {
 	// them: strings by the parse's rule, comments skipped, a body-less
 	// declaration ending at its `;` or `/>`, and a word "function" in a
 	// page's prose or a closure passed as an argument no declaration.
-	functions := FunctionSpansOf(file, content)
+	var functions []FunctionSpan
+	if fact != nil {
+		functions = fact.functionSpans(file)
+	} else {
+		functions = FunctionSpansOf(file, content)
+	}
 
 	// skipTo drops the includes the walk stepped over without running: those
 	// in a method's body, which a declaration does not execute.

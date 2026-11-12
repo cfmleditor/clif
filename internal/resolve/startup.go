@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/cfmleditor/clif/internal/docs"
 	"github.com/cfmleditor/clif/internal/parser"
@@ -170,6 +171,7 @@ func splitSharedScope(variable string) (string, bool) {
 // alone: its shared-scope assignments, its component-body variable
 // assignments, its service-list bean bindings and its includes.
 type startupFileFacts struct {
+	once     sync.Once
 	content  string
 	shared   []startupAssign
 	vars     []parser.StartupVariableAssignment
@@ -189,27 +191,31 @@ func (r *Resolver) startupFacts(file, content string) *startupFileFacts {
 	held, ok := o.startupFileFacts[file]
 	o.mu.RUnlock()
 
-	if ok && held.content == content {
-		return held
+	if !ok || held.content != content {
+		// Views that ask for a source together share one entry and wait on
+		// one reading of it: each parsed it, which on a parallel MasaCMS scan
+		// was 63 of 112 parses.
+		o.mu.Lock()
+		if o.startupFileFacts == nil {
+			o.startupFileFacts = map[string]*startupFileFacts{}
+		}
+
+		held, ok = o.startupFileFacts[file]
+		if !ok || held.content != content {
+			held = &startupFileFacts{content: content}
+			o.startupFileFacts[file] = held
+		}
+		o.mu.Unlock()
 	}
 
-	pr := parser.Parse(cfpath.ToURI(file), content, r.Resolvers)
+	held.once.Do(func() {
+		pr := parser.Parse(cfpath.ToURI(file), content, r.Resolvers)
 
-	held = &startupFileFacts{
-		content:  content,
-		shared:   sharedAssignments(content, filepath.Dir(file)),
-		vars:     pr.StartupVariableAssignments(),
-		beans:    parser.StartupBeanBindings(content),
-		includes: pr.Includes(),
-	}
-
-	o.mu.Lock()
-	if o.startupFileFacts == nil {
-		o.startupFileFacts = map[string]*startupFileFacts{}
-	}
-
-	o.startupFileFacts[file] = held
-	o.mu.Unlock()
+		held.shared = sharedAssignments(content, filepath.Dir(file))
+		held.vars = pr.StartupVariableAssignments()
+		held.beans = parser.StartupBeanBindings(content)
+		held.includes = pr.Includes()
+	})
 
 	return held
 }

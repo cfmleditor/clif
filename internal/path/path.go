@@ -28,6 +28,10 @@ var (
 
 	// probeReads is what probeRead has read, by path.
 	probeReads sync.Map
+
+	// appFacts is what the mapping walk read from each Application file and
+	// include it met, kept while the file holds the same text.
+	appFacts parser.MappingFacts
 )
 
 type probeResult struct {
@@ -156,7 +160,7 @@ func ApplicationMappingSources(file string, initial map[string]string, read func
 func applicationSources(file string, initial map[string]string, read func(string) ([]byte, error)) parser.AppSources {
 	bootstrap, parent := ApplicationParentLookup(filepath.Dir(file), initial, read)
 
-	return parser.ApplicationSources(file, bootstrap, read, parent)
+	return parser.ApplicationSourcesWith(file, bootstrap, read, parent, &appFacts)
 }
 
 // ApplicationParentLookup freezes the inputs used to resolve application
@@ -210,6 +214,7 @@ func InvalidateAppMappingsCache() {
 	appMappingsCacheMu.Unlock()
 	serverFactsCache.Clear()
 	probeReads.Clear()
+	appFacts.Clear()
 }
 
 // ParseAppBeanPaths delegates to parser.ParseAppBeanPaths.

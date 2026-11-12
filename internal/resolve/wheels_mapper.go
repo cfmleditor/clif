@@ -252,9 +252,32 @@ func (r *Resolver) sourceInfo(path string) sourceInfo {
 	}
 
 	result.size, result.modTime, result.gen = info.Size(), info.ModTime(), gen
-	r.storeSourceInfo(path, &result)
 
-	return result
+	return r.adoptSourceInfo(path, result)
+}
+
+// adoptSourceInfo stores src for path and returns it, unless another caller
+// stored the same content first: then that one is kept and returned, with
+// src's stamp. Two workers that miss a source together each read it, and the
+// one that stored last used to replace the other's, so whatever the first had
+// derived (its parses, its spans, its bodies) was derived again; a MasaCMS
+// scan parsed some files a third time over.
+func (r *Resolver) adoptSourceInfo(path string, src sourceInfo) sourceInfo {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.sourceInfos == nil {
+		r.sourceInfos = make(map[string]sourceInfo)
+	}
+
+	if held, ok := r.sourceInfos[path]; ok && held.derived != nil && held.content == src.content {
+		held.size, held.modTime, held.gen = src.size, src.modTime, src.gen
+		src = held
+	}
+
+	r.sourceInfos[path] = src
+
+	return src
 }
 
 // sourceDerived holds what is read from a source's content once, the first
