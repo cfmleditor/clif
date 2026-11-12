@@ -836,6 +836,30 @@ islands in script; and `=>` inside a `<cfset>`. `unresolved` is
 byte-identical on seven of the eight corpora; RustCFML loses 2 findings, both
 assignments inside a one-line `if` block that the line reader could not see.
 
+### Done: lazy body reads are the parse's walk
+
+`FuncVars`, `FuncRefs`, `FuncCalls` and `HasScopedAssignment` read a function
+body the parse had not walked, or one an edit had changed, with walkers of
+their own (`parseFuncBody`, `computeAnyScopedVars`, `initBodyVars`, the lazy
+ref and call walks), which knew nothing of the regions, output state, doc
+comment, imports or typing around the body. Each now runs the parse's own
+walk over that one body, `ParseWithOptions` narrowed by `ParseOptions.Body`
+(`internal/parser/body_walk.go`), seeded with the output state the whole walk
+has where the body starts, and files what it found as the full parse files
+it. A write to the variables scope inside a function is a file-level ref, as
+the parse files it, where the lazy walk sometimes also filed it under the
+function; a tag function's `FuncVars` holds its `<cfargument>` names; text
+inside a string no longer declares; an edit that adds a line keeps the calls
+of the functions after it; and `HasScopedAssignment` sees an edit that adds a
+variables-scope write. Over 14,994 files and 53,519 functions the old lazy
+readers differed from the full parse in about 18,000 answers and the new ones
+in about 640, of which 631 are member-typed refs whose order of passes
+differs (left open). Reads after a keystroke inside a function are as fast or
+faster, except `FuncCalls` (up to +71% on Lucee's largest file, 2.3ms to
+3.8ms), which only the deps export and FW/1's rc reader call. `unresolved` is
+byte-identical on eight corpora, and batch scans read their text about a
+tenth fewer times (ContentBox 13.6 to 12.4 passes, Mura 15.2 to 13.1).
+
 ## Speed is an option of the one walker, not a second walker
 
 Some walkers exist because they do less. `globalScriptParser` reads only
@@ -867,7 +891,7 @@ Concretely:
 | 2 (done) | One region split for every walker (section 4) | 65 invented declarations, and every walker agreeing on what is script |
 | 3 (done) | Main parse: struct keys and named arguments (section 1, step 1) | 776 invented declarations |
 | 4 (done) | Replace `globalScriptParser` with the main walk's kept declarations (section 1, steps 2–4) | 3,060 wrong declarations, and a second script walk per region |
-| 5 | Lazy refs filed like the full parse's; then pre-fill (section 3) |
+| 5 (done) | Lazy refs filed like the full parse's: a body read is the parse's walk of that body (`ParseOptions.Body`) | About 18,000 lazy answers that differed from the full parse's |
 | 6 (done) | The resolver's function finders read strings as the parse does, or the parse's spans (section 5) | 417 to 1,208 lost functions per finder |
 | 7 (done) | One line counter, the LSP's (section 6) | Every position in 66 CR-only files |
 | 8 (done) | Tag attributes from one reader, with a CF and an HTML mode (section 7) | 1,815, 1,702, 524 and 516 wrong attributes in the other four |

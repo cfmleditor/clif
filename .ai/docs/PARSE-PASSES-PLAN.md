@@ -207,7 +207,7 @@ the counting on; in every other build it compiles away.
   runs an `unresolved` scan of the repo's fixtures and of the bundled
   framework stubs, and fails when the scan reads its text more times, or
   parses each file more times, than it does now (ceilings about 5% above:
-  testdata 5.9 passes and 2.5 parses a file, the stubs 3.1 and 2.3). `make
+  testdata 5.3 passes and 2.5 parses a file, the stubs 3.0 and 2.3). `make
   check` and CI's test job run it, alone, since the resolver's caches outlive
   a test. With `CLIF_PASSES_CORPUS` it reports any directories as well. An
   extra walk of each parsed file takes it from 5.6 to 7.7 and fails it.
@@ -222,13 +222,16 @@ earlier tables' for a corpus whose scan skips templates.
 
 ### Batch scans, `main` (33161f1) against `parse-readers`
 
-| | `main` | `parse-readers` |
-|---|---|---|
-| testdata | 5.33 passes, 2.45 parses a file | 5.55, 2.34 |
-| framework stubs | 2.91, 2.18 | 2.91, 2.18 |
-| ContentBox | 13.6, 3.16 | 14.1, 3.13 |
-| Mura | 15.2, 3.30 | 13.7, 3.23 |
-| tassweb (46,000 files) | 0.69, 0.25 (RSS 1,716MB) | 0.73, 0.25 (1,770MB) |
+| | `main` | guards and typing | with the body walk |
+|---|---|---|---|
+| testdata | 5.33 passes, 2.45 parses a file | 5.55, 2.34 | 4.99, 2.36 |
+| framework stubs | 2.91, 2.18 | 2.91, 2.18 | 2.87, 2.18 |
+| ContentBox | 13.6, 3.16 | 14.1, 3.13 | 12.4, 3.13 |
+| Mura | 15.2, 3.30 | 13.7, 3.23 | 13.1, 3.29 |
+| tassweb (46,000 files) | 0.69, 0.25 (RSS 1,716MB) | 0.73, 0.25 (1,770MB) | |
+
+The ceilings were set on the last column: testdata 5.3 passes, the stubs
+3.0.
 
 ### Editor actions regressed during the consolidation
 
