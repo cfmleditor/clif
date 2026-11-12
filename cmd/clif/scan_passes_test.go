@@ -36,7 +36,7 @@ func TestABatchScanReadsEachFileFewTimes(t *testing.T) {
 		dir                string
 		maxPasses, maxEach float64
 	}{
-		{"../../testdata", 5.2, 2.5},
+		{"../../testdata", 4.9, 2.5},
 		{"../../internal/frameworkapi/stubs", 2.5, 2.3},
 	} {
 		passes, each := scanPasses(t, c.dir)

@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/cfmleditor/clif/internal/lex"
 	"github.com/cfmleditor/clif/internal/parser"
 )
 
@@ -45,11 +46,45 @@ func (s *sourceInfo) holdsElementReturn() bool {
 // holdsElementRead reports whether content has a script or a tag return that
 // reads an element.
 func holdsElementRead(content string) bool {
-	if !mentions(content, "return") {
+	if !mayReadElement(content) {
 		return false
 	}
 
 	return len(scriptReturns(textCode(content)[0]).reads) > 0 || len(tagReturns(content).reads) > 0
+}
+
+// mayReadElement is false when no `return` in content is followed by a name
+// and then `[`, the shape scriptReturns and tagReturns read (`return x[i];`,
+// `<cfreturn x[i]>`), so content holds no element read and need not be
+// tokenized. It errs towards true: a comment, or a byte it does not know as
+// part of a name, after either word stops it with true.
+func mayReadElement(content string) bool {
+	for at := 0; ; {
+		i := parser.IndexFold(content[at:], "return")
+		if i < 0 {
+			return false
+		}
+
+		j := skipControl(content, at+i+len("return"))
+		at += i + len("return")
+
+		if j < len(content) && content[j] == '/' {
+			return true
+		}
+
+		start := j
+		for j < len(content) && (lex.IsIdent(content[j]) || content[j] >= 0x80) {
+			j++
+		}
+
+		if j == start {
+			continue
+		}
+
+		if j = skipControl(content, j); j < len(content) && (content[j] == '[' || content[j] == '/') {
+			return true
+		}
+	}
 }
 
 // plainParse is the source parsed with no resolver, lookup or option but the
@@ -62,7 +97,10 @@ func (s *sourceInfo) plainParse(path string) *parser.ParseResult {
 		return plainParseText(path, s.content)
 	}
 
-	s.derived.plainOnce.Do(func() { s.derived.plain = plainParseText(path, s.content) })
+	s.derived.plainOnce.Do(func() {
+		s.derived.plain = plainParseText(path, s.content)
+		s.derived.plainMade.Store(s.derived.plain)
+	})
 
 	return s.derived.plain
 }
