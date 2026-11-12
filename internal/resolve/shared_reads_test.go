@@ -73,3 +73,22 @@ func TestFW1ParsesAreSharedAcrossViews(t *testing.T) {
 		t.Error("changed text kept the old parse")
 	}
 }
+
+// A source's function-body tokens are let go once both of their readers have
+// them: the readers keep strings, and the tokens were kept for every source.
+func TestFunctionBodiesAreDroppedOnceBothReadersHaveThem(t *testing.T) {
+	content := "component { function a( x ) { return x; } function b() { var y = a( 1 ); return y; } }"
+	s := sourceInfo{content: content, derived: &sourceDerived{path: "/w/A.cfc"}}
+
+	if sourcePlans(s) == nil || s.derived.bodies == nil {
+		t.Fatal("the producer plans did not read the shared bodies")
+	}
+
+	if len(s.methodMap()) != 2 {
+		t.Fatalf("methods %v, want a and b", s.methodMap())
+	}
+
+	if s.derived.bodies != nil {
+		t.Error("the bodies were kept after both readers had them")
+	}
+}
