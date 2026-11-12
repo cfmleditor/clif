@@ -196,6 +196,74 @@ tokens of one plain scan):
   readers, not for speed. The index is built after the entry's size is
   counted, so `codeMemo`'s budget does not include it.
 
+## Counted in CI (2026-11-12)
+
+The counters are now part of the code, behind a build tag: the scanner's
+`next` and the parse's two entries count tokens and parses only in a build
+with `passcount` (`internal/parser/scan_counts*.go`), where a constant turns
+the counting on; in every other build it compiles away.
+
+- **`TestABatchScanReadsEachFileFewTimes`** (`cmd/clif/scan_passes_test.go`)
+  runs an `unresolved` scan of the repo's fixtures and of the bundled
+  framework stubs, and fails when the scan reads its text more times, or
+  parses each file more times, than it does now (ceilings about 5% above:
+  testdata 5.9 passes and 2.5 parses a file, the stubs 3.1 and 2.3). `make
+  check` and CI's test job run it, alone, since the resolver's caches outlive
+  a test. With `CLIF_PASSES_CORPUS` it reports any directories as well. An
+  extra walk of each parsed file takes it from 5.6 to 7.7 and fails it.
+- **`TestEditorActionPasses`** (`internal/server/editor_passes_test.go`) is
+  measurement only: with `CLIF_PASSES_EDITOR` and friends set, it drives a
+  server over a real workspace and reports each editor action's passes over
+  the file acted on.
+
+The denominator here is one plain scan of the CFML files under the scanned
+directory, every template included, so the figures are lower than the
+earlier tables' for a corpus whose scan skips templates.
+
+### Batch scans, `main` (33161f1) against `parse-readers`
+
+| | `main` | `parse-readers` |
+|---|---|---|
+| testdata | 5.33 passes, 2.45 parses a file | 5.55, 2.34 |
+| framework stubs | 2.91, 2.18 | 2.91, 2.18 |
+| ContentBox | 13.6, 3.16 | 14.1, 3.13 |
+| Mura | 15.2, 3.30 | 13.7, 3.23 |
+| tassweb (46,000 files) | 0.69, 0.25 (RSS 1,716MB) | 0.73, 0.25 (1,770MB) |
+
+### Editor actions regressed during the consolidation
+
+ContentBox's `authors.cfc`, the same harness at the build that recorded the
+table above (7f35e71) and at `main`:
+
+| Action | 7f35e71 | `main` |
+|---|---|---|
+| First open in a session | 12.0 passes, 6 parses | 20.4, 50 |
+| A second component's open | 2.4 | 2.4 |
+| Reopening the first | 2.8 | 3.7 |
+| Folding | 1.0 | 1.0 |
+| Document links | 1.0 | 3.0 |
+| A keystroke inside a function | 0.03 | 0.03 |
+| A keystroke outside any function (the full reparse) | 2.8 | 3.7 |
+
+Bisected:
+
+- **Document links, 1 to 3** at 8e0e130 ("Read document links with the
+  attribute and script scanners"). A script region is walked by the
+  custom-tag scan (`scriptCustomTags`) and again by the include walk
+  (`scriptFileRefs`).
+- **The reparse and reopen, 2.8 to 3.7** at aaa3ec2 ("Read includes with
+  the document links walk"): every parse now runs that include walk over
+  its script regions after its own walk.
+- **First open, 12 to 20 passes** crept up over the rounds (16.2 by the
+  regex batch, 19.2 by #370, 20.4 by #373), and its parses rose from 6 to
+  50 with #373: the entry points' shallow parses (24) and the call readers'
+  plain parses (20) of files the open reads facts from. Those parses are
+  small, so passes rose by only 1.4.
+
+The fix for the first two is the same as for every walker before it: the
+parse's own walk records includes and links (an option, as `FindCalls`
+records calls), and the separate link walk goes. That is the next step.
+
 ## The plan
 
 Each step stands alone, lands as its own change, and keeps `unresolved --json`
