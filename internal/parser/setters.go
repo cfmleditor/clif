@@ -28,9 +28,9 @@ func applySetterArgumentTypes(name, access string, args []Argument, lookup func(
 
 // Only the whole arguments.name value carries the argument's component type.
 // Members, concatenations and calls must not acquire the dependency's type.
-func wholeArgumentComponent(chain, inFunc string, funcs []FunctionDef) string {
+func wholeArgumentComponent(chain string, inFunc fnKey, funcs []FunctionDef) string {
 	scope, name, ok := strings.Cut(chain, ".")
-	if !ok || !strings.EqualFold(scope, "arguments") || inFunc == "" || len(funcs) == 0 {
+	if !ok || !strings.EqualFold(scope, "arguments") || !inFunc.in || len(funcs) == 0 {
 		return ""
 	}
 

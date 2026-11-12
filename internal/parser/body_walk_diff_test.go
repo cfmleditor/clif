@@ -160,9 +160,9 @@ func (d *bodyDiff) file(path string) {
 		kind := tag(s)
 
 		want := slices.Clone(full.funcRefsMap[funcKey(s.Start, s.End)])
-		for i := range full.funcRefsMap[""] {
-			if line := int(full.funcRefsMap[""][i].Line); line >= s.Start && line <= s.End {
-				want = append(want, full.funcRefsMap[""][i])
+		for i := range full.funcRefsMap[noFn] {
+			if line := int(full.funcRefsMap[noFn][i].Line); line >= s.Start && line <= s.End {
+				want = append(want, full.funcRefsMap[noFn][i])
 			}
 		}
 
@@ -388,7 +388,7 @@ func fullFiling(full *ParseResult, k string, s FuncScope) string {
 			}
 
 			switch {
-			case key == "":
+			case !key.in:
 				return "the parse files it under a top-level closure"
 			case within(key, s):
 				return "the parse files it under a function nested in this one"
@@ -429,7 +429,7 @@ func (d *bodyDiff) calls(who, kind, at string, full *ParseResult, got, want []Ca
 		for key, calls := range full.funcCallsMap {
 			for i := range calls {
 				if bodyCallKey(&calls[i]) == k {
-					class = "the parse records it under another function (" + map[bool]string{true: "top-level closure", false: "keyed"}[key == ""] + ")"
+					class = "the parse records it under another function (" + map[bool]string{true: "top-level closure", false: "keyed"}[!key.in] + ")"
 				}
 			}
 		}

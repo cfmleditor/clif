@@ -262,10 +262,10 @@ func (pr *ParseResult) fileMemberRef(identity collKey, w collectionWrite, compon
 
 	if identity.local() {
 		if pr.funcRefsMap == nil {
-			pr.funcRefsMap = map[string][]ComponentRef{}
+			pr.funcRefsMap = map[fnKey][]ComponentRef{}
 		}
 
-		pr.funcRefsMap[w.function] = append(pr.funcRefsMap[w.function], refs...)
+		pr.funcRefsMap[parseFnKey(w.function)] = append(pr.funcRefsMap[parseFnKey(w.function)], refs...)
 	} else {
 		pr.ComponentRefs = append(pr.ComponentRefs, refs...)
 	}
@@ -449,7 +449,7 @@ func (pr *ParseResult) memberValueSource(expression, function string, locals *lo
 	name := StripReceiverScope(root)
 	scope := ReceiverRefScope(root)
 
-	ref := firstRefIn(pr.funcRefsMap[function], name, scope)
+	ref := firstRefIn(pr.funcRefsMap[parseFnKey(function)], name, scope)
 	if scope != RefAny {
 		ref = firstRefIn(pr.ComponentRefs, name, scope)
 	}

@@ -23,11 +23,11 @@ type scriptParser struct {
 	funcs               []FunctionDef
 	vars                []VarDef
 	componentRefs       []ComponentRef
-	funcRefs            map[string][]ComponentRef // keyed by "start:end"
-	funcLinks           map[string][]DocumentLink // keyed by "start:end"
-	funcCalls           map[string][]CallSite     // keyed by "start:end"
-	links               []DocumentLink            // global scope links
-	calls               []CallSite                // global scope call sites
+	funcRefs            map[fnKey][]ComponentRef // keyed by function (fnKey)
+	funcLinks           map[fnKey][]DocumentLink // keyed by function (fnKey)
+	funcCalls           map[fnKey][]CallSite     // keyed by function (fnKey)
+	links               []DocumentLink           // global scope links
+	calls               []CallSite               // global scope call sites
 	scopes              []FuncScope
 	properties          []propertyDef
 	extends             string
@@ -40,7 +40,7 @@ type scriptParser struct {
 	imports             map[string]string // last segment (lowercased) → full dot-path, from `import`
 	builtinReturnLookup func(string) string
 	argumentTypes       func(string, string, []Argument)
-	inFunc              string          // current function scope key, empty if global
+	inFunc              fnKey           // current function scope key, noFn if global
 	localVarSet         map[string]bool // var'd/local. names in current function
 	returnVar           string          // last "return varName" seen in current function
 	pendingCalls        []pendingCall   // unresolved varName = funcCall(...) assignments
@@ -102,7 +102,7 @@ type pendingCall struct {
 	block      uint32 // the block the assignment was made in; see flowBlocks
 	baseScope  RefScope
 
-	funcKey string   // scope key, empty if global
+	funcKey fnKey    // scope key, noFn if global
 	rest    []string // calls chained after funcName, carried to the ref as ChainRest
 
 	// The closure the assignment was made in, carried to the ref; see
@@ -402,15 +402,15 @@ func finalCall(expr string) (name, args string) {
 func (p *scriptParser) addRef(ref *ComponentRef) {
 	ref.This = p.refThis
 
-	if p.flow != nil && p.inFunc != "" {
+	if p.flow != nil && p.inFunc.in {
 		p.flow.note(ref.Variable, ref.Line, p.flow.innermost())
 	}
 
-	if p.inFunc == "" && !p.inClosure || p.forceGlobal {
+	if !p.inFunc.in && !p.inClosure || p.forceGlobal {
 		p.componentRefs = append(p.componentRefs, *ref)
 	} else {
 		if p.funcRefs == nil {
-			p.funcRefs = make(map[string][]ComponentRef)
+			p.funcRefs = make(map[fnKey][]ComponentRef)
 		}
 
 		p.funcRefs[p.inFunc] = append(p.funcRefs[p.inFunc], *ref)
@@ -421,7 +421,7 @@ func (p *scriptParser) addRef(ref *ComponentRef) {
 // function body of a value no component can be (untypedValueText), read from
 // the token after the `=` (flowBlocks.untypedReaches).
 func (p *scriptParser) noteAssign(name string, line int) {
-	if p.flow == nil || p.inFunc == "" || p.inClosure {
+	if p.flow == nil || !p.inFunc.in || p.inClosure {
 		return
 	}
 
@@ -445,11 +445,11 @@ func (p *scriptParser) addCall(call *CallSite) {
 
 	p.setCallSpan(call)
 
-	if p.inFunc == "" {
+	if !p.inFunc.in {
 		p.calls = append(p.calls, *call)
 	} else {
 		if p.funcCalls == nil {
-			p.funcCalls = make(map[string][]CallSite)
+			p.funcCalls = make(map[fnKey][]CallSite)
 		}
 
 		p.funcCalls[p.inFunc] = append(p.funcCalls[p.inFunc], *call)
@@ -474,7 +474,7 @@ func (p *scriptParser) asCFScript() *scriptParser {
 // typed as an assignment's right-hand side is; it is "" otherwise.
 func (p *scriptParser) recordBareCallAndChain(tok Token) (alone string) {
 	caller := ""
-	if p.inFunc != "" && len(p.funcs) > 0 {
+	if p.inFunc.in && len(p.funcs) > 0 {
 		caller = p.currentFunc().Name
 	}
 
@@ -664,7 +664,7 @@ func (c *CallSite) onScope(word string) {
 // fullChain is e.g. "VARIABLES.service.GetData" or just "GetData", line is the source line.
 func (p *scriptParser) recordCallFromChain(fullChain string, line int) {
 	caller := ""
-	if p.inFunc != "" && len(p.funcs) > 0 {
+	if p.inFunc.in && len(p.funcs) > 0 {
 		caller = p.currentFunc().Name
 	}
 
@@ -801,7 +801,7 @@ func (p *scriptParser) recordChainContinuation(baseVar, funcName, baseComp strin
 // hop's Chain.
 func (p *scriptParser) recordChainContinuationFrom(baseVar string, prior []string, funcName, baseComp string, _ int, viaThis bool) (consumed []string) {
 	caller := ""
-	if p.inFunc != "" && len(p.funcs) > 0 {
+	if p.inFunc.in && len(p.funcs) > 0 {
 		caller = p.currentFunc().Name
 	}
 
@@ -1051,7 +1051,7 @@ func (p *scriptParser) checkVarRHS(varName string, line int) {
 // rather than answered wrongly against a same-named function elsewhere.
 func (p *scriptParser) recordScopedMemberCall(scopeTok, nameTok Token) {
 	caller := ""
-	if p.inFunc != "" && len(p.funcs) > 0 {
+	if p.inFunc.in && len(p.funcs) > 0 {
 		caller = p.currentFunc().Name
 	}
 
@@ -1391,7 +1391,7 @@ func (p *scriptParser) parse() {
 			p.parseScopedVar(tok, sharedScopeOf(tok))
 		case "return":
 			// A script island can be inside a tag function whose scope was seeded.
-			if p.inFunc != "" {
+			if p.inFunc.in {
 				p.checkReturnComponent()
 			}
 		case "import":
@@ -1811,7 +1811,7 @@ func (p *scriptParser) parseFunction(startTok Token, access string, returnType s
 	p.sc.LastBlockComment = ""
 
 	kind := FunctionDeclared
-	if p.inFunc != "" {
+	if p.inFunc.in {
 		kind = FunctionNested
 	}
 
@@ -1839,7 +1839,7 @@ func (p *scriptParser) parseFunction(startTok Token, access string, returnType s
 		applyParameterDocs(docComment, args)
 	}
 
-	if p.inFunc == "" {
+	if !p.inFunc.in {
 		if p.argumentTypes != nil {
 			p.argumentTypes(nameTok.Value, access, args)
 		}
@@ -1888,7 +1888,7 @@ func (p *scriptParser) parseFunction(startTok Token, access string, returnType s
 // lookahead on every assignment whose right-hand side is a bare identifier,
 // which is most of them.
 func (p *scriptParser) parseFunctionValue(name string, startTok Token) bool {
-	if p.inFunc != "" {
+	if p.inFunc.in {
 		return false
 	}
 
@@ -2069,7 +2069,7 @@ func (p *scriptParser) parseCatchVar() {
 // a loop variable or a caught exception. Outside a function body there is no
 // local scope to put it in, so it lands where an unscoped assignment would.
 func (p *scriptParser) declareVar(nameTok Token, scope Scope) {
-	if p.inFunc == "" {
+	if !p.inFunc.in {
 		scope = ScopeVariables
 	} else if scope == ScopeLocal && p.localVarSet != nil {
 		p.localVarSet[strings.ToLower(nameTok.Value)] = true
@@ -2114,7 +2114,7 @@ func (p *scriptParser) recordStaticCall(component string, startTok Token) {
 	}
 
 	caller := ""
-	if p.inFunc != "" && len(p.funcs) > 0 {
+	if p.inFunc.in && len(p.funcs) > 0 {
 		caller = p.currentFunc().Name
 	}
 
@@ -2189,7 +2189,7 @@ func isLiteralReceiver(k TokenKind) bool {
 // way it is for any other value whose type is not static.
 func (p *scriptParser) recordLiteralMemberCall() {
 	caller := ""
-	if p.inFunc != "" && len(p.funcs) > 0 {
+	if p.inFunc.in && len(p.funcs) > 0 {
 		caller = p.currentFunc().Name
 	}
 
@@ -2428,7 +2428,7 @@ func (p *scriptParser) parseBraceBody(funcLine int, args []Argument, tok Token) 
 
 		if comp := argumentComponentType(&a); comp != "" {
 			if p.funcRefs == nil {
-				p.funcRefs = make(map[string][]ComponentRef)
+				p.funcRefs = make(map[fnKey][]ComponentRef)
 			}
 
 			p.funcRefs[tempKey] = append(p.funcRefs[tempKey], ComponentRef{
@@ -2644,7 +2644,7 @@ func sharedScopeOf(tok Token) Scope {
 // Only the pending calls recorded since the body began can carry tempKey, so
 // the search starts at pendingFrom: scanning them all for every function was
 // quadratic in a component of thousands of functions.
-func (p *scriptParser) rekeyFunc(tempKey, realKey string, pendingFrom int) {
+func (p *scriptParser) rekeyFunc(tempKey, realKey fnKey, pendingFrom int) {
 	if refs, ok := p.funcRefs[tempKey]; ok {
 		delete(p.funcRefs, tempKey)
 		p.funcRefs[realKey] = refs
@@ -2796,7 +2796,7 @@ func (p *scriptParser) handleBodyToken(tok Token, depth int, afterLT bool) {
 // checkReturnComponent checks if a return statement returns a component expression or variable.
 func (p *scriptParser) checkReturnComponent() {
 	expr := scriptReturnExpression(p.sc)
-	if p.inFunc != "" {
+	if p.inFunc.in {
 		p.pendingCalls = append(p.pendingCalls, pendingCall{
 			varName: expr, funcKey: p.inFunc, returnExpr: true,
 		})
@@ -3233,7 +3233,7 @@ func (p *scriptParser) checkAssignRef(tok Token) {
 	})
 
 	// If inside a function and variable is NOT declared local, route to componentRefs
-	if p.inFunc != "" && !p.isVarDeclaredLocal(tok.Value) {
+	if p.inFunc.in && !p.isVarDeclaredLocal(tok.Value) {
 		p.forceGlobal = true
 	}
 
@@ -3338,7 +3338,7 @@ func (p *scriptParser) chainedAssign(outer string) bool {
 	switch {
 	case scope == ScopeLocal:
 		p.checkAssignRef(tok)
-	case p.inFunc != "":
+	case p.inFunc.in:
 		p.parseBodyScopedVar(tok, scope)
 	default:
 		p.parseScopedVar(tok, scope)
@@ -3409,7 +3409,7 @@ func (p *scriptParser) addPendingCall(varName, prevIdent, lastIdent, chain strin
 		refThis:    p.refThis,
 		global:     p.forceGlobal,
 		baseScope:  ReceiverRefScope(recv),
-		baseLocal:  readThroughLocal(recv) || recv == prevIdent && p.inFunc != "" && p.isVarDeclaredLocal(prevIdent) || recv == "" && p.isVarDeclaredLocal(lastIdent),
+		baseLocal:  readThroughLocal(recv) || recv == prevIdent && p.inFunc.in && p.isVarDeclaredLocal(prevIdent) || recv == "" && p.isVarDeclaredLocal(lastIdent),
 		rebinds:    rebinds(varName, recv),
 	})
 	p.pendingCalls[len(p.pendingCalls)-1].rest = p.continueChainCalls(receiverOf(chain), lastIdent, line)
@@ -3678,7 +3678,7 @@ chainWalk:
 	varName := strings.Join(identChain[:len(identChain)-1], ".")
 
 	caller := ""
-	if p.inFunc != "" && len(p.funcs) > 0 {
+	if p.inFunc.in && len(p.funcs) > 0 {
 		caller = p.currentFunc().Name
 	}
 
@@ -3764,7 +3764,7 @@ func (p *scriptParser) parseCreateObjectRef(varName string, line int) {
 // line the constructor began on.
 func (p *scriptParser) scanChainedCalls(component string) []string {
 	caller := ""
-	if p.inFunc != "" && len(p.funcs) > 0 {
+	if p.inFunc.in && len(p.funcs) > 0 {
 		caller = p.currentFunc().Name
 	}
 
@@ -4680,7 +4680,7 @@ func (p *scriptParser) rewind(m *parseMark) {
 }
 
 // rewindEntry cuts m[key] back to n, removing it if it was not there.
-func rewindEntry[T any](m map[string][]T, key string, n int, had bool) {
+func rewindEntry[T any](m map[fnKey][]T, key fnKey, n int, had bool) {
 	if !had {
 		delete(m, key)
 
@@ -4710,7 +4710,7 @@ func rewindEntry[T any](m map[string][]T, key string, n int, had bool) {
 // recorded against a dynamic receiver, as a literal receiver's chain is.
 func (p *scriptParser) continueExtendedChain(recv, first string, ext []string, line int) []string {
 	caller := ""
-	if p.inFunc != "" && len(p.funcs) > 0 {
+	if p.inFunc.in && len(p.funcs) > 0 {
 		caller = p.currentFunc().Name
 	}
 

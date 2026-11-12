@@ -108,7 +108,7 @@ func (p *tagParser) parseCFSet(tag string, line, offset int) {
 	// <cfreturn> already do; the string paths stay because they carry the refs
 	// and pending calls that decide what a variable now holds.
 	before := len(p.calls)
-	if p.inFunc != "" {
+	if p.inFunc.in {
 		before = len(p.funcCalls[p.inFunc])
 	}
 
@@ -119,7 +119,7 @@ func (p *tagParser) parseCFSet(tag string, line, offset int) {
 	p.setAssign(inner, line)
 
 	bucket := p.calls
-	if p.inFunc != "" {
+	if p.inFunc.in {
 		bucket = p.funcCalls[p.inFunc]
 	}
 
@@ -135,7 +135,7 @@ func (p *tagParser) parseCFSet(tag string, line, offset int) {
 // setAssign handles the assignment a <cfset> holds, whose calls
 // parseCFSet's caller scans.
 func (p *tagParser) setAssign(inner string, line int) {
-	if _, rhs, ok := strings.Cut(inner, "="); ok && p.flow != nil && p.inFunc != "" && untypedValueText(rhs) {
+	if _, rhs, ok := strings.Cut(inner, "="); ok && p.flow != nil && p.inFunc.in && untypedValueText(rhs) {
 		// Every assignment below records its VarDef first, except a local's
 		// reassignment, which notes itself (flowBlocks.untypedReaches).
 		n := len(p.vars)
@@ -154,7 +154,7 @@ func (p *tagParser) setAssign(inner string, line int) {
 		if name != "" {
 			p.vars = append(p.vars, VarDef{Name: name, Scope: ScopeLocal, Line: conv.Uint32(line)})
 
-			if p.inFunc != "" {
+			if p.inFunc.in {
 				p.markVarLocal(name)
 			}
 
@@ -167,7 +167,7 @@ func (p *tagParser) setAssign(inner string, line int) {
 		if name != "" {
 			p.vars = append(p.vars, VarDef{Name: name, Scope: ScopeLocal, Line: conv.Uint32(line)})
 
-			if p.inFunc != "" {
+			if p.inFunc.in {
 				p.markVarLocal(name)
 			}
 
@@ -213,7 +213,7 @@ func (p *tagParser) setAssign(inner string, line int) {
 				p.checkBareCallStr(inner, line)
 			} else if rhs != "" {
 				// If var was previously declared local in this function, keep it local
-				isLocal := p.inFunc != "" && p.isVarDeclaredLocal(name)
+				isLocal := p.inFunc.in && p.isVarDeclaredLocal(name)
 				if !isLocal {
 					p.vars = append(p.vars, VarDef{Name: name, Scope: ScopeVariables, Line: conv.Uint32(line)})
 				} else if p.flow != nil && untypedValueText(rhs) {
@@ -350,7 +350,7 @@ func (p *tagParser) parseCFReturn(tag string, line, idx int) {
 	// svc.value()>` used to record nothing.
 	p.scanTagExpression(inner, bodyLine(tag, inner, line), idx+strings.Index(tag, inner))
 
-	if p.inFunc == "" {
+	if !p.inFunc.in {
 		return
 	}
 
@@ -664,7 +664,7 @@ func (p *tagParser) checkSetRHSStr(rhs, varName string, line int) {
 				line: conv.Uint32(line), funcKey: p.inFunc,
 				refThis: p.refThis, global: p.forceGlobal,
 				baseScope: ReceiverRefScope(rhs),
-				baseLocal: readThroughLocal(rhs) || p.inFunc != "" && (p.isVarDeclaredLocal(rootName(rhs)) || p.isArgument(rootName(rhs))),
+				baseLocal: readThroughLocal(rhs) || p.inFunc.in && (p.isVarDeclaredLocal(rootName(rhs)) || p.isArgument(rootName(rhs))),
 			})
 
 			return
@@ -770,7 +770,7 @@ func callReceiver(expr string) (receiver, method string) {
 }
 
 func (p *tagParser) currentCaller() string {
-	if p.inFunc != "" && len(p.funcs) > 0 {
+	if p.inFunc.in && len(p.funcs) > 0 {
 		return p.funcs[len(p.funcs)-1].Name
 	}
 
@@ -909,7 +909,7 @@ func (p *tagParser) methodCallRHS(rhs, baseVar, varName string, line int) {
 		// varChain is the receiver: `variables.a.m()` reads a from
 		// variables scope only.
 		baseScope: ReceiverRefScope(varChain),
-		baseLocal: readThroughLocal(varChain) || p.inFunc != "" && (p.isVarDeclaredLocal(varChain) || p.isArgument(varChain)),
+		baseLocal: readThroughLocal(varChain) || p.inFunc.in && (p.isVarDeclaredLocal(varChain) || p.isArgument(varChain)),
 		rebinds:   rebinds(varName, varChain),
 	})
 }
@@ -986,7 +986,7 @@ func (p *tagParser) checkBareCallStr(expr string, line int) {
 	}
 
 	caller := ""
-	if p.inFunc != "" && len(p.funcs) > 0 {
+	if p.inFunc.in && len(p.funcs) > 0 {
 		caller = p.funcs[len(p.funcs)-1].Name
 	}
 

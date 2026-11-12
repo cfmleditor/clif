@@ -124,7 +124,7 @@ func (pr *ParseResult) applyFactoryReturnCalls(calls []pendingCall) {
 		return
 	}
 
-	byFunction := make(map[string][]string)
+	byFunction := make(map[fnKey][]string)
 
 	for i := range calls {
 		if c := &calls[i]; c.returnExpr {
@@ -132,7 +132,7 @@ func (pr *ParseResult) applyFactoryReturnCalls(calls []pendingCall) {
 		}
 	}
 
-	scopeKeys := make(map[int]string, len(pr.Scopes))
+	scopeKeys := make(map[int]fnKey, len(pr.Scopes))
 	for _, scope := range pr.Scopes {
 		scopeKeys[scope.Start] = funcKey(scope.Start, scope.End)
 	}

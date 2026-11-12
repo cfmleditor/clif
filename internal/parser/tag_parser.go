@@ -14,13 +14,13 @@ type tagParser struct {
 	funcs          []FunctionDef
 	vars           []VarDef
 	componentRefs  []ComponentRef
-	funcRefs       map[string][]ComponentRef // keyed by "start:end"
-	funcLinks      map[string][]DocumentLink // keyed by "start:end"
-	funcCalls      map[string][]CallSite     // keyed by "start:end"
-	links          []DocumentLink            // global scope links
-	calls          []CallSite                // global scope call sites
-	instantiations []Instantiation           // what its expressions' sub-parses found built
-	exprParser     *scriptParser             // the one sub-parser every expression is read with; see subParser
+	funcRefs       map[fnKey][]ComponentRef // keyed by function (fnKey)
+	funcLinks      map[fnKey][]DocumentLink // keyed by function (fnKey)
+	funcCalls      map[fnKey][]CallSite     // keyed by function (fnKey)
+	links          []DocumentLink           // global scope links
+	calls          []CallSite               // global scope call sites
+	instantiations []Instantiation          // what its expressions' sub-parses found built
+	exprParser     *scriptParser            // the one sub-parser every expression is read with; see subParser
 	scopes         []FuncScope
 	pendingCalls   []pendingCall
 	// pendingByName indexes pendingCalls by lowercased varName, for
@@ -69,7 +69,7 @@ type tagParser struct {
 	srcOffset           int
 	builtinReturnLookup func(string) string
 	argumentTypes       func(string, string, []Argument)
-	inFunc              string // current function scope key ("start:end"), empty if global
+	inFunc              fnKey // current function scope key, noFn if global
 	// localVars holds the var'd/local. names declared in the function being
 	// parsed. A slice scanned with EqualFold rather than a map of lowercased
 	// keys: a function declares a handful of locals, so the scan is short, and
@@ -245,7 +245,7 @@ func (p *tagParser) parseNestedScript(idx int) int {
 		}
 	}
 
-	if p.inFunc != "" {
+	if p.inFunc.in {
 		for i := range sp.componentRefs {
 			ref := &sp.componentRefs[i]
 
@@ -263,7 +263,7 @@ func (p *tagParser) parseNestedScript(idx int) int {
 	for i := range sp.pendingCalls {
 		c := sp.pendingCalls[i] // a copy: edited below, and kept
 
-		if c.funcKey == "" {
+		if !c.funcKey.in {
 			c.funcKey = p.inFunc
 		}
 
@@ -380,7 +380,7 @@ func (p *tagParser) closeTag(idx int) {
 		return
 	}
 
-	p.inFunc = ""
+	p.inFunc = noFn
 	p.localVars = p.localVars[:0]
 	p.localSet = nil
 	p.forceGlobal = false
@@ -420,7 +420,7 @@ func (p *tagParser) handleCFTag(idx int) int {
 	line := p.lineAt(idx)
 
 	p.tagCalls = len(p.calls)
-	if p.inFunc != "" {
+	if p.inFunc.in {
 		p.tagCalls = len(p.funcCalls[p.inFunc])
 	}
 
@@ -752,7 +752,7 @@ func (p *tagParser) parseCFFunction(tag string, idx, tagEnd, line int) {
 				key := funcKey(line, endLine)
 
 				if p.funcRefs == nil {
-					p.funcRefs = make(map[string][]ComponentRef)
+					p.funcRefs = make(map[fnKey][]ComponentRef)
 				}
 
 				p.funcRefs[key] = append(p.funcRefs[key], ref)
@@ -902,15 +902,15 @@ func (p *tagParser) resolveCall(expr string) string {
 func (p *tagParser) addRef(ref *ComponentRef) {
 	ref.This = p.refThis
 
-	if p.flow != nil && p.inFunc != "" {
+	if p.flow != nil && p.inFunc.in {
 		p.flow.note(ref.Variable, ref.Line, p.flow.innermost())
 	}
 
-	if p.inFunc == "" || p.forceGlobal {
+	if !p.inFunc.in || p.forceGlobal {
 		p.componentRefs = append(p.componentRefs, *ref)
 	} else {
 		if p.funcRefs == nil {
-			p.funcRefs = make(map[string][]ComponentRef)
+			p.funcRefs = make(map[fnKey][]ComponentRef)
 		}
 
 		p.funcRefs[p.inFunc] = append(p.funcRefs[p.inFunc], *ref)
@@ -937,7 +937,7 @@ func (p *tagParser) lookupComponentRef(varName string, atLine int) string {
 	}
 
 	ref := (*ComponentRef)(nil)
-	if p.inFunc != "" {
+	if p.inFunc.in {
 		ref = nearestComponentRef(p.funcRefs[p.inFunc], lookupVar, atLine)
 	}
 
@@ -977,7 +977,7 @@ func (p *tagParser) assignedBefore(name string, line int) int {
 		}
 	}
 
-	if p.inFunc != "" {
+	if p.inFunc.in {
 		count(p.funcRefs[p.inFunc])
 	}
 
@@ -1048,11 +1048,11 @@ func (p *tagParser) addCall(call *CallSite) {
 		return
 	}
 
-	if p.inFunc == "" {
+	if !p.inFunc.in {
 		p.calls = append(p.calls, *call)
 	} else {
 		if p.funcCalls == nil {
-			p.funcCalls = make(map[string][]CallSite)
+			p.funcCalls = make(map[fnKey][]CallSite)
 		}
 
 		p.funcCalls[p.inFunc] = append(p.funcCalls[p.inFunc], *call)
@@ -1105,7 +1105,7 @@ func hasCFTagPrefix(tag, prefix string) bool {
 
 // extractLinksByScope files found, a region's links, under the function
 // each is in, or in links when it is in none.
-func extractLinksByScope(found []DocumentLink, scopes []FuncScope, funcLinks map[string][]DocumentLink, links *[]DocumentLink) map[string][]DocumentLink {
+func extractLinksByScope(found []DocumentLink, scopes []FuncScope, funcLinks map[fnKey][]DocumentLink, links *[]DocumentLink) map[fnKey][]DocumentLink {
 	scopeIdx := 0
 
 	for _, link := range found {
@@ -1117,7 +1117,7 @@ func extractLinksByScope(found []DocumentLink, scopes []FuncScope, funcLinks map
 
 		if scopeIdx < len(scopes) && line > scopes[scopeIdx].Start && line < scopes[scopeIdx].End {
 			if funcLinks == nil {
-				funcLinks = make(map[string][]DocumentLink)
+				funcLinks = make(map[fnKey][]DocumentLink)
 			}
 
 			key := funcKey(scopes[scopeIdx].Start, scopes[scopeIdx].End)

@@ -239,7 +239,7 @@ func (pr *ParseResult) reparseShallow() {
 // its walk had filed, and every function was then read again on its own.
 func (pr *ParseResult) resetFuncCaches() {
 	pr.funcVarsMu.Lock()
-	pr.funcVars = make(map[string][]string)
+	pr.funcVars = make(map[fnKey][]string)
 	pr.funcVarsMu.Unlock()
 
 	pr.funcRefsMu.Lock()

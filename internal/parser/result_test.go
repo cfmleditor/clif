@@ -2,7 +2,6 @@ package parser
 
 import (
 	"slices"
-	"strings"
 	"testing"
 )
 
@@ -355,35 +354,33 @@ func TestParseResult_ResolverRefs(t *testing.T) {
 	}
 }
 
-// TestFuncKeyAllocatesOnce pins the reason funcKey is spelled the way it is.
-// It is the memoisation key for every lazy per-function cache, so hover,
-// definition, completion and document-link all reach it on the keystroke path;
-// the obvious strings.Join spelling cost four allocations instead of one, which
-// was 95% of everything the document-link handler allocated.
-func TestFuncKeyAllocatesOnce(t *testing.T) {
-	if got := testing.AllocsPerRun(100, func() { _ = funcKey(12, 340) }); got > 1 {
-		t.Errorf("funcKey allocates %v times, want 1", got)
+// TestFuncKeyAllocatesNothing pins why the key is a struct: it is the key of
+// every lazy per-function cache, reached by hover, definition, completion and
+// document links on the keystroke path, and as a "start:end" string it cost an
+// allocation each time and a parse back into lines on every edit.
+func TestFuncKeyAllocatesNothing(t *testing.T) {
+	if got := testing.AllocsPerRun(100, func() { _ = funcKey(12, 340) }); got > 0 {
+		t.Errorf("funcKey allocates %v times, want none", got)
 	}
 }
 
-// TestFuncKeyRoundTrips guards the format itself: four sites in result.go split
-// a key back apart with strings.SplitN and atoi to offset it by a region's
-// start line, so the separator and the plain base-10 digits are load-bearing.
+// TestFuncKeyRoundTrips guards the text form the collection readers intern a
+// key as: String and parseFnKey are inverses, and no function is the empty
+// string, never the key of a function on line 0.
 func TestFuncKeyRoundTrips(t *testing.T) {
 	for _, c := range []struct{ start, end int }{{0, 0}, {1, 2}, {12, 340}, {-1, 5}, {999999, 1000000}} {
 		k := funcKey(c.start, c.end)
 
-		parts := strings.SplitN(k, ":", 2)
-		if len(parts) != 2 {
-			t.Fatalf("funcKey(%d, %d) = %q, want two %q-separated fields", c.start, c.end, k, ":")
+		if got := parseFnKey(k.String()); got != k {
+			t.Errorf("funcKey(%d, %d) = %q, read back as %+v", c.start, c.end, k, got)
 		}
 
-		if got, want := atoi(parts[0]), c.start; got != want {
-			t.Errorf("funcKey(%d, %d) = %q; start round-tripped as %d", c.start, c.end, k, got)
+		if k == noFn {
+			t.Errorf("funcKey(%d, %d) is no function", c.start, c.end)
 		}
+	}
 
-		if got, want := atoi(parts[1]), c.end; got != want {
-			t.Errorf("funcKey(%d, %d) = %q; end round-tripped as %d", c.start, c.end, k, got)
-		}
+	if noFn.String() != "" || parseFnKey("") != noFn {
+		t.Errorf("no function is %q, and the empty string reads as %+v", noFn.String(), parseFnKey(""))
 	}
 }

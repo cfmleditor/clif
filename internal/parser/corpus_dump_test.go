@@ -95,13 +95,13 @@ func dumpParse(sb *strings.Builder, mode, name, src string, opts *ParseOptions) 
 
 	keys := make([]string, 0, len(pr.funcRefsMap))
 	for k := range pr.funcRefsMap {
-		keys = append(keys, k)
+		keys = append(keys, k.String())
 	}
 
 	slices.Sort(keys)
 
 	for _, k := range keys {
-		fmt.Fprintf(sb, "fr %s %v\n", k, pr.funcRefsMap[k])
+		fmt.Fprintf(sb, "fr %s %v\n", k, pr.funcRefsMap[parseFnKey(k)])
 	}
 }
 

@@ -139,12 +139,12 @@ type ParseResult struct {
 	refsBuiltFrom *ComponentRef
 	refsBuiltLen  int
 
-	// funcVars caches per-function variable lists keyed by "start:end".
+	// funcVars caches per-function variable lists keyed by function (fnKey).
 	funcVarsMu sync.Mutex
-	funcVars   map[string][]string
+	funcVars   map[fnKey][]string
 	// funcVarSets holds each function's funcVars as a set, for FuncDeclares,
 	// with the list it was built from so a list replaced is noticed.
-	funcVarSets map[string]funcVarSet
+	funcVarSets map[fnKey]funcVarSet
 
 	// callsByName indexes the calls AllCalls returns by lowercased name, for
 	// CallsNamed: where each is, in Calls (key "") or a funcCallsMap bucket.
@@ -168,16 +168,16 @@ type ParseResult struct {
 	scopeAtFrom  *FuncScope
 	scopeAtCount int
 
-	// funcRefs caches per-function component refs keyed by "start:end".
+	// funcRefs caches per-function component refs keyed by function (fnKey).
 	memberSnapshot        *ParseResult // member refs computed once per document version
 	memberSnapshotContent string
 	// refIdx is firstRef's index while resolvePendingCalls runs, nil
 	// otherwise; see firstRef.
 	refIdx       map[*ComponentRef]*refNames
 	funcRefsMu   sync.Mutex
-	funcRefsMap  map[string][]ComponentRef
-	funcLinksMap map[string][]DocumentLink
-	funcCallsMap map[string][]CallSite // per-function call sites keyed by "start:end"
+	funcRefsMap  map[fnKey][]ComponentRef
+	funcLinksMap map[fnKey][]DocumentLink
+	funcCallsMap map[fnKey][]CallSite // per-function call sites keyed by function
 	// flow is the blocks a full parse recorded, for comparing the branches
 	// that reach a return; nil once resolvePendingCalls has read it.
 	flow *flowBlocks
@@ -286,7 +286,7 @@ func Parse(fileURI uri.URI, content string, resolvers ...[]Resolver) *ParseResul
 	pr := &ParseResult{
 		URI:      fileURI,
 		Content:  content,
-		funcVars: make(map[string][]string),
+		funcVars: make(map[fnKey][]string),
 	}
 	if len(resolvers) > 0 {
 		pr.Resolvers = resolvers[0]
@@ -361,7 +361,7 @@ func ParseWithOptions(fileURI uri.URI, content string, opts *ParseOptions) *Pars
 	pr := &ParseResult{
 		URI:                      fileURI,
 		Content:                  content,
-		funcVars:                 make(map[string][]string),
+		funcVars:                 make(map[fnKey][]string),
 		log:                      opts.Logger,
 		Resolvers:                opts.Resolvers,
 		PropertyResolvers:        opts.PropertyResolvers,
@@ -652,11 +652,11 @@ func (pr *ParseResult) extractSignatures() {
 // markStructReturns flags each function one of whose returns is a struct
 // literal or structNew(), from the return expressions both parsers record.
 func (pr *ParseResult) markStructReturns(calls []pendingCall) {
-	var byKey map[string][]int
+	var byKey map[fnKey][]int
 
 	for i := range calls {
 		c := &calls[i]
-		if !c.returnExpr || c.funcKey == "" {
+		if !c.returnExpr || !c.funcKey.in {
 			continue
 		}
 
@@ -666,7 +666,7 @@ func (pr *ParseResult) markStructReturns(calls []pendingCall) {
 		}
 
 		if byKey == nil {
-			byKey = make(map[string][]int, len(pr.Funcs))
+			byKey = make(map[fnKey][]int, len(pr.Funcs))
 			scopeAt := scopeIndex(pr.Scopes, true)
 
 			for j := range pr.Funcs {
@@ -740,13 +740,13 @@ func (pr *ParseResult) componentReturnFor(f *FunctionDef, comp string) string {
 // which is a variables-scope one, so the variable was filed for the whole
 // component.
 type openLocals struct {
-	key   string
+	key   fnKey
 	names []string
 }
 
 // namesFor is the names declared in the function keyed key, if they are the
 // ones held.
-func (o *openLocals) namesFor(key string) []string {
+func (o *openLocals) namesFor(key fnKey) []string {
 	if o.key != key {
 		return nil
 	}
@@ -817,7 +817,7 @@ func (pr *ParseResult) mergeScriptRegion(r *Region, tagScopes []FuncScope, open 
 	}
 
 	// What the block declared local stays local in the regions after it.
-	if key != "" {
+	if key.in {
 		names := slices.Clone(open.namesFor(key))
 		for name := range sp.localVarSet {
 			names = append(names, name)
@@ -944,7 +944,7 @@ func (pr *ParseResult) mergeTagFindings(tp *tagParser, startLine int) {
 	// Collect pending calls from tag parser (offset lines and funcKey)
 	for i := range tp.pendingCalls {
 		tp.pendingCalls[i].line += conv.Uint32(startLine)
-		if startLine > 0 && tp.pendingCalls[i].funcKey != "" {
+		if startLine > 0 && tp.pendingCalls[i].funcKey.in {
 			tp.pendingCalls[i].funcKey = shiftFuncKey(tp.pendingCalls[i].funcKey, startLine)
 		}
 	}
@@ -1017,7 +1017,7 @@ func (pr *ParseResult) mergeTagRegion(r *Region, tagScopes []FuncScope, open *op
 	}
 
 	// The function still open where the region ends continues in the next.
-	if tp.inFunc != "" {
+	if tp.inFunc.in {
 		*open = openLocals{key: shiftFuncKey(tp.inFunc, r.StartLine), names: slices.Clone(tp.localVars)}
 	}
 
@@ -1113,20 +1113,30 @@ func (pr *ParseResult) argsOfFuncAt(line int) []Argument {
 	return nil
 }
 
-// shiftFuncKey moves a "start:end" function key by delta lines.
-func shiftFuncKey(k string, delta int) string {
-	parts := strings.SplitN(k, ":", 2)
-	if len(parts) != 2 {
+// parseFnKey is the key String wrote as s, for the collection readers, which
+// intern a function's key as text with the names declared in it.
+func parseFnKey(s string) fnKey {
+	start, end, ok := strings.Cut(s, ":")
+	if !ok {
+		return noFn
+	}
+
+	return funcKey(atoi(start), atoi(end))
+}
+
+// shiftFuncKey moves a function key by delta lines.
+func shiftFuncKey(k fnKey, delta int) fnKey {
+	if !k.in {
 		return k
 	}
 
-	return funcKey(atoi(parts[0])+delta, atoi(parts[1])+delta)
+	return funcKey(int(k.start)+delta, int(k.end)+delta)
 }
 
 // appendKeyed appends v to m[k], making the map on first use, and returns it.
-func appendKeyed[T any](m map[string][]T, k string, v []T) map[string][]T {
+func appendKeyed[T any](m map[fnKey][]T, k fnKey, v []T) map[fnKey][]T {
 	if m == nil {
-		m = make(map[string][]T)
+		m = make(map[fnKey][]T)
 	}
 
 	m[k] = append(m[k], v...)
@@ -1183,7 +1193,7 @@ func (pr *ParseResult) applyServiceProperties() {
 
 		if fs := findFuncScope(int(line), pr.Scopes); fs.Start != -1 {
 			if pr.funcRefsMap == nil {
-				pr.funcRefsMap = make(map[string][]ComponentRef)
+				pr.funcRefsMap = make(map[fnKey][]ComponentRef)
 			}
 
 			key := funcKey(fs.Start, fs.End)
@@ -1543,30 +1553,43 @@ func sortScopes(scopes []FuncScope) {
 	}
 }
 
-// funcKey builds the "start:end" key the lazy per-function caches
-// (funcVars/funcRefsMap/funcCallsMap/funcLinksMap) are stored under.
+// fnKey is the key the lazy per-function caches (funcVars, funcRefsMap,
+// funcCallsMap, funcLinksMap) and the parsers' inFunc are kept under: the
+// function's first and last lines. The zero value is no function, as the
+// empty string was when the key was "start:end": in is set for every real
+// one, since {0, 0} is a function on line 0.
 //
-// It is on every per-keystroke path -- hover, definition and completion each
-// reach FuncVars/FuncRefs, and FuncLinks calls it once per link -- so it is
-// written to allocate exactly once, for the returned string. The obvious
-// spelling, strings.Join([]string{itoa(start), itoa(end)}, ":"), costs four:
-// a string from each itoa, the slice holding them, and the join's result. In a
-// profile of the document-link handler that was 600,001 of its 630,284
-// objects, 95% of everything it allocated.
-//
-// A struct key would allocate none at all, and is deliberately not used: the
-// zero value of a struct{start, end int} is {0, 0}, which is a real function
-// beginning on line 0, so it could not also mean "no enclosing function" the
-// way the empty string does for every `inFunc == ""` test in the two parsers.
-func funcKey(start, end int) string {
-	// Two base-10 ints with sign, plus the separator.
-	var buf [2*20 + 1]byte
+// It was a string, which an edit inside a function paid for on every
+// keystroke: each key parsed back into its lines to see whether the edit's
+// body held it, and, when the edit added or removed a line, each formatted
+// again under its new lines.
+type fnKey struct {
+	start, end int32
+	in         bool
+}
 
-	b := strconv.AppendInt(buf[:0], int64(start), 10)
-	b = append(b, ':')
-	b = strconv.AppendInt(b, int64(end), 10)
+// noFn is the key of no function: code outside every function, and the
+// closures the parse files there.
+var noFn fnKey
 
-	return string(b)
+// funcKey is the key of the function on lines start through end.
+func funcKey(start, end int) fnKey {
+	return fnKey{start: conv.Int32(start), end: conv.Int32(end), in: true}
+}
+
+// scope is the lines k names.
+func (k fnKey) scope() FuncScope {
+	return FuncScope{Start: int(k.start), End: int(k.end)}
+}
+
+// String is k as "start:end", or empty for no function, as it was written
+// when it was a string.
+func (k fnKey) String() string {
+	if !k.in {
+		return ""
+	}
+
+	return strconv.Itoa(int(k.start)) + ":" + strconv.Itoa(int(k.end))
 }
 
 func atoi(s string) int {
@@ -1992,7 +2015,7 @@ func (pr *ParseResult) aliasComponent(c *pendingCall, globals []ComponentRef) st
 
 	var ref *ComponentRef
 
-	if scope == RefAny && c.funcKey != "" {
+	if scope == RefAny && c.funcKey.in {
 		ref = refReaching(pr.funcRefsMap[c.funcKey], name, c.line, func(r *ComponentRef) bool { return r.VisibleTo == 0 && !r.HasClosureSpan })
 	}
 
