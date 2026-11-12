@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"go.lsp.dev/uri"
@@ -277,12 +278,15 @@ type sourceDerived struct {
 	elementReads    bool
 	plainOnce       sync.Once
 	plain           *parser.ParseResult
+	plainMade       atomic.Pointer[parser.ParseResult] // plain, once made
 	selfOnce        sync.Once
 	mentionsSelf    bool
 	wrappersOnce    sync.Once
 	wrappers        map[string]parser.IncludeWrapper
 	spansOnce       sync.Once
 	spans           []parser.FunctionSpan
+	bodiesOnce      sync.Once
+	bodies          [][]parser.Token
 	assignmentsOnce sync.Once
 	assigned        []parser.Assignment
 	path            string // the file content was read from, for its extension
@@ -307,9 +311,29 @@ func (s *sourceInfo) functionSpans() []parser.FunctionSpan {
 		return parser.FunctionSpansOf("", s.content)
 	}
 
-	s.derived.spansOnce.Do(func() { s.derived.spans = parser.FunctionSpansOf(s.derived.path, s.content) })
+	// A source whose plain parse is made already holds its spans there (a
+	// full parse's); reading them on their own parses the text again. One
+	// not yet made keeps the lighter spans-only reading, since many sources
+	// asked for their functions are never asked for that parse.
+	s.derived.spansOnce.Do(func() {
+		if plain := s.derived.plainMade.Load(); plain != nil {
+			s.derived.spans = plain.FunctionSpans()
+		} else {
+			s.derived.spans = parser.FunctionSpansOf(s.derived.path, s.content)
+		}
+	})
 
 	return s.derived.spans
+}
+
+// functionBodies is the script tokens of each of the source's function
+// bodies (functionBodyTokens), by the index of its span, read once: the
+// Wheels method reader and the producer plans read the same bodies, and each
+// tokenized them for itself.
+func (s *sourceInfo) functionBodies() [][]parser.Token {
+	s.derived.bodiesOnce.Do(func() { s.derived.bodies = functionBodyTokens(s.content, s.functionSpans()) })
+
+	return s.derived.bodies
 }
 
 // sourcePlans is the source's producer plans (newProducerPlans), built on
@@ -320,7 +344,9 @@ func sourcePlans(s sourceInfo) *producerPlans {
 		return nil
 	}
 
-	s.derived.producersOnce.Do(func() { s.derived.producers = newProducerPlans(s.content, s.functionSpans()) })
+	s.derived.producersOnce.Do(func() {
+		s.derived.producers = newProducerPlansFrom(s.content, s.functionSpans(), s.functionBodies())
+	})
 
 	return s.derived.producers
 }
@@ -333,7 +359,7 @@ func (s *sourceInfo) methodMap() map[string]wheelsMethod {
 		return wheelsMethods(s.content, s.functionSpans())
 	}
 
-	s.derived.methodsOnce.Do(func() { s.derived.methods = wheelsMethods(s.content, s.functionSpans()) })
+	s.derived.methodsOnce.Do(func() { s.derived.methods = wheelsMethodsFrom(s.content, s.functionSpans(), s.functionBodies()) })
 
 	return s.derived.methods
 }
@@ -460,6 +486,12 @@ func (r *Resolver) storeSourceInfo(path string, src *sourceInfo) {
 // nested in another's body and functions assigned to a name, which no Wheels
 // loader copies; and so is a declaration with no body.
 func wheelsMethods(content string, spans []parser.FunctionSpan) map[string]wheelsMethod {
+	return wheelsMethodsFrom(content, spans, nil)
+}
+
+// wheelsMethodsFrom is wheelsMethods with bodies, each span's body tokens
+// (functionBodyTokens), or nil to read them here.
+func wheelsMethodsFrom(content string, spans []parser.FunctionSpan, bodies [][]parser.Token) map[string]wheelsMethod {
 	methods := make(map[string]wheelsMethod)
 
 	for i := range spans {
@@ -468,7 +500,14 @@ func wheelsMethods(content string, spans []parser.FunctionSpan) map[string]wheel
 			continue
 		}
 
-		if method, ok := wheelsReadMethod(content, s); ok {
+		var body []parser.Token
+		if bodies != nil {
+			body = bodies[i]
+		} else {
+			body = scriptTokens(s.BodyText(content))
+		}
+
+		if method, ok := wheelsReadMethodFrom(content, s, body); ok {
 			methods[strings.ToLower(s.Name)] = method
 		}
 	}
@@ -479,6 +518,12 @@ func wheelsMethods(content string, spans []parser.FunctionSpan) map[string]wheel
 // wheelsReadMethod reads the method s declares in content: public unless it
 // states another access, its parameters, and its body as wheelsTokens text.
 func wheelsReadMethod(content string, s *parser.FunctionSpan) (wheelsMethod, bool) {
+	return wheelsReadMethodFrom(content, s, scriptTokens(s.BodyText(content)))
+}
+
+// wheelsReadMethodFrom is wheelsReadMethod given body, the body's script
+// tokens.
+func wheelsReadMethodFrom(content string, s *parser.FunctionSpan, bodyTokens []parser.Token) (wheelsMethod, bool) {
 	// The list with its closing parenthesis, which beanArguments reads to.
 	params := beanArguments(parser.NewScriptScanner(content[s.Params : s.ParamsEnd+1]))
 	if params == nil {
@@ -492,9 +537,7 @@ func wheelsReadMethod(content string, s *parser.FunctionSpan) (wheelsMethod, boo
 		tokens []parser.Token
 	)
 
-	scanner := parser.NewScriptScanner(s.BodyText(content))
-
-	for tok := scanner.NextSkipComments(); tok.Kind != parser.TokEOF; tok = scanner.NextSkipComments() {
+	for _, tok := range bodyTokens {
 		wheelsWriteToken(&body, tok)
 
 		if len(tokens) <= 2048 {

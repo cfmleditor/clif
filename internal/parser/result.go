@@ -35,7 +35,7 @@ type ParseResult struct {
 	Persistent          bool                                    // true if component has persistent="true" (ORM entity)
 	Properties          []propertyDef                           // parsed property declarations
 	Delegates           []Delegate                              // WireBox delegations the component declares
-	Links               []DocumentLink                          // file path references extracted during shallow scan
+	Links               []DocumentLink                          // with ExtractLinks, the links outside any function, from the walk's record
 	Calls               []CallSite                              // function call sites (when FindCalls is set)
 	Instantiations      []Instantiation                         // components built, with calls extracted; a fresh parse's lines
 	log                 Logger                                  // optional logger for timing and errors
@@ -65,6 +65,7 @@ type ParseResult struct {
 	interpolateAll           bool        // ParseOptions.InterpolateAllText
 	keepVars                 bool        // ParseOptions.KeepVars
 	scopesOnly               bool        // ParseOptions.ScopesOnly
+	fileRefsOnly             bool        // ParseOptions.FileRefsOnly
 	foundVars                [][]VarDef  // with keepVars, each region's declarations, on file lines
 	outputScanned            bool        // importPrefixes is computed
 	output                   outputState // where the tag walk stands in the output contexts
@@ -93,6 +94,11 @@ type ParseResult struct {
 	// textLinks is DocumentLinks' answer, for the content textLinksOf.
 	textLinks   []DocumentLink
 	textLinksOf string
+	// recorded is the file references the walk recorded, or read since for
+	// the content it names (file_refs.go); refsRec is the record the walk is
+	// making, while it runs.
+	recorded *fileRefRecord
+	refsRec  *fileRefRecord
 	// regionsOf is the Content Regions and contentLineIdx were split from: an
 	// edit inside a function changes Content and leaves them.
 	regionsOf string
@@ -208,8 +214,11 @@ type ParseOptions struct {
 	FuncLookup               func(component, funcName string) string // optional: resolve method return type from external components
 	ExpressionMappings       map[string]string                       // runtime expression → static value substitutions
 	ServicePropertyResolvers map[string]string                       // "@serviceproperty" annotation kind → dot-path template
-	ExtractLinks             bool                                    // extract document links during global scan
-	ExtractCalls             bool                                    // extract all variable.method() call sites during parsing
+	// ExtractLinks records every path the file names and every custom tag it
+	// calls as the walk goes, not only its includes, and files the links in
+	// Links and by function.
+	ExtractLinks bool
+	ExtractCalls bool // extract all variable.method() call sites during parsing
 	// FindCalls is the function names to find call sites for, ignoring
 	// case, in Calls. With ExtractCalls it filters what that records; without
 	// it the walk records these names' calls alone, as ExtractCalls would,
@@ -235,6 +244,15 @@ type ParseOptions struct {
 	// is partial. FunctionSpansOf and FindFuncScopes read one; with Shallow,
 	// its scopes and spans are a full parse's.
 	ScopesOnly bool
+	// FileRefsOnly is for a reader that wants the file's references and
+	// nothing else: its includes (IncludeSites) and, with ExtractLinks, its
+	// links and custom tag calls. Each script region's tokens are scanned for
+	// the record alone, with no statement read, and each tag region's tags
+	// read by the reference reader without the tag walk; every other answer
+	// of such a parse is empty. The text entry points (IncludeSites,
+	// ExtractLinks, CustomTagCalls) read one, and a parse asked for what it
+	// did not record reads one of its content.
+	FileRefsOnly bool
 	// Body narrows the walk to one function's lines, Body.Start to Body.End.
 	// The file is split into regions and its tag functions found as for the
 	// whole file, and each region is walked only where it meets those lines,
@@ -329,12 +347,15 @@ func (pr *ParseResult) outputGate() (state *outputState, prefixes []string, gate
 // ParseWithOptions performs a full file parse with extended options. opts is
 // only read; nil means the zero options.
 func ParseWithOptions(fileURI uri.URI, content string, opts *ParseOptions) *ParseResult {
-	if countScans {
-		scanCounts.parses.Add(1)
-	}
-
 	if opts == nil {
 		opts = &ParseOptions{}
+	}
+
+	// A reading of the file's references alone (FileRefsOnly) is the walk
+	// each reference reader made before the parse recorded them: its tokens
+	// count as passes, and it is not counted as a parse.
+	if countScans && !opts.FileRefsOnly {
+		scanCounts.parses.Add(1)
 	}
 
 	pr := &ParseResult{
@@ -361,6 +382,7 @@ func ParseWithOptions(fileURI uri.URI, content string, opts *ParseOptions) *Pars
 		interpolateAll:           opts.InterpolateAllText,
 		keepVars:                 opts.KeepVars,
 		scopesOnly:               opts.ScopesOnly,
+		fileRefsOnly:             opts.FileRefsOnly,
 	}
 	if opts.Body != nil {
 		body := *opts.Body
@@ -541,6 +563,15 @@ func (pr *ParseResult) extractSignatures() {
 		}
 	}()
 
+	pr.startRefs()
+
+	if pr.fileRefsOnly {
+		pr.refsOnlyRegions()
+		pr.endRefs()
+
+		return
+	}
+
 	if ctx := pr.bodies.context; ctx != nil {
 		// A body's walk takes the metadata its file's parse read.
 		pr.managedSetterLookup = ctx.managedSetterLookup
@@ -565,6 +596,7 @@ func (pr *ParseResult) extractSignatures() {
 	tagScopes, hasTagRegion := pr.tagFunctionScopes()
 
 	allPendingCalls := pr.mergeRegions(tagScopes)
+	pr.endRefs()
 
 	// Detect tag-based function scopes from full content (handles functions
 	// that span region boundaries, e.g. containing <cfscript> blocks).
@@ -728,7 +760,6 @@ func (pr *ParseResult) mergeScriptRegion(r *Region, tagScopes []FuncScope, open 
 	sp := newScriptParser(r.Text, string(pr.URI), r.StartLine, pr.Resolvers).asCFScript()
 	sp.baseOffset = r.Offset
 	sp.resolverSet = pr.resolverSet
-	sp.extractLinks = pr.extractLinks
 	sp.extractCalls = pr.walksCalls()
 	sp.setCallNames(pr.callNames())
 	sp.builtinReturnLookup = pr.BuiltinReturnLookup
@@ -767,7 +798,15 @@ func (pr *ParseResult) mergeScriptRegion(r *Region, tagScopes []FuncScope, open 
 		sp.imports = maps.Clone(ctx.imports)
 	}
 
+	refsFrom := pr.refsMark()
+	watch := pr.watchScript(sp.sc, r)
+
 	sp.parse()
+	finishScript(sp.sc, watch)
+
+	if pr.extractLinks {
+		sp.fileLinks(linksOf(pr.refsSince(refsFrom), r.Text, r.Offset, r.StartLine, nil))
+	}
 
 	if !pr.scopesOnly && r.Kind == RegionScript {
 		pr.bodies.keep(sp.vars, false)
@@ -847,7 +886,6 @@ func (pr *ParseResult) newRegionTagParser(r *Region, tagScopes []FuncScope) *tag
 	tp := newTagParser(r.Text, string(pr.URI))
 	tp.resolvers = pr.Resolvers
 	tp.resolverSet = pr.resolverSet
-	tp.extractLinks = pr.extractLinks
 	tp.extractCalls = pr.walksCalls()
 	tp.callNames = pr.callNames()
 	tp.builtinReturnLookup = pr.BuiltinReturnLookup
@@ -856,6 +894,7 @@ func (pr *ParseResult) newRegionTagParser(r *Region, tagScopes []FuncScope) *tag
 	tp.knownScopes = tagScopes
 	tp.output, tp.importPrefixes, tp.gated = pr.outputGate()
 	tp.srcOffset = r.Offset
+	tp.refs = pr.tagReader(r, tp.tagEnds())
 
 	if pr.flow != nil {
 		tp.flow = pr.flow.region(r.Offset, conv.Uint32(r.StartLine))
@@ -939,7 +978,13 @@ func (pr *ParseResult) mergeTagRegion(r *Region, tagScopes []FuncScope, open *op
 
 	seededReturn := seed >= 0 && tp.funcs[0].returnVar != ""
 
+	refsFrom := pr.refsMark()
+
 	tp.parse()
+
+	if pr.extractLinks && tp.refs != nil {
+		tp.fileLinks(linksOf(pr.refsSince(refsFrom), r.Text, r.Offset, 0, tp.lineIndex))
+	}
 
 	// The walk's declarations, on file lines: the tag parser is done with
 	// them, and nothing after this reads them on the region's.
@@ -2010,26 +2055,25 @@ func (pr *ParseResult) regionFactsCurrent() bool {
 	return false
 }
 
-// DocumentLinks returns the file path references in the document, from its
-// text, computed once per content. The editor's parse does not extract links
-// (ExtractLinks), since only the document-link request reads them and the
-// extraction was 6% of every reparse; this answers that request instead.
-// Read from the whole text rather than per region, a link has its column on
-// its own line wherever a region started, and one in a <script> block is
-// found too.
+// DocumentLinks returns the file path references in the document, from the
+// record its walk made (file_refs.go), or, for a parse that did not record
+// links (ExtractLinks) or whose content an edit has changed since, one read
+// now and kept. Read over the whole text rather than per region, a link has
+// its column on its own line wherever a region started.
 func (pr *ParseResult) DocumentLinks() []DocumentLink {
+	content := pr.Content
+	rec := pr.refRecord(true)
+
 	pr.mu.Lock()
 	defer pr.mu.Unlock()
 
-	if pr.textLinks == nil || pr.textLinksOf != pr.Content {
-		regions, idx := pr.contentRegions()
-
-		pr.textLinks = linksInRegions(pr.Content, regions, idx)
+	if pr.textLinks == nil || pr.textLinksOf != content {
+		pr.textLinks = rec.links(content, pr.lineStartsTable())
 		if pr.textLinks == nil {
 			pr.textLinks = []DocumentLink{}
 		}
 
-		pr.textLinksOf = pr.Content
+		pr.textLinksOf = content
 	}
 
 	return pr.textLinks
@@ -2038,26 +2082,31 @@ func (pr *ParseResult) DocumentLinks() []DocumentLink {
 // contentRegions is Content split as the parse splits it, which knows a
 // markup template by its name: its own regions when they are of this
 // content. pr.mu is held.
-func (pr *ParseResult) contentRegions() ([]Region, LineTable) {
+func (pr *ParseResult) contentRegions() []Region {
 	if pr.regionsOf == pr.Content && pr.Regions != nil {
-		return pr.Regions, pr.contentLineIdx
+		return pr.Regions
 	}
 
-	return pr.classifyRegions()
+	regions, _ := pr.classifyRegions()
+
+	return regions
 }
 
-// IncludeSites is parser.IncludeSites of Content, read in the parse's own
-// regions rather than a second split.
+// IncludeSites is parser.IncludeSites of Content, from the includes the
+// parse's walk recorded.
 func (pr *ParseResult) IncludeSites() []IncludeSite {
-	if IndexFold(pr.Content, "include") < 0 {
+	content := pr.Content
+	if IndexFold(content, "include") < 0 {
 		return nil
 	}
 
+	rec := pr.refRecord(false)
+
 	pr.mu.Lock()
-	regions, _ := pr.contentRegions()
+	regions := pr.contentRegions()
 	pr.mu.Unlock()
 
-	return includeSitesIn(pr.Content, regions)
+	return includeSitesOf(content, rec, regions, pr.includeWrappers)
 }
 
 // RegionKindFrom is the kind of the first of the parse's regions of Content
@@ -2067,7 +2116,7 @@ func (pr *ParseResult) IncludeSites() []IncludeSite {
 // line is script. RegionTag when no region ends after offset.
 func (pr *ParseResult) RegionKindFrom(offset int) RegionKind {
 	pr.mu.Lock()
-	regions, _ := pr.contentRegions()
+	regions := pr.contentRegions()
 	pr.mu.Unlock()
 
 	i, _ := slices.BinarySearchFunc(regions, offset, func(r Region, offset int) int {

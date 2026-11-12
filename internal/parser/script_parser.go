@@ -55,7 +55,6 @@ type scriptParser struct {
 	// was padded to eight bytes, and the struct fell into a larger size class.
 	accessors    bool
 	persistent   bool
-	extractLinks bool  // whether to extract document links
 	extractCalls bool  // whether to extract all call sites
 	afterLT      bool  // previous token was '<' — see looksLikeTagAttrs
 	forceGlobal  bool  // when true, addRef routes to componentRefs
@@ -905,10 +904,10 @@ func (p *scriptParser) isVarDeclaredLocal(name string) bool {
 	return p.localVarSet[string(buf.lowerFold(name))]
 }
 
-// extractAllLinks scans source lines for document links, routing them to
-// global links or funcLinks based on which scope the line falls in.
-func (p *scriptParser) extractAllLinks() {
-	p.funcLinks = extractLinksByScope(p.sc.src, true, p.baseLine, p.scopes, p.funcLinks, &p.links)
+// fileLinks files links, the region's, under the function each is in, or
+// in p.links when it is in none.
+func (p *scriptParser) fileLinks(links []DocumentLink) {
+	p.funcLinks = extractLinksByScope(links, p.scopes, p.funcLinks, &p.links)
 }
 
 // parseVarDecl handles: var name = expr.
@@ -1428,10 +1427,6 @@ func (p *scriptParser) parse() {
 				p.checkAssignRef(tok)
 			}
 		}
-	}
-
-	if p.extractLinks {
-		p.extractAllLinks()
 	}
 }
 

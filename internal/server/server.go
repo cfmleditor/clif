@@ -864,8 +864,11 @@ func (s *Server) parseContentWith(fileURI uri.URI, content string, calls bool) *
 		content = ""
 	}
 
-	// Links are not extracted: only the document-link request reads them, and
-	// it takes them from the text (DocumentLinks).
+	// Links are not recorded (ExtractLinks): only the document-link request
+	// reads them, once per content, from a parse that reads the file's
+	// references alone (DocumentLinks); recording them would read every tag's
+	// attributes on every reparse. The includes the index needs are recorded
+	// by every parse's walk.
 	//
 	// The document cache does not extract calls: nothing reads them from
 	// it but commands, which parse afresh (parseForCalls) or have

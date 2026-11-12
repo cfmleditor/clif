@@ -1,11 +1,7 @@
 package parser
 
 import (
-	"cmp"
-	"slices"
 	"strings"
-
-	"github.com/cfmleditor/clif/internal/lex"
 )
 
 // The ways CFML calls a custom tag, all of which CustomTagCalls reads. Each
@@ -70,84 +66,39 @@ type CustomTagCall struct {
 
 // CustomTagCalls reads every custom tag call in content, in order. prefixes
 // are the configured tag library prefixes (config.CustomTagPrefixes), "cf"
-// included and lowercased; a tag starting with none of them is not one. A
-// caller holding the file's parse asks it instead
-// (ParseResult.CustomTagCalls), which keeps its regions and the answer.
+// included and lowercased; a tag starting with none of them is not one. It is
+// a reading of a parse that records the file's references and nothing else
+// (FileRefsOnly); a caller holding the file's parse asks it instead
+// (ParseResult.CustomTagCalls).
 func CustomTagCalls(content string, prefixes []string) []CustomTagCall {
-	regions, idx := ClassifyRegionsIdx(content)
-
-	return customTagCalls(regions, idx, content, prefixes)
+	return ParseWithOptions("", content, &ParseOptions{FileRefsOnly: true, ExtractLinks: true}).CustomTagCalls(prefixes)
 }
 
 // CustomTagCalls is the custom tag calls in the parsed file (see
-// parser.CustomTagCalls), read from the regions the parse already split and
-// kept for its content and prefixes: go-to-definition and document links
-// both ask, once per request, and neither splits or walks the file again.
+// parser.CustomTagCalls), from the ones its walk recorded (file_refs.go), or,
+// for a parse that did not record them (ExtractLinks) or whose content an
+// edit has changed since, ones read now: go-to-definition and document links
+// both ask, once per request, and neither walks the file again.
 func (pr *ParseResult) CustomTagCalls(prefixes []string) []CustomTagCall {
 	key := strings.Join(prefixes, ",")
+	content := pr.Content
 
-	// The walk runs outside pr.mu, which the scoped-variable caches share:
-	// a hover on the same document need not wait for it.
 	pr.mu.Lock()
-	if pr.customTags != nil && pr.customTagsOf == pr.Content && pr.customTagsKey == key {
+	if pr.customTags != nil && pr.customTagsOf == content && pr.customTagsKey == key {
 		calls := pr.customTags
 		pr.mu.Unlock()
 
 		return calls
 	}
-
-	content, regions, idx := pr.Content, pr.Regions, pr.contentLineIdx
-	fresh := pr.regionsOf == content && regions != nil
 	pr.mu.Unlock()
 
-	if !fresh {
-		regions, idx = pr.classifyRegions()
-	}
-
-	calls := customTagCalls(regions, idx, content, prefixes)
-	if calls == nil {
-		calls = []CustomTagCall{}
-	}
+	calls := pr.refRecord(true).customTagCalls(content, pr.lineStartsTable(), prefixes)
 
 	pr.mu.Lock()
 	pr.customTags, pr.customTagsOf, pr.customTagsKey = calls, content, key
 	pr.mu.Unlock()
 
 	return calls
-}
-
-func customTagCalls(regions []Region, idx LineTable, content string, prefixes []string) []CustomTagCall {
-	// The longest prefix decides: "cfa" before "cf".
-	prefixes = slices.SortedFunc(slices.Values(prefixes), func(a, b string) int { return cmp.Compare(len(b), len(a)) })
-
-	var (
-		out     []CustomTagCall
-		imports map[string]string
-	)
-
-	for _, r := range regions {
-		switch r.Kind {
-		case RegionScript:
-			// Every script call spells cf_ or module (cfmodule, Lucee's
-			// statement), and most components spell neither.
-			if IndexFold(r.Text, "cf_") >= 0 || IndexFold(r.Text, "module") >= 0 {
-				out = scriptCustomTags(r.Text, r.Offset, out)
-			}
-		case RegionTag:
-			out, imports = tagCustomTags(r.Text, r.Offset, imports, prefixes, out)
-		default:
-		}
-	}
-
-	if len(out) > 0 && idx == nil {
-		idx = NewLineTable(content)
-	}
-
-	for i := range out {
-		out[i].Line = idx.LineOf(out[i].Start)
-	}
-
-	return out
 }
 
 // CustomTagCallAt is the custom tag call whose name or path the 0-based line
@@ -171,78 +122,6 @@ func FindCustomTagCall(calls []CustomTagCall, content string, line, char int) (C
 	}
 
 	return CustomTagCall{}, false
-}
-
-// tagCustomTags appends the custom tags text, a tag region at base, calls,
-// and returns them with imports, the cfimport taglibs by lowercased prefix,
-// grown by those the region declares. A prefix applies from its cfimport on,
-// as the engines compile it, so it is read in the same walk.
-func tagCustomTags(text string, base int, imports map[string]string, prefixes []string, out []CustomTagCall) ([]CustomTagCall, map[string]string) {
-	ends := newTagEnds(text)
-
-	for pos := 0; pos < len(text); {
-		i := strings.IndexByte(text[pos:], '<')
-		if i < 0 {
-			break
-		}
-
-		i += pos
-
-		if strings.HasPrefix(text[i:], "<!---") {
-			pos = SkipCFMLComment(text, i)
-
-			continue
-		}
-
-		j, closing := i+1, false
-		if j < len(text) && text[j] == '/' {
-			j, closing = j+1, true
-		}
-
-		k := j
-		for k < len(text) && isTagNameByte(text[k]) {
-			k++
-		}
-
-		if k == j {
-			pos = i + 1
-
-			continue
-		}
-
-		end := tagEnd(&ends, k)
-		name := text[j:k]
-
-		switch {
-		case len(name) > 3 && lex.HasPrefixFold(name, "cf_"):
-			out = append(out, CustomTagCall{Kind: CustomTagUnderscore, Name: name[3:], Start: base + j + 3, End: base + k, AttrStart: base + k, AttrEnd: base + end, Closing: closing})
-		case strings.EqualFold(name, "cfmodule"):
-			if !closing {
-				out = moduleAttrs(text[k:end], base+k, out)
-			}
-		case strings.EqualFold(name, "cfimport"):
-			if !closing {
-				imports = cfimportTaglib(text[k:end], imports)
-			}
-		case strings.IndexByte(name, ':') > 0:
-			prefix, local, _ := strings.Cut(name, ":")
-			if taglib, ok := imports[strings.ToLower(prefix)]; ok && local != "" {
-				out = append(out, CustomTagCall{Kind: CustomTagImported, Name: local, Prefix: strings.ToLower(prefix), Taglib: taglib, Start: base + j + len(prefix) + 1, End: base + k, Closing: closing})
-			}
-		default:
-			for _, p := range prefixes {
-				if len(name) > len(p) && lex.HasPrefixFold(name, p) {
-					out = append(out, CustomTagCall{Kind: CustomTagPrefixed, Name: name[len(p):], Prefix: p, Start: base + j + len(p), End: base + k, Closing: closing})
-
-					break
-				}
-			}
-		}
-
-		pos = end
-	}
-
-	return out, imports
 }
 
 // cfimportTaglib adds what a <cfimport prefix="p" taglib="lib">, attrs its
@@ -298,45 +177,6 @@ func TagAttributes(attrs string) map[string]string {
 	return tagAttrMap(attrs, cfAttrs)
 }
 
-// scriptCustomTags appends the custom tags text, a script region at base,
-// calls: cf_name(...), cfmodule(...) and Lucee's module statement.
-func scriptCustomTags(text string, base int, out []CustomTagCall) []CustomTagCall {
-	sc := NewScriptScanner(text)
-	prev := Token{Kind: TokSemicolon}
-
-	for {
-		t := sc.NextSkipComments()
-		if t.Kind == TokEOF {
-			return out
-		}
-
-		before := prev
-		prev = t
-
-		if t.Kind != TokIdent || before.Kind == TokDot {
-			continue
-		}
-
-		lower := strings.ToLower(t.Value)
-
-		switch {
-		case strings.HasPrefix(lower, "cf_") && len(lower) > 3 && sc.PeekSkipComments().Kind == TokLParen:
-			// `function cf_name()` declares a function, and calls nothing.
-			if before.Kind == TokIdent && strings.EqualFold(before.Value, "function") {
-				continue
-			}
-
-			out = append(out, CustomTagCall{Kind: CustomTagUnderscore, Name: t.Value[3:], Start: base + t.Offset + 3, End: base + t.Offset + len(t.Value), Script: true})
-		case lower == "cfmodule" && sc.PeekSkipComments().Kind == TokLParen:
-			out = scriptModuleAttrs(sc, base, TokRParen, out)
-			prev = Token{Kind: TokRParen}
-		case lower == "module" && statementStart(before) && sc.PeekSkipComments().Kind == TokIdent:
-			out = scriptModuleAttrs(sc, base, TokSemicolon, out)
-			prev = Token{Kind: TokSemicolon}
-		}
-	}
-}
-
 // statementStart reports whether a token after prev begins a statement:
 // after a ; or a brace, the ) closing an if, for or while head with no braces,
 // or else.
@@ -349,68 +189,6 @@ func statementStart(prev Token) bool {
 	default:
 		return false
 	}
-}
-
-// scriptModuleAttrs reads the name = "value" pairs of a script cfmodule, up
-// to stop at depth zero (or a { for the statement form's body), and appends
-// the call they make. A key inside a nested struct or call is not one of the
-// tag's; a value that is more than its string literal ("a" & b) is computed,
-// and the call Dynamic.
-func scriptModuleAttrs(sc *Scanner, base int, stop TokenKind, out []CustomTagCall) []CustomTagCall {
-	var (
-		template, name *CustomTagCall
-		depth          int
-		key            string
-	)
-
-	for {
-		t := sc.NextSkipComments()
-		if t.Kind == TokEOF || t.Kind == TokLBrace && depth == 0 {
-			break
-		}
-
-		switch t.Kind {
-		case TokLParen, TokLBracket, TokLBrace:
-			depth++
-		case TokRParen, TokRBracket, TokRBrace:
-			depth--
-		default:
-		}
-
-		if depth <= 0 && (t.Kind == stop || t.Kind == TokRParen || t.Kind == TokRBrace) {
-			break
-		}
-
-		switch {
-		case t.Kind == TokIdent && depth <= 1:
-			key = strings.ToLower(t.Value)
-		case t.Kind == TokString && depth <= 1 && (key == "template" || key == "name") && len(t.Value) >= 2:
-			value := t.Value[1 : len(t.Value)-1]
-			dynamic := strings.Contains(value, "#") || !endsValue(sc.PeekSkipComments().Kind)
-			c := &CustomTagCall{Kind: CustomTagModuleTemplate, Name: value, Start: base + t.Offset + 1, End: base + t.Offset + len(t.Value) - 1, Script: true, Dynamic: dynamic}
-
-			if key == "template" {
-				template = c
-			} else {
-				c.Kind = CustomTagModuleName
-				name = c
-			}
-
-			key = ""
-		case t.Kind != TokEquals && t.Kind != TokColon:
-			key = ""
-		}
-	}
-
-	if template != nil {
-		return append(out, *template)
-	}
-
-	if name != nil {
-		return append(out, *name)
-	}
-
-	return out
 }
 
 // endsValue reports whether a token of kind after a string literal ends the

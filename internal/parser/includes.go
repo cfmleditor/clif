@@ -27,11 +27,10 @@ const callWindow = 512
 // form off prose that happens to say `include "…"`. An include inside a
 // <!--- ---> comment is skipped, since a commented-out include is not a live one.
 //
-// Includes are found by the walk document links use (fileRefs), with only
-// what an include needs read: one reading of what is a statement, a comment
-// and a tag. This scan used to find the keyword anywhere, so a commented-out
-// `// include "x.cfm"`, one in a string and one in a page's prose were each
-// read as live.
+// Includes are recorded by the parse's walk (file_refs.go), which reads the
+// statements, comments and tags as the parse reads them. This scan used to
+// find the keyword anywhere, so a commented-out `// include "x.cfm"`, one in
+// a string and one in a page's prose were each read as live.
 func ExtractIncludes(content string) []string {
 	return includePaths(IncludeSites(content))
 }
@@ -60,19 +59,22 @@ type IncludeSite struct {
 // with where it is, so a template can be read as its includer sees it at
 // that line: a template included inside a function sees the function's locals.
 // The script and tag forms come first, in source order, then the directory
-// listings' globs.
+// listings' globs. It is a reading of a parse that records the file's
+// references and nothing else (FileRefsOnly); a caller holding the file's
+// parse asks it instead (ParseResult.IncludeSites).
 func IncludeSites(content string) []IncludeSite {
 	if IndexFold(content, "include") < 0 {
 		return nil
 	}
 
-	regions, _ := ClassifyRegionsIdx(content)
-
-	return includeSitesIn(content, regions)
+	return ParseWithOptions("", content, &ParseOptions{FileRefsOnly: true}).IncludeSites()
 }
 
-// includeSitesIn is IncludeSites over regions already split from content.
-func includeSitesIn(content string, regions []Region) []IncludeSite {
+// includeSitesOf is IncludeSites from rec, the record of content's file
+// references, whose regions are regions. wrappers says which functions
+// include the template an argument names, given each include of an argument
+// (its Path the argument's name).
+func includeSitesOf(content string, rec *fileRefRecord, regions []Region, wrappers func([]IncludeSite) map[string]IncludeWrapper) []IncludeSite {
 	if IndexFold(content, "include") < 0 {
 		return nil
 	}
@@ -81,37 +83,34 @@ func includeSitesIn(content string, regions []Region) []IncludeSite {
 		out      []IncludeSite
 		listed   map[string]string // query name → directory, lowercased name
 		fromList []IncludeSite     // includes of a listing's names: Path is the template as written
-		wrappers []IncludeSite     // includes of an argument: Path is the argument's name
+		args     []IncludeSite     // includes of an argument: Path is the argument's name
 	)
 
-	emit := func(kind fileRefKind, at, start, end int) {
-		switch kind {
+	for i := range rec.refs {
+		ref := &rec.refs[i]
+
+		switch ref.kind {
 		case refListing:
-			if dir, name, ok := qualifyingListing(content[start:end]); ok {
+			if dir, name, ok := qualifyingListing(content[ref.start:ref.end]); ok {
 				listed = withListing(listed, name, dir)
 			}
 		case refInclude:
-			raw := content[start:end]
+			raw := content[ref.start:ref.end]
 			if _, _, ok := listingIncludePath(raw); ok {
-				fromList = append(fromList, IncludeSite{Path: raw, Offset: at})
+				fromList = append(fromList, IncludeSite{Path: raw, Offset: ref.at})
 			}
 
-			if site, ok := includeSite(content, raw, at); ok {
+			if site, ok := includeSite(content, raw, ref.at); ok {
 				out = append(out, site)
 			} else if param, ok := argumentInclude(raw); ok {
-				wrappers = append(wrappers, IncludeSite{Path: param, Offset: at})
+				args = append(args, IncludeSite{Path: param, Offset: ref.at})
 			}
 		case refTemplate, refHref, refAction:
 		}
 	}
 
-	regions = fileRegions(content, regions)
-	for i := range regions {
-		regionFileRefs(&regions[i], true, emit)
-	}
-
-	if len(wrappers) > 0 {
-		out = append(out, wrapperIncludes(content, regions, wrappers)...)
+	if len(args) > 0 {
+		out = append(out, wrapperIncludes(content, fileRegions(content, regions), wrappers(args))...)
 	}
 
 	if len(listed) > 0 {
@@ -170,48 +169,71 @@ type IncludeWrapper struct {
 // template an argument names, `include "#arguments.template#"` or through one
 // call (`#LCase(arguments.template)#`), by lowercased name. Wheels' Global.cfc
 // declares $include so; a call of one is an include into the variables scope
-// of the component whose method runs it. Finding them takes a parse, which
-// only a file with such an include pays for.
+// of the component whose method runs it. The includes are a parse's record
+// (FileRefsOnly); which function holds one and what its arguments are, a
+// shallow parse, which only a file with such an include pays for.
 func IncludeWrappers(content string) map[string]IncludeWrapper {
 	if IndexFold(content, "arguments.") < 0 || IndexFold(content, "include") < 0 {
 		return nil
 	}
 
-	var argIncludes []IncludeSite
+	walk := ParseWithOptions("", content, &ParseOptions{FileRefsOnly: true})
 
-	emit := func(kind fileRefKind, at, start, end int) {
-		if kind != refInclude {
-			return
-		}
-
-		if param, ok := argumentInclude(content[start:end]); ok {
-			argIncludes = append(argIncludes, IncludeSite{Path: param, Offset: at})
-		}
-	}
-
-	regions, _ := ClassifyRegionsIdx(content)
-
-	regions = fileRegions(content, regions)
-	for i := range regions {
-		regionFileRefs(&regions[i], true, emit)
-	}
-
-	return includeWrappersIn(content, argIncludes)
+	return walk.includeWrappers(argumentIncludes(content, walk.refRecord(false)))
 }
 
-// includeWrappersIn is IncludeWrappers from argIncludes, each include of an
-// argument in content with the argument's name as its Path.
-func includeWrappersIn(content string, argIncludes []IncludeSite) map[string]IncludeWrapper {
-	if len(argIncludes) == 0 {
+// IncludeWrappers is parser.IncludeWrappers of Content, from the includes
+// the parse's walk recorded and its own functions.
+func (pr *ParseResult) IncludeWrappers() map[string]IncludeWrapper {
+	content := pr.Content
+	if IndexFold(content, "arguments.") < 0 || IndexFold(content, "include") < 0 {
 		return nil
 	}
 
-	// One shallow parse says both which function holds each include and what
-	// that function's arguments are.
-	parsed := ParseWithOptions("", content, &ParseOptions{Shallow: true})
-	scopes, defs := parsed.Scopes, parsed.Funcs
-	lines := NewLineTable(content)
+	return pr.includeWrappers(argumentIncludes(content, pr.refRecord(false)))
+}
 
+// argumentIncludes is the includes of an argument rec holds, each with the
+// argument's name as its Path.
+func argumentIncludes(content string, rec *fileRefRecord) []IncludeSite {
+	var args []IncludeSite
+
+	for i := range rec.refs {
+		ref := &rec.refs[i]
+		if ref.kind != refInclude {
+			continue
+		}
+
+		if param, ok := argumentInclude(content[ref.start:ref.end]); ok {
+			args = append(args, IncludeSite{Path: param, Offset: ref.at})
+		}
+	}
+
+	return args
+}
+
+// includeWrappers is the functions of pr that include the template an
+// argument names, from args, each include of an argument in Content with the
+// argument's name as its Path: which function holds each include and what
+// that function's arguments are. A parse that read only references
+// (FileRefsOnly) has no functions, and asks a shallow parse.
+func (pr *ParseResult) includeWrappers(args []IncludeSite) map[string]IncludeWrapper {
+	if len(args) == 0 {
+		return nil
+	}
+
+	fns := pr
+	if pr.fileRefsOnly {
+		fns = ParseWithOptions(pr.URI, pr.Content, &ParseOptions{Shallow: true, InterpolateAllText: pr.interpolateAll})
+	}
+
+	return includeWrappersIn(fns.Scopes, fns.Funcs, pr.lineStartsTable(), args)
+}
+
+// includeWrappersIn is the wrappers among defs, whose scopes are scopes,
+// from argIncludes, each include of an argument with the argument's name as
+// its Path, at offsets lines counts.
+func includeWrappersIn(scopes []FuncScope, defs []FunctionDef, lines LineTable, argIncludes []IncludeSite) map[string]IncludeWrapper {
 	var wrappers map[string]IncludeWrapper
 
 	for _, inc := range argIncludes {
@@ -258,10 +280,8 @@ func includeWrappersIn(content string, argIncludes []IncludeSite) map[string]Inc
 // in that object's scope, which the resolver decides
 // (wheels_include_wrapper.go).
 //
-// argIncludes holds each include of an argument, the argument's name as its
-// Path.
-func wrapperIncludes(content string, regions []Region, argIncludes []IncludeSite) []IncludeSite {
-	params := includeWrappersIn(content, argIncludes)
+// params is the wrappers, by lowercased name.
+func wrapperIncludes(content string, regions []Region, params map[string]IncludeWrapper) []IncludeSite {
 	if len(params) == 0 {
 		return nil
 	}

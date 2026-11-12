@@ -193,12 +193,14 @@ func (r *Resolver) startupFacts(file, content string) *startupFileFacts {
 		return held
 	}
 
+	pr := parser.Parse(cfpath.ToURI(file), content, r.Resolvers)
+
 	held = &startupFileFacts{
 		content:  content,
 		shared:   sharedAssignments(content, filepath.Dir(file)),
-		vars:     parser.Parse(cfpath.ToURI(file), content, r.Resolvers).StartupVariableAssignments(),
+		vars:     pr.StartupVariableAssignments(),
 		beans:    parser.StartupBeanBindings(content),
-		includes: parser.ExtractIncludes(content),
+		includes: pr.Includes(),
 	}
 
 	o.mu.Lock()

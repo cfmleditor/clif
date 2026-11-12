@@ -860,6 +860,33 @@ faster, except `FuncCalls` (up to +71% on Lucee's largest file, 2.3ms to
 byte-identical on eight corpora, and batch scans read their text about a
 tenth fewer times (ContentBox 13.6 to 12.4 passes, Mura 15.2 to 13.1).
 
+### Done: file references are recorded by the parse's walk
+
+Includes, document links and custom tag calls were each read by walks of their
+own over the parse's regions: a script region's tokens were scanned once for
+its custom tags and again for its includes after the parse had scanned them,
+and a document-links request scanned them again. The parse's walk now records
+them (`internal/parser/file_refs.go`). A script region's scanner hands each
+token it produces to a recorder (`scriptRefs`) that reads include statements,
+`cfinclude()`, `cfmodule()`, Lucee's module statement, `cf_name()` and the CF
+tags among the statements, recording a token the walk reads again after a
+lookahead only once and scanning what the walk leaves unread. The tag walk
+drives a reference reader (`tagRefReader`) at each tag it meets, which reads
+the tags the walk stepped over as it catches up. Every parse records includes;
+`ExtractLinks` adds links, custom tags and tag names, and files the walk's
+links from the record; `ParseOptions.FileRefsOnly` reads references and
+nothing else, which the text entry points (`IncludeSites`, `ExtractLinks`,
+`CustomTagCalls`, `IncludeWrappers`) and a parse asked for what it did not
+record now read. Include wrappers use the parse's own functions. Over 14,994
+files every answer equals the old readers', once their two readings of a
+closing tag became the custom-tag reader's: a closing tag ends where a tag
+opens before its `>`, and a `</` with no name is a stray `<` (three files'
+prefixed tags; no link or include changes). `unresolved` is byte-identical on
+eight corpora and the code map's include edges are unchanged. Left: after a
+keystroke inside a function the record is read again on the next links
+question rather than spliced; `wrapperIncludes` and `listsTemplates` still
+read text, in the few files that need them.
+
 ## Speed is an option of the one walker, not a second walker
 
 Some walkers exist because they do less. `globalScriptParser` reads only

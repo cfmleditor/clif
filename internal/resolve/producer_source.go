@@ -55,9 +55,15 @@ type producerPlans struct {
 // functions the parse found in it (spans, its FunctionSpans), its tag
 // functions' from its tags.
 func newProducerPlans(content string, spans []parser.FunctionSpan) *producerPlans {
+	return newProducerPlansFrom(content, spans, nil)
+}
+
+// newProducerPlansFrom is newProducerPlans with bodies, each span's body
+// tokens (functionBodyTokens), or nil to read them here.
+func newProducerPlansFrom(content string, spans []parser.FunctionSpan, bodies [][]parser.Token) *producerPlans {
 	p := &producerPlans{script: map[string]*producerMethod{}, made: map[string]*producerMethod{}}
 
-	scriptProducerMethods(content, spans, p.script)
+	scriptProducerMethodsFrom(content, spans, bodies, p.script)
 
 	for _, region := range parser.ClassifyRegions(content) {
 		if region.Kind == parser.RegionScript {
@@ -222,6 +228,12 @@ func producerText(tokens []parser.Token) string {
 // method of an inline component inside it. Individual method plans stay
 // bounded even in large classes.
 func scriptProducerMethods(content string, spans []parser.FunctionSpan, methods map[string]*producerMethod) {
+	scriptProducerMethodsFrom(content, spans, nil, methods)
+}
+
+// scriptProducerMethodsFrom is scriptProducerMethods with bodies, each
+// span's body tokens (functionBodyTokens), or nil to read them here.
+func scriptProducerMethodsFrom(content string, spans []parser.FunctionSpan, bodies [][]parser.Token, methods map[string]*producerMethod) {
 	declared := map[string]bool{}
 
 	for i := range spans {
@@ -242,7 +254,12 @@ func scriptProducerMethods(content string, spans []parser.FunctionSpan, methods 
 		}
 		// The body is script, so its strings are read as the parse reads
 		// them, or a quote inside a #...# ends one early.
-		body := scriptTokens(s.BodyText(content))
+		var body []parser.Token
+		if bodies != nil {
+			body = bodies[i]
+		} else {
+			body = scriptTokens(s.BodyText(content))
+		}
 
 		if len(body) >= 4096 {
 			methods[name] = &producerMethod{body: []producerNode{{kind: "unsafe", expression: producerText(body)}}}
@@ -252,6 +269,22 @@ func scriptProducerMethods(content string, spans []parser.FunctionSpan, methods 
 
 		methods[name] = scriptProducerMethod(producerSplit(scriptTokens(s.ParamsText(content))), body)
 	}
+}
+
+// functionBodyTokens is the script tokens of the body of each script method
+// in content (declared or nested, with a parameter list: what the Wheels
+// reader and the producer plans read), by the span's index; nil for any
+// other span.
+func functionBodyTokens(content string, spans []parser.FunctionSpan) [][]parser.Token {
+	bodies := make([][]parser.Token, len(spans))
+
+	for i := range spans {
+		if s := &spans[i]; (s.Kind == parser.FunctionDeclared || s.Kind == parser.FunctionNested) && s.Body >= 0 && s.Params >= 0 {
+			bodies[i] = scriptTokens(s.BodyText(content))
+		}
+	}
+
+	return bodies
 }
 
 // scriptTokens is text's tokens, read as CFScript.
