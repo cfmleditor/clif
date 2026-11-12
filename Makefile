@@ -268,7 +268,8 @@ lint: $(GOLANGCI_BIN)
 
 # Every check CI runs on a pull request, in one command, to run before pushing:
 # build, vet (plain and with CFLint embedded), gofmt, the tests under the race
-# detector (which fail on everything a plain run would), lint and govulncheck.
+# detector (which fail on everything a plain run would), the scan-passes guard
+# (built with its counters), lint and govulncheck.
 # The CFLint-embedding build is vetted against an empty stand-in archive, as CI
 # does, unless a real one is there; a stand-in made here is removed afterwards,
 # interrupted or not.
@@ -281,6 +282,7 @@ check: $(GOLANGCI_BIN)
 		&& go test -short -tags cflint_embed ./internal/cflint/
 	@bash scripts/check-go-format.sh
 	go test -short -race ./...
+	go test -tags passcount -run TestABatchScanReadsEachFileFewTimes ./cmd/clif/
 	$(GOLANGCI_BIN) run ./...
 	$(MAKE) --no-print-directory vuln
 

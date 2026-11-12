@@ -503,7 +503,7 @@ func funcScopedRefFor(pr *parser.ParseResult, line uint32, name string, in parse
 			// An unknown later store cannot inherit a prior runtime interface.
 			// Recovery is statement-line based; same-line and branch dominance
 			// need a separate byte-aware flow proof.
-			if strings.HasPrefix(ref.Component, parser.NativeTypePrefix) && nativeRefMissesUse(pr.Content, name, scope.Start, int(ref.Line), int(line)) {
+			if strings.HasPrefix(ref.Component, parser.NativeTypePrefix) && nativeRefMissesUse(pr.Assignments(), pr.Content, name, scope.Start, int(ref.Line), int(line)) {
 				continue
 			}
 
@@ -523,7 +523,7 @@ func funcScopedRefFor(pr *parser.ParseResult, line uint32, name string, in parse
 		}
 
 		if scopeIndex < len(pr.Scopes) {
-			return reachingUnion(pr, scope.Start, name, line, namedRefs(refs, name), wide)
+			return reachingUnion(pr, pr.Assignments(), scope.Start, name, line, namedRefs(refs, name), wide)
 		}
 
 		return wide
@@ -656,7 +656,7 @@ func fileLevelRefFor(pr *parser.ParseResult, line uint32, name string, scope par
 
 	if best != nil {
 		if topLevelLine(pr, line) {
-			return reachingUnion(pr, 0, name, line, func() []*parser.ComponentRef {
+			return reachingUnion(pr, pr.Assignments(), 0, name, line, func() []*parser.ComponentRef {
 				found := make([]*parser.ComponentRef, 0, len(named))
 
 				for _, i := range named {

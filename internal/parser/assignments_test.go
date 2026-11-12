@@ -197,3 +197,26 @@ func TestAssignmentsOfAgreesWithTheParse(t *testing.T) {
 		t.Errorf("after an edit, %q, want %q", got, want)
 	}
 }
+
+// TestValueLineIsTheValueWrittenAsOneLine: a value over several lines is read
+// as one, its lines joined by a space, a chain's `.` by nothing, a comment
+// left out, and a string's text as written; cut at a limit, it is the part
+// before it.
+func TestValueLineIsTheValueWrittenAsOneLine(t *testing.T) {
+	const content = "x = svc.get(\n\t1, // one\n\t2 )\n\t.run();\ny = \"a\nb\";\nz = f( 1 );\n"
+
+	as := AssignmentsOf("a.cfc", content)
+	if len(as) != 3 {
+		t.Fatalf("%d assignments", len(as))
+	}
+
+	for i, want := range []string{"svc.get( 1, 2 ).run()", "\"a\nb\"", "f( 1 )"} {
+		if got := as[i].ValueLine(content, len(content)); got != want {
+			t.Errorf("%s: %q, want %q", as[i].Target, got, want)
+		}
+	}
+
+	if got := as[0].ValueLine(content, strings.Index(content, "\n\t2")); got != "svc.get( 1," {
+		t.Errorf("cut: %q", got)
+	}
+}

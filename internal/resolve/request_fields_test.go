@@ -2,7 +2,6 @@ package resolve
 
 import (
 	"path/filepath"
-	"regexp"
 	"strings"
 	"testing"
 
@@ -53,21 +52,12 @@ func TestALazyRequestFieldIsWhatItsOnlyWriterStores(t *testing.T) {
 	}
 }
 
-// requestWriteReReference is the regular expression requestWriteCounts
-// replaced, kept as the reference the scanner is held to.
-func requestWriteReReference(name string) *regexp.Regexp {
-	q := regexp.QuoteMeta(name)
-
-	return regexp.MustCompile(`(?i)\brequest\s*\.\s*` + q + `\s*=[^=]` +
-		`|\brequest\s*\[\s*["']` + q + `["']\s*\]\s*=[^=]` +
-		`|structInsert\s*\(\s*request\s*,\s*["']` + q + `["']` +
-		`|name\s*=\s*["']request\.` + q + `["']`)
-}
-
-// TestRequestWriteCountsMatchTheRegexItReplaced: one pass per write form over
-// a file replaced a regex compiled and run once per request key; they must
-// count the same writes.
-func TestRequestWriteCountsMatchTheRegexItReplaced(t *testing.T) {
+// TestRequestWriteCountsAreTheParsesWrites: the writes of a request key are
+// the ones the parse reads, its assignments and its structInsert calls, in
+// every spelling the text search they replaced took. A write in a comment, in
+// markup, in a string or in JavaScript is none, and an attribute naming the
+// key as the variable it fills writes it whichever attribute it is.
+func TestRequestWriteCountsAreTheParsesWrites(t *testing.T) {
 	content := `<cfset request.currentUser = createObject("component", "user")>
 <cfset REQUEST . CurrentUser=x>
 <cfif request.currentUser == y></cfif>
@@ -82,13 +72,21 @@ func TestRequestWriteCountsMatchTheRegexItReplaced(t *testing.T) {
 <cfparam name="request.layout" default="">
 <cfparam NAME = 'request.Layout' default="">
 <cfset x = request.currentUser>
+<!--- <cfset request.currentUser = 3> --->
+<cfset request.counter++>
+<cfsavecontent variable="request.body">x</cfsavecontent>
+<p>request.currentUser = 4</p>
+<input name="request.layout">
+<script>request.siteID = 1;</script>
+<cfoutput>#structInsert( request, "flash", 1 )# "structInsert( request, 'flash' )"</cfoutput>
+<cfset request.$fw = new Framework()>
+<cfset arguments.request.currentUser = 5>
 `
-	counts := requestWriteCounts(content)
+	counts := requestWritesIn("page.cfm", content)
 
-	for _, name := range []string{"currentUser", "currentUserX", "a", "siteID", "flash", "layout", "missing"} {
-		want := len(requestWriteReReference(name).FindAllStringIndex(content, -1))
+	for name, want := range map[string]int{"currentUser": 2, "currentUserX": 1, "a": 0, "siteID": 2, "flash": 3, "layout": 2, "counter": 1, "body": 1, "$fw": 1, "missing": 0} {
 		if got := counts[strings.ToLower(name)]; got != want {
-			t.Errorf("request.%s: %d writes, the regex finds %d", name, got, want)
+			t.Errorf("request.%s: %d writes, want %d", name, got, want)
 		}
 	}
 }

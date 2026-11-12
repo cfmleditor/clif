@@ -395,6 +395,10 @@ func (s *Scanner) Next() Token {
 // next is Next without the cache bookkeeping, for the callers inside this file
 // that drive the cache themselves.
 func (s *Scanner) next() Token {
+	if countScans {
+		scanCounts.tokens.Add(1)
+	}
+
 	s.skipWhitespaceNoNewline()
 
 	if s.pos >= len(s.src) {

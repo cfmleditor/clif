@@ -785,6 +785,81 @@ receiver typing and wants its own differential.
 
 For all three, `unresolved` is byte-identical on eight corpora.
 
+### Done: guards and request counts read the parse
+
+The guards (`guardedByExistsCheck`, `guardedInstanceOf`,
+`methodExistenceGuarded`) no longer walk a window of the file's tokens. They
+read the calls the parse recorded (`guardCalls`): its own when it holds them
+(`ParseResult.RecordsCallsOf`), the file's plain parse's otherwise, which now
+records `structKeyExists`, `keyExists`, `isDefined`, `isNull`,
+`isInstanceOf`, `checkForInstanceOf` and `structInsert`. Over 14,996 files
+every guard answers as the token walk did, on 790,759 questions (659 of them
+held), and the plain parse and an `ExtractCalls` parse agree on every one. A
+guard written in markup outside any output now guards nothing.
+`requestWriteCounts` counts the parse's assignments and `structInsert(
+request, "k" )` calls rather than searching the text. It differs from the
+search on 60 keys, all corrections: 37 keys beginning with `$`, which the
+search could not read; 9 written through `variable=`, `returnVariable=` or
+`result=`; 5 compound or step writes; and 9 the search wrongly took for
+writes (a member of another variable named `request`, and `objectname=` read
+as `name=`). Its comparison with the producer plans' count stays
+conservative either way. `fileCodeOn` and `fileCodeBetween` are gone. Still
+on the scanner: the check that a guard controls the call it precedes
+(`controls`), which needs an `if` block's span on the call record, and the
+producer plans' statement reader. `unresolved` is byte-identical on eight
+corpora.
+
+### Done: receiver typing reads the parse's assignments
+
+Receiver typing's last-assignment lookup (`localAssignmentAt`), the native
+reassignment and reach checks (`nativeReassignedAt`,
+`nativeClaimMayNotReach`), `reachingUnion`'s walk back through a name's
+assignments, `criteriaList` and `assignedFromUntypedFunction` read the
+parse's `Assignment` records (`lastAssignmentTo`) in place of a table of
+lines beginning `name =` (`matchSourceAssignment`), whose values
+`joinAssignmentLine` joined over the lines after them. A typing assignment is
+an `=` that starts its statement or is a `var` declaration, to the name bare
+or after `local.` or `variables.`; a for loop's initializer is not one. Its
+value is `Assignment.ValueLine`, the parse's value written as one line. The
+line reader's guard against named arguments, which tokenised everything above
+an assignment and gave up past 4,096 tokens or when markup above left a
+bracket open, is gone with it, as are `contentFacts` and
+`parser.WithoutTrailingComment`. A differential over 14,996 files (683,323
+lookups, 1,039,713 reassignment checks, 547,580 reach checks) found every
+difference to be the line reader taking markup, JavaScript, comments, tag and
+script-tag attributes, named arguments or struct keys for assignments,
+missing one not first on its line, joining a value wrongly, or missing a
+reassignment its guard gave up on. The exceptions are parse gaps the new
+reader inherits: a `<!-----…----->` comment of dashes alone never closes,
+which hides 16 files' code from the region split and `CFTags`; Lucee tag
+islands in script; and `=>` inside a `<cfset>`. `unresolved` is
+byte-identical on seven of the eight corpora; RustCFML loses 2 findings, both
+assignments inside a one-line `if` block that the line reader could not see.
+
+### Done: lazy body reads are the parse's walk
+
+`FuncVars`, `FuncRefs`, `FuncCalls` and `HasScopedAssignment` read a function
+body the parse had not walked, or one an edit had changed, with walkers of
+their own (`parseFuncBody`, `computeAnyScopedVars`, `initBodyVars`, the lazy
+ref and call walks), which knew nothing of the regions, output state, doc
+comment, imports or typing around the body. Each now runs the parse's own
+walk over that one body, `ParseWithOptions` narrowed by `ParseOptions.Body`
+(`internal/parser/body_walk.go`), seeded with the output state the whole walk
+has where the body starts, and files what it found as the full parse files
+it. A write to the variables scope inside a function is a file-level ref, as
+the parse files it, where the lazy walk sometimes also filed it under the
+function; a tag function's `FuncVars` holds its `<cfargument>` names; text
+inside a string no longer declares; an edit that adds a line keeps the calls
+of the functions after it; and `HasScopedAssignment` sees an edit that adds a
+variables-scope write. Over 14,994 files and 53,519 functions the old lazy
+readers differed from the full parse in about 18,000 answers and the new ones
+in about 640, of which 631 are member-typed refs whose order of passes
+differs (left open). Reads after a keystroke inside a function are as fast or
+faster, except `FuncCalls` (up to +71% on Lucee's largest file, 2.3ms to
+3.8ms), which only the deps export and FW/1's rc reader call. `unresolved` is
+byte-identical on eight corpora, and batch scans read their text about a
+tenth fewer times (ContentBox 13.6 to 12.4 passes, Mura 15.2 to 13.1).
+
 ## Speed is an option of the one walker, not a second walker
 
 Some walkers exist because they do less. `globalScriptParser` reads only
@@ -816,7 +891,7 @@ Concretely:
 | 2 (done) | One region split for every walker (section 4) | 65 invented declarations, and every walker agreeing on what is script |
 | 3 (done) | Main parse: struct keys and named arguments (section 1, step 1) | 776 invented declarations |
 | 4 (done) | Replace `globalScriptParser` with the main walk's kept declarations (section 1, steps 2–4) | 3,060 wrong declarations, and a second script walk per region |
-| 5 | Lazy refs filed like the full parse's; then pre-fill (section 3) |
+| 5 (done) | Lazy refs filed like the full parse's: a body read is the parse's walk of that body (`ParseOptions.Body`) | About 18,000 lazy answers that differed from the full parse's |
 | 6 (done) | The resolver's function finders read strings as the parse does, or the parse's spans (section 5) | 417 to 1,208 lost functions per finder |
 | 7 (done) | One line counter, the LSP's (section 6) | Every position in 66 CR-only files |
 | 8 (done) | Tag attributes from one reader, with a CF and an HTML mode (section 7) | 1,815, 1,702, 524 and 516 wrong attributes in the other four |

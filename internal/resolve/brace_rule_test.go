@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/cfmleditor/clif/internal/parser"
+	"github.com/cfmleditor/clif/internal/vfs"
 )
 
 // The reaching walk's braces are the script scanner's, whatever else the
@@ -81,24 +82,28 @@ func TestTagBlocksFollowsTheRegionSplit(t *testing.T) {
 // and a bracket is code: one in a string, in a quoted argument inside a
 // string's #...# or in a comment opens nothing. A real one still does.
 func TestAnAssignmentJoinsItsNextLineOnlyForAnOpenBracket(t *testing.T) {
-	for rhs, more := range map[string]bool{
-		`f( ")" )`:                false,
-		`f( "{" )`:                false,
-		`"#g( "[" )#"`:            false,
-		`f() /* ( */`:             false,
-		`f( "x" ).g(`:             true,
-		`{ a: "}"`:                true,
-		`[ "#g( "]" )#"`:          true,
-		`f( ")", /* ) */ "(" ) (`: true,
+	for rhs, want := range map[string]string{
+		"f( \")\" )":                            `f( ")" )`,
+		"f( \"{\" )":                            `f( "{" )`,
+		"\"#g( \"[\" )#\"":                      `"#g( "[" )#"`,
+		"f() /* ( */":                           `f()`,
+		"f( \"x\" ).g(\nnext() )":               `f( "x" ).g( next() )`,
+		"{ a: \"}\"\nnext: 1 }":                 `{ a: "}" next: 1 }`,
+		"[ \"#g( \"]\" )#\"\nnext() ]":          `[ "#g( "]" )#" next() ]`,
+		"f( \")\", /* ) */ \"(\" ) (\nnext() )": `f( ")", "(" ) ( next() )`,
 	} {
-		if _, got := joinAssignmentLine(rhs, "next()", false); got != more {
-			t.Errorf("%s: joined %v, want %v", rhs, got, more)
+		content := "x = " + rhs + "\nnext()\n"
+		pr := parser.ParseWithOptions("file:///w/a.cfc", content, &parser.ParseOptions{})
+
+		if got, _, _ := (&Resolver{}).localAssignmentAt(pr, "x", 0, 10); got != want {
+			t.Errorf("%s: %q, want %q", rhs, got, want)
 		}
 	}
 
 	const content = "component {\n\tfunction f() {\n\t\tvar x = new A( \"#g( \"(\" )#\" );\n\t\tx.go();\n\t}\n}\n"
 
-	if rhs, _, ok := contentFacts(content).assignmentAt(content, "x", 1, 3); !ok || rhs != `new A( "#g( "(" )#" )` {
+	pr := parser.ParseWithOptions("file:///w/a.cfc", content, &parser.ParseOptions{})
+	if rhs, _, ok := (&Resolver{}).localAssignmentAt(pr, "x", 1, 3); !ok || rhs != `new A( "#g( "(" )#" )` {
 		t.Errorf("assignment = %q, %v; want the call, whose parentheses balance", rhs, ok)
 	}
 }
@@ -116,7 +121,7 @@ func TestAGuardsBlockEndsAtARealBrace(t *testing.T) {
 		"\t\t}\n" +
 		"\t}\n" +
 		"}\n"
-	if !guardedByExistsCheck(parser.Parse("file:///ws/G.cfc", guarded), "variables.cfg", "onX", 5) {
+	if !(&Resolver{FS: vfs.OS{}}).guardedByExistsCheck(parser.Parse("file:///ws/G.cfc", guarded), "variables.cfg", "onX", 5) {
 		t.Error("a brace or semicolon in a string or comment ended the guarded block")
 	}
 
@@ -128,7 +133,47 @@ func TestAGuardsBlockEndsAtARealBrace(t *testing.T) {
 		"\t\tvariables.cfg.onX();\n" +
 		"\t}\n" +
 		"}\n"
-	if guardedByExistsCheck(parser.Parse("file:///ws/G.cfc", after), "variables.cfg", "onX", 5) {
+	if (&Resolver{FS: vfs.OS{}}).guardedByExistsCheck(parser.Parse("file:///ws/G.cfc", after), "variables.cfg", "onX", 5) {
 		t.Error("a call after the guarded block's real close was taken as guarded")
+	}
+}
+
+// A guard is a call the parse reads: one written in a tag function's markup,
+// outside any output, checks nothing, and the call after it is not guarded.
+// The token walk read the markup as code and took its brace for a block.
+func TestAGuardInMarkupGuardsNothing(t *testing.T) {
+	const markup = "<cfcomponent>\n" +
+		"<cffunction name=\"f\">\n" +
+		"\t<p>if ( structKeyExists( variables.cfg, \"onX\" ) || isInstanceOf( variables.cfg, \"a.B\" ) ) {</p>\n" +
+		"\t<cfset variables.cfg.onX()>\n" +
+		"</cffunction>\n" +
+		"</cfcomponent>\n"
+
+	r := &Resolver{FS: vfs.OS{}}
+	pr := parser.Parse("file:///ws/G.cfc", markup)
+
+	if r.guardedByExistsCheck(pr, "variables.cfg", "onX", 3) {
+		t.Error("a structKeyExists written in markup guarded the call")
+	}
+
+	if got := r.guardedInstanceOf(pr, "variables.cfg", "onX", 3); len(got) > 0 {
+		t.Errorf("an isInstanceOf written in markup guarded the call: %v", got)
+	}
+
+	const tagGuard = "<cfcomponent>\n" +
+		"<cffunction name=\"f\">\n" +
+		"\t<cfif structKeyExists( variables.cfg, \"onX\" )>\n" +
+		"\t\t<cfset variables.cfg.onX()>\n" +
+		"\t</cfif>\n" +
+		"</cffunction>\n" +
+		"</cfcomponent>\n"
+	if !r.guardedByExistsCheck(parser.Parse("file:///ws/G.cfc", tagGuard), "variables.cfg", "onX", 3) {
+		t.Error("a <cfif structKeyExists(...)> did not guard the call it holds")
+	}
+
+	const page = "<p>isNull( driver.getBundleName )</p>\n" +
+		"<cfset x = driver.getBundleName()>\n"
+	if r.methodExistenceGuarded(parser.Parse("file:///ws/p.cfm", page), &parser.CallSite{Line: 1}, "getBundleName") {
+		t.Error("an isNull written in markup guarded the call")
 	}
 }

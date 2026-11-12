@@ -14,14 +14,14 @@ func bodyRefNamed(refs []ComponentRef, variable string) (ComponentRef, bool) {
 	return refs[i], true
 }
 
-// A tag function's body is parsed by the tag parser on its own, so the lines
-// it reports are relative to the body and must be moved back by where the
-// function starts.
+// A tag function's refs are on the lines they are written on, from the parse
+// and from its walk of the body alone after an edit, which starts on the
+// function's first line rather than the file's.
 func TestATagFunctionsRefsAreOnTheLinesTheyAreWrittenOn(t *testing.T) {
 	src := `<cfcomponent>
 <cffunction name="load">
-	<cfset a = new app.One()>
-	<cfset b = createObject("component", "app.Two")>
+	<cfset var a = new app.One()>
+	<cfset var b = createObject("component", "app.Two")>
 </cffunction>
 </cfcomponent>`
 
@@ -39,15 +39,21 @@ func TestATagFunctionsRefsAreOnTheLinesTheyAreWrittenOn(t *testing.T) {
 		t.Fatal("no scope for load")
 	}
 
-	refs, _ := pr.FuncRefs(scope.Start, scope.End)
+	for _, when := range []string{"parsed", "after an edit"} {
+		if when == "after an edit" {
+			pr.InvalidateFunc(scope.Start, scope.End)
+		}
 
-	for _, want := range []struct {
-		variable, component string
-		line                uint32
-	}{{"a", "app.One", 2}, {"b", "app.Two", 3}} {
-		got, ok := bodyRefNamed(refs, want.variable)
-		if !ok || got.Component != want.component || got.Line != want.line {
-			t.Errorf("ref %s = %q at line %d (found %v), want %q at line %d", want.variable, got.Component, got.Line, ok, want.component, want.line)
+		refs, _ := pr.FuncRefs(scope.Start, scope.End)
+
+		for _, want := range []struct {
+			variable, component string
+			line                uint32
+		}{{"a", "app.One", 2}, {"b", "app.Two", 3}} {
+			got, ok := bodyRefNamed(refs, want.variable)
+			if !ok || got.Component != want.component || got.Line != want.line {
+				t.Errorf("%s: ref %s = %q at line %d (found %v), want %q at line %d", when, want.variable, got.Component, got.Line, ok, want.component, want.line)
+			}
 		}
 	}
 }

@@ -1984,7 +1984,7 @@ func (r *Resolver) missingMethod(comp, softComp string, call *parser.CallSite, p
 	}
 
 	// Nor one a type check before the call says the object has.
-	for _, c := range guardedInstanceOf(pr, variable, funcName, int(call.Line)) {
+	for _, c := range r.guardedInstanceOf(pr, variable, funcName, int(call.Line)) {
 		if def := r.ResolveFunc(c, funcName, baseDir); def != nil {
 			tr.addf("%q is called only after the code checks %q is a %q, which declares it", funcName, variable, c)
 			tr.hit(TargetComponent, c, def)
@@ -1994,7 +1994,7 @@ func (r *Resolver) missingMethod(comp, softComp string, call *parser.CallSite, p
 	}
 
 	// Nor a method the code checks for before calling it.
-	if guardedByExistsCheck(pr, variable, funcName, int(call.Line)) {
+	if r.guardedByExistsCheck(pr, variable, funcName, int(call.Line)) {
 		tr.addf("%q is called only after the code checks %q has it — accepted as dynamic", funcName, variable)
 		tr.hit(TargetDynamic, comp, nil)
 

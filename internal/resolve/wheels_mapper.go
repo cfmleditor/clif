@@ -385,14 +385,21 @@ func (r *Resolver) sourceMethods(path string) map[string]wheelsMethod {
 	return source.methodMap()
 }
 
-// requestWriteCounts is how many statements in the source write each request
-// key (requestWriteKeys' forms), counted once per source.
+// requestWriteCounts is how many writes of each request key the parse reads
+// in the source (requestWriteCounts), counted once per source.
 func (s *sourceInfo) requestWriteCounts() map[string]int {
 	if s.derived == nil {
-		return requestWriteCounts(withoutComments(s.content))
+		return requestWritesIn("", s.content)
 	}
 
-	s.derived.requestOnce.Do(func() { s.derived.requestWrites = requestWriteCounts(s.withoutComments()) })
+	s.derived.requestOnce.Do(func() {
+		var inserts []parsedCall
+		if mentions(s.content, "structInsert") {
+			inserts = parsedCalls(s.plainParse(s.derived.path), "structInsert")
+		}
+
+		s.derived.requestWrites = requestWriteCounts(s.assignments(), inserts)
+	})
 
 	return s.derived.requestWrites
 }

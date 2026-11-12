@@ -93,6 +93,18 @@ whatever heap the benchmarks before them left live, and `benchLoadedServer`
 leaves a 5,000-file index. Re-run the single benchmark on its own, both sides,
 before acting on any of it. The same caution applies to wins.
 
+**Count passes, not only time.** A reader that tokenizes a file the parse
+already read costs about what the regular expression it replaced did, so CPU
+stays level while the scan reads its text more and more times: a run of
+consolidation rounds took ContentBox from 11.7 to 18.2 passes with time flat.
+Build with `-tags passcount` and the scanner and the parse count
+(`parser.ScanCounts`); `TestABatchScanReadsEachFileFewTimes` holds a batch
+scan of the fixtures to a ceiling in CI (`CLIF_PASSES_CORPUS=<dirs>` reports
+a corpus), and `TestEditorActionPasses` reports an editor action's passes on
+a real workspace (its env vars are in the test). Never time a counted build:
+the atomic add contends across workers. When you raise a ceiling, say why in
+the commit.
+
 **Compare against the branch point, not against your last build, and run the two
 binaries alternately.** Five parser fixes in one round were each reported at
 around +1% on the tag benchmarks, because each was measured against whatever

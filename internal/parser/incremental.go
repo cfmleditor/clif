@@ -65,11 +65,19 @@ func (pr *ParseResult) applyEdit(startLine, startChar, endLine int, newText stri
 	// Determine if edit is inside a function body (before modifying content)
 	funcIdx := pr.funcContaining(startLine, endLine, startChar)
 
+	old := pr.Content
+
+	startOff := -1
+	if funcIdx >= 0 {
+		startOff = pr.offsetAt(startLine, startChar)
+	}
+
 	// Apply the text edit
 	pr.Content = edited()
 
 	if funcIdx >= 0 {
 		// Edit is inside a function body — just shift and invalidate
+		pr.shiftSplit(old, startOff, len(old)-len(pr.Content)+len(newText), newText)
 		pr.shiftAfter(startLine, delta)
 		pr.InvalidateFunc(pr.Scopes[funcIdx].Start, pr.Scopes[funcIdx].End)
 		pr.resetGlobalCaches()
@@ -183,6 +191,10 @@ func (pr *ParseResult) shiftAfter(editLine, delta int) {
 			pr.ComponentRefs[i].Line = conv.Uint32(int(pr.ComponentRefs[i].Line) + delta)
 		}
 	}
+
+	// What the walk filed per function moves with its function, so a body
+	// the edit did not touch keeps the parse's answers.
+	pr.shiftBodies(editLine, delta)
 }
 
 // reparseShallow re-runs the shallow parse on the current content,
@@ -202,15 +214,18 @@ func (pr *ParseResult) reparseShallow() {
 	// keeping its version of the document alive.
 	pr.Calls = nil
 	pr.memberSets = nil
+	// The per-function answers are dropped before the walk files its own:
+	// what a function's walk files is appended to its entry.
+	pr.resetFuncCaches()
 	pr.extractSignatures()
 	pr.resetGlobalCaches()
-	pr.resetFuncCaches()
+	pr.resetNameIndexes()
 	pr.logDebug("reparseShallow", "uri", string(pr.URI), "funcs", len(pr.Funcs), "dur", time.Since(start))
 }
 
 // resetGlobalCaches resets the lazily-computed global/variables/this var caches.
-// resetFuncCaches drops every lazily-memoised per-function result, so the next
-// FuncVars/FuncRefs/FuncCalls/FuncLinks call re-derives from current content.
+// resetFuncCaches drops every per-function result, before a reparse files its
+// walk's afresh: FuncVars/FuncRefs/FuncCalls/FuncLinks then answer from it.
 //
 // Only funcVars used to be cleared here. The other three kept serving pre-edit
 // answers after a full replace — which the rapid-change path takes on every
@@ -218,7 +233,8 @@ func (pr *ParseResult) reparseShallow() {
 // the edit, and the server would faithfully re-index that stale ref. The keys
 // are line ranges, so they also silently point at the wrong function once lines
 // move; clearing is the only correct response to content that has been
-// wholesale replaced.
+// wholesale replaced. They were cleared after the reparse, which dropped what
+// its walk had filed, and every function was then read again on its own.
 func (pr *ParseResult) resetFuncCaches() {
 	pr.funcVarsMu.Lock()
 	pr.funcVars = make(map[string][]string)
@@ -281,6 +297,16 @@ func (pr *ParseResult) resetGlobalCaches() {
 }
 
 // posOffset converts an LSP line/character position to a byte offset.
+// offsetAt is PositionToOffset of Content, found from its line table.
+func (pr *ParseResult) offsetAt(line, char int) int {
+	start, ok := pr.lineStartsTable().Start(line)
+	if !ok {
+		return -1
+	}
+
+	return start + PositionToOffset(pr.Content[start:], 0, char)
+}
+
 func posOffset(content string, line, char int) int {
 	return PositionToOffset(content, line, char)
 }
