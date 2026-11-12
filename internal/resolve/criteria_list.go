@@ -41,7 +41,7 @@ func (r *Resolver) returnsCriteriaList(fd *parser.FunctionDef) bool {
 		case tokens[i].Kind == parser.TokIdent && strings.EqualFold(tokens[i].Value, "return"):
 			stop := statementEnd(tokens, i+1, end)
 			// fnBody's token lines count from the function's first line.
-			if !criteriaList(tokens[i+1:stop], pr.Content, start, start+int(tokens[i].Line)) {
+			if !criteriaList(tokens[i+1:stop], pr.Assignments(), pr.Content, start, start+int(tokens[i].Line)) {
 				return false
 			}
 
@@ -82,7 +82,7 @@ func statementEnd(tokens []parser.Token, from, end int) int {
 // criteriaList reports whether expr is a criteria list() call, its head
 // newCriteria() or a local the function (from line start, before line)
 // assigned one.
-func criteriaList(expr []parser.Token, content string, start, line int) bool {
+func criteriaList(expr []parser.Token, as []parser.Assignment, content string, start, line int) bool {
 	if len(expr) < 4 || expr[len(expr)-1].Kind != parser.TokRParen {
 		return false
 	}
@@ -106,7 +106,7 @@ func criteriaList(expr []parser.Token, content string, start, line int) bool {
 		return len(expr) > 1 && expr[1].Kind == parser.TokLParen
 	}
 
-	rhs, ok := localAssignment(content, head.Value, start, line)
+	rhs, _, ok := lastAssignment(as, content, head.Value, start, line)
 
 	return ok && strings.HasPrefix(strings.ToLower(strings.TrimSpace(rhs)), "newcriteria(")
 }

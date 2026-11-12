@@ -6,14 +6,14 @@ import (
 	"github.com/cfmleditor/clif/internal/parser"
 )
 
-// TestTheAssignmentTableAnswersAsTheLineWalkDid: lookups of a variable's last
-// assignment go to the per-file table (Resolver.localAssignmentAt), not the
-// line walk (localAssignmentAt), which walked from the call to the top of the
-// file for every receiver and was 7% of a tassweb scan's CPU. The two must
-// answer alike: the same line, the same joined right-hand side, the same
-// refusal of one whose parentheses do not balance within the bound, and the
-// same chain written a call to a line.
-func TestTheAssignmentTableAnswersAsTheLineWalkDid(t *testing.T) {
+// TestTheLastAssignmentIsTheParses: a variable's last assignment before a
+// line is the parse's record of it (parser.Assignment), its value written as
+// one line: a call's arguments one to a line joined, a chain written a call
+// to a line joined, and one whose parentheses do not balance before the line
+// asked about refused. The line reader this replaced kept a <cfset>'s `>`
+// on a value that ran over lines, and read `var chained = ...` in a tag
+// function's body, which is text it outputs, as code.
+func TestTheLastAssignmentIsTheParses(t *testing.T) {
 	content := `<cfset svc = createObject("component", "a.Svc")>
 <cffunction name="f">
 	<cfset var x = svc.get(
@@ -36,25 +36,29 @@ func TestTheAssignmentTableAnswersAsTheLineWalkDid(t *testing.T) {
 	for _, tc := range []struct {
 		name          string
 		start, header int
+		rhs           string
+		line          int
 	}{
-		{"x", 1, 9},
-		{"x", 0, 3},
-		{"y", 0, 9},
-		{"z", 0, 9},
-		{"svc", 0, 9},
-		{"svc", 1, 9},
-		{"w", 0, 10},
-		{"missing", 0, 10},
-		{"x", 0, 100},
-		{"x", 5, 9},
-		{"it", 0, 15},
-		{"chained", 0, 15},
+		{"x", 1, 9, "svc.get( 1, 2 )", 2},
+		{"x", 0, 3, "", -1},
+		{"y", 0, 9, "x", 6},
+		{"z", 0, 9, "svc.make()", 7},
+		{"svc", 0, 9, `createObject("component", "a.Svc")`, 0},
+		{"svc", 1, 9, "", -1},
+		{"w", 0, 10, "", -1},
+		{"missing", 0, 10, "", -1},
+		{"x", 0, 100, "svc.get( 1, 2 )", 2},
+		{"x", 5, 9, "", -1},
+		{"it", 0, 15, "svc.load().iterate()", 10},
+		{"chained", 0, 15, "", -1},
 	} {
-		wantRHS, wantLine, wantOK := localAssignmentAt(content, tc.name, tc.start, tc.header)
-		gotRHS, gotLine, gotOK := r.localAssignmentAt(pr, tc.name, tc.start, tc.header)
+		rhs, line, ok := r.localAssignmentAt(pr, tc.name, tc.start, tc.header)
+		if !ok {
+			line = -1
+		}
 
-		if gotRHS != wantRHS || gotLine != wantLine || gotOK != wantOK {
-			t.Errorf("%s in [%d,%d): table (%q, %d, %v), line walk (%q, %d, %v)", tc.name, tc.start, tc.header, gotRHS, gotLine, gotOK, wantRHS, wantLine, wantOK)
+		if rhs != tc.rhs || line != tc.line {
+			t.Errorf("%s in [%d,%d): (%q, %d), want (%q, %d)", tc.name, tc.start, tc.header, rhs, line, tc.rhs, tc.line)
 		}
 	}
 }

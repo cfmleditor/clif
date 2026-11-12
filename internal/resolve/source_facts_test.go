@@ -1,7 +1,6 @@
 package resolve
 
 import (
-	"math/rand"
 	"regexp"
 	"strings"
 	"testing"
@@ -10,41 +9,9 @@ import (
 	"go.lsp.dev/uri"
 )
 
-// The legacy expression is only a test oracle; runtime lookup uses the scanner.
-func TestAssignmentScannerMatchesLegacyGrammar(t *testing.T) {
-	legacy := regexp.MustCompile(`(?im)^\s*(?:<cfset\s+)?(?:var\s+)?(?:local\.|variables\.)?(\w+)\s*=\s*([^=].*?)\s*/?>?\s*;?\s*$`)
-	check := func(line string) {
-		t.Helper()
-
-		old := legacy.FindStringSubmatch(line)
-
-		name, rhs, ok := matchSourceAssignment(line)
-		if ok != (old != nil) || ok && (name != old[1] || rhs != old[2]) {
-			t.Fatalf("%q: scanner (%q,%q,%v), legacy %q", line, name, rhs, ok, old)
-		}
-	}
-
-	for _, prefix := range []string{"", "var ", "VAR\t", "local.", "variables.", "var local.", "<cfset ", "<CFSET var variables.", "<cfſet ", "variableſ."} {
-		for _, name := range []string{"x", "var", "local", "variables", "_item", "9", "x.y", "$x"} {
-			for _, rhs := range []string{"", " ", "=", " ==x", "value", "value;", "value / >;", "value/>;", "'Unicode Kſ'", "fn(\"(\");", ">", "/>", ";;"} {
-				check(prefix + name + " =" + rhs)
-			}
-		}
-	}
-
-	random := rand.New(rand.NewSource(42))
-	alphabet := "abcVARlocal$<>=/; \t\r\f_'()."
-
-	for range 5000 {
-		var line strings.Builder
-		for range random.Intn(70) {
-			line.WriteByte(alphabet[random.Intn(len(alphabet))])
-		}
-
-		check(line.String())
-	}
-}
-
+// TestSourceFactsWindowsAndRefresh: the last assignment and the query words
+// read from a file's tables answer what the line reader and the expression
+// they replaced did, for every window, and a changed text is read afresh.
 func TestSourceFactsWindowsAndRefresh(t *testing.T) {
 	r := &Resolver{}
 	text := "var x = fn(\n value\n);\n// QUERY cfdbinfo cfquery; notquery query_name $query\nlocal.x = [];\nx.go();\n"

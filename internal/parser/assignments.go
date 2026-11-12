@@ -97,6 +97,55 @@ func (a *Assignment) ValueText(content string) string {
 	return content[a.Value[0]:a.Value[1]]
 }
 
+// ValueLine is the value's text written as one line, up to the offset limit in
+// content: its tokens as written, where what separates two of them on
+// different lines, or holds a comment, is one space, or nothing before a `.`
+// that carries a chain on (`svc.load()` over a line each for `.iterate()` is
+// `svc.load().iterate()`). A value that runs on past limit is cut there, so a
+// call whose arguments go on past it is left open. Receiver typing reads a
+// value as text, and this is the text it read when it joined an assignment's
+// lines itself.
+func (a *Assignment) ValueLine(content string, limit int) string {
+	from, to := a.Value[0], min(a.Value[1], limit, len(content))
+	if to <= from {
+		return ""
+	}
+
+	src := content[from:to]
+	if !strings.ContainsAny(src, "\n/*<") {
+		return src
+	}
+
+	var b strings.Builder
+
+	b.Grow(len(src))
+
+	prev := -1
+
+	for _, t := range tokenize(src) {
+		if t.Kind == TokEOF {
+			break
+		}
+
+		if prev >= 0 {
+			gap := src[prev:t.Offset]
+
+			switch {
+			case gap == "" || !strings.ContainsAny(gap, "\n/*<"):
+				b.WriteString(gap)
+			case t.Kind == TokDot && strings.Contains(gap, "\n"):
+			default:
+				b.WriteByte(' ')
+			}
+		}
+
+		b.WriteString(t.Value)
+		prev = t.Offset + len(t.Value)
+	}
+
+	return b.String()
+}
+
 // assignments is Assignments' answer for the content of.
 type assignments struct {
 	of   string

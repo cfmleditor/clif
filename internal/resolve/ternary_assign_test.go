@@ -149,35 +149,30 @@ func TestAnElvisReturnIsTheWeakerOfItsOperands(t *testing.T) {
 // TestACommentIsNotAConditional: a trailing comment ending in `?` or `:` does
 // not carry the assignment on to the next line; a conditional's `?` does.
 func TestACommentIsNotAConditional(t *testing.T) {
-	for rhs, more := range map[string]bool{
-		`new Query(); // which datasource?`: false,
-		`new Query(); // note:`:             false,
-		`"http://x?"`:                       false,
-		`flag ?`:                            true,
-		`flag ? new A() : // either:`:       true,
-		`"#fmt("a//b")#" ?`:                 true,
-		`a; /* it's */ // why?`:             false,
+	for content, want := range map[string]string{
+		"x = new Query(); // which datasource?\nq.execute( 1 );": `new Query()`,
+		"x = new Query(); // note:\nq.execute( 1 );":             `new Query()`,
+		"x = \"http://x?\"\nq.execute( 1 );":                     `"http://x?"`,
+		"x = flag ?\n\tnew A() : new B();":                       `flag ? new A() : new B()`,
+		"x = flag ? new A() : // either:\n\tnew B();":            `flag ? new A() : new B()`,
+		"x = \"#fmt(\"a//b\")#\" ?\n\ta : b;":                    `"#fmt("a//b")#" ? a : b`,
+		"x = a; /* it's */ // why?\nq.execute( 1 );":             `a`,
+		// A chain joins its next line after the comment, not into it.
+		"x = $.getBean( \"feed\" ) // the feed\n\t.getIterator();": `$.getBean( "feed" ).getIterator()`,
 	} {
-		if _, got := joinAssignmentLine(rhs, "q.execute(", false); got != more {
-			t.Errorf("%s: joined %v, want %v", rhs, got, more)
+		pr := parser.ParseWithOptions("file:///w/a.cfc", content, &parser.ParseOptions{})
+		if got, _, _ := (&Resolver{}).localAssignmentAt(pr, "x", 0, 10); got != want {
+			t.Errorf("%q: %q, want %q", content, got, want)
 		}
 	}
 
-	// In a <cfset> line `//` starts no comment: the markup after the tag is
-	// not cut at a URL's `//` into something ending in `:`.
-	if _, got := joinAssignmentLine(`svc.get()> <!-- see http://wiki -->`, "x = 1", true); got {
-		t.Error("a tag line was joined after a URL in the markup after it")
-	}
+	// In a <cfset> `//` starts no comment, and the markup after the tag is
+	// not the value's.
+	const tag = "<cfset x = svc.get()> <!-- see http://wiki -->\n<cfset y = 1>\n"
 
-	// A chain or an open call joins its next line after the comment, not
-	// into it.
-	for rhs, want := range map[string]string{
-		`$.getBean( "feed" ) // the feed`: `$.getBean( "feed" ).getIterator()`,
-		`f( // first`:                     `f( .getIterator()`,
-	} {
-		if got, _ := joinAssignmentLine(rhs, ".getIterator()", false); got != want {
-			t.Errorf("%s: joined %q, want %q", rhs, got, want)
-		}
+	pr := parser.ParseWithOptions("file:///w/a.cfm", tag, &parser.ParseOptions{})
+	if got, _, _ := (&Resolver{}).localAssignmentAt(pr, "x", 0, 10); got != "svc.get()" {
+		t.Errorf("a tag's value is %q, want svc.get()", got)
 	}
 }
 
