@@ -309,6 +309,7 @@ type sourceDerived struct {
 	spansOnce       sync.Once
 	spans           []parser.FunctionSpan
 	bodiesOnce      sync.Once
+	bodyReaders     atomic.Int32 // the readers that have the bodies (doneWithBodies)
 	bodies          [][]parser.Token
 	assignmentsOnce sync.Once
 	assigned        []parser.Assignment
@@ -353,10 +354,24 @@ func (s *sourceInfo) functionSpans() []parser.FunctionSpan {
 // bodies (functionBodyTokens), by the index of its span, read once: the
 // Wheels method reader and the producer plans read the same bodies, and each
 // tokenized them for itself.
+//
+// They are dropped once both readers have them: a source's readers keep
+// strings, not tokens, and kept for every source a scan reads the bodies were
+// 10.7MB of MasaCMS's peak heap. Nearly every source asked for one reader asks
+// for the other (167 of 168 on MasaCMS). A reader that comes after the drop
+// finds nil and tokenizes the bodies itself.
 func (s *sourceInfo) functionBodies() [][]parser.Token {
 	s.derived.bodiesOnce.Do(func() { s.derived.bodies = functionBodyTokens(s.content, s.functionSpans()) })
 
 	return s.derived.bodies
+}
+
+// doneWithBodies records that one of the two readers of the function bodies
+// has them, and drops them when it is the second.
+func (s *sourceInfo) doneWithBodies() {
+	if s.derived.bodyReaders.Add(1) == 2 {
+		s.derived.bodies = nil
+	}
 }
 
 // sourcePlans is the source's producer plans (newProducerPlans), built on
@@ -369,6 +384,7 @@ func sourcePlans(s sourceInfo) *producerPlans {
 
 	s.derived.producersOnce.Do(func() {
 		s.derived.producers = newProducerPlansFrom(s.content, s.functionSpans(), s.functionBodies())
+		s.doneWithBodies()
 	})
 
 	return s.derived.producers
@@ -382,7 +398,10 @@ func (s *sourceInfo) methodMap() map[string]wheelsMethod {
 		return wheelsMethods(s.content, s.functionSpans())
 	}
 
-	s.derived.methodsOnce.Do(func() { s.derived.methods = wheelsMethodsFrom(s.content, s.functionSpans(), s.functionBodies()) })
+	s.derived.methodsOnce.Do(func() {
+		s.derived.methods = wheelsMethodsFrom(s.content, s.functionSpans(), s.functionBodies())
+		s.doneWithBodies()
+	})
 
 	return s.derived.methods
 }
