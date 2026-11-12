@@ -272,13 +272,13 @@ func (pr *ParseResult) addPendingRef(c *pendingCall, comp string) bool {
 		VisibleFrom: c.visibleFrom, VisibleTo: c.visibleTo,
 		ClosureFrom: c.closureFrom, ClosureTo: c.closureTo, HasClosureSpan: c.hasClosureSpan,
 	}
-	if c.funcKey == "" && !c.hasClosureSpan || c.global {
+	if !c.funcKey.in && !c.hasClosureSpan || c.global {
 		pr.ComponentRefs = append(pr.ComponentRefs, ref)
 	} else {
 		pr.funcRefsMap = appendKeyed(pr.funcRefsMap, c.funcKey, []ComponentRef{ref})
 	}
 
-	if pr.flow != nil && c.funcKey != "" {
+	if pr.flow != nil && c.funcKey.in {
 		pr.flow.note(c.varName, c.line, c.block)
 	}
 
@@ -299,7 +299,7 @@ func (pr *ParseResult) receiverIsThisFile(c *pendingCall) bool {
 	}
 
 	ref := pr.firstRef(pr.ComponentRefs, c.baseVar, c.baseScope)
-	if ref == nil && c.funcKey != "" {
+	if ref == nil && c.funcKey.in {
 		ref = pr.firstRef(pr.funcRefsMap[c.funcKey], c.baseVar, c.baseScope)
 	}
 
@@ -311,7 +311,7 @@ func (pr *ParseResult) receiverIsThisFile(c *pendingCall) bool {
 type returnPending struct {
 	funcIdx int
 	varName string
-	funcKey string
+	funcKey fnKey
 	line    uint32 // the return's
 }
 
@@ -531,7 +531,7 @@ func assignedBetween(calls []pendingCall, name string, from, to uint32) bool {
 // Nor does a ref from another assignment: `var x = new A(); x = makeB();`
 // left x an A for good, and a return of x after it returning one.
 func (pr *ParseResult) hasRefFor(c *pendingCall) bool {
-	if c.funcKey != "" {
+	if c.funcKey.in {
 		local := pr.refsOnLine(pr.funcRefsMap[c.funcKey], c.line, func(ref *ComponentRef) bool {
 			return strings.EqualFold(ref.Variable, c.varName) &&
 				ref.VisibleFrom == c.visibleFrom && ref.VisibleTo == c.visibleTo && ref.HasClosureSpan == c.hasClosureSpan && ref.ClosureFrom == c.closureFrom && ref.ClosureTo == c.closureTo
@@ -576,7 +576,7 @@ func (pr *ParseResult) baseVarComponent(c *pendingCall, globals []ComponentRef) 
 		}
 	}
 
-	if comp == "" && c.funcKey != "" {
+	if comp == "" && c.funcKey.in {
 		if ref := pr.firstRef(pr.funcRefsMap[c.funcKey], c.baseVar, c.baseScope); ref != nil {
 			comp = pr.settledComponent(ref)
 		}

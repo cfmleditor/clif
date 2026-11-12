@@ -154,7 +154,7 @@ func argNames(args []Argument) []string {
 // starts, in the enclosing function. Outside a function there is nowhere to
 // put them, as scanClosureBody says of its locals.
 func (p *scriptParser) declareClosureParams(params []string, line int) {
-	if p.inFunc == "" {
+	if !p.inFunc.in {
 		return
 	}
 

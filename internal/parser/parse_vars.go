@@ -90,7 +90,7 @@ func (pr *ParseResult) FuncVars(funcStart, funcEnd int) []string {
 
 	pr.funcVarsMu.Lock()
 	if pr.funcVars == nil {
-		pr.funcVars = make(map[string][]string)
+		pr.funcVars = make(map[fnKey][]string)
 	}
 
 	pr.funcVars[key] = vars
@@ -134,7 +134,7 @@ func (pr *ParseResult) FuncDeclares(funcStart, funcEnd int, name string) bool {
 		}
 
 		if pr.funcVarSets == nil {
-			pr.funcVarSets = map[string]funcVarSet{}
+			pr.funcVarSets = map[fnKey]funcVarSet{}
 		}
 
 		pr.funcVarSets[key] = set
@@ -212,7 +212,7 @@ func (pr *ParseResult) AssignsMember(variable, member string, line uint32) bool 
 	// for the call's function and every member assignment in the file each
 	// time: quadratic in a file with many of both. The assignments are looked
 	// up by name, and the scope found only once one names the member.
-	key, keyed := "", false
+	key, keyed := noFn, false
 
 	for _, i := range pr.memberSetsNamed(member) {
 		m := &pr.memberSets[i]

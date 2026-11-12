@@ -285,7 +285,7 @@ func (p *tagParser) recordedForExpression(expr string, line int, offsets []int) 
 	}
 
 	bucket := p.calls
-	if p.inFunc != "" {
+	if p.inFunc.in {
 		bucket = p.funcCalls[p.inFunc]
 	}
 
@@ -390,7 +390,7 @@ func (p *tagParser) keepMemberSets(sub *scriptParser, origins ...int) {
 // holds.
 func (p *tagParser) callsOnLine(line uint32) []CallSite {
 	bucket := p.calls
-	if p.inFunc != "" {
+	if p.inFunc.in {
 		bucket = p.funcCalls[p.inFunc]
 	}
 

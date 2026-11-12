@@ -176,7 +176,7 @@ func (pr *ParseResult) CallsNamed(names ...string) []CallSite {
 	} else {
 		for _, a := range at {
 			calls := pr.Calls
-			if a.bucket != "" {
+			if a.bucket.in {
 				calls = pr.funcCallsMap[a.bucket]
 			}
 
@@ -225,7 +225,7 @@ func (pr *ParseResult) dropCallsIndex() {
 // callAt is where one call is: Calls[i] when bucket is "", else
 // funcCallsMap[bucket][i].
 type callAt struct {
-	bucket string
+	bucket fnKey
 	i      int
 }
 
@@ -252,14 +252,14 @@ func (pr *ParseResult) callsAt(names []string) []callAt {
 	if pr.callsByName == nil || pr.callsFrom != from || pr.callsLen != len(pr.Calls) || pr.callsBuckets != len(pr.funcCallsMap) {
 		pr.callsByName = map[string][]callAt{}
 
-		add := func(bucket string, calls []CallSite) {
+		add := func(bucket fnKey, calls []CallSite) {
 			for i := range calls {
 				n := strings.ToLower(calls[i].FuncName)
 				pr.callsByName[n] = append(pr.callsByName[n], callAt{bucket: bucket, i: i})
 			}
 		}
 
-		add("", pr.Calls)
+		add(noFn, pr.Calls)
 
 		for k, calls := range pr.funcCallsMap {
 			add(k, calls)

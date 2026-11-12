@@ -71,7 +71,7 @@ func (pr *ParseResult) TopLevelClosureRefs() []ComponentRef {
 	pr.funcRefsMu.Lock()
 	defer pr.funcRefsMu.Unlock()
 
-	return slices.Clone(pr.funcRefsMap[""])
+	return slices.Clone(pr.funcRefsMap[noFn])
 }
 
 // FuncLinks returns document links for a function body from the parse-time cache.
@@ -111,7 +111,7 @@ func (pr *ParseResult) cachedFuncRefs(funcStart, funcEnd int) ([]ComponentRef, [
 	// one-line template), is the function's by line, as FuncVars counts its
 	// declarations: the resolver reads the function's refs for any line in
 	// it. Each carries its closure's span, so it is in force only inside it.
-	if closures := pr.funcRefsMap[""]; len(closures) > 0 {
+	if closures := pr.funcRefsMap[noFn]; len(closures) > 0 {
 		refs = slices.Clip(refs)
 
 		for i := range closures {

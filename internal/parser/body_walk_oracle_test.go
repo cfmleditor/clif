@@ -11,7 +11,7 @@ import (
 	"github.com/cfmleditor/clif/internal/conv"
 )
 
-func (pr *ParseResult) oldTypeBodyPendingCalls(global []ComponentRef, local map[string][]ComponentRef, calls []pendingCall) ([]ComponentRef, map[string][]ComponentRef) {
+func (pr *ParseResult) oldTypeBodyPendingCalls(global []ComponentRef, local map[fnKey][]ComponentRef, calls []pendingCall) ([]ComponentRef, map[fnKey][]ComponentRef) {
 	body := &ParseResult{
 		URI: pr.URI, FuncLookup: pr.FuncLookup, Resolvers: pr.Resolvers, resolverSet: pr.resolverSet,
 		ComponentRefs: global, funcRefsMap: local,

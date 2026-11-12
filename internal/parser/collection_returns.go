@@ -125,7 +125,7 @@ func collectionReturnExpressions(calls []pendingCall, tagFile bool) map[string][
 	for i := range calls {
 		c := &calls[i]
 		if c.returnExpr {
-			returns[c.funcKey] = append(returns[c.funcKey], c.varName)
+			returns[c.funcKey.String()] = append(returns[c.funcKey.String()], c.varName)
 		}
 	}
 
@@ -623,13 +623,13 @@ type writesMemo struct {
 func (pr *ParseResult) scopeKey(i int) string {
 	m := pr.writesMemo
 	if m == nil {
-		return funcKey(pr.Scopes[i].Start, pr.Scopes[i].End)
+		return funcKey(pr.Scopes[i].Start, pr.Scopes[i].End).String()
 	}
 
 	if m.scopeKeys == nil {
 		m.scopeKeys = make([]string, len(pr.Scopes))
 		for j := range pr.Scopes {
-			m.scopeKeys[j] = funcKey(pr.Scopes[j].Start, pr.Scopes[j].End)
+			m.scopeKeys[j] = funcKey(pr.Scopes[j].Start, pr.Scopes[j].End).String()
 		}
 	}
 
@@ -664,12 +664,12 @@ func (pr *ParseResult) readSourceExpression(expression, function string) sourceR
 		}
 	}
 
-	tp := &tagParser{fileURI: string(pr.URI), inFunc: function, resolvers: pr.Resolvers, resolverSet: pr.resolverSet, funcs: pr.Funcs}
+	tp := &tagParser{fileURI: string(pr.URI), inFunc: parseFnKey(function), resolvers: pr.Resolvers, resolverSet: pr.resolverSet, funcs: pr.Funcs}
 	tp.checkSetRHSStr(expression, "$element", 0)
 
 	refs := tp.componentRefs
-	if function != "" {
-		refs = tp.funcRefs[function]
+	if tp.inFunc.in {
+		refs = tp.funcRefs[tp.inFunc]
 	}
 
 	var read sourceRead
@@ -1279,7 +1279,7 @@ func (pr *ParseResult) collectionValueSource(expression, function string, locals
 
 		switch {
 		case c.baseVar != "":
-			ref := firstRefIn(pr.funcRefsMap[function], c.baseVar, c.baseScope)
+			ref := firstRefIn(pr.funcRefsMap[parseFnKey(function)], c.baseVar, c.baseScope)
 			if ref == nil && c.baseScope == RefAny && locals.has(function, c.baseVar) {
 				return ReturnSource{}
 			}

@@ -50,8 +50,8 @@ func TestReplayReadsWhatTheScannerReads(t *testing.T) {
 // return variables skips it. Skipping it where it could answer would drop a
 // type; running it where it cannot was 30-44% of a tag component's parse.
 func TestTheCollectionPassRunsOnlyWhereItCanAnswer(t *testing.T) {
-	whole := []pendingCall{{varName: "result", returnExpr: true, funcKey: "1:3"}}
-	element := []pendingCall{{varName: "result[ 1 ]", returnExpr: true, funcKey: "1:3"}}
+	whole := []pendingCall{{varName: "result", returnExpr: true, funcKey: funcKey(1, 3)}}
+	element := []pendingCall{{varName: "result[ 1 ]", returnExpr: true, funcKey: funcKey(1, 3)}}
 
 	for _, tc := range []struct {
 		name    string

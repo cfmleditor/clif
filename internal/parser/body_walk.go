@@ -130,15 +130,24 @@ func (m *bodyMarks) shift(editLine, delta int) {
 	}
 }
 
-// change marks the body on lines start through end changed.
+// change marks the body on lines start through end changed. A body already
+// marked, or inside one that is, is not marked again: nothing clears a mark
+// until the body is read, and an edit marks the body it is in, so a run of
+// keystrokes in one function with nothing asking about it added a mark each,
+// and every later edit shifted them all.
 func (m *bodyMarks) change(body FuncScope) {
-	m.stale = append(m.stale, body)
+	if _, ok := covering(m.stale, body); !ok {
+		m.stale = slices.DeleteFunc(m.stale, func(r FuncScope) bool { return r.Start >= body.Start && r.End <= body.End })
+		m.stale = append(m.stale, body)
+	}
+
 	m.done = slices.DeleteFunc(m.done, func(r FuncScope) bool { return r.End >= body.Start && r.Start <= body.End })
 }
 
 // read marks body read alone.
 func (m *bodyMarks) read(body FuncScope) {
 	m.stale = slices.DeleteFunc(m.stale, func(r FuncScope) bool { return r.Start >= body.Start && r.End <= body.End })
+	m.done = slices.DeleteFunc(m.done, func(r FuncScope) bool { return r.Start >= body.Start && r.End <= body.End })
 	m.done = append(m.done, body)
 }
 
@@ -590,13 +599,8 @@ func (pr *ParseResult) bodyOf(scope FuncScope) FuncScope {
 }
 
 // within reports whether the function keyed k lies on body's lines.
-func within(k string, body FuncScope) bool {
-	start, end, ok := strings.Cut(k, ":")
-	if !ok {
-		return false
-	}
-
-	return atoi(start) >= body.Start && atoi(end) <= body.End
+func within(k fnKey, body FuncScope) bool {
+	return k.in && int(k.start) >= body.Start && int(k.end) <= body.End
 }
 
 // covering is the range in ranges holding scope.
@@ -671,8 +675,8 @@ func (pr *ParseResult) walkBody(body FuncScope, shallow, calls bool) *ParseResul
 // bodyKeys maps the keys of the functions walk found to the keys pr has for
 // them, which can differ after an edit only in where pr thinks a function
 // ends; a function pr has no scope for keeps its own.
-func (pr *ParseResult) bodyKeys(body FuncScope, walk *ParseResult) map[string]string {
-	keys := make(map[string]string, len(walk.Scopes))
+func (pr *ParseResult) bodyKeys(body FuncScope, walk *ParseResult) map[fnKey]fnKey {
+	keys := make(map[fnKey]fnKey, len(walk.Scopes))
 
 	for _, ws := range walk.Scopes {
 		k := funcKey(ws.Start, ws.End)
@@ -751,7 +755,7 @@ func (pr *ParseResult) fileVars(body FuncScope, walk *ParseResult) {
 
 // memberRefs is a whole parse's function refs for Content now, made once per
 // version of it. funcRefsMu is not held.
-func (pr *ParseResult) memberRefs() map[string][]ComponentRef {
+func (pr *ParseResult) memberRefs() map[fnKey][]ComponentRef {
 	if pr.memberSnapshot == nil || pr.memberSnapshotContent != pr.Content {
 		pr.memberSnapshot = ParseWithOptions(pr.URI, pr.Content, &ParseOptions{
 			Resolvers: pr.Resolvers, PropertyResolvers: pr.PropertyResolvers,
@@ -768,7 +772,7 @@ func (pr *ParseResult) memberRefs() map[string][]ComponentRef {
 
 // refile is m with every entry for a function on body's lines replaced by
 // what found has for it, under keys' key for it.
-func refile[T any](m, found map[string][]T, body FuncScope, keys map[string]string) map[string][]T {
+func refile[T any](m, found map[fnKey][]T, body FuncScope, keys map[fnKey]fnKey) map[fnKey][]T {
 	for k := range m {
 		if within(k, body) {
 			delete(m, k)
@@ -785,7 +789,7 @@ func refile[T any](m, found map[string][]T, body FuncScope, keys map[string]stri
 		}
 
 		if m == nil {
-			m = map[string][]T{}
+			m = map[fnKey][]T{}
 		}
 
 		m[k] = slices.Clone(v)
@@ -935,25 +939,24 @@ func shiftScope(s FuncScope, editLine, delta int) FuncScope {
 }
 
 // shiftKey is the function key k moved as shiftScope moves its scope.
-func shiftKey(k string, editLine, delta int) string {
-	start, end, ok := strings.Cut(k, ":")
-	if !ok {
+func shiftKey(k fnKey, editLine, delta int) fnKey {
+	if !k.in {
 		return k
 	}
 
-	s := shiftScope(FuncScope{Start: atoi(start), End: atoi(end)}, editLine, delta)
+	s := shiftScope(k.scope(), editLine, delta)
 
 	return funcKey(s.Start, s.End)
 }
 
 // shiftKeys is m with its function keys moved for an edit on editLine, and
 // each value's lines by move.
-func shiftKeys[T any](m map[string][]T, editLine, delta int, move func(*T)) map[string][]T {
+func shiftKeys[T any](m map[fnKey][]T, editLine, delta int, move func(*T)) map[fnKey][]T {
 	if len(m) == 0 {
 		return m
 	}
 
-	out := make(map[string][]T, len(m))
+	out := make(map[fnKey][]T, len(m))
 
 	for k, v := range m {
 		if move != nil {

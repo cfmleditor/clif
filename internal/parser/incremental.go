@@ -77,7 +77,9 @@ func (pr *ParseResult) applyEdit(startLine, startChar, endLine int, newText stri
 
 	if funcIdx >= 0 {
 		// Edit is inside a function body — just shift and invalidate
-		pr.shiftSplit(old, startOff, len(old)-len(pr.Content)+len(newText), newText)
+		removed := len(old) - len(pr.Content) + len(newText)
+		pr.editLineStarts(old, startOff, removed, newText)
+		pr.shiftSplit(old, startOff, removed, newText)
 		pr.shiftAfter(startLine, delta)
 		pr.InvalidateFunc(pr.Scopes[funcIdx].Start, pr.Scopes[funcIdx].End)
 		pr.resetGlobalCaches()
@@ -237,7 +239,7 @@ func (pr *ParseResult) reparseShallow() {
 // its walk had filed, and every function was then read again on its own.
 func (pr *ParseResult) resetFuncCaches() {
 	pr.funcVarsMu.Lock()
-	pr.funcVars = make(map[string][]string)
+	pr.funcVars = make(map[fnKey][]string)
 	pr.funcVarsMu.Unlock()
 
 	pr.funcRefsMu.Lock()
@@ -297,6 +299,20 @@ func (pr *ParseResult) resetGlobalCaches() {
 }
 
 // posOffset converts an LSP line/character position to a byte offset.
+// editLineStarts carries the line table of old, the text before an edit, over
+// to Content, the text after it: the edit replaced removed bytes at off with
+// inserted. A table that was not old's is left to be built when asked for.
+func (pr *ParseResult) editLineStarts(old string, off, removed int, inserted string) {
+	pr.lineStartsMu.Lock()
+	defer pr.lineStartsMu.Unlock()
+
+	if pr.lineStarts == nil || off < 0 || pr.lineStartsContent != old {
+		return
+	}
+
+	pr.lineStarts, pr.lineStartsContent = pr.lineStarts.Edited(off, removed, inserted), pr.Content
+}
+
 // offsetAt is PositionToOffset of Content, found from its line table.
 func (pr *ParseResult) offsetAt(line, char int) int {
 	start, ok := pr.lineStartsTable().Start(line)
