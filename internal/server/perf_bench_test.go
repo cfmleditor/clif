@@ -261,6 +261,68 @@ func BenchmarkKeystroke(b *testing.B) {
 	}
 }
 
+// A keystroke that types a character inside a line of a function body, as
+// most do: BenchmarkKeystroke adds and removes a line, which moves everything
+// below it; this one moves nothing.
+func BenchmarkTyping(b *testing.B) {
+	for _, funcs := range []int{20, 200} {
+		b.Run(fmt.Sprintf("funcs%d", funcs), func(b *testing.B) {
+			s := benchLoadedServer()
+			docURI := uri.File("/ws/open/Doc.cfc")
+
+			benchOpen(b, s, docURI, benchDoc(funcs))
+
+			change := func(from, to uint32, text string) []byte {
+				chg, err := json.Marshal(protocol.DidChangeTextDocumentParams{
+					TextDocument: protocol.VersionedTextDocumentIdentifier{
+						TextDocumentIdentifier: protocol.TextDocumentIdentifier{URI: docURI},
+						Version:                2,
+					},
+					ContentChanges: []protocol.TextDocumentContentChangeEvent{
+						&protocol.TextDocumentContentChangePartial{
+							Range: protocol.Range{Start: protocol.Position{Line: 3, Character: from}, End: protocol.Position{Line: 3, Character: to}},
+							Text:  text,
+						},
+					},
+				})
+				if err != nil {
+					b.Fatal(err)
+				}
+
+				return chg
+			}
+
+			// Type a character and delete it, so the document stays as opened.
+			changes := [2][]byte{change(2, 2, "z"), change(2, 3, "")}
+
+			b.ReportAllocs()
+			b.ResetTimer()
+
+			i := 0
+
+			for b.Loop() {
+				s.mu.Lock()
+				delete(s.changeWindowStart, docURI)
+				s.mu.Unlock()
+
+				if _, err := s.handleDidChange(context.Background(), changes[i%2]); err != nil {
+					b.Fatal(err)
+				}
+
+				i++
+			}
+
+			b.StopTimer()
+
+			s.mu.Lock()
+			for _, t := range s.cacheTimers {
+				t.Stop()
+			}
+			s.mu.Unlock()
+		})
+	}
+}
+
 // scopesToFuncRanges runs holding s.mu on didOpen and on every
 // signature-changing edit, so its cost is paid by every other request in
 // flight.

@@ -2,6 +2,7 @@ package parser
 
 import (
 	"math/rand"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -235,5 +236,58 @@ func TestParseResultLineTableFollowsContent(t *testing.T) {
 
 	if start, end := pr.lineOffsets(1, 2); start != 2 || end != 4 {
 		t.Fatalf("lineOffsets(1, 2) = %d, %d, want 2, 4", start, end)
+	}
+}
+
+// An edited table is the table of the edited text, for edits that add, remove
+// and keep lines anywhere in it, including at its ends.
+func TestEditedLineTableIsTheEditedTextsTable(t *testing.T) {
+	r := rand.New(rand.NewSource(7))
+
+	pieces := []string{"", "a", "\n", "ab\n", "\n\n", "x\ny", "é\n"}
+	text := "line one\nline two\n\nline four"
+
+	for range 2000 {
+		off := r.Intn(len(text) + 1)
+		removed := r.Intn(len(text) - off + 1)
+		inserted := pieces[r.Intn(len(pieces))] + pieces[r.Intn(len(pieces))]
+
+		before := NewLineTable(text)
+		edited := text[:off] + inserted + text[off+removed:]
+
+		got := before.Edited(off, removed, inserted)
+		if want := NewLineTable(edited); !slices.Equal(got, want) {
+			t.Fatalf("replacing %d bytes at %d of %q with %q: %v, want %v", removed, off, text, inserted, got, want)
+		}
+
+		text = edited
+		if len(text) > 400 {
+			text = text[:200]
+		}
+	}
+}
+
+// An edit inside a function carries the parse's line table over rather than
+// building it again, and the table is still the text's.
+func TestAnEditInAFunctionKeepsTheLineTable(t *testing.T) {
+	pr := ParseWithOptions("file:///t.cfc", "component {\n\tfunction a() {\n\t\tx = 1;\n\t}\n}\n", &ParseOptions{})
+
+	for i, e := range []struct {
+		line, char int
+		text       string
+	}{{2, 8, "2"}, {2, 9, "\n\t\ty = 3;"}, {3, 0, "\t"}} {
+		pr.ApplyEdit(e.line, e.char, e.line, e.char, e.text)
+
+		pr.lineStartsMu.Lock()
+		table, of := pr.lineStarts, pr.lineStartsContent
+		pr.lineStartsMu.Unlock()
+
+		if of != pr.Content {
+			t.Fatalf("edit %d: the table is not the edited text's; it was built again or dropped", i)
+		}
+
+		if want := NewLineTable(pr.Content); !slices.Equal(table, want) {
+			t.Fatalf("edit %d: table %v, want %v", i, table, want)
+		}
 	}
 }

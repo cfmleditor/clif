@@ -46,6 +46,36 @@ func NewLineTable(text string) LineTable {
 	return idx
 }
 
+// Edited is the table of the text made from t's by replacing the removed
+// bytes at off with inserted. The lines before the edit keep their starts,
+// those after it move by the change in length, and only inserted is read: an
+// edit inside a function used to build the whole document's table again on
+// every keystroke.
+func (t LineTable) Edited(off, removed int, inserted string) LineTable {
+	first := t.LineOf(off) + 1
+	last := t.LineOf(off + removed)
+	shift := len(inserted) - removed
+
+	out := make(LineTable, 0, len(t)-(last+1-first)+strings.Count(inserted, "\n"))
+	out = append(out, t[:first]...)
+
+	for at := 0; ; {
+		i := strings.IndexByte(inserted[at:], '\n')
+		if i < 0 {
+			break
+		}
+
+		at += i + 1
+		out = append(out, conv.Int32(off+at))
+	}
+
+	for _, start := range t[last+1:] {
+		out = append(out, conv.Int32(int(start)+shift))
+	}
+
+	return out
+}
+
 // Lines is the number of lines in the text: one more than its newlines.
 func (t LineTable) Lines() int { return len(t) }
 
