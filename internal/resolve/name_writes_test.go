@@ -185,13 +185,13 @@ func readThroughAssigns(t *testing.T, text string) string {
 func readExistsGuard(t *testing.T, text string) string {
 	t.Helper()
 
-	return strconv.FormatBool(guardedByExistsCheck(parser.Parse("file:///t/C.cfc", text), "variables.config", "onShutdown", lineHolding(t, text, "config.onShutdown(")))
+	return strconv.FormatBool((&Resolver{FS: vfs.OS{}}).guardedByExistsCheck(parser.Parse("file:///t/C.cfc", text), "variables.config", "onShutdown", lineHolding(t, text, "config.onShutdown(")))
 }
 
 func readInstanceGuard(t *testing.T, text string) string {
 	t.Helper()
 
-	return fmt.Sprint(guardedInstanceOf(parser.Parse("file:///t/C.cfc", text), "arguments.event", "event", lineHolding(t, text, "event.event(")))
+	return fmt.Sprint((&Resolver{FS: vfs.OS{}}).guardedInstanceOf(parser.Parse("file:///t/C.cfc", text), "arguments.event", "event", lineHolding(t, text, "event.event(")))
 }
 
 func readQuotedNameLines(_ *testing.T, text string) string {
@@ -212,7 +212,7 @@ func readRegistryGuard(t *testing.T, text string) string {
 
 	call := &parser.CallSite{Line: uint32(lineHolding(t, text, "x = "))}
 
-	return strconv.FormatBool((&Resolver{}).methodExistenceGuarded(parser.Parse("file:///t/t.cfm", text), call, "getBundleName"))
+	return strconv.FormatBool((&Resolver{FS: vfs.OS{}}).methodExistenceGuarded(parser.Parse("file:///t/t.cfm", text), call, "getBundleName"))
 }
 
 func readLeafLiteral(t *testing.T, text string) string {

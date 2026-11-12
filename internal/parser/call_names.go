@@ -122,3 +122,25 @@ func (pr *ParseResult) callNames() []string {
 func (pr *ParseResult) walksCalls() bool {
 	return pr.extractCalls || len(pr.findCalls) > 0
 }
+
+// RecordsCallsOf reports whether the parse recorded the calls of every one of
+// names, so that CallsWritten answers for them: it extracts every call, or
+// it was asked for these names' calls (FindCalls).
+func (pr *ParseResult) RecordsCallsOf(names ...string) bool {
+	if !pr.walksCalls() {
+		return false
+	}
+
+	only := pr.callNames()
+	if only == nil {
+		return true
+	}
+
+	for _, n := range names {
+		if !namedIn(only, n) {
+			return false
+		}
+	}
+
+	return true
+}

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/cfmleditor/clif/internal/parser"
+	"github.com/cfmleditor/clif/internal/vfs"
 )
 
 // The reaching walk's braces are the script scanner's, whatever else the
@@ -116,7 +117,7 @@ func TestAGuardsBlockEndsAtARealBrace(t *testing.T) {
 		"\t\t}\n" +
 		"\t}\n" +
 		"}\n"
-	if !guardedByExistsCheck(parser.Parse("file:///ws/G.cfc", guarded), "variables.cfg", "onX", 5) {
+	if !(&Resolver{FS: vfs.OS{}}).guardedByExistsCheck(parser.Parse("file:///ws/G.cfc", guarded), "variables.cfg", "onX", 5) {
 		t.Error("a brace or semicolon in a string or comment ended the guarded block")
 	}
 
@@ -128,7 +129,47 @@ func TestAGuardsBlockEndsAtARealBrace(t *testing.T) {
 		"\t\tvariables.cfg.onX();\n" +
 		"\t}\n" +
 		"}\n"
-	if guardedByExistsCheck(parser.Parse("file:///ws/G.cfc", after), "variables.cfg", "onX", 5) {
+	if (&Resolver{FS: vfs.OS{}}).guardedByExistsCheck(parser.Parse("file:///ws/G.cfc", after), "variables.cfg", "onX", 5) {
 		t.Error("a call after the guarded block's real close was taken as guarded")
+	}
+}
+
+// A guard is a call the parse reads: one written in a tag function's markup,
+// outside any output, checks nothing, and the call after it is not guarded.
+// The token walk read the markup as code and took its brace for a block.
+func TestAGuardInMarkupGuardsNothing(t *testing.T) {
+	const markup = "<cfcomponent>\n" +
+		"<cffunction name=\"f\">\n" +
+		"\t<p>if ( structKeyExists( variables.cfg, \"onX\" ) || isInstanceOf( variables.cfg, \"a.B\" ) ) {</p>\n" +
+		"\t<cfset variables.cfg.onX()>\n" +
+		"</cffunction>\n" +
+		"</cfcomponent>\n"
+
+	r := &Resolver{FS: vfs.OS{}}
+	pr := parser.Parse("file:///ws/G.cfc", markup)
+
+	if r.guardedByExistsCheck(pr, "variables.cfg", "onX", 3) {
+		t.Error("a structKeyExists written in markup guarded the call")
+	}
+
+	if got := r.guardedInstanceOf(pr, "variables.cfg", "onX", 3); len(got) > 0 {
+		t.Errorf("an isInstanceOf written in markup guarded the call: %v", got)
+	}
+
+	const tagGuard = "<cfcomponent>\n" +
+		"<cffunction name=\"f\">\n" +
+		"\t<cfif structKeyExists( variables.cfg, \"onX\" )>\n" +
+		"\t\t<cfset variables.cfg.onX()>\n" +
+		"\t</cfif>\n" +
+		"</cffunction>\n" +
+		"</cfcomponent>\n"
+	if !r.guardedByExistsCheck(parser.Parse("file:///ws/G.cfc", tagGuard), "variables.cfg", "onX", 3) {
+		t.Error("a <cfif structKeyExists(...)> did not guard the call it holds")
+	}
+
+	const page = "<p>isNull( driver.getBundleName )</p>\n" +
+		"<cfset x = driver.getBundleName()>\n"
+	if r.methodExistenceGuarded(parser.Parse("file:///ws/p.cfm", page), &parser.CallSite{Line: 1}, "getBundleName") {
+		t.Error("an isNull written in markup guarded the call")
 	}
 }

@@ -17,8 +17,9 @@ import (
 // (`// setView( "old/view" )`) or inside a string, and then a walk of each
 // file's tokens of its own read a function's declaration as a call of it.
 //
-// The guards and the windows of code the write readers walk are still tokens
-// (codeLists, codeCalls). Code also runs inside a string:
+// The guards (guardCalls) and the request write counts' structInsert calls
+// are the parse's calls too. The readers still walking tokens (codeLists,
+// codeCalls) are listed where they are. Code also runs inside a string:
 // `"#renderView( 'x' )#"`. codeLists hands a reader the tokens of each such
 // expression as a list of its own, so a call in one is read and a call is
 // never split across a string's edge.
@@ -113,13 +114,15 @@ func rawTokens(text string) []parser.Token {
 
 // readerCallNames are the calls the resolver's framework readers read:
 // renders, announcements, Wheels associations, WireBox's map().to(), cborm's
-// super.init(), includeUDF, Lucee's package listings and Mura's display
-// objects. Every plain parse records them (plainParseText), so a reader takes
+// super.init(), includeUDF, Lucee's package listings, Mura's display
+// objects, the request scope's structInsert, and the guards' checks
+// (existsGuardNames, instanceGuardNames, nullGuardNames). Every plain parse
+// records them (plainParseText), so a reader takes
 // a file's calls from the parse it already has, not from a walk of its own.
 var readerCallNames = slices.Concat(viewRenderNames, interceptAnnouncers, []string{
 	"hasMany", "belongsTo", "hasOne", "map", "to", "init", "includeUDF",
-	"ComponentListPackageAsStruct", "dspObject_include",
-})
+	"ComponentListPackageAsStruct", "dspObject_include", "structInsert",
+}, existsGuardNames, instanceGuardNames, nullGuardNames)
 
 // plainParseText is the plain parse of content, the text of file: no
 // resolver, lookup or option but the readers' calls (readerCallNames).

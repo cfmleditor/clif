@@ -926,7 +926,17 @@ func (r *Resolver) methodExistenceGuarded(pr *parser.ParseResult, call *parser.C
 		return false
 	}
 
-	for _, c := range codeCalls(fileCodeOn(pr, line-3, line+3), "isNull", "structKeyExists") {
+	from, ok := lineOffset(pr.Content, max(line-3, 0))
+	if !ok {
+		return false
+	}
+
+	to, ok := lineOffset(pr.Content, line+4)
+	if !ok {
+		to = len(pr.Content)
+	}
+
+	for _, c := range r.guardCalls(pr, from, to, nullGuardNames...) {
 		if isWord(c.name(), "isNull") {
 			// A reference of the method itself questioned, the way
 			// !isNull(driver.getBundleName) spells it.
@@ -942,7 +952,7 @@ func (r *Resolver) methodExistenceGuarded(pr *parser.ParseResult, call *parser.C
 		// structKeyExists(recv, 'm') — a ternary, or an if whose branch
 		// calls it. A negated one reads the other way and does not guard.
 		pieces := c.pieces()
-		if len(pieces) != 2 || c.before(1).Kind == parser.TokBang || isWord(c.before(1), "not") {
+		if len(pieces) != 2 || negatedCall(pr.Content, c.name().Offset) {
 			continue
 		}
 
@@ -1022,4 +1032,17 @@ func registryExprName(expression string) (string, bool) {
 	}
 
 	return name, true
+}
+
+// negatedCall reports whether the call whose name starts at offset at in
+// content is negated: the code before it ends in `!` or the word `not`.
+func negatedCall(content string, at int) bool {
+	before := strings.TrimRight(content[:at], " \t\r\n")
+	if strings.HasSuffix(before, "!") {
+		return true
+	}
+
+	n := len(before) - len("not")
+
+	return n >= 0 && strings.EqualFold(before[n:], "not") && (n == 0 || !lex.IsWord(before[n-1]) && before[n-1] != '.')
 }

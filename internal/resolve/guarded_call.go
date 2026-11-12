@@ -5,6 +5,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/cfmleditor/clif/internal/lex"
 	"github.com/cfmleditor/clif/internal/parser"
 )
 
@@ -21,10 +22,45 @@ import (
 // it opens (a brace group, or a <cfif> up to its close), or the rest of the
 // statement when there is no block.
 
+// The guards are the parse's calls (guardCalls): a check in a comment, in
+// markup or in a string that is no expression is none, and where a call
+// starts and ends is where the parse read it.
+
+// existsGuardNames, instanceGuardNames and nullGuardNames are the calls the
+// guards are written with; the plain parse records them (readerCallNames).
+var (
+	existsGuardNames   = []string{"structKeyExists", "keyExists", "isDefined"}
+	instanceGuardNames = []string{"isInstanceOf", "checkForInstanceOf"}
+	nullGuardNames     = []string{"isNull", "structKeyExists"}
+)
+
+// guardCalls are the calls of names pr's file makes that start at or after
+// from and end by to, in the order they are written: pr's own record when
+// it holds these names' calls, else the file's plain parse's.
+func (r *Resolver) guardCalls(pr *parser.ParseResult, from, to int, names ...string) []parsedCall {
+	if !pr.RecordsCallsOf(names...) {
+		if pr.URI.IsFile() {
+			pr = r.plainParseOf(pr.URI.Path(), pr.Content)
+		} else {
+			pr = parser.ParseWithOptions(pr.URI, pr.Content, &parser.ParseOptions{FindCalls: readerCallNames})
+		}
+	}
+
+	var out []parsedCall
+
+	for _, c := range parsedCalls(pr, names...) {
+		if int(c.site.StartByte) >= from && int(c.site.EndByte) <= to {
+			out = append(out, c)
+		}
+	}
+
+	return out
+}
+
 // guardedByExistsCheck reports whether the call to funcName on variable at
 // line (0-based) is made only after its containing code checked that the
 // method exists.
-func guardedByExistsCheck(pr *parser.ParseResult, variable, funcName string, line int) bool {
+func (r *Resolver) guardedByExistsCheck(pr *parser.ParseResult, variable, funcName string, line int) bool {
 	if funcName == "" {
 		return false
 	}
@@ -41,8 +77,8 @@ func guardedByExistsCheck(pr *parser.ParseResult, variable, funcName string, lin
 
 	end := start + len(text)
 
-	for _, m := range existsGuards(fileCodeBetween(pr, start, end), variable, funcName) {
-		if m[1] <= end && guards(text, m[0]-start, m[1]-start) {
+	for _, m := range existsGuards(pr.Content, r.guardCalls(pr, start, end, existsGuardNames...), variable, funcName) {
+		if guards(text, m[0]-start, m[1]-start) {
 			return true
 		}
 	}
@@ -343,7 +379,7 @@ func (c *textCache[T]) of(content string, build func(string) T) T {
 // which the MuraScope declares and the event it is otherwise handed does not.
 // isInstanceOf() and Mura's utility.checkForInstanceOf() are read, under the
 // rules guardedByExistsCheck applies.
-func guardedInstanceOf(pr *parser.ParseResult, variable, funcName string, line int) []string {
+func (r *Resolver) guardedInstanceOf(pr *parser.ParseResult, variable, funcName string, line int) []string {
 	text, start, ok := guardText(pr, variable, funcName, line)
 	if !ok {
 		return nil
@@ -357,11 +393,97 @@ func guardedInstanceOf(pr *parser.ParseResult, variable, funcName string, line i
 
 	end := start + len(text)
 
-	for _, g := range instanceGuards(fileCodeBetween(pr, start, end), variable) {
-		if g.end <= end && guards(text, g.start-start, g.end-start) {
+	for _, g := range instanceGuards(r.guardCalls(pr, start, end, instanceGuardNames...), variable) {
+		if guards(text, g.start-start, g.end-start) {
 			comps = append(comps, g.comp)
 		}
 	}
 
 	return comps
+}
+
+// existsGuards are the [start, end) offsets of the checks among calls that
+// variable has a member funcName: structKeyExists( variable, "funcName" ),
+// variable.keyExists( "funcName" ) and isDefined( "variable.funcName" ). A
+// check's start is its function's name, or the variable's for keyExists.
+// content is the text the calls were read from.
+func existsGuards(content string, calls []parsedCall, variable, funcName string) [][2]int {
+	var out [][2]int
+
+	for _, c := range calls {
+		pieces := c.pieces()
+
+		switch strings.ToLower(c.name().Value) {
+		case "structkeyexists":
+			if len(pieces) == 2 && spells(pieces[0], variable) && soleStringIs(pieces[1], funcName) {
+				out = append(out, [2]int{c.name().Offset, c.end()})
+			}
+		case "keyexists":
+			if len(pieces) != 1 || !soleStringIs(pieces[0], funcName) {
+				continue
+			}
+
+			if start, ok := receiverWrittenBefore(content, c.name().Offset, variable); ok {
+				out = append(out, [2]int{start, c.end()})
+			}
+		default:
+			if len(pieces) == 1 && soleStringIs(pieces[0], variable+"."+funcName) {
+				out = append(out, [2]int{c.name().Offset, c.end()})
+			}
+		}
+	}
+
+	return out
+}
+
+// receiverWrittenBefore is where variable starts when content holds it, and
+// a dot, just before the called name at offset at: `variable.keyExists(`,
+// with space allowed around the dot, ignoring case. The variable is a whole
+// name, not the tail of a longer one.
+func receiverWrittenBefore(content string, at int, variable string) (int, bool) {
+	before := strings.TrimRight(content[:at], " \t\r\n")
+	if !strings.HasSuffix(before, ".") {
+		return 0, false
+	}
+
+	before = strings.TrimRight(before[:len(before)-1], " \t\r\n")
+
+	start := len(before) - len(variable)
+	if variable == "" || start < 0 || !strings.EqualFold(before[start:], variable) {
+		return 0, false
+	}
+
+	if start > 0 && (lex.IsWord(before[start-1]) || before[start-1] == '.') {
+		return 0, false
+	}
+
+	return start, true
+}
+
+// instanceGuard is one isInstanceOf or checkForInstanceOf check of a
+// variable: where it is, and the component it names.
+type instanceGuard struct {
+	start, end int
+	comp       string
+}
+
+// instanceGuards are the checks among calls that variable is an instance of
+// a component: isInstanceOf( variable, "a.b.C" ) or Mura's
+// checkForInstanceOf( variable, "a.b.C" ), which may be called on a
+// qualifier (variables.utility.checkForInstanceOf).
+func instanceGuards(calls []parsedCall, variable string) []instanceGuard {
+	var out []instanceGuard
+
+	for _, c := range calls {
+		pieces := c.pieces()
+		if len(pieces) != 2 || !spells(pieces[0], variable) {
+			continue
+		}
+
+		if comp, ok := soleString(pieces[1]); ok && comp != "" && strings.IndexFunc(comp, func(r rune) bool { return r != '.' && !isWordRune(r) }) < 0 {
+			out = append(out, instanceGuard{start: c.name().Offset, end: c.end(), comp: comp})
+		}
+	}
+
+	return out
 }

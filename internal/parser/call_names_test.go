@@ -182,3 +182,34 @@ func TestFindCallsRecordsOnlyCalls(t *testing.T) {
 		t.Errorf("a FindCalls parse answers AllCalls with %d calls; it extracts none", len(all))
 	}
 }
+
+// A reader asks whether a parse recorded a name's calls before it reads them
+// from that parse: every call when it extracts calls, the names it was asked
+// for when it finds some, none otherwise.
+func TestRecordsCallsOfSaysWhichCallsAParseHolds(t *testing.T) {
+	const src = "component { function f() { if ( structKeyExists( a, \"b\" ) ) a.b(); } }"
+
+	all := ParseWithOptions("file:///t/A.cfc", src, &ParseOptions{ExtractCalls: true})
+	some := ParseWithOptions("file:///t/A.cfc", src, &ParseOptions{FindCalls: []string{"StructKeyExists"}})
+	none := Parse("file:///t/A.cfc", src)
+
+	for _, c := range []struct {
+		name  string
+		pr    *ParseResult
+		names []string
+		want  bool
+	}{
+		{"extracts every call", all, []string{"structKeyExists", "b"}, true},
+		{"finds the name, any case", some, []string{"structkeyexists"}, true},
+		{"finds another name", some, []string{"structKeyExists", "b"}, false},
+		{"records none", none, []string{"structKeyExists"}, false},
+	} {
+		if got := c.pr.RecordsCallsOf(c.names...); got != c.want {
+			t.Errorf("%s: RecordsCallsOf(%v) = %v, want %v", c.name, c.names, got, c.want)
+		}
+	}
+
+	if got := len(some.CallsWritten("structKeyExists")); got != 1 {
+		t.Errorf("the parse asked for structKeyExists recorded %d calls of it, want 1", got)
+	}
+}
