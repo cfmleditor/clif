@@ -81,24 +81,28 @@ func TestTagBlocksFollowsTheRegionSplit(t *testing.T) {
 // and a bracket is code: one in a string, in a quoted argument inside a
 // string's #...# or in a comment opens nothing. A real one still does.
 func TestAnAssignmentJoinsItsNextLineOnlyForAnOpenBracket(t *testing.T) {
-	for rhs, more := range map[string]bool{
-		`f( ")" )`:                false,
-		`f( "{" )`:                false,
-		`"#g( "[" )#"`:            false,
-		`f() /* ( */`:             false,
-		`f( "x" ).g(`:             true,
-		`{ a: "}"`:                true,
-		`[ "#g( "]" )#"`:          true,
-		`f( ")", /* ) */ "(" ) (`: true,
+	for rhs, want := range map[string]string{
+		"f( \")\" )":                            `f( ")" )`,
+		"f( \"{\" )":                            `f( "{" )`,
+		"\"#g( \"[\" )#\"":                      `"#g( "[" )#"`,
+		"f() /* ( */":                           `f()`,
+		"f( \"x\" ).g(\nnext() )":               `f( "x" ).g( next() )`,
+		"{ a: \"}\"\nnext: 1 }":                 `{ a: "}" next: 1 }`,
+		"[ \"#g( \"]\" )#\"\nnext() ]":          `[ "#g( "]" )#" next() ]`,
+		"f( \")\", /* ) */ \"(\" ) (\nnext() )": `f( ")", "(" ) ( next() )`,
 	} {
-		if _, got := joinAssignmentLine(rhs, "next()", false); got != more {
-			t.Errorf("%s: joined %v, want %v", rhs, got, more)
+		content := "x = " + rhs + "\nnext()\n"
+		pr := parser.ParseWithOptions("file:///w/a.cfc", content, &parser.ParseOptions{})
+
+		if got, _, _ := (&Resolver{}).localAssignmentAt(pr, "x", 0, 10); got != want {
+			t.Errorf("%s: %q, want %q", rhs, got, want)
 		}
 	}
 
 	const content = "component {\n\tfunction f() {\n\t\tvar x = new A( \"#g( \"(\" )#\" );\n\t\tx.go();\n\t}\n}\n"
 
-	if rhs, _, ok := contentFacts(content).assignmentAt(content, "x", 1, 3); !ok || rhs != `new A( "#g( "(" )#" )` {
+	pr := parser.ParseWithOptions("file:///w/a.cfc", content, &parser.ParseOptions{})
+	if rhs, _, ok := (&Resolver{}).localAssignmentAt(pr, "x", 1, 3); !ok || rhs != `new A( "#g( "(" )#" )` {
 		t.Errorf("assignment = %q, %v; want the call, whose parentheses balance", rhs, ok)
 	}
 }

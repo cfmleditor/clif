@@ -33,7 +33,7 @@ const maxReachingAssignments = 64
 // Blocks are braces in script and the bodies of <cfif>, <cfelseif>, <cfelse>,
 // <cfloop>, <cftry>, <cfcatch>, <cfcase> and <cfdefaultcase> in tags
 // (blockEvents).
-func reachingUnion(pr *parser.ParseResult, scopeStart int, name string, line uint32, named func() []*parser.ComponentRef, best *parser.ComponentRef) *parser.ComponentRef {
+func reachingUnion(pr *parser.ParseResult, as []parser.Assignment, scopeStart int, name string, line uint32, named func() []*parser.ComponentRef, best *parser.ComponentRef) *parser.ComponentRef {
 	if best == nil || best.Component == "" || !strings.ContainsAny(pr.Content, "{<") {
 		return best
 	}
@@ -46,13 +46,11 @@ func reachingUnion(pr *parser.ParseResult, scopeStart int, name string, line uin
 	}
 
 	// The assignments that reach the use: the typed ones, and the untyped ones
-	// the source shows at the start of a statement.
+	// the parse reads where a statement starts.
 	var at []int
 
-	facts := contentFacts(pr.Content)
-
 	for header := use + 1; len(at) < maxReachingAssignments; header = at[len(at)-1] {
-		_, l, ok := facts.assignmentAt(pr.Content, name, scopeStart, header)
+		_, l, ok := lastAssignment(as, pr.Content, name, scopeStart, header)
 		if !ok {
 			break
 		}
@@ -282,44 +280,6 @@ func scopeBlockEvents(content string, from int, tag bool) []blockEvent {
 	scopeEvents.Unlock()
 
 	return events
-}
-
-var factsCache = struct {
-	sync.Mutex
-	m map[scopeEventKey]scopeFactsEntry
-}{m: map[scopeEventKey]scopeFactsEntry{}}
-
-type scopeFactsEntry struct {
-	content string
-	facts   *lexicalSourceFacts
-}
-
-// contentFacts is scanSourceFacts(content), kept for the content's recent
-// uses as scopeBlockEvents keeps events: reachingUnion has no resolver to ask
-// for the table, and walking the lines above each use to its scope's start
-// was a second of a tassweb scan.
-func contentFacts(content string) *lexicalSourceFacts {
-	key := contentKey(content)
-
-	factsCache.Lock()
-	entry, ok := factsCache.m[key]
-	factsCache.Unlock()
-
-	if ok && entry.content == content {
-		return entry.facts
-	}
-
-	facts := scanSourceFacts(content)
-
-	factsCache.Lock()
-	if len(factsCache.m) >= maxScopeEvents {
-		clear(factsCache.m)
-	}
-
-	factsCache.m[key] = scopeFactsEntry{content, &facts}
-	factsCache.Unlock()
-
-	return &facts
 }
 
 // blockOpen is one open block: its id and the tag or brace that opened it.

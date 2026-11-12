@@ -316,7 +316,7 @@ func (r *Resolver) assignedFromUntypedFunction(call *parser.CallSite, reason str
 		start = scope.Start
 	}
 
-	rhs, _, ok := localAssignmentAt(pr.Content, name, start, int(call.Line)+1)
+	rhs, _, ok := r.localAssignmentAt(pr, name, start, int(call.Line)+1)
 	if !ok {
 		return false
 	}
