@@ -130,15 +130,24 @@ func (m *bodyMarks) shift(editLine, delta int) {
 	}
 }
 
-// change marks the body on lines start through end changed.
+// change marks the body on lines start through end changed. A body already
+// marked, or inside one that is, is not marked again: nothing clears a mark
+// until the body is read, and an edit marks the body it is in, so a run of
+// keystrokes in one function with nothing asking about it added a mark each,
+// and every later edit shifted them all.
 func (m *bodyMarks) change(body FuncScope) {
-	m.stale = append(m.stale, body)
+	if _, ok := covering(m.stale, body); !ok {
+		m.stale = slices.DeleteFunc(m.stale, func(r FuncScope) bool { return r.Start >= body.Start && r.End <= body.End })
+		m.stale = append(m.stale, body)
+	}
+
 	m.done = slices.DeleteFunc(m.done, func(r FuncScope) bool { return r.End >= body.Start && r.Start <= body.End })
 }
 
 // read marks body read alone.
 func (m *bodyMarks) read(body FuncScope) {
 	m.stale = slices.DeleteFunc(m.stale, func(r FuncScope) bool { return r.Start >= body.Start && r.End <= body.End })
+	m.done = slices.DeleteFunc(m.done, func(r FuncScope) bool { return r.Start >= body.Start && r.End <= body.End })
 	m.done = append(m.done, body)
 }
 

@@ -220,6 +220,46 @@ func TestEditsKeepTheParsesCalls(t *testing.T) {
 	}
 }
 
+// Keystrokes in one function, with nothing asking about it between them, mark
+// its body changed once, not once each: every edit shifts every mark, so a
+// mark a keystroke made a keystroke slower than the one before it.
+func TestEditsInOneBodyMarkItOnce(t *testing.T) {
+	src := `component {
+	function a() {
+		x.one();
+	}
+	function b() {
+		y.two();
+	}
+}`
+
+	pr := ParseWithOptions("file:///t.cfc", src, &ParseOptions{ExtractCalls: true})
+
+	for range 50 {
+		pr.ApplyEdit(2, 11, 2, 11, "\n\t\tz.three();")
+		pr.ApplyEdit(3, 0, 4, 0, "")
+	}
+
+	pr.bodies.mu.Lock()
+	vars, refs := len(pr.bodies.varsOf.stale), len(pr.bodies.refsOf.stale)
+	pr.bodies.mu.Unlock()
+
+	if vars > 1 || refs > 1 {
+		t.Errorf("a hundred edits in a() left %d vars marks and %d refs marks, want one each", vars, refs)
+	}
+
+	s := scopeNamed(pr, "a")
+
+	var got []string
+	for _, c := range pr.FuncCalls(s.Start, s.End) {
+		got = append(got, c.Variable+"."+c.FuncName)
+	}
+
+	if !slices.Equal(got, []string{"x.one"}) {
+		t.Errorf("a() after the edits: %v", got)
+	}
+}
+
 // What a function body assigns to the variables scope is read again after an
 // edit changes the body: it was read once, on the first question, and kept
 // for the life of the parse.
