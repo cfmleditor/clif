@@ -90,6 +90,7 @@ func TestLazyBodyReadCost(t *testing.T) {
 				for range 7 {
 					p = edit()
 					start := time.Now()
+
 					read()
 
 					if d := time.Since(start); best == 0 || d < best {
@@ -104,10 +105,10 @@ func TestLazyBodyReadCost(t *testing.T) {
 			refs := timed(func() { _, _ = p.FuncRefs(s.Start, s.End) })
 			calls := timed(func() { _ = p.FuncCalls(s.Start, s.End) })
 			scoped := timed(func() { _ = p.VariablesVars() })
-			any := timed(func() { _ = p.HasScopedAssignment(ScopeVariables, "nosuchname") })
+			anyScoped := timed(func() { _ = p.HasScopedAssignment(ScopeVariables, "nosuchname") })
 
 			fmt.Printf("%-40s %-8s lines=%-6d vars=%-10v refs=%-10v calls=%-10v variablesVars=%-10v anyScoped=%v\n",
-				filepath.Base(rel), pick.name, s.End-s.Start+1, vars, refs, calls, scoped, any)
+				filepath.Base(rel), pick.name, s.End-s.Start+1, vars, refs, calls, scoped, anyScoped)
 		}
 	}
 }

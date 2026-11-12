@@ -493,12 +493,12 @@ func (pr *ParseResult) settleBody(calls []pendingCall) {
 	if ctx := pr.bodies.context; ctx != nil {
 		funcs = ctx
 
-		for _, r := range ctx.ComponentRefs {
-			switch line := int(r.Line); {
+		for i := range ctx.ComponentRefs {
+			switch line := int(ctx.ComponentRefs[i].Line); {
 			case line < pr.bodies.only.Start:
-				before = append(before, r)
+				before = append(before, ctx.ComponentRefs[i])
 			case line > pr.bodies.only.End:
-				after = append(after, r)
+				after = append(after, ctx.ComponentRefs[i])
 			}
 		}
 
@@ -857,7 +857,7 @@ func (b *bodyState) varsOn(start, end int) []walkVar {
 	if b.byLine == nil {
 		b.byLine = make([]int32, len(b.vars))
 		for i := range b.byLine {
-			b.byLine[i] = int32(i) //nolint:gosec // a file holds fewer declarations than that
+			b.byLine[i] = int32(i)
 		}
 
 		slices.SortStableFunc(b.byLine, func(i, j int32) int { return int(b.vars[i].Line) - int(b.vars[j].Line) })
@@ -1025,16 +1025,6 @@ func (pr *ParseResult) staleBody(start, end int) {
 
 	pr.memberSnapshot = nil
 	pr.funcRefsMu.Unlock()
-}
-
-// resetBodies forgets everything kept of the bodies, before a reparse walks
-// them again.
-func (pr *ParseResult) resetBodies() {
-	b := &pr.bodies
-	b.mu.Lock()
-	b.vars, b.byLine, b.sorted, b.anyScoped, b.varsOf, b.refsOf, b.members = nil, nil, false, nil, bodyMarks{}, bodyMarks{}, nil
-	b.varsWalked, b.settled = false, false
-	b.mu.Unlock()
 }
 
 // funcVarNames is the local and arguments names declared on body's lines, in

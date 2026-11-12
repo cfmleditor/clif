@@ -114,11 +114,6 @@ type ParseResult struct {
 	declareScans map[string]bool // mayDeclare's answers, by lowercased name
 	allVarsDone  bool
 
-	// anyScopedVars caches, per Scope, every name ever assigned in that scope
-	// anywhere in the file (see HasScopedAssignment) — unlike variablesVars/thisVars,
-	// which only look outside functions and inside init().
-	anyScopedVars map[Scope][]string
-
 	// memberSets are the `a.m = …` assignments met; see AssignsMember.
 	memberSets []pendingCall
 	// memberSetsByName indexes memberSets by lowercased member name, built on

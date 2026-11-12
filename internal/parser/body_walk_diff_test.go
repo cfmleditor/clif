@@ -160,11 +160,12 @@ func (d *bodyDiff) file(path string) {
 		kind := tag(s)
 
 		want := slices.Clone(full.funcRefsMap[funcKey(s.Start, s.End)])
-		for _, r := range full.funcRefsMap[""] {
-			if int(r.Line) >= s.Start && int(r.Line) <= s.End {
-				want = append(want, r)
+		for i := range full.funcRefsMap[""] {
+			if line := int(full.funcRefsMap[""][i].Line); line >= s.Start && line <= s.End {
+				want = append(want, full.funcRefsMap[""][i])
 			}
 		}
+
 		oldRefs := old.oldCachedFuncRefs(s.Start, s.End)
 		preRefs, _ := pre.FuncRefs(s.Start, s.End)
 		lazyRefs, _ := lazy.FuncRefs(s.Start, s.End)
@@ -213,8 +214,9 @@ func (d *bodyDiff) file(path string) {
 		at := path + " init"
 		d.names("old", "init-scoped", at, oldNames, want)
 
-		lazy.bodies.mu.Lock()
 		var lazyNames []string
+
+		lazy.bodies.mu.Lock()
 
 		for _, v := range lazy.bodies.varsOn(init.Start, init.End) {
 			if v.Scope == ScopeVariables || v.Scope == ScopeThis {

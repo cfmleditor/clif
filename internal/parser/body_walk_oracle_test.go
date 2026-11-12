@@ -386,7 +386,6 @@ func (pr *ParseResult) oldParseFuncBody(funcStart, funcEnd int) (names []string)
 		}
 	}
 
-
 	return names
 }
 
@@ -476,3 +475,35 @@ func (pr *ParseResult) oldFuncCallsUncached(funcStart, funcEnd int) []CallSite {
 	return calls
 }
 
+// funcReturnsFor is funcReturns limited to the functions calls name, for a
+// body typed on its own: building the whole map for every function asked
+// about was most of what typing one cost.
+func (pr *ParseResult) funcReturnsFor(calls []pendingCall) map[string]string {
+	out := map[string]string{}
+
+	for i := range calls {
+		if c := &calls[i]; c.funcName != "" && !c.returnExpr && c.callsOwnFunction() {
+			out[strings.ToLower(c.funcName)] = ""
+		}
+	}
+
+	for i := range pr.Funcs {
+		f := &pr.Funcs[i]
+
+		key := strings.ToLower(f.Name)
+		if _, ok := out[key]; !ok {
+			continue
+		}
+
+		comp := f.ReturnComponent
+		if comp == "" && isComponentType(f.ReturnType) {
+			comp = f.ReturnType
+		}
+
+		if comp != "" {
+			out[key] = comp
+		}
+	}
+
+	return out
+}

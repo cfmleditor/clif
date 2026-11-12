@@ -114,9 +114,9 @@ func (pr *ParseResult) cachedFuncRefs(funcStart, funcEnd int) ([]ComponentRef, [
 	if closures := pr.funcRefsMap[""]; len(closures) > 0 {
 		refs = slices.Clip(refs)
 
-		for _, r := range closures {
-			if int(r.Line) >= funcStart && int(r.Line) <= funcEnd {
-				refs = append(refs, r)
+		for i := range closures {
+			if line := int(closures[i].Line); line >= funcStart && line <= funcEnd {
+				refs = append(refs, closures[i])
 			}
 		}
 	}

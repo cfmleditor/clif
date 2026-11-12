@@ -20,16 +20,17 @@ func bodyAnswers(pr *ParseResult) []string {
 		refs, links := pr.FuncRefs(s.Start, s.End)
 
 		var refText []string
-		for _, r := range refs {
-			refText = append(refText, fmt.Sprintf("%s@%d=%s", r.Variable, r.Line, r.Component))
+		for i := range refs {
+			refText = append(refText, fmt.Sprintf("%s@%d=%s", refs[i].Variable, refs[i].Line, refs[i].Component))
 		}
 
 		for _, l := range links {
 			refText = append(refText, fmt.Sprintf("link %s@%d", l.Path, l.Line))
 		}
 
-		for _, c := range pr.FuncCalls(s.Start, s.End) {
-			refText = append(refText, fmt.Sprintf("call %s.%s@%d", c.Variable, c.FuncName, c.Line))
+		calls := pr.FuncCalls(s.Start, s.End)
+		for i := range calls {
+			refText = append(refText, fmt.Sprintf("call %s.%s@%d", calls[i].Variable, calls[i].FuncName, calls[i].Line))
 		}
 
 		sort.Strings(refText)
