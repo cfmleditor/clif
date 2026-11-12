@@ -207,7 +207,7 @@ the counting on; in every other build it compiles away.
   runs an `unresolved` scan of the repo's fixtures and of the bundled
   framework stubs, and fails when the scan reads its text more times, or
   parses each file more times, than it does now (ceilings about 5% above:
-  testdata 5.3 passes and 2.5 parses a file, the stubs 3.0 and 2.3). `make
+  testdata 5.2 passes and 2.5 parses a file, the stubs 2.5 and 2.3). `make
   check` and CI's test job run it, alone, since the resolver's caches outlive
   a test. With `CLIF_PASSES_CORPUS` it reports any directories as well. An
   extra walk of each parsed file takes it from 5.6 to 7.7 and fails it.
@@ -266,6 +266,16 @@ Bisected:
 The fix for the first two is the same as for every walker before it: the
 parse's own walk records includes and links (an option, as `FindCalls`
 records calls), and the separate link walk goes. That is the next step.
+
+**Fixed in `parse-links-walk`.** The parse's walk records includes, links and
+custom tags (`file_refs.go`), so the reparse after a keystroke outside a
+function and the reopen run no include walk after the parse (3.73 back to
+2.73 passes), and document links run one references-only reading per content
+version, which also answers the custom tag calls (3.00 to 1.00). First open
+is 19.0 (from 20.4). The stubs' batch scan fell from 2.87 to 2.38 passes and
+ContentBox's from 12.45 to 12.07; the ceilings are now 5.2 (testdata) and 2.5
+(stubs). A references-only reading (`FileRefsOnly`) is not counted as a parse,
+since it replaces walks that never were; its tokens count as passes.
 
 ## The plan
 
