@@ -43,10 +43,16 @@ func looksLikeCallSpan(body string) bool {
 // cannot swallow the rest of the file — the tag is read exactly as it was
 // before, which is the behaviour this replaces.
 func tagEndIndex(s string) int {
-	end := tagEndIndexRaw(s)
+	return pastArrows(s, 0, tagEndIndexRaw(s), func(at int) int { return tagEndIndexRaw(s[at:]) })
+}
 
-	for end > 0 && arrowContinues(s, end) {
-		next := tagEndIndexRaw(s[end+1:])
+// pastArrows is end, the '>' a raw scan found for the tag at from in s
+// (relative to from), moved past each arrow function's `=>` (arrowContinues)
+// to the '>' raw finds after it. raw takes an offset in s and answers
+// relative to it. A tag with no '>' after its arrow keeps the arrow's.
+func pastArrows(s string, from, end int, raw func(int) int) int {
+	for end > 0 && arrowContinues(s, from+end) {
+		next := raw(from + end + 1)
 		if next < 0 {
 			break
 		}
@@ -57,13 +63,38 @@ func tagEndIndex(s string) int {
 	return end
 }
 
+// readingCFTag reports whether the tag being read at from in s is a CF tag: the
+// nearest '<' at or before from opens "<cf". tagEnds is asked both at a
+// tag's '<' and just past its name.
+func readingCFTag(s string, from int) bool {
+	lo := max(0, from-64)
+
+	i := strings.LastIndexByte(s[lo:min(from+1, len(s))], '<')
+	if i < 0 {
+		return false
+	}
+
+	return lex.HasPrefixFold(s[lo+i:], "<cf")
+}
+
 // arrowContinues reports whether the '>' at gt in s is an arrow function's
 // `=>`, which ends no tag: `<cfset double = (x) => x * 2>` is one tag, as the
 // grammar reads it, where the walk ended it at the arrow and read `x * 2>`
-// as text. In markup `=>` is no attribute the grammar reads either. A tag with
-// no '>' after its arrow keeps the arrow's, as it ended before.
+// as text. An arrow follows its parameters' ')' or a space; an attribute's
+// `=` follows its name, so `default=>` still ends at its '>'. The walk over
+// a document (tagEnds.at) asks this of CF tags alone, so markup's
+// `<input value =>` ends at its '>' too.
 func arrowContinues(s string, gt int) bool {
-	return gt > 0 && s[gt-1] == '='
+	if gt < 2 || s[gt-1] != '=' {
+		return false
+	}
+
+	switch s[gt-2] {
+	case ')', ' ', '\t', '\n', '\r':
+		return true
+	}
+
+	return false
 }
 
 // tagEndIndexRaw is tagEndIndex, reading every '>' outside a quote or comment
