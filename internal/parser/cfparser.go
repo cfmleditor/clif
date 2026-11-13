@@ -214,7 +214,8 @@ func skipToClose(sc *Scanner, open, closing TokenKind) Token {
 }
 
 // inScriptRegion reports whether offset at falls inside the text of one of
-// regions' script regions.
+// regions' script regions and outside every tag island, which lies inside its
+// script region and is tags.
 func inScriptRegion(regions []Region, at int) bool {
 	script := false
 

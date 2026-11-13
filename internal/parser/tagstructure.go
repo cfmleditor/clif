@@ -186,6 +186,24 @@ func tagName(s string) string {
 // A tag name running to the end of content (`<a`, `<cf`) has no attributes
 // at all, and from is then len(content): the arithmetic below made that a
 // negative length and the slice of it panicked.
+// arrowBefore reports whether text holds an arrow function's `=>` outside a
+// quoted value.
+func arrowBefore(text string) bool {
+	for off := 0; ; {
+		i := strings.Index(text[off:], "=>")
+		if i < 0 {
+			return false
+		}
+
+		at := off + i
+		if arrowContinues(text, at+1) && strings.Count(text[:at], `"`)%2 == 0 && strings.Count(text[:at], "'")%2 == 0 {
+			return true
+		}
+
+		off = at + 2
+	}
+}
+
 func tagEnd(ends *tagEnds, from int) int {
 	content := ends.s
 	if from >= len(content) {
@@ -207,11 +225,10 @@ func tagEnd(ends *tagEnds, from int) int {
 		// A '<' in an arrow function's body, past its `=>`, is an operator,
 		// not a tag the tag holds: the tag runs past the arrow (tagEnds.at).
 		// Only the text before the '<' is searched, so a tag with no end does
-		// not cost a scan to the end of the file for an arrow.
-		if lt > 0 {
-			if arrow := strings.Index(content[from:from+lt], "=>"); arrow >= 0 && arrowContinues(content[from:], arrow+1) {
-				lt = -1
-			}
+		// not cost a scan to the end of the file for an arrow, and an arrow
+		// in a quoted value is none.
+		if lt > 0 && arrowBefore(content[from:from+lt]) {
+			lt = -1
 		}
 	}
 

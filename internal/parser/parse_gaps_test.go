@@ -2,6 +2,7 @@ package parser
 
 import (
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -168,5 +169,67 @@ func TestArrowsAndMarkupEndTagsAsTheGrammarDoes(t *testing.T) {
 
 	if end := tagEndIndex("<option value=>None</option>"); end != len("<option value=") {
 		t.Errorf("markup `value=>` ended at %d, want its '>'", end)
+	}
+}
+
+// An arrow in a quoted value is none, so an HTML tag holding a CF tag is cut
+// at it; and markup's `value =>` ends at its '>' in the document walk.
+func TestOnlyACFTagsArrowRunsPastItsGT(t *testing.T) {
+	src := `<a data-fn="(x) => x" <cfif sel>class="on"</cfif>>`
+	ends := newTagEnds(src)
+
+	if got, want := tagEnd(&ends, len("<a")), strings.Index(src, "<cfif"); got != want {
+		t.Errorf("the <a> tag ends at %d, want the <cfif> at %d", got, want)
+	}
+
+	markup := "<input value =><cfset y = svc.run()>"
+	ends = newTagEnds(markup)
+
+	if got := ends.at(len("<input")); got != len(" value =") {
+		t.Errorf("markup's `value =>` ended at %d, want its '>'", got)
+	}
+
+	cf := "<cfset f = (x) => x * 2>"
+	ends = newTagEnds(cf)
+
+	if got := ends.at(len("<cfset")); got != len(cf)-len("<cfset")-1 {
+		t.Errorf("the <cfset>'s arrow ended the tag at %d", got)
+	}
+}
+
+// An edit outside a tag island keeps the split, moved, with the island
+// still blank in its script region.
+func TestAnEditOutsideAnIslandKeepsTheSplit(t *testing.T) {
+	src := "component {\n function a() {\n  ```<cfset var x = svc.make()>```\n  x.go();\n }\n}"
+	pr := ParseWithOptions("file:///t.cfc", src, &ParseOptions{ExtractCalls: true})
+	pr.FuncCalls(1, 4) // the body state the edit carries over
+
+	pr.ApplyEdit(3, 2, 3, 2, " ")
+
+	b := &pr.bodies
+	if b.regionsOf != pr.Content {
+		t.Fatal("the split was dropped rather than moved")
+	}
+
+	for _, r := range b.regions {
+		if r.Kind == RegionScript && strings.Contains(r.Text, "svc.make") {
+			t.Errorf("the script region holds the island's text: %q", r.Text)
+		}
+	}
+}
+
+// A body walked alone reads the same calls as the whole walk: the island's
+// once, from its own region, and none from the script region holding it.
+func TestABodyWalkReadsAnIslandOnce(t *testing.T) {
+	src := "component {\n function a() {\n  ```<cfset var x = svc.make()>```\n  x.go();\n }\n}"
+	pr := ParseWithOptions("file:///t.cfc", src, &ParseOptions{ExtractCalls: true})
+	want := len(pr.FuncCalls(1, 4))
+
+	pr.bodies.mu.Lock()
+	walk := pr.walkBody(FuncScope{Start: 1, End: 4}, false, true)
+	pr.bodies.mu.Unlock()
+
+	if got := len(walk.AllCalls()); got != want {
+		t.Errorf("the body walk read %d calls, the whole walk %d", got, want)
 	}
 }

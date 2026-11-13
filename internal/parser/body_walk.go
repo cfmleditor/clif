@@ -373,12 +373,9 @@ func (pr *ParseResult) shiftSplit(old string, startOff, removed int, newText str
 	lineDelta := strings.Count(newText, "\n") - strings.Count(old[startOff:endOff], "\n")
 	editLine := strings.Count(old[:startOff], "\n")
 
-	// A file with tag islands is split again: a script region holds its
-	// islands as blanks, which text cut from content would not.
-	for i := range b.regions {
-		if b.regions[i].Island {
-			return
-		}
+	// A backtick may open or close a tag island, which moves the split.
+	if strings.Contains(old[startOff:endOff], "`") || strings.Contains(newText, "`") {
+		return
 	}
 
 	regions := make([]Region, len(b.regions))
@@ -408,9 +405,14 @@ func (pr *ParseResult) shiftSplit(old string, startOff, removed int, newText str
 		regions[i] = r
 	}
 
+	// An edit inside a tag island is inside its script region too, and
+	// splits again; one outside every island leaves them where they were,
+	// moved, and the script regions hold them as blanks again.
 	if holders != 1 {
 		return
 	}
+
+	blankIslandsIn(regions)
 
 	scopes := slices.Clone(b.tagScopes)
 	for i := range scopes {
@@ -433,6 +435,37 @@ func (pr *ParseResult) shiftSplit(old string, startOff, removed int, newText str
 
 	b.regions, b.lines, b.regionsOf = regions, nil, content
 	b.tagScopes, b.scopesOf = scopes, content
+}
+
+// blankIslandsIn blanks each tag island's text, its backticks included, in
+// the script region that holds it, as splitTagIslands does: regions cut
+// again from content hold the islands' text.
+func blankIslandsIn(regions []Region) {
+	for i := range regions {
+		is := &regions[i]
+		if !is.Island {
+			continue
+		}
+
+		for j := i - 1; j >= 0; j-- {
+			r := &regions[j]
+			if r.Kind != RegionScript || is.Offset < r.Offset || is.Offset+len(is.Text) > r.Offset+len(r.Text) {
+				continue
+			}
+
+			b := []byte(r.Text)
+
+			for k := max(0, is.Offset-3-r.Offset); k < min(len(b), is.Offset+len(is.Text)+3-r.Offset); k++ {
+				if b[k] != '\n' && b[k] != '\r' {
+					b[k] = ' '
+				}
+			}
+
+			r.Text = string(b)
+
+			break
+		}
+	}
 }
 
 // walkRegions is the file's regions as the parse splits Content now, for a
