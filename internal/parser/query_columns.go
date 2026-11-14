@@ -78,12 +78,18 @@ func QueryColumns(content, name string, before int) (columns []string, ok bool) 
 			continue
 		}
 
+		// A statement sets the variable; a named argument, a condition and an
+		// arrow's parameter `users => ...` stand elsewhere.
+		if !startsAssignment(prev, owner) {
+			continue
+		}
+
 		start := t.Offset
 
 		eq := read() // =
 
-		// `users == 1` compares: it sets nothing.
-		if next := sc.PeekSkipComments(); next.Kind == TokEquals && next.Offset == eq.Offset+1 {
+		// `users == 1` compares, and `users => ...` is an arrow: neither sets it.
+		if next := sc.PeekSkipComments(); (next.Kind == TokEquals || next.Kind == TokGT) && next.Offset == eq.Offset+1 {
 			continue
 		}
 
@@ -351,7 +357,7 @@ func unquoteSQLName(name string) string {
 	name = strings.TrimSpace(name)
 	if len(name) >= 2 {
 		switch {
-		case name[0] == '"' && name[len(name)-1] == '"', name[0] == '[' && name[len(name)-1] == ']', name[0] == '`' && name[len(name)-1] == '`':
+		case name[0] == '"' && name[len(name)-1] == '"', name[0] == '[' && name[len(name)-1] == ']', name[0] == '`' && name[len(name)-1] == '`', name[0] == '\'' && name[len(name)-1] == '\'':
 			name = name[1 : len(name)-1]
 		default:
 		}
@@ -406,4 +412,25 @@ func opensStruct(t Token) bool {
 // QueryColumns to ask before they build anything for it.
 func MayDeclareQuery(content string) bool {
 	return IndexFold(content, "cfquery") >= 0 || IndexFold(content, "querynew") >= 0 || IndexFold(content, "queryexecute") >= 0
+}
+
+// startsAssignment reports whether a word after prev, which follows owner, can
+// be the target of an assignment statement: it opens the text or a statement,
+// the `>` of a tag, or follows `var`, a type after it, `else`, a condition's parenthesis, or the
+// `local.` of a scoped name.
+func startsAssignment(prev, owner Token) bool {
+	switch prev.Kind {
+	case TokSemicolon, TokLBrace, TokRBrace, TokRParen, TokDot, TokGT:
+		return true
+	case TokIdent:
+		switch strings.ToLower(prev.Value) {
+		case "var", "cfset", "set", "else", "final", "static":
+			return true
+		default:
+			// `var query users = ...`
+			return owner.Kind == TokIdent && strings.EqualFold(owner.Value, "var")
+		}
+	default:
+		return prev == Token{}
+	}
 }

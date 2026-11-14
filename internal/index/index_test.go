@@ -559,6 +559,13 @@ func TestAMuraBeanORMComponentIsAnEntityByItsName(t *testing.T) {
 		t.Fatalf("an entityName without a table is an entity: %v", got)
 	}
 
+	// A Mura bean that reaches beanORM through a base class of the project's own.
+	idx.IndexEntity(widget, parser.Parse(widget, `component entityName="testWidget" table="testwidget" extends="plugins.shared.models.base" {}`))
+
+	if got := idx.NamedEntities("testwidget"); !slices.Equal(got, []uri.URI{widget}) {
+		t.Fatalf("a bean with a project base class is declared by %v", got)
+	}
+
 	// Another framework's model with a table and a name is no engine entity.
 	idx.IndexEntity(widget, parser.Parse(widget, `component entityName="testWidget" table="testwidget" extends="quick.models.BaseEntity" {}`))
 

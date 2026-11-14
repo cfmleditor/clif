@@ -118,3 +118,25 @@ func TestQueryColumnsSurviveAComparison(t *testing.T) {
 		t.Errorf("got %q %v, want the query's columns", got, ok)
 	}
 }
+
+func TestQueryColumnsSurviveANamedArgumentAndAnArrow(t *testing.T) {
+	for _, tail := range []string{"render( users = users );", "x = items.map( users => users.id );", "if ( ( users == 1 ) ) {}"} {
+		src := "function f() {\n var users = queryNew(\"a,b\");\n " + tail + "\n"
+		if got, ok := QueryColumns(src, "users", len(src)); !ok || !slices.Equal(got, []string{"a", "b"}) {
+			t.Errorf("%s: got %q %v, want the query's columns", tail, got, ok)
+		}
+	}
+
+	// A statement does set it.
+	src := "function f() {\n var users = queryNew(\"a,b\");\n if ( x ) users = other();\n"
+	if _, ok := QueryColumns(src, "users", len(src)); ok {
+		t.Error("a reassignment after a condition left the columns known")
+	}
+}
+
+func TestSQLSelectColumnsReadASingleQuotedAlias(t *testing.T) {
+	got, known := sqlSelectColumns("SELECT a.id as 'ID', b.[name] FROM t")
+	if !known || !slices.Equal(got, []string{"ID", "name"}) {
+		t.Errorf("got %q %v", got, known)
+	}
+}

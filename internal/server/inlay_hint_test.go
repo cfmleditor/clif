@@ -102,3 +102,25 @@ func TestInlayHintIsAdvertisedOnlyWhenOn(t *testing.T) {
 		t.Error("inlay hints not advertised with the feature on")
 	}
 }
+
+func TestInlayHintOfATagComponentFollowsTheTag(t *testing.T) {
+	dir := t.TempDir()
+	s := newTestServer()
+	s.WorkspaceFolders = []string{dir}
+	s.Features.InlayHints = true
+
+	user := uri.File(filepath.Join(dir, "models", "User.cfc"))
+	openDoc(t, s, user, "<cfcomponent output=\"false\">\n</cfcomponent>\n")
+
+	hints := inlayHints(t, s, user, wholeDocument)
+	if len(hints) != 1 || hints[0].Position.Line != 0 || hints[0].Position.Character != uint32(len("<cfcomponent output=\"false\">")) {
+		t.Fatalf("hints %+v, want one after the tag's >", hints)
+	}
+
+	closed := uri.File(filepath.Join(dir, "models", "Closed.cfc"))
+	openDoc(t, s, closed, "<cfcomponent />\n")
+
+	if got := inlayHints(t, s, closed, wholeDocument); len(got) != 0 {
+		t.Errorf("a self-closed component got %d hints", len(got))
+	}
+}

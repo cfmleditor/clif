@@ -778,11 +778,19 @@ func (w *renameWalk) word(toks []Token, i int, st *bracketState, base int) {
 		w.fail("the function calls " + t.Value + "(), which reads variables by name")
 
 		return
-	case "include":
-		// `include "a.cfm";` runs a template in this function's scope, which
-		// reads its variables by name.
-		if prev.Kind != TokDot && (next.Kind == TokString || next.Kind == TokIdent) && !st.types[i] {
+	case "include", "cfinclude":
+		// `include "a.cfm";` and `cfinclude( template = ... )` run a template in
+		// this function's scope, which reads its variables by name.
+		if prev.Kind != TokDot && !st.types[i] && (lower == "include" && (next.Kind == TokString || next.Kind == TokIdent) || lower == "cfinclude" && next.Kind == TokLParen) {
 			w.fail("the function includes a template, which reads variables by name")
+
+			return
+		}
+	case "thread":
+		// `thread name="t" { ... }`: the body has a scope of its own and is
+		// given values by attributes.
+		if prev.Kind != TokDot && !st.types[i] && (next.Kind == TokIdent || next.Kind == TokLBrace) {
+			w.fail("the function starts a thread, whose body has a scope of its own")
 
 			return
 		}
@@ -812,6 +820,14 @@ func (w *renameWalk) word(toks []Token, i int, st *bracketState, base int) {
 
 	if f := st.top(); f != nil && f.kind == rnParams && !f.inDefault {
 		w.nestedParameter(toks, i)
+
+		return
+	}
+
+	// `thread name="t" count=count`, `http url="a" result=result`: after a
+	// statement's word an `=` names an attribute, which is not the variable.
+	if strings.EqualFold(t.Value, w.name) && next.Kind == TokEquals && !equalsPair(toks, i+1) && labelsAnAttribute(toks, i, st) {
+		w.fail("'" + w.name + "' is also an attribute of a statement, which no rename can follow")
 
 		return
 	}
@@ -1217,4 +1233,35 @@ func hashSegments(inner string) [][2]int {
 	}
 
 	return out
+}
+
+// labelsAnAttribute reports whether the word toks[i], which an `=` follows, is
+// the label of a statement's attribute: it stands at statement level straight
+// after a string or a word that is not a keyword or a type.
+func labelsAnAttribute(toks []Token, i int, st *bracketState) bool {
+	if f := st.top(); f != nil && f.kind != rnBlock {
+		return false
+	}
+
+	if i == 0 {
+		return false
+	}
+
+	switch prev := toks[i-1]; prev.Kind {
+	case TokString:
+		return true
+	case TokIdent:
+		if st.types[i-1] {
+			return false
+		}
+
+		switch strings.ToLower(prev.Value) {
+		case "var", "else", "do", "final", "static", "try", "finally", "default":
+			return false
+		default:
+			return true
+		}
+	default:
+		return false
+	}
 }

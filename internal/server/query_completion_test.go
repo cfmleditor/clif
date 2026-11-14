@@ -79,3 +79,13 @@ func TestQueryColumnsStayInTheirFunction(t *testing.T) {
 		t.Error("the query in its own function offers no columns")
 	}
 }
+
+// At the top of a file, what a function declared is not the page's.
+func TestQueryColumnsOutsideFunctionsIgnoreTheirBodies(t *testing.T) {
+	src := "<cfscript>\nfunction a() { var users = queryNew(\"x\"); }\nusers.\n</cfscript>\n"
+	pr := parser.ParseWithOptions("file:///t.cfm", src, &parser.ParseOptions{})
+
+	if items := queryColumnItems(src, "users", 2, 6, pr.FunctionSpans()); len(items) != 0 {
+		t.Errorf("a function's query offered %d items at the top level", len(items))
+	}
+}

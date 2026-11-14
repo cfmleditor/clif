@@ -56,7 +56,18 @@ func (s *Server) renameAt(docURI uri.URI, pos protocol.Position) (*renameRequest
 
 	at := start + byteCol(content, int(pos.Line), pos.Character)
 
-	spans := parser.FunctionSpansOf(cfpath.FromURI(string(docURI)), content)
+	// The spans of the parse the server holds, when it is of this text: a
+	// request for each cursor placement is not a parse of the whole file.
+	s.mu.RLock()
+	pr := s.parseResults[docURI]
+	s.mu.RUnlock()
+
+	var spans []parser.FunctionSpan
+	if pr != nil && pr.Content == content {
+		spans = pr.FunctionSpans()
+	} else {
+		spans = parser.FunctionSpansOf(cfpath.FromURI(string(docURI)), content)
+	}
 
 	plan, err := parser.PlanLocalRename(content, spans, at)
 	if err != nil {

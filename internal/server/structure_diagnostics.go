@@ -61,6 +61,8 @@ func (s *Server) cancelStructureDiagnostics(ctx context.Context, docURI uri.URI)
 		delete(s.structureTimers, docURI)
 	}
 
+	delete(s.structureRuns, docURI)
+
 	s.mu.Unlock()
 
 	if s.Features.StructureDiagnostics {
@@ -77,6 +79,13 @@ func (s *Server) publishStructureDiagnostics(docURI uri.URI) {
 	if !s.structureWanted(docURI) {
 		return
 	}
+
+	// A check that starts after this one is of newer text: this one, if it
+	// finishes later, has nothing to publish.
+	s.mu.Lock()
+	s.structureRuns[docURI]++
+	run := s.structureRuns[docURI]
+	s.mu.Unlock()
 
 	// The lock is held to catch up the deferred reparse and take the text and
 	// its parse; the analysis is of that text, which does not change, and runs
@@ -103,7 +112,11 @@ func (s *Server) publishStructureDiagnostics(docURI uri.URI) {
 	s.structureMu.Lock()
 	defer s.structureMu.Unlock()
 
-	if s.structureWanted(docURI) {
+	s.mu.RLock()
+	latest := s.structureRuns[docURI] == run
+	s.mu.RUnlock()
+
+	if latest && s.structureWanted(docURI) {
 		s.setDiagnostics(context.Background(), docURI, sourceStructure, found)
 	}
 }
