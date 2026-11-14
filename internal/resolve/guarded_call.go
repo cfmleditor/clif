@@ -230,12 +230,37 @@ const (
 // budgets it replaced.
 func LimitTextCaches(bytes int) (restore func()) {
 	prevLines, prevDecls, prevCode := lineStarts.setBudget(bytes), declaredNames.setBudget(bytes), codeMemo.setBudget(bytes)
+	prevTokens := longLivedTokenBytes.Swap(int64(bytes))
+
+	// The parser's shared token lists are bounded with the rest, unless a
+	// batch is running and has them at its own budget.
+	if batchesRunning.Load() == 0 {
+		parser.SetSharedTokenLimit(bytes)
+	}
 
 	return func() {
 		lineStarts.setBudget(prevLines)
 		declaredNames.setBudget(prevDecls)
 		codeMemo.setBudget(prevCode)
+		longLivedTokenBytes.Store(prevTokens)
+
+		if batchesRunning.Load() == 0 {
+			parser.SetSharedTokenLimit(tokenLimitNow())
+		}
 	}
+}
+
+// longLivedTokenBytes is the bound LimitTextCaches set on the parser's shared
+// token lists, or zero when none is set.
+var longLivedTokenBytes atomic.Int64
+
+// tokenLimitNow is the bound the shared token lists are held to outside a batch.
+func tokenLimitNow() int {
+	if n := int(longLivedTokenBytes.Load()); n > 0 {
+		return n
+	}
+
+	return parser.DefaultSharedTokenBytes
 }
 
 // BatchTextCaches lifts LimitTextCaches' budget to the batch default until
@@ -244,11 +269,14 @@ func LimitTextCaches(bytes int) (restore func()) {
 // the long-lived budget would evict one worker's file for another's on every
 // call.
 func BatchTextCaches() (done func()) {
-	batchesRunning.Add(1)
+	if batchesRunning.Add(1) == 1 {
+		parser.SetSharedTokenLimit(parser.DefaultSharedTokenBytes)
+	}
 
 	return func() {
 		// The last batch out gives back what it was allowed beyond the limit.
 		if batchesRunning.Add(-1) == 0 {
+			parser.SetSharedTokenLimit(tokenLimitNow())
 			lineStarts.trim()
 			declaredNames.trim()
 			codeMemo.trim()

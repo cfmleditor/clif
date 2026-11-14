@@ -40,6 +40,39 @@ type tokenShare struct {
 
 var sharedTokens = tokenShare{limit: sharedTokenBytes}
 
+// DefaultSharedTokenBytes is how much token memory a batch scan may keep.
+const DefaultSharedTokenBytes = sharedTokenBytes
+
+// SetSharedTokenLimit bounds the bytes of tokens kept for the next parse of a
+// large text, dropping the oldest texts to fit, and returns the bound it
+// replaced. A long-lived process sets it small, since its texts are mostly
+// superseded versions of a document; a batch scan wants the default, for its
+// workers each parsing a file of their own at once.
+func SetSharedTokenLimit(bytes int) (prev int) {
+	sharedTokens.mu.Lock()
+	defer sharedTokens.mu.Unlock()
+
+	prev, sharedTokens.limit = sharedTokens.limit, bytes
+
+	for range sharedTokenSlots {
+		if sharedTokens.held <= sharedTokens.limit {
+			break
+		}
+
+		sharedTokens.drop()
+	}
+
+	return prev
+}
+
+// SharedTokenLimit is the bound SetSharedTokenLimit set.
+func SharedTokenLimit() int {
+	sharedTokens.mu.Lock()
+	defer sharedTokens.mu.Unlock()
+
+	return sharedTokens.limit
+}
+
 // find is text's list, if held. The lock is held.
 func (c *tokenShare) find(text string) *[]Token {
 	for i := range c.slots {

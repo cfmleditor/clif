@@ -133,3 +133,33 @@ func TestTokenShareHoldsWithinItsLimit(t *testing.T) {
 		t.Error("the newest text is not held")
 	}
 }
+
+// Lowering the limit drops what no longer fits, oldest first, and the limit
+// is read back as set.
+func TestSharedTokenLimitDropsWhatNoLongerFits(t *testing.T) {
+	prev := SetSharedTokenLimit(DefaultSharedTokenBytes)
+
+	t.Cleanup(func() { SetSharedTokenLimit(prev) })
+
+	for i := range 4 {
+		scriptTokensOf(largeScript(300 + i))
+	}
+
+	sharedTokens.mu.Lock()
+	held := sharedTokens.held
+	sharedTokens.mu.Unlock()
+
+	if held == 0 {
+		t.Fatal("nothing is held to lower the limit on")
+	}
+
+	SetSharedTokenLimit(held / 2)
+
+	sharedTokens.mu.Lock()
+	after := sharedTokens.held
+	sharedTokens.mu.Unlock()
+
+	if after > held/2 || SharedTokenLimit() != held/2 {
+		t.Errorf("%d bytes held under a limit of %d (read back %d)", after, held/2, SharedTokenLimit())
+	}
+}
