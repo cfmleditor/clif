@@ -48,6 +48,8 @@
 
 ### Changed
 
+- **A batch scan reads a script file's braces once, not once per use of a variable.** Whether a native type claimed for a variable can reach a later use asked if a block had closed between the two, and scanned the lines between for each use. A file's braces are now indexed once, so the question is a search and a minimum. Lucee's scan reads its text 7 times over, not 46; output is unchanged on the eight corpora.
+
 - **A batch scan tokenizes each file once for the resolver's whole-file readers.** The consolidation's token readers each tokenized whole files on their own, and three caches held the same tokens: passes over the text rose from 11.7 to 18.2 on ContentBox and from 14.2 to 20.6 on Mura, and memory by up to 13%, though CPU stayed within 3%. One entry per text now serves every whole-file reader, the word checks in front of them are back, and the include walk skips script that names no include: 16.1 and 17.4 passes, memory within 5–8% of before, and Mura's CPU below it. `unresolved` is byte-identical on eight corpora.
 
 - Go 1.27.4, for a standard-library `net/http` advisory (GO-2026-6859) that failed `govulncheck`; `modernc.org/libc` 1.81.0 and `go-json-experiment/json` v1.27.2.
