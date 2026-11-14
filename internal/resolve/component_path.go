@@ -514,6 +514,10 @@ func engineComponent(component string) (qualified string, ok bool) {
 		return component, true
 	case strings.HasPrefix(lower, adobeComponents), strings.HasPrefix(lower, adobeAdminAPI):
 		return "", true
+	case strings.HasPrefix(lower, "java.") || strings.HasPrefix(lower, "javax."):
+		// A JDK class, `java.lang.Double::valueOf( … )`: the engine falls back
+		// to Java once no component is found, and the JDK has no source here.
+		return "", true
 	}
 
 	return "", false

@@ -2109,13 +2109,20 @@ func (p *scriptParser) recordStaticCall(component string, startTok Token) {
 
 	p.sc.NextSkipComments()
 
-	if p.sc.PeekSkipComments().Kind != TokLParen {
-		return
-	}
-
 	caller := ""
 	if p.inFunc.in && len(p.funcs) > 0 {
 		caller = p.currentFunc().Name
+	}
+
+	qualifier := component
+	component = p.staticQualifier(component, startTok)
+
+	// A static field, `Color::RED.getRed()`: a value of a type nothing here
+	// can say, so what is chained on it is dynamic, not a bare call.
+	if p.sc.PeekSkipComments().Kind != TokLParen {
+		p.recordDynamicChain(qualifier, int(startTok.Line), caller)
+
+		return
 	}
 
 	call := CallSite{
@@ -2134,7 +2141,39 @@ func (p *scriptParser) recordStaticCall(component string, startTok Token) {
 
 	p.addCall(&call)
 
-	p.skipParens()
+	if p.skipParens() {
+		// What a static method returns is not typed here either.
+		p.recordDynamicChain(qualifier, int(startTok.Line), caller)
+	}
+}
+
+// staticQualifier is the component a static call's qualifier names, as `new`
+// reads its path: a name an import brought in is what the import says, and a
+// Java class (`java:Double`, or a quoted import) is what createObject("java")
+// would make of it. Anything else is the path as written.
+func (p *scriptParser) staticQualifier(component string, startTok Token) string {
+	if p.afterJavaPrefix(startTok) {
+		if comp := p.resolveCall("createObject(\"java\",\"" + component + "\")"); comp != "" {
+			return comp
+		}
+
+		return "$any"
+	}
+
+	return p.applyImport(component)
+}
+
+// afterJavaPrefix reports whether the token is written `java:Name`, Lucee's
+// prefix for a Java class.
+func (p *scriptParser) afterJavaPrefix(tok Token) bool {
+	const prefix = "java:"
+
+	off := tok.Offset
+	if off < len(prefix) || off > len(p.sc.src) {
+		return false
+	}
+
+	return strings.EqualFold(p.sc.src[off-len(prefix):off], prefix)
 }
 
 // consumeThrowArgs consumes `throw(...)`'s argument list.
@@ -4310,6 +4349,9 @@ func (p *scriptParser) scanNestedCall(tok Token) {
 	switch p.sc.PeekSkipComments().Kind {
 	case TokLParen:
 		p.recordBareCallAndChain(tok)
+	case TokDoubleColon:
+		// `f( Foo::bar() )`: a static call, as it is standing alone.
+		p.parseStaticCall(tok)
 	case TokDot, TokLBracket:
 		// A dotted or bracket-indexed receiver. checkBareCall walks the chain
 		// and records only when it ends at a '(' — a bare `a.b` property read

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -309,5 +310,55 @@ func TestAChainOnANewInsideCallArgumentsIsOnTheNewComponent(t *testing.T) {
 
 	if len(reported) != 1 || !strings.HasPrefix(reported[0], "absent:") || !strings.Contains(reported[0], "Real") {
 		t.Fatalf("want only absent reported against Real, got %q", reported)
+	}
+}
+
+// A static call, `X::m()`, is read as `new X()` reads its path: an import says
+// what a bare name is (a quoted one brings in a Java class), `java:` and the JDK's
+// own packages name a Java class, and one in an argument list is the same call.
+// What a static call returns, or a static field holds, has no type here, so a
+// method chained on it is not a bare call. A component that is not there, and a
+// method a component lacks, are still reported.
+func TestAStaticCallIsReadAsANewPathIs(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, src string) string {
+		f := filepath.Join(dir, name)
+		if err := os.WriteFile(f, []byte(src), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		return f
+	}
+
+	files := []string{
+		write("Real.cfc", "component {\n static function present() {}\n}"),
+		write("Use.cfc", `component {
+	import "com.q.Quoted";
+	function go() {
+		Quoted::fromImport();
+		java.lang.Double::valueOf( "1" );
+		check( java:Double::valueOf( "1" ) );
+		check( Quoted::make().chained() );
+		check( Elsewhere::FIELD.chainedField() );
+		Real::present();
+		check( Real::present() );
+		Real::absent();
+		check( Gone::vanished() );
+	}
+	function check( v ) {}
+}`),
+	}
+
+	got := Scan(vfs.OS{}, files, files, &Options{Settings: resolve.Settings{WorkspaceFolders: []string{dir}}, InferArgs: true})
+
+	var reported []string
+	for _, c := range got.Calls {
+		reported = append(reported, c.Function)
+	}
+
+	slices.Sort(reported)
+
+	if want := []string{"absent", "vanished"}; !slices.Equal(reported, want) {
+		t.Fatalf("reported %v, want %v; %+v", reported, want, got.Calls)
 	}
 }
