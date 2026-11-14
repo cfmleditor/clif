@@ -230,6 +230,7 @@ const (
 // budgets it replaced.
 func LimitTextCaches(bytes int) (restore func()) {
 	prevLines, prevDecls, prevCode := lineStarts.setBudget(bytes), declaredNames.setBudget(bytes), codeMemo.setBudget(bytes)
+	prevIncludes := includePaths.setBudget(bytes)
 	prevTokens := longLivedTokenBytes.Swap(int64(bytes))
 
 	// The parser's shared token lists are bounded with the rest, unless a
@@ -242,6 +243,7 @@ func LimitTextCaches(bytes int) (restore func()) {
 		lineStarts.setBudget(prevLines)
 		declaredNames.setBudget(prevDecls)
 		codeMemo.setBudget(prevCode)
+		includePaths.setBudget(prevIncludes)
 		longLivedTokenBytes.Store(prevTokens)
 
 		if batchesRunning.Load() == 0 {
@@ -280,6 +282,7 @@ func BatchTextCaches() (done func()) {
 			lineStarts.trim()
 			declaredNames.trim()
 			codeMemo.trim()
+			includePaths.trim()
 		}
 	}
 }

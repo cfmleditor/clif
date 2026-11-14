@@ -48,6 +48,8 @@
 
 ### Changed
 
+- **A batch scan parses less than it did.** The functions a template declares (`templateDeclares`) were read by a full parse of every included template, which the scan then parsed again; they are now the function spans, the names that parse lists (1,063 templates across the corpora agree). An included page's include paths are remembered per text, where each walk of a page's includes read the whole file's references again. cfwheels' scan reads its text 5.4 times over, not 5.9, and parses 0.90 times per file, not 0.93; output is unchanged on the nine corpora.
+
 - **A large script file is tokenized once for the parses and readers that follow.** A batch scan parses a framework's base component over and over, once to index it, once to scan it, again as a caller's inference, and each re-tokenized the text for the collection-write and assignment readers. A script text of 8KB or more is now tokenized once and its list shared, read-only, by every parse of it (at most 16 texts and 64MB held). fw1's scan reads its text 13.5 times over, not 16.7; output is unchanged on the nine corpora.
 
 - **A file's assignments are read once for every parse and reader of it in a batch scan.** The index parse and the scan parse of one file each read its writes when asked, and the request-writer index read them a third time. They now share the resolver's reading of the text (`ParseOptions.SharedAssignments`), which is the parse's own: a test holds the two equal over the fixtures. fw1's scan reads its text 16.7 times over, not 19.0; output is unchanged on the nine corpora.

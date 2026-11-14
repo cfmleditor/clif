@@ -230,7 +230,7 @@ func (r *Resolver) withIncludes(p string, depth int) []string {
 		return out
 	}
 
-	for _, inc := range parser.ExtractIncludes(text) {
+	for _, inc := range includePathsOf(text) {
 		if strings.HasPrefix(inc, "/") {
 			continue
 		}

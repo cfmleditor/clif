@@ -349,6 +349,16 @@ func (s *sourceInfo) functionSpans() []parser.FunctionSpan {
 	return s.derived.spans
 }
 
+// functionSpansIn is the function spans of file, which holds content: the
+// source's, read once, when it holds this text, else those of the text.
+func (r *Resolver) functionSpansIn(file, content string) []parser.FunctionSpan {
+	if source := r.sourceInfo(file); source.derived != nil && source.content == content {
+		return source.functionSpans()
+	}
+
+	return parser.FunctionSpansOf(file, content)
+}
+
 // functionBodies is the script tokens of each of the source's function
 // bodies (functionBodyTokens), by the index of its span, read once: the
 // Wheels method reader and the producer plans read the same bodies, and each

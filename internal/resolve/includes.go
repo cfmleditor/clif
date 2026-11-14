@@ -378,16 +378,20 @@ func (r *Resolver) templateDeclares(name string) bool {
 				continue
 			}
 
-			// Parsed as a scan parses it: the index holds a template by the
-			// component-only spec, which reads none of its functions.
+			// The index holds a template by the component-only spec, which
+			// reads none of its functions, so they are read here: from the
+			// parse's own function spans, the names the scan's parse lists
+			// (1,063 templates across the corpora give the same set), not
+			// from a second full parse of every template the scan parses
+			// again.
 			text, err := r.readText(p)
 			if err != nil {
 				continue
 			}
 
-			funcs := r.ParseFile(p, text, BatchSpec()).Funcs
-			for i := range funcs {
-				declared[strings.ToLower(funcs[i].Name)] = true
+			spans := r.functionSpansIn(p, text)
+			for i := range spans {
+				declared[strings.ToLower(spans[i].Name)] = true
 			}
 		}
 
