@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 
@@ -116,10 +115,32 @@ func fail(err error) {
 	os.Exit(1)
 }
 
-var (
-	corpusRe = regexp.MustCompile(`^.*/corpus/[^/]+/`)
-	relRoot  string
-)
+var relRoot string
+
+// withoutCorpusDir is path without everything up to and including the last
+// `/corpus/NAME/` that has a name and a slash after it, or path as it is:
+// ReplaceAllString of `^.*/corpus/[^/]+/` with "". The prefix holds no newline,
+// as `.` takes none.
+func withoutCorpusDir(path string) string {
+	const dir = "/corpus/"
+
+	for end := len(path); ; {
+		at := strings.LastIndex(path[:end], dir)
+		if at < 0 {
+			return path
+		}
+
+		// A candidate needs a prefix with no newline, and a name and a slash
+		// after it; otherwise an earlier occurrence may still do.
+		name := at + len(dir)
+		if slash := strings.IndexByte(path[name:], '/'); slash > 0 && !strings.ContainsRune(path[:at], '\n') {
+			return path[name+slash+1:]
+		}
+
+		// An occurrence may share its first slash with the one before it.
+		end = at + len(dir) - 1
+	}
+}
 
 func rel(path string) string {
 	if relRoot != "" {
@@ -128,7 +149,7 @@ func rel(path string) string {
 		}
 	}
 
-	return corpusRe.ReplaceAllString(path, "")
+	return withoutCorpusDir(path)
 }
 
 // compare prints how a scan's findings differ from the baseline's, finding by
