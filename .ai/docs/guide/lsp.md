@@ -39,11 +39,13 @@ Declared in `Server.capabilities()` (`internal/server/server.go`):
   It **refuses**, with a reason, where it cannot show it has every use: the name as a string
   (`structKeyExists( local, "x" )`, `"local.x"`), `evaluate()`, a nested function or arrow function
   that takes or declares the name, a `catch` that binds it, CF tags in the body, an argument (a
-  caller passes it by name), or a new name that is reserved (`hardReserved` in `rename.go`), a statement
-  word (`statementWords`: `lock`, `param`, … fine where an expression stands, refused when
-  `LocalRename.StatementStart` says the variable is written as a statement's first word) or one the
+  caller passes it by name), or a new name that is reserved (`parser.ClassifyVariableName`, with `default` among the words that stay reserved because they are labels), a statement
+  word (`lock`, `param`, … fine where an expression stands, refused when `LocalRename.StatementStart`
+  says the variable is written as a statement's first word: after a `;`, a block's braces, the `)`
+  of an if, while, for, switch or catch, `else`, `do`, a case label; never in a `#...#` or a
+  parameter's default) or one the
   function already means something by (`LocalRename.Taken`: name to what it is, so the refusal says
-  which). `Taken` comes from the same walk that finds the ranges (`classifyWord`), so a struct key, a
+  which). `Taken` leaves out the words the language reserves and comes from the same walk that finds the ranges (`classifyWord`), so a struct key, a
   named argument's label, another object's member and a type (`new Foo()`, `var string s`,
   `catch ( any e )`, a parameter's type) are not in it, and a closure's variable is checked against
   the function around it too (`mentionedNames`). A request whose cursor is not on one of the

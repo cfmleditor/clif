@@ -247,7 +247,7 @@ func TestRenameRefusesANameTheFunctionAlreadyUses(t *testing.T) {
 		t.Errorf("an unused name: %v", err)
 	}
 
-	for _, reserved := range []string{"return", "Local", "true", "var", "this", "new"} {
+	for _, reserved := range []string{"return", "Local", "true", "var", "this", "new", "default", "else"} {
 		if _, err := renameTo(t, s, docURI, tLine, tChar, reserved); err == nil || !strings.Contains(err.Error(), "reserved") {
 			t.Errorf("%q: %v, want it reserved", reserved, err)
 		}
@@ -287,6 +287,24 @@ func TestRenameAllowsAKeyOrLabelName(t *testing.T) {
 	for _, name := range []string{"name", "other", "id"} {
 		if _, err := renameTo(t, s, docURI, 2, 7, name); err != nil {
 			t.Errorf("%q is only a label or a key here: %v", name, err)
+		}
+	}
+}
+
+// The statement forms that follow a condition or a label count as statements.
+func TestRenameRefusesAStatementWordAfterAConditionOrALabel(t *testing.T) {
+	for name, body := range map[string]string{
+		"if":    "if ( a ) count = 1;",
+		"else":  "if ( a ) { g(); } else count = 1;",
+		"case":  "switch ( a ) { case 1: count = 1; break; }",
+		"while": "while ( a ) count++;",
+	} {
+		src := "component {\n\tfunction f( a ) {\n\t\tvar count = 0;\n\t\t" + body + "\n\t\treturn g( count );\n\t}\n}\n"
+		s, docURI := renameServer(t, src)
+
+		line, char := posOf(t, src, "var ¦count")
+		if _, err := renameTo(t, s, docURI, line, char, "lock"); err == nil || !strings.Contains(err.Error(), "begins a statement") {
+			t.Errorf("%s: renaming to lock: %v, want a refusal that it begins a statement", name, err)
 		}
 	}
 }

@@ -45,6 +45,59 @@ func (r *LocalRename) RangeAt(at int) (start, end int, ok bool) {
 	return 0, 0, false
 }
 
+// hardReserved are the words no variable may be called, and no name the
+// function means something by: CFML's scopes, its literals and operators, and
+// the words its control flow and declarations are written with.
+var hardReserved = map[string]bool{
+	"var": true, "function": true, "return": true, "if": true, "else": true, "for": true, "while": true,
+	"do": true, "switch": true, "case": true, "default": true, "break": true, "continue": true, "try": true,
+	"catch": true, "finally": true, "throw": true, "in": true, "new": true, "true": true, "false": true,
+	"null": true, "local": true, "arguments": true, "variables": true, "this": true, "super": true,
+	"application": true, "session": true, "request": true, "server": true, "url": true, "form": true,
+	"cgi": true, "cookie": true, "client": true, "cfthread": true, "and": true, "or": true, "not": true,
+	"xor": true, "eq": true, "neq": true, "is": true, "gt": true, "lt": true, "gte": true, "lte": true,
+	"ge": true, "le": true, "mod": true, "contains": true, "eqv": true, "imp": true,
+}
+
+// statementWords are the words that begin a statement of their own in CFScript
+// (`lock`, `param`, `thread`), or modify a declaration. They are fine variable
+// names where an expression stands, `var lock = 1; return lock;`, and the
+// engine reads them as the statement where one begins, `lock = lock + 1;`.
+var statementWords = map[string]bool{
+	"rethrow": true, "import": true, "include": true, "component": true, "interface": true,
+	"property": true, "param": true, "lock": true, "transaction": true, "thread": true, "abort": true,
+	"exit": true, "savecontent": true, "trace": true, "assert": true, "abstract": true, "final": true,
+	"static": true, "public": true, "private": true, "package": true, "remote": true, "required": true,
+}
+
+// NameWord is what a word is as a variable's name.
+type NameWord uint8
+
+const (
+	// NameFree is a word that may be a variable's name.
+	NameFree NameWord = iota
+	// NameReserved is a word no variable may be called.
+	NameReserved
+	// NameStatementWord is a word that begins a statement of its own: a fine
+	// variable name, except where the variable is written as a statement's
+	// first word (LocalRename.StatementStart).
+	NameStatementWord
+)
+
+// ClassifyVariableName says whether name, in any case, may be a variable's.
+func ClassifyVariableName(name string) NameWord {
+	lower := strings.ToLower(name)
+
+	switch {
+	case hardReserved[lower]:
+		return NameReserved
+	case statementWords[lower]:
+		return NameStatementWord
+	default:
+		return NameFree
+	}
+}
+
 // What a taken name is, strongest first: a name taken as an argument stays so
 // when it is also read.
 const (
@@ -311,6 +364,9 @@ type param struct {
 	defStart, defEnd int
 }
 
+// paramAttributes are the attributes a script parameter takes after its name.
+var paramAttributes = map[string]bool{"default": true, "hint": true, "type": true, "displayname": true, "passby": true}
+
 // parseParams reads a parameter list, inside its parentheses. Each parameter's
 // name is its last word before a default: what comes before it is its type and
 // modifiers.
@@ -323,10 +379,11 @@ func parseParams(text string) []param {
 	}
 
 	var (
-		out   []param
-		depth int
-		cur   = param{defStart: -1, defEnd: -1}
-		inDef bool
+		out    []param
+		depth  int
+		cur    = param{defStart: -1, defEnd: -1}
+		inDef  bool
+		inAttr bool // after the name: `default="y" hint="…"`
 	)
 
 	flush := func(end int) {
@@ -338,7 +395,7 @@ func parseParams(text string) []param {
 			out = append(out, cur)
 		}
 
-		cur, inDef = param{defStart: -1, defEnd: -1}, false
+		cur, inDef, inAttr = param{defStart: -1, defEnd: -1}, false, false
 	}
 
 	for i, t := range toks {
@@ -352,13 +409,23 @@ func parseParams(text string) []param {
 				flush(t.Offset)
 			}
 		case TokEquals:
-			if depth == 0 && !inDef && !equalsPair(toks, i) && i+1 < len(toks) {
+			if depth == 0 && !inDef && !inAttr && !equalsPair(toks, i) && i+1 < len(toks) {
 				inDef, cur.defStart = true, toks[i+1].Offset
 			}
 		case TokIdent:
-			if depth == 0 && !inDef {
-				cur.name = t.Value
+			if depth != 0 || inDef || inAttr {
+				break
 			}
+
+			// `x default="y"`: a word after the name and before an `=` is an
+			// attribute of the parameter, not its name.
+			if cur.name != "" && i+1 < len(toks) && toks[i+1].Kind == TokEquals && paramAttributes[strings.ToLower(t.Value)] {
+				inAttr = true
+
+				break
+			}
+
+			cur.name = t.Value
 		default:
 		}
 	}
@@ -455,6 +522,9 @@ type bracketState struct {
 	fnDepth   int  // closure bodies open
 	pendFunc  bool // a `function` was read; its parameter list is next
 	pendBrace bool // its parameters are closed; its body brace is next
+	// expr is set for a fragment that is an expression, a `#...#` or a
+	// parameter's default, where nothing is a statement.
+	expr bool
 	// types are the tokens that are a type, `string` in `var string s`, which
 	// is no name the function uses.
 	types map[int]bool
@@ -542,7 +612,7 @@ func (w *renameWalk) walk(text string, base int, hash bool) {
 		toks = append(toks, t)
 	}
 
-	st := bracketState{types: map[int]bool{}}
+	st := bracketState{types: map[int]bool{}, expr: hash}
 
 	for i, t := range toks {
 		if w.err != nil {
@@ -648,15 +718,13 @@ func (w *renameWalk) word(toks []Token, i int, st *bracketState, base int) {
 	case wordOther:
 		return
 	case wordLocal:
-		// `local.x = …` declares it.
-		why := takenOther
-		if next.Kind == TokEquals && !equalsPair(toks, i+1) {
-			why = takenLocal
-		}
-
-		w.take(t.Value, why)
+		// `local.x` is the variable x, written or read.
+		w.take(t.Value, takenLocal)
 	default:
-		w.take(t.Value, takenOther)
+		// A word the language reserves is no name the function means anything by.
+		if !hardReserved[lower] {
+			w.take(t.Value, takenOther)
+		}
 	}
 
 	if strings.EqualFold(t.Value, w.name) {
@@ -869,21 +937,89 @@ func (w *renameWalk) occurrence(toks []Token, i int, st *bracketState, base int)
 }
 
 // startsStatement reports whether the word toks[i] is the first of a
-// statement: after a `;`, a block's `{` or a `}`, or the start of a function's
-// body.
+// statement: after a `;`, a block's `{` or a `}`, after the `)` of an if,
+// while, for, switch or catch, after else, do, try or finally, after a case
+// label's `:`, or at the start of a function's body. A fragment that is an
+// expression has no statements.
 func startsStatement(toks []Token, i int, st *bracketState) bool {
-	if i == 0 {
-		return len(st.stack) == 0 || st.stack[len(st.stack)-1].kind != rnStruct
+	if st.expr {
+		return false
 	}
 
-	switch toks[i-1].Kind {
+	inStruct := len(st.stack) > 0 && st.stack[len(st.stack)-1].kind == rnStruct
+
+	if i == 0 {
+		return !inStruct
+	}
+
+	switch prev := toks[i-1]; prev.Kind {
 	case TokSemicolon, TokRBrace:
 		return true
 	case TokLBrace:
-		return len(st.stack) > 0 && st.stack[len(st.stack)-1].kind != rnStruct
+		return !inStruct
+	case TokRParen:
+		return closesControlParen(toks, i-1)
+	case TokColon:
+		return afterCaseLabel(toks, i-1)
+	case TokIdent:
+		switch strings.ToLower(prev.Value) {
+		case "else", "do", "try", "finally":
+			return true
+		default:
+			return false
+		}
 	default:
 		return false
 	}
+}
+
+// closesControlParen reports whether the `)` at toks[i] closes the condition of
+// an if, while, for, switch or catch, whose statement follows it.
+func closesControlParen(toks []Token, i int) bool {
+	depth := 0
+
+	for j := i; j >= 0; j-- {
+		switch toks[j].Kind {
+		case TokRParen:
+			depth++
+		case TokLParen:
+			depth--
+
+			if depth == 0 {
+				if j == 0 || toks[j-1].Kind != TokIdent {
+					return false
+				}
+
+				switch strings.ToLower(toks[j-1].Value) {
+				case "if", "while", "for", "switch", "catch":
+					return true
+				default:
+					return false
+				}
+			}
+		default:
+		}
+	}
+
+	return false
+}
+
+// afterCaseLabel reports whether the `:` at toks[i] ends a `case x:` or
+// `default:` label, as against a ternary's.
+func afterCaseLabel(toks []Token, i int) bool {
+	for j := i - 1; j >= 0; j-- {
+		switch toks[j].Kind {
+		case TokSemicolon, TokLBrace, TokRBrace:
+			return false
+		case TokIdent:
+			if v := strings.ToLower(toks[j].Value); v == "case" || v == "default" {
+				return true
+			}
+		default:
+		}
+	}
+
+	return false
 }
 
 // equalsPair reports whether the `=` at toks[i] is half of `==`.
@@ -907,11 +1043,15 @@ func mentionedNames(content string, spans []FunctionSpan, owner *FunctionSpan) m
 // params files the parameters of a list: their names, and the names their
 // defaults use.
 func (w *renameWalk) params(text string, base int) {
+	// A default is evaluated before the function's variables exist: it names
+	// what is outside, so it is read for names and renames nothing.
+	defaults := &renameWalk{mentionOnly: true, taken: w.taken, nested: w.nested}
+
 	for _, p := range parseParams(text) {
 		w.take(p.name, takenArgument)
 
 		if p.defStart >= 0 && p.defEnd > p.defStart {
-			w.walk(text[p.defStart:p.defEnd], base+p.defStart, true)
+			defaults.walk(text[p.defStart:p.defEnd], base+p.defStart, true)
 		}
 	}
 }

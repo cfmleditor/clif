@@ -54,6 +54,7 @@ func TestPlanLocalRename(t *testing.T) {
 		{"a variable of the middle of three closures", "component {\n function f( l ) {\n  l.each( function( a ) {\n   var ¦y = 1;\n   a.each( function( b ) { g( y, b ); } );\n  } );\n }\n}", "component {\n function f( l ) {\n  l.each( function( a ) {\n   var N = 1;\n   a.each( function( b ) { g( N, b ); } );\n  } );\n }\n}"},
 		{"a named function expression's name is not the variable", "component {\n function f( l ) {\n  var ¦helper = 1;\n  l.each( function helper( i ) { g( i ); } );\n  return helper;\n }\n}", "component {\n function f( l ) {\n  var N = 1;\n  l.each( function helper( i ) { g( i ); } );\n  return N;\n }\n}"},
 		{"safe navigation and elvis leave no ternary open", "component {\n function f( o ) {\n  var ¦x = 1;\n  return [ g( o?.a, x: 2, y = x ), o.p ?: x, { k: o?.b, x: x } ];\n }\n}", "component {\n function f( o ) {\n  var N = 1;\n  return [ g( o?.a, x: 2, y = N ), o.p ?: N, { k: o?.b, x: N } ];\n }\n}"},
+		{"a default naming the variable is the outer one", "component {\n function f( a = count ) {\n  var ¦count = 0;\n  return count + a;\n }\n}", "component {\n function f( a = count ) {\n  var N = 0;\n  return N + a;\n }\n}"},
 		{"a function of the same name elsewhere is its own", "component {\n function g() {\n  var count = 5;\n  return count;\n }\n function f() {\n  var ¦count = 0;\n  return count;\n }\n}", "component {\n function g() {\n  var count = 5;\n  return count;\n }\n function f() {\n  var N = 0;\n  return N;\n }\n}"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -100,7 +101,7 @@ func TestPlanLocalRenameRefuses(t *testing.T) {
 }
 
 func TestPlanLocalRenameTaken(t *testing.T) {
-	src := "component {\n function f( a, string b = limit ) {\n  var ¦x = 1;\n  var numeric y = 2;\n  local.z = 3;\n  var o = new Widget();\n  var s = { key: 1, other = 2 };\n  g( label = 3, o.member, local.w );\n  try { run(); } catch ( any err ) { log( err ); }\n  for ( k in a ) { z += k; }\n  g( function( string q, r = cap ) {} );\n  return helper( x ) + config.size;\n }\n}"
+	src := "component {\n function f( a, string b = limit ) {\n  var ¦x = 1;\n  var numeric y = 2;\n  local.z = 3;\n  var o = new Widget();\n  var s = { key: 1, other = 2 };\n  g( label = 3, o.member, local.w );\n  try { run(); } catch ( any err ) { log( err ); }\n  for ( k in a ) { z += k; }\n  g( function( string q, r = cap ) {} );\n  if ( a ) { g(); } else { g(); }\n  switch ( k ) { case 1: g(); break; default: g(); }\n  return helper( x ) + config.size;\n }\n}"
 	at := strings.Index(src, "¦")
 	content := src[:at] + src[at+len("¦"):]
 
@@ -112,7 +113,7 @@ func TestPlanLocalRenameTaken(t *testing.T) {
 	// What the function means by each name, and what that is.
 	want := map[string]string{
 		"a": takenArgument, "b": takenArgument, "limit": TakenReadOrCalled,
-		"x": takenLocal, "y": takenLocal, "z": takenLocal, "o": takenLocal, "s": takenLocal, "w": TakenReadOrCalled,
+		"x": takenLocal, "y": takenLocal, "z": takenLocal, "o": takenLocal, "s": takenLocal, "w": takenLocal,
 		"err": takenCatch, "k": TakenReadOrCalled, "q": takenArgument, "r": takenArgument, "cap": TakenReadOrCalled,
 		"helper": TakenReadOrCalled, "config": TakenReadOrCalled, "run": TakenReadOrCalled, "g": TakenReadOrCalled,
 	}
@@ -123,8 +124,8 @@ func TestPlanLocalRenameTaken(t *testing.T) {
 	}
 
 	// Not names the function means anything by: a type, a key, a label, another
-	// object's member.
-	for _, name := range []string{"string", "numeric", "any", "widget", "key", "other", "label", "member", "size"} {
+	// object's member, a word the language reserves.
+	for _, name := range []string{"string", "numeric", "any", "widget", "key", "other", "label", "member", "size", "var", "try", "catch", "for", "in", "return", "new", "local", "default", "else"} {
 		if why, taken := plan.Taken[name]; taken {
 			t.Errorf("%q is taken as %q, though it is a type, key, label or member", name, why)
 		}
@@ -163,6 +164,15 @@ func TestPlanLocalRenameNotesAStatementStart(t *testing.T) {
 	}{
 		{"written at the start of a statement", "component {\n function f() {\n  var ¦x = 0;\n  x = x + 1;\n  return x;\n }\n}", true},
 		{"after a block's brace", "component {\n function f( a ) {\n  var ¦x = 0;\n  if ( a ) {\n   x++;\n  }\n  return x;\n }\n}", true},
+		{"after the condition of an if", "component {\n function f( a ) {\n  var ¦x = 0;\n  if ( a ) x = 1;\n  return g( x );\n }\n}", true},
+		{"after else", "component {\n function f( a ) {\n  var ¦x = 0;\n  if ( a ) { g(); } else x = 2;\n  return g( x );\n }\n}", true},
+		{"after do", "component {\n function f() {\n  var ¦x = 0;\n  do x++; while ( x < 3 );\n  return g( x );\n }\n}", true},
+		{"after a while's condition", "component {\n function f( a ) {\n  var ¦x = 0;\n  while ( a ) x++;\n  return g( x );\n }\n}", true},
+		{"after a case label", "component {\n function f( a ) {\n  var ¦x = 0;\n  switch ( a ) { case 1: x = 1; break; }\n  return g( x );\n }\n}", true},
+		{"after default:", "component {\n function f( a ) {\n  var ¦x = 0;\n  switch ( a ) { default: x = 1; }\n  return g( x );\n }\n}", true},
+		{"after a call's paren is no statement", "component {\n function f( a ) {\n  var ¦x = 0;\n  return g( a ) + x;\n }\n}", false},
+		{"after a ternary's colon is no statement", "component {\n function f( a ) {\n  var ¦x = 0;\n  return a ? 1 : x;\n }\n}", false},
+		{"in a string's hash expression is no statement", "component {\n function f() {\n  var ¦x = 1;\n  return \"#x#\" & g( \"#x#\" );\n }\n}", false},
 		{"after a closed block", "component {\n function f( a ) {\n  var ¦x = 0;\n  if ( a ) { g(); }\n  x = 2;\n  return g( x );\n }\n}", true},
 		{"only in expressions", "component {\n function f( a ) {\n  var ¦x = a * 2;\n  return g( x ) + x;\n }\n}", false},
 		{"first in a struct literal is no statement", "component {\n function f() {\n  var ¦x = 1;\n  return { x: x };\n }\n}", false},
@@ -247,6 +257,35 @@ func TestHashSegments(t *testing.T) {
 
 		if !slices.Equal(got, c.want) {
 			t.Errorf("hashSegments(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestParamNamesSkipAttributes(t *testing.T) {
+	for in, want := range map[string][]string{
+		`string x default="y"`:                      {"x"},
+		`x hint="h", y`:                             {"x", "y"},
+		`required string z`:                         {"z"},
+		`a = 1, string b = "q" hint="h", c`:         {"a", "b", "c"},
+		`required numeric n default="3" hint="how"`: {"n"},
+		`type = "a"`:                                {"type"},
+		`default = 1, hint`:                         {"default", "hint"},
+		``:                                          nil,
+	} {
+		if got := paramNames(in); !slices.Equal(got, want) {
+			t.Errorf("paramNames(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestClassifyVariableName(t *testing.T) {
+	for name, want := range map[string]NameWord{
+		"count": NameFree, "result": NameFree, "Default2": NameFree,
+		"return": NameReserved, "LOCAL": NameReserved, "default": NameReserved, "true": NameReserved, "else": NameReserved,
+		"lock": NameStatementWord, "Param": NameStatementWord, "thread": NameStatementWord, "static": NameStatementWord, "import": NameStatementWord,
+	} {
+		if got := ClassifyVariableName(name); got != want {
+			t.Errorf("ClassifyVariableName(%q) = %v, want %v", name, got, want)
 		}
 	}
 }

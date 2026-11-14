@@ -129,32 +129,6 @@ func (s *Server) handleRename(_ context.Context, rawParams []byte) (any, error) 
 	return &protocol.WorkspaceEdit{Changes: map[uri.URI][]protocol.TextEdit{docURI: edits}}, nil
 }
 
-// hardReserved are the words no variable may be called: CFML's scopes, its
-// literals and operators, and the words its control flow and declarations are
-// written with.
-var hardReserved = map[string]bool{
-	"var": true, "function": true, "return": true, "if": true, "else": true, "for": true, "while": true,
-	"do": true, "switch": true, "case": true, "break": true, "continue": true, "try": true, "catch": true,
-	"finally": true, "throw": true, "in": true, "new": true, "true": true, "false": true, "null": true,
-	"local": true, "arguments": true, "variables": true, "this": true, "super": true, "application": true,
-	"session": true, "request": true, "server": true, "url": true, "form": true, "cgi": true, "cookie": true,
-	"client": true, "cfthread": true, "and": true, "or": true, "not": true, "xor": true, "eq": true,
-	"neq": true, "is": true, "gt": true, "lt": true, "gte": true, "lte": true, "ge": true, "le": true,
-	"mod": true, "contains": true, "eqv": true, "imp": true,
-}
-
-// statementWords are the words that begin a statement of their own in CFScript
-// (`lock`, `param`, `thread`), or modify a declaration. They are fine variable
-// names where an expression stands, `var lock = 1; return lock;`, and the
-// engine reads them as the statement where one begins, `lock = lock + 1;`.
-var statementWords = map[string]bool{
-	"rethrow": true, "import": true, "include": true, "component": true, "interface": true,
-	"property": true, "param": true, "lock": true, "transaction": true, "thread": true, "abort": true,
-	"exit": true, "savecontent": true, "trace": true, "assert": true, "abstract": true, "final": true,
-	"static": true, "public": true, "private": true, "package": true, "remote": true, "required": true,
-	"default": true,
-}
-
 // checkNewName reports why name cannot be the new name of the variable plan
 // renames: not a name, a word CFML reserves, a statement word the variable is
 // written at the start of a statement with, or one the function already means
@@ -172,11 +146,14 @@ func checkNewName(plan *parser.LocalRename, name string) error {
 
 	lower := strings.ToLower(name)
 
-	switch {
-	case hardReserved[lower]:
+	switch parser.ClassifyVariableName(name) {
+	case parser.NameReserved:
 		return errors.New("'" + name + "' is reserved")
-	case statementWords[lower] && plan.StatementStart:
-		return errors.New("'" + name + "' begins a statement of its own, and the variable is written at the start of one: it would be read as that statement")
+	case parser.NameStatementWord:
+		if plan.StatementStart {
+			return errors.New("'" + name + "' begins a statement of its own, and the variable is written at the start of one: it would be read as that statement")
+		}
+	case parser.NameFree:
 	}
 
 	// Changing only the case of the variable's own name is a rename; any other
