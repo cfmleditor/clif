@@ -25,7 +25,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 
@@ -466,7 +465,7 @@ func (g *generator) emit(abs string) error {
 		b.WriteString(docBlock(doc, ""))
 	}
 
-	if interfaceRe.MatchString(src.text) {
+	if declaresInterface(src.text) {
 		b.WriteString("interface")
 	} else {
 		b.WriteString("component")
@@ -581,16 +580,14 @@ func (g *generator) includes(src *source, seen map[string]bool) []*source {
 	return out
 }
 
-var integrateRe = regexp.MustCompile(`\$integrateComponents\(\s*["']([\w.]+)["']\s*\)`)
-
 // integrated are the components a Wheels class mixes in at run time —
 // `$integrateComponents("wheels.controller")` adds the public methods of
 // every component in that package — so the stub declares them.
 func (g *generator) integrated(src *source) []*source {
 	var out []*source
 
-	for _, m := range integrateRe.FindAllStringSubmatch(src.text, -1) {
-		segs := strings.Split(m[1], ".")
+	for _, target := range integrateTargets(src.text) {
+		segs := strings.Split(target, ".")
 		if len(segs) < 2 || !strings.EqualFold(segs[0], g.src.Prefix) {
 			continue
 		}
@@ -618,7 +615,7 @@ func (g *generator) integrated(src *source) []*source {
 }
 
 func (g *generator) writeFuncs(b *strings.Builder, src *source, seen map[string]bool) {
-	iface := interfaceRe.MatchString(src.text)
+	iface := declaresInterface(src.text)
 	for i := range src.pr.Funcs {
 		def := &src.pr.Funcs[i]
 		if seen[strings.ToLower(def.Name)] || !declares(src, def) {
@@ -697,7 +694,7 @@ func (g *generator) writeTypedVariables(b *strings.Builder, src *source) {
 
 	for i := range src.pr.ComponentRefs {
 		ref := &src.pr.ComponentRefs[i]
-		if !identRe.MatchString(ref.Variable) {
+		if !identName(ref.Variable) {
 			continue
 		}
 
@@ -747,12 +744,7 @@ func declares(src *source, def *parser.FunctionDef) bool {
 	return strings.Contains(line, "function") && strings.Contains(line, strings.ToLower(def.Name))
 }
 
-var validTypeRe = regexp.MustCompile(`^[A-Za-z_][\w.]*(\[\])?$`)
-
-// identRe is a variable name as CFML spells one, `$assert` included.
-var identRe = regexp.MustCompile(`^[A-Za-z_$][\w$]*$`)
-
-func validType(t string) bool { return t != "" && validTypeRe.MatchString(t) }
+func validType(t string) bool { return validTypeName(t) }
 
 // returnType is def's return type, qualified when it names a component in
 // the framework's source so the stub's reader need not find it beside the
@@ -837,18 +829,16 @@ func (g *generator) componentReturn(src *source, def *parser.FunctionDef) string
 	return g.delegatedReturn(src, def)
 }
 
-var interfaceDocReturnRe = regexp.MustCompile(`(?im)^@returns?\s+([A-Za-z_]\w*(?:\.\w+)*)\b`)
-
 // An interface explicitly included in Sources.Extra is a selected public
 // contract. Prefer its documented identity to one inferred factory branch.
 // Other interfaces retain the existing conservative documentation behavior.
 func (g *generator) explicitInterfaceReturn(src *source, def *parser.FunctionDef) string {
-	match := interfaceDocReturnRe.FindStringSubmatch(funcDoc(src, def))
-	if match == nil {
+	doc, ok := docReturnName(funcDoc(src, def), false)
+	if !ok {
 		return ""
 	}
 
-	name := match[1][strings.LastIndexByte(match[1], '.')+1:]
+	name := doc[strings.LastIndexByte(doc, '.')+1:]
 	answer, selected := "", ""
 
 	for _, component := range g.src.Extra {
@@ -874,8 +864,6 @@ func (g *generator) explicitInterfaceReturn(src *source, def *parser.FunctionDef
 
 	return answer
 }
-
-var delegateRe = regexp.MustCompile(`(?is)^\s*\{\s*return\s+([A-Za-z_]\w*)\s*\(\s*\)\s*;?\s*\}\s*$`)
 
 // delegatedReturn is what def returns when its whole body is `return f();`
 // for a function f of the same file: cborm's deprecated getBeanPopulator()
@@ -906,14 +894,14 @@ func (g *generator) delegatedReturn(src *source, def *parser.FunctionDef) string
 		return ""
 	}
 
-	m := delegateRe.FindStringSubmatch(text[open:])
-	if m == nil {
+	delegate, ok := delegateName(text[open:])
+	if !ok {
 		return ""
 	}
 
 	for i := range src.pr.Funcs {
 		fd := &src.pr.Funcs[i]
-		if strings.EqualFold(fd.Name, m[1]) && fd != def {
+		if strings.EqualFold(fd.Name, delegate) && fd != def {
 			if t := g.returnType(src, fd); validType(t) && strings.Contains(t, ".") {
 				return t
 			}
@@ -925,8 +913,6 @@ func (g *generator) delegatedReturn(src *source, def *parser.FunctionDef) string
 	return ""
 }
 
-var docReturnRe = regexp.MustCompile(`(?im)^@returns?\s+([A-Za-z_]\w*(?:\.\w+)+)\b`)
-
 // docReturn is the component def's doc comment says it returns, when its
 // declaration says nothing: ColdBox writes `function execute(...)` and
 // documents `@return coldbox.system.context.RequestContext`. Only a dotted
@@ -935,18 +921,18 @@ var docReturnRe = regexp.MustCompile(`(?im)^@returns?\s+([A-Za-z_]\w*(?:\.\w+)+)
 // spells wrong (that one: the class lives in web.context), by its file name
 // when exactly one file in the source has it.
 func (g *generator) docReturn(src *source, def *parser.FunctionDef) string {
-	m := docReturnRe.FindStringSubmatch(funcDoc(src, def))
-	if m == nil {
+	name, ok := docReturnName(funcDoc(src, def), true)
+	if !ok {
 		return ""
 	}
 
-	abs, q := g.resolve(m[1], filepath.Dir(src.path))
+	abs, q := g.resolve(name, filepath.Dir(src.path))
 	if abs == "" {
-		if q := g.foreignStub(m[1]); q != "" {
+		if q := g.foreignStub(name); q != "" {
 			return q
 		}
 
-		abs = g.byName(m[1][strings.LastIndexByte(m[1], '.')+1:])
+		abs = g.byName(name[strings.LastIndexByte(name, '.')+1:])
 		q = g.qualify(abs)
 	}
 
@@ -983,8 +969,6 @@ func (g *generator) foreignStub(dotted string) string {
 	return strings.ReplaceAll(strings.TrimSuffix(filepath.ToSlash(rel), filepath.Ext(rel)), "/", ".")
 }
 
-var interfaceRe = regexp.MustCompile(`(?im)^\s*interface\b|<cfinterface\b`)
-
 // isInterface reports whether the file declares an interface. A doc comment
 // naming one says less than the call returns: CacheFactory's getCache() is
 // documented as an ICacheProvider, and every provider it hands back has
@@ -993,7 +977,7 @@ var interfaceRe = regexp.MustCompile(`(?im)^\s*interface\b|<cfinterface\b`)
 func isInterface(abs string) bool {
 	data, err := os.ReadFile(abs)
 
-	return err == nil && interfaceRe.Match(data)
+	return err == nil && declaresInterface(string(data))
 }
 
 // byName is the one file in the framework's source named name.cfc, or "".
@@ -1018,23 +1002,18 @@ func (g *generator) byName(name string) string {
 	return ""
 }
 
-var (
-	accessRe    = regexp.MustCompile(`(?i)\b(public|private|package|remote)\b[^(]*\bfunction\b`)
-	tagAccessRe = regexp.MustCompile(`(?i)\baccess\s*=\s*["']?(public|private|package|remote)`)
-)
-
 func accessOf(src *source, def *parser.FunctionDef) string {
 	tag := tagText(src, int(def.Line))
 	if tag != "" {
-		if m := tagAccessRe.FindStringSubmatch(tag); m != nil {
-			return strings.ToLower(m[1])
+		if word, ok := tagAccessWord(tag); ok {
+			return strings.ToLower(word)
 		}
 
 		return ""
 	}
 
-	if m := accessRe.FindStringSubmatch(src.lines[def.Line]); m != nil {
-		return strings.ToLower(m[1])
+	if word, ok := accessWord(src.lines[def.Line]); ok {
+		return strings.ToLower(word)
 	}
 
 	return ""
@@ -1061,15 +1040,13 @@ func tagText(src *source, line int) string {
 	return b.String()
 }
 
-var hintRe = regexp.MustCompile(`(?is)\bhint\s*=\s*"([^"]*)"|\bhint\s*=\s*'([^']*)'`)
-
 func attrHint(tag string) string {
-	m := hintRe.FindStringSubmatch(tag)
-	if m == nil {
+	double, single, ok := hintAttr(tag)
+	if !ok {
 		return ""
 	}
 
-	return strings.TrimSpace(m[1] + m[2])
+	return strings.TrimSpace(double + single)
 }
 
 // funcDoc is the documentation written for def: the doc comment above a
@@ -1138,15 +1115,13 @@ func commentAbove(lines []string, line int) string {
 	return strings.TrimSpace(strings.Join(out, "\n"))
 }
 
-var componentRe = regexp.MustCompile(`(?im)^\s*(abstract\s+|final\s+)?component\b|<cfcomponent\b`)
-
 func componentDoc(src *source) string {
-	loc := componentRe.FindStringIndex(src.text)
-	if loc == nil {
+	start, ok := componentStart(src.text)
+	if !ok {
 		return ""
 	}
 
-	line := strings.Count(src.text[:loc[0]], "\n")
+	line := strings.Count(src.text[:start], "\n")
 	if strings.Contains(strings.ToLower(src.lines[line]), "<cfcomponent") {
 		return attrHint(tagText2(src.lines, line, "<cfcomponent"))
 	}
@@ -1168,16 +1143,11 @@ func tagText2(lines []string, line int, _ string) string {
 	return b.String()
 }
 
-var (
-	scriptPropRe = regexp.MustCompile(`(?ims)^[ \t]*property\s+[^;{}]*?;`)
-	tagPropRe    = regexp.MustCompile(`(?is)<cfproperty\b([^>]*?)/?>`)
-)
-
 // properties are the file's property declarations, as script statements
 // with their doc comments.
 func properties(src *source) []string {
-	script := scriptPropRe.FindAllStringIndex(src.text, -1)
-	tags := tagPropRe.FindAllStringSubmatch(src.text, -1)
+	script := scriptProperties(src.text)
+	tags := tagProperties(src.text)
 	out := make([]string, 0, len(script)+len(tags))
 
 	for _, loc := range script {
@@ -1192,8 +1162,8 @@ func properties(src *source) []string {
 		out = append(out, p+"\t"+stmt+"\n")
 	}
 
-	for _, m := range tags {
-		out = append(out, "\tproperty "+strings.Join(strings.Fields(m[1]), " ")+";\n")
+	for _, attrs := range tags {
+		out = append(out, "\tproperty "+strings.Join(strings.Fields(attrs), " ")+";\n")
 	}
 
 	return out
