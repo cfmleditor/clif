@@ -1,7 +1,6 @@
 package resolve
 
 import (
-	"regexp"
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/lex"
@@ -32,12 +31,6 @@ func (r *Resolver) loadedEntityElement(arguments, baseDir string) string {
 
 	return r.withSubclasses(r.nearestEntity(strings.Trim(pieces[0][0].Value, "\"'"), baseDir))
 }
-
-// hqlEntityRe is a literal HQL query that returns the entities it selects from:
-// `FROM Booking WHERE …`, or `SELECT b FROM Booking b …`. A projection
-// (`SELECT b.name`), a join, which returns tuples, and a second entity in the
-// FROM list are not matched.
-var hqlEntityRe = regexp.MustCompile(`(?is)^\s*(?:select\s+(\w+)\s+)?from\s+([A-Za-z_][\w.]*)(?:\s+(?:as\s+)?(\w+))?(\s|$)`)
 
 // queriedEntityElement is the entity a literal ormExecuteQuery() returns an array
 // of. Only the one-argument form and the one with a struct or array of
@@ -71,29 +64,28 @@ func (r *Resolver) queriedEntityElement(arguments, baseDir string) string {
 		query = query[:hash]
 	}
 
-	match := hqlEntityRe.FindStringSubmatch(query)
-	if match == nil {
+	// A literal HQL query that returns the entities it selects from: `FROM
+	// Booking WHERE …`, or `SELECT b FROM Booking b …`. A projection (`SELECT
+	// b.name`), a join, which returns tuples, and a second entity in the FROM
+	// list are not matched.
+	selected, entity, alias, ok := hqlEntityHeader(query)
+	if !ok {
 		return ""
 	}
 
 	// `select x from Entity y` returns the entity only when x is its alias.
-	if match[1] != "" && !strings.EqualFold(match[1], match[3]) {
+	if selected != "" && !strings.EqualFold(selected, alias) {
 		return ""
 	}
 
-	if hqlJoinRe.MatchString(pieces[0][0].Value) || strings.Contains(hqlWhereRe.Split(pieces[0][0].Value, 2)[0], ",") {
+	// The keywords are found whatever whitespace, a line break included,
+	// surrounds them.
+	if hqlHasJoin(pieces[0][0].Value) || strings.Contains(hqlBeforeWhere(pieces[0][0].Value), ",") {
 		return ""
 	}
 
-	return r.withSubclasses(r.nearestEntity(match[2], baseDir))
+	return r.withSubclasses(r.nearestEntity(entity, baseDir))
 }
-
-// hqlJoinRe and hqlWhereRe find a query's keywords whatever whitespace, a
-// line break included, surrounds them.
-var (
-	hqlJoinRe  = regexp.MustCompile(`(?i)\bjoin\b`)
-	hqlWhereRe = regexp.MustCompile(`(?i)\bwhere\b`)
-)
 
 // Collection callbacks have different invocation layouts: array item/index/array,
 // struct key/value/struct, and query row/index/query. Never infer a value type
