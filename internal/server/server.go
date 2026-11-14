@@ -89,6 +89,7 @@ type Server struct {
 	funcRanges            map[uri.URI][]cache.FuncRange   // cached function line ranges per file
 	cacheTimers           map[uri.URI]*time.Timer         // debounce timers for completion cache rebuild
 	reindexTimers         map[uri.URI]*time.Timer         // deferred-reparse timers; see scheduleReparse
+	structureTimers       map[uri.URI]*time.Timer         // structure-check timers; see scheduleStructureDiagnostics
 	reparsePending        map[uri.URI]bool                // documents whose ParseResult lags their text; see flushReparse
 	docLocks              map[uri.URI]*sync.Mutex         // serialises access to each document's ParseResult
 	parseResults          map[uri.URI]*parser.ParseResult // cached parse results per file
@@ -134,6 +135,7 @@ func NewServer(conn jsonrpc2.Conn, log cflog.Logger, sharedIndex ...*index.Index
 		funcRanges:               make(map[uri.URI][]cache.FuncRange),
 		cacheTimers:              make(map[uri.URI]*time.Timer),
 		reindexTimers:            make(map[uri.URI]*time.Timer),
+		structureTimers:          make(map[uri.URI]*time.Timer),
 		reparsePending:           make(map[uri.URI]bool),
 		docLocks:                 make(map[uri.URI]*sync.Mutex),
 		parseResults:             make(map[uri.URI]*parser.ParseResult),

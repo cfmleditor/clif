@@ -526,6 +526,14 @@ type Features struct {
 	// asked for it loses nothing it had. Turn it on with
 	// `{"features": {"typeDefinition": true}}`.
 	TypeDefinition *bool `json:"typeDefinition"`
+	// StructureDiagnostics publishes what is wrong with the structure of a
+	// document's CF tags as the document is opened and edited: a tag left open,
+	// a closing tag with no opener, a `<cfcatch>` outside a `<cftry>`, a
+	// `<cffunction>` with no name, an attribute given twice, an argument
+	// declared twice. Off by default: it is new, and an editor that draws its
+	// own such errors would show each twice. Turn it on with
+	// `{"features": {"structureDiagnostics": true}}`.
+	StructureDiagnostics *bool `json:"structureDiagnostics"`
 }
 
 // ResolvedFeatures holds the feature switches with defaults applied.
@@ -538,6 +546,7 @@ type ResolvedFeatures struct {
 	Routes                     bool
 	OutputContextInterpolation bool
 	TypeDefinition             bool
+	StructureDiagnostics       bool
 }
 
 // foldingDefault is on. Named rather than inlined so the tests that assert the
@@ -546,6 +555,9 @@ const foldingDefault = true
 
 // typeDefinitionDefault is off, and named for the same reason.
 const typeDefinitionDefault = false
+
+// structureDiagnosticsDefault is off, for the reason the field gives.
+const structureDiagnosticsDefault = false
 
 // ResolveFeatures applies the defaults for a `features` block: absent means
 // every feature is on except typeDefinition, which is opt-in for the reason
@@ -571,6 +583,7 @@ func ResolveFeatures(f *Features) ResolvedFeatures {
 		Routes:                     BoolDefault(f.Routes, true),
 		OutputContextInterpolation: BoolDefault(f.OutputContextInterpolation, true),
 		TypeDefinition:             BoolDefault(f.TypeDefinition, typeDefinitionDefault),
+		StructureDiagnostics:       BoolDefault(f.StructureDiagnostics, structureDiagnosticsDefault),
 	}
 }
 
@@ -1156,6 +1169,7 @@ func mergeFeatures(base, over *Features) *Features {
 		{&out.Routes, &over.Routes},
 		{&out.OutputContextInterpolation, &over.OutputContextInterpolation},
 		{&out.TypeDefinition, &over.TypeDefinition},
+		{&out.StructureDiagnostics, &over.StructureDiagnostics},
 	} {
 		if *f.src != nil {
 			*f.dst = *f.src

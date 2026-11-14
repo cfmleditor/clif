@@ -23,6 +23,20 @@ Declared in `Server.capabilities()` (`internal/server/server.go`):
   fallback exists for chained calls and would answer for whatever else the line holds, and
   reports `$any` and `$builtin.` as unknown. A return type counts only when dotted: a bare
   word is far more often `struct` than a component in the same directory.
+- **Structure diagnostics** (`internal/server/structure_diagnostics.go`, `parser.TagProblems`) publish
+  what is wrong with a document's CF tags as it is opened and edited, under the source `clif`:
+  unclosed tags, closing tags with no opener, tags outside the tag they belong to (`<cfcatch>` in
+  `<cftry>`), a missing `name`/`template`/`url`, a repeated attribute (warning) and a repeated
+  function argument. **Opt-in** (`features.structureDiagnostics`, default off). The checker walks
+  the page's tag regions with the folding pass's own tag walk (comments, quoted values, `<` that
+  starts no tag), and holds only tags that always take a body to a closing tag: a tag that can
+  stand alone is never reported, so a page that runs reports nothing. Measured over 10,407 files of
+  real code, every finding was a real fault. Two shapes were false positives before they were
+  handled and have tests: a CF tag written inside an HTML attribute value
+  (`class="a<cfif b>c</cfif>"`), and a `"<!--"` string in a `#...#` expression (markup's comment
+  never follows a quote). `CLIF_TAGPROBLEMS_CORPUS=<dirs> go test -run TestTagProblemsCorpus -v
+  ./internal/parser/` lists what it finds in a corpus; read each by hand. `TestTagProblems` holds
+  the rules, and the mutation checks in its history show each one fails when removed.
 - `textDocument/documentHighlight` (`internal/server/documenthighlight.go`) shades the other
   occurrences of the identifier under the cursor. Deliberately a *textual* answer, reported as
   `DocumentHighlightKindText`: matching is whole-identifier and case-folded through the same
