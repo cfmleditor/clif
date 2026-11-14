@@ -539,3 +539,23 @@ func TestEntityChoicesSplitsTheDeclaredOnes(t *testing.T) {
 		t.Errorf("all is %v", all)
 	}
 }
+
+// TestAMuraBeanORMComponentIsAnEntityByItsName: `entityName` with a `table`
+// and no `persistent` is how Mura's bean ORM declares a bean, registered by
+// that name at run time; `entityName` alone is still no entity.
+func TestAMuraBeanORMComponentIsAnEntityByItsName(t *testing.T) {
+	idx := New()
+	widget := uri.URI("file:///app/widget.cfc")
+
+	idx.IndexEntity(widget, parser.Parse(widget, `component entityName="testWidget" table="testwidget" extends="mura.bean.beanORM" {}`))
+
+	if got := idx.NamedEntities("testwidget"); !slices.Equal(got, []uri.URI{widget}) {
+		t.Fatalf("testWidget is declared by %v", got)
+	}
+
+	idx.IndexEntity(widget, parser.Parse(widget, `component entityName="testWidget" {}`))
+
+	if got := idx.NamedEntities("testwidget"); len(got) != 0 {
+		t.Fatalf("an entityName without a table is an entity: %v", got)
+	}
+}

@@ -103,6 +103,17 @@ func (pr *ParseResult) collectDelegates() {
 	}
 }
 
+// DeclaresTable reports whether the component names a database table with
+// `table="y"`: what a component not marked persistent has when an ORM other
+// than the engine's, Mura's bean ORM, maps it.
+func (pr *ParseResult) DeclaresTable() bool {
+	if u := string(pr.URI); len(u) < 4 || !strings.EqualFold(u[len(u)-4:], ".cfc") {
+		return false
+	}
+
+	return strings.TrimSpace(componentAttr(pr.Content, "table")) != ""
+}
+
 // EntityName is the ORM entity name the component declares with
 // `entityname="cbAuthor"`, or "" when it names none — in which case the
 // entity is called after the file. entityNew( "cbAuthor" ) names it.
