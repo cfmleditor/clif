@@ -401,3 +401,52 @@ func TestACallThroughAScriptParameterIsNotAMissingFunction(t *testing.T) {
 		t.Fatalf("reported %v, want %v (fn only from other(), which has no such parameter)", reported, want)
 	}
 }
+
+// A dynamicIfMissing rule softens a component that names no file; it does not
+// make the answer for one that does worth less. `var it = getBean( "Real" )` in
+// a function that returns it types the function's return, so a method Real
+// lacks, called on the result, is reported; a bean that is not there stays
+// dynamic, which is what the rule is for.
+func TestASoftRuleTypesTheReturnOfAComponentThatExists(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, src string) string {
+		f := filepath.Join(dir, name)
+		if err := os.WriteFile(f, []byte(src), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		return f
+	}
+
+	files := []string{
+		write("Real.cfc", "component {\n function present() { return this; }\n}"),
+		write("Use.cfc", `component {
+	function getBean( name ) {}
+	function makeReal() { var it = getBean( "Real" ); return it; }
+	function makeGone() { var it = getBean( "Gone" ); return it; }
+	function go() {
+		makeReal().absent();
+		makeGone().anything();
+	}
+}`),
+	}
+
+	got := Scan(vfs.OS{}, files, files, &Options{Settings: resolve.Settings{
+		Resolvers: []parser.Resolver{{
+			Matcher:          &parser.LiteralCall{Func: "getBean", Named: parser.AnyNamedArg, Form: parser.IDWord, Rest: true},
+			Resolve:          "$1",
+			Prefix:           "getBean",
+			DynamicIfMissing: true,
+		}},
+		WorkspaceFolders: []string{dir},
+	}, InferArgs: true})
+
+	var reported []string
+	for _, c := range got.Calls {
+		reported = append(reported, c.Function)
+	}
+
+	if len(reported) != 1 || reported[0] != "absent" {
+		t.Fatalf("want only absent (a method of Real) reported, got %q", reported)
+	}
+}

@@ -1697,7 +1697,9 @@ func (e *producerEvaluation) rootCall(tokens []parser.Token, open, end int, befo
 	}
 
 	component, noFollow, soft := e.resolver.matchResolver(producerCallText(tokens[:end+1]), nil, nil)
-	if component != "" && !noFollow && !soft {
+	if component != "" && !noFollow && (!soft || e.resolver.componentExists(component, e.baseDir)) {
+		// A dynamicIfMissing rule softens a component that names no file; one
+		// that does is the rule's answer like any other's.
 		return e.concrete(component, e.baseDir)
 	}
 
@@ -2008,7 +2010,7 @@ func (e *producerEvaluation) methodResult(value producerValue, method string, ar
 
 func (e *producerEvaluation) createObjectResult(tokens []parser.Token, open, end int, env producerEnvironment) producerValue {
 	if configured, noFollow, soft := e.resolver.matchResolver(producerCallText(tokens[:end+1]), nil, nil); configured != "" {
-		if noFollow || soft {
+		if noFollow || soft && !e.resolver.componentExists(configured, e.baseDir) {
 			return producerUnknown()
 		}
 
