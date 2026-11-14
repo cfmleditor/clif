@@ -4327,10 +4327,20 @@ func (p *scriptParser) skipInstantiation() {
 	// The path is read as every other `new` reads it, which records the
 	// instantiation: one in an argument list or a literal was the one kind
 	// the code map never drew.
-	p.readNewComponent()
+	component := p.readNewComponent()
 
-	if p.sc.PeekSkipComments().Kind == TokLParen {
-		p.skipParens()
+	if p.sc.PeekSkipComments().Kind != TokLParen {
+		return
+	}
+
+	p.skipParens()
+
+	// Hops chained onto it are calls on the object it made, as they are for a
+	// `new` standing alone (parseStandaloneNew). Left unread, `expect( new
+	// a.B().make().sound() )` met `make` as a bare call to a function of this
+	// file, and a method the component lacks was never checked.
+	if component != "" {
+		p.scanChainedCalls(component)
 	}
 }
 

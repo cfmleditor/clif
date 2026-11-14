@@ -279,3 +279,35 @@ func TestAStringThatIsPartOfAnArgumentIsNotTheBeanName(t *testing.T) {
 		}
 	}
 }
+
+// A `new` inside a call's arguments is the receiver of the hops chained on it,
+// as it is standing alone: `expect( new Real().present() )` is a call to
+// Real.present, not a bare call to a function of this file, and a method Real
+// lacks is reported against it.
+func TestAChainOnANewInsideCallArgumentsIsOnTheNewComponent(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, src string) string {
+		f := filepath.Join(dir, name)
+		if err := os.WriteFile(f, []byte(src), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		return f
+	}
+
+	files := []string{
+		write("Real.cfc", "component {\n function present() { return this; }\n function again() {}\n}"),
+		write("Use.cfc", "component {\n function go() {\n  check( new Real().present().again() );\n  check( new Real().absent() );\n }\n function check( v ) {}\n}"),
+	}
+
+	got := Scan(vfs.OS{}, files, files, &Options{Settings: resolve.Settings{WorkspaceFolders: []string{dir}}, InferArgs: true})
+
+	var reported []string
+	for _, c := range got.Calls {
+		reported = append(reported, c.Function+": "+c.Reason)
+	}
+
+	if len(reported) != 1 || !strings.HasPrefix(reported[0], "absent:") || !strings.Contains(reported[0], "Real") {
+		t.Fatalf("want only absent reported against Real, got %q", reported)
+	}
+}
