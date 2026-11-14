@@ -27,37 +27,31 @@ func (s *Server) renameProvider() protocol.RenameProvider {
 	return &protocol.RenameOptions{PrepareProvider: &prepare}
 }
 
-// reservedNames are what a variable may not be called: CFML's scopes and the
-// words its statements and literals are written with.
-var reservedNames = map[string]bool{
-	"var": true, "function": true, "return": true, "if": true, "else": true, "for": true, "while": true,
-	"do": true, "switch": true, "case": true, "default": true, "break": true, "continue": true, "try": true,
-	"catch": true, "finally": true, "throw": true, "in": true, "new": true, "true": true, "false": true,
-	"null": true, "import": true, "include": true, "component": true, "interface": true, "property": true,
-	"local": true, "arguments": true, "variables": true, "this": true, "super": true, "application": true,
-	"session": true, "request": true, "server": true, "url": true, "form": true, "cgi": true, "cookie": true,
-	"client": true, "cfthread": true, "thread": true, "and": true, "or": true, "not": true, "xor": true,
-	"eq": true, "neq": true, "is": true, "gt": true, "lt": true, "gte": true, "lte": true, "mod": true,
-	"contains": true, "eqv": true, "imp": true,
+// renameRequest is a rename's plan, with the document it was made in and
+// where the cursor stood, so the checks and the edits are made from one reading.
+type renameRequest struct {
+	plan    *parser.LocalRename
+	content string
+	at      int
+	pos     func(int) protocol.Position
 }
 
-// renameAt is the plan for renaming the variable at the position of params in
-// docURI, with the text and what is needed to turn the plan into positions.
-func (s *Server) renameAt(docURI uri.URI, pos protocol.Position) (*parser.LocalRename, string, error) {
+// renameAt plans the rename of the variable at pos in docURI.
+func (s *Server) renameAt(docURI uri.URI, pos protocol.Position) (*renameRequest, error) {
 	if !s.Features.Rename {
-		return nil, "", errors.New("rename is not enabled: set features.rename")
+		return nil, errors.New("rename is not enabled: set features.rename")
 	}
 
 	content, ok := s.getDocument(docURI)
 	if !ok {
-		return nil, "", errors.New("the document is not open")
+		return nil, errors.New("the document is not open")
 	}
 
 	lines := parser.NewLineTable(content)
 
 	start, ok := lines.Start(int(pos.Line))
 	if !ok {
-		return nil, "", errors.New("the position is outside the document")
+		return nil, errors.New("the position is outside the document")
 	}
 
 	at := start + byteCol(content, int(pos.Line), pos.Character)
@@ -65,8 +59,18 @@ func (s *Server) renameAt(docURI uri.URI, pos protocol.Position) (*parser.LocalR
 	spans := parser.FunctionSpansOf(cfpath.FromURI(string(docURI)), content)
 
 	plan, err := parser.PlanLocalRename(content, spans, at)
+	if err != nil {
+		return nil, err
+	}
 
-	return plan, content, err
+	// The plan is the variable of the word at the cursor, and a word spelled
+	// like it, a struct key or another object's member, is not one of its
+	// places: that is a different thing than the one pointed at.
+	if _, _, onVariable := plan.RangeAt(at); !onVariable {
+		return nil, errors.New("cannot rename: the cursor is on a name spelled like the variable, not on the variable")
+	}
+
+	return &renameRequest{plan: plan, content: content, at: at, pos: rangePositioner(content, lines)}, nil
 }
 
 // handlePrepareRename answers textDocument/prepareRename: the variable under
@@ -79,28 +83,17 @@ func (s *Server) handlePrepareRename(_ context.Context, rawParams []byte) (any, 
 
 	defer s.lockDoc(params.TextDocument.URI)()
 
-	plan, content, err := s.renameAt(params.TextDocument.URI, params.Position)
+	req, err := s.renameAt(params.TextDocument.URI, params.Position)
 	if err != nil {
 		return nil, err
 	}
 
-	// The range of the word under the cursor: the plan holds each place the
-	// variable is written, and the cursor is on one of them.
-	pos := rangePositioner(content)
-	lines := parser.NewLineTable(content)
-	start, _ := lines.Start(int(params.Position.Line))
-	at := start + byteCol(content, int(params.Position.Line), params.Position.Character)
+	start, end, _ := req.plan.RangeAt(req.at)
 
-	for _, r := range plan.Ranges {
-		if at >= r[0] && at <= r[1] {
-			return protocol.PrepareRenamePlaceholder{
-				Range:       protocol.Range{Start: pos(r[0]), End: pos(r[1])},
-				Placeholder: content[r[0]:r[1]],
-			}, nil
-		}
-	}
-
-	return nil, errors.New("cannot rename: the cursor is not on the variable")
+	return protocol.PrepareRenamePlaceholder{
+		Range:       protocol.Range{Start: req.pos(start), End: req.pos(end)},
+		Placeholder: req.content[start:end],
+	}, nil
 }
 
 // handleRename answers textDocument/rename for a local variable: an edit for
@@ -115,21 +108,20 @@ func (s *Server) handleRename(_ context.Context, rawParams []byte) (any, error) 
 
 	defer s.lockDoc(docURI)()
 
-	plan, content, err := s.renameAt(docURI, params.Position)
+	req, err := s.renameAt(docURI, params.Position)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := checkNewName(plan, params.NewName); err != nil {
+	if err := checkNewName(req.plan, params.NewName); err != nil {
 		return nil, err
 	}
 
-	pos := rangePositioner(content)
-	edits := make([]protocol.TextEdit, 0, len(plan.Ranges))
+	edits := make([]protocol.TextEdit, 0, len(req.plan.Ranges))
 
-	for _, r := range plan.Ranges {
+	for _, r := range req.plan.Ranges {
 		edits = append(edits, protocol.TextEdit{
-			Range:   protocol.Range{Start: pos(r[0]), End: pos(r[1])},
+			Range:   protocol.Range{Start: req.pos(r[0]), End: req.pos(r[1])},
 			NewText: params.NewName,
 		})
 	}
@@ -152,23 +144,23 @@ func checkNewName(plan *parser.LocalRename, name string) error {
 
 	lower := strings.ToLower(name)
 
-	if reservedNames[lower] {
+	if parser.ReservedVariableNames[lower] {
 		return errors.New("'" + name + "' is reserved")
 	}
 
 	// Changing only the case of the variable's own name is a rename; any other
-	// name the function declares is taken.
+	// name the function writes is taken, whether it declares it or reads it
+	// from outside, since the variable would shadow it.
 	if !strings.EqualFold(lower, plan.Name) && plan.Taken[lower] {
-		return errors.New("the function already has an argument or variable named '" + name + "'")
+		return errors.New("the function already uses '" + name + "', which the variable would shadow or be mistaken for")
 	}
 
 	return nil
 }
 
-// rangePositioner turns byte offsets of content into LSP positions, in the
-// UTF-16 columns of the editor.
-func rangePositioner(content string) func(int) protocol.Position {
-	lines := parser.NewLineTable(content)
+// rangePositioner turns byte offsets of content, whose line table is lines,
+// into LSP positions, in the UTF-16 columns of the editor.
+func rangePositioner(content string, lines parser.LineTable) func(int) protocol.Position {
 	cols := newColMapper(content)
 
 	return func(offset int) protocol.Position {

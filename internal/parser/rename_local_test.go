@@ -53,6 +53,7 @@ func TestPlanLocalRename(t *testing.T) {
 		{"the outer variable, from inside a closure that only uses it", "component {\n function f( l ) {\n  var x = 1;\n  l.each( function( i ) {\n   g( ¦x + i );\n  } );\n  return x;\n }\n}", "component {\n function f( l ) {\n  var N = 1;\n  l.each( function( i ) {\n   g( N + i );\n  } );\n  return N;\n }\n}"},
 		{"a variable of the middle of three closures", "component {\n function f( l ) {\n  l.each( function( a ) {\n   var ¦y = 1;\n   a.each( function( b ) { g( y, b ); } );\n  } );\n }\n}", "component {\n function f( l ) {\n  l.each( function( a ) {\n   var N = 1;\n   a.each( function( b ) { g( N, b ); } );\n  } );\n }\n}"},
 		{"a named function expression's name is not the variable", "component {\n function f( l ) {\n  var ¦helper = 1;\n  l.each( function helper( i ) { g( i ); } );\n  return helper;\n }\n}", "component {\n function f( l ) {\n  var N = 1;\n  l.each( function helper( i ) { g( i ); } );\n  return N;\n }\n}"},
+		{"safe navigation and elvis leave no ternary open", "component {\n function f( o ) {\n  var ¦x = 1;\n  return [ g( o?.a, x: 2, y = x ), o.p ?: x, { k: o?.b, x: x } ];\n }\n}", "component {\n function f( o ) {\n  var N = 1;\n  return [ g( o?.a, x: 2, y = N ), o.p ?: N, { k: o?.b, x: N } ];\n }\n}"},
 		{"a function of the same name elsewhere is its own", "component {\n function g() {\n  var count = 5;\n  return count;\n }\n function f() {\n  var ¦count = 0;\n  return count;\n }\n}", "component {\n function g() {\n  var count = 5;\n  return count;\n }\n function f() {\n  var N = 0;\n  return N;\n }\n}"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -111,6 +112,39 @@ func TestPlanLocalRenameTaken(t *testing.T) {
 	for _, n := range []string{"a", "b", "x", "y", "q"} {
 		if !plan.Taken[n] {
 			t.Errorf("%q is not among the names the function uses: %v", n, plan.Taken)
+		}
+	}
+}
+
+func TestStringContentOfACutOffString(t *testing.T) {
+	for in, want := range map[string]string{
+		`"abc"`: "abc", `'abc'`: "abc", `""`: "", `"abc`: "abc", `"#x#`: "#x#", `"`: "", ``: "", `'a"`: `a"`,
+	} {
+		if got := stringContent(in); got != want {
+			t.Errorf("stringContent(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestHashSegments(t *testing.T) {
+	for _, c := range []struct {
+		in   string
+		want []string
+	}{
+		{"hello #name# and #ucase( n )#", []string{"name", "ucase( n )"}},
+		{"## not one #x#", []string{"x"}},
+		{"cut off #x", nil},
+		{"#x# then #y", []string{"x"}},
+		{"none", nil},
+		{"##", nil},
+	} {
+		var got []string
+		for _, seg := range hashSegments(c.in) {
+			got = append(got, c.in[seg[0]:seg[1]])
+		}
+
+		if !slices.Equal(got, c.want) {
+			t.Errorf("hashSegments(%q) = %q, want %q", c.in, got, c.want)
 		}
 	}
 }

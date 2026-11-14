@@ -16,9 +16,43 @@ type LocalRename struct {
 	// declaration, each use, `local.name` (the name alone), and a use inside a
 	// `#...#` of a string.
 	Ranges [][2]int
-	// Taken are the lowercased names the function declares: its arguments and
-	// its other locals.
+	// Taken are the lowercased names the whole function writes without a
+	// qualifier, closures and nested functions included: its arguments and
+	// locals, a catch's variable, a loop's, the variables it reads from outside
+	// (`config`) and the functions it calls. A new name from this set would
+	// capture or be captured by what the function already means by it.
 	Taken map[string]bool
+}
+
+// RangeAt is the range of the variable's name at the byte offset at, or false
+// when at is not on one of the places the variable is written: it may be on
+// a struct key or another object's member that is spelled the same.
+func (r *LocalRename) RangeAt(at int) (start, end int, ok bool) {
+	for _, rg := range r.Ranges {
+		if at >= rg[0] && at <= rg[1] {
+			return rg[0], rg[1], true
+		}
+	}
+
+	return 0, 0, false
+}
+
+// ReservedVariableNames are the words a variable may not be called: CFML's
+// scopes, the words its statements, declarations and literals are written with
+// and the modifiers a declaration takes.
+var ReservedVariableNames = map[string]bool{
+	"var": true, "function": true, "return": true, "if": true, "else": true, "for": true, "while": true,
+	"do": true, "switch": true, "case": true, "default": true, "break": true, "continue": true, "try": true,
+	"catch": true, "finally": true, "throw": true, "rethrow": true, "in": true, "new": true, "true": true,
+	"false": true, "null": true, "import": true, "include": true, "component": true, "interface": true,
+	"property": true, "param": true, "lock": true, "transaction": true, "thread": true, "abort": true,
+	"exit": true, "savecontent": true, "trace": true, "assert": true, "abstract": true, "final": true,
+	"static": true, "public": true, "private": true, "package": true, "remote": true, "required": true,
+	"local": true, "arguments": true, "variables": true, "this": true, "super": true, "application": true,
+	"session": true, "request": true, "server": true, "url": true, "form": true, "cgi": true, "cookie": true,
+	"client": true, "cfthread": true, "and": true, "or": true, "not": true, "xor": true, "eq": true,
+	"neq": true, "is": true, "gt": true, "lt": true, "gte": true, "lte": true, "ge": true, "le": true,
+	"mod": true, "contains": true, "eqv": true, "imp": true,
 }
 
 // ErrNotRenameable is wrapped by every refusal of PlanLocalRename. A rename of
@@ -55,6 +89,14 @@ func PlanLocalRename(content string, spans []FunctionSpan, at int) (*LocalRename
 		plan, err := planScope(content, spans, sc, at)
 		if errors.Is(err, errUndeclared) {
 			continue
+		}
+
+		if err == nil {
+			// A closure's variable is renamed among the names of the whole
+			// function around it, whose own variables it reads.
+			for name := range mentionedNames(content, owner) {
+				plan.Taken[name] = true
+			}
 		}
 
 		return plan, err
@@ -629,7 +671,7 @@ func (w *renameWalk) checkString(t Token, base int) {
 		return
 	}
 
-	inner := t.Value[1 : len(t.Value)-1]
+	inner := stringContent(t.Value)
 	lower := strings.ToLower(strings.TrimSpace(inner))
 
 	switch lower {
@@ -640,28 +682,8 @@ func (w *renameWalk) checkString(t Token, base int) {
 	default:
 	}
 
-	for from := 0; from < len(inner); {
-		open := strings.IndexByte(inner[from:], '#')
-		if open < 0 {
-			return
-		}
-
-		open += from
-
-		if open+1 < len(inner) && inner[open+1] == '#' {
-			from = open + 2
-
-			continue
-		}
-
-		end := strings.IndexByte(inner[open+1:], '#')
-		if end < 0 {
-			return
-		}
-
-		end += open + 1
-		w.walk(inner[open+1:end], base+t.Offset+1+open+1, true)
-		from = end + 1
+	for _, seg := range hashSegments(inner) {
+		w.walk(inner[seg[0]:seg[1]], base+t.Offset+1+seg[0], true)
 	}
 }
 
@@ -708,4 +730,97 @@ func (w *renameWalk) occurrence(toks []Token, i int, stack []rnFrame, fnDepth, b
 func equalsPair(toks []Token, i int) bool {
 	return i+1 < len(toks) && toks[i+1].Kind == TokEquals && toks[i+1].Offset == toks[i].Offset+1 ||
 		i > 0 && toks[i-1].Kind == TokEquals && toks[i-1].Offset+1 == toks[i].Offset
+}
+
+// mentionedNames are the lowercased names the function writes without a
+// qualifier, anywhere in its parameters and body: a name a variable renamed to
+// one of them would shadow, or be shadowed by.
+func mentionedNames(content string, owner *FunctionSpan) map[string]bool {
+	out := map[string]bool{}
+
+	collectMentions(owner.ParamsText(content), out)
+	collectMentions(content[owner.Body:owner.BodyEnd], out)
+
+	return out
+}
+
+// collectMentions adds to out the names text writes unqualified, those in a
+// string's `#...#` included. `a.b` is `b` of another object, and `local.b` is
+// the local variable b.
+func collectMentions(text string, out map[string]bool) {
+	var toks []Token
+
+	sc := NewScriptScanner(text)
+	for t := sc.NextSkipComments(); t.Kind != TokEOF; t = sc.NextSkipComments() {
+		toks = append(toks, t)
+	}
+
+	for i, t := range toks {
+		switch t.Kind {
+		case TokIdent:
+			if i > 0 && toks[i-1].Kind == TokDoubleColon {
+				continue
+			}
+
+			if i > 0 && toks[i-1].Kind == TokDot && (i < 2 || toks[i-2].Kind != TokIdent || !strings.EqualFold(toks[i-2].Value, "local")) {
+				continue
+			}
+
+			out[strings.ToLower(t.Value)] = true
+		case TokString:
+			inner := stringContent(t.Value)
+			for _, seg := range hashSegments(inner) {
+				collectMentions(inner[seg[0]:seg[1]], out)
+			}
+		default:
+		}
+	}
+}
+
+// stringContent is the text of a string token without its quotes. A string cut
+// off by the end of the text, as one is while it is being typed, has no
+// closing quote to drop.
+func stringContent(tok string) string {
+	if tok == "" {
+		return ""
+	}
+
+	if len(tok) >= 2 && tok[len(tok)-1] == tok[0] {
+		return tok[1 : len(tok)-1]
+	}
+
+	return tok[1:]
+}
+
+// hashSegments are the [start, end) offsets in inner of the expressions
+// between its `#` pairs; `##` is a hash character. A `#` with no partner
+// opens none.
+func hashSegments(inner string) [][2]int {
+	var out [][2]int
+
+	for from := 0; from < len(inner); {
+		open := strings.IndexByte(inner[from:], '#')
+		if open < 0 {
+			return out
+		}
+
+		open += from
+
+		if open+1 < len(inner) && inner[open+1] == '#' {
+			from = open + 2
+
+			continue
+		}
+
+		end := strings.IndexByte(inner[open+1:], '#')
+		if end < 0 {
+			return out
+		}
+
+		end += open + 1
+		out = append(out, [2]int{open + 1, end})
+		from = end + 1
+	}
+
+	return out
 }
