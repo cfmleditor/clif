@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"testing"
 	"time"
@@ -74,8 +75,9 @@ func TestStructureDiagnosticRanges(t *testing.T) {
 	}
 
 	for _, d := range ds {
-		if d.Severity != protocol.DiagnosticSeverityError {
-			t.Errorf("%v has severity %v, want error", d.Code, d.Severity)
+		code, _ := d.Code.(protocol.String)
+		if want := map[bool]protocol.DiagnosticSeverity{true: protocol.DiagnosticSeverityError, false: protocol.DiagnosticSeverityWarning}[code == "missing-attribute"]; d.Severity != want {
+			t.Errorf("%v has severity %v, want %v", d.Code, d.Severity, want)
 		}
 	}
 }
@@ -159,5 +161,29 @@ func TestStructureDiagnosticsAreOffByDefault(t *testing.T) {
 
 	if got := diagnosticCodes(s.diagnosticsFor(docURI)); len(got) != 0 {
 		t.Errorf("structure diagnostics %q with the feature off", got)
+	}
+}
+
+func TestDuplicateArgumentsAreUnderlinedAtTheRepeat(t *testing.T) {
+	for _, c := range []struct {
+		name, src string
+		want      []string
+	}{
+		{"script", "component {\n\tpublic void function id( string id, string id, string ID ) {}\n}\n", []string{"1:44-46", "1:55-57"}},
+		{"tags", "<cffunction name=\"t\"><cfargument name=\"t\"><cfargument name=\"t\"></cffunction>", []string{"0:60-61"}},
+	} {
+		pr := parser.ParseWithOptions(testURI(), c.src, &parser.ParseOptions{})
+
+		var cols []string
+
+		for _, d := range structureDiagnostics(c.src, pr) {
+			if code, _ := d.Code.(protocol.String); code == "duplicate-argument" {
+				cols = append(cols, fmt.Sprintf("%d:%d-%d", d.Range.Start.Line, d.Range.Start.Character, d.Range.End.Character))
+			}
+		}
+
+		if !slices.Equal(cols, c.want) {
+			t.Errorf("%s: got %v, want %v", c.name, cols, c.want)
+		}
 	}
 }

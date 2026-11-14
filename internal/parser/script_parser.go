@@ -4154,6 +4154,7 @@ func (p *scriptParser) scanParenArgs() (firstArg string, positional []string, ok
 	argStart, collecting := true, true
 	pending, havePending := "", false
 	wholeCandidate, prevKind := "", TokEOF
+	prevOff, assign := -1, false
 
 	var arrow arrowParams
 
@@ -4197,11 +4198,13 @@ func (p *scriptParser) scanParenArgs() (firstArg string, positional []string, ok
 			wholeCandidate = ""
 		}
 
-		if tok.Kind == TokString && firstArg == "" && depth == 1 && (argStart || prevKind == TokEquals || prevKind == TokColon) {
+		if tok.Kind == TokString && firstArg == "" && depth == 1 && (argStart || assign || prevKind == TokColon) {
 			wholeCandidate = unquote(tok.Value)
 		}
 
-		prevKind = tok.Kind
+		// `=` is an assignment of a named argument, not half of `==`.
+		assign = tok.Kind == TokEquals && (prevKind != TokEquals || tok.Offset != prevOff+1)
+		prevKind, prevOff = tok.Kind, tok.Offset
 
 		if depth == 1 && collecting {
 			switch {

@@ -48,8 +48,16 @@ func QueryColumns(content, name string, before int) (columns []string, ok bool) 
 
 	sc := NewSourceScanner(content)
 
-	for t := sc.NextSkipComments(); t.Kind != TokEOF; t = sc.NextSkipComments() {
+	var prev, owner Token // the tokens before t: a `.`, and what it follows
+
+	for t := sc.NextSkipComments(); t.Kind != TokEOF; prev, owner, t = t, prev, sc.NextSkipComments() {
 		if t.Kind != TokIdent || !strings.EqualFold(t.Value, name) || sc.PeekSkipComments().Kind != TokEquals {
+			continue
+		}
+
+		// `cfg.users = ...` sets another object's member, and a struct's
+		// `{ a = 1, users = ... }` a key; `local.users` is the variable.
+		if prev.Kind == TokComma || prev.Kind == TokDot && !isLocalScope(owner) {
 			continue
 		}
 
@@ -339,4 +347,10 @@ func unscoped(name string) string {
 	}
 
 	return name
+}
+
+// isLocalScope reports whether t names a scope whose members are the
+// function's own variables.
+func isLocalScope(t Token) bool {
+	return t.Kind == TokIdent && (strings.EqualFold(t.Value, "local") || strings.EqualFold(t.Value, "variables"))
 }

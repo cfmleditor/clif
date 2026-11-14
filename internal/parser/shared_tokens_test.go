@@ -163,3 +163,15 @@ func TestSharedTokenLimitDropsWhatNoLongerFits(t *testing.T) {
 		t.Errorf("%d bytes held under a limit of %d (read back %d)", after, held/2, SharedTokenLimit())
 	}
 }
+
+func TestSharedTokensTerminateWhenTheLimitIsBelowWhatIsHeld(t *testing.T) {
+	prev := SetSharedTokenLimit(DefaultSharedTokenBytes)
+
+	t.Cleanup(func() { SetSharedTokenLimit(prev) })
+
+	sharedTokens.mu.Lock()
+	sharedTokens.limit = 1
+	sharedTokens.held = 0
+	sharedTokens.store("x", &[]Token{}, 10) // would spin forever when nothing is held to drop
+	sharedTokens.mu.Unlock()
+}

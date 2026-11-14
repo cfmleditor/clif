@@ -32,9 +32,9 @@ type TagProblem struct {
 	Kind       TagProblemKind
 	Start, End int
 	Message    string
-	// Warning is set on a problem the engine may still run: a repeated
-	// attribute is read as its last value, where an unclosed tag does not
-	// compile.
+	// Warning is set on a problem the page may still be right to have: a
+	// repeated attribute is read as its last value, and a tag left open or
+	// closed is the usual way a header and a footer template share a block.
 	Warning bool
 }
 
@@ -81,8 +81,8 @@ type problemFrame struct {
 // TagProblems reports the structural faults of the CF tags in content: tags
 // left open, closing tags with no opener, tags outside the tag they belong
 // to, and attributes missing or repeated. Only the tags above are checked,
-// each held to a rule every engine shares, so a page that runs reports
-// nothing. It reads the tag regions of a page (script is left to the script
+// each held to a rule every engine shares, so a page that runs on its own reports
+// nothing, and a fragment included into another reports warnings. It reads the tag regions of a page (script is left to the script
 // parse) with the walk the folding ranges use: comments, quoted attribute
 // values and a `<` that starts no tag are stepped over as they are there.
 func TagProblems(content string) []TagProblem {
@@ -113,7 +113,7 @@ func TagProblems(content string) []TagProblem {
 }
 
 func unclosedProblem(f problemFrame) TagProblem {
-	return TagProblem{Kind: ProblemUnclosedTag, Start: f.start, End: f.end, Message: "Unclosed tag <" + f.name + ">"}
+	return TagProblem{Kind: ProblemUnclosedTag, Start: f.start, End: f.end, Message: "Unclosed tag <" + f.name + ">", Warning: true}
 }
 
 // tagRegionProblems walks one tag region, which stands at base in the page,
@@ -263,7 +263,7 @@ func closingProblem(name string, start, end int, problems []TagProblem, stack []
 
 	problems = append(problems, TagProblem{
 		Kind: ProblemUnmatchedClose, Start: start, End: end,
-		Message: "Unmatched closing tag </" + name + ">",
+		Message: "Unmatched closing tag </" + name + ">", Warning: true,
 	})
 
 	return problems, stack
@@ -321,7 +321,7 @@ func tagAttributeProblems(tag, name string, start, nameEnd int, problems []TagPr
 // attribute scanner passes over: `<cfparam name>` holds one, and is not a tag
 // without it.
 func valuelessAttribute(tag, attr string) bool {
-	lower := strings.ToLower(tag)
+	lower := unquoted(strings.ToLower(tag))
 
 	for from := 0; ; {
 		i := strings.Index(lower[from:], attr)
@@ -339,4 +339,25 @@ func valuelessAttribute(tag, attr string) bool {
 			return true
 		}
 	}
+}
+
+// unquoted is tag with the inside of its quoted values blanked, so a word
+// written in a value is not taken for an attribute: `<cfparam default="name">`.
+func unquoted(tag string) string {
+	b := []byte(tag)
+
+	var quote byte
+
+	for i, c := range b {
+		switch {
+		case quote != 0 && c == quote:
+			quote = 0
+		case quote != 0:
+			b[i] = ' '
+		case c == '"' || c == '\'':
+			quote = c
+		}
+	}
+
+	return string(b)
 }

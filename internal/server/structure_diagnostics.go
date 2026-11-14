@@ -2,11 +2,9 @@ package server
 
 import (
 	"context"
-	"strings"
 	"time"
 
 	"github.com/cfmleditor/clif/internal/conv"
-	"github.com/cfmleditor/clif/internal/lex"
 	cflog "github.com/cfmleditor/clif/internal/log"
 	"github.com/cfmleditor/clif/internal/parser"
 	"go.lsp.dev/protocol"
@@ -122,75 +120,23 @@ func structureDiagnostics(content string, pr *parser.ParseResult) []protocol.Dia
 }
 
 // duplicateArguments are the arguments a function declares more than once,
-// underlined at the second.
+// underlined at each declaration after the first.
 func duplicateArguments(content string, pr *parser.ParseResult, at func(int) protocol.Position) []protocol.Diagnostic {
 	if pr == nil || pr.Content != content {
 		return nil
 	}
 
-	lines := parser.NewLineTable(content)
-
 	var out []protocol.Diagnostic
 
-	for i := range pr.Funcs {
-		f := &pr.Funcs[i]
-		if f.Generated || len(f.Arguments) < 2 {
-			continue
-		}
-
-		from, ok := lines.Start(int(f.Line))
-		if !ok {
-			continue
-		}
-
-		seen := map[string]bool{}
-
-		for _, a := range f.Arguments {
-			name := strings.ToLower(a.Name)
-			if !seen[name] {
-				seen[name] = true
-
-				continue
-			}
-
-			// The second place the name is written as a word, from the
-			// function's line on: its declaration, past the first.
-			start, end := nthWord(content, from, a.Name, 2)
-			if start < 0 {
-				continue
-			}
-
-			out = append(out, protocol.Diagnostic{
-				Range:    protocol.Range{Start: at(start), End: at(end)},
-				Severity: protocol.DiagnosticSeverityError,
-				Source:   protocol.NewOptional("clif"),
-				Code:     protocol.String("duplicate-argument"),
-				Message:  protocol.String("Duplicate argument '" + a.Name + "' in function '" + f.Name + "'"),
-			})
-		}
+	for _, d := range parser.DuplicateArguments(content, pr.FunctionSpans()) {
+		out = append(out, protocol.Diagnostic{
+			Range:    protocol.Range{Start: at(d.Start), End: at(d.End)},
+			Severity: protocol.DiagnosticSeverityError,
+			Source:   protocol.NewOptional("clif"),
+			Code:     protocol.String("duplicate-argument"),
+			Message:  protocol.String("Duplicate argument '" + d.Name + "' in function '" + d.Function + "'"),
+		})
 	}
 
 	return out
-}
-
-// nthWord is where the nth whole-word, case-insensitive occurrence of word
-// stands in content at or after from, or -1.
-func nthWord(content string, from int, word string, n int) (start, end int) {
-	for i := from; i+len(word) <= len(content); i++ {
-		if !strings.EqualFold(content[i:i+len(word)], word) {
-			continue
-		}
-
-		if i > 0 && lex.IsWord(content[i-1]) || i+len(word) < len(content) && lex.IsWord(content[i+len(word)]) {
-			continue
-		}
-
-		n--
-
-		if n == 0 {
-			return i, i + len(word)
-		}
-	}
-
-	return -1, -1
 }

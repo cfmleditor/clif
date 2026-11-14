@@ -86,7 +86,7 @@ func (c *tokenShare) find(text string) *[]Token {
 
 // store keeps toks for text, the oldest slot making room. The lock is held.
 func (c *tokenShare) store(text string, toks *[]Token, n int) {
-	for c.held+n > c.limit {
+	for c.held > 0 && c.held+n > c.limit {
 		c.drop()
 	}
 
@@ -128,12 +128,15 @@ func scriptTokensOf(text string) *[]Token {
 	made := slices.Clip(tokenize(text))
 
 	n := len(made) * int(unsafe.Sizeof(Token{}))
-	if n > sharedTokens.limit/2 {
-		return &made
-	}
 
 	sharedTokens.mu.Lock()
 	defer sharedTokens.mu.Unlock()
+
+	// A list over half the limit is not kept; the limit is read under the
+	// lock, since it can be lowered at any time.
+	if n > sharedTokens.limit/2 {
+		return &made
+	}
 
 	// Another worker may have tokenized it meanwhile: one slot per text.
 	if toks := sharedTokens.find(text); toks != nil {

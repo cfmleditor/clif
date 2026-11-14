@@ -440,7 +440,7 @@ func (g *placeholderGlob) Match(expr string) ([]string, bool) {
 			continue
 		}
 
-		if captures, ok := g.capture(expr, 1, start+len(g.parts[0]), nil); ok {
+		if captures, ok := g.capture(expr, 1, start+len(g.parts[0]), nil, map[[2]int]bool{}); ok {
 			return captures, true
 		}
 	}
@@ -461,9 +461,17 @@ func runeWidth(s string, i int) int {
 
 // capture reads the run before parts[i] from pos and the parts that follow,
 // the shortest run first. A run is whole characters, one or more, none a newline.
-func (g *placeholderGlob) capture(expr string, i, pos int, so []string) ([]string, bool) {
+//
+// A part that cannot be matched from a position cannot be from it by any other
+// route either, so failed remembers those: the search is bounded by the parts
+// times the positions, not by the ways to split the run between them.
+func (g *placeholderGlob) capture(expr string, i, pos int, so []string, failed map[[2]int]bool) ([]string, bool) {
 	if i == len(g.parts) {
 		return so, true
+	}
+
+	if failed[[2]int{i, pos}] {
+		return nil, false
 	}
 
 	lit := g.parts[i]
@@ -476,11 +484,13 @@ func (g *placeholderGlob) capture(expr string, i, pos int, so []string) ([]strin
 		end += runeWidth(expr, end)
 
 		if end+len(lit) <= len(expr) && strings.EqualFold(expr[end:end+len(lit)], lit) {
-			if captures, ok := g.capture(expr, i+1, end+len(lit), append(so, expr[pos:end])); ok {
+			if captures, ok := g.capture(expr, i+1, end+len(lit), append(so, expr[pos:end]), failed); ok {
 				return captures, true
 			}
 		}
 	}
+
+	failed[[2]int{i, pos}] = true
 
 	return nil, false
 }

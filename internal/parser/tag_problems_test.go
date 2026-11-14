@@ -72,7 +72,7 @@ func TestTagProblems(t *testing.T) {
 
 func TestTagProblemSeverity(t *testing.T) {
 	for _, p := range TagProblems("<cfparam name=a name=b><cfif a>") {
-		if want := p.Kind == ProblemDuplicateAttribute; p.Warning != want {
+		if want := p.Kind != ProblemMissingAttribute; p.Warning != want {
 			t.Errorf("%s: Warning is %v, want %v", p.Kind, p.Warning, want)
 		}
 	}
@@ -116,4 +116,21 @@ func FuzzTagProblems(f *testing.F) {
 			}
 		}
 	})
+}
+
+func TestAWordInAValueIsNotAnAttribute(t *testing.T) {
+	for _, src := range []string{`<cfparam default="name">`, `<cfinclude foo="template">`, `<cffunction hint="name of it">`} {
+		if got := TagProblems(src); len(got) == 0 || got[0].Kind != ProblemMissingAttribute {
+			t.Errorf("%s: got %v, want a missing attribute", src, got)
+		}
+	}
+}
+
+func TestUnbalancedTagsAreWarnings(t *testing.T) {
+	for _, src := range []string{"<cfset a=1><cfoutput>", "<cfset a=1></cfoutput>"} {
+		got := TagProblems(src)
+		if len(got) != 1 || !got[0].Warning {
+			t.Errorf("%s: got %v, want one warning", src, got)
+		}
+	}
 }

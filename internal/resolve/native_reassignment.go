@@ -60,7 +60,7 @@ func blockClosedBetween(content string, fromLine, toLine int) bool {
 // file is asked about once per use of a variable a native type was claimed
 // for, over the lines from its ref to the use, and each ask scanned those
 // lines: on Lucee that was 36 of the 46 times the scan read its text.
-var braces = &textCache[braceIndex]{size: func(b braceIndex) int { return 8*len(b.offs) + 4*len(b.depth) + 4*len(b.floor) }}
+var braces = &textCache[braceIndex]{size: func(b braceIndex) int { return 8*len(b.offs) + 4*len(b.depth) + 4*b.floorLen() }}
 
 // braceIndex is where a text's braces are and how deep each leaves it, so
 // whether a span closes a block it did not open is a search and a minimum
@@ -69,6 +69,18 @@ type braceIndex struct {
 	offs  []int     // the byte offset of each brace, in order
 	depth []int32   // the depth after each, from the top of the text
 	floor [][]int32 // floor[k][i] is the least depth after braces i to i+2^k-1
+}
+
+// floorLen is the number of values the sparse table holds beyond depth, which
+// floor[0] is.
+func (b braceIndex) floorLen() int {
+	n := 0
+
+	for _, row := range b.floor[min(1, len(b.floor)):] {
+		n += len(row)
+	}
+
+	return n
 }
 
 func newBraceIndex(content string) braceIndex {

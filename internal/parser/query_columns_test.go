@@ -90,3 +90,16 @@ func TestQueryColumnsStopAtTheCursor(t *testing.T) {
 		t.Error("a declaration is found before the start")
 	}
 }
+
+func TestQueryColumnsIgnoreAnotherObjectsMember(t *testing.T) {
+	src := "function f() {\n var users = queryNew(\"id,name\");\n cfg.users = queryNew(\"a,b\");\n s = { x = 1, users = queryNew(\"c\") };\n"
+
+	if got, _ := QueryColumns(src, "users", len(src)); !slices.Equal(got, []string{"id", "name"}) {
+		t.Errorf("got %q, want the variable's own columns", got)
+	}
+
+	local := src + " local.users = queryNew(\"l\");\n"
+	if got, _ := QueryColumns(local, "users", len(local)); !slices.Equal(got, []string{"l"}) {
+		t.Errorf("got %q, want local.users to count", got)
+	}
+}

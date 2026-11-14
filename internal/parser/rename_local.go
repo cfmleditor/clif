@@ -361,6 +361,7 @@ func isRenameIdentByte(c byte) bool {
 // expression stands in the list's text, or -1.
 type param struct {
 	name             string
+	nameAt           int // where the name stands in the list's text
 	defStart, defEnd int
 }
 
@@ -425,7 +426,7 @@ func parseParams(text string) []param {
 				break
 			}
 
-			cur.name = t.Value
+			cur.name, cur.nameAt = t.Value, t.Offset
 		default:
 		}
 	}
