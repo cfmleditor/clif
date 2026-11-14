@@ -30,6 +30,21 @@ Declared in `Server.capabilities()` (`internal/server/server.go`):
 - `clif.searchDocs` (query, "tag" | "function" | "all", limit) and `clif.docEntry` (name, kind)
   answer the compiled-in CFML docs, so an editor can offer a documentation browser without carrying
   a copy of them (`internal/server/docs_command.go`). A name match ranks above a description match.
+- **Rename** (`internal/server/rename.go`, `parser.PlanLocalRename`; `features.rename`, opt-in): a
+  local variable of a script function, in its document. The plan is every place the function
+  writes the variable, found by walking the body's tokens with a bracket stack, so a struct key
+  (`{ x = 1 }`), a named argument (`f( x = 1 )`) and another object's member (`o.x`) are not the
+  variable, while `local.x` and a `#x#` in a string are. Closures are scopes of their own, searched
+  innermost first (`closuresAround`), so a variable a callback declares is renamed in the callback.
+  It **refuses**, with a reason, where it cannot show it has every use: the name as a string
+  (`structKeyExists( local, "x" )`, `"local.x"`), `evaluate()`, a nested function or arrow function
+  that takes or declares the name, a `catch` that binds it, CF tags in the body, an argument (a
+  caller passes it by name), or a name the function already uses. Measured over 54,000 `var`
+  declarations in real code: 44,000 planned with no range that is not the name, and applying one
+  rename per function to four corpora left every file parsing as before. The refusals are mostly
+  `var` in tag functions (7,700), names in strings (1,700) and closures that shadow.
+  Function rename and cross-file rename are not here: the references engine cannot see dynamic
+  calls, so a rename over it could leave a caller behind without saying so.
 - **Query columns** complete after `name.` when the document declares the query
   (`parser.QueryColumns`, `queryColumnItems` in `completion.go`): a `<cfquery name>` whose SELECT list
   names them, `queryNew( "a,b" )`, or `queryExecute( "SELECT a, b …" )` as a string literal, the last

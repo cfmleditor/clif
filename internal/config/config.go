@@ -539,6 +539,13 @@ type Features struct {
 	// and an editor that draws its own hints would show each twice. Turn it on
 	// with `{"features": {"inlayHints": true}}`.
 	InlayHints *bool `json:"inlayHints"`
+	// Rename answers textDocument/prepareRename and textDocument/rename for a
+	// local variable of a script function: the uses a function makes of a
+	// variable it declares with `var` or `local`, and nothing else. It refuses
+	// where it cannot show it has every use (the name in a string, `evaluate`,
+	// a closure that shadows it). Off by default: a rename edits code. Turn it
+	// on with `{"features": {"rename": true}}`.
+	Rename *bool `json:"rename"`
 }
 
 // ResolvedFeatures holds the feature switches with defaults applied.
@@ -553,6 +560,7 @@ type ResolvedFeatures struct {
 	TypeDefinition             bool
 	StructureDiagnostics       bool
 	InlayHints                 bool
+	Rename                     bool
 }
 
 // foldingDefault is on. Named rather than inlined so the tests that assert the
@@ -567,6 +575,9 @@ const structureDiagnosticsDefault = false
 
 // inlayHintsDefault is off, for the reason the field gives.
 const inlayHintsDefault = false
+
+// renameDefault is off, for the reason the field gives.
+const renameDefault = false
 
 // ResolveFeatures applies the defaults for a `features` block: absent means
 // every feature is on except typeDefinition, which is opt-in for the reason
@@ -594,6 +605,7 @@ func ResolveFeatures(f *Features) ResolvedFeatures {
 		TypeDefinition:             BoolDefault(f.TypeDefinition, typeDefinitionDefault),
 		StructureDiagnostics:       BoolDefault(f.StructureDiagnostics, structureDiagnosticsDefault),
 		InlayHints:                 BoolDefault(f.InlayHints, inlayHintsDefault),
+		Rename:                     BoolDefault(f.Rename, renameDefault),
 	}
 }
 
@@ -1181,6 +1193,7 @@ func mergeFeatures(base, over *Features) *Features {
 		{&out.TypeDefinition, &over.TypeDefinition},
 		{&out.StructureDiagnostics, &over.StructureDiagnostics},
 		{&out.InlayHints, &over.InlayHints},
+		{&out.Rename, &over.Rename},
 	} {
 		if *f.src != nil {
 			*f.dst = *f.src

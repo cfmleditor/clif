@@ -4,6 +4,8 @@
 
 ### Added
 
+- **Rename a local variable** (`features.rename`, off by default). `textDocument/prepareRename` and `rename` on a variable a script function declares with `var` or `local`: every use in the function, including `local.x`, a closure's use of it and a `#x#` in a string; not a struct key, a named argument or another object's member. It refuses, with a reason, an argument, a name the function also uses in a string or with `evaluate`, one a closure or arrow function shadows, and a new name that is reserved or already taken.
+
 - **Query column completion.** After `name.`, and inside `#name.` in a `<cfoutput>`, a query the document declares offers its columns, then `recordCount`, `currentRow` and `columnList`: from a `<cfquery name>` whose SELECT names them (aliases, `table.column`, quoted names), `queryNew( "a,b" )`, or `queryExecute( "SELECT … " )` with a literal string. `SELECT *` offers nothing, and a column that is an expression with no alias is left out rather than guessed.
 
 - **Inlay hints** (`features.inlayHints`, off by default): a component's own dot path beside its declaration, `Path: (models.User)`.
