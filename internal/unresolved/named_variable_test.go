@@ -215,3 +215,30 @@ func TestUTF16IsAnalysedAndBinaryIsSkipped(t *testing.T) {
 		t.Fatalf("want the UTF-16 file's one call on its third line and nothing from the binary, got %+v", got.Calls)
 	}
 }
+
+// The same call from a component that extends one is judged against its
+// extends chain, which does not hold the name either: Masa's components
+// extend mura.cfobject, whose include pulls the backport in.
+func TestABareCallInAComponentWithABaseToATemplateFunctionIsAccepted(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, src string) string {
+		f := filepath.Join(dir, name)
+		if err := os.WriteFile(f, []byte(src), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		return f
+	}
+
+	files := []string{
+		write("backport.cfm", "<cfscript>\ninclude '#backportdir#lucee.cfm';\n</cfscript>"),
+		write("lucee.cfm", "<cfscript>\nfunction parseXML( s ) { return xmlParse( s ); }\n</cfscript>"),
+		write("Base.cfc", "component {\n function init() { return this; }\n}"),
+	}
+	files = append(files, write("Tool.cfc", "component extends=\"Base\" {\n function go() {\n return parseXML( 'x' ) & nowhereDeclared();\n }\n}"))
+
+	got := Scan(vfs.OS{}, files, files, &Options{WorkspaceFolders: []string{dir}, InferArgs: true})
+	if len(got.Calls) != 1 || got.Calls[0].Function != "nowhereDeclared" {
+		t.Fatalf("want only nowhereDeclared reported, got %+v", got.Calls)
+	}
+}
