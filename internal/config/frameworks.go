@@ -414,6 +414,28 @@ func KnownFrameworks() []string {
 	return names
 }
 
+// RegexMatches returns the `match` of each component resolver a configuration
+// wrote as a regular expression, which is deprecated: a match with a `$1`
+// placeholder, or a framework preset, says the same without one. The built-in
+// presets never are.
+func RegexMatches(rules []Resolver) []string {
+	var out []string
+
+	for i := range rules {
+		if rules[i].Matcher == nil && parser.IsRegexMatch(rules[i].Match) {
+			out = append(out, rules[i].Match)
+		}
+	}
+
+	return out
+}
+
+// RegexMatchWarning is what is said of the matches RegexMatches found.
+func RegexMatchWarning(patterns []string) string {
+	return "componentResolvers: a match written as a regular expression (it holds a backslash) is deprecated and will stop working in a future release; " +
+		"use a $1 placeholder pattern or a framework preset instead: " + strings.Join(patterns, "  ")
+}
+
 // UnknownFrameworks returns the names in frameworks that no preset answers to,
 // so a misspelling is reported rather than silently doing nothing.
 func UnknownFrameworks(frameworks []string) []string {

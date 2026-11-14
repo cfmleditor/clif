@@ -470,6 +470,11 @@ func isRegexPattern(s string) bool {
 	return strings.Contains(s, `\`)
 }
 
+// IsRegexMatch reports whether a configuration's `match` is written as a
+// regular expression: it holds a backslash. Any other match is a plain string,
+// with `$N` placeholders where it captures, and is read without one.
+func IsRegexMatch(pattern string) bool { return isRegexPattern(pattern) }
+
 // compiledRe ensures the resolver's regex/simple-match fields are initialized.
 // Sets r.simple=true if the pattern needs no regex.
 func (r *Resolver) compiledRe() {
