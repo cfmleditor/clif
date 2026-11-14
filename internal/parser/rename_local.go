@@ -16,17 +16,25 @@ type LocalRename struct {
 	// declaration, each use, `local.name` (the name alone), and a use inside a
 	// `#...#` of a string.
 	Ranges [][2]int
-	// Taken are the lowercased names the whole function writes without a
-	// qualifier, closures and nested functions included: its arguments and
-	// locals, a catch's variable, a loop's, the variables it reads from outside
-	// (`config`) and the functions it calls. A new name from this set would
-	// capture or be captured by what the function already means by it.
-	Taken map[string]bool
+	// Taken are the lowercased names the whole function means something by
+	// without a qualifier, closures included, each with what it is: "an
+	// argument", "a variable", "a catch variable", or "a name it reads or
+	// calls", which is a variable it reads from outside (`config`) or a
+	// function it calls. A new name from this set would shadow what the
+	// function already means by it. A struct key, a named argument's label,
+	// another object's member and a type are not names it means anything by.
+	Taken map[string]string
+	// StatementStart is set when the variable is written at the start of a
+	// statement somewhere, `count = count + 1;`, where a statement word
+	// (`lock`, `param`, `thread`) would be read as that statement.
+	StatementStart bool
 }
 
-// RangeAt is the range of the variable's name at the byte offset at, or false
-// when at is not on one of the places the variable is written: it may be on
-// a struct key or another object's member that is spelled the same.
+// RangeAt is the range of the variable's name at the byte offset at, the end
+// of the name included as an editor's cursor is, or false when at is not on one
+// of the places the variable is written: it may be on a struct key or another
+// object's member that is spelled the same. Two names are never side by side
+// without a character between them, so at is on at most one range.
 func (r *LocalRename) RangeAt(at int) (start, end int, ok bool) {
 	for _, rg := range r.Ranges {
 		if at >= rg[0] && at <= rg[1] {
@@ -37,23 +45,19 @@ func (r *LocalRename) RangeAt(at int) (start, end int, ok bool) {
 	return 0, 0, false
 }
 
-// ReservedVariableNames are the words a variable may not be called: CFML's
-// scopes, the words its statements, declarations and literals are written with
-// and the modifiers a declaration takes.
-var ReservedVariableNames = map[string]bool{
-	"var": true, "function": true, "return": true, "if": true, "else": true, "for": true, "while": true,
-	"do": true, "switch": true, "case": true, "default": true, "break": true, "continue": true, "try": true,
-	"catch": true, "finally": true, "throw": true, "rethrow": true, "in": true, "new": true, "true": true,
-	"false": true, "null": true, "import": true, "include": true, "component": true, "interface": true,
-	"property": true, "param": true, "lock": true, "transaction": true, "thread": true, "abort": true,
-	"exit": true, "savecontent": true, "trace": true, "assert": true, "abstract": true, "final": true,
-	"static": true, "public": true, "private": true, "package": true, "remote": true, "required": true,
-	"local": true, "arguments": true, "variables": true, "this": true, "super": true, "application": true,
-	"session": true, "request": true, "server": true, "url": true, "form": true, "cgi": true, "cookie": true,
-	"client": true, "cfthread": true, "and": true, "or": true, "not": true, "xor": true, "eq": true,
-	"neq": true, "is": true, "gt": true, "lt": true, "gte": true, "lte": true, "ge": true, "le": true,
-	"mod": true, "contains": true, "eqv": true, "imp": true,
-}
+// What a taken name is, strongest first: a name taken as an argument stays so
+// when it is also read.
+const (
+	takenArgument = "an argument"
+	takenLocal    = "a variable"
+	takenCatch    = "a catch variable"
+	// TakenReadOrCalled is what LocalRename.Taken says of a name the function
+	// reads from outside or calls, as against one it declares.
+	TakenReadOrCalled = "a name it reads or calls"
+	takenOther        = TakenReadOrCalled
+)
+
+var takenRank = map[string]int{takenArgument: 3, takenLocal: 2, takenCatch: 1, takenOther: 0}
 
 // ErrNotRenameable is wrapped by every refusal of PlanLocalRename. A rename of
 // a variable is a change to code the server cannot run, so it makes only the
@@ -91,11 +95,11 @@ func PlanLocalRename(content string, spans []FunctionSpan, at int) (*LocalRename
 			continue
 		}
 
-		if err == nil {
+		if err == nil && (sc.body != owner.Body || sc.bodyEnd != owner.BodyEnd) {
 			// A closure's variable is renamed among the names of the whole
 			// function around it, whose own variables it reads.
-			for name := range mentionedNames(content, owner) {
-				plan.Taken[name] = true
+			for name, why := range mentionedNames(content, spans, owner) {
+				takeName(plan.Taken, name, why)
 			}
 		}
 
@@ -136,16 +140,12 @@ func planScope(content string, spans []FunctionSpan, sc renameScope, at int) (*L
 		return nil, refuse("the function holds CF tags")
 	}
 
-	args := paramNames(sc.params)
-	if slices.Contains(args, strings.ToLower(name)) {
+	if slices.Contains(paramNames(sc.params), strings.ToLower(name)) {
 		return nil, refuse("'" + name + "' is an argument, which callers pass by name")
 	}
 
-	w := &renameWalk{name: name, taken: map[string]bool{}, nested: nestedRanges(spans, sc.body, sc.bodyEnd)}
-	for _, a := range args {
-		w.taken[a] = true
-	}
-
+	w := &renameWalk{name: name, taken: map[string]string{}, nested: nestedRanges(spans, sc.body, sc.bodyEnd)}
+	w.params(sc.params, sc.paramsAt)
 	w.walk(body, sc.body, false)
 
 	switch {
@@ -159,7 +159,7 @@ func planScope(content string, spans []FunctionSpan, sc renameScope, at int) (*L
 
 	slices.SortFunc(w.ranges, func(a, b [2]int) int { return a[0] - b[0] })
 
-	return &LocalRename{Name: name, Ranges: w.ranges, Taken: w.taken}, nil
+	return &LocalRename{Name: name, Ranges: w.ranges, Taken: w.taken, StatementStart: w.statementStart}, nil
 }
 
 // closuresAround are the anonymous functions written in owner's body whose
@@ -304,27 +304,44 @@ func isRenameIdentByte(c byte) bool {
 	return c == '_' || c == '$' || c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
 }
 
-// paramNames are the lowercased argument names of a parameter list, inside
-// its parentheses: for each one up to a default, its last word.
-func paramNames(params string) []string {
+// param is one parameter of a list: its name, and where its default
+// expression stands in the list's text, or -1.
+type param struct {
+	name             string
+	defStart, defEnd int
+}
+
+// parseParams reads a parameter list, inside its parentheses. Each parameter's
+// name is its last word before a default: what comes before it is its type and
+// modifiers.
+func parseParams(text string) []param {
+	var toks []Token
+
+	sc := NewScriptScanner(text)
+	for t := sc.NextSkipComments(); t.Kind != TokEOF; t = sc.NextSkipComments() {
+		toks = append(toks, t)
+	}
+
 	var (
-		names []string
-		last  string
+		out   []param
 		depth int
+		cur   = param{defStart: -1, defEnd: -1}
 		inDef bool
 	)
 
-	flush := func() {
-		if last != "" {
-			names = append(names, strings.ToLower(last))
+	flush := func(end int) {
+		if cur.name != "" {
+			if inDef {
+				cur.defEnd = end
+			}
+
+			out = append(out, cur)
 		}
 
-		last, inDef = "", false
+		cur, inDef = param{defStart: -1, defEnd: -1}, false
 	}
 
-	sc := NewScriptScanner(params)
-
-	for t := sc.NextSkipComments(); t.Kind != TokEOF; t = sc.NextSkipComments() {
+	for i, t := range toks {
 		switch t.Kind {
 		case TokLParen, TokLBracket, TokLBrace:
 			depth++
@@ -332,21 +349,33 @@ func paramNames(params string) []string {
 			depth--
 		case TokComma:
 			if depth == 0 {
-				flush()
+				flush(t.Offset)
 			}
 		case TokEquals:
-			if depth == 0 {
-				inDef = true
+			if depth == 0 && !inDef && !equalsPair(toks, i) && i+1 < len(toks) {
+				inDef, cur.defStart = true, toks[i+1].Offset
 			}
 		case TokIdent:
 			if depth == 0 && !inDef {
-				last = t.Value
+				cur.name = t.Value
 			}
 		default:
 		}
 	}
 
-	flush()
+	flush(len(text))
+
+	return out
+}
+
+// paramNames are the lowercased argument names of a parameter list.
+func paramNames(params string) []string {
+	parsed := parseParams(params)
+	names := make([]string, 0, len(parsed))
+
+	for _, p := range parsed {
+		names = append(names, strings.ToLower(p.name))
+	}
 
 	return names
 }
@@ -365,17 +394,39 @@ const (
 )
 
 type rnFrame struct {
-	kind    renameBracket
-	ternary int // `?` seen at this level, not yet matched by its `:`
+	kind      renameBracket
+	ternary   int  // `?` seen at this level, not yet matched by its `:`
+	inDefault bool // in a parameter list, after the `=` of a default
 }
 
 type renameWalk struct {
-	name     string
-	taken    map[string]bool
-	nested   [][2]int
-	ranges   [][2]int
-	declared bool
-	err      error
+	name           string
+	taken          map[string]string
+	nested         [][2]int
+	ranges         [][2]int
+	declared       bool
+	statementStart bool
+	// mentionOnly collects the names the text means something by and renames
+	// nothing, so it refuses nothing: it reads a function around the one being
+	// renamed.
+	mentionOnly bool
+	err         error
+}
+
+// fail refuses the rename for why, unless the walk only collects names.
+func (w *renameWalk) fail(why string) {
+	if !w.mentionOnly && w.err == nil {
+		w.err = refuse(why)
+	}
+}
+
+// take records that the function means something by name, which is why.
+func (w *renameWalk) take(name, why string) { takeName(w.taken, strings.ToLower(name), why) }
+
+func takeName(taken map[string]string, name, why string) {
+	if cur, ok := taken[name]; !ok || takenRank[why] > takenRank[cur] {
+		taken[name] = why
+	}
 }
 
 // notCalls are the words that may stand before a ( without calling anything.
@@ -404,6 +455,9 @@ type bracketState struct {
 	fnDepth   int  // closure bodies open
 	pendFunc  bool // a `function` was read; its parameter list is next
 	pendBrace bool // its parameters are closed; its body brace is next
+	// types are the tokens that are a type, `string` in `var string s`, which
+	// is no name the function uses.
+	types map[int]bool
 }
 
 func (b *bracketState) top() *rnFrame {
@@ -488,7 +542,7 @@ func (w *renameWalk) walk(text string, base int, hash bool) {
 		toks = append(toks, t)
 	}
 
-	var st bracketState
+	st := bracketState{types: map[int]bool{}}
 
 	for i, t := range toks {
 		if w.err != nil {
@@ -512,6 +566,10 @@ func (w *renameWalk) walk(text string, base int, hash bool) {
 			if f := st.top(); f != nil && f.ternary > 0 {
 				f.ternary--
 			}
+		case TokComma:
+			if f := st.top(); f != nil {
+				f.inDefault = false
+			}
 		case TokString:
 			w.checkString(t, base)
 		case TokIdent:
@@ -520,6 +578,10 @@ func (w *renameWalk) walk(text string, base int, hash bool) {
 			// `=>` makes an arrow function: the parameters before it are its own.
 			if i+1 < len(toks) && toks[i+1].Kind == TokGT && toks[i+1].Offset == t.Offset+1 {
 				w.arrowParams(toks, i)
+			}
+
+			if f := st.top(); f != nil && f.kind == rnParams && !equalsPair(toks, i) {
+				f.inDefault = true
 			}
 		default:
 		}
@@ -558,13 +620,17 @@ func (w *renameWalk) word(toks []Token, i int, st *bracketState, base int) {
 			st.pendFunc = true
 		}
 	case "evaluate", "precisionevaluate":
-		w.err = refuse("the function calls " + t.Value + "(), which reads variables by name")
+		w.fail("the function calls " + t.Value + "(), which reads variables by name")
 
 		return
 	case "var":
-		w.declaration(toks, i, st.fnDepth)
+		w.declaration(toks, i, st)
 	case "catch":
-		w.catchVariable(toks, i)
+		w.catchVariable(toks, i, st)
+	}
+
+	if st.types[i] {
+		return
 	}
 
 	// The word between `function` and ( is the nested function's name.
@@ -572,33 +638,109 @@ func (w *renameWalk) word(toks []Token, i int, st *bracketState, base int) {
 		return
 	}
 
-	if f := st.top(); f != nil && f.kind == rnParams {
-		// An argument of a function inside this one, or a default it gives.
-		if strings.EqualFold(t.Value, w.name) && next.Kind != TokDot {
-			w.err = refuse("a function inside this one takes '" + w.name + "' as its own argument")
-
-			return
-		}
-
-		if next.Kind != TokEquals || equalsPair(toks, i+1) {
-			w.taken[lower] = true
-		}
+	if f := st.top(); f != nil && f.kind == rnParams && !f.inDefault {
+		w.nestedParameter(toks, i)
 
 		return
 	}
 
+	switch classifyWord(toks, i, st) {
+	case wordOther:
+		return
+	case wordLocal:
+		// `local.x = …` declares it.
+		why := takenOther
+		if next.Kind == TokEquals && !equalsPair(toks, i+1) {
+			why = takenLocal
+		}
+
+		w.take(t.Value, why)
+	default:
+		w.take(t.Value, takenOther)
+	}
+
 	if strings.EqualFold(t.Value, w.name) {
-		w.occurrence(toks, i, st.stack, st.fnDepth, base)
+		w.occurrence(toks, i, st, base)
 	}
 }
 
+// nestedParameter reads the word toks[i] of a parameter list of a function
+// inside this one: a parameter's name stands before a comma, a default or the
+// end; what stands before that is its type and modifiers.
+func (w *renameWalk) nestedParameter(toks []Token, i int) {
+	t := toks[i]
+
+	if i+1 < len(toks) && (toks[i+1].Kind == TokIdent || toks[i+1].Kind == TokDot) {
+		return // a type or a modifier
+	}
+
+	if strings.EqualFold(t.Value, w.name) {
+		w.fail("a function inside this one takes '" + w.name + "' as its own argument")
+
+		return
+	}
+
+	w.take(t.Value, takenArgument)
+}
+
+// wordKind is what an identifier is in the text around it.
+type wordKind uint8
+
+const (
+	// wordPlain is a name the text means something by: a variable, or a
+	// function it calls.
+	wordPlain wordKind = iota
+	// wordLocal is `local.name`: the local variable, written with its scope.
+	wordLocal
+	// wordOther is a word that is no variable of this function: another
+	// object's member, a struct key, a named argument's label, or a type.
+	wordOther
+)
+
+// classifyWord says what the identifier toks[i] is.
+func classifyWord(toks []Token, i int, st *bracketState) wordKind {
+	if i > 0 {
+		switch prev := toks[i-1]; {
+		case prev.Kind == TokDoubleColon:
+			return wordOther
+		case prev.Kind == TokDot:
+			// `a.x` is another object's; `local.x` is the variable's.
+			if i >= 2 && toks[i-2].Kind == TokIdent && strings.EqualFold(toks[i-2].Value, "local") {
+				return wordLocal
+			}
+
+			return wordOther
+		case prev.Kind == TokIdent && strings.EqualFold(prev.Value, "new"):
+			return wordOther // `new Foo()` names a type
+		}
+	}
+
+	if i+1 < len(toks) {
+		var f *rnFrame
+		if len(st.stack) > 0 {
+			f = &st.stack[len(st.stack)-1]
+		}
+
+		switch next := toks[i+1]; {
+		case next.Kind == TokEquals && !equalsPair(toks, i+1) && f != nil &&
+			(f.kind == rnCall || f.kind == rnStruct || f.kind == rnParams):
+			// `f( x = 1 )` and `{ x = 1 }` name an argument and a key.
+			return wordOther
+		case next.Kind == TokColon && f != nil && f.ternary == 0 && (f.kind == rnStruct || f.kind == rnCall):
+			return wordOther
+		}
+	}
+
+	return wordPlain
+}
+
 // declaration reads the variable `var` at toks[i] declares and files it.
-func (w *renameWalk) declaration(toks []Token, i, fnDepth int) {
+func (w *renameWalk) declaration(toks []Token, i int, st *bracketState) {
 	if i > 0 && toks[i-1].Kind == TokDot {
 		return
 	}
 
-	var last Token
+	last := -1
 
 	for j := i + 1; j < len(toks); j++ {
 		t := toks[j]
@@ -610,18 +752,24 @@ func (w *renameWalk) declaration(toks []Token, i, fnDepth int) {
 			break
 		}
 
-		last = t
+		last = j
 	}
 
-	if last.Value == "" {
+	if last < 0 {
 		return
 	}
 
-	w.taken[strings.ToLower(last.Value)] = true
+	// What stands before the name is the declaration's type.
+	for j := i + 1; j < last; j++ {
+		st.types[j] = true
+	}
 
-	if strings.EqualFold(last.Value, w.name) {
-		if fnDepth > 0 {
-			w.err = refuse("a function inside this one declares '" + w.name + "' for itself")
+	name := toks[last].Value
+	w.take(name, takenLocal)
+
+	if strings.EqualFold(name, w.name) {
+		if st.fnDepth > 0 {
+			w.fail("a function inside this one declares '" + w.name + "' for itself")
 
 			return
 		}
@@ -630,14 +778,29 @@ func (w *renameWalk) declaration(toks []Token, i, fnDepth int) {
 	}
 }
 
-// catchVariable refuses a name a catch binds: `catch ( any e )`.
-func (w *renameWalk) catchVariable(toks []Token, i int) {
-	for j := i + 1; j < len(toks) && toks[j].Kind != TokRParen; j++ {
-		if toks[j].Kind == TokIdent && strings.EqualFold(toks[j].Value, w.name) {
-			w.err = refuse("'" + w.name + "' is also what a catch binds")
+// catchVariable reads `catch ( any e )`: its last word is the variable it
+// binds, which a rename of the same name is refused, and the rest is its type.
+func (w *renameWalk) catchVariable(toks []Token, i int, st *bracketState) {
+	last := -1
 
-			return
+	for j := i + 1; j < len(toks) && toks[j].Kind != TokRParen; j++ {
+		if toks[j].Kind == TokIdent {
+			last = j
 		}
+	}
+
+	if last < 0 {
+		return
+	}
+
+	for j := i + 1; j < last; j++ {
+		st.types[j] = true
+	}
+
+	w.take(toks[last].Value, takenCatch)
+
+	if strings.EqualFold(toks[last].Value, w.name) {
+		w.fail("'" + w.name + "' is also what a catch binds")
 	}
 }
 
@@ -657,7 +820,7 @@ func (w *renameWalk) arrowParams(toks []Token, i int) {
 
 	for _, t := range toks[lo:i] {
 		if t.Kind == TokIdent && strings.EqualFold(t.Value, w.name) {
-			w.err = refuse("an arrow function inside this one takes '" + w.name + "' as its own argument")
+			w.fail("an arrow function inside this one takes '" + w.name + "' as its own argument")
 
 			return
 		}
@@ -674,12 +837,14 @@ func (w *renameWalk) checkString(t Token, base int) {
 	inner := stringContent(t.Value)
 	lower := strings.ToLower(strings.TrimSpace(inner))
 
-	switch lower {
-	case strings.ToLower(w.name), "local." + strings.ToLower(w.name), "arguments." + strings.ToLower(w.name):
-		w.err = refuse("the function names '" + w.name + "' in a string, where no rename can follow it")
+	if w.name != "" {
+		switch lower {
+		case strings.ToLower(w.name), "local." + strings.ToLower(w.name), "arguments." + strings.ToLower(w.name):
+			w.fail("the function names '" + w.name + "' in a string, where no rename can follow it")
 
-		return
-	default:
+			return
+		default:
+		}
 	}
 
 	for _, seg := range hashSegments(inner) {
@@ -687,43 +852,38 @@ func (w *renameWalk) checkString(t Token, base int) {
 	}
 }
 
-// occurrence files toks[i], a word that is the variable's name, when it is the
-// variable and not a key or an argument's label.
-func (w *renameWalk) occurrence(toks []Token, i int, stack []rnFrame, fnDepth, base int) {
+// occurrence files toks[i], a word that is the variable's name and is the
+// variable, not a key, a label or another object's member.
+func (w *renameWalk) occurrence(toks []Token, i int, st *bracketState, base int) {
 	t := toks[i]
 
-	if i > 0 && toks[i-1].Kind == TokDot {
-		// `a.x` is another object's; `local.x` is the variable's.
-		if i < 2 || toks[i-2].Kind != TokIdent || !strings.EqualFold(toks[i-2].Value, "local") {
-			return
-		}
-
-		if i+1 < len(toks) && toks[i+1].Kind == TokEquals && !equalsPair(toks, i+1) && fnDepth == 0 {
-			w.declared = true
-		}
-	} else if i > 0 && toks[i-1].Kind == TokDoubleColon {
-		return
+	if i > 0 && toks[i-1].Kind == TokDot && i+1 < len(toks) && toks[i+1].Kind == TokEquals && !equalsPair(toks, i+1) && st.fnDepth == 0 {
+		w.declared = true // `local.x = …` declares it
 	}
 
-	if i+1 < len(toks) {
-		next := toks[i+1]
-
-		var f *rnFrame
-		if len(stack) > 0 {
-			f = &stack[len(stack)-1]
-		}
-
-		switch {
-		case next.Kind == TokEquals && !equalsPair(toks, i+1) && f != nil &&
-			(f.kind == rnCall || f.kind == rnStruct || f.kind == rnParams):
-			// `f( x = 1 )` and `{ x = 1 }` name an argument and a key.
-			return
-		case next.Kind == TokColon && f != nil && f.ternary == 0 && (f.kind == rnStruct || f.kind == rnCall):
-			return
-		}
+	if startsStatement(toks, i, st) {
+		w.statementStart = true
 	}
 
 	w.ranges = append(w.ranges, [2]int{base + t.Offset, base + t.Offset + len(t.Value)})
+}
+
+// startsStatement reports whether the word toks[i] is the first of a
+// statement: after a `;`, a block's `{` or a `}`, or the start of a function's
+// body.
+func startsStatement(toks []Token, i int, st *bracketState) bool {
+	if i == 0 {
+		return len(st.stack) == 0 || st.stack[len(st.stack)-1].kind != rnStruct
+	}
+
+	switch toks[i-1].Kind {
+	case TokSemicolon, TokRBrace:
+		return true
+	case TokLBrace:
+		return len(st.stack) > 0 && st.stack[len(st.stack)-1].kind != rnStruct
+	default:
+		return false
+	}
 }
 
 // equalsPair reports whether the `=` at toks[i] is half of `==`.
@@ -732,61 +892,53 @@ func equalsPair(toks []Token, i int) bool {
 		i > 0 && toks[i-1].Kind == TokEquals && toks[i-1].Offset+1 == toks[i].Offset
 }
 
-// mentionedNames are the lowercased names the function writes without a
-// qualifier, anywhere in its parameters and body: a name a variable renamed to
-// one of them would shadow, or be shadowed by.
-func mentionedNames(content string, owner *FunctionSpan) map[string]bool {
-	out := map[string]bool{}
+// mentionedNames are the names the function means something by, anywhere in
+// its parameters and body, each with what it is: found by the same walk as a
+// rename's, so a key, a label, a member and a type are not among them.
+func mentionedNames(content string, spans []FunctionSpan, owner *FunctionSpan) map[string]string {
+	w := &renameWalk{mentionOnly: true, taken: map[string]string{}, nested: nestedRanges(spans, owner.Body, owner.BodyEnd)}
 
-	collectMentions(owner.ParamsText(content), out)
-	collectMentions(content[owner.Body:owner.BodyEnd], out)
+	w.params(owner.ParamsText(content), owner.Params)
+	w.walk(content[owner.Body:owner.BodyEnd], owner.Body, false)
 
-	return out
+	return w.taken
 }
 
-// collectMentions adds to out the names text writes unqualified, those in a
-// string's `#...#` included. `a.b` is `b` of another object, and `local.b` is
-// the local variable b.
-func collectMentions(text string, out map[string]bool) {
-	var toks []Token
+// params files the parameters of a list: their names, and the names their
+// defaults use.
+func (w *renameWalk) params(text string, base int) {
+	for _, p := range parseParams(text) {
+		w.take(p.name, takenArgument)
 
-	sc := NewScriptScanner(text)
-	for t := sc.NextSkipComments(); t.Kind != TokEOF; t = sc.NextSkipComments() {
-		toks = append(toks, t)
-	}
-
-	for i, t := range toks {
-		switch t.Kind {
-		case TokIdent:
-			if i > 0 && toks[i-1].Kind == TokDoubleColon {
-				continue
-			}
-
-			if i > 0 && toks[i-1].Kind == TokDot && (i < 2 || toks[i-2].Kind != TokIdent || !strings.EqualFold(toks[i-2].Value, "local")) {
-				continue
-			}
-
-			out[strings.ToLower(t.Value)] = true
-		case TokString:
-			inner := stringContent(t.Value)
-			for _, seg := range hashSegments(inner) {
-				collectMentions(inner[seg[0]:seg[1]], out)
-			}
-		default:
+		if p.defStart >= 0 && p.defEnd > p.defStart {
+			w.walk(text[p.defStart:p.defEnd], base+p.defStart, true)
 		}
 	}
 }
 
-// stringContent is the text of a string token without its quotes. A string cut
-// off by the end of the text, as one is while it is being typed, has no
-// closing quote to drop.
+// stringContent is the text of a string token without its quotes. The string
+// ends at the first quote that is not doubled, which is an escaped one; a string
+// cut off by the end of the text, as one is while it is being typed, has no
+// closing quote, and keeps its last character.
 func stringContent(tok string) string {
 	if tok == "" {
 		return ""
 	}
 
-	if len(tok) >= 2 && tok[len(tok)-1] == tok[0] {
-		return tok[1 : len(tok)-1]
+	q := tok[0]
+
+	for i := 1; i < len(tok); i++ {
+		if tok[i] != q {
+			continue
+		}
+
+		if i+1 < len(tok) && tok[i+1] == q {
+			i++
+
+			continue
+		}
+
+		return tok[1:i]
 	}
 
 	return tok[1:]

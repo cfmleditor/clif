@@ -39,10 +39,14 @@ Declared in `Server.capabilities()` (`internal/server/server.go`):
   It **refuses**, with a reason, where it cannot show it has every use: the name as a string
   (`structKeyExists( local, "x" )`, `"local.x"`), `evaluate()`, a nested function or arrow function
   that takes or declares the name, a `catch` that binds it, CF tags in the body, an argument (a
-  caller passes it by name), or a new name the function already writes without a qualifier
-  (`LocalRename.Taken`: every unqualified name in the whole function, closures and parameters' defaults
-  included, so a variable it reads from outside or a function it calls counts, and a closure's
-  variable is checked against the function around it). A request whose cursor is not on one of the
+  caller passes it by name), or a new name that is reserved (`hardReserved` in `rename.go`), a statement
+  word (`statementWords`: `lock`, `param`, … fine where an expression stands, refused when
+  `LocalRename.StatementStart` says the variable is written as a statement's first word) or one the
+  function already means something by (`LocalRename.Taken`: name to what it is, so the refusal says
+  which). `Taken` comes from the same walk that finds the ranges (`classifyWord`), so a struct key, a
+  named argument's label, another object's member and a type (`new Foo()`, `var string s`,
+  `catch ( any e )`, a parameter's type) are not in it, and a closure's variable is checked against
+  the function around it too (`mentionedNames`). A request whose cursor is not on one of the
   plan's ranges, a struct key or `o.x` spelled like the variable, is refused too. Measured over 54,000 `var`
   declarations in real code: 44,000 planned with no range that is not the name, and applying one
   rename per function to four corpora left every file parsing as before. The refusals are mostly

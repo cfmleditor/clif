@@ -100,7 +100,7 @@ func TestPlanLocalRenameRefuses(t *testing.T) {
 }
 
 func TestPlanLocalRenameTaken(t *testing.T) {
-	src := "component {\n function f( a, b = 1 ) {\n  var ¦x = 1;\n  var y = 2;\n  local.z = 3;\n  g( function( q ) {} );\n }\n}"
+	src := "component {\n function f( a, string b = limit ) {\n  var ¦x = 1;\n  var numeric y = 2;\n  local.z = 3;\n  var o = new Widget();\n  var s = { key: 1, other = 2 };\n  g( label = 3, o.member, local.w );\n  try { run(); } catch ( any err ) { log( err ); }\n  for ( k in a ) { z += k; }\n  g( function( string q, r = cap ) {} );\n  return helper( x ) + config.size;\n }\n}"
 	at := strings.Index(src, "¦")
 	content := src[:at] + src[at+len("¦"):]
 
@@ -109,9 +109,110 @@ func TestPlanLocalRenameTaken(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, n := range []string{"a", "b", "x", "y", "q"} {
-		if !plan.Taken[n] {
-			t.Errorf("%q is not among the names the function uses: %v", n, plan.Taken)
+	// What the function means by each name, and what that is.
+	want := map[string]string{
+		"a": takenArgument, "b": takenArgument, "limit": TakenReadOrCalled,
+		"x": takenLocal, "y": takenLocal, "z": takenLocal, "o": takenLocal, "s": takenLocal, "w": TakenReadOrCalled,
+		"err": takenCatch, "k": TakenReadOrCalled, "q": takenArgument, "r": takenArgument, "cap": TakenReadOrCalled,
+		"helper": TakenReadOrCalled, "config": TakenReadOrCalled, "run": TakenReadOrCalled, "g": TakenReadOrCalled,
+	}
+	for name, why := range want {
+		if plan.Taken[name] != why {
+			t.Errorf("%q is %q, want %q", name, plan.Taken[name], why)
+		}
+	}
+
+	// Not names the function means anything by: a type, a key, a label, another
+	// object's member.
+	for _, name := range []string{"string", "numeric", "any", "widget", "key", "other", "label", "member", "size"} {
+		if why, taken := plan.Taken[name]; taken {
+			t.Errorf("%q is taken as %q, though it is a type, key, label or member", name, why)
+		}
+	}
+}
+
+// A closure's variable is renamed among the names of the function around it,
+// the same way as a function's own: one walk finds them for both.
+func TestPlanLocalRenameOfAClosureCountsTheFunctionAroundIt(t *testing.T) {
+	src := "component {\n function f( l, count ) {\n  var total = config.size;\n  l.each( function( i ) {\n   var ¦u = i + total;\n   return u;\n  } );\n }\n}"
+	at := strings.Index(src, "¦")
+	content := src[:at] + src[at+len("¦"):]
+
+	plan, err := PlanLocalRename(content, FunctionSpansOf("t.cfc", content), at)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for name, why := range map[string]string{"i": takenArgument, "u": takenLocal, "total": TakenReadOrCalled, "count": takenArgument, "config": TakenReadOrCalled} {
+		if plan.Taken[name] == "" {
+			t.Errorf("%q is not taken, want %q", name, why)
+		}
+	}
+
+	// The strongest thing a name is wins: `total` is the outer variable, read
+	// in the closure too.
+	if plan.Taken["total"] != takenLocal {
+		t.Errorf("total is %q, want %q", plan.Taken["total"], takenLocal)
+	}
+}
+
+func TestPlanLocalRenameNotesAStatementStart(t *testing.T) {
+	for _, c := range []struct {
+		name, src string
+		want      bool
+	}{
+		{"written at the start of a statement", "component {\n function f() {\n  var ¦x = 0;\n  x = x + 1;\n  return x;\n }\n}", true},
+		{"after a block's brace", "component {\n function f( a ) {\n  var ¦x = 0;\n  if ( a ) {\n   x++;\n  }\n  return x;\n }\n}", true},
+		{"after a closed block", "component {\n function f( a ) {\n  var ¦x = 0;\n  if ( a ) { g(); }\n  x = 2;\n  return g( x );\n }\n}", true},
+		{"only in expressions", "component {\n function f( a ) {\n  var ¦x = a * 2;\n  return g( x ) + x;\n }\n}", false},
+		{"first in a struct literal is no statement", "component {\n function f() {\n  var ¦x = 1;\n  return { x: x };\n }\n}", false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			at := strings.Index(c.src, "¦")
+			content := c.src[:at] + c.src[at+len("¦"):]
+
+			plan, err := PlanLocalRename(content, FunctionSpansOf("t.cfc", content), at)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if plan.StatementStart != c.want {
+				t.Errorf("StatementStart is %v, want %v", plan.StatementStart, c.want)
+			}
+		})
+	}
+}
+
+// The cursor just after the name, where an editor puts it at the end of a
+// word, is on it, and two names are never close enough to share the boundary.
+func TestRangeAtIncludesTheEndOfTheName(t *testing.T) {
+	src := "component {\n function f() {\n  var ¦x = 1;\n  return x+x;\n }\n}"
+	at := strings.Index(src, "¦")
+	content := src[:at] + src[at+len("¦"):]
+
+	plan, err := PlanLocalRename(content, FunctionSpansOf("t.cfc", content), at)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	first := strings.LastIndex(content, "x+x")
+
+	for _, c := range []struct {
+		name  string
+		at    int
+		start int
+		ok    bool
+	}{
+		{"the start of the first use", first, first, true},
+		{"just after the first use", first + 1, first, true},
+		{"the second use", first + 2, first + 2, true},
+		{"just after the second", first + 3, first + 2, true},
+		{"the space after the declaration", strings.Index(content, "x = 1") + 1, strings.Index(content, "x = 1"), true},
+		{"the keyword before it", strings.Index(content, "var x"), 0, false},
+	} {
+		start, _, ok := plan.RangeAt(c.at)
+		if ok != c.ok || ok && start != c.start {
+			t.Errorf("%s: RangeAt(%d) = %d, %v, want %d, %v", c.name, c.at, start, ok, c.start, c.ok)
 		}
 	}
 }
@@ -119,6 +220,7 @@ func TestPlanLocalRenameTaken(t *testing.T) {
 func TestStringContentOfACutOffString(t *testing.T) {
 	for in, want := range map[string]string{
 		`"abc"`: "abc", `'abc'`: "abc", `""`: "", `"abc`: "abc", `"#x#`: "#x#", `"`: "", ``: "", `'a"`: `a"`,
+		`"a""b"`: `a""b`, `"a""`: `a""`, `'it''s'`: `it''s`, `'#x#''`: `#x#''`, `"a""b`: `a""b`,
 	} {
 		if got := stringContent(in); got != want {
 			t.Errorf("stringContent(%q) = %q, want %q", in, got, want)

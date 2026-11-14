@@ -106,7 +106,7 @@ func TestRenameRefusesWhatItCannotMakeSafe(t *testing.T) {
 
 	for name, why := range map[string]string{
 		"a b": "not a valid", "": "not a valid", "1x": "not a valid", "return": "reserved", "Local": "reserved",
-		"a": "already uses", "A": "already uses",
+		"a": "already has an argument named", "A": "already has an argument named",
 	} {
 		if _, err := renameTo(t, s, docURI, 2, 8, name); err == nil || !strings.Contains(err.Error(), why) {
 			t.Errorf("renaming to %q: %v, want an error mentioning %q", name, err, why)
@@ -227,18 +227,18 @@ func TestRenameRefusesANameTheFunctionAlreadyUses(t *testing.T) {
 	for _, c := range []struct {
 		why        string
 		line, char uint32
-		to         string
+		to, said   string
 	}{
-		{"read from outside", tLine, tChar, "config"},
-		{"read in a parameter's default", tLine, tChar, "limit"},
-		{"a function it calls", tLine, tChar, "helper"},
-		{"a catch variable", tLine, tChar, "err"},
-		{"an unscoped loop variable", tLine, tChar, "k"},
-		{"a variable of the function around a closure", uLine, uChar, "total"},
-		{"an argument of the function around a closure", uLine, uChar, "items"},
+		{"read from outside", tLine, tChar, "config", "reads or calls 'config'"},
+		{"read in a parameter's default", tLine, tChar, "limit", "reads or calls 'limit'"},
+		{"a function it calls", tLine, tChar, "helper", "reads or calls 'helper'"},
+		{"a catch variable", tLine, tChar, "err", "a catch variable named 'err'"},
+		{"an unscoped loop variable", tLine, tChar, "k", "reads or calls 'k'"},
+		{"a variable of the function around a closure", uLine, uChar, "total", "a variable named 'total'"},
+		{"an argument of the function around a closure", uLine, uChar, "items", "an argument named 'items'"},
 	} {
-		if _, err := renameTo(t, s, docURI, c.line, c.char, c.to); err == nil || !strings.Contains(err.Error(), "already uses") {
-			t.Errorf("%s: renaming to %q: %v", c.why, c.to, err)
+		if _, err := renameTo(t, s, docURI, c.line, c.char, c.to); err == nil || !strings.Contains(err.Error(), c.said) {
+			t.Errorf("%s: renaming to %q: %v, want one saying %q", c.why, c.to, err, c.said)
 		}
 	}
 
@@ -247,9 +247,46 @@ func TestRenameRefusesANameTheFunctionAlreadyUses(t *testing.T) {
 		t.Errorf("an unused name: %v", err)
 	}
 
-	for _, reserved := range []string{"param", "static", "final", "abstract", "lock", "transaction", "public"} {
+	for _, reserved := range []string{"return", "Local", "true", "var", "this", "new"} {
 		if _, err := renameTo(t, s, docURI, tLine, tChar, reserved); err == nil || !strings.Contains(err.Error(), "reserved") {
 			t.Errorf("%q: %v, want it reserved", reserved, err)
+		}
+	}
+
+	// A statement word is a fine name where an expression stands: t is only
+	// ever read, never written at the start of a statement.
+	for _, word := range []string{"lock", "trace", "exit", "param", "static", "final", "public"} {
+		if _, err := renameTo(t, s, docURI, tLine, tChar, word); err != nil {
+			t.Errorf("%q for a variable that is never a statement's first word: %v", word, err)
+		}
+	}
+}
+
+// Written at the start of a statement, `count = count + a;`, a statement word
+// would be read as that statement; elsewhere it is only a name.
+func TestRenameRefusesAStatementWordWhereItWouldBeOne(t *testing.T) {
+	s, docURI := renameServer(t, renameSource)
+
+	for _, word := range []string{"lock", "param", "thread", "static", "abstract", "trace"} {
+		if _, err := renameTo(t, s, docURI, 2, 8, word); err == nil || !strings.Contains(err.Error(), "begins a statement") {
+			t.Errorf("%q: %v, want a refusal that it begins a statement", word, err)
+		}
+	}
+
+	if _, err := renameTo(t, s, docURI, 2, 8, "total"); err != nil {
+		t.Errorf("an ordinary name: %v", err)
+	}
+}
+
+// A struct key and a named argument's label are not names the function means
+// anything by: a variable is renamed to one without being refused.
+func TestRenameAllowsAKeyOrLabelName(t *testing.T) {
+	src := "component {\n\tfunction f() {\n\t\tvar t = 1;\n\t\treturn g( name = t, other: { id: t } );\n\t}\n}\n"
+	s, docURI := renameServer(t, src)
+
+	for _, name := range []string{"name", "other", "id"} {
+		if _, err := renameTo(t, s, docURI, 2, 7, name); err != nil {
+			t.Errorf("%q is only a label or a key here: %v", name, err)
 		}
 	}
 }
