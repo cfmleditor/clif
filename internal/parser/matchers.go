@@ -2,6 +2,7 @@ package parser
 
 import (
 	"strings"
+	"unicode/utf8"
 
 	"github.com/cfmleditor/clif/internal/lex"
 )
@@ -407,4 +408,64 @@ func javaClassAt(expr string, i int) (string, bool) {
 	}
 
 	return "", false
+}
+
+// placeholderGlob recognises a configuration's `match` that holds placeholders,
+// `get$1Service`, as the literal text between them with a run in place of each:
+// the fewest characters, one or more and none a newline, that let the text
+// after it be found, searched for from the left anywhere in the expression. The
+// runs are what the template's `$1`, `$2` stand for, by position.
+type placeholderGlob struct{ parts []string }
+
+func (g *placeholderGlob) String() string { return strings.Join(g.parts, "$N") }
+
+func (g *placeholderGlob) Match(expr string) ([]string, bool) {
+	for start := 0; start <= len(expr); start += runeWidth(expr, start) {
+		if start+len(g.parts[0]) > len(expr) || !strings.EqualFold(expr[start:start+len(g.parts[0])], g.parts[0]) {
+			continue
+		}
+
+		if captures, ok := g.capture(expr, 1, start+len(g.parts[0]), nil); ok {
+			return captures, true
+		}
+	}
+
+	return nil, false
+}
+
+// runeWidth is the width of the character at i, one at the end of s.
+func runeWidth(s string, i int) int {
+	if i >= len(s) {
+		return 1
+	}
+
+	_, width := utf8.DecodeRuneInString(s[i:])
+
+	return width
+}
+
+// capture reads the run before parts[i] from pos and the parts that follow,
+// the shortest run first. A run is whole characters, one or more, none a newline.
+func (g *placeholderGlob) capture(expr string, i, pos int, so []string) ([]string, bool) {
+	if i == len(g.parts) {
+		return so, true
+	}
+
+	lit := g.parts[i]
+
+	for end := pos; end < len(expr); {
+		if expr[end] == '\n' {
+			return nil, false
+		}
+
+		end += runeWidth(expr, end)
+
+		if end+len(lit) <= len(expr) && strings.EqualFold(expr[end:end+len(lit)], lit) {
+			if captures, ok := g.capture(expr, i+1, end+len(lit), append(so, expr[pos:end])); ok {
+				return captures, true
+			}
+		}
+	}
+
+	return nil, false
 }

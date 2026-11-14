@@ -454,6 +454,7 @@ type Resolver struct {
 	// the expression in code (Matcher), where a configuration's own is a string.
 	Matcher Matcher
 	re      *regexp.Regexp // compiled regex, lazily initialized
+	glob    Matcher        // the pattern's placeholders read as a glob, lazily initialized
 	simple  bool           // true if pattern is a plain string (no regex, no $N)
 	reOnce  sync.Once
 	// Precomputed for simple matches
@@ -500,24 +501,7 @@ func (r *Resolver) compiledRe() {
 				r.re = re
 			}
 		default:
-			parts := splitPlaceholders(pattern)
-
-			var b strings.Builder
-
-			b.WriteString("(?i)")
-
-			for i, part := range parts {
-				b.WriteString(regexp.QuoteMeta(part))
-
-				if i < len(parts)-1 {
-					b.WriteString(`(.+?)`)
-				}
-			}
-
-			re, err := regexp.Compile(b.String())
-			if err == nil {
-				r.re = re
-			}
+			r.glob = &placeholderGlob{parts: splitPlaceholders(pattern)}
 		}
 	})
 }
@@ -1188,6 +1172,15 @@ func matchResolverWithCache(expr string, r *Resolver) string {
 
 	if r.simple {
 		return simpleMatch(expr, r)
+	}
+
+	if r.glob != nil {
+		captures, ok := r.glob.Match(expr)
+		if !ok {
+			return ""
+		}
+
+		return filledResolve(r.Resolve, captures)
 	}
 
 	if r.re == nil {
