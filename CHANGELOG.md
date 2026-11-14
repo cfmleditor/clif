@@ -105,6 +105,8 @@
 
 ### Fixed
 
+- **An editor no longer grows with every keystroke outside a function.** The reparse such an edit runs reset the functions, refs and scopes but not the parse's properties or instantiations, so each one listed them again and the refs made from the properties grew with them: about 27 KB of heap per keystroke, 72 MB after 2,400 (155 MB resident). A parse reparsed after an edit now holds what a fresh parse of the text does (a test compares every slice and map field, for a script and a tag component); the same session ends at 13 MB (44 MB resident).
+
 - **A bare call to a function an included template declares is accepted from a component with a base, too.** The rule covered `no qualifier, not in file`; a component that extends another reaches `not found in extends chain` for the same call, so Masa's `parseXML` and `logError` (declared in `backport/lucee.cfm`, included from `cfobject.cfc`) were reported. MasaCMS 147 to 138 findings and cfwheels 447 to 442 (`model()` in a controller template, declared by the mixin `global/objects.cfm`); the other six corpora are unchanged.
 
 - **A chained call that passes arguments is no longer matched as the call with none.** A chain hop was matched against the componentResolvers as `name()` whatever it passed, so `$.event( "requester" ).getEmail()` was typed as `$.event()`, the event object, and reported as a method missing from it. The hop's call as written is matched when it has arguments, which is what the Mura preset's `event()`, `siteConfig()` and `content()` rules assume. MasaCMS 138 to 129 findings; coldbox-platform 190 to 189 (`getInstance( "X" )` now matches the id resolver); the other six corpora are unchanged.
