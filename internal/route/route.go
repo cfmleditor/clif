@@ -19,7 +19,6 @@ package route
 
 import (
 	"fmt"
-	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -139,8 +138,103 @@ type segRef struct {
 	search bool   // try every later start point too, longest first
 }
 
-// tmplRx matches ${N}, ${N+}, ${N-M}, each with an optional :mode suffix.
-var tmplRx = regexp.MustCompile(`\$\{(\d+)(\+|-\d+)?(?::([a-z]+))?\}`)
+// tmplRefAt reads one reference, ${N}, ${N+} or ${N-M}, each with an optional
+// :mode suffix, at the start of s, as the expression
+//
+//	\$\{(\d+)(\+|-\d+)?(?::([a-z]+))?\}
+//
+// matched there. It answers the indexes FindStringSubmatchIndex did, relative
+// to s: the whole reference, the first segment, the span and the mode, the
+// last two -1 when absent; nil when s does not begin with one.
+func tmplRefAt(s string) []int {
+	if !strings.HasPrefix(s, "${") {
+		return nil
+	}
+
+	first := len("${")
+	i := first
+
+	for i < len(s) && s[i] >= '0' && s[i] <= '9' {
+		i++
+	}
+
+	if i == first {
+		return nil
+	}
+
+	ref := []int{0, 0, first, i, -1, -1, -1, -1}
+
+	// A span is `+`, or `-` and the segment it runs to.
+	switch {
+	case i < len(s) && s[i] == '+':
+		ref[4], ref[5] = i, i+1
+		i++
+	case i+1 < len(s) && s[i] == '-' && s[i+1] >= '0' && s[i+1] <= '9':
+		end := i + 1
+		for end < len(s) && s[end] >= '0' && s[end] <= '9' {
+			end++
+		}
+
+		ref[4], ref[5] = i, end
+		i = end
+	}
+
+	if i < len(s) && s[i] == ':' {
+		end := i + 1
+		for end < len(s) && s[end] >= 'a' && s[end] <= 'z' {
+			end++
+		}
+
+		if end == i+1 {
+			return nil
+		}
+
+		ref[6], ref[7] = i+1, end
+		i = end
+	}
+
+	if i >= len(s) || s[i] != '}' {
+		return nil
+	}
+
+	ref[1] = i + 1
+
+	return ref
+}
+
+// tmplRefs is every reference in tmpl, in order and not overlapping, as
+// FindAllStringSubmatchIndex of the expression answered: the indexes
+// tmplRefAt gives, in tmpl.
+func tmplRefs(tmpl string) [][]int {
+	var out [][]int
+
+	for i := 0; i < len(tmpl); {
+		at := strings.Index(tmpl[i:], "${")
+		if at < 0 {
+			break
+		}
+
+		i += at
+
+		ref := tmplRefAt(tmpl[i:])
+		if ref == nil {
+			i++
+
+			continue
+		}
+
+		for k := range ref {
+			if ref[k] >= 0 {
+				ref[k] += i
+			}
+		}
+
+		out = append(out, ref)
+		i = ref[1]
+	}
+
+	return out
+}
 
 // expandAll returns every candidate a template produces, most specific first.
 //
@@ -187,8 +281,8 @@ func expandAll(tmpl string, segs []string) []string {
 // the candidates would multiply against whatever else the template holds for no
 // use anyone has asked for.
 func searchRef(tmpl string) (segRef, bool) {
-	m := tmplRx.FindStringSubmatchIndex(tmpl)
-	if m == nil || m[0] != 0 || m[1] != len(tmpl) {
+	m := tmplRefAt(tmpl)
+	if m == nil || m[1] != len(tmpl) {
 		return segRef{}, false
 	}
 
@@ -211,7 +305,7 @@ func expand(tmpl string, segs []string) (string, bool) {
 		at  = 0
 	)
 
-	for _, m := range tmplRx.FindAllStringSubmatchIndex(tmpl, -1) {
+	for _, m := range tmplRefs(tmpl) {
 		out.WriteString(tmpl[at:m[0]])
 		at = m[1]
 
