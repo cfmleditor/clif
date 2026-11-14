@@ -175,3 +175,27 @@ func TestLifecycleActionsAreForAnApplicationOnly(t *testing.T) {
 		}
 	}
 }
+
+func TestLifecycleStubsFollowACRLFFile(t *testing.T) {
+	dir := t.TempDir()
+	s := newTestServer()
+	s.WorkspaceFolders = []string{dir}
+
+	app := uri.File(filepath.Join(dir, "Application.cfc"))
+	src := "component {\r\n\tthis.name = \"x\";\r\n\r\n\tpublic void function ONREQUESTEND() {}\r\n}\r\n"
+	openDoc(t, s, app, src)
+
+	one, ok := actionTitled(lifecycleCodeActions(t, s, app), "Add onSessionStart() to Application.cfc")
+	if !ok {
+		t.Fatal("onSessionStart is not offered")
+	}
+
+	got := applyActionEdit(t, src, one)
+	if strings.Contains(strings.ReplaceAll(got, "\r\n", ""), "\n") {
+		t.Errorf("a bare LF in the result: %q", got)
+	}
+
+	if strings.Contains(got, "\r\n\r\n\r\n") {
+		t.Errorf("an extra blank line: %q", got)
+	}
+}

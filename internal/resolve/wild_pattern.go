@@ -58,12 +58,17 @@ func (k wildKind) least() int {
 
 // match reports whether s fits the pattern, ignoring case.
 func (p *wildPattern) match(s string) bool {
+	// A piece that fails from a position fails from it by any route: failed
+	// keeps the search to pieces times positions, where trying every split of
+	// the runs between many wildcards is exponential.
+	failed := map[[2]int]bool{}
+
 	if !p.atSegment {
-		return p.matchFrom(s, 0, 0)
+		return p.matchFrom(s, 0, 0, failed)
 	}
 
 	for start := 0; start <= len(s); start++ {
-		if (start == 0 || s[start-1] == '/') && p.matchFrom(s, 0, start) {
+		if (start == 0 || s[start-1] == '/') && p.matchFrom(s, 0, start, failed) {
 			return true
 		}
 	}
@@ -73,9 +78,9 @@ func (p *wildPattern) match(s string) bool {
 
 // matchFrom reports whether s from pos fits the pieces from piece on: the
 // piece, a wildcard, the next piece, and the last piece ends the text.
-func (p *wildPattern) matchFrom(s string, piece, pos int) bool {
+func (p *wildPattern) matchFrom(s string, piece, pos int, failed map[[2]int]bool) bool {
 	lit := p.pieces[piece]
-	if pos+len(lit) > len(s) || !strings.EqualFold(s[pos:pos+len(lit)], lit) {
+	if pos+len(lit) > len(s) || !strings.EqualFold(s[pos:pos+len(lit)], lit) || failed[[2]int{piece, pos}] {
 		return false
 	}
 
@@ -87,11 +92,13 @@ func (p *wildPattern) matchFrom(s string, piece, pos int) bool {
 	run := 0
 
 	for {
-		if run >= p.kind.least() && p.matchFrom(s, piece+1, end+run) {
+		if run >= p.kind.least() && p.matchFrom(s, piece+1, end+run, failed) {
 			return true
 		}
 
 		if end+run >= len(s) || !p.kind.accepts(s[end+run]) {
+			failed[[2]int{piece, pos}] = true
+
 			return false
 		}
 

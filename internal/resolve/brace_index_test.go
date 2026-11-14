@@ -83,3 +83,11 @@ func TestBraceIndexMatchesAScanOfTheSpan(t *testing.T) {
 		t.Errorf("%d closing and %d open spans: the generated scripts do not reach both answers", closed, open)
 	}
 }
+
+// A stray quote in the markup before a script block is not part of the script.
+func TestBraceIndexIgnoresQuotesInMarkup(t *testing.T) {
+	content := "<cfoutput>don't</cfoutput>\n<cfscript>\nif (a) {\n x = 1;\n}\n}\n</cfscript>\n"
+	if !blockClosedBetween(content, 3, 7) {
+		t.Error("the closing brace after the markup was lost")
+	}
+}

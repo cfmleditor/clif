@@ -694,6 +694,22 @@ func (w *renameWalk) word(toks []Token, i int, st *bracketState, base int) {
 		w.fail("the function calls " + t.Value + "(), which reads variables by name")
 
 		return
+	case "include":
+		// `include "a.cfm";` runs a template in this function's scope, which
+		// reads its variables by name.
+		if prev.Kind != TokDot && (next.Kind == TokString || next.Kind == TokIdent) && !st.types[i] {
+			w.fail("the function includes a template, which reads variables by name")
+
+			return
+		}
+	case "local", "arguments":
+		// `local.x` names one variable; `local`, `local[k]` or `arguments`
+		// alone is the whole scope, whose keys are read by name.
+		if prev.Kind != TokDot && next.Kind != TokDot {
+			w.fail("the function uses the whole " + lower + " scope, which reads variables by name")
+
+			return
+		}
 	case "var":
 		w.declaration(toks, i, st)
 	case "catch":

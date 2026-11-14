@@ -170,9 +170,15 @@ func insertStubs(content string, end int, tags bool, stubs []lifecycleStub) prot
 	if atLineStart {
 		at, text = lineStart, body.String()+"\n"
 		// A blank line before the stubs, unless there already is one.
-		if prev := strings.TrimRight(content[:lineStart], " \t\n"); prev != "" && !strings.HasSuffix(content[:lineStart], "\n\n") {
+		before := strings.ReplaceAll(content[:lineStart], "\r\n", "\n")
+		if prev := strings.TrimRight(before, " \t\n"); prev != "" && !strings.HasSuffix(before, "\n\n") {
 			text = "\n" + text
 		}
+	}
+
+	// A file written with CRLF line endings is given them.
+	if strings.Contains(content, "\r\n") {
+		text = strings.ReplaceAll(text, "\n", "\r\n")
 	}
 
 	lines := parser.NewLineTable(content)

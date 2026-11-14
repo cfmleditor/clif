@@ -83,24 +83,36 @@ func (b braceIndex) floorLen() int {
 	return n
 }
 
+// newBraceIndex indexes the braces of content's script. Each script region is
+// scanned from its own start, as a span of it was: a stray quote in the markup
+// before a <cfscript> block (`don't`) must not swallow the script after it.
 func newBraceIndex(content string) braceIndex {
 	var b braceIndex
 
-	sc := parser.NewSourceScanner(content)
 	d := int32(0)
 
-	for tok := sc.NextSkipComments(); tok.Kind != parser.TokEOF; tok = sc.NextSkipComments() {
-		switch tok.Kind {
-		case parser.TokLBrace:
-			d++
-		case parser.TokRBrace:
-			d--
-		default:
+	regions, _ := parser.ClassifyRegionsIdx(content)
+	for i := range regions {
+		r := &regions[i]
+		if r.Kind != parser.RegionScript {
 			continue
 		}
 
-		b.offs = append(b.offs, tok.Offset)
-		b.depth = append(b.depth, d)
+		sc := parser.NewSourceScanner(r.Text)
+
+		for tok := sc.NextSkipComments(); tok.Kind != parser.TokEOF; tok = sc.NextSkipComments() {
+			switch tok.Kind {
+			case parser.TokLBrace:
+				d++
+			case parser.TokRBrace:
+				d--
+			default:
+				continue
+			}
+
+			b.offs = append(b.offs, r.Offset+tok.Offset)
+			b.depth = append(b.depth, d)
+		}
 	}
 
 	b.floor = append(b.floor, b.depth)

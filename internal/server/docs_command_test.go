@@ -109,3 +109,11 @@ func TestDocsCommandsAreAdvertised(t *testing.T) {
 		}
 	}
 }
+
+func TestSearchDocsLimitFarPastAnIntIsClamped(t *testing.T) {
+	s := newTestServer()
+
+	if got, _ := runCommand(t, s, "clif.searchDocs", "", "tag", 1e30).([]docSummary); len(got) == 0 {
+		t.Error("a huge limit answered nothing")
+	}
+}

@@ -65,8 +65,12 @@ func QueryColumns(content, name string, before int) (columns []string, ok bool) 
 
 		sc.NextSkipComments() // =
 
+		// What the variable is set to, when it is not a query that can be
+		// read: its earlier columns no longer hold.
 		fn := sc.NextSkipComments()
 		if fn.Kind != TokIdent || sc.PeekSkipComments().Kind != TokLParen {
+			consider(start, nil, false)
+
 			continue
 		}
 
@@ -74,6 +78,8 @@ func QueryColumns(content, name string, before int) (columns []string, ok bool) 
 
 		arg := sc.NextSkipComments()
 		if arg.Kind != TokString || len(arg.Value) < 2 {
+			consider(start, nil, false)
+
 			continue
 		}
 
@@ -85,6 +91,8 @@ func QueryColumns(content, name string, before int) (columns []string, ok bool) 
 		case strings.EqualFold(fn.Value, "queryExecute"):
 			cols, known := sqlSelectColumns(text)
 			consider(start, cols, known)
+		default:
+			consider(start, nil, false)
 		}
 	}
 
@@ -110,6 +118,11 @@ func splitColumnList(list string) []string {
 func sqlSelectColumns(sql string) (columns []string, known bool) {
 	from, to, found := selectListBounds(sql)
 	if !found {
+		return nil, false
+	}
+
+	// A list written with `#…#` or CF tags is not what its text says.
+	if list := sql[from:to]; strings.Contains(list, "#") || strings.Contains(strings.ToLower(list), "<cf") || strings.Contains(strings.ToLower(list), "</cf") {
 		return nil, false
 	}
 

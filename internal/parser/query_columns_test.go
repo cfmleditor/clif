@@ -31,8 +31,8 @@ func TestSQLSelectColumns(t *testing.T) {
 		{"a string holding from", "SELECT 'a from b' AS s, id FROM t", []string{"s", "id"}, true},
 		{"an operator before the last word means no alias", "SELECT a + b, a || b, price * qty total, id FROM t", []string{"total", "id"}, true},
 		{"a CASE with no alias has none", "SELECT CASE WHEN a = 1 THEN 'x' ELSE 'y' END, CASE WHEN a THEN 1 END AS flag, id FROM t", []string{"flag", "id"}, true},
-		{"an alias after a CF tag", "SELECT id, <cfif x>a<cfelse>b</cfif> total FROM t", []string{"id", "total"}, true},
-		{"a CF expression is left out", "SELECT id, #cols# FROM t", []string{"id"}, true},
+		{"a list with CF tags cannot say", "SELECT id, <cfif x>a<cfelse>b</cfif> total FROM t", nil, false},
+		{"a CF expression cannot say", "SELECT id, #cols# FROM t", nil, false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			got, known := sqlSelectColumns(c.sql)
@@ -62,7 +62,7 @@ func TestQueryColumns(t *testing.T) {
 		{"queryExecute with a star", `rs = queryExecute( "SELECT * FROM posts" );`, "rs", nil, false},
 		{"queryExecute built from a variable", `rs = queryExecute( sqlText );`, "rs", nil, false},
 		{"a select that is all hash expression", `rs = queryExecute( "SELECT #cols# FROM t" );`, "rs", nil, false},
-		{"a hash expression beside known columns", `rs = queryExecute( "SELECT id, #cols#, name FROM t" );`, "rs", []string{"id", "name"}, true},
+		{"a hash expression in the list cannot say", `rs = queryExecute( "SELECT id, #cols#, name FROM t" );`, "rs", nil, false},
 		{"a commented declaration", "// q = queryNew(\"a\");\n/* q = queryNew(\"b\") */\nq = queryNew(\"c\");", "q", []string{"c"}, true},
 		{"a star is not known", "<cfquery name=\"q\">SELECT * FROM t</cfquery>", "q", nil, false},
 		{"a cfquery that never closes", "<cfquery name=\"q\">SELECT id FROM t", "q", nil, false},
@@ -101,5 +101,12 @@ func TestQueryColumnsIgnoreAnotherObjectsMember(t *testing.T) {
 	local := src + " local.users = queryNew(\"l\");\n"
 	if got, _ := QueryColumns(local, "users", len(local)); !slices.Equal(got, []string{"l"}) {
 		t.Errorf("got %q, want local.users to count", got)
+	}
+}
+
+func TestQueryColumnsForgetAReassignedVariable(t *testing.T) {
+	src := "function f() {\n var q = queryNew(\"a,b\");\n q = other();\n"
+	if got, ok := QueryColumns(src, "q", len(src)); ok {
+		t.Errorf("got %q, want none once q is set to something else", got)
 	}
 }

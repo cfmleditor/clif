@@ -48,6 +48,12 @@ func (s *Server) scheduleStructureDiagnostics(docURI uri.URI) {
 // cancelStructureDiagnostics stops a pending check of docURI, and takes its
 // diagnostics back: the document is closed.
 func (s *Server) cancelStructureDiagnostics(ctx context.Context, docURI uri.URI) {
+	// A check already running publishes under this lock, and only while its
+	// document still has a timer: one that finishes after the close has
+	// nothing left to publish.
+	s.structureMu.Lock()
+	defer s.structureMu.Unlock()
+
 	s.mu.Lock()
 
 	if timer, ok := s.structureTimers[docURI]; ok {
@@ -77,7 +83,29 @@ func (s *Server) publishStructureDiagnostics(docURI uri.URI) {
 	pr := s.parseResults[docURI]
 	s.mu.RUnlock()
 
-	s.setDiagnostics(context.Background(), docURI, sourceStructure, structureDiagnostics(content, pr))
+	found := structureDiagnostics(content, pr)
+
+	s.structureMu.Lock()
+	defer s.structureMu.Unlock()
+
+	s.mu.RLock()
+	_, open := s.structureTimers[docURI]
+	s.mu.RUnlock()
+
+	if open {
+		s.setDiagnostics(context.Background(), docURI, sourceStructure, found)
+	}
+}
+
+// stopStructureDiagnostics stops every pending check: the server is going.
+func (s *Server) stopStructureDiagnostics() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for docURI, timer := range s.structureTimers {
+		timer.Stop()
+		delete(s.structureTimers, docURI)
+	}
 }
 
 // structureDiagnostics is the structure problems of content: those of its tags

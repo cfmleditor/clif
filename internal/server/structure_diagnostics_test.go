@@ -187,3 +187,20 @@ func TestDuplicateArgumentsAreUnderlinedAtTheRepeat(t *testing.T) {
 		}
 	}
 }
+
+// A check that finishes after its document closed publishes nothing.
+func TestAStructureCheckAfterACloseLeavesNothingBehind(t *testing.T) {
+	s := newTestServer()
+	s.Features.StructureDiagnostics = true
+
+	docURI := uri.File("/tmp/structure_closed.cfc")
+	openDoc(t, s, docURI, "<cfcomponent>\n<cfif a>\n</cfcomponent>\n")
+	waitForStructure(t, s, docURI, []string{"unclosed-tag"})
+
+	s.cancelStructureDiagnostics(context.Background(), docURI)
+	waitForStructure(t, s, docURI, nil)
+
+	s.publishStructureDiagnostics(docURI) // the check that was already running
+
+	waitForStructure(t, s, docURI, nil)
+}

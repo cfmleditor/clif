@@ -10,8 +10,14 @@ import (
 	"go.lsp.dev/protocol"
 )
 
-// defaultDocResults is how many entries clif.searchDocs answers without a limit.
-const defaultDocResults = 50
+const (
+	// defaultDocResults is how many entries clif.searchDocs answers without a
+	// limit.
+	defaultDocResults = 50
+	// maxDocResults bounds a client's limit: a float converted past an int's
+	// range is a negative length.
+	maxDocResults = 100000
+)
 
 // docSummary is one entry of a clif.searchDocs answer.
 type docSummary struct {
@@ -43,7 +49,7 @@ func (s *Server) cmdSearchDocs(_ context.Context, args []protocol.LSPAny) (any, 
 
 	limit := defaultDocResults
 	if n, ok := argFloat(args, 2); ok && n > 0 {
-		limit = int(n)
+		limit = int(min(n, maxDocResults))
 	}
 
 	switch kind {

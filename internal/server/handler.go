@@ -74,10 +74,12 @@ func (s *Server) Handler() jsonrpc2.Handler {
 			// to a closing connection is at best ignored and at worst an error
 			// logged about logging.
 			s.detachLogSink()
+			s.stopStructureDiagnostics()
 
 			return nil, nil
 		case protocol.MethodExit:
 			s.detachLogSink()
+			s.stopStructureDiagnostics()
 
 			return nil, nil
 		case protocol.MethodTextDocumentDidOpen:

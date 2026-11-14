@@ -229,7 +229,7 @@ func openingProblem(name string, start, end int, selfClosed bool, problems []Tag
 		if !held {
 			problems = append(problems, TagProblem{
 				Kind: ProblemMisplacedTag, Start: start, End: end,
-				Message: "<" + name + "> must be inside a <" + parents[0] + "> tag",
+				Message: "<" + name + "> must be inside a <" + parents[0] + "> tag", Warning: true,
 			})
 		}
 	}

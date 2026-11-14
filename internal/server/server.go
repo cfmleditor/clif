@@ -89,6 +89,7 @@ type Server struct {
 	funcRanges            map[uri.URI][]cache.FuncRange   // cached function line ranges per file
 	cacheTimers           map[uri.URI]*time.Timer         // debounce timers for completion cache rebuild
 	reindexTimers         map[uri.URI]*time.Timer         // deferred-reparse timers; see scheduleReparse
+	structureMu           sync.Mutex                      // orders a structure check's publish against a close
 	structureTimers       map[uri.URI]*time.Timer         // structure-check timers; see scheduleStructureDiagnostics
 	reparsePending        map[uri.URI]bool                // documents whose ParseResult lags their text; see flushReparse
 	docLocks              map[uri.URI]*sync.Mutex         // serialises access to each document's ParseResult
