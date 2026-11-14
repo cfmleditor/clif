@@ -20,7 +20,11 @@ import (
 // or inferred component, a dotted return type, the receiver for an untyped
 // init(), or a componentResolver matching the hop. It reports the resolver's
 // noFollow and whether the resolver is dynamicIfMissing, for the last.
-func (r *Resolver) chainHopReturn(comp, hop string, fd *parser.FunctionDef, tr *callTrace) (ret string, noFollow, soft bool) {
+//
+// callText is the hop's call as written when it passes arguments, "" for a hop
+// with none: a resolver is matched against that, so `event( "x" )` is not the
+// `event()` that returns the event object.
+func (r *Resolver) chainHopReturn(comp, hop, callText string, fd *parser.FunctionDef, tr *callTrace) (ret string, noFollow, soft bool) {
 	ret = r.ReturnComponentOf(fd)
 	if ret != "" {
 		tr.addf("chain hop %q on %q: returns %q (declared %q)", hop, comp, ret, fd.ReturnType)
@@ -45,7 +49,12 @@ func (r *Resolver) chainHopReturn(comp, hop string, fd *parser.FunctionDef, tr *
 	// returns a specific component instance) — fall back to a
 	// componentResolver matching the hop's own call shape, same as the
 	// non-chain "altComp" fallback below.
-	return r.matchResolver(hop+"()", tr, func(c, _ string, nf bool) {
+	text := hop + "()"
+	if callText != "" {
+		text = callText
+	}
+
+	return r.matchResolver(text, tr, func(c, _ string, nf bool) {
 		tr.addf("chain hop %q on %q: no declared return type — componentResolver matched %q(): %q (noFollow=%v)", hop, comp, hop, c, nf)
 	})
 }

@@ -788,7 +788,7 @@ func (r *Resolver) walkHops(comp, softComp string, call *parser.CallSite, pr *pa
 			return comp, softComp, r.missingChainHop(comp, softComp, hop, funcName, pr, baseDir, tr), true
 		}
 
-		ret, noFollow, soft := r.hopReturn(comp, hop, fd, baseDir, tr)
+		ret, noFollow, soft := r.hopReturn(comp, hop, hopArgsText(expression), fd, baseDir, tr)
 		if ret == "" && !callHop {
 			ret = r.expressionReturn(fd, factoryCallExpression(pr.Content, hop, int(call.Line)), baseDir, comp)
 		}
@@ -1066,10 +1066,21 @@ func propertyReadText(line, property string) string {
 	return strings.TrimPrefix(line[start:end], ".")
 }
 
+// hopArgsText is a hop's call expression when it passes arguments, "" when it
+// passes none or the parser did not carry the call.
+func hopArgsText(expression string) string {
+	open := strings.IndexByte(expression, '(')
+	if open < 0 || strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(expression[open+1:]), ")")) == "" {
+		return ""
+	}
+
+	return strings.TrimSpace(expression)
+}
+
 // hopReturn is chainHopReturn, and failing that what the receiver binds the
 // method to: a cborm service's entity, a Wheels model's own type.
-func (r *Resolver) hopReturn(comp, hop string, fd *parser.FunctionDef, baseDir string, tr *callTrace) (ret string, noFollow, soft bool) {
-	ret, noFollow, soft = r.chainHopReturn(comp, hop, fd, tr)
+func (r *Resolver) hopReturn(comp, hop, callText string, fd *parser.FunctionDef, baseDir string, tr *callTrace) (ret string, noFollow, soft bool) {
+	ret, noFollow, soft = r.chainHopReturn(comp, hop, callText, fd, tr)
 	if sub := r.selfTyped(comp, baseDir, fd, ret); sub != "" {
 		tr.addf("chain hop %q returns the class declaring it, and is called on its subclass %q", hop, sub)
 		ret = sub
@@ -1296,7 +1307,7 @@ func (r *Resolver) resolveBareChain(call *parser.CallSite, pr *parser.ParseResul
 		return "chained on '" + first + "', which is not found (calling '" + call.FuncName + "')"
 	}
 
-	ret, noFollow, soft := r.chainHopReturn("this component", first, def, tr)
+	ret, noFollow, soft := r.chainHopReturn("this component", first, "", def, tr)
 
 	// A method returning the class declaring it, called on this subclass,
 	// returns the subclass: as hopReturn does for a qualified call.

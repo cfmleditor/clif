@@ -675,7 +675,7 @@ func (r *Resolver) typeOfChain(rhs, dir string, assigns []startupAssign, visitin
 			return ""
 		}
 
-		comp, _, _ = r.chainHopReturn(comp, hop, fd, nil)
+		comp, _, _ = r.chainHopReturn(comp, hop, "", fd, nil)
 	}
 
 	// A return type is recorded as written, runtime expressions and all:
