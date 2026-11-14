@@ -156,19 +156,19 @@ func muraPluginPackage(content string, tags []muraTag) string {
 			continue
 		}
 
-		close := strings.IndexByte(content[t.end:], '<')
-		if close < 0 {
+		rel := strings.IndexByte(content[t.end:], '<')
+		if rel < 0 {
 			continue
 		}
 
-		close += t.end
+		rel += t.end
 
-		rest, ok := strings.CutPrefix(strings.ToLower(content[close:]), "</package")
+		rest, ok := strings.CutPrefix(strings.ToLower(content[rel:]), "</package")
 		if !ok || !strings.HasPrefix(strings.TrimLeft(rest, " \t\r\n\f"), ">") {
 			continue
 		}
 
-		if name := strings.Trim(content[t.end:close], " \t\r\n\f"); muraPluginName(name) {
+		if name := strings.Trim(content[t.end:rel], " \t\r\n\f"); muraPluginName(name) {
 			return name
 		}
 	}

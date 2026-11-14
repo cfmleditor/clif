@@ -110,7 +110,9 @@ func TestSuppressionReadersMatchTheirExpressions(t *testing.T) {
 		for _, msg := range suppressionDisagreement(s) {
 			t.Error(msg)
 
-			if failures++; failures == 10 {
+			failures++
+
+			if failures == 10 {
 				return
 			}
 		}

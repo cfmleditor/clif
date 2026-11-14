@@ -814,9 +814,11 @@ func Resolve(cfg *JSON, dir string) *Resolved {
 
 	r.KnownIssues = ResolveKnownIssues(cfg.KnownIssues, dir)
 
-	for _, cr := range cfg.ComponentResolvers {
+	for i := range cfg.ComponentResolvers {
+		cr := &cfg.ComponentResolvers[i]
+
 		if (cr.Match != "" || cr.Call != nil && cr.Call.Function != "") && cr.Resolve != "" {
-			r.ComponentResolvers = append(r.ComponentResolvers, cr)
+			r.ComponentResolvers = append(r.ComponentResolvers, *cr)
 		}
 	}
 

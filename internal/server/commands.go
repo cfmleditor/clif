@@ -271,7 +271,9 @@ func (s *Server) cmdShowResolvers(ctx context.Context, _ []protocol.LSPAny) (any
 
 	if len(s.ComponentResolvers) > 0 {
 		lines = append(lines, "Component resolvers:")
-		for _, r := range s.ComponentResolvers {
+
+		for i := range s.ComponentResolvers {
+			r := &s.ComponentResolvers[i]
 			lines = append(lines, fmt.Sprintf("  match=%q resolve=%q prefix=%q", r.MatchText(), r.Resolve, r.Prefix))
 		}
 	}

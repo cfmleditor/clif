@@ -101,7 +101,7 @@ func agree(s string) []string {
 }
 
 func firstSubmatch(m []string) string {
-	if m == nil || len(m) < 2 {
+	if len(m) < 2 {
 		return ""
 	}
 
@@ -130,7 +130,9 @@ func TestReasonReadersMatchTheirExpressions(t *testing.T) {
 		for _, msg := range agree(s) {
 			t.Error(msg)
 
-			if failures++; failures == 10 {
+			failures++
+
+			if failures == 10 {
 				return
 			}
 		}

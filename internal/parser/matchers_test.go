@@ -38,10 +38,12 @@ var matcherCases = []matcherCase{
 	{
 		"wire id", &LiteralCall{Func: "getInstance", Named: AnyNamedArg, Form: IDWire, Rest: true},
 		oracle(wireIDPattern("getInstance")),
-		[]string{`getInstance("Foo")`, `getInstance( 'Foo' )`, `getInstance(name="Foo")`, `getInstance( name : "pkg.Foo" )`, `getInstance("Foo@mod")`, `getInstance("Foo@")`, `getInstance("Foo@mod@")`,
+		[]string{
+			`getInstance("Foo")`, `getInstance( 'Foo' )`, `getInstance(name="Foo")`, `getInstance( name : "pkg.Foo" )`, `getInstance("Foo@mod")`, `getInstance("Foo@")`, `getInstance("Foo@mod@")`,
 			`getInstance("id:Foo")`, `getInstance("model:Foo@m")`, `getInstance("ID:Foo")`, `getInstance("id:")`, `getInstance("id")`, `getInstance("Foo", true)`, `getInstance("Foo",x)`, `getInstance("Foo", f(1))`,
 			`x.getInstance("Foo")`, `a.b.getInstance("Foo")`, `getInstance("Foo").bar()`, `getInstance("1Foo")`, `getInstance("_Foo")`, `getInstance("Foo-bar")`, `getInstance("Foo@b-c.d")`, `getInstance("Foo@b@c")`,
-			`getInstance("Foo')`, `getInstance('Foo")`, `getInstance(Foo)`, `getInstance( )`, `getInstance("Foo"`, `getInstance("Foo" )`, `getInstance("Foo" , 1 )`, `getInstance("a.b.c@d.e")`, `GETINSTANCE("Foo")`},
+			`getInstance("Foo')`, `getInstance('Foo")`, `getInstance(Foo)`, `getInstance( )`, `getInstance("Foo"`, `getInstance("Foo" )`, `getInstance("Foo" , 1 )`, `getInstance("a.b.c@d.e")`, `GETINSTANCE("Foo")`,
+		},
 	},
 	{
 		"dsl", &LiteralCall{Func: "getInstance", Bare: true, Named: AnyNamedArg, Form: IDLiteral, Literal: "logbox"},
@@ -76,8 +78,10 @@ var matcherCases = []matcherCase{
 	{
 		"java class", JavaClass(),
 		oracle(`createObject\s*\(\s*['"]java['"]\s*,\s*['"](.+?)['"]\s*\)`),
-		[]string{`createObject("java", "java.io.File")`, `createObject( 'java' , 'a.B' )`, `x = createObject("java","a.B").init()`, `createObject("component","a.B")`, `createObject("java", "a'b")`, `createObject("java", "a" )`,
-			`createObject("java", "a") createObject("java", "b")`, `createObject("java","")`, "createObject(\"java\", \"a\nb\")", `createobject("JAVA","a.B")`, `createObject("java", "a.B"`, `y(createObject("java", "x.Y"))`, `createObject ( "java" , "a.B" )`, `createObject("java", 'a")`},
+		[]string{
+			`createObject("java", "java.io.File")`, `createObject( 'java' , 'a.B' )`, `x = createObject("java","a.B").init()`, `createObject("component","a.B")`, `createObject("java", "a'b")`, `createObject("java", "a" )`,
+			`createObject("java", "a") createObject("java", "b")`, `createObject("java","")`, "createObject(\"java\", \"a\nb\")", `createobject("JAVA","a.B")`, `createObject("java", "a.B"`, `y(createObject("java", "x.Y"))`, `createObject ( "java" , "a.B" )`, `createObject("java", 'a")`,
+		},
 	},
 }
 
@@ -166,7 +170,9 @@ func TestMatchersMatchTheirPatterns(t *testing.T) {
 			if msg := matcherDisagreement(c, s); msg != "" {
 				t.Error(msg)
 
-				if failures++; failures == 6 {
+				failures++
+
+				if failures == 6 {
 					break
 				}
 			}

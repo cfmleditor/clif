@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -100,8 +101,8 @@ func docDisagreement(s string) []string {
 		gotEnd = end
 	}
 
-	check("docFunctionEnd", fmt.Sprint(gotEnd), fmt.Sprint(wantEnd))
-	check("docPropertyStart", fmt.Sprint(docPropertyStart(s)), fmt.Sprint(oracleDocProperty.MatchString(s)))
+	check("docFunctionEnd", strconv.Itoa(gotEnd), strconv.Itoa(wantEnd))
+	check("docPropertyStart", strconv.FormatBool(docPropertyStart(s)), strconv.FormatBool(oracleDocProperty.MatchString(s)))
 
 	word, ok := docComponentStart(s)
 	m := oracleDocComponent.FindStringSubmatch(s)
@@ -157,7 +158,9 @@ func TestDocTargetReadersMatchTheirExpressions(t *testing.T) {
 		for _, msg := range docDisagreement(s) {
 			t.Error(msg)
 
-			if failures++; failures == 10 {
+			failures++
+
+			if failures == 10 {
 				return
 			}
 		}

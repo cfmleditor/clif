@@ -173,7 +173,9 @@ func TestWildPatternsMatchTheirExpressions(t *testing.T) {
 		if (interceptNew == nil) != (interceptOld == nil) || (muraNew == nil) != (muraOld == nil) {
 			t.Errorf("%v: nil intercept %v/%v, nil mura %v/%v", value, interceptNew == nil, interceptOld == nil, muraNew == nil, muraOld == nil)
 
-			if failures++; failures == 10 {
+			failures++
+
+			if failures == 10 {
 				return
 			}
 

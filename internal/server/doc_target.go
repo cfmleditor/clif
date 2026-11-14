@@ -98,7 +98,7 @@ func docFunctionEnd(s string) (end int, ok bool) {
 // parameters.
 func docFunctionTail(s string, i int) (end int, ok bool) {
 	name := lex.SkipRegexpSpace(s, i)
-	if name == i || name >= len(s) || !(lex.IsWordStart(s[name]) || s[name] == '$') {
+	if name == i || name >= len(s) || (!lex.IsWordStart(s[name]) && s[name] != '$') {
 		return 0, false
 	}
 

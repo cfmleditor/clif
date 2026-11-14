@@ -245,7 +245,9 @@ func TestReadersMatchTheirExpressions(t *testing.T) {
 		for _, msg := range cfmlDisagreement(s) {
 			t.Error(msg)
 
-			if failures++; failures == 10 {
+			failures++
+
+			if failures == 10 {
 				return
 			}
 		}

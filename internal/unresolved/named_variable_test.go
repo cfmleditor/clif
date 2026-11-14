@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/cfmleditor/clif/internal/parser"
-	"github.com/cfmleditor/clif/internal/resolve"
 	"github.com/cfmleditor/clif/internal/vfs"
 )
 
@@ -273,7 +272,7 @@ func TestAStringThatIsPartOfAnArgumentIsNotTheBeanName(t *testing.T) {
 		Resolve: "$1", Prefix: "getBean",
 	}}
 
-	got := Scan(vfs.OS{}, files, files, &Options{Settings: resolve.Settings{Resolvers: resolvers, WorkspaceFolders: []string{dir}}, InferArgs: true})
+	got := Scan(vfs.OS{}, files, files, &Options{Resolvers: resolvers, WorkspaceFolders: []string{dir}, InferArgs: true})
 	for _, c := range got.Calls {
 		if strings.Contains(c.Reason, "Frag") {
 			t.Errorf("a fragment of an argument typed the call: %+v", c)
@@ -301,7 +300,7 @@ func TestAChainOnANewInsideCallArgumentsIsOnTheNewComponent(t *testing.T) {
 		write("Use.cfc", "component {\n function go() {\n  check( new Real().present().again() );\n  check( new Real().absent() );\n }\n function check( v ) {}\n}"),
 	}
 
-	got := Scan(vfs.OS{}, files, files, &Options{Settings: resolve.Settings{WorkspaceFolders: []string{dir}}, InferArgs: true})
+	got := Scan(vfs.OS{}, files, files, &Options{WorkspaceFolders: []string{dir}, InferArgs: true})
 
 	var reported []string
 	for _, c := range got.Calls {
@@ -349,7 +348,7 @@ func TestAStaticCallIsReadAsANewPathIs(t *testing.T) {
 }`),
 	}
 
-	got := Scan(vfs.OS{}, files, files, &Options{Settings: resolve.Settings{WorkspaceFolders: []string{dir}}, InferArgs: true})
+	got := Scan(vfs.OS{}, files, files, &Options{WorkspaceFolders: []string{dir}, InferArgs: true})
 
 	var reported []string
 	for _, c := range got.Calls {
@@ -388,7 +387,7 @@ func TestACallThroughAScriptParameterIsNotAMissingFunction(t *testing.T) {
 	function gone() { return nowhereDeclared(); }
 }`)}
 
-	got := Scan(vfs.OS{}, files, files, &Options{Settings: resolve.Settings{WorkspaceFolders: []string{dir}}, InferArgs: true})
+	got := Scan(vfs.OS{}, files, files, &Options{WorkspaceFolders: []string{dir}, InferArgs: true})
 
 	var reported []string
 	for _, c := range got.Calls {
@@ -431,15 +430,15 @@ func TestASoftRuleTypesTheReturnOfAComponentThatExists(t *testing.T) {
 }`),
 	}
 
-	got := Scan(vfs.OS{}, files, files, &Options{Settings: resolve.Settings{
+	got := Scan(vfs.OS{}, files, files, &Options{
 		Resolvers: []parser.Resolver{{
 			Matcher:          &parser.LiteralCall{Func: "getBean", Named: parser.AnyNamedArg, Form: parser.IDWord, Rest: true},
 			Resolve:          "$1",
 			Prefix:           "getBean",
 			DynamicIfMissing: true,
 		}},
-		WorkspaceFolders: []string{dir},
-	}, InferArgs: true})
+		WorkspaceFolders: []string{dir}, InferArgs: true,
+	})
 
 	var reported []string
 	for _, c := range got.Calls {

@@ -83,7 +83,7 @@ func (e *emptyCallMatcher) String() string { return "call " + e.name + "()" }
 func callStarts(expr string) []int {
 	starts := []int{0}
 
-	for i := 0; i < len(expr); i++ {
+	for i := range len(expr) {
 		if expr[i] == '.' {
 			starts = append(starts, i+1)
 		}
@@ -157,6 +157,7 @@ func (c *LiteralCall) String() string {
 	return "call " + c.Func + "(" + arg + ")"
 }
 
+// Match reads the call the rule names, answering the text its argument gives.
 func (c *LiteralCall) Match(expr string) ([]string, bool) {
 	starts := []int{0}
 	if !c.Bare {
@@ -415,7 +416,7 @@ func javaClassAt(expr string, i int) (string, bool) {
 		}
 
 		if end < len(expr) && lex.IsQuote(expr[end]) {
-			if close := lex.SkipRegexpSpace(expr, end+1); close < len(expr) && expr[close] == ')' {
+			if rp := lex.SkipRegexpSpace(expr, end+1); rp < len(expr) && expr[rp] == ')' {
 				return expr[from:end], true
 			}
 		}

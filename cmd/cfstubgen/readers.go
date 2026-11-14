@@ -60,9 +60,9 @@ func integrateTargets(text string) []string {
 			}
 
 			if end > start && end < len(text) && lex.IsQuote(text[end]) {
-				if close := lex.SkipRegexpSpace(text, end+1); close < len(text) && text[close] == ')' {
+				if rp := lex.SkipRegexpSpace(text, end+1); rp < len(text) && text[rp] == ')' {
 					out = append(out, text[start:end])
-					from = close + 1
+					from = rp + 1
 
 					continue
 				}
@@ -90,7 +90,7 @@ func validTypeName(t string) bool {
 // identName reports whether s is a variable name as CFML spells one, `$assert`
 // included: `^[A-Za-z_$][\w$]*$`.
 func identName(s string) bool {
-	if s == "" || !(lex.IsWordStart(s[0]) || s[0] == '$') {
+	if s == "" || (!lex.IsWordStart(s[0]) && s[0] != '$') {
 		return false
 	}
 
@@ -108,7 +108,7 @@ func identName(s string) bool {
 // `(?im)^@returns?\s+([A-Za-z_]\w*(?:\.\w+)*)\b`, which needs one segment or
 // more with dotted, `(?:\.\w+)+`. The line begins with the tag.
 func docReturnName(doc string, dotted bool) (string, bool) {
-	for q := 0; q < len(doc); q++ {
+	for q := range len(doc) {
 		if !lineStart(doc, q) || !lex.HasPrefixFold(doc[q:], "@return") {
 			continue
 		}
@@ -192,7 +192,7 @@ func delegateName(body string) (string, bool) {
 // begins, after space, with the word `interface`, or a `<cfinterface`:
 // MatchString of `(?im)^\s*interface\b|<cfinterface\b`.
 func declaresInterface(text string) bool {
-	for i := 0; i < len(text); i++ {
+	for i := range len(text) {
 		switch {
 		case text[i] == '<' && keywordAt(text, i, "<cfinterface"):
 			return true
@@ -221,7 +221,7 @@ func onlySpaceBefore(text string, i int) bool {
 // any parenthesis, by the word `function`: the group of
 // `(?i)\b(public|private|package|remote)\b[^(]*\bfunction\b`.
 func accessWord(line string) (string, bool) {
-	for i := 0; i < len(line); i++ {
+	for i := range len(line) {
 		if !lex.IsWordStart(line[i]) || isWordAt(line, i-1) {
 			continue
 		}
@@ -253,7 +253,7 @@ func accessWord(line string) (string, bool) {
 // (quotes optional): the group of
 // `(?i)\baccess\s*=\s*["']?(public|private|package|remote)`.
 func tagAccessWord(tag string) (string, bool) {
-	for i := 0; i < len(tag); i++ {
+	for i := range len(tag) {
 		if !lex.HasPrefixFold(tag[i:], "access") || isWordAt(tag, i-1) {
 			continue
 		}
@@ -283,7 +283,7 @@ func tagAccessWord(tag string) (string, bool) {
 // FindStringSubmatch of `(?is)\bhint\s*=\s*"([^"]*)"|\bhint\s*=\s*'([^']*)'`,
 // the double-quoted group and the single-quoted one; found is false for none.
 func hintAttr(tag string) (double, single string, found bool) {
-	for i := 0; i < len(tag); i++ {
+	for i := range len(tag) {
 		if !lex.HasPrefixFold(tag[i:], "hint") || isWordAt(tag, i-1) {
 			continue
 		}
@@ -298,16 +298,16 @@ func hintAttr(tag string) (double, single string, found bool) {
 			continue
 		}
 
-		close := strings.IndexByte(tag[j+1:], tag[j])
-		if close < 0 {
+		cl := strings.IndexByte(tag[j+1:], tag[j])
+		if cl < 0 {
 			continue
 		}
 
 		if tag[j] == '"' {
-			return tag[j+1 : j+1+close], "", true
+			return tag[j+1 : j+1+cl], "", true
 		}
 
-		return "", tag[j+1 : j+1+close], true
+		return "", tag[j+1 : j+1+cl], true
 	}
 
 	return "", "", false
@@ -445,17 +445,17 @@ func tagProperties(text string) []string {
 			continue
 		}
 
-		close := strings.IndexByte(text[start:], '>')
-		if close < 0 {
+		cl := strings.IndexByte(text[start:], '>')
+		if cl < 0 {
 			from = at + 1
 
 			continue
 		}
 
-		attrs := text[start : start+close]
+		attrs := text[start : start+cl]
 		attrs = strings.TrimSuffix(attrs, "/")
 
 		out = append(out, attrs)
-		from = start + close + 1
+		from = start + cl + 1
 	}
 }

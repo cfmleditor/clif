@@ -115,8 +115,10 @@ func plainPluginText(rng *rand.Rand) string {
 
 	noise := []string{"", "\n", " ", "\t", "<cfsilent><cfset v = \"1\"></cfsilent>", "<cfoutput>", "</cfoutput>", "#x#", "<name>X</name>", "<mappings>", "</mappings>", "text", "<cfinclude template=\"a.cfm\" />"}
 	plugin := []string{"<plugin>", "<PLUGIN>", "<plugin >", "<plugin\n>", "<plugin x=\"1\">", "<plugins>", "<plugin", "</plugin>", "<pluginx>", "<plugin-x>"}
-	pkg := []string{"<package>Slat</package>", "<package> A-b_1 </package>", "<package>#x#</package>", "<package>1x</package>", "<package></package>", "<package>a b</package>",
-		"<PACKAGE>X</PACKAGE>", "<package>X", "<package x=\"y\">X</package>", "<package>\n\tPkg\n</package>", "<package>a.b</package>", "<package>a</PACKAGE>"}
+	pkg := []string{
+		"<package>Slat</package>", "<package> A-b_1 </package>", "<package>#x#</package>", "<package>1x</package>", "<package></package>", "<package>a b</package>",
+		"<PACKAGE>X</PACKAGE>", "<package>X", "<package x=\"y\">X</package>", "<package>\n\tPkg\n</package>", "<package>a.b</package>", "<package>a</PACKAGE>",
+	}
 	names := []string{"VT", "a-b", "_x", "1x", "x y", "", "x.y", "é"}
 	// No value holds a quote: the expression reads `'a"b'` as the directory a,
 	// which the reader refuses (TestMuraPluginReaderReadsTagsNotText).
@@ -171,7 +173,9 @@ func TestMuraPluginReaderMatchesTheExpressionsOnPlainText(t *testing.T) {
 		if !samePlugin(got, want, gok, wok) {
 			t.Errorf("%q:\n  reader %v %v\n  oracle %v %v", text, gok, got.Mappings, wok, want.Mappings)
 
-			if failures++; failures == 8 {
+			failures++
+
+			if failures == 8 {
 				return
 			}
 		}

@@ -94,7 +94,9 @@ func TestTemplateReadersMatchTheirExpression(t *testing.T) {
 		for _, msg := range tmplDisagreement(s) {
 			t.Error(msg)
 
-			if failures++; failures == 10 {
+			failures++
+
+			if failures == 10 {
 				return
 			}
 		}

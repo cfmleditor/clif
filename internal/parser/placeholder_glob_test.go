@@ -82,7 +82,9 @@ func TestPlaceholderGlobMatchesItsExpression(t *testing.T) {
 			if ok != (m != nil) || fmt.Sprintf("%q", got) != fmt.Sprintf("%q", want) {
 				t.Errorf("parts %q on %q: %q %v, want %q %v", parts, expr, got, ok, want, m != nil)
 
-				if failures++; failures == 8 {
+				failures++
+
+				if failures == 8 {
 					return
 				}
 			}

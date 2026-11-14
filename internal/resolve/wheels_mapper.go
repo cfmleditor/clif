@@ -621,6 +621,7 @@ func defaultSelfReturnModes(params [][]parser.Token, body string) (string, []str
 		}
 
 		name := strings.ToLower(param[eq-1].Value)
+
 		start, found := selfDispatchStart(body, name)
 		if !found || !selfDispatchPrefixSafe(body[:start], name) {
 			continue

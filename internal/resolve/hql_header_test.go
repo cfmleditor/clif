@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -90,7 +91,7 @@ func hqlDisagreement(s string) []string {
 	}
 
 	check("hqlEntityHeader", fmt.Sprintf("%q %q %q %v", selected, entity, alias, ok), want)
-	check("hqlHasJoin", fmt.Sprint(hqlHasJoin(s)), fmt.Sprint(oracleHQLJoin.MatchString(s)))
+	check("hqlHasJoin", strconv.FormatBool(hqlHasJoin(s)), strconv.FormatBool(oracleHQLJoin.MatchString(s)))
 	check("hqlBeforeWhere", fmt.Sprintf("%q", hqlBeforeWhere(s)), fmt.Sprintf("%q", oracleHQLWhere.Split(s, 2)[0]))
 
 	return bad
@@ -127,7 +128,9 @@ func TestHQLReadersMatchTheirExpressions(t *testing.T) {
 		for _, msg := range hqlDisagreement(s) {
 			t.Error(msg)
 
-			if failures++; failures == 10 {
+			failures++
+
+			if failures == 10 {
 				return
 			}
 		}

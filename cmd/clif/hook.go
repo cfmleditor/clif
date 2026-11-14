@@ -80,7 +80,7 @@ const placeholder = "--------"
 // with no word character before or after. It answers as FindString of
 // `\b[A-Z][A-Z0-9]+-\d+\b` did.
 func ticketIn(s string) (string, bool) {
-	for i := 0; i < len(s); i++ {
+	for i := range len(s) {
 		if s[i] < 'A' || s[i] > 'Z' || i > 0 && lex.IsWord(s[i-1]) {
 			continue
 		}

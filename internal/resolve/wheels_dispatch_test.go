@@ -140,7 +140,9 @@ func TestDispatchReadersMatchTheirExpressions(t *testing.T) {
 		for _, msg := range dispatchDisagreement(body, name) {
 			t.Error(msg)
 
-			if failures++; failures == 8 {
+			failures++
+
+			if failures == 8 {
 				return
 			}
 		}

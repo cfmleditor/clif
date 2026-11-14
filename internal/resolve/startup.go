@@ -69,7 +69,7 @@ func tagSharedAssignIndex(s string) []int {
 	}
 
 	nameStart := scopeEnd + 1
-	if nameStart >= len(s) || !(lex.IsWordStart(s[nameStart]) || s[nameStart] == '$') {
+	if nameStart >= len(s) || (!lex.IsWordStart(s[nameStart]) && s[nameStart] != '$') {
 		return nil
 	}
 
