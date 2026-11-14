@@ -26,7 +26,7 @@ func openWorldPolicy(call *Call) string {
 	case CategoryObject:
 		// Preserve broken inheritance and chains. Only absent literal component
 		// paths may be supplied by deployment mappings or external packages.
-		if componentRe.MatchString(call.Reason) {
+		if _, ok := missingComponent(call.Reason); ok {
 			return "external-component"
 		}
 	case CategoryMethod:

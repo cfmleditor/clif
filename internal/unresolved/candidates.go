@@ -2,7 +2,6 @@ package unresolved
 
 import (
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"slices"
 	"strings"
@@ -62,11 +61,9 @@ type MethodEvidence struct {
 	Ownership           string `json:"ownership"`
 }
 
-var failedMethodRe = regexp.MustCompile(`^method '([^']+)' not found`)
-
 func missingMethodName(c *Call) string {
-	if m := failedMethodRe.FindStringSubmatch(c.Reason); m != nil {
-		return m[1]
+	if name, ok := failedMethodName(c.Reason); ok {
+		return name
 	}
 
 	return c.Function
@@ -99,7 +96,7 @@ func (a *annotator) methodEvidence(c *Call) *MethodEvidence {
 	case CategoryObject:
 		relationship = "source-or-context-missing"
 	case CategoryMethod:
-		if failedMethodRe.MatchString(c.Reason) {
+		if _, ok := failedMethodName(c.Reason); ok {
 			relationship = "selected-contract-mismatch"
 			if strings.Contains(c.Reason, "not found on builtin ") {
 				relationship = "native-contract-mismatch"
@@ -130,11 +127,6 @@ func Category(reason string) string {
 		return CategoryMethod
 	}
 }
-
-var (
-	methodNotFoundRe = regexp.MustCompile(`^method '[^']+' not found in (.+)$`)
-	componentRe      = regexp.MustCompile(`^component '([^']+)' does not exist`)
-)
 
 // annotateAll sets the category and candidates of every finding, after the
 // scan: annotating during it would read an index the parallel scan is still
@@ -402,8 +394,8 @@ func (a *annotator) answersAll(path string, methods []string) bool {
 // subclasses rank higher; for a bare call, the ones nearest the caller.
 func (a *annotator) methodCandidates(call *parser.CallSite, reason string) []Candidate {
 	known := ""
-	if m := methodNotFoundRe.FindStringSubmatch(reason); m != nil {
-		known = a.resolver.ComponentPath(m[1], filepath.Dir(a.file))
+	if comp, ok := methodMissingFrom(reason); ok {
+		known = a.resolver.ComponentPath(comp, filepath.Dir(a.file))
 	}
 
 	var out []Candidate
@@ -436,12 +428,11 @@ func (a *annotator) methodCandidates(call *parser.CallSite, reason string) []Can
 // objectCandidates are the files named like the last segment of a component
 // path that names no file.
 func (a *annotator) objectCandidates(reason string) []Candidate {
-	m := componentRe.FindStringSubmatch(reason)
-	if m == nil {
+	last, ok := missingComponent(reason)
+	if !ok {
 		return nil
 	}
 
-	last := m[1]
 	if i := strings.LastIndexByte(last, '.'); i >= 0 {
 		last = last[i+1:]
 	}
