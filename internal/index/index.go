@@ -1293,6 +1293,12 @@ func entityOf(fileURI uri.URI, pr *parser.ParseResult) (bool, string) {
 		// extends="mura.bean.beanORM"` by that name with no persistent
 		// attribute (registerModelDir). An entityname alone, without the
 		// engine's persistent, is no entity; with a table it is Mura's.
+		// Reading either attribute scans the header, so a file that never
+		// spells the word is not scanned: most components are not entities.
+		if parser.IndexFold(pr.Content, "entityname") < 0 {
+			return false, ""
+		}
+
 		if name := pr.EntityName(); name != "" && pr.DeclaresTable() {
 			return true, name
 		}
