@@ -249,7 +249,7 @@ func (s *Server) completionItemsFor(params *protocol.CompletionParams, cc *compl
 		// `#users.` after a query the page declares offers its columns.
 		if cc.triggeredByDot && hasDoc {
 			line := int(params.Position.Line)
-			if cols := queryColumnItems(content, parser.WordBeforeDot(content, line, char), line, char); len(cols) > 0 {
+			if cols := s.queryColumnItems(params.TextDocument.URI, content, parser.WordBeforeDot(content, line, char), line, char); len(cols) > 0 {
 				items = cols
 
 				break
@@ -476,7 +476,7 @@ func (s *Server) dotCompletionMethods(content string, docURI uri.URI, line, char
 	}
 
 	// A query the document declares offers its columns.
-	if items := queryColumnItems(content, varName, line, char); len(items) > 0 {
+	if items := s.queryColumnItems(docURI, content, varName, line, char); len(items) > 0 {
 		return items
 	}
 
@@ -835,11 +835,30 @@ func appendScopedVars(items []protocol.CompletionItem, names []string, prefix st
 // queryColumnItems are the completions after `name.` when name is a query the
 // document declares: its columns, which the declaration names
 // (parser.QueryColumns), and the properties every query has.
-func queryColumnItems(content, name string, line, char int) []protocol.CompletionItem {
+//
+// A query is a variable of the function that declares it, so only the function
+// around the cursor is read: a variable of another function, or an argument,
+// that shares the name is not it.
+func (s *Server) queryColumnItems(docURI uri.URI, content, name string, line, char int) []protocol.CompletionItem {
 	if !parser.MayDeclareQuery(content) {
 		return nil
 	}
 
+	s.mu.RLock()
+	pr := s.parseResults[docURI]
+	s.mu.RUnlock()
+
+	var spans []parser.FunctionSpan
+	if pr != nil && pr.Content == content {
+		spans = pr.FunctionSpans()
+	}
+
+	return queryColumnItems(content, name, line, char, spans)
+}
+
+// queryColumnItems is s.queryColumnItems for the function spans of content, nil
+// when there are none: the whole text is then read.
+func queryColumnItems(content, name string, line, char int, spans []parser.FunctionSpan) []protocol.CompletionItem {
 	lines := parser.NewLineTable(content)
 
 	start, ok := lines.Start(line)
@@ -847,7 +866,22 @@ func queryColumnItems(content, name string, line, char int) []protocol.Completio
 		return nil
 	}
 
-	cols, ok := parser.QueryColumns(content, name, start+char)
+	text, off := content, start+char
+
+	// The innermost function around the cursor.
+	var around *parser.FunctionSpan
+
+	for i := range spans {
+		if sp := &spans[i]; sp.Start <= off && off <= sp.End && (around == nil || sp.End-sp.Start < around.End-around.Start) {
+			around = sp
+		}
+	}
+
+	if around != nil {
+		text, off = content[around.Start:around.End], off-around.Start
+	}
+
+	cols, ok := parser.QueryColumns(text, name, off)
 	if !ok {
 		return nil
 	}

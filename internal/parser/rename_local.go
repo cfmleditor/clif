@@ -546,6 +546,21 @@ type bracketState struct {
 	// types are the tokens that are a type, `string` in `var string s`, which
 	// is no name the function uses.
 	types map[int]bool
+	// arrows are the token ranges of the braced bodies of arrow functions,
+	// which are scopes of their own that are not pushed as frames.
+	arrows [][2]int
+}
+
+// inArrow reports whether toks[i] stands in the braced body of an arrow
+// function.
+func (b *bracketState) inArrow(i int) bool {
+	for _, r := range b.arrows {
+		if i > r[0] && i < r[1] {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (b *bracketState) top() *rnFrame {
@@ -666,6 +681,15 @@ func (w *renameWalk) walk(text string, base int, hash bool) {
 			// `=>` makes an arrow function: the parameters before it are its own.
 			if i+1 < len(toks) && toks[i+1].Kind == TokGT && toks[i+1].Offset == t.Offset+1 {
 				w.arrowParams(toks, i)
+
+				if i+2 < len(toks) && toks[i+2].Kind == TokLBrace {
+					end := matching(toks, i+2, TokLBrace, TokRBrace)
+					if end < 0 {
+						end = len(toks)
+					}
+
+					st.arrows = append(st.arrows, [2]int{i + 2, end})
+				}
 			}
 
 			if f := st.top(); f != nil && f.kind == rnParams && !equalsPair(toks, i) {
@@ -870,7 +894,7 @@ func (w *renameWalk) declaration(toks []Token, i int, st *bracketState) {
 	w.take(name, takenLocal)
 
 	if strings.EqualFold(name, w.name) {
-		if st.fnDepth > 0 {
+		if st.fnDepth > 0 || st.inArrow(i) {
 			w.fail("a function inside this one declares '" + w.name + "' for itself")
 
 			return
@@ -959,7 +983,7 @@ func (w *renameWalk) checkString(t Token, base int) {
 func (w *renameWalk) occurrence(toks []Token, i int, st *bracketState, base int) {
 	t := toks[i]
 
-	if i > 0 && toks[i-1].Kind == TokDot && i+1 < len(toks) && toks[i+1].Kind == TokEquals && !equalsPair(toks, i+1) && st.fnDepth == 0 {
+	if i > 0 && toks[i-1].Kind == TokDot && i+1 < len(toks) && toks[i+1].Kind == TokEquals && !equalsPair(toks, i+1) && st.fnDepth == 0 && !st.inArrow(i) {
 		w.declared = true // `local.x = …` declares it
 	}
 

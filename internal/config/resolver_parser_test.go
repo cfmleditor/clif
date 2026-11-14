@@ -145,3 +145,11 @@ func TestACallRuleSurvivesAConfigFile(t *testing.T) {
 		t.Errorf("rules read wrong: %+v", rules)
 	}
 }
+
+// A call block with no function says nothing: the rule's match stands.
+func TestAnEmptyCallBlockDoesNotReplaceTheMatch(t *testing.T) {
+	r := (&Resolver{Match: "getBean($1)", Resolve: "$1", Call: &CallMatch{}}).Parser()
+	if r.Matcher != nil || r.Match != "getBean($1)" {
+		t.Errorf("got matcher %v and match %q, want the match alone", r.Matcher, r.Match)
+	}
+}

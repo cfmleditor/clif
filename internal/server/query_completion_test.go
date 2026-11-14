@@ -3,6 +3,8 @@ package server
 import (
 	"testing"
 
+	"github.com/cfmleditor/clif/internal/parser"
+
 	"go.lsp.dev/protocol"
 )
 
@@ -52,13 +54,28 @@ func TestQueryNewAndQueryExecuteOfferTheirColumns(t *testing.T) {
 func TestASelectStarOffersNoColumns(t *testing.T) {
 	text := "<cfscript>\nrs = queryExecute( \"SELECT * FROM t\" );\nrs.\n</cfscript>\n"
 
-	if items := queryColumnItems(text, "rs", 2, 3); len(items) != 0 {
+	if items := queryColumnItems(text, "rs", 2, 3, nil); len(items) != 0 {
 		t.Errorf("a query whose columns are not known was given %d items", len(items))
 	}
 
 	// What is known is offered with its kind, columns first.
-	items := queryColumnItems("q = queryNew(\"a\");\nq.", "q", 1, 2)
+	items := queryColumnItems("q = queryNew(\"a\");\nq.", "q", 1, 2, nil)
 	if len(items) != 4 || items[0].Label != "a" || items[0].Kind != protocol.CompletionItemKindField || items[1].Kind != protocol.CompletionItemKindProperty {
 		t.Errorf("items %+v", items)
+	}
+}
+
+// A query is the variable of the function that declares it.
+func TestQueryColumnsStayInTheirFunction(t *testing.T) {
+	src := "component {\n function a() { var q = queryNew(\"id,name\"); q. }\n function b( required User q ) {\n  q.\n }\n}\n"
+	pr := parser.ParseWithOptions("file:///t.cfc", src, &parser.ParseOptions{})
+	spans := pr.FunctionSpans()
+
+	if items := queryColumnItems(src, "q", 3, 4, spans); len(items) != 0 {
+		t.Errorf("an argument of b got a's columns: %d items", len(items))
+	}
+
+	if items := queryColumnItems(src, "q", 1, 44, spans); len(items) == 0 {
+		t.Error("the query in its own function offers no columns")
 	}
 }

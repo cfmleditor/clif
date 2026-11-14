@@ -440,12 +440,34 @@ func (g *placeholderGlob) Match(expr string) ([]string, bool) {
 			continue
 		}
 
-		if captures, ok := g.capture(expr, 1, start+len(g.parts[0]), nil, map[[2]int]bool{}); ok {
+		if captures, ok := g.capture(expr, 1, start+len(g.parts[0]), nil, &globFailed{on: len(g.parts) > 3}); ok {
 			return captures, true
 		}
 	}
 
 	return nil, false
+}
+
+// globFailed remembers the (part, position) pairs that failed. It is off for a
+// pattern with at most two placeholders, which cannot explode, and the map is
+// made on the first failure.
+type globFailed struct {
+	on bool
+	m  map[[2]int]bool
+}
+
+func (f *globFailed) has(i, pos int) bool { return f.m[[2]int{i, pos}] }
+
+func (f *globFailed) add(i, pos int) {
+	if !f.on {
+		return
+	}
+
+	if f.m == nil {
+		f.m = map[[2]int]bool{}
+	}
+
+	f.m[[2]int{i, pos}] = true
 }
 
 // runeWidth is the width of the character at i, one at the end of s.
@@ -465,12 +487,12 @@ func runeWidth(s string, i int) int {
 // A part that cannot be matched from a position cannot be from it by any other
 // route either, so failed remembers those: the search is bounded by the parts
 // times the positions, not by the ways to split the run between them.
-func (g *placeholderGlob) capture(expr string, i, pos int, so []string, failed map[[2]int]bool) ([]string, bool) {
+func (g *placeholderGlob) capture(expr string, i, pos int, so []string, failed *globFailed) ([]string, bool) {
 	if i == len(g.parts) {
 		return so, true
 	}
 
-	if failed[[2]int{i, pos}] {
+	if failed.has(i, pos) {
 		return nil, false
 	}
 
@@ -490,7 +512,7 @@ func (g *placeholderGlob) capture(expr string, i, pos int, so []string, failed m
 		}
 	}
 
-	failed[[2]int{i, pos}] = true
+	failed.add(i, pos)
 
 	return nil, false
 }

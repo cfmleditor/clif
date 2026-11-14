@@ -199,3 +199,27 @@ func TestLifecycleStubsFollowACRLFFile(t *testing.T) {
 		t.Errorf("an extra blank line: %q", got)
 	}
 }
+
+func TestLifecycleStubsUseTheFilesIndentation(t *testing.T) {
+	dir := t.TempDir()
+	s := newTestServer()
+	s.WorkspaceFolders = []string{dir}
+
+	app := uri.File(filepath.Join(dir, "Application.cfc"))
+	src := "component {\n    this.name = \"x\";\n\n    public void function ONREQUESTEND() {}\n}\n"
+	openDoc(t, s, app, src)
+
+	one, ok := actionTitled(lifecycleCodeActions(t, s, app), "Add onSessionStart() to Application.cfc")
+	if !ok {
+		t.Fatal("onSessionStart is not offered")
+	}
+
+	got := applyActionEdit(t, src, one)
+	if strings.Contains(got, "\t") {
+		t.Errorf("a tab in a file indented with spaces:\n%s", got)
+	}
+
+	if !strings.Contains(got, "\n    public void function onSessionStart() {\n        return;\n    }\n") {
+		t.Errorf("the stub is not indented as the file is:\n%s", got)
+	}
+}

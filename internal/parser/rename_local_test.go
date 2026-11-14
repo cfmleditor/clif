@@ -72,6 +72,8 @@ func TestPlanLocalRename(t *testing.T) {
 
 func TestPlanLocalRenameRefuses(t *testing.T) {
 	for _, c := range []struct{ name, src, why string }{
+		{"a var in an arrow body", "component {\n function f( a ) {\n  arrayEach( a, ( i ) => { var ¦total = 0; total += i; } );\n  return total;\n }\n}", "declares"},
+		{"a name an arrow body declares for itself", "component {\n function f( a ) {\n  var total = 1;\n  arrayEach( a, ( i ) => { var total = 0; } );\n  return ¦total;\n }\n}", "declares"},
 		{"an argument", "component {\n function f( ¦a ) {\n  return a;\n }\n}", "argument"},
 		{"an argument used in the body", "component {\n function f( a ) {\n  return ¦a;\n }\n}", "argument"},
 		{"not declared here", "component {\n function f() {\n  return ¦count;\n }\n}", "not declared"},

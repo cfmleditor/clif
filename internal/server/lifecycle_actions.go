@@ -148,6 +148,8 @@ func declaredFunctionNames(content string, pr *parser.ParseResult) map[string]bo
 func insertStubs(content string, end int, tags bool, stubs []lifecycleStub) protocol.TextEdit {
 	var body strings.Builder
 
+	unit := indentUnit(content[:end])
+
 	for i, st := range stubs {
 		if i > 0 {
 			body.WriteString("\n\n")
@@ -158,7 +160,7 @@ func insertStubs(content string, end int, tags bool, stubs []lifecycleStub) prot
 			text = st.tags
 		}
 
-		body.WriteString(indentLines(text, "\t"))
+		body.WriteString(indentLines(text, unit))
 	}
 
 	// The closing line starts at the closer when nothing but blanks stands
@@ -189,13 +191,30 @@ func insertStubs(content string, end int, tags bool, stubs []lifecycleStub) prot
 	return protocol.TextEdit{Range: protocol.Range{Start: pos, End: pos}, NewText: text}
 }
 
-// indentLines prefixes every non-blank line of text with indent.
+// indentUnit is what the file indents with: the leading whitespace of its first
+// indented line, or a tab when no line is.
+func indentUnit(content string) string {
+	for line := range strings.SplitSeq(content, "\n") {
+		line = strings.TrimSuffix(line, "\r")
+		if rest := strings.TrimLeft(line, " \t"); rest != "" && len(rest) < len(line) {
+			return line[:len(line)-len(rest)]
+		}
+	}
+
+	return "\t"
+}
+
+// indentLines prefixes every non-blank line of text with indent, and writes
+// the tabs the text is indented with in the same unit.
 func indentLines(text, indent string) string {
 	lines := strings.Split(text, "\n")
 	for i, l := range lines {
-		if l != "" {
-			lines[i] = indent + l
+		if l == "" {
+			continue
 		}
+
+		rest := strings.TrimLeft(l, "\t")
+		lines[i] = indent + strings.Repeat(indent, len(l)-len(rest)) + rest
 	}
 
 	return strings.Join(lines, "\n")

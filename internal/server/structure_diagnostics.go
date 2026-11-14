@@ -78,18 +78,27 @@ func (s *Server) publishStructureDiagnostics(docURI uri.URI) {
 		return
 	}
 
-	defer s.lockDoc(docURI)()
+	// The lock is held to catch up the deferred reparse and take the text and
+	// its parse; the analysis is of that text, which does not change, and runs
+	// without it so hover and typing are not left waiting on it.
+	unlock := s.lockDoc(docURI)
 
 	content, ok := s.getDocument(docURI)
-	if !ok {
-		return
-	}
 
 	s.mu.RLock()
 	pr := s.parseResults[docURI]
 	s.mu.RUnlock()
 
-	found := structureDiagnostics(content, pr)
+	// An edit changes a parse in place, so what is read from it is read here.
+	spans := functionSpansOf(content, pr)
+
+	unlock()
+
+	if !ok {
+		return
+	}
+
+	found := structureDiagnosticsFrom(content, spans)
 
 	s.structureMu.Lock()
 	defer s.structureMu.Unlock()
@@ -125,6 +134,22 @@ func (s *Server) stopStructureDiagnostics() {
 // (parser.TagProblems) and the arguments a function declares twice, read from
 // pr, the parse of content, when there is one.
 func structureDiagnostics(content string, pr *parser.ParseResult) []protocol.Diagnostic {
+	return structureDiagnosticsFrom(content, functionSpansOf(content, pr))
+}
+
+// functionSpansOf are the function spans of pr when it is the parse of
+// content, and nil when it is not or there is none.
+func functionSpansOf(content string, pr *parser.ParseResult) []parser.FunctionSpan {
+	if pr == nil || pr.Content != content {
+		return nil
+	}
+
+	return pr.FunctionSpans()
+}
+
+// structureDiagnosticsFrom is structureDiagnostics for the function spans of
+// content, read already.
+func structureDiagnosticsFrom(content string, spans []parser.FunctionSpan) []protocol.Diagnostic {
 	problems := parser.TagProblems(content)
 
 	var out []protocol.Diagnostic
@@ -157,19 +182,16 @@ func structureDiagnostics(content string, pr *parser.ParseResult) []protocol.Dia
 		})
 	}
 
-	return append(out, duplicateArguments(content, pr, at)...)
+	return append(out, duplicateArguments(content, spans, at)...)
 }
 
 // duplicateArguments are the arguments a function declares more than once,
 // underlined at each declaration after the first.
-func duplicateArguments(content string, pr *parser.ParseResult, at func(int) protocol.Position) []protocol.Diagnostic {
-	if pr == nil || pr.Content != content {
-		return nil
-	}
+func duplicateArguments(content string, spans []parser.FunctionSpan, at func(int) protocol.Position) []protocol.Diagnostic {
+	dups := parser.DuplicateArguments(content, spans)
+	out := make([]protocol.Diagnostic, 0, len(dups))
 
-	var out []protocol.Diagnostic
-
-	for _, d := range parser.DuplicateArguments(content, pr.FunctionSpans()) {
+	for _, d := range dups {
 		out = append(out, protocol.Diagnostic{
 			Range:    protocol.Range{Start: at(d.Start), End: at(d.End)},
 			Severity: protocol.DiagnosticSeverityError,

@@ -358,7 +358,7 @@ func (r *Resolver) MatchText() string {
 // reaches the other everywhere at once.
 func (r *Resolver) Parser() parser.Resolver {
 	matcher, prefix := r.Matcher, r.Prefix
-	if r.Call != nil && matcher == nil {
+	if r.Call != nil && r.Call.Function != "" && matcher == nil {
 		matcher = r.Call.matcher()
 		if prefix == "" {
 			prefix = r.Call.Function
