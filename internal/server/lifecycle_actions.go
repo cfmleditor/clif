@@ -75,11 +75,6 @@ func (s *Server) lifecycleActions(docURI uri.URI, content string) []protocol.Cod
 		return nil
 	}
 
-	end, tags, ok := parser.ComponentBodyEnd(content)
-	if !ok {
-		return nil
-	}
-
 	declared := declaredFunctionNames(content, s.parseResultOf(docURI))
 
 	var missing []lifecycleStub
@@ -91,6 +86,13 @@ func (s *Server) lifecycleActions(docURI uri.URI, content string) []protocol.Cod
 	}
 
 	if len(missing) == 0 {
+		return nil
+	}
+
+	// The body's end is a scan of the file: only an application that lacks an
+	// event is worth it.
+	end, tags, ok := parser.ComponentBodyEnd(content)
+	if !ok {
 		return nil
 	}
 
@@ -196,6 +198,10 @@ func insertStubs(content string, end int, tags bool, stubs []lifecycleStub) prot
 func indentUnit(content string) string {
 	for line := range strings.SplitSeq(content, "\n") {
 		line = strings.TrimSuffix(line, "\r")
+		if isCommentLine(strings.TrimLeft(line, " \t")) {
+			continue
+		}
+
 		if rest := strings.TrimLeft(line, " \t"); rest != "" && len(rest) < len(line) {
 			return line[:len(line)-len(rest)]
 		}
@@ -218,4 +224,10 @@ func indentLines(text, indent string) string {
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+// isCommentLine reports whether a line, with its indentation removed, is a
+// comment or a doc comment's line: its blanks are not the code's indentation.
+func isCommentLine(trimmed string) bool {
+	return strings.HasPrefix(trimmed, "*") || strings.HasPrefix(trimmed, "/*") || strings.HasPrefix(trimmed, "//") || strings.HasPrefix(trimmed, "<!--")
 }

@@ -51,7 +51,7 @@ func waitForStructure(t *testing.T, s *Server, docURI uri.URI, want []string) {
 // The ranges are the problem's own text, in the UTF-16 columns of the editor.
 func TestStructureDiagnosticRanges(t *testing.T) {
 	content := "<cfset s = \"é\">\n<p>é</p><cfif a>\n<cffunction>x</cffunction>\n"
-	ds := structureDiagnostics(content, nil)
+	ds := structureDiagnosticsFrom(content, functionSpansOf(content, nil))
 
 	if len(ds) != 2 {
 		t.Fatalf("%d diagnostics, want 2: %+v", len(ds), ds)
@@ -85,7 +85,7 @@ func TestStructureDiagnosticRanges(t *testing.T) {
 func TestStructureDiagnosticsNameAFunctionsRepeatedArgument(t *testing.T) {
 	content := "component {\n\tfunction f( a, b, A ) { return a; }\n\tfunction g( a, b ) { return a; }\n}\n"
 	pr := parser.ParseWithOptions(testURI(), content, &parser.ParseOptions{})
-	ds := structureDiagnostics(content, pr)
+	ds := structureDiagnosticsFrom(content, functionSpansOf(content, pr))
 
 	if len(ds) != 1 {
 		t.Fatalf("%d diagnostics, want 1: %+v", len(ds), ds)
@@ -97,7 +97,7 @@ func TestStructureDiagnosticsNameAFunctionsRepeatedArgument(t *testing.T) {
 	}
 
 	// A parse of other text says nothing of this one.
-	if got := structureDiagnostics(content, parser.ParseWithOptions(testURI(), content+" ", &parser.ParseOptions{})); len(got) != 0 {
+	if got := structureDiagnosticsFrom(content, functionSpansOf(content, parser.ParseWithOptions(testURI(), content+" ", &parser.ParseOptions{}))); len(got) != 0 {
 		t.Errorf("a stale parse gave %d diagnostics", len(got))
 	}
 }
@@ -176,7 +176,7 @@ func TestDuplicateArgumentsAreUnderlinedAtTheRepeat(t *testing.T) {
 
 		var cols []string
 
-		for _, d := range structureDiagnostics(c.src, pr) {
+		for _, d := range structureDiagnosticsFrom(c.src, functionSpansOf(c.src, pr)) {
 			if code, _ := d.Code.(protocol.String); code == "duplicate-argument" {
 				cols = append(cols, fmt.Sprintf("%d:%d-%d", d.Range.Start.Line, d.Range.Start.Character, d.Range.End.Character))
 			}
@@ -203,4 +203,34 @@ func TestAStructureCheckAfterACloseLeavesNothingBehind(t *testing.T) {
 	s.publishStructureDiagnostics(docURI) // the check that was already running
 
 	waitForStructure(t, s, docURI, nil)
+}
+
+// A check that began before a close and a reopen is not the latest of the
+// reopened document, whatever its number was.
+func TestAStructureRunOfAnEarlierOpeningIsNotTheLatest(t *testing.T) {
+	s := newTestServer()
+	s.Features.StructureDiagnostics = true
+
+	docURI := uri.File("/tmp/structure_reopened.cfc")
+	s.scheduleStructureDiagnostics(docURI)
+
+	old, ok := s.startStructureRun(docURI)
+	if !ok {
+		t.Fatal("an open document has no run")
+	}
+
+	s.cancelStructureDiagnostics(context.Background(), docURI)
+
+	if _, ok := s.startStructureRun(docURI); ok {
+		t.Error("a run started on a closed document")
+	}
+
+	s.scheduleStructureDiagnostics(docURI)
+
+	fresh, _ := s.startStructureRun(docURI)
+	if s.structureRunIsLatest(docURI, old) || !s.structureRunIsLatest(docURI, fresh) {
+		t.Errorf("old run %d latest %v, fresh run %d latest %v", old, s.structureRunIsLatest(docURI, old), fresh, s.structureRunIsLatest(docURI, fresh))
+	}
+
+	s.stopStructureDiagnostics()
 }

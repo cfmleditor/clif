@@ -140,3 +140,23 @@ func TestSQLSelectColumnsReadASingleQuotedAlias(t *testing.T) {
 		t.Errorf("got %q %v", got, known)
 	}
 }
+
+func TestSQLSelectColumnsSkipComments(t *testing.T) {
+	for name, sql := range map[string]string{
+		"a line comment":      "SELECT id -- identifier\n, name FROM t",
+		"an apostrophe":       "SELECT id, -- don't\n name FROM t",
+		"a block with from":   "SELECT id, /* from the table */ name FROM t",
+		"a comment in string": "SELECT id, 'a -- b' AS x, name FROM t",
+	} {
+		got, known := sqlSelectColumns(sql)
+		want := []string{"id", "name"}
+
+		if name == "a comment in string" {
+			want = []string{"id", "x", "name"}
+		}
+
+		if !known || !slices.Equal(got, want) {
+			t.Errorf("%s: got %q %v, want %q", name, got, known, want)
+		}
+	}
+}

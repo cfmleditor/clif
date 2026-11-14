@@ -223,3 +223,22 @@ func TestLifecycleStubsUseTheFilesIndentation(t *testing.T) {
 		t.Errorf("the stub is not indented as the file is:\n%s", got)
 	}
 }
+
+func TestLifecycleStubsIgnoreADocCommentsIndentation(t *testing.T) {
+	dir := t.TempDir()
+	s := newTestServer()
+	s.WorkspaceFolders = []string{dir}
+
+	app := uri.File(filepath.Join(dir, "Application.cfc"))
+	src := "/**\n * The app.\n */\ncomponent {\n\tthis.name = \"a\";\n}\n"
+	openDoc(t, s, app, src)
+
+	one, ok := actionTitled(lifecycleCodeActions(t, s, app), "Add onSessionStart() to Application.cfc")
+	if !ok {
+		t.Fatal("onSessionStart is not offered")
+	}
+
+	if got := applyActionEdit(t, src, one); !strings.Contains(got, "\n\tpublic void function onSessionStart() {\n\t\treturn;\n\t}\n") {
+		t.Errorf("the stub is not tab-indented:\n%s", got)
+	}
+}

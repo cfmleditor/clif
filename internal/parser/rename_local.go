@@ -303,12 +303,8 @@ func closuresAround(content string, owner *FunctionSpan, at int) []renameScope {
 
 		switch toks[i-1].Kind {
 		case TokRParen:
-			lo := i - 1
-			for lo > 0 && toks[lo].Kind != TokLParen {
-				lo--
-			}
-
-			if toks[lo].Kind != TokLParen {
+			lo := matchingBack(toks, i-1, TokLParen, TokRParen)
+			if lo < 0 {
 				continue
 			}
 
@@ -999,8 +995,8 @@ func (w *renameWalk) arrowParams(toks []Token, i int) {
 
 	lo := i - 1
 	if toks[lo].Kind == TokRParen {
-		for lo > 0 && toks[lo].Kind != TokLParen {
-			lo--
+		if open := matchingBack(toks, lo, TokLParen, TokRParen); open >= 0 {
+			lo = open
 		}
 	}
 
@@ -1023,14 +1019,10 @@ func (w *renameWalk) checkString(t Token, base int) {
 	inner := stringContent(t.Value)
 	lower := strings.ToLower(strings.TrimSpace(inner))
 
-	if w.name != "" {
-		switch lower {
-		case strings.ToLower(w.name), "local." + strings.ToLower(w.name), "arguments." + strings.ToLower(w.name):
-			w.fail("the function names '" + w.name + "' in a string, where no rename can follow it")
+	if w.name != "" && namesInPath(lower, strings.ToLower(w.name)) {
+		w.fail("the function names '" + w.name + "' in a string, where no rename can follow it")
 
-			return
-		default:
-		}
+		return
 	}
 
 	for _, seg := range hashSegments(inner) {
@@ -1264,4 +1256,34 @@ func labelsAnAttribute(toks []Token, i int, st *bracketState) bool {
 	default:
 		return false
 	}
+}
+
+// namesInPath reports whether the string text, lowercased, is a name that
+// reads the variable name, however it is reached: `x`, `local.x`, and a longer
+// path that begins with it, `x.y` or `x[1]`.
+func namesInPath(text, name string) bool {
+	text = strings.TrimPrefix(strings.TrimPrefix(text, "local."), "arguments.")
+
+	return text == name || strings.HasPrefix(text, name+".") || strings.HasPrefix(text, name+"[")
+}
+
+// matchingBack is the index of the token that opens the bracket closed at
+// toks[i], or -1.
+func matchingBack(toks []Token, i int, open, shut TokenKind) int {
+	depth := 0
+
+	for j := i; j >= 0; j-- {
+		switch toks[j].Kind {
+		case shut:
+			depth++
+		case open:
+			depth--
+			if depth == 0 {
+				return j
+			}
+		default:
+		}
+	}
+
+	return -1
 }

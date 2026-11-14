@@ -20,6 +20,15 @@ const sourceStructure = "structure"
 // every keystroke is noise.
 const structureDelay = 300 * time.Millisecond
 
+// structureState is what an open document has of its structure check: the timer
+// that will run it, and the number of the latest run that started. A close
+// takes the whole of it away, so a run that finishes after that, or after a
+// reopen's new state, finds its number is not the latest.
+type structureState struct {
+	timer  *time.Timer
+	latest uint64
+}
+
 // scheduleStructureDiagnostics checks the structure of docURI once it has been
 // quiet for structureDelay, and opened documents soon after.
 func (s *Server) scheduleStructureDiagnostics(docURI uri.URI) {
@@ -30,11 +39,15 @@ func (s *Server) scheduleStructureDiagnostics(docURI uri.URI) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if timer, ok := s.structureTimers[docURI]; ok {
-		timer.Stop()
+	st := s.structure[docURI]
+	if st == nil {
+		st = &structureState{}
+		s.structure[docURI] = st
+	} else if st.timer != nil {
+		st.timer.Stop()
 	}
 
-	s.structureTimers[docURI] = time.AfterFunc(structureDelay, func() {
+	st.timer = time.AfterFunc(structureDelay, func() {
 		defer func() {
 			if r := recover(); r != nil {
 				cflog.Recovered(s.log, "goroutine panic", r, cflog.String("label", "structureDiagnostics"))
@@ -49,19 +62,18 @@ func (s *Server) scheduleStructureDiagnostics(docURI uri.URI) {
 // diagnostics back: the document is closed.
 func (s *Server) cancelStructureDiagnostics(ctx context.Context, docURI uri.URI) {
 	// A check already running publishes under this lock, and only while its
-	// document still has a timer: one that finishes after the close has
+	// document still has its state: one that finishes after the close has
 	// nothing left to publish.
 	s.structureMu.Lock()
 	defer s.structureMu.Unlock()
 
 	s.mu.Lock()
 
-	if timer, ok := s.structureTimers[docURI]; ok {
-		timer.Stop()
-		delete(s.structureTimers, docURI)
+	if st := s.structure[docURI]; st != nil && st.timer != nil {
+		st.timer.Stop()
 	}
 
-	delete(s.structureRuns, docURI)
+	delete(s.structure, docURI)
 
 	s.mu.Unlock()
 
@@ -70,25 +82,48 @@ func (s *Server) cancelStructureDiagnostics(ctx context.Context, docURI uri.URI)
 	}
 }
 
+// startStructureRun numbers a check of docURI, which is then the latest, or
+// reports that the document is not open.
+func (s *Server) startStructureRun(docURI uri.URI) (run uint64, ok bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	st := s.structure[docURI]
+	if st == nil {
+		return 0, false
+	}
+
+	s.structureSeq++
+	st.latest = s.structureSeq
+
+	return st.latest, true
+}
+
+// structureRunIsLatest reports whether run is still the latest check of docURI.
+func (s *Server) structureRunIsLatest(docURI uri.URI, run uint64) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	st := s.structure[docURI]
+
+	return st != nil && st.latest == run
+}
+
 // publishStructureDiagnostics checks the structure of docURI as it stands and
 // publishes what it finds. lockDoc runs the reparse an edit deferred, so the
-// parse the arguments are read from is the document's.
+// parse the spans are read from is the document's.
 func (s *Server) publishStructureDiagnostics(docURI uri.URI) {
 	// A document closed since the timer fired has nothing to check, and
-	// lockDoc would make a lock for it that nothing removes.
-	if !s.structureWanted(docURI) {
+	// lockDoc would make a lock for it that nothing removes. A check that
+	// starts after this one is of newer text: this one, if it finishes later,
+	// has nothing to publish.
+	run, ok := s.startStructureRun(docURI)
+	if !ok {
 		return
 	}
 
-	// A check that starts after this one is of newer text: this one, if it
-	// finishes later, has nothing to publish.
-	s.mu.Lock()
-	s.structureRuns[docURI]++
-	run := s.structureRuns[docURI]
-	s.mu.Unlock()
-
 	// The lock is held to catch up the deferred reparse and take the text and
-	// its parse; the analysis is of that text, which does not change, and runs
+	// its spans; the analysis is of that text, which does not change, and runs
 	// without it so hover and typing are not left waiting on it.
 	unlock := s.lockDoc(docURI)
 
@@ -112,24 +147,9 @@ func (s *Server) publishStructureDiagnostics(docURI uri.URI) {
 	s.structureMu.Lock()
 	defer s.structureMu.Unlock()
 
-	s.mu.RLock()
-	latest := s.structureRuns[docURI] == run
-	s.mu.RUnlock()
-
-	if latest && s.structureWanted(docURI) {
+	if s.structureRunIsLatest(docURI, run) {
 		s.setDiagnostics(context.Background(), docURI, sourceStructure, found)
 	}
-}
-
-// structureWanted reports whether docURI is still open to be checked: it has a
-// timer, which a close takes away.
-func (s *Server) structureWanted(docURI uri.URI) bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	_, ok := s.structureTimers[docURI]
-
-	return ok
 }
 
 // stopStructureDiagnostics stops every pending check: the server is going.
@@ -137,17 +157,13 @@ func (s *Server) stopStructureDiagnostics() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	for docURI, timer := range s.structureTimers {
-		timer.Stop()
-		delete(s.structureTimers, docURI)
-	}
-}
+	for docURI, st := range s.structure {
+		if st.timer != nil {
+			st.timer.Stop()
+		}
 
-// structureDiagnostics is the structure problems of content: those of its tags
-// (parser.TagProblems) and the arguments a function declares twice, read from
-// pr, the parse of content, when there is one.
-func structureDiagnostics(content string, pr *parser.ParseResult) []protocol.Diagnostic {
-	return structureDiagnosticsFrom(content, functionSpansOf(content, pr))
+		delete(s.structure, docURI)
+	}
 }
 
 // functionSpansOf are the function spans of pr when it is the parse of
@@ -160,8 +176,9 @@ func functionSpansOf(content string, pr *parser.ParseResult) []parser.FunctionSp
 	return pr.FunctionSpans()
 }
 
-// structureDiagnosticsFrom is structureDiagnostics for the function spans of
-// content, read already.
+// structureDiagnosticsFrom is the structure problems of content: those of its
+// tags (parser.TagProblems) and the arguments a function declares twice, read
+// from the function spans of content, which are taken already.
 func structureDiagnosticsFrom(content string, spans []parser.FunctionSpan) []protocol.Diagnostic {
 	problems := parser.TagProblems(content)
 

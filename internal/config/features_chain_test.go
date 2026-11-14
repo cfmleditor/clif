@@ -82,8 +82,9 @@ func TestFeatureKeysReachTheServer(t *testing.T) {
 //
 // Enumerated rather than assumed, and checked for completeness below, so that
 // adding a switch to Features fails here until its default is stated — the
-// point of walking the struct reflectively in the first place. Folding, TypeDefinition
-// and StructureDiagnostics are the ones that are off: see the Features doc comment.
+// point of walking the struct reflectively in the first place. TypeDefinition,
+// StructureDiagnostics, InlayHints and Rename are the ones that are off: see the
+// Features doc comment.
 var featureDefaults = map[string]bool{
 	"DocumentHighlight":          true,
 	"Folding":                    foldingDefault,

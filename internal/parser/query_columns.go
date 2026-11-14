@@ -144,6 +144,8 @@ func splitColumnList(list string) []string {
 // each item, or the column's own name with its table dropped. known is false
 // when the list cannot be read whole: `*`, or no SELECT.
 func sqlSelectColumns(sql string) (columns []string, known bool) {
+	sql = blankSQLComments(sql)
+
 	from, to, found := selectListBounds(sql)
 	if !found {
 		return nil, false
@@ -433,4 +435,52 @@ func startsAssignment(prev, owner Token) bool {
 	default:
 		return prev == Token{}
 	}
+}
+
+// blankSQLComments is sql with each `--` and `/* */` comment written over with
+// blanks, newlines kept, so a word or a quote in a comment is read as neither.
+// A string is stepped over whole.
+func blankSQLComments(sql string) string {
+	if !strings.Contains(sql, "--") && !strings.Contains(sql, "/*") {
+		return sql
+	}
+
+	b := []byte(sql)
+
+	blank := func(from, to int) {
+		for i := from; i < to && i < len(b); i++ {
+			if b[i] != '\n' {
+				b[i] = ' '
+			}
+		}
+	}
+
+	for k := 0; k < len(b); k++ {
+		switch {
+		case b[k] == '\'' || b[k] == '"':
+			k = skipSQLString(sql, k)
+		case b[k] == '-' && k+1 < len(b) && b[k+1] == '-':
+			end := strings.IndexByte(sql[k:], '\n')
+			if end < 0 {
+				end = len(b) - k
+			}
+
+			blank(k, k+end)
+
+			k += end
+		case b[k] == '/' && k+1 < len(b) && b[k+1] == '*':
+			end := strings.Index(sql[k+2:], "*/")
+			if end < 0 {
+				end = len(b) - k - 2
+			} else {
+				end += 2
+			}
+
+			blank(k, k+2+end)
+
+			k += 1 + end
+		}
+	}
+
+	return string(b)
 }

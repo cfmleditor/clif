@@ -580,8 +580,8 @@ const inlayHintsDefault = false
 const renameDefault = false
 
 // ResolveFeatures applies the defaults for a `features` block: absent means
-// every feature is on except typeDefinition, which is opt-in for the reason
-// the type above gives.
+// every feature is on except typeDefinition, structureDiagnostics, inlayHints
+// and rename, which are opt-in for the reasons the type above gives.
 //
 // As with ResolveCompletions, the defaults live here so that every path to a
 // Server agrees on them. A path that skipped this and took the zero value
