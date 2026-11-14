@@ -61,7 +61,7 @@ func TestGeneratedStubPreservesInterface(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			if !interfaceRe.Match(data) || !strings.Contains(string(data), "function getName();") {
+			if !declaresInterface(string(data)) || !strings.Contains(string(data), "function getName();") {
 				t.Fatalf("stub lost interface declaration or method: %s", data)
 			}
 		})

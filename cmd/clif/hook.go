@@ -9,12 +9,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/cfmleditor/clif/internal/confine"
+	"github.com/cfmleditor/clif/internal/lex"
 
 	"github.com/cfmleditor/clif/internal/vfs"
 
@@ -75,8 +75,37 @@ var clifExecutable = os.Executable
 // placeholder is the commit log's hash and message before the commit exists.
 const placeholder = "--------"
 
-// ticketRe finds an issue key such as ABC-123.
-var ticketRe = regexp.MustCompile(`\b[A-Z][A-Z0-9]+-\d+\b`)
+// ticketIn finds the first issue key in s, such as ABC-123: capital letters
+// and digits starting with a letter, a hyphen and digits, each standing alone
+// with no word character before or after. It answers as FindString of
+// `\b[A-Z][A-Z0-9]+-\d+\b` did.
+func ticketIn(s string) (string, bool) {
+	for i := range len(s) {
+		if s[i] < 'A' || s[i] > 'Z' || i > 0 && lex.IsWord(s[i-1]) {
+			continue
+		}
+
+		end := i + 1
+		for end < len(s) && (s[end] >= 'A' && s[end] <= 'Z' || s[end] >= '0' && s[end] <= '9') {
+			end++
+		}
+
+		if end-i < 2 || end >= len(s) || s[end] != '-' {
+			continue
+		}
+
+		digits := end + 1
+		for digits < len(s) && s[digits] >= '0' && s[digits] <= '9' {
+			digits++
+		}
+
+		if digits > end+1 && (digits == len(s) || !lex.IsWord(s[digits])) {
+			return s[i:digits], true
+		}
+	}
+
+	return "", false
+}
 
 func cmdHook(args []string) {
 	if len(args) == 0 {
@@ -512,8 +541,8 @@ func appendCommitLog(flag, repo, status string) {
 	}
 
 	ticket := "-"
-	if branch := gitConfigless(repo, "rev-parse", "--abbrev-ref", "HEAD"); ticketRe.MatchString(branch) {
-		ticket = ticketRe.FindString(branch)
+	if key, ok := ticketIn(gitConfigless(repo, "rev-parse", "--abbrev-ref", "HEAD")); ok {
+		ticket = key
 	}
 
 	line := strings.Join([]string{
@@ -595,8 +624,8 @@ func fillCommitLog(path, repoName, hash, subject string) error {
 
 		// The subject names the commit's own ticket; the branch's, written
 		// at pre-commit, is the fallback.
-		if ticketRe.MatchString(subject) {
-			f[1] = ticketRe.FindString(subject)
+		if key, ok := ticketIn(subject); ok {
+			f[1] = key
 		}
 
 		lines[i] = strings.Join(f, " | ")

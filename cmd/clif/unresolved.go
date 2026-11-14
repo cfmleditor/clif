@@ -318,6 +318,10 @@ func unresolvedOptions(cfg *daemon.Config, args []string, fl *unresolvedFlags) *
 				strings.Join(unknown, ", "), strings.Join(config.KnownFrameworks(), ", "))
 		}
 
+		if regex := config.RegexMatches(cfg.ComponentResolvers()); len(regex) > 0 {
+			fmt.Fprintln(os.Stderr, config.RegexMatchWarning(regex))
+		}
+
 		fmt.Fprintf(os.Stderr, "Using config: %s\n", cfg.Path)
 
 		return opt

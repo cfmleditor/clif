@@ -550,3 +550,25 @@ func TestScriptInvokeReturnVariableIsDynamic(t *testing.T) {
 		t.Errorf("result: %q, want $any", got)
 	}
 }
+
+// A hop chained on a static call is on the line its name is written on, not
+// the line the chain began on.
+func TestHopsChainedOnAStaticCallKeepTheirOwnLines(t *testing.T) {
+	src := "component {\n function go() {\n  x = Foo::make(1)\n   .first(2)\n   .second();\n }\n}\n"
+	pr := ParseWithOptions(testURI, src, &ParseOptions{ExtractCalls: true})
+	scope := pr.Scopes[0]
+
+	lines := map[string]uint32{}
+
+	cs := pr.FuncCalls(scope.Start, scope.End)
+	for i := range cs {
+		lines[cs[i].FuncName] = cs[i].Line
+	}
+
+	want := map[string]uint32{"make": 2, "first": 3, "second": 4}
+	for name, line := range want {
+		if lines[name] != line {
+			t.Errorf("%s on line %d, want %d (all: %v)", name, lines[name], line, lines)
+		}
+	}
+}

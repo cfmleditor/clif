@@ -7,23 +7,117 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 
-	"github.com/cfmleditor/clif/internal/vfs"
-
 	"github.com/cfmleditor/clif/internal/knownissues"
+	"github.com/cfmleditor/clif/internal/lex"
+	"github.com/cfmleditor/clif/internal/vfs"
 )
 
 // The two suppression forms CFLint honours, with its own code-list rule
 // (com.cflint.CFLint: CFLINTIGNORE_PATTERN and CFLINT_LINE_IGNORE_PATTERN): a
 // list of word characters and commas, so "@CFLintIgnore A, B" suppresses A
 // only — the space ends the list — and is counted as A only.
-var (
-	ignoreTag  = regexp.MustCompile(`@CFLintIgnore\s+([\w,]+)`)
-	lineIgnore = regexp.MustCompile(`//\s*cflint\s+ignore:([\w,]+)`)
+//
+// They are read as the two expressions CFLint matches were, as a grep would
+// read them, so a baseline counted before and after agree:
+//
+//	@CFLintIgnore\s+([\w,]+)
+//	//\s*cflint\s+ignore:([\w,]+)
+const (
+	ignoreTagWord  = "@CFLintIgnore"
+	lineIgnoreHead = "//"
 )
+
+// codeList reads the list of word characters and commas that starts at i, and
+// returns it and where it ends; ok is false when it is empty.
+func codeList(s string, i int) (list string, end int, ok bool) {
+	end = i
+	for end < len(s) && (lex.IsWord(s[end]) || s[end] == ',') {
+		end++
+	}
+
+	return s[i:end], end, end > i
+}
+
+// ignoreTagLists is the code list of each `@CFLintIgnore LIST` in s, in order:
+// FindAllStringSubmatch of `@CFLintIgnore\s+([\w,]+)`, group one.
+func ignoreTagLists(s string) []string {
+	var out []string
+
+	for i := 0; ; {
+		at := strings.Index(s[i:], ignoreTagWord)
+		if at < 0 {
+			return out
+		}
+
+		at += i
+		start := at + len(ignoreTagWord)
+
+		space := lex.SkipRegexpSpace(s, start)
+		if space > start {
+			if list, end, ok := codeList(s, space); ok {
+				out = append(out, list)
+
+				i = end
+
+				continue
+			}
+		}
+
+		i = at + 1
+	}
+}
+
+// lineIgnoreLists is the code list of each `// cflint ignore:LIST` in s, in
+// order: FindAllStringSubmatch of `//\s*cflint\s+ignore:([\w,]+)`, group one.
+func lineIgnoreLists(s string) []string {
+	var out []string
+
+	for i := 0; ; {
+		at := strings.Index(s[i:], lineIgnoreHead)
+		if at < 0 {
+			return out
+		}
+
+		at += i
+
+		if list, end, ok := lineIgnoreAt(s, at+len(lineIgnoreHead)); ok {
+			out = append(out, list)
+
+			i = end
+
+			continue
+		}
+
+		i = at + 1
+	}
+}
+
+// lineIgnoreAt reads `\s*cflint\s+ignore:LIST` at i, just past a `//`.
+func lineIgnoreAt(s string, i int) (list string, end int, ok bool) {
+	i = lex.SkipRegexpSpace(s, i)
+
+	rest, found := strings.CutPrefix(s[i:], "cflint")
+	if !found {
+		return "", 0, false
+	}
+
+	i = len(s) - len(rest)
+
+	space := lex.SkipRegexpSpace(s, i)
+	if space == i {
+		return "", 0, false
+	}
+
+	rest, found = strings.CutPrefix(s[space:], "ignore:")
+	if !found {
+		return "", 0, false
+	}
+
+	return codeList(s, len(s)-len(rest))
+}
 
 // Suppressions counts the suppression comments in a set of files.
 type Suppressions struct {
@@ -58,9 +152,9 @@ func CountSuppressions(files []string) (*Suppressions, error) {
 func (s *Suppressions) add(content string) int {
 	n := 0
 
-	for _, re := range []*regexp.Regexp{ignoreTag, lineIgnore} {
-		for _, m := range re.FindAllStringSubmatch(content, -1) {
-			for code := range strings.SplitSeq(m[1], ",") {
+	for _, lists := range [][]string{ignoreTagLists(content), lineIgnoreLists(content)} {
+		for _, list := range lists {
+			for code := range strings.SplitSeq(list, ",") {
 				if code = strings.TrimSpace(code); code != "" {
 					s.Rules[code]++
 					s.Total++

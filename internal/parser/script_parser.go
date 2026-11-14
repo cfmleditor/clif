@@ -1094,7 +1094,8 @@ func (p *scriptParser) recordScopedMemberCall(scopeTok, nameTok Token) {
 // recordDynamicChain records the hops chained onto a call whose receiver is
 // dynamic, keeping every one of them dynamic. The scanner must sit just past
 // the first call's ')'.
-func (p *scriptParser) recordDynamicChain(recv string, line int, caller string) {
+// Each hop is on the line its own name is written on.
+func (p *scriptParser) recordDynamicChain(recv, caller string) {
 	for p.sc.PeekSkipComments().Kind == TokDot {
 		p.sc.NextSkipComments() // consume .
 
@@ -1113,7 +1114,7 @@ func (p *scriptParser) recordDynamicChain(recv string, line int, caller string) 
 			FuncName:  methTok.Value,
 			Variable:  recv,
 			Component: "$any",
-			Line:      conv.Uint32(p.baseLine + line),
+			Line:      conv.Uint32(p.baseLine + int(methTok.Line)),
 			Caller:    caller,
 			Resolved:  true,
 		})
@@ -2109,13 +2110,20 @@ func (p *scriptParser) recordStaticCall(component string, startTok Token) {
 
 	p.sc.NextSkipComments()
 
-	if p.sc.PeekSkipComments().Kind != TokLParen {
-		return
-	}
-
 	caller := ""
 	if p.inFunc.in && len(p.funcs) > 0 {
 		caller = p.currentFunc().Name
+	}
+
+	qualifier := component
+	component = p.staticQualifier(component, startTok)
+
+	// A static field, `Color::RED.getRed()`: a value of a type nothing here
+	// can say, so what is chained on it is dynamic, not a bare call.
+	if p.sc.PeekSkipComments().Kind != TokLParen {
+		p.recordDynamicChain(qualifier, caller)
+
+		return
 	}
 
 	call := CallSite{
@@ -2134,7 +2142,39 @@ func (p *scriptParser) recordStaticCall(component string, startTok Token) {
 
 	p.addCall(&call)
 
-	p.skipParens()
+	if p.skipParens() {
+		// What a static method returns is not typed here either.
+		p.recordDynamicChain(qualifier, caller)
+	}
+}
+
+// staticQualifier is the component a static call's qualifier names, as `new`
+// reads its path: a name an import brought in is what the import says, and a
+// Java class (`java:Double`, or a quoted import) is what createObject("java")
+// would make of it. Anything else is the path as written.
+func (p *scriptParser) staticQualifier(component string, startTok Token) string {
+	if p.afterJavaPrefix(startTok) {
+		if comp := p.resolveCall("createObject(\"java\",\"" + component + "\")"); comp != "" {
+			return comp
+		}
+
+		return "$any"
+	}
+
+	return p.applyImport(component)
+}
+
+// afterJavaPrefix reports whether the token is written `java:Name`, Lucee's
+// prefix for a Java class.
+func (p *scriptParser) afterJavaPrefix(tok Token) bool {
+	const prefix = "java:"
+
+	off := tok.Offset
+	if off < len(prefix) || off > len(p.sc.src) {
+		return false
+	}
+
+	return strings.EqualFold(p.sc.src[off-len(prefix):off], prefix)
 }
 
 // consumeThrowArgs consumes `throw(...)`'s argument list.
@@ -4113,6 +4153,7 @@ func (p *scriptParser) scanParenArgs() (firstArg string, positional []string, ok
 	// shows whether it was the whole argument.
 	argStart, collecting := true, true
 	pending, havePending := "", false
+	wholeCandidate, prevKind := "", TokEOF
 
 	var arrow arrowParams
 
@@ -4142,9 +4183,25 @@ func (p *scriptParser) scanParenArgs() (firstArg string, positional []string, ok
 
 		arrow.see(tok, depth)
 
-		if tok.Kind == TokString && firstArg == "" && depth == 1 {
-			firstArg = unquote(tok.Value)
+		// A string offered as the first argument is the whole of its
+		// argument: `getBean( "x" )` or `getBean( name = "x" )`. One that is a
+		// piece of an expression, `getBean( url.p & "Provider" )`, names
+		// nothing, and read as the argument it typed the call as a component
+		// called "Provider". The string is held until the token after it
+		// shows which it was.
+		if wholeCandidate != "" {
+			if tok.Kind == TokComma || tok.Kind == TokRParen {
+				firstArg = wholeCandidate
+			}
+
+			wholeCandidate = ""
 		}
+
+		if tok.Kind == TokString && firstArg == "" && depth == 1 && (argStart || prevKind == TokEquals || prevKind == TokColon) {
+			wholeCandidate = unquote(tok.Value)
+		}
+
+		prevKind = tok.Kind
 
 		if depth == 1 && collecting {
 			switch {
@@ -4293,6 +4350,9 @@ func (p *scriptParser) scanNestedCall(tok Token) {
 	switch p.sc.PeekSkipComments().Kind {
 	case TokLParen:
 		p.recordBareCallAndChain(tok)
+	case TokDoubleColon:
+		// `f( Foo::bar() )`: a static call, as it is standing alone.
+		p.parseStaticCall(tok)
 	case TokDot, TokLBracket:
 		// A dotted or bracket-indexed receiver. checkBareCall walks the chain
 		// and records only when it ends at a '(' — a bare `a.b` property read
@@ -4310,10 +4370,20 @@ func (p *scriptParser) skipInstantiation() {
 	// The path is read as every other `new` reads it, which records the
 	// instantiation: one in an argument list or a literal was the one kind
 	// the code map never drew.
-	p.readNewComponent()
+	component := p.readNewComponent()
 
-	if p.sc.PeekSkipComments().Kind == TokLParen {
-		p.skipParens()
+	if p.sc.PeekSkipComments().Kind != TokLParen {
+		return
+	}
+
+	p.skipParens()
+
+	// Hops chained onto it are calls on the object it made, as they are for a
+	// `new` standing alone (parseStandaloneNew). Left unread, `expect( new
+	// a.B().make().sound() )` met `make` as a bare call to a function of this
+	// file, and a method the component lacks was never checked.
+	if component != "" {
+		p.scanChainedCalls(component)
 	}
 }
 
@@ -4725,7 +4795,7 @@ func (p *scriptParser) continueExtendedChain(recv, first string, ext []string, l
 			FuncName: method, Variable: recv, Component: "$any", Resolved: true,
 			Line: conv.Uint32(p.baseLine + line), Caller: caller,
 		})
-		p.recordDynamicChain(recv, line, caller)
+		p.recordDynamicChain(recv, caller)
 
 		return []string{method, "?"} // the rest is dynamic: see dynamicIfTyped
 	}

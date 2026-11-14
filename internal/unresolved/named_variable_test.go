@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 
+	"github.com/cfmleditor/clif/internal/parser"
 	"github.com/cfmleditor/clif/internal/vfs"
 )
 
@@ -213,5 +216,236 @@ func TestUTF16IsAnalysedAndBinaryIsSkipped(t *testing.T) {
 	got := Scan(vfs.OS{}, []string{utf16, binary}, nil, &Options{WorkspaceFolders: []string{dir}})
 	if len(got.Calls) != 1 || got.Calls[0].Function != "missingFunctionHere" || got.Calls[0].Line != 2 {
 		t.Fatalf("want the UTF-16 file's one call on its third line and nothing from the binary, got %+v", got.Calls)
+	}
+}
+
+// The same call from a component that extends one is judged against its
+// extends chain, which does not hold the name either: Masa's components
+// extend mura.cfobject, whose include pulls the backport in.
+func TestABareCallInAComponentWithABaseToATemplateFunctionIsAccepted(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, src string) string {
+		f := filepath.Join(dir, name)
+		if err := os.WriteFile(f, []byte(src), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		return f
+	}
+
+	files := []string{
+		write("backport.cfm", "<cfscript>\ninclude '#backportdir#lucee.cfm';\n</cfscript>"),
+		write("lucee.cfm", "<cfscript>\nfunction parseXML( s ) { return xmlParse( s ); }\n</cfscript>"),
+		write("Base.cfc", "component {\n function init() { return this; }\n}"),
+	}
+	files = append(files, write("Tool.cfc", "component extends=\"Base\" {\n function go() {\n return parseXML( 'x' ) & nowhereDeclared();\n }\n}"))
+
+	got := Scan(vfs.OS{}, files, files, &Options{WorkspaceFolders: []string{dir}, InferArgs: true})
+	if len(got.Calls) != 1 || got.Calls[0].Function != "nowhereDeclared" {
+		t.Fatalf("want only nowhereDeclared reported, got %+v", got.Calls)
+	}
+}
+
+// A string that is only part of a call's first argument names nothing:
+// `getBean( url.p & "Provider" )` was read as `getBean( "Provider" )`, which
+// typed the chain as a component called Provider and reported a method missing
+// from it. A whole-string name still types the call, and an unknown one is
+// still reported.
+func TestAStringThatIsPartOfAnArgumentIsNotTheBeanName(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, src string) string {
+		f := filepath.Join(dir, name)
+		if err := os.WriteFile(f, []byte(src), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		return f
+	}
+
+	files := []string{
+		write("Real.cfc", "component {\n function run() {}\n}"),
+		write("Use.cfc", "component {\n function go() {\n  var a = getBean( 'Real' ).run();\n  var b = getBean( 'Gone' ).missing();\n  var c = getBean( url.p & 'Frag' ).fragCall();\n  var d = getBean( 'Frag2' & url.p ).frag2Call();\n }\n}"),
+	}
+
+	resolvers := []parser.Resolver{{
+		Match:   `(?i)(?:^|\.)getBean\(\s*(?:\w+\s*[=:]\s*)?["']([A-Za-z_][\w.]*)["']\s*(?:,[^()]*)?\)$`,
+		Resolve: "$1", Prefix: "getBean",
+	}}
+
+	got := Scan(vfs.OS{}, files, files, &Options{Resolvers: resolvers, WorkspaceFolders: []string{dir}, InferArgs: true})
+	for _, c := range got.Calls {
+		if strings.Contains(c.Reason, "Frag") {
+			t.Errorf("a fragment of an argument typed the call: %+v", c)
+		}
+	}
+}
+
+// A `new` inside a call's arguments is the receiver of the hops chained on it,
+// as it is standing alone: `expect( new Real().present() )` is a call to
+// Real.present, not a bare call to a function of this file, and a method Real
+// lacks is reported against it.
+func TestAChainOnANewInsideCallArgumentsIsOnTheNewComponent(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, src string) string {
+		f := filepath.Join(dir, name)
+		if err := os.WriteFile(f, []byte(src), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		return f
+	}
+
+	files := []string{
+		write("Real.cfc", "component {\n function present() { return this; }\n function again() {}\n}"),
+		write("Use.cfc", "component {\n function go() {\n  check( new Real().present().again() );\n  check( new Real().absent() );\n }\n function check( v ) {}\n}"),
+	}
+
+	got := Scan(vfs.OS{}, files, files, &Options{WorkspaceFolders: []string{dir}, InferArgs: true})
+
+	var reported []string
+	for _, c := range got.Calls {
+		reported = append(reported, c.Function+": "+c.Reason)
+	}
+
+	if len(reported) != 1 || !strings.HasPrefix(reported[0], "absent:") || !strings.Contains(reported[0], "Real") {
+		t.Fatalf("want only absent reported against Real, got %q", reported)
+	}
+}
+
+// A static call, `X::m()`, is read as `new X()` reads its path: an import says
+// what a bare name is (a quoted one brings in a Java class), `java:` and the JDK's
+// own packages name a Java class, and one in an argument list is the same call.
+// What a static call returns, or a static field holds, has no type here, so a
+// method chained on it is not a bare call. A component that is not there, and a
+// method a component lacks, are still reported.
+func TestAStaticCallIsReadAsANewPathIs(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, src string) string {
+		f := filepath.Join(dir, name)
+		if err := os.WriteFile(f, []byte(src), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		return f
+	}
+
+	files := []string{
+		write("Real.cfc", "component {\n static function present() {}\n}"),
+		write("Use.cfc", `component {
+	import "com.q.Quoted";
+	function go() {
+		Quoted::fromImport();
+		java.lang.Double::valueOf( "1" );
+		check( java:Double::valueOf( "1" ) );
+		check( Quoted::make().chained() );
+		check( Elsewhere::FIELD.chainedField() );
+		Real::present();
+		check( Real::present() );
+		Real::absent();
+		check( Gone::vanished() );
+	}
+	function check( v ) {}
+}`),
+	}
+
+	got := Scan(vfs.OS{}, files, files, &Options{WorkspaceFolders: []string{dir}, InferArgs: true})
+
+	var reported []string
+	for _, c := range got.Calls {
+		reported = append(reported, c.Function)
+	}
+
+	slices.Sort(reported)
+
+	if want := []string{"absent", "vanished"}; !slices.Equal(reported, want) {
+		t.Fatalf("reported %v, want %v; %+v", reported, want, got.Calls)
+	}
+}
+
+// A call through a script function's parameter is a call through its value:
+// `function apply( fn, v ) { return fn( v ); }` calls whatever it was handed.
+// The body walk declares the locals and <cfargument> tags, not these, and every
+// such call was reported as a missing function. The name is an argument of the
+// function it is called in only; another function's parameter, and a function
+// that is declared nowhere, are still reported.
+func TestACallThroughAScriptParameterIsNotAMissingFunction(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, src string) string {
+		f := filepath.Join(dir, name)
+		if err := os.WriteFile(f, []byte(src), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		return f
+	}
+
+	files := []string{write("Use.cfc", `component {
+	function apply( fn, v ) { return fn( v ); }
+	function typed( required any callback ) { return callback(); }
+	function viaDefault( function cb=function(){} ) { return cb(); }
+	function other( x ) { return fn( x ); }
+	function gone() { return nowhereDeclared(); }
+}`)}
+
+	got := Scan(vfs.OS{}, files, files, &Options{WorkspaceFolders: []string{dir}, InferArgs: true})
+
+	var reported []string
+	for _, c := range got.Calls {
+		reported = append(reported, c.Function)
+	}
+
+	slices.Sort(reported)
+
+	if want := []string{"fn", "nowhereDeclared"}; !slices.Equal(reported, want) {
+		t.Fatalf("reported %v, want %v (fn only from other(), which has no such parameter)", reported, want)
+	}
+}
+
+// A dynamicIfMissing rule softens a component that names no file; it does not
+// make the answer for one that does worth less. `var it = getBean( "Real" )` in
+// a function that returns it types the function's return, so a method Real
+// lacks, called on the result, is reported; a bean that is not there stays
+// dynamic, which is what the rule is for.
+func TestASoftRuleTypesTheReturnOfAComponentThatExists(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, src string) string {
+		f := filepath.Join(dir, name)
+		if err := os.WriteFile(f, []byte(src), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		return f
+	}
+
+	files := []string{
+		write("Real.cfc", "component {\n function present() { return this; }\n}"),
+		write("Use.cfc", `component {
+	function getBean( name ) {}
+	function makeReal() { var it = getBean( "Real" ); return it; }
+	function makeGone() { var it = getBean( "Gone" ); return it; }
+	function go() {
+		makeReal().absent();
+		makeGone().anything();
+	}
+}`),
+	}
+
+	got := Scan(vfs.OS{}, files, files, &Options{
+		Resolvers: []parser.Resolver{{
+			Matcher:          &parser.LiteralCall{Func: "getBean", Named: parser.AnyNamedArg, Form: parser.IDWord, Rest: true},
+			Resolve:          "$1",
+			Prefix:           "getBean",
+			DynamicIfMissing: true,
+		}},
+		WorkspaceFolders: []string{dir}, InferArgs: true,
+	})
+
+	var reported []string
+	for _, c := range got.Calls {
+		reported = append(reported, c.Function)
+	}
+
+	if len(reported) != 1 || reported[0] != "absent" {
+		t.Fatalf("want only absent (a method of Real) reported, got %q", reported)
 	}
 }

@@ -312,14 +312,61 @@ type Resolver struct {
 	// NameOnly says what a variable of that name holds, and nothing about
 	// what a call on it returns: see parser.Resolver.
 	NameOnly bool `json:"nameOnly"`
+	// Call is a match written as the call it recognises instead of a pattern:
+	// see CallMatch. A rule has Match or Call, and Call wins.
+	Call *CallMatch `json:"call,omitempty"`
+	// Matcher is the match of a built-in rule, written as code instead of a
+	// pattern; a configuration's own rules have Match or Call.
+	Matcher parser.Matcher `json:"-"`
+}
+
+// CallMatch recognises a call whose argument is a string, such as
+// `getBean( "userService" )`, and captures the string for the rule's `$1`. The
+// call must end the expression, so `getBean( "a" ).run()` is a call of run on
+// what getBean returns, not a getBean call. It is what a pattern for the same
+// call needed a regular expression to say.
+type CallMatch struct {
+	// Function is the name of the function called.
+	Function string `json:"function"`
+	// NamedArgument allows the string to be given by name, `getBean( name = "x" )`.
+	NamedArgument bool `json:"namedArgument"`
+	// MoreArguments allows further arguments after the string.
+	MoreArguments bool `json:"moreArguments"`
+}
+
+func (c *CallMatch) matcher() parser.Matcher {
+	named := parser.NoNamedArg
+	if c.NamedArgument {
+		named = parser.AnyNamedArg
+	}
+
+	return &parser.LiteralCall{Func: c.Function, Named: named, Form: parser.IDPath, Rest: c.MoreArguments}
+}
+
+// MatchText is how the rule's match reads in a listing: its pattern, or what
+// its matcher recognises.
+func (r *Resolver) MatchText() string {
+	if r.Matcher != nil {
+		return r.Matcher.String()
+	}
+
+	return r.Match
 }
 
 // Parser is the resolver as the parser and resolver use it. Every
 // config-to-parser conversion goes through here, so a field added to one
 // reaches the other everywhere at once.
 func (r *Resolver) Parser() parser.Resolver {
+	matcher, prefix := r.Matcher, r.Prefix
+	if r.Call != nil && matcher == nil {
+		matcher = r.Call.matcher()
+		if prefix == "" {
+			prefix = r.Call.Function
+		}
+	}
+
 	return parser.Resolver{
-		Match: r.Match, Resolve: r.Resolve, Prefix: r.Prefix,
+		Match: r.Match, Resolve: r.Resolve, Prefix: prefix, Matcher: matcher,
 		NoFollow: r.NoFollow, Anchored: r.Anchored, DynamicIfMissing: r.DynamicIfMissing, NameOnly: r.NameOnly,
 	}
 }
@@ -362,21 +409,17 @@ func ParserPropertyResolvers(rules []PropResolver) []parser.PropertyResolver {
 	return out
 }
 
-// javaStubCreateObjectPattern matches createObject("java", "some.Class.Name")
-// (single or double quotes, arbitrary whitespace inside the parens).
-const javaStubCreateObjectPattern = `createObject\s*\(\s*['"]java['"]\s*,\s*['"](.+?)['"]\s*\)`
-
 // JavaStubResolver synthesizes the componentResolver equivalent of hand-writing
 // a createObject("java", "X") -> "<javaStubsPath>.X" pattern, so a project only
 // needs to set javaStubsPath once instead of writing the regex itself. Returns
-// the zero Resolver (Match == "") when javaStubsPath is empty.
+// the zero Resolver (no Matcher) when javaStubsPath is empty.
 func JavaStubResolver(javaStubsPath string) Resolver {
 	if javaStubsPath == "" {
 		return Resolver{}
 	}
 
 	return Resolver{
-		Match:   javaStubCreateObjectPattern,
+		Matcher: parser.JavaClass(),
 		Resolve: javaStubsPath + ".$1",
 		Prefix:  "createObject",
 	}
@@ -771,13 +814,15 @@ func Resolve(cfg *JSON, dir string) *Resolved {
 
 	r.KnownIssues = ResolveKnownIssues(cfg.KnownIssues, dir)
 
-	for _, cr := range cfg.ComponentResolvers {
-		if cr.Match != "" && cr.Resolve != "" {
-			r.ComponentResolvers = append(r.ComponentResolvers, cr)
+	for i := range cfg.ComponentResolvers {
+		cr := &cfg.ComponentResolvers[i]
+
+		if (cr.Match != "" || cr.Call != nil && cr.Call.Function != "") && cr.Resolve != "" {
+			r.ComponentResolvers = append(r.ComponentResolvers, *cr)
 		}
 	}
 
-	if jr := JavaStubResolver(cfg.JavaStubsPath); jr.Match != "" {
+	if jr := JavaStubResolver(cfg.JavaStubsPath); jr.Matcher != nil {
 		r.ComponentResolvers = append(r.ComponentResolvers, jr)
 	}
 

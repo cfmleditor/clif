@@ -108,6 +108,8 @@ type ParseResult struct {
 	// assignments is Assignments' answer, recorded during the parse when
 	// ParseOptions.RecordAssignments asked; nil otherwise.
 	assignments *assignments
+	// sharedAssignments is ParseOptions.SharedAssignments.
+	sharedAssignments func(content string) []Assignment
 	// customTags is CustomTagCalls' answer, for the content customTagsOf and
 	// the prefixes customTagsKey.
 	customTags    []CustomTagCall
@@ -274,6 +276,12 @@ type ParseOptions struct {
 	// as it runs, rather than on the first question. Off, nothing is read
 	// until Assignments is asked.
 	RecordAssignments bool
+	// SharedAssignments is how Assignments reads a text's writes when the
+	// caller holds them for every parse of that text, a file being parsed once
+	// to index and again to scan: what it returns is AssignmentsOf's answer
+	// for the parse's file and text, and is shared. Nil reads them from the
+	// parse's own regions.
+	SharedAssignments func(content string) []Assignment
 }
 
 // Parse performs a full file parse: extracts function signatures, component refs,
@@ -385,6 +393,7 @@ func ParseWithOptions(fileURI uri.URI, content string, opts *ParseOptions) *Pars
 		keepVars:                 opts.KeepVars,
 		scopesOnly:               opts.ScopesOnly,
 		fileRefsOnly:             opts.FileRefsOnly,
+		sharedAssignments:        opts.SharedAssignments,
 	}
 	if opts.Body != nil {
 		body := *opts.Body

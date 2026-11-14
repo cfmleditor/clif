@@ -345,7 +345,11 @@ func declaresNoReturnType(fd *parser.FunctionDef) bool {
 // isTemplateFunctionCall reports whether a bare call nothing answers is of a
 // function an included template declares (`parseXML` in a backport template the
 // application includes): it exists in code the application runs, in a scope the
-// include graph cannot place.
+// include graph cannot place. A component with a base reaches the same answer
+// by its extends chain not holding the name, which is no more proof that the
+// base's own include does not declare it.
 func (r *Resolver) isTemplateFunctionCall(call *parser.CallSite, reason string) bool {
-	return call.Variable == "" && len(call.Chain) == 0 && strings.Contains(reason, "no qualifier") && r.templateDeclares(call.FuncName)
+	bare := strings.Contains(reason, "no qualifier") || strings.Contains(reason, "not found in extends chain")
+
+	return call.Variable == "" && len(call.Chain) == 0 && bare && r.templateDeclares(call.FuncName)
 }

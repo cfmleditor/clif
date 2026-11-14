@@ -1067,6 +1067,28 @@ The match is case-insensitive and works regardless of qualifiers before it. For 
 - `_parent.getService("timetable")`
 - `VARIABLES._parent.getService("timetable")`
 
+#### A `match` written as a regular expression is deprecated
+
+A `match` is a plain string, with `$1` (and `$2`, …) where it captures: `get$1()`,
+`getService("$1")`. One that holds a backslash is read as a regular expression instead, and
+that is deprecated: clif warns of it on startup and will stop reading it in a future release.
+Write it with placeholders, or use a [framework preset](#frameworks) (the presets
+need no pattern at all).
+
+A placeholder pattern cannot say that a call *ends* the expression, so `getBean("$1"` also
+matches inside `getBean("a").run()` and types `run`'s receiver as `a`. A rule for the call itself
+can, with `call` in place of `match`:
+
+```json
+{"call": {"function": "getBean", "namedArgument": true, "moreArguments": true}, "resolve": "$1"}
+```
+
+It recognises `getBean( "x" )`, `getBean( name = "x" )` (with `namedArgument`) and `getBean( "x", true )`
+(with `moreArguments`), where the string is a name or a dotted path and becomes `$1`; `prefix`
+defaults to the function's name. It does not match `getBean( "x" ).run()`, `getBean( computed )` or
+`getBean( "a" & b )`. If neither says what a rule needs to, please open an issue with the
+expression: it shows what is missing.
+
 #### `anchored`
 
 By default `prefix` is searched for *anywhere* in the expression, and matching starts from
@@ -1097,7 +1119,7 @@ that fired.
 
 #### `dynamicIfMissing`
 
-A catch-all such as `{"prefix": "get", "match": "get([A-Za-z]+)\\(\\)", "resolve": "app.${1:lower}"}` is
+A catch-all such as `{"prefix": "get", "match": "get$1()", "resolve": "app.${1:lower}"}` is
 right for the factories it was written for and invents a path for every other getter:
 `getTable()` becomes `app.table`, and every call on the result is then reported as
 `component 'app.table' does not exist`. With `"dynamicIfMissing": true`, a component *that

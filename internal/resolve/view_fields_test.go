@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/cfmleditor/clif/internal/index"
+	"github.com/cfmleditor/clif/internal/parser"
 	"github.com/cfmleditor/clif/internal/vfs"
 )
 
@@ -57,6 +58,12 @@ func fill(t *testing.T, v reflect.Value) {
 	case reflect.Interface:
 		if v.Type() == reflect.TypeFor[vfs.FS]() {
 			v.Set(reflect.ValueOf(vfs.OS{}))
+
+			return
+		}
+
+		if v.Type() == reflect.TypeFor[parser.Matcher]() {
+			v.Set(reflect.ValueOf(parser.NameSet("filled")))
 
 			return
 		}

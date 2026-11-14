@@ -105,6 +105,19 @@ a real workspace (its env vars are in the test). Never time a counted build:
 the atomic add contends across workers. When you raise a ceiling, say why in
 the commit.
 
+**An editor change is measured over a session, not one event.** A per-event
+figure hides what grows with the edit count: a reparse that listed every
+property once more per keystroke cost 27KB of heap each, 72MB after 2,400, and
+slowed every later hover, and no single event looked wrong. `TestEditorSession`
+(env-gated like the passes test; its variables are in the test) types hundreds
+of keystrokes inside and outside a function, shifts lines, and closes and
+reopens the document, reporting `didChange` and hover latency and the heap
+after a collection each time. A heap figure that climbs with `CLIF_EDITOR_EDITS`
+is a parse keeping what an edit should have replaced;
+`TestAReparsedParseHoldsWhatAFreshOneDoes` compares every slice and map of a
+reparsed parse with a fresh one's, so a new field that is appended to but not
+reset fails it.
+
 **Compare against the branch point, not against your last build, and run the two
 binaries alternately.** Five parser fixes in one round were each reported at
 around +1% on the tag benchmarks, because each was measured against whatever

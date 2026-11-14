@@ -3,7 +3,6 @@ package resolve
 import (
 	"math"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 
@@ -115,7 +114,7 @@ func (r *Resolver) BeanResolvers(beanPaths map[string]string) []parser.Resolver 
 		}
 
 		discovered = append(discovered, parser.Resolver{
-			Match:   `(?i)(?:^|\.)getBean\(\s*(?:\w+\s*[=:]\s*)?["']` + regexp.QuoteMeta(key) + `["']\s*(?:,[^()]*)?\)$`,
+			Matcher: &parser.LiteralCall{Func: "getBean", Named: parser.AnyNamedArg, Form: parser.IDLiteral, Literal: key, Rest: true},
 			Resolve: path, Prefix: "getBean",
 		})
 	}
@@ -130,7 +129,7 @@ func (r *Resolver) BeanResolvers(beanPaths map[string]string) []parser.Resolver 
 
 		rule := &r.Resolvers[i]
 		out = append(out, parser.Resolver{
-			Match: rule.Match, Resolve: rule.Resolve, Prefix: rule.Prefix,
+			Match: rule.Match, Resolve: rule.Resolve, Prefix: rule.Prefix, Matcher: rule.Matcher,
 			NoFollow: rule.NoFollow, Anchored: rule.Anchored,
 			DynamicIfMissing: rule.DynamicIfMissing, NameOnly: rule.NameOnly,
 		})

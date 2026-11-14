@@ -1,6 +1,9 @@
 package resolve
 
 import (
+	"math/bits"
+	"sort"
+
 	"github.com/cfmleditor/clif/internal/parser"
 )
 
@@ -50,23 +53,79 @@ func blockClosedBetween(content string, fromLine, toLine int) bool {
 		return false
 	}
 
-	scanner := parser.NewSourceScanner(content[from:to])
-	depth := 0
+	return braces.of(content, newBraceIndex).closesBetween(from, to)
+}
 
-	for {
-		switch tok := scanner.NextSkipComments(); tok.Kind {
-		case parser.TokEOF:
-			return false
+// braces remembers the brace index of the texts asked about most recently. A
+// file is asked about once per use of a variable a native type was claimed
+// for, over the lines from its ref to the use, and each ask scanned those
+// lines: on Lucee that was 36 of the 46 times the scan read its text.
+var braces = &textCache[braceIndex]{size: func(b braceIndex) int { return 8*len(b.offs) + 4*len(b.depth) + 4*len(b.floor) }}
+
+// braceIndex is where a text's braces are and how deep each leaves it, so
+// whether a span closes a block it did not open is a search and a minimum
+// rather than a scan of the span.
+type braceIndex struct {
+	offs  []int     // the byte offset of each brace, in order
+	depth []int32   // the depth after each, from the top of the text
+	floor [][]int32 // floor[k][i] is the least depth after braces i to i+2^k-1
+}
+
+func newBraceIndex(content string) braceIndex {
+	var b braceIndex
+
+	sc := parser.NewSourceScanner(content)
+	d := int32(0)
+
+	for tok := sc.NextSkipComments(); tok.Kind != parser.TokEOF; tok = sc.NextSkipComments() {
+		switch tok.Kind {
 		case parser.TokLBrace:
-			depth++
+			d++
 		case parser.TokRBrace:
-			depth--
-			if depth < 0 {
-				return true
-			}
+			d--
 		default:
+			continue
 		}
+
+		b.offs = append(b.offs, tok.Offset)
+		b.depth = append(b.depth, d)
 	}
+
+	b.floor = append(b.floor, b.depth)
+
+	for k := 1; 1<<k <= len(b.depth); k++ {
+		prev := b.floor[k-1]
+		row := make([]int32, len(b.depth)-1<<k+1)
+
+		for i := range row {
+			row[i] = min(prev[i], prev[i+1<<(k-1)])
+		}
+
+		b.floor = append(b.floor, row)
+	}
+
+	return b
+}
+
+// closesBetween reports whether the braces at byte offsets from to before to
+// take the depth below where it stood at from.
+func (b braceIndex) closesBetween(from, to int) bool {
+	lo := sort.SearchInts(b.offs, from)
+	hi := sort.SearchInts(b.offs, to)
+
+	if lo >= hi {
+		return false
+	}
+
+	base := int32(0)
+	if lo > 0 {
+		base = b.depth[lo-1]
+	}
+
+	k := bits.Len(uint(hi-lo)) - 1
+	least := min(b.floor[k][lo], b.floor[k][hi-1<<k])
+
+	return least < base
 }
 
 // nativeRefMissesUse reports whether the native type a ref gives name at

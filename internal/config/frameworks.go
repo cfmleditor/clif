@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"maps"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 
@@ -43,16 +42,14 @@ type implicitBase struct {
 // variableResolver types a variable and its scoped spellings by name alone.
 // Anchored and whole-name, so `oEvent` is not `event`.
 func variableResolver(component string, names ...string) Resolver {
-	alts := make([]string, 0, len(names))
 	prefixes := make([]string, 0, len(names)*3)
 
 	for _, n := range names {
-		alts = append(alts, regexp.QuoteMeta(n))
 		prefixes = append(prefixes, n, "variables."+n, "arguments."+n)
 	}
 
 	return Resolver{
-		Match:            `^(?:variables\.|arguments\.)?(?:` + strings.Join(alts, "|") + `)$`,
+		Matcher:          parser.NameSet(names...),
 		Resolve:          component,
 		Prefix:           strings.Join(prefixes, "|"),
 		Anchored:         true,
@@ -86,7 +83,7 @@ func returnResolver(component string, names ...string) []Resolver {
 // the prefix, which is found first inside getBeanFactory().getBean( "x" ).
 func idResolver(fn string) Resolver {
 	return Resolver{
-		Match:            `(?i)(?:^|\.)` + fn + `\(\s*(?:\w+\s*[=:]\s*)?["'](?:id:|model:)?([A-Za-z_][\w.]*(?:@[\w.-]+)?)@?["']\s*(?:,[^()]*)?\)$`,
+		Matcher:          &parser.LiteralCall{Func: fn, Named: parser.AnyNamedArg, Form: parser.IDWire, Rest: true},
 		Resolve:          "$1",
 		Prefix:           fn,
 		DynamicIfMissing: true,
@@ -103,7 +100,7 @@ func dslResolvers() []Resolver {
 
 	for _, k := range slices.Sorted(maps.Keys(dsl)) {
 		out = append(out, Resolver{
-			Match:            `(?i)^getInstance\(\s*(?:\w+\s*[=:]\s*)?["']` + regexp.QuoteMeta(k) + `["']\s*\)$`,
+			Matcher:          &parser.LiteralCall{Func: "getInstance", Bare: true, Named: parser.AnyNamedArg, Form: parser.IDLiteral, Literal: k},
 			Resolve:          dsl[k],
 			Prefix:           "getInstance",
 			DynamicIfMissing: true,
@@ -350,22 +347,22 @@ var frameworkPresets = map[string]frameworkPreset{
 			variableResolver("mura.plugin.pluginConfig", "rc.pluginConfig"),
 			variableResolver("mura.trash.trashItemBean", "rc.trashItem"),
 			variableResolver("mura.trash.trashIterator", "rc.trashIterator"),
-			{Match: `(?i)(?:^|\.)\s*content\s*\(\s*\)$`, Resolve: "mura.content.contentBean", Prefix: "content"},
-			{Match: `(?i)(?:^|\.)\s*getContentBean\s*\(\s*\)$`, Resolve: "mura.content.contentBean", Prefix: "getContentBean"},
-			{Match: `(?i)(?:^|\.)\s*currentUser\s*\(\s*\)$`, Resolve: "mura.user.sessionUserFacade", Prefix: "currentUser"},
-			{Match: `(?i)(?:^|\.)\s*getCurrentUser\s*\(\s*\)$`, Resolve: "mura.user.sessionUserFacade", Prefix: "getCurrentUser"},
+			{Matcher: parser.EmptyCall("content"), Resolve: "mura.content.contentBean", Prefix: "content"},
+			{Matcher: parser.EmptyCall("getContentBean"), Resolve: "mura.content.contentBean", Prefix: "getContentBean"},
+			{Matcher: parser.EmptyCall("currentUser"), Resolve: "mura.user.sessionUserFacade", Prefix: "currentUser"},
+			{Matcher: parser.EmptyCall("getCurrentUser"), Resolve: "mura.user.sessionUserFacade", Prefix: "getCurrentUser"},
 			// Zero arguments select the object form. Property arguments select
 			// a value or setter result, so they must not acquire these types.
-			{Match: `(?i)(?:^|\.)\s*siteConfig\s*\(\s*\)$`, Resolve: "mura.settings.settingsBean", Prefix: "siteConfig"},
+			{Matcher: parser.EmptyCall("siteConfig"), Resolve: "mura.settings.settingsBean", Prefix: "siteConfig"},
 			// event() with no arguments is getEvent(): the request's servletEvent,
 			// or a plain event outside a request (resolve.muraEventComponent).
-			{Match: `(?i)(?:^|\.)\s*event\s*\(\s*\)$`, Resolve: "mura.servletEvent|mura.event", Prefix: "event"},
-			{Match: `(?i)(?:^|\.)\s*globalConfig\s*\(\s*\)$`, Resolve: "mura.configBean", Prefix: "globalConfig"},
+			{Matcher: parser.EmptyCall("event"), Resolve: "mura.servletEvent|mura.event", Prefix: "event"},
+			{Matcher: parser.EmptyCall("globalConfig"), Resolve: "mura.configBean", Prefix: "globalConfig"},
 			// Standard site renderers implement the core renderer's API;
 			// deployments replacing that contract can override this preset rule.
-			{Match: `(?i)(?:^|\.)\s*getContentRenderer\s*\(\s*\)$`, Resolve: "mura.content.contentRenderer", Prefix: "getContentRenderer"},
+			{Matcher: parser.EmptyCall("getContentRenderer"), Resolve: "mura.content.contentRenderer", Prefix: "getContentRenderer"},
 			{
-				Match:            `(?i)(?:^|\.)getValue\(\s*["']muraScope["']\s*\)$`,
+				Matcher:          &parser.LiteralCall{Func: "getValue", Form: parser.IDLiteral, Literal: "muraScope"},
 				Resolve:          "mura.MuraScope",
 				Prefix:           "getValue",
 				DynamicIfMissing: true,
@@ -415,6 +412,28 @@ func KnownFrameworks() []string {
 	slices.Sort(names)
 
 	return names
+}
+
+// RegexMatches returns the `match` of each component resolver a configuration
+// wrote as a regular expression, which is deprecated: a match with a `$1`
+// placeholder, or a framework preset, says the same without one. The built-in
+// presets never are.
+func RegexMatches(rules []Resolver) []string {
+	var out []string
+
+	for i := range rules {
+		if rules[i].Matcher == nil && parser.IsRegexMatch(rules[i].Match) {
+			out = append(out, rules[i].Match)
+		}
+	}
+
+	return out
+}
+
+// RegexMatchWarning is what is said of the matches RegexMatches found.
+func RegexMatchWarning(patterns []string) string {
+	return "componentResolvers: a match written as a regular expression (it holds a backslash) is deprecated and will stop working in a future release; " +
+		"use a $1 placeholder pattern or a framework preset instead: " + strings.Join(patterns, "  ")
 }
 
 // UnknownFrameworks returns the names in frameworks that no preset answers to,

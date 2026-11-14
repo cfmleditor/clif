@@ -2,12 +2,12 @@ package resolve
 
 import (
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"sync"
 
 	"github.com/cfmleditor/clif/internal/docs"
+	"github.com/cfmleditor/clif/internal/lex"
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
 )
@@ -35,9 +35,56 @@ const maxStartupTemplates = 64
 // from other files.
 var sharedScopes = []string{"request", "session", "application", "server"}
 
-// tagSharedAssign is a <cfset> that writes a shared scope, matched at the
-// start of a tag parser.CFTags reads, so one in a comment is none.
-var tagSharedAssign = regexp.MustCompile(`(?i)^<cfset\s+(request|session|application|server)\.([A-Za-z_$][\w$]*)\s*=`)
+// tagSharedAssignIndex reads a <cfset> that writes a shared scope at the start
+// of s, a tag parser.CFTags found, so one in a comment is none. It answers as
+// FindStringSubmatchIndex of the expression it replaced did,
+//
+//	(?i)^<cfset\s+(request|session|application|server)\.([A-Za-z_$][\w$]*)\s*=
+//
+// the indexes of the whole match and of the scope and the name, or nil.
+func tagSharedAssignIndex(s string) []int {
+	const head = "<cfset"
+
+	if !lex.HasPrefixFold(s, head) {
+		return nil
+	}
+
+	i := lex.SkipRegexpSpace(s, len(head))
+	if i == len(head) {
+		return nil
+	}
+
+	scopeEnd := -1
+
+	for _, scope := range sharedScopes {
+		if end := i + len(scope); lex.HasPrefixFold(s[i:], scope) && end < len(s) && s[end] == '.' {
+			scopeEnd = end
+
+			break
+		}
+	}
+
+	if scopeEnd < 0 {
+		return nil
+	}
+
+	nameStart := scopeEnd + 1
+	if nameStart >= len(s) || (!lex.IsWordStart(s[nameStart]) && s[nameStart] != '$') {
+		return nil
+	}
+
+	nameEnd := nameStart + 1
+	for nameEnd < len(s) && lex.IsIdent(s[nameEnd]) {
+		nameEnd++
+	}
+
+	eq := lex.SkipRegexpSpace(s, nameEnd)
+	if eq >= len(s) || s[eq] != '=' {
+		return nil
+	}
+
+	return []int{0, eq + 1, i, scopeEnd, nameStart, nameEnd}
+}
 
 // componentFromConstruction returns the component as the resolver tracks it
 // for a createObject( "component", name ) construction: the dot path
@@ -360,7 +407,7 @@ func sharedAssignments(content, dir string) []startupAssign {
 	if parser.IndexFold(content, "<cfset") >= 0 {
 		tags := parser.CFTags(content, "cfset")
 		for i := range tags {
-			m := tagSharedAssign.FindStringSubmatchIndex(content[tags[i].Start:])
+			m := tagSharedAssignIndex(content[tags[i].Start:])
 			if m == nil {
 				continue
 			}
@@ -675,7 +722,7 @@ func (r *Resolver) typeOfChain(rhs, dir string, assigns []startupAssign, visitin
 			return ""
 		}
 
-		comp, _, _ = r.chainHopReturn(comp, hop, fd, nil)
+		comp, _, _ = r.chainHopReturn(comp, hop, "", fd, nil)
 	}
 
 	// A return type is recorded as written, runtime expressions and all:

@@ -3,7 +3,6 @@ package resolve
 import (
 	"maps"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -350,6 +349,16 @@ func (s *sourceInfo) functionSpans() []parser.FunctionSpan {
 	return s.derived.spans
 }
 
+// functionSpansIn is the function spans of file, which holds content: the
+// source's, read once, when it holds this text, else those of the text.
+func (r *Resolver) functionSpansIn(file, content string) []parser.FunctionSpan {
+	if source := r.sourceInfo(file); source.derived != nil && source.content == content {
+		return source.functionSpans()
+	}
+
+	return parser.FunctionSpansOf(file, content)
+}
+
 // functionBodies is the script tokens of each of the source's function
 // bodies (functionBodyTokens), by the index of its span, read once: the
 // Wheels method reader and the producer plans read the same bodies, and each
@@ -622,21 +631,17 @@ func defaultSelfReturnModes(params [][]parser.Token, body string) (string, []str
 		}
 
 		name := strings.ToLower(param[eq-1].Value)
-		condition := `if\t\(\targuments\t\.\t` + regexp.QuoteMeta(name) + `\t(?:eq|=\t=)\t"[^"#]*"\t\)\t\{\treturn\t[^;{}]+\t;\t\}`
-		pattern := compiledPattern(condition + `(?:\telse\t` + condition + `)*\telse\t\{\treturn\tthis\t;\t\}\t$`)
 
-		loc := pattern.FindStringIndex(body)
-		if loc == nil || !selfDispatchPrefixSafe(body[:loc[0]], name) {
+		start, found := selfDispatchStart(body, name)
+		if !found || !selfDispatchPrefixSafe(body[:start], name) {
 			continue
 		}
 
-		match := body[loc[0]:loc[1]]
+		match := body[start:]
 		if !strings.Contains(match, name+"\teq\t\"self\"") && !strings.Contains(match, name+"\t=\t=\t\"self\"") {
-			selector := compiledPattern(`arguments\t\.\t` + regexp.QuoteMeta(name) + `\t(?:eq|=\t=)\t"([^"#]*)"`)
-
 			var modes []string
-			for _, mode := range selector.FindAllStringSubmatch(match, -1) {
-				modes = append(modes, strings.ToLower(mode[1]))
+			for _, mode := range selfDispatchModes(match, name) {
+				modes = append(modes, strings.ToLower(mode))
 			}
 
 			return name, modes

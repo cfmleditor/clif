@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 
@@ -38,17 +37,11 @@ func (o *DiffOptions) rel(path string) string {
 	return o.Rel(path)
 }
 
-var (
-	uncheckedRe = regexp.MustCompile(`; \d+ (?:inherited )?calls? not checked`)
-	quotedRe    = regexp.MustCompile(`'[^']*'|"[^"]*"`)
-	numberRe    = regexp.MustCompile(`\b\d+\b`)
-)
-
 // findingKey identifies a finding across runs. A count changed only by a number
 // in its reason is not a change: the entry for a broken extends chain says how
 // many calls it leaves unchecked, and that moves whenever any of them does.
 func (o *DiffOptions) findingKey(c *Call) string {
-	return fmt.Sprintf("%s\x00%d\x00%s\x00%s", o.rel(c.File), c.Line, c.Function, uncheckedRe.ReplaceAllString(c.Reason, ""))
+	return fmt.Sprintf("%s\x00%d\x00%s\x00%s", o.rel(c.File), c.Line, c.Function, withoutUncheckedCount(c.Reason))
 }
 
 // Diff compares two runs finding by finding, as multisets: two findings with
@@ -138,10 +131,7 @@ func GroupByReason(calls []Call) []ReasonGroup {
 }
 
 func reasonShape(reason string) string {
-	reason = uncheckedRe.ReplaceAllString(reason, "")
-	reason = quotedRe.ReplaceAllString(reason, "'_'")
-
-	return numberRe.ReplaceAllString(reason, "N")
+	return numbersBlanked(quotesBlanked(withoutUncheckedCount(reason)))
 }
 
 // WriteDelta prints a comparison: one line of counts, and with show > 0 the

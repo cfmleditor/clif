@@ -2,7 +2,6 @@ package resolve
 
 import (
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 
@@ -41,7 +40,7 @@ import (
 type muraObjectSite struct {
 	file   string
 	line   int
-	target *regexp.Regexp
+	target *wildPattern
 	named  map[string][]parser.Token
 	opaque bool
 }
@@ -203,7 +202,7 @@ func (r *Resolver) muraSitesFor(slashed string) []int {
 	idx := []int{}
 
 	for i := range sites {
-		if sites[i].target == nil || sites[i].target.MatchString(slashed) {
+		if sites[i].target == nil || sites[i].target.match(slashed) {
 			idx = append(idx, i)
 		}
 	}
@@ -328,50 +327,10 @@ func (r *Resolver) muraObjectParse(file, content string) *parser.ParseResult {
 // its literal parts, with what is computed matching any one path segment.
 // Mura looks the file up under each display-object directory, so the pattern
 // matches the end of a template's path. It is nil when nothing is spelled.
-func muraObjectTarget(value []parser.Token) *regexp.Regexp {
-	var b strings.Builder
+func muraObjectTarget(value []parser.Token) *wildPattern {
+	var b wildBuilder
 
-	literal := false
-	wild := func() {
-		if !strings.HasSuffix(b.String(), `[^/]*`) {
-			b.WriteString(`[^/]*`)
-		}
-	}
+	spelledParts(value, &b, true)
 
-	for _, t := range value {
-		switch t.Kind {
-		case parser.TokString:
-			text := t.Value
-			if len(text) >= 2 {
-				text = text[1 : len(text)-1]
-			}
-
-			for i, part := range strings.Split(text, "#") {
-				if i%2 == 1 {
-					wild()
-
-					continue
-				}
-
-				if b.Len() == 0 {
-					part = strings.TrimPrefix(part, "/")
-				}
-
-				if part != "" {
-					b.WriteString(regexp.QuoteMeta(part))
-
-					literal = true
-				}
-			}
-		case parser.TokAmpersand:
-		default:
-			wild()
-		}
-	}
-
-	if !literal {
-		return nil
-	}
-
-	return compiledPattern(`(?i)(?:^|/)` + b.String() + `$`)
+	return b.pattern(wildSegment, true)
 }

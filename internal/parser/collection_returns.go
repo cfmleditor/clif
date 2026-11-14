@@ -758,8 +758,14 @@ func (m *writesMemo) release() {
 }
 
 // scriptTokens is a script region's tokens, interpolated strings included,
-// tokenised once for every pass that shares writesMemo.
+// tokenised once for every pass that shares writesMemo, and a large region's
+// once for every parse of its text (scriptTokensOf): that list is not the
+// memo's to release, nor anyone's to change.
 func (pr *ParseResult) scriptTokens(r *Region) *[]Token {
+	if len(r.Text) >= sharedTokenMin {
+		return scriptTokensOf(r.Text)
+	}
+
 	m := pr.writesMemo
 	if m == nil {
 		toks := tokenize(r.Text)

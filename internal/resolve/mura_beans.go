@@ -1,7 +1,6 @@
 package resolve
 
 import (
-	"regexp"
 	"slices"
 	"strings"
 
@@ -90,7 +89,10 @@ func (r *Resolver) assumedMuraBeans(configured map[string]string) []parser.Resol
 			continue
 		}
 
-		rules = append(rules, parser.Resolver{Match: `(?i)(?:^|\.)getBean\(\s*(?:beanName\s*[=:]\s*)?["']` + regexp.QuoteMeta(id) + `["']\s*(?:,[^()]*)?\)$`, Resolve: component, Prefix: "getBean"})
+		rules = append(rules, parser.Resolver{
+			Matcher: &parser.LiteralCall{Func: "getBean", Named: parser.ExactNamedArg, ArgName: "beanName", Form: parser.IDLiteral, Literal: id, Rest: true},
+			Resolve: component, Prefix: "getBean",
+		})
 	}
 
 	return rules

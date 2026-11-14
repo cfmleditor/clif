@@ -209,6 +209,10 @@ func (pr *ParseResult) reparseShallow() {
 	pr.Accessors = false
 	pr.Persistent = false
 	pr.Funcs = pr.Funcs[:0]
+	// The properties are read again with the rest; kept, each reparse listed
+	// them once more, and every keystroke outside a function grew the list.
+	pr.Properties = pr.Properties[:0]
+	pr.Instantiations = pr.Instantiations[:0]
 	pr.ComponentRefs = pr.ComponentRefs[:0]
 	pr.Scopes = pr.Scopes[:0]
 	// The calls are recorded afresh like the rest. Kept, the last parse's

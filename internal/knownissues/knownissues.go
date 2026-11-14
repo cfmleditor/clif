@@ -29,7 +29,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
-	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -50,13 +50,150 @@ type Entry struct {
 	Severity string // from the message's [severity CODE] tag, empty when it names none
 }
 
-// entryLine reads path:line[:col]: message. A drive letter is matched only so
-// that an absolute Windows path is recognised, and refused, rather than
-// misread as a path named "C".
-var entryLine = regexp.MustCompile(`^((?:[A-Za-z]:)?[^:]+):(\d+)(?::(\d+))?:\s*(.+)$`)
+// entryLine reads path:line[:col]: message as the expression
+//
+//	^((?:[A-Za-z]:)?[^:]+):(\d+)(?::(\d+))?:\s*(.+)$
+//
+// read it, groups one to four. A drive letter is matched only so that an
+// absolute Windows path is recognised, and refused, rather than misread as a
+// path named "C". The drive is tried first, so `a:12:5: x` is the path `a:12`
+// on line 5; and a column is given up when nothing follows it, so `p.cfc:12:34`
+// is the message `34`.
+func entryLine(s string) (path, line, col, msg string, ok bool) {
+	// The path is a run of bytes that are not a colon, a letter and a colon
+	// before it when the text begins with one.
+	if len(s) >= 2 && lex.IsASCIILetter(s[0]) && s[1] == ':' {
+		if end := strings.IndexByte(s[2:], ':'); end > 0 {
+			if line, col, msg, ok = entryNumbers(s[2+end+1:]); ok {
+				return s[:2+end], line, col, msg, true
+			}
+		}
+	}
 
-// entryTag reads a message's leading [CODE] or [severity CODE].
-var entryTag = regexp.MustCompile(`^\[(?:(?i:(error|warning|warn|information|info|hint))\s+)?([A-Za-z0-9_.:-]+)\]\s*(.*)$`)
+	end := strings.IndexByte(s, ':')
+	if end <= 0 {
+		return "", "", "", "", false
+	}
+
+	if line, col, msg, ok = entryNumbers(s[end+1:]); ok {
+		return s[:end], line, col, msg, true
+	}
+
+	return "", "", "", "", false
+}
+
+// entryNumbers reads `LINE[:COL]:\s*MESSAGE` after a path and its colon.
+func entryNumbers(s string) (line, col, msg string, ok bool) {
+	digits := entryDigits(s)
+	if digits == 0 || digits >= len(s) || s[digits] != ':' {
+		return "", "", "", false
+	}
+
+	line, rest := s[:digits], s[digits+1:]
+
+	// A column, when a colon and a message follow it.
+	if n := entryDigits(rest); n > 0 && n < len(rest) && rest[n] == ':' {
+		if msg, ok = entryMessage(rest[n+1:]); ok {
+			return line, rest[:n], msg, true
+		}
+	}
+
+	if msg, ok = entryMessage(rest); ok {
+		return line, "", msg, true
+	}
+
+	return "", "", "", false
+}
+
+// entryMessage reads `\s*(.+)$`: the text after any leading whitespace, which
+// holds no newline and is not empty. When only whitespace follows, the last
+// character of it is the message, as the expression backtracked to.
+func entryMessage(s string) (string, bool) {
+	start := lex.SkipRegexpSpace(s, 0)
+	if start == len(s) {
+		if start == 0 || s[len(s)-1] == '\n' {
+			return "", false
+		}
+
+		return s[len(s)-1:], true
+	}
+
+	if strings.IndexByte(s[start:], '\n') >= 0 {
+		return "", false
+	}
+
+	return s[start:], true
+}
+
+// entryDigits is the length of the run of ASCII digits at the start of s.
+func entryDigits(s string) int {
+	n := 0
+	for n < len(s) && s[n] >= '0' && s[n] <= '9' {
+		n++
+	}
+
+	return n
+}
+
+// entryTagWords are the severity words a tag may lead with.
+var entryTagWords = []string{"error", "warning", "warn", "information", "info", "hint"}
+
+// entryTag reads a message's leading [CODE] or [severity CODE] as the
+// expression
+//
+//	^\[(?:(?i:(error|warning|warn|information|info|hint))\s+)?([A-Za-z0-9_.:-]+)\]\s*(.*)$
+//
+// read it, groups one to three: the severity word is a word of its own, and
+// with no whitespace after it the word is the code (`[error]`).
+func entryTag(s string) (severity, code, msg string, ok bool) {
+	if s == "" || s[0] != '[' {
+		return "", "", "", false
+	}
+
+	body := s[1:]
+
+	// The severity first: a word, then whitespace, then the code.
+	word := 0
+	for word < len(body) && !lex.IsRegexpSpace(body[word]) {
+		word++
+	}
+
+	if word > 0 && word < len(body) {
+		if gap := lex.SkipRegexpSpace(body, word); gap > word && slices.ContainsFunc(entryTagWords, func(w string) bool { return strings.EqualFold(body[:word], w) }) {
+			if code, msg, ok = entryTagCode(body[gap:]); ok {
+				return body[:word], code, msg, true
+			}
+		}
+	}
+
+	if code, msg, ok = entryTagCode(body); ok {
+		return "", code, msg, true
+	}
+
+	return "", "", "", false
+}
+
+// entryTagCode reads `CODE]\s*(.*)$`: a code, its bracket, and the rest, which
+// holds no newline once its leading whitespace is gone.
+func entryTagCode(s string) (code, msg string, ok bool) {
+	n := 0
+	for n < len(s) && (lex.IsWord(s[n]) || s[n] == '.' || s[n] == ':' || s[n] == '-') {
+		n++
+	}
+
+	if n == 0 || n >= len(s) || s[n] != ']' {
+		return "", "", false
+	}
+
+	rest := s[n+1:]
+
+	rest = rest[lex.SkipRegexpSpace(rest, 0):]
+	if strings.IndexByte(rest, '\n') >= 0 {
+		return "", "", false
+	}
+
+	return s[:n], rest, true
+}
 
 // Parse reads the entries in content. baseDir anchors relative paths.
 func Parse(content, baseDir string) []Entry {
@@ -68,33 +205,33 @@ func Parse(content, baseDir string) []Entry {
 			continue
 		}
 
-		m := entryLine.FindStringSubmatch(line)
-		if m == nil {
+		path, lineNo, colNo, message, ok := entryLine(line)
+		if !ok {
 			continue
 		}
 
-		n, err := strconv.Atoi(m[2])
+		n, err := strconv.Atoi(lineNo)
 		if err != nil || n < 1 {
 			continue
 		}
 
 		col := -1
 
-		if m[3] != "" {
-			if c, err := strconv.Atoi(m[3]); err == nil && c >= 1 {
+		if colNo != "" {
+			if c, err := strconv.Atoi(colNo); err == nil && c >= 1 {
 				col = c - 1
 			}
 		}
 
-		if isAbsoluteAnywhere(m[1]) {
+		if isAbsoluteAnywhere(path) {
 			continue
 		}
 
-		rel := filepath.Clean(filepath.FromSlash(strings.ReplaceAll(m[1], `\`, "/")))
+		rel := filepath.Clean(filepath.FromSlash(strings.ReplaceAll(path, `\`, "/")))
 
-		e := Entry{Path: filepath.Join(baseDir, rel), Line: n - 1, Col: col, Message: strings.TrimSpace(m[4])}
-		if t := entryTag.FindStringSubmatch(e.Message); t != nil {
-			e.Severity, e.Code, e.Message = strings.ToLower(t[1]), t[2], t[3]
+		e := Entry{Path: filepath.Join(baseDir, rel), Line: n - 1, Col: col, Message: strings.TrimSpace(message)}
+		if severity, code, rest, ok := entryTag(e.Message); ok {
+			e.Severity, e.Code, e.Message = strings.ToLower(severity), code, rest
 		}
 
 		out = append(out, e)

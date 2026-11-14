@@ -194,7 +194,7 @@ func TestAPresideCheckoutIsColdBoxWithPresidesRequestContext(t *testing.T) {
 	var event string
 
 	for _, res := range r.ComponentResolvers {
-		if strings.Contains(res.Prefix, "event") && strings.Contains(res.Match, "event") {
+		if strings.Contains(res.Prefix, "event") && strings.Contains(res.MatchText(), "event") {
 			event = res.Resolve
 
 			break
@@ -211,7 +211,7 @@ func TestAPresideCheckoutIsColdBoxWithPresidesRequestContext(t *testing.T) {
 		var first string
 
 		for _, res := range r.ComponentResolvers {
-			if strings.Contains(res.Prefix, name) && strings.Contains(res.Match, name) {
+			if strings.Contains(res.Prefix, name) && strings.Contains(res.MatchText(), name) {
 				first = res.Resolve
 
 				break

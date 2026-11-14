@@ -431,6 +431,10 @@ func (s *Server) getResolver() *resolve.Resolver {
 				cflog.Strings("unknown", unknown), cflog.Strings("known", config.KnownFrameworks()))
 		}
 
+		if regex := config.RegexMatches(s.ComponentResolvers); len(regex) > 0 {
+			s.log.Warn(config.RegexMatchWarning(regex))
+		}
+
 		if s.discoveryDependencies == nil {
 			s.discoveryDependencies = &resolve.DiscoveryDependencies{}
 		}

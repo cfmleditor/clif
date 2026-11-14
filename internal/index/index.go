@@ -1284,7 +1284,25 @@ func (idx *Index) indexEntity(fileURI uri.URI, pr *parser.ParseResult, onlyIfRea
 // persistent component, and the entityname it gives, if any. The entityname
 // is read only for a persistent component, since reading it scans the header.
 func entityOf(fileURI uri.URI, pr *parser.ParseResult) (bool, string) {
-	if !pr.Persistent || !isComponent(fileURI) {
+	if !isComponent(fileURI) {
+		return false, ""
+	}
+
+	if !pr.Persistent {
+		// Mura's bean ORM registers `component entityName="x" table="y"
+		// extends="mura.bean.beanORM"` by that name with no persistent
+		// attribute (registerModelDir). An entityname alone, without the
+		// engine's persistent, is no entity; with a table it is Mura's.
+		// Reading either attribute scans the header, so a file that never
+		// spells the word is not scanned: most components are not entities.
+		if parser.IndexFold(pr.Content, "entityname") < 0 {
+			return false, ""
+		}
+
+		if name := pr.EntityName(); name != "" && pr.DeclaresTable() {
+			return true, name
+		}
+
 		return false, ""
 	}
 
