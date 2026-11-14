@@ -122,6 +122,10 @@ func (s *Server) handleExecuteCommand(ctx context.Context, rawParams []byte) (an
 		return s.handleExplainCall(ctx, params.Arguments)
 	case "clif.scanWorkspace":
 		return s.cmdScanWorkspace(ctx, params.Arguments)
+	case "clif.searchDocs":
+		return s.cmdSearchDocs(ctx, params.Arguments)
+	case "clif.docEntry":
+		return s.cmdDocEntry(ctx, params.Arguments)
 	default:
 		return nil, fmt.Errorf("unknown command: %s", params.Command)
 	}

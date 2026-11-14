@@ -89,6 +89,7 @@ type Server struct {
 	funcRanges            map[uri.URI][]cache.FuncRange   // cached function line ranges per file
 	cacheTimers           map[uri.URI]*time.Timer         // debounce timers for completion cache rebuild
 	reindexTimers         map[uri.URI]*time.Timer         // deferred-reparse timers; see scheduleReparse
+	structureTimers       map[uri.URI]*time.Timer         // structure-check timers; see scheduleStructureDiagnostics
 	reparsePending        map[uri.URI]bool                // documents whose ParseResult lags their text; see flushReparse
 	docLocks              map[uri.URI]*sync.Mutex         // serialises access to each document's ParseResult
 	parseResults          map[uri.URI]*parser.ParseResult // cached parse results per file
@@ -134,6 +135,7 @@ func NewServer(conn jsonrpc2.Conn, log cflog.Logger, sharedIndex ...*index.Index
 		funcRanges:               make(map[uri.URI][]cache.FuncRange),
 		cacheTimers:              make(map[uri.URI]*time.Timer),
 		reindexTimers:            make(map[uri.URI]*time.Timer),
+		structureTimers:          make(map[uri.URI]*time.Timer),
 		reparsePending:           make(map[uri.URI]bool),
 		docLocks:                 make(map[uri.URI]*sync.Mutex),
 		parseResults:             make(map[uri.URI]*parser.ParseResult),
@@ -174,6 +176,8 @@ func (s *Server) capabilities() protocol.ServerCapabilities {
 		},
 		DefinitionProvider:     protocol.Boolean(true),
 		TypeDefinitionProvider: protocol.Boolean(s.Features.TypeDefinition),
+		InlayHintProvider:      protocol.Boolean(s.Features.InlayHints),
+		RenameProvider:         s.renameProvider(),
 		// Advertised only when opted in. A client that is told the server has
 		// no references provider does not offer "Find All References" at all,
 		// which is what keeps the flag from being a capability the editor
@@ -194,7 +198,7 @@ func (s *Server) capabilities() protocol.ServerCapabilities {
 		DocumentLinkProvider:      &protocol.DocumentLinkOptions{ResolveProvider: &resolveProvider},
 		CodeActionProvider:        protocol.Boolean(true),
 		ExecuteCommandProvider: protocol.ExecuteCommandOptions{
-			Commands: []string{"clif.reindex", "clif.format", "clif.showComponentPath", "clif.restartDaemon", "clif.showResolvers", "clif.showFileIndex", "clif.showConnections", "clif.openActiveApplicationFile", "clif.goToMatchingTag", "clif.copyPackage", "clif.findRefs", "clif.exportDeps", "clif.scanWorkspace", "clif.generateCodeMap", "clif.showCodeMapStats", "clif.resolveRoute", "clif.exportUnresolved", "clif.exportCFLint", "clif.explainCall"},
+			Commands: []string{"clif.reindex", "clif.format", "clif.showComponentPath", "clif.restartDaemon", "clif.showResolvers", "clif.showFileIndex", "clif.showConnections", "clif.openActiveApplicationFile", "clif.goToMatchingTag", "clif.copyPackage", "clif.findRefs", "clif.exportDeps", "clif.scanWorkspace", "clif.generateCodeMap", "clif.showCodeMapStats", "clif.resolveRoute", "clif.exportUnresolved", "clif.exportCFLint", "clif.explainCall", "clif.searchDocs", "clif.docEntry"},
 		},
 		Workspace: &protocol.WorkspaceOptions{
 			WorkspaceFolders: &protocol.WorkspaceFoldersServerCapabilities{

@@ -23,6 +23,65 @@ Declared in `Server.capabilities()` (`internal/server/server.go`):
   fallback exists for chained calls and would answer for whatever else the line holds, and
   reports `$any` and `$builtin.` as unknown. A return type counts only when dotted: a bare
   word is far more often `struct` than a component in the same directory.
+- `textDocument/inlayHint` (`internal/server/inlay_hint.go`) shows a component's own dot path beside
+  its declaration, `Path: (models.User)`, from `parser.ComponentDeclarationEnd` and the path
+  `clif.copyPackage` answers. **Opt-in** (`features.inlayHints`, default off; advertised only when
+  on). An Application.cfc and anything that is not a .cfc has none.
+- `clif.searchDocs` (query, "tag" | "function" | "all", limit) and `clif.docEntry` (name, kind)
+  answer the compiled-in CFML docs, so an editor can offer a documentation browser without carrying
+  a copy of them (`internal/server/docs_command.go`). A name match ranks above a description match.
+- **Rename** (`internal/server/rename.go`, `parser.PlanLocalRename`; `features.rename`, opt-in): a
+  local variable of a script function, in its document. The plan is every place the function
+  writes the variable, found by walking the body's tokens with a bracket stack, so a struct key
+  (`{ x = 1 }`), a named argument (`f( x = 1 )`) and another object's member (`o.x`) are not the
+  variable, while `local.x` and a `#x#` in a string are. Closures are scopes of their own, searched
+  innermost first (`closuresAround`), so a variable a callback declares is renamed in the callback.
+  It **refuses**, with a reason, where it cannot show it has every use: the name as a string
+  (`structKeyExists( local, "x" )`, `"local.x"`), `evaluate()`, a nested function or arrow function
+  that takes or declares the name, a `catch` that binds it, CF tags in the body, an argument (a
+  caller passes it by name), or a new name that is reserved (`parser.ClassifyVariableName`, with `default` among the words that stay reserved because they are labels), a statement
+  word (`lock`, `param`, … fine where an expression stands, refused when `LocalRename.StatementStart`
+  says the variable is written as a statement's first word: after a `;`, a block's braces, the `)`
+  of an if, while, for, switch or catch, `else`, `do`, a case label; never in a `#...#` or a
+  parameter's default) or one the
+  function already means something by (`LocalRename.Taken`: name to what it is, so the refusal says
+  which). `Taken` leaves out the words the language reserves and comes from the same walk that finds the ranges (`classifyWord`), so a struct key, a
+  named argument's label, another object's member and a type (`new Foo()`, `var string s`,
+  `catch ( any e )`, a parameter's type) are not in it, and a closure's variable is checked against
+  the function around it too (`mentionedNames`). A request whose cursor is not on one of the
+  plan's ranges, a struct key or `o.x` spelled like the variable, is refused too. Measured over 54,000 `var`
+  declarations in real code: 44,000 planned with no range that is not the name, and applying one
+  rename per function to four corpora left every file parsing as before. The refusals are mostly
+  `var` in tag functions (7,700), names in strings (1,700) and closures that shadow.
+  Function rename and cross-file rename are not here: the references engine cannot see dynamic
+  calls, so a rename over it could leave a caller behind without saying so.
+- **Query columns** complete after `name.` when the document declares the query
+  (`parser.QueryColumns`, `queryColumnItems` in `completion.go`): a `<cfquery name>` whose SELECT list
+  names them, `queryNew( "a,b" )`, or `queryExecute( "SELECT a, b …" )` as a string literal, the last
+  declaration before the cursor. Columns come first, then `recordCount`, `currentRow` and
+  `columnList`. A column the list names by `*`, or an expression with no alias, is not guessed:
+  `SELECT *` offers nothing, and `count(*)` with no alias is left out of a list that is otherwise
+  known. Also offered inside `#users.` in a `<cfoutput>`. It replaced no existing completion; the
+  generic member-function list is what it falls back to.
+- **Application lifecycle code actions** (`internal/server/lifecycle_actions.go`): in an
+  Application.cfc, one refactor action for each application event the component does not declare
+  (`onSessionStart`, `onRequestStart`, …) and one for all of them, written as the component is
+  written (script or tags) and inserted before the body's closing `}` or `</cfcomponent>`
+  (`parser.ComponentBodyEnd`). What is declared is read from the parse, so case does not matter.
+- **Structure diagnostics** (`internal/server/structure_diagnostics.go`, `parser.TagProblems`) publish
+  what is wrong with a document's CF tags as it is opened and edited, under the source `clif`:
+  unclosed tags, closing tags with no opener, tags outside the tag they belong to (`<cfcatch>` in
+  `<cftry>`), a missing `name`/`template`/`url`, a repeated attribute (warning) and a repeated
+  function argument. **Opt-in** (`features.structureDiagnostics`, default off). The checker walks
+  the page's tag regions with the folding pass's own tag walk (comments, quoted values, `<` that
+  starts no tag), and holds only tags that always take a body to a closing tag: a tag that can
+  stand alone is never reported, so a page that runs reports nothing. Measured over 10,407 files of
+  real code, every finding was a real fault. Two shapes were false positives before they were
+  handled and have tests: a CF tag written inside an HTML attribute value
+  (`class="a<cfif b>c</cfif>"`), and a `"<!--"` string in a `#...#` expression (markup's comment
+  never follows a quote). `CLIF_TAGPROBLEMS_CORPUS=<dirs> go test -run TestTagProblemsCorpus -v
+  ./internal/parser/` lists what it finds in a corpus; read each by hand. `TestTagProblems` holds
+  the rules, and the mutation checks in its history show each one fails when removed.
 - `textDocument/documentHighlight` (`internal/server/documenthighlight.go`) shades the other
   occurrences of the identifier under the cursor. Deliberately a *textual* answer, reported as
   `DocumentHighlightKindText`: matching is whole-identifier and case-folded through the same
@@ -297,7 +356,7 @@ Declared in `Server.capabilities()` (`internal/server/server.go`):
   `.restartDaemon`, `.showResolvers`, `.showFileIndex`, `.showConnections`,
   `.openActiveApplicationFile`, `.goToMatchingTag`, `.copyPackage`, `.findRefs`, `.exportDeps`,
   `.scanWorkspace`, `.generateCodeMap`, `.showCodeMapStats`, `.resolveRoute`,
-  `.exportUnresolved`, `.exportCFLint`, `.explainCall`.
+  `.exportUnresolved`, `.exportCFLint`, `.explainCall`, `.searchDocs`, `.docEntry`.
 
   **Everything a CLI subcommand did for an editor task has a server route**, because Zed
   asked the zed-cfml extension to drop its `tasks.json` tasks and reach the server instead.

@@ -28,6 +28,9 @@ func (s *Server) handleCodeAction(_ context.Context, rawParams []byte) (any, err
 
 	var actions []protocol.CodeAction
 
+	// An Application.cfc is offered the application events it does not declare.
+	actions = append(actions, s.lifecycleActions(params.TextDocument.URI, content)...)
+
 	// Offered only on a line that looks as if it holds a call, so it is not
 	// noise on every line of the file; the cursor need not be on the call
 	// itself. See lineMayHoldCall for why this is not a parse.

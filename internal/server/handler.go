@@ -96,6 +96,12 @@ func (s *Server) Handler() jsonrpc2.Handler {
 			return s.handleDefinition(ctx, req.Params())
 		case protocol.MethodTextDocumentTypeDefinition:
 			return s.handleTypeDefinition(ctx, req.Params())
+		case protocol.MethodTextDocumentInlayHint:
+			return s.handleInlayHint(ctx, req.Params())
+		case protocol.MethodTextDocumentPrepareRename:
+			return s.handlePrepareRename(ctx, req.Params())
+		case protocol.MethodTextDocumentRename:
+			return s.handleRename(ctx, req.Params())
 		case protocol.MethodTextDocumentReferences:
 			return s.handleReferences(ctx, req.Params())
 		case protocol.MethodTextDocumentFormatting:
@@ -208,6 +214,9 @@ func (s *Server) handleInitialize(_ context.Context, rawParams []byte) (any, err
 		cflog.Bool("documentHighlight", s.Features.DocumentHighlight),
 		cflog.Bool("folding", s.Features.Folding),
 		cflog.Bool("typeDefinition", s.Features.TypeDefinition),
+		cflog.Bool("structureDiagnostics", s.Features.StructureDiagnostics),
+		cflog.Bool("inlayHints", s.Features.InlayHints),
+		cflog.Bool("rename", s.Features.Rename),
 		cflog.Bool("watchedFiles", s.Features.WatchedFiles),
 		cflog.Bool("rangeFormatting", s.Features.RangeFormatting),
 		cflog.Bool("routesConfigured", s.Routes.Enabled()))
@@ -307,6 +316,7 @@ func (s *Server) handleDidOpen(_ context.Context, rawParams []byte) (any, error)
 	s.mu.Unlock()
 
 	s.reindexFromParseResult(docURI, pr)
+	s.scheduleStructureDiagnostics(docURI)
 
 	s.safeGo("rebuildFileCompletionCacheFromPR", func() {
 		defer s.lockDoc(docURI)()
@@ -337,6 +347,10 @@ func (s *Server) handleDidChange(_ context.Context, rawParams []byte) (any, erro
 	// Not lockDoc: that would run the reparse deferred by the last keystroke
 	// before this one, which is the cost deferring exists to avoid.
 	defer s.lockDocOnly(docURI)()
+
+	// The structure is checked once the document has been left alone a moment,
+	// whichever way this change is applied.
+	defer s.scheduleStructureDiagnostics(docURI)
 
 	s.mu.RLock()
 	pr := s.parseResults[docURI]
@@ -627,6 +641,7 @@ func (s *Server) handleDidClose(ctx context.Context, rawParams []byte) (any, err
 	// file, not the buffer, and stays — unless its source is open-only.
 	s.diagnosticsClosed(docURI)
 	s.storeDiagnostics(docURI, sourceCFLint, nil)
+	s.cancelStructureDiagnostics(ctx, docURI)
 	s.setDiagnostics(ctx, docURI, sourceParse, nil)
 
 	return nil, nil
