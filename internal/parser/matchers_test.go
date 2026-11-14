@@ -69,6 +69,11 @@ var matcherCases = []matcherCase{
 		[]string{`getBean("content.x")`, `getBean(beanName="content.x")`, `getBean( BEANNAME : 'content.x' )`, `getBean(name="content.x")`, `getBean("content.x", 1)`, `getBean("contentXx")`, `getBean("content.x"`},
 	},
 	{
+		"path id", &LiteralCall{Func: "getBean", Named: AnyNamedArg, Form: IDPath, Rest: true},
+		oracle(`(?:^|\.)getBean\(\s*(?:\w+\s*[=:]\s*)?["']([A-Za-z_][\w.]*)["']\s*(?:,[^()]*)?\)$`),
+		[]string{`getBean("userService")`, `$.getBean('content.x')`, `getBean( id = "a.b.c" )`, `getBean("a.b", true)`, `getBean("a-b")`, `getBean("1a")`, `getBean("a@b")`, `getBean("")`, `getBean("a.b").c()`, `x.getBean("a")`, `getBean("a"`, `getBean(a="b", c)`},
+	},
+	{
 		"java class", JavaClass(),
 		oracle(`createObject\s*\(\s*['"]java['"]\s*,\s*['"](.+?)['"]\s*\)`),
 		[]string{`createObject("java", "java.io.File")`, `createObject( 'java' , 'a.B' )`, `x = createObject("java","a.B").init()`, `createObject("component","a.B")`, `createObject("java", "a'b")`, `createObject("java", "a" )`,

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"reflect"
 	"testing"
 
@@ -51,6 +52,9 @@ func TestParserCarriesEveryResolverField(t *testing.T) {
 			f.SetString("x" + v.Type().Field(i).Name)
 		case reflect.Bool:
 			f.SetBool(true)
+		case reflect.Pointer:
+			// Call: the call a rule recognises, which becomes its Matcher.
+			f.Set(reflect.ValueOf(&CallMatch{Function: "getBean", NamedArgument: true}))
 		case reflect.Interface:
 			// A matcher: any one, as long as it arrives as the same one.
 			f.Set(reflect.ValueOf(parser.NameSet("x" + v.Type().Field(i).Name)))
@@ -64,6 +68,9 @@ func TestParserCarriesEveryResolverField(t *testing.T) {
 
 	for i := range v.NumField() {
 		name := v.Type().Field(i).Name
+		if name == "Call" {
+			continue // converted to the Matcher, checked in TestACallMatchBecomesAMatcher
+		}
 
 		got := ov.FieldByName(name)
 		if !got.IsValid() {
@@ -75,5 +82,66 @@ func TestParserCarriesEveryResolverField(t *testing.T) {
 		if got.Interface() != v.Field(i).Interface() {
 			t.Errorf("%s: Parser() gives %v, want %v", name, got.Interface(), v.Field(i).Interface())
 		}
+	}
+}
+
+// TestACallMatchBecomesAMatcher: a rule written as a call is read by a matcher
+// that needs the call to end the expression, and takes the function's name as
+// its prefix when it names none.
+func TestACallMatchBecomesAMatcher(t *testing.T) {
+	rule := Resolver{Call: &CallMatch{Function: "getBean", NamedArgument: true, MoreArguments: true}, Resolve: "$1"}
+	got := rule.Parser()
+
+	if got.Prefix != "getBean" {
+		t.Errorf("prefix %q, want the function's name", got.Prefix)
+	}
+
+	if got.Matcher == nil {
+		t.Fatal("no matcher")
+	}
+
+	for expr, want := range map[string]string{
+		`getBean("userService")`:        "userService",
+		`getBean( name = "a.b", true )`: "a.b",
+		`x.getBean('c')`:                "c",
+		`getBean("a").run()`:            "",
+		`getBean(computed)`:             "",
+		`getBean("a" & b)`:              "",
+		`getUserBean("a")`:              "",
+	} {
+		captures, ok := got.Matcher.Match(expr)
+		if ok != (want != "") || ok && captures[0] != want {
+			t.Errorf("%s: %q %v, want %q", expr, captures, ok, want)
+		}
+	}
+
+	if (&Resolver{Call: &CallMatch{Function: "getBean"}, Prefix: "x", Resolve: "$1"}).Parser().Prefix != "x" {
+		t.Error("a prefix the rule names was replaced")
+	}
+}
+
+// TestACallRuleSurvivesAConfigFile: a rule written as `call` in a configuration
+// file is kept, as a rule with a pattern is, and one that names no function, or
+// no `resolve`, is dropped as an empty one always was.
+func TestACallRuleSurvivesAConfigFile(t *testing.T) {
+	var cfg JSON
+
+	text := `{"componentResolvers": [
+		{"call": {"function": "getBean", "namedArgument": true, "moreArguments": true}, "resolve": "$1"},
+		{"call": {"function": ""}, "resolve": "$1"},
+		{"call": {"function": "getBean"}},
+		{"match": "getService(\"$1\")", "resolve": "s.$1", "prefix": "getService"}
+	]}`
+	if err := json.Unmarshal([]byte(text), &cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	rules := ParserResolvers(Resolve(&cfg, "/proj").ComponentResolvers)
+	if len(rules) != 2 {
+		t.Fatalf("want the call rule and the pattern rule kept, got %d: %+v", len(rules), rules)
+	}
+
+	if rules[0].Matcher == nil || rules[0].Prefix != "getBean" || rules[1].Matcher != nil || rules[1].Match == "" {
+		t.Errorf("rules read wrong: %+v", rules)
 	}
 }

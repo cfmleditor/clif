@@ -1,5 +1,8 @@
 {
-  "frameworks": ["fw1", "mura"],
+  "frameworks": [
+    "fw1",
+    "mura"
+  ],
   "mappings": {
     "mura": "core/mura",
     "muraWRM": ".",
@@ -19,9 +22,12 @@
   ],
   "componentResolvers": [
     {
-      "match": "(?i)(?:^|\\.)getBean\\(\\s*(?:\\w+\\s*[=:]\\s*)?[\"']([A-Za-z_][\\w.]*)[\"']\\s*(?:,[^()]*)?\\)$",
-      "resolve": "$1",
-      "prefix": "getBean"
+      "call": {
+        "function": "getBean",
+        "namedArgument": true,
+        "moreArguments": true
+      },
+      "resolve": "$1"
     }
   ]
 }

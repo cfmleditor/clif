@@ -100,6 +100,9 @@ const (
 	IDLiteral IDForm = iota
 	// IDWord is a name: a letter or an underscore, then word characters.
 	IDWord
+	// IDPath is a name or a dotted path: a letter or an underscore, then word
+	// characters and dots, `userService` or `content.x`.
+	IDPath
 	// IDWire is a WireBox or DI/1 id, `Name`, `pkg.Name` or `Name@module`, which
 	// may carry an `id:` or `model:` tag in front of it and an `@` after it; it
 	// captures what lies between.
@@ -207,6 +210,17 @@ func (c *LiteralCall) matchAt(expr string, start int) (id string, ok bool) {
 
 		end = i + 1
 		for end < len(expr) && lex.IsWord(expr[end]) {
+			end++
+		}
+
+		id = expr[i:end]
+	case IDPath:
+		if i >= len(expr) || !lex.IsWordStart(expr[i]) {
+			return "", false
+		}
+
+		end = i + 1
+		for end < len(expr) && (lex.IsWord(expr[end]) || expr[end] == '.') {
 			end++
 		}
 
