@@ -216,7 +216,7 @@ func recordAssignments(content string, regions []Region, lines LineTable) []Assi
 		switch r.Kind {
 		case RegionScript:
 			src := blankNonScript(r.Text)
-			w := assignmentWalk{src: src, lines: lines, base: r.Offset, toks: tokenize(src)}
+			w := assignmentWalk{src: src, lines: lines, base: r.Offset, toks: *scriptTokensOf(src)}
 			out = w.walk(out)
 		case RegionTag:
 			out = recordTagAssignments(r, lines, out)

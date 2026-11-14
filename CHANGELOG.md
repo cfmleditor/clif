@@ -48,6 +48,8 @@
 
 ### Changed
 
+- **A large script file is tokenized once for the parses and readers that follow.** A batch scan parses a framework's base component over and over, once to index it, once to scan it, again as a caller's inference, and each re-tokenized the text for the collection-write and assignment readers. A script text of 8KB or more is now tokenized once and its list shared, read-only, by every parse of it (at most 16 texts and 64MB held). fw1's scan reads its text 13.5 times over, not 16.7; output is unchanged on the nine corpora.
+
 - **A file's assignments are read once for every parse and reader of it in a batch scan.** The index parse and the scan parse of one file each read its writes when asked, and the request-writer index read them a third time. They now share the resolver's reading of the text (`ParseOptions.SharedAssignments`), which is the parse's own: a test holds the two equal over the fixtures. fw1's scan reads its text 16.7 times over, not 19.0; output is unchanged on the nine corpora.
 
 - **A batch scan reads a script file's braces once, not once per use of a variable.** Whether a native type claimed for a variable can reach a later use asked if a block had closed between the two, and scanned the lines between for each use. A file's braces are now indexed once, so the question is a search and a minimum. Lucee's scan reads its text 7 times over, not 46; output is unchanged on the eight corpora.
