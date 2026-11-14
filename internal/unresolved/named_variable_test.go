@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/cfmleditor/clif/internal/parser"
+	"github.com/cfmleditor/clif/internal/resolve"
 	"github.com/cfmleditor/clif/internal/vfs"
 )
 
@@ -240,5 +243,39 @@ func TestABareCallInAComponentWithABaseToATemplateFunctionIsAccepted(t *testing.
 	got := Scan(vfs.OS{}, files, files, &Options{WorkspaceFolders: []string{dir}, InferArgs: true})
 	if len(got.Calls) != 1 || got.Calls[0].Function != "nowhereDeclared" {
 		t.Fatalf("want only nowhereDeclared reported, got %+v", got.Calls)
+	}
+}
+
+// A string that is only part of a call's first argument names nothing:
+// `getBean( url.p & "Provider" )` was read as `getBean( "Provider" )`, which
+// typed the chain as a component called Provider and reported a method missing
+// from it. A whole-string name still types the call, and an unknown one is
+// still reported.
+func TestAStringThatIsPartOfAnArgumentIsNotTheBeanName(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, src string) string {
+		f := filepath.Join(dir, name)
+		if err := os.WriteFile(f, []byte(src), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		return f
+	}
+
+	files := []string{
+		write("Real.cfc", "component {\n function run() {}\n}"),
+		write("Use.cfc", "component {\n function go() {\n  var a = getBean( 'Real' ).run();\n  var b = getBean( 'Gone' ).missing();\n  var c = getBean( url.p & 'Frag' ).fragCall();\n  var d = getBean( 'Frag2' & url.p ).frag2Call();\n }\n}"),
+	}
+
+	resolvers := []parser.Resolver{{
+		Match:   `(?i)(?:^|\.)getBean\(\s*(?:\w+\s*[=:]\s*)?["']([A-Za-z_][\w.]*)["']\s*(?:,[^()]*)?\)$`,
+		Resolve: "$1", Prefix: "getBean",
+	}}
+
+	got := Scan(vfs.OS{}, files, files, &Options{Settings: resolve.Settings{Resolvers: resolvers, WorkspaceFolders: []string{dir}}, InferArgs: true})
+	for _, c := range got.Calls {
+		if strings.Contains(c.Reason, "Frag") {
+			t.Errorf("a fragment of an argument typed the call: %+v", c)
+		}
 	}
 }

@@ -4113,6 +4113,7 @@ func (p *scriptParser) scanParenArgs() (firstArg string, positional []string, ok
 	// shows whether it was the whole argument.
 	argStart, collecting := true, true
 	pending, havePending := "", false
+	wholeCandidate, prevKind := "", TokEOF
 
 	var arrow arrowParams
 
@@ -4142,9 +4143,25 @@ func (p *scriptParser) scanParenArgs() (firstArg string, positional []string, ok
 
 		arrow.see(tok, depth)
 
-		if tok.Kind == TokString && firstArg == "" && depth == 1 {
-			firstArg = unquote(tok.Value)
+		// A string offered as the first argument is the whole of its
+		// argument: `getBean( "x" )` or `getBean( name = "x" )`. One that is a
+		// piece of an expression, `getBean( url.p & "Provider" )`, names
+		// nothing, and read as the argument it typed the call as a component
+		// called "Provider". The string is held until the token after it
+		// shows which it was.
+		if wholeCandidate != "" {
+			if tok.Kind == TokComma || tok.Kind == TokRParen {
+				firstArg = wholeCandidate
+			}
+
+			wholeCandidate = ""
 		}
+
+		if tok.Kind == TokString && firstArg == "" && depth == 1 && (argStart || prevKind == TokEquals || prevKind == TokColon) {
+			wholeCandidate = unquote(tok.Value)
+		}
+
+		prevKind = tok.Kind
 
 		if depth == 1 && collecting {
 			switch {
