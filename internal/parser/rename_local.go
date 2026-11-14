@@ -287,6 +287,49 @@ func closuresAround(content string, owner *FunctionSpan, at int) []renameScope {
 		}
 	}
 
+	// An arrow function with a braced body, `( a, b ) => { ... }` or
+	// `a => { ... }`, is a scope of its own too.
+	for i := 1; i+2 < len(toks); i++ {
+		if toks[i].Kind != TokEquals || toks[i+1].Kind != TokGT || toks[i+1].Offset != toks[i].Offset+1 || toks[i+2].Kind != TokLBrace {
+			continue
+		}
+
+		end := matching(toks, i+2, TokLBrace, TokRBrace)
+		if end < 0 {
+			continue
+		}
+
+		var from, to int // the parameters, inside their parentheses when there are any
+
+		switch toks[i-1].Kind {
+		case TokRParen:
+			lo := i - 1
+			for lo > 0 && toks[lo].Kind != TokLParen {
+				lo--
+			}
+
+			if toks[lo].Kind != TokLParen {
+				continue
+			}
+
+			from, to = toks[lo].Offset+1, toks[i-1].Offset
+		case TokIdent:
+			from, to = toks[i-1].Offset, toks[i-1].Offset+len(toks[i-1].Value)
+		default:
+			continue
+		}
+
+		scope := renameScope{
+			paramsAt: owner.Body + from, paramsEnd: owner.Body + to,
+			body: owner.Body + toks[i+2].Offset + 1, bodyEnd: owner.Body + toks[end].Offset,
+		}
+		scope.params = content[scope.paramsAt:scope.paramsEnd]
+
+		if at >= scope.paramsAt && at <= scope.bodyEnd {
+			found = append(found, scope)
+		}
+	}
+
 	// Innermost first: the smallest holds the others' left over.
 	slices.SortFunc(found, func(a, b renameScope) int { return (a.bodyEnd - a.paramsAt) - (b.bodyEnd - b.paramsAt) })
 
@@ -743,9 +786,10 @@ func (w *renameWalk) word(toks []Token, i int, st *bracketState, base int) {
 
 			return
 		}
-	case "local", "arguments":
-		// `local.x` names one variable; `local`, `local[k]` or `arguments`
-		// alone is the whole scope, whose keys are read by name.
+	case "local":
+		// `local.x` names one variable; `local` or `local[k]` alone is the
+		// whole scope, whose keys are read by name. (`arguments` holds the
+		// arguments only, which are not renamed here.)
 		if prev.Kind != TokDot && next.Kind != TokDot {
 			w.fail("the function uses the whole " + lower + " scope, which reads variables by name")
 

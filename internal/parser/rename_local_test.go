@@ -48,6 +48,8 @@ func TestPlanLocalRename(t *testing.T) {
 		{"for in", "component {\n function f( items ) {\n  for ( var ¦item in items ) { g( item ); }\n }\n}", "component {\n function f( items ) {\n  for ( var N in items ) { g( N ); }\n }\n}"},
 		{"inside a closure", "component {\n function f( items ) {\n  var ¦total = 0;\n  items.each( function( i ) { total += i; } );\n  return total;\n }\n}", "component {\n function f( items ) {\n  var N = 0;\n  items.each( function( i ) { N += i; } );\n  return N;\n }\n}"},
 		{"in a string's hash expression", "component {\n function f() {\n  var name = \"x\";\n  return \"hello #¦name# and #ucase( name )# ## name\";\n }\n}", "component {\n function f() {\n  var N = \"x\";\n  return \"hello #N# and #ucase( N )# ## name\";\n }\n}"},
+		{"a variable an arrow body declares is the arrow's", "component {\n function f( a ) {\n  arrayEach( a, ( i ) => { var ¦total = 0; total += i; } );\n  return total;\n }\n}", "component {\n function f( a ) {\n  arrayEach( a, ( i ) => { var N = 0; N += i; } );\n  return total;\n }\n}"},
+		{"a single-parameter arrow", "component {\n function f( a ) {\n  arrayEach( a, i => { var ¦t = i; g( t ); } );\n }\n}", "component {\n function f( a ) {\n  arrayEach( a, i => { var N = i; g( N ); } );\n }\n}"},
 		{"a comment is left", "component {\n function f() {\n  var count = 0; // count it\n  return ¦count;\n }\n}", "component {\n function f() {\n  var N = 0; // count it\n  return N;\n }\n}"},
 		{"a variable a closure declares for itself", "component {\n function f( l ) {\n  var x = 1;\n  l.each( function( i ) {\n   var ¦x = i;\n   g( x );\n  } );\n  return x;\n }\n}", "component {\n function f( l ) {\n  var x = 1;\n  l.each( function( i ) {\n   var N = i;\n   g( N );\n  } );\n  return x;\n }\n}"},
 		{"the outer variable, from inside a closure that only uses it", "component {\n function f( l ) {\n  var x = 1;\n  l.each( function( i ) {\n   g( ¦x + i );\n  } );\n  return x;\n }\n}", "component {\n function f( l ) {\n  var N = 1;\n  l.each( function( i ) {\n   g( N + i );\n  } );\n  return N;\n }\n}"},
@@ -72,7 +74,6 @@ func TestPlanLocalRename(t *testing.T) {
 
 func TestPlanLocalRenameRefuses(t *testing.T) {
 	for _, c := range []struct{ name, src, why string }{
-		{"a var in an arrow body", "component {\n function f( a ) {\n  arrayEach( a, ( i ) => { var ¦total = 0; total += i; } );\n  return total;\n }\n}", "declares"},
 		{"a name an arrow body declares for itself", "component {\n function f( a ) {\n  var total = 1;\n  arrayEach( a, ( i ) => { var total = 0; } );\n  return ¦total;\n }\n}", "declares"},
 		{"an argument", "component {\n function f( ¦a ) {\n  return a;\n }\n}", "argument"},
 		{"an argument used in the body", "component {\n function f( a ) {\n  return ¦a;\n }\n}", "argument"},
