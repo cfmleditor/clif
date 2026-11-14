@@ -96,6 +96,8 @@ func (s *Server) Handler() jsonrpc2.Handler {
 			return s.handleDefinition(ctx, req.Params())
 		case protocol.MethodTextDocumentTypeDefinition:
 			return s.handleTypeDefinition(ctx, req.Params())
+		case protocol.MethodTextDocumentInlayHint:
+			return s.handleInlayHint(ctx, req.Params())
 		case protocol.MethodTextDocumentReferences:
 			return s.handleReferences(ctx, req.Params())
 		case protocol.MethodTextDocumentFormatting:
@@ -209,6 +211,7 @@ func (s *Server) handleInitialize(_ context.Context, rawParams []byte) (any, err
 		cflog.Bool("folding", s.Features.Folding),
 		cflog.Bool("typeDefinition", s.Features.TypeDefinition),
 		cflog.Bool("structureDiagnostics", s.Features.StructureDiagnostics),
+		cflog.Bool("inlayHints", s.Features.InlayHints),
 		cflog.Bool("watchedFiles", s.Features.WatchedFiles),
 		cflog.Bool("rangeFormatting", s.Features.RangeFormatting),
 		cflog.Bool("routesConfigured", s.Routes.Enabled()))

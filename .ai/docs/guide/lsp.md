@@ -23,6 +23,18 @@ Declared in `Server.capabilities()` (`internal/server/server.go`):
   fallback exists for chained calls and would answer for whatever else the line holds, and
   reports `$any` and `$builtin.` as unknown. A return type counts only when dotted: a bare
   word is far more often `struct` than a component in the same directory.
+- `textDocument/inlayHint` (`internal/server/inlay_hint.go`) shows a component's own dot path beside
+  its declaration, `Path: (models.User)`, from `parser.ComponentDeclarationEnd` and the path
+  `clif.copyPackage` answers. **Opt-in** (`features.inlayHints`, default off; advertised only when
+  on). An Application.cfc and anything that is not a .cfc has none.
+- `clif.searchDocs` (query, "tag" | "function" | "all", limit) and `clif.docEntry` (name, kind)
+  answer the compiled-in CFML docs, so an editor can offer a documentation browser without carrying
+  a copy of them (`internal/server/docs_command.go`). A name match ranks above a description match.
+- **Application lifecycle code actions** (`internal/server/lifecycle_actions.go`): in an
+  Application.cfc, one refactor action for each application event the component does not declare
+  (`onSessionStart`, `onRequestStart`, …) and one for all of them, written as the component is
+  written (script or tags) and inserted before the body's closing `}` or `</cfcomponent>`
+  (`parser.ComponentBodyEnd`). What is declared is read from the parse, so case does not matter.
 - **Structure diagnostics** (`internal/server/structure_diagnostics.go`, `parser.TagProblems`) publish
   what is wrong with a document's CF tags as it is opened and edited, under the source `clif`:
   unclosed tags, closing tags with no opener, tags outside the tag they belong to (`<cfcatch>` in
@@ -311,7 +323,7 @@ Declared in `Server.capabilities()` (`internal/server/server.go`):
   `.restartDaemon`, `.showResolvers`, `.showFileIndex`, `.showConnections`,
   `.openActiveApplicationFile`, `.goToMatchingTag`, `.copyPackage`, `.findRefs`, `.exportDeps`,
   `.scanWorkspace`, `.generateCodeMap`, `.showCodeMapStats`, `.resolveRoute`,
-  `.exportUnresolved`, `.exportCFLint`, `.explainCall`.
+  `.exportUnresolved`, `.exportCFLint`, `.explainCall`, `.searchDocs`, `.docEntry`.
 
   **Everything a CLI subcommand did for an editor task has a server route**, because Zed
   asked the zed-cfml extension to drop its `tasks.json` tasks and reach the server instead.

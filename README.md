@@ -1204,8 +1204,8 @@ there is nothing it could honestly do with `false` short of declining to format.
 
 Most capabilities the server adds are on by default and each can be switched off
 on its own, for when one misbehaves on a real workspace and the alternative is
-downgrading the binary. **`typeDefinition` and `structureDiagnostics` are the
-exceptions: they are off unless you ask for them.**
+downgrading the binary. **`typeDefinition`, `structureDiagnostics` and
+`inlayHints` are the exceptions: they are off unless you ask for them.**
 
 ```json
 {
@@ -1215,7 +1215,8 @@ exceptions: they are off unless you ask for them.**
     "watchedFiles": true,
     "rangeFormatting": true,
     "typeDefinition": false,
-    "structureDiagnostics": false
+    "structureDiagnostics": false,
+    "inlayHints": false
   }
 }
 ```
@@ -1228,6 +1229,7 @@ exceptions: they are off unless you ask for them.**
 | `rangeFormatting` | on | "Format Selection". Switching it off leaves whole-document formatting and format-on-save working. |
 | `typeDefinition` | **off** | "Go to Type Definition": from a variable, argument or property to the component it holds, or from a call to the component the function returns. The newest capability here, so it waits to be asked for. |
 | `structureDiagnostics` | **off** | Errors for the structure of a document's CF tags, published as it is opened and edited (300 ms after the last change): a tag left open (`<cfif>` with no `</cfif>`), a closing tag with no opener, a `<cfcatch>` outside a `<cftry>` (and `<cfelse>`, `<cfcase>`, `<cfargument>` outside theirs), a `<cffunction>`, `<cfargument>`, `<cfparam>` or `<cfproperty>` with no `name`, a `<cfinclude>` with no `template`, an attribute given twice (a warning), and an argument a function declares twice. Only tags that always take a body are checked for closing, and a tag that can stand alone (`<cfhttp>`, `<cftransaction action="commit">`) never is, so a page that runs reports nothing: over 10,400 pages of real code the only findings were broken test inputs and one malformed import script. Off by default because it is new, and because an editor that draws its own tag errors would show each twice. Source `clif`; the code is the kind (`unclosed-tag`, `unmatched-close`, `misplaced-tag`, `missing-attribute`, `duplicate-attribute`, `duplicate-argument`). |
+| `inlayHints` | **off** | Inlay hints: a component's own dot path beside its declaration, `Path: (models.User)`, the name `new` and `createObject` take. None in an `Application.cfc`. Off by default because it is new, and because an editor that draws its own hints would show each twice. |
 | `outputContextInterpolation` | on | Reading `#...#` in a tag file's text only where ColdFusion evaluates it: inside `<cfoutput>`, `<cfquery>`, `<cfmail>` and `output="true"` functions, and in the attributes of CF and custom tags. Also reads a `.cfm` template with no CF tags as HTML rather than CFScript. Off, every pair of hashes in text is scanned, which finds calls in JavaScript, CSS and prose between two stray hashes. Unlike the others this changes what the parser reads, not what the server advertises. |
 
 An editor that is given folding ranges uses them in place of its own indentation

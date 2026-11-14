@@ -94,6 +94,7 @@ var featureDefaults = map[string]bool{
 	"OutputContextInterpolation": true,
 	"TypeDefinition":             typeDefinitionDefault,
 	"StructureDiagnostics":       structureDiagnosticsDefault,
+	"InlayHints":                 inlayHintsDefault,
 }
 
 // TestFeaturesDefaultToOn is the property that makes these opt-outs. An absent

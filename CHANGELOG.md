@@ -4,6 +4,10 @@
 
 ### Added
 
+- **Inlay hints** (`features.inlayHints`, off by default): a component's own dot path beside its declaration, `Path: (models.User)`.
+- **`clif.searchDocs` and `clif.docEntry`** answer the built-in CFML tag and function documentation, so an editor can offer a documentation browser without bundling the docs. A name match ranks above a description match.
+- **Application lifecycle code actions.** In an `Application.cfc`, a refactor action adds each application event the component does not declare (`onSessionStart`, `onRequestStart`, `onError`, …), or all of them, as script or as tags to match the component.
+
 - **Structure diagnostics** (`features.structureDiagnostics`, off by default). A document's CF tags are checked as it is opened and edited, and what is wrong is published: a tag left open or closed with no opener, a `<cfcatch>`, `<cfelse>`, `<cfcase>` or `<cfargument>` outside the tag it belongs to, a `<cffunction>`, `<cfargument>`, `<cfparam>` or `<cfproperty>` with no `name` (or `<cfinclude>` with no `template`), an attribute given twice, and an argument a function declares twice. Only tags that always take a body are held to a closing tag. Over 10,407 files of real code the only findings were broken test inputs and one malformed script; none was in code that runs.
 
 - **A `componentResolvers` rule can be written as the call it recognises.** `{"call": {"function": "getBean", "namedArgument": true, "moreArguments": true}, "resolve": "$1"}` reads `getBean( "x" )`, `getBean( name = "x" )` and `getBean( "x", true )` with the string, a name or a dotted path, as `$1`; the call must end the expression, which a `$1` pattern cannot say, so `getBean( "a" ).run()` is not a `getBean` call. `prefix` defaults to the function'"'"'s name. It is the migration for a rule that needed a regular expression for this, and `scripts/corpus/masacms.json` now uses it: Masa'"'"'s output is byte-identical to its regular-expression rule'"'"'s, strict `getBean` findings included.

@@ -534,6 +534,11 @@ type Features struct {
 	// own such errors would show each twice. Turn it on with
 	// `{"features": {"structureDiagnostics": true}}`.
 	StructureDiagnostics *bool `json:"structureDiagnostics"`
+	// InlayHints answers textDocument/inlayHint: the component's own dot path
+	// beside its declaration, `Path: (models.User)`. Off by default: it is new,
+	// and an editor that draws its own hints would show each twice. Turn it on
+	// with `{"features": {"inlayHints": true}}`.
+	InlayHints *bool `json:"inlayHints"`
 }
 
 // ResolvedFeatures holds the feature switches with defaults applied.
@@ -547,6 +552,7 @@ type ResolvedFeatures struct {
 	OutputContextInterpolation bool
 	TypeDefinition             bool
 	StructureDiagnostics       bool
+	InlayHints                 bool
 }
 
 // foldingDefault is on. Named rather than inlined so the tests that assert the
@@ -558,6 +564,9 @@ const typeDefinitionDefault = false
 
 // structureDiagnosticsDefault is off, for the reason the field gives.
 const structureDiagnosticsDefault = false
+
+// inlayHintsDefault is off, for the reason the field gives.
+const inlayHintsDefault = false
 
 // ResolveFeatures applies the defaults for a `features` block: absent means
 // every feature is on except typeDefinition, which is opt-in for the reason
@@ -584,6 +593,7 @@ func ResolveFeatures(f *Features) ResolvedFeatures {
 		OutputContextInterpolation: BoolDefault(f.OutputContextInterpolation, true),
 		TypeDefinition:             BoolDefault(f.TypeDefinition, typeDefinitionDefault),
 		StructureDiagnostics:       BoolDefault(f.StructureDiagnostics, structureDiagnosticsDefault),
+		InlayHints:                 BoolDefault(f.InlayHints, inlayHintsDefault),
 	}
 }
 
@@ -1170,6 +1180,7 @@ func mergeFeatures(base, over *Features) *Features {
 		{&out.OutputContextInterpolation, &over.OutputContextInterpolation},
 		{&out.TypeDefinition, &over.TypeDefinition},
 		{&out.StructureDiagnostics, &over.StructureDiagnostics},
+		{&out.InlayHints, &over.InlayHints},
 	} {
 		if *f.src != nil {
 			*f.dst = *f.src
