@@ -167,7 +167,13 @@ func (pr *ParseResult) Assignments() []Assignment {
 		return a.list
 	}
 
-	list, _ := pr.Memo(assignmentsMemoKey, func() any { return pr.readAssignments() }).([]Assignment)
+	list, _ := pr.Memo(assignmentsMemoKey, func() any {
+		if pr.sharedAssignments != nil {
+			return pr.sharedAssignments(pr.Content)
+		}
+
+		return pr.readAssignments()
+	}).([]Assignment)
 
 	return list
 }

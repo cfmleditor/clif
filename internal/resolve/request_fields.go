@@ -43,7 +43,7 @@ func (r *Resolver) requestWriters() map[string][]string {
 			continue
 		}
 
-		for key := range requestWritesIn(path, text) {
+		for key := range requestWritesFrom(path, text, r.assignmentsIn(path, text)) {
 			writers[key] = append(writers[key], path)
 		}
 	}
@@ -63,12 +63,18 @@ func (r *Resolver) requestWriters() map[string][]string {
 // parse reads in content, the text of file (requestWriteCounts). The calls
 // are the plain parse's, made only when the text names structInsert.
 func requestWritesIn(file, content string) map[string]int {
+	return requestWritesFrom(file, content, parser.AssignmentsOf(file, content))
+}
+
+// requestWritesFrom is requestWritesIn given the assignments of content, as a
+// source holds them once for every reader of its file.
+func requestWritesFrom(file, content string, as []parser.Assignment) map[string]int {
 	var inserts []parsedCall
 	if mentions(content, "structInsert") {
 		inserts = parsedCalls(plainParseText(file, content), "structInsert")
 	}
 
-	return requestWriteCounts(parser.AssignmentsOf(file, content), inserts)
+	return requestWriteCounts(as, inserts)
 }
 
 // requestWriteCounts is how many writes of each lowercased request key the

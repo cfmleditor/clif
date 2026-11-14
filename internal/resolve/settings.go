@@ -256,6 +256,7 @@ func (r *Resolver) ParseFile(file, content string, spec ParseSpec) *parser.Parse
 		ScanAllScopes:            spec.AllScopes,
 		ExtractLinks:             spec.Links,
 		FindCalls:                spec.FindCalls,
+		SharedAssignments:        func(text string) []parser.Assignment { return r.assignmentsIn(file, text) },
 	}
 
 	if !spec.ByResolversOnly {
