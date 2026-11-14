@@ -51,6 +51,9 @@ func TestParserCarriesEveryResolverField(t *testing.T) {
 			f.SetString("x" + v.Type().Field(i).Name)
 		case reflect.Bool:
 			f.SetBool(true)
+		case reflect.Interface:
+			// A matcher: any one, as long as it arrives as the same one.
+			f.Set(reflect.ValueOf(parser.NameSet("x" + v.Type().Field(i).Name)))
 		default:
 			t.Fatalf("field %s: add its kind to this test", v.Type().Field(i).Name)
 		}

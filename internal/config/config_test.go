@@ -2,7 +2,6 @@ package config
 
 import (
 	"encoding/json"
-	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -125,21 +124,16 @@ func TestJavaStubResolver_ResolvesCreateObjectJava(t *testing.T) {
 		t.Errorf("expected Prefix %q, got %q", "createObject", r.Prefix)
 	}
 
-	re, err := regexp.Compile(r.Match)
-	if err != nil {
-		t.Fatalf("Match is not a valid regex: %v", err)
+	captures, ok := r.Matcher.Match(`createObject('java', 'java.security.Signature')`)
+	if !ok {
+		t.Fatalf("expected the matcher to match createObject('java', 'java.security.Signature')")
 	}
 
-	m := re.FindStringSubmatch(`createObject('java', 'java.security.Signature')`)
-	if m == nil {
-		t.Fatalf("expected Match to match createObject('java', 'java.security.Signature')")
+	if len(captures) != 1 || captures[0] != "java.security.Signature" {
+		t.Errorf("expected captured class name %q, got %q", "java.security.Signature", captures)
 	}
 
-	if m[1] != "java.security.Signature" {
-		t.Errorf("expected captured class name %q, got %q", "java.security.Signature", m[1])
-	}
-
-	got := strings.ReplaceAll(r.Resolve, "$1", m[1])
+	got := strings.ReplaceAll(r.Resolve, "$1", captures[0])
 	if got != "tassweb.packages.tass.javastubs.java.security.Signature" {
 		t.Errorf("expected resolved path %q, got %q", "tassweb.packages.tass.javastubs.java.security.Signature", got)
 	}

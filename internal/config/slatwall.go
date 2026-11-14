@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
 )
 
@@ -70,7 +71,7 @@ func slatwallResolvers() []Resolver {
 	}
 
 	return append(out, Resolver{
-		Match:            `(?i)(?:^|\.)getService\(\s*(?:\w+\s*=\s*)?["']([A-Za-z_]\w*)["']\s*\)$`,
+		Matcher:          &parser.LiteralCall{Func: "getService", Named: parser.AnyNamedArgEquals, Form: parser.IDWord},
 		Resolve:          "Slatwall.com.service.$1",
 		Prefix:           "getService",
 		DynamicIfMissing: true,

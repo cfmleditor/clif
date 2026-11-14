@@ -450,9 +450,12 @@ type Resolver struct {
 	// preset's `event` resolver must not make event.getValue() a request
 	// context too.
 	NameOnly bool
-	re       *regexp.Regexp // compiled regex, lazily initialized
-	simple   bool           // true if pattern is a plain string (no regex, no $N)
-	reOnce   sync.Once
+	// Matcher, when set, is the match instead of Match: a built-in rule reads
+	// the expression in code (Matcher), where a configuration's own is a string.
+	Matcher Matcher
+	re      *regexp.Regexp // compiled regex, lazily initialized
+	simple  bool           // true if pattern is a plain string (no regex, no $N)
+	reOnce  sync.Once
 	// Precomputed for simple matches
 	simplePrefix   string // part before $1
 	simpleSuffix   string // part after $1
@@ -879,6 +882,9 @@ func ResolveFromCallMatch(expr string, resolvers []Resolver) (string, bool, int)
 // which entry of componentResolvers fired.
 func (r *Resolver) Describe() string {
 	desc := fmt.Sprintf("match %q, prefix %q", r.Match, r.Prefix)
+	if r.Matcher != nil {
+		desc = fmt.Sprintf("match %s, prefix %q", r.Matcher, r.Prefix)
+	}
 
 	if r.Anchored {
 		desc += ", anchored"
@@ -1169,6 +1175,15 @@ func substitutePlaceholder(result string, n int, captured string) string {
 }
 
 func matchResolverWithCache(expr string, r *Resolver) string {
+	if r.Matcher != nil {
+		captures, ok := r.Matcher.Match(expr)
+		if !ok {
+			return ""
+		}
+
+		return filledResolve(r.Resolve, captures)
+	}
+
 	r.compiledRe() // ensure reOnce has run
 
 	if r.simple {
@@ -1184,14 +1199,20 @@ func matchResolverWithCache(expr string, r *Resolver) string {
 		return ""
 	}
 
-	result := r.Resolve
+	return filledResolve(r.Resolve, m[1:])
+}
 
-	for i := 1; i < len(m); i++ {
-		captured := strings.Trim(m[i], "\"'")
-		result = substitutePlaceholder(result, i, captured)
+// filledResolve is a resolver's template with what its match captured put in:
+// each capture without its quotes for its `$N`, and, when anything was
+// captured, a trailing .cfc taken off and a slash made a dot.
+func filledResolve(template string, captures []string) string {
+	result := template
+
+	for i, captured := range captures {
+		result = substitutePlaceholder(result, i+1, strings.Trim(captured, "\"'"))
 	}
 
-	if result == r.Resolve && len(m) == 1 {
+	if result == template && len(captures) == 0 {
 		return result
 	}
 

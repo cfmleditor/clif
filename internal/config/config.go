@@ -312,6 +312,19 @@ type Resolver struct {
 	// NameOnly says what a variable of that name holds, and nothing about
 	// what a call on it returns: see parser.Resolver.
 	NameOnly bool `json:"nameOnly"`
+	// Matcher is the match of a built-in rule, written as code instead of a
+	// pattern; a configuration's own rules have Match alone.
+	Matcher parser.Matcher `json:"-"`
+}
+
+// MatchText is how the rule's match reads in a listing: its pattern, or what
+// its matcher recognises.
+func (r *Resolver) MatchText() string {
+	if r.Matcher != nil {
+		return r.Matcher.String()
+	}
+
+	return r.Match
 }
 
 // Parser is the resolver as the parser and resolver use it. Every
@@ -319,7 +332,7 @@ type Resolver struct {
 // reaches the other everywhere at once.
 func (r *Resolver) Parser() parser.Resolver {
 	return parser.Resolver{
-		Match: r.Match, Resolve: r.Resolve, Prefix: r.Prefix,
+		Match: r.Match, Resolve: r.Resolve, Prefix: r.Prefix, Matcher: r.Matcher,
 		NoFollow: r.NoFollow, Anchored: r.Anchored, DynamicIfMissing: r.DynamicIfMissing, NameOnly: r.NameOnly,
 	}
 }
@@ -362,21 +375,17 @@ func ParserPropertyResolvers(rules []PropResolver) []parser.PropertyResolver {
 	return out
 }
 
-// javaStubCreateObjectPattern matches createObject("java", "some.Class.Name")
-// (single or double quotes, arbitrary whitespace inside the parens).
-const javaStubCreateObjectPattern = `createObject\s*\(\s*['"]java['"]\s*,\s*['"](.+?)['"]\s*\)`
-
 // JavaStubResolver synthesizes the componentResolver equivalent of hand-writing
 // a createObject("java", "X") -> "<javaStubsPath>.X" pattern, so a project only
 // needs to set javaStubsPath once instead of writing the regex itself. Returns
-// the zero Resolver (Match == "") when javaStubsPath is empty.
+// the zero Resolver (no Matcher) when javaStubsPath is empty.
 func JavaStubResolver(javaStubsPath string) Resolver {
 	if javaStubsPath == "" {
 		return Resolver{}
 	}
 
 	return Resolver{
-		Match:   javaStubCreateObjectPattern,
+		Matcher: parser.JavaClass(),
 		Resolve: javaStubsPath + ".$1",
 		Prefix:  "createObject",
 	}
@@ -777,7 +786,7 @@ func Resolve(cfg *JSON, dir string) *Resolved {
 		}
 	}
 
-	if jr := JavaStubResolver(cfg.JavaStubsPath); jr.Match != "" {
+	if jr := JavaStubResolver(cfg.JavaStubsPath); jr.Matcher != nil {
 		r.ComponentResolvers = append(r.ComponentResolvers, jr)
 	}
 
