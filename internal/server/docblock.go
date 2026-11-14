@@ -1,7 +1,6 @@
 package server
 
 import (
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -28,14 +27,6 @@ import (
 // the tag completions anywhere in a component file; here the cursor must be
 // inside a doc block, which is the only place a `@tag` line means anything.
 
-var (
-	docFunctionRe  = regexp.MustCompile(`(?i)^(\s*)(?:\b(?:private|package|public|remote|static|final|abstract|default)\s+)*(?:\b(?:[A-Za-z0-9_.$]+)\s+)?function\s+([_$a-zA-Z][$\w]*)\s*(?:\((?:=\s*\{|[^{])*)[{;]`)
-	docPropertyRe  = regexp.MustCompile(`(?i)^(\s*property)\s+`)
-	docComponentRe = regexp.MustCompile(`(?i)^(\s*(component|interface))\b[^{]*\{`)
-	docCFTagRe     = regexp.MustCompile(`(?i)^\s*<cf(function|property|component|interface)\b`)
-	docTagWordRe   = regexp.MustCompile(`@([\w$]*)(?:\.([\w$]*))?$`)
-)
-
 type docKind int
 
 const (
@@ -52,15 +43,16 @@ func (k docKind) String() string {
 
 // docTarget is what a doc block documents, from the text that follows it.
 func docTarget(after string) docKind {
-	switch {
-	case docFunctionRe.MatchString(after):
+	if _, ok := docFunctionEnd(after); ok {
 		return docFunction
-	case docPropertyRe.MatchString(after):
+	}
+
+	if docPropertyStart(after) {
 		return docProperty
 	}
 
-	if m := docCFTagRe.FindStringSubmatch(after); m != nil {
-		switch strings.ToLower(m[1]) {
+	if name, ok := docCFTagStart(after); ok {
+		switch strings.ToLower(name) {
 		case "function":
 			return docFunction
 		case "property":
@@ -72,8 +64,8 @@ func docTarget(after string) docKind {
 		}
 	}
 
-	if m := docComponentRe.FindStringSubmatch(after); m != nil {
-		if strings.EqualFold(m[2], "interface") {
+	if word, ok := docComponentStart(after); ok {
+		if strings.EqualFold(word, "interface") {
 			return docInterface
 		}
 
@@ -212,14 +204,14 @@ func escapeSnippet(s string) string {
 // its own: the comment being typed is usually not closed yet, and an unclosed
 // comment hides the rest of the file from the document's own parse.
 func docFunctionArguments(after string) []string {
-	loc := docFunctionRe.FindStringIndex(after)
+	end, found := docFunctionEnd(after)
 
 	var content string
 
-	if loc != nil {
-		decl := strings.TrimRight(after[:loc[1]], "{;") + "{}"
+	if found {
+		decl := strings.TrimRight(after[:end], "{;") + "{}"
 		content = "component {\n" + decl + "\n}"
-	} else if m := docCFTagRe.FindStringSubmatch(after); m != nil && strings.EqualFold(m[1], "function") {
+	} else if name, ok := docCFTagStart(after); ok && strings.EqualFold(name, "function") {
 		content = "<cfcomponent>\n" + after + "\n</cfcomponent>"
 	} else {
 		return nil
@@ -240,7 +232,7 @@ func docFunctionArguments(after string) []string {
 
 // docTagItems offers the tags and sub-keys of a doc block the cursor is in.
 func (s *Server) docTagItems(content string, params *protocol.CompletionParams, before string) ([]protocol.CompletionItem, bool) {
-	m := docTagWordRe.FindStringSubmatchIndex(before)
+	m := docTagWord(before)
 	if m == nil {
 		return nil, false
 	}
