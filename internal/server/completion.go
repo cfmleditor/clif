@@ -836,6 +836,10 @@ func appendScopedVars(items []protocol.CompletionItem, names []string, prefix st
 // document declares: its columns, which the declaration names
 // (parser.QueryColumns), and the properties every query has.
 func queryColumnItems(content, name string, line, char int) []protocol.CompletionItem {
+	if !parser.MayDeclareQuery(content) {
+		return nil
+	}
+
 	lines := parser.NewLineTable(content)
 
 	start, ok := lines.Start(line)

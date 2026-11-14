@@ -72,6 +72,12 @@ func (s *Server) cancelStructureDiagnostics(ctx context.Context, docURI uri.URI)
 // publishes what it finds. lockDoc runs the reparse an edit deferred, so the
 // parse the arguments are read from is the document's.
 func (s *Server) publishStructureDiagnostics(docURI uri.URI) {
+	// A document closed since the timer fired has nothing to check, and
+	// lockDoc would make a lock for it that nothing removes.
+	if !s.structureWanted(docURI) {
+		return
+	}
+
 	defer s.lockDoc(docURI)()
 
 	content, ok := s.getDocument(docURI)
@@ -88,13 +94,20 @@ func (s *Server) publishStructureDiagnostics(docURI uri.URI) {
 	s.structureMu.Lock()
 	defer s.structureMu.Unlock()
 
-	s.mu.RLock()
-	_, open := s.structureTimers[docURI]
-	s.mu.RUnlock()
-
-	if open {
+	if s.structureWanted(docURI) {
 		s.setDiagnostics(context.Background(), docURI, sourceStructure, found)
 	}
+}
+
+// structureWanted reports whether docURI is still open to be checked: it has a
+// timer, which a close takes away.
+func (s *Server) structureWanted(docURI uri.URI) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	_, ok := s.structureTimers[docURI]
+
+	return ok
 }
 
 // stopStructureDiagnostics stops every pending check: the server is going.

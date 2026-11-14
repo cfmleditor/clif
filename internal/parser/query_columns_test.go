@@ -110,3 +110,11 @@ func TestQueryColumnsForgetAReassignedVariable(t *testing.T) {
 		t.Errorf("got %q, want none once q is set to something else", got)
 	}
 }
+
+func TestQueryColumnsSurviveAComparison(t *testing.T) {
+	src := "<cfquery name=\"users\">SELECT id, name FROM u</cfquery>\n<cfscript>\nif ( users == 1 ) {}\nx = { users = foo() };\n"
+
+	if got, ok := QueryColumns(src, "users", len(src)); !ok || !slices.Equal(got, []string{"id", "name"}) {
+		t.Errorf("got %q %v, want the query's columns", got, ok)
+	}
+}

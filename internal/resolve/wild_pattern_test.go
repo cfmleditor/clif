@@ -58,7 +58,7 @@ func oracleSpelled(value []parser.Token, wildcard string, trim bool) (string, bo
 				text = text[1 : len(text)-1]
 			}
 
-			for i, part := range strings.Split(text, "#") {
+			for i, part := range hashRuns(text) {
 				if i%2 == 1 {
 					wild()
 
@@ -268,7 +268,7 @@ func oracleFill(value []parser.Token, rng *rand.Rand) string {
 			text = text[1 : len(text)-1]
 		}
 
-		for i, part := range strings.Split(text, "#") {
+		for i, part := range hashRuns(text) {
 			if i%2 == 1 {
 				b.WriteString(randomWildString(rng, 2))
 			} else {
@@ -281,3 +281,14 @@ func oracleFill(value []parser.Token, rng *rand.Rand) string {
 }
 
 var _ = fmt.Sprint
+
+// hashRuns is the text of a string cut at its hashes: the even runs are
+// literal and the odd ones are computed, and a doubled hash is a literal one.
+func hashRuns(text string) []string {
+	runs := strings.Split(strings.ReplaceAll(text, "##", "\x00"), "#")
+	for i := range runs {
+		runs[i] = strings.ReplaceAll(runs[i], "\x00", "#")
+	}
+
+	return runs
+}

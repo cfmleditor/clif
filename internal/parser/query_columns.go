@@ -15,6 +15,12 @@ import (
 // expression it cannot read, `count(*)` with no alias, is left out of a list
 // that is otherwise known.
 func QueryColumns(content, name string, before int) (columns []string, ok bool) {
+	// Dot completion asks on every `.`: a file that declares no query cannot
+	// have this one, and the tag search and tokenize below are passes over it.
+	if !MayDeclareQuery(content) {
+		return nil, false
+	}
+
 	best := -1
 
 	consider := func(start int, cols []string, known bool) {
@@ -48,35 +54,51 @@ func QueryColumns(content, name string, before int) (columns []string, ok bool) 
 
 	sc := NewSourceScanner(content)
 
-	var prev, owner Token // the tokens before t: a `.`, and what it follows
+	// read is the next token, with the two before it kept: a `.` before a
+	// name, and what that `.` follows.
+	var prev, owner Token
 
-	for t := sc.NextSkipComments(); t.Kind != TokEOF; prev, owner, t = t, prev, sc.NextSkipComments() {
+	var last Token
+
+	read := func() Token {
+		t := sc.NextSkipComments()
+		prev, owner, last = last, prev, t
+
+		return t
+	}
+
+	for t := read(); t.Kind != TokEOF; t = read() {
 		if t.Kind != TokIdent || !strings.EqualFold(t.Value, name) || sc.PeekSkipComments().Kind != TokEquals {
 			continue
 		}
 
 		// `cfg.users = ...` sets another object's member, and a struct's
 		// `{ a = 1, users = ... }` a key; `local.users` is the variable.
-		if prev.Kind == TokComma || prev.Kind == TokDot && !isLocalScope(owner) {
+		if prev.Kind == TokComma || prev.Kind == TokDot && !isLocalScope(owner) || prev.Kind == TokLBrace && opensStruct(owner) {
 			continue
 		}
 
 		start := t.Offset
 
-		sc.NextSkipComments() // =
+		eq := read() // =
+
+		// `users == 1` compares: it sets nothing.
+		if next := sc.PeekSkipComments(); next.Kind == TokEquals && next.Offset == eq.Offset+1 {
+			continue
+		}
 
 		// What the variable is set to, when it is not a query that can be
 		// read: its earlier columns no longer hold.
-		fn := sc.NextSkipComments()
+		fn := read()
 		if fn.Kind != TokIdent || sc.PeekSkipComments().Kind != TokLParen {
 			consider(start, nil, false)
 
 			continue
 		}
 
-		sc.NextSkipComments() // (
+		read() // (
 
-		arg := sc.NextSkipComments()
+		arg := read()
 		if arg.Kind != TokString || len(arg.Value) < 2 {
 			consider(start, nil, false)
 
@@ -366,4 +388,22 @@ func unscoped(name string) string {
 // function's own variables.
 func isLocalScope(t Token) bool {
 	return t.Kind == TokIdent && (strings.EqualFold(t.Value, "local") || strings.EqualFold(t.Value, "variables"))
+}
+
+// opensStruct reports whether a `{` after t starts a struct literal, which
+// stands where a value does, rather than a block.
+func opensStruct(t Token) bool {
+	switch t.Kind {
+	case TokEquals, TokLParen, TokComma, TokColon, TokLBracket:
+		return true
+	default:
+		return false
+	}
+}
+
+// MayDeclareQuery reports whether content spells anything that declares a
+// query variable. A cheap test, for the per-keystroke callers of
+// QueryColumns to ask before they build anything for it.
+func MayDeclareQuery(content string) bool {
+	return IndexFold(content, "cfquery") >= 0 || IndexFold(content, "querynew") >= 0 || IndexFold(content, "queryexecute") >= 0
 }

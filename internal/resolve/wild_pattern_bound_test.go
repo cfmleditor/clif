@@ -24,3 +24,15 @@ func TestWildPatternDoesNotBacktrackWithoutBound(t *testing.T) {
 		t.Fatal("match still backtracking after 5s")
 	}
 }
+
+func TestSpelledStringReadsDoubledHashesAsLiterals(t *testing.T) {
+	var b wildBuilder
+
+	spelledString("a##b#x#c", &b, false)
+	b.text("")
+
+	want := []string{"a#b"}
+	if len(b.pieces) != 1 || b.pieces[0] != want[0] || b.cur.String() != "c" {
+		t.Errorf("pieces %q then %q, want %q then c", b.pieces, b.cur.String(), want)
+	}
+}

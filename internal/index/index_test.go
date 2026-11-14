@@ -558,4 +558,11 @@ func TestAMuraBeanORMComponentIsAnEntityByItsName(t *testing.T) {
 	if got := idx.NamedEntities("testwidget"); len(got) != 0 {
 		t.Fatalf("an entityName without a table is an entity: %v", got)
 	}
+
+	// Another framework's model with a table and a name is no engine entity.
+	idx.IndexEntity(widget, parser.Parse(widget, `component entityName="testWidget" table="testwidget" extends="quick.models.BaseEntity" {}`))
+
+	if got := idx.NamedEntities("testwidget"); len(got) != 0 {
+		t.Fatalf("a Quick model is an entity: %v", got)
+	}
 }

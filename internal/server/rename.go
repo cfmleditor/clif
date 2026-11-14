@@ -67,7 +67,7 @@ func (s *Server) renameAt(docURI uri.URI, pos protocol.Position) (*renameRequest
 	// like it, a struct key or another object's member, is not one of its
 	// places: that is a different thing than the one pointed at.
 	if _, _, onVariable := plan.RangeAt(at); !onVariable {
-		return nil, errors.New("cannot rename: the cursor is on a name spelled like the variable, not on the variable")
+		return nil, parser.NotAVariable("the cursor is on a name spelled like the variable, not on the variable")
 	}
 
 	return &renameRequest{plan: plan, content: content, at: at, pos: rangePositioner(content, lines)}, nil
@@ -84,6 +84,12 @@ func (s *Server) handlePrepareRename(_ context.Context, rawParams []byte) (any, 
 	defer s.lockDoc(params.TextDocument.URI)()
 
 	req, err := s.renameAt(params.TextDocument.URI, params.Position)
+	if errors.Is(err, parser.ErrNoVariable) {
+		// Nothing to rename at the cursor: null, which a client takes as "no",
+		// not an error it shows.
+		return nil, nil
+	}
+
 	if err != nil {
 		return nil, err
 	}

@@ -161,22 +161,32 @@ func spelledParts(value []parser.Token, b *wildBuilder, trimLeadingSlash bool) {
 				text = text[1 : len(text)-1]
 			}
 
-			for i, part := range strings.Split(text, "#") {
-				if i%2 == 1 {
-					b.wild()
-
-					continue
-				}
-
-				if trimLeadingSlash && b.empty() {
-					part = strings.TrimPrefix(part, "/")
-				}
-
-				b.text(part)
-			}
+			spelledString(text, b, trimLeadingSlash)
 		case parser.TokAmpersand:
 		default:
 			b.wild()
 		}
+	}
+}
+
+// spelledString notes the parts of the text of one string: a run between
+// hashes is computed, and `##` is a literal hash.
+func spelledString(text string, b *wildBuilder, trimLeadingSlash bool) {
+	const hash = "\x00" // a doubled hash, out of the way of the split
+
+	for i, part := range strings.Split(strings.ReplaceAll(text, "##", hash), "#") {
+		if i%2 == 1 {
+			b.wild()
+
+			continue
+		}
+
+		part = strings.ReplaceAll(part, hash, "#")
+
+		if trimLeadingSlash && b.empty() {
+			part = strings.TrimPrefix(part, "/")
+		}
+
+		b.text(part)
 	}
 }

@@ -120,6 +120,23 @@ var ErrNotRenameable = errors.New("cannot rename")
 
 func refuse(why string) error { return errors.New(ErrNotRenameable.Error() + ": " + why) }
 
+// ErrNoVariable is what a refusal matches when the cursor is not on a
+// variable at all, where the others name a variable that cannot be renamed.
+// An editor asking whether to offer a rename is answered "no" to the first and
+// given the reason for the second.
+var ErrNoVariable = errors.New("no variable here")
+
+type noVariableError struct{ why string }
+
+func (e noVariableError) Error() string { return ErrNotRenameable.Error() + ": " + e.why }
+
+func (e noVariableError) Is(target error) bool {
+	return target == ErrNoVariable || target == ErrNotRenameable
+}
+
+// NotAVariable is a refusal that matches ErrNoVariable and ErrNotRenameable.
+func NotAVariable(why string) error { return noVariableError{why} }
+
 // PlanLocalRename finds the local variable of a script function under the byte
 // offset at in content, given the spans of the file's functions
 // (ParseResult.FunctionSpans). The variable is one the function declares,
@@ -131,7 +148,7 @@ func refuse(why string) error { return errors.New(ErrNotRenameable.Error() + ": 
 func PlanLocalRename(content string, spans []FunctionSpan, at int) (*LocalRename, error) {
 	owner := innermostScriptSpan(spans, at)
 	if owner == nil {
-		return nil, refuse("the cursor is not in a script function's body")
+		return nil, NotAVariable("the cursor is not in a script function's body")
 	}
 
 	// The scopes that hold the cursor, innermost first: the closures written
@@ -159,7 +176,7 @@ func PlanLocalRename(content string, spans []FunctionSpan, at int) (*LocalRename
 		return plan, err
 	}
 
-	return nil, refuse("'" + wordAt(content, at) + "' is not declared in this function with var or local")
+	return nil, NotAVariable("'" + wordAt(content, at) + "' is not declared in this function with var or local")
 }
 
 // renameScope is a function's own scope: its parameter list and its body.
@@ -184,7 +201,7 @@ func planScope(content string, spans []FunctionSpan, sc renameScope, at int) (*L
 
 	name := wordAt(content, at)
 	if name == "" {
-		return nil, refuse("there is no name under the cursor")
+		return nil, NotAVariable("there is no name under the cursor")
 	}
 
 	body := content[sc.body:sc.bodyEnd]

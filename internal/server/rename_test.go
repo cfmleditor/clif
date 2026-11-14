@@ -100,8 +100,9 @@ func TestRenameRefusesWhatItCannotMakeSafe(t *testing.T) {
 	}
 
 	// Outside any function.
-	if _, err := prepareRename(t, s, docURI, 0, 3); err == nil {
-		t.Error("the component keyword can be renamed")
+	// (prepareRename says "nothing here" with null, not an error to show.)
+	if got, err := prepareRename(t, s, docURI, 0, 3); err != nil || got != nil {
+		t.Errorf("the component keyword: %v, %v, want null", got, err)
 	}
 
 	for name, why := range map[string]string{
@@ -196,8 +197,8 @@ func TestRenameFromANameSpelledLikeTheVariableIsRefused(t *testing.T) {
 			t.Errorf("%s: %v, want a refusal that the cursor is not on the variable", c.name, err)
 		}
 
-		if _, perr := prepareRename(t, s, docURI, line, char); (perr == nil) != c.ok {
-			t.Errorf("%s: prepareRename %v, rename ok %v", c.name, perr, c.ok)
+		if got, perr := prepareRename(t, s, docURI, line, char); perr != nil || (got != nil) != c.ok {
+			t.Errorf("%s: prepareRename %v %v, rename ok %v", c.name, got, perr, c.ok)
 		}
 	}
 }
