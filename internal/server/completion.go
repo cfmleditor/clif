@@ -246,6 +246,16 @@ func (s *Server) completionItemsFor(params *protocol.CompletionParams, cc *compl
 	case inDocBlock:
 		items = docItems
 	case cc.inHashExpr:
+		// `#users.` after a query the page declares offers its columns.
+		if cc.triggeredByDot && hasDoc {
+			line := int(params.Position.Line)
+			if cols := queryColumnItems(content, parser.WordBeforeDot(content, line, char), line, char); len(cols) > 0 {
+				items = cols
+
+				break
+			}
+		}
+
 		items = s.completionFromCache(params.TextDocument.URI, int(params.Position.Line))
 	case cc.inAttrValue:
 		if CompletionAttributes {
@@ -463,6 +473,11 @@ func (s *Server) dotCompletionMethods(content string, docURI uri.URI, line, char
 		return s.scopeArgumentsCompletion(docURI, line)
 	case "SUPER":
 		return s.superCompletion(docURI)
+	}
+
+	// A query the document declares offers its columns.
+	if items := queryColumnItems(content, varName, line, char); len(items) > 0 {
+		return items
 	}
 
 	// Look up component ref for this variable in the current file
@@ -813,6 +828,51 @@ func appendScopedVars(items []protocol.CompletionItem, names []string, prefix st
 			SortText: optStr(SortGlobalVariables + v),
 		})
 	}
+
+	return items
+}
+
+// queryColumnItems are the completions after `name.` when name is a query the
+// document declares: its columns, which the declaration names
+// (parser.QueryColumns), and the properties every query has.
+func queryColumnItems(content, name string, line, char int) []protocol.CompletionItem {
+	lines := parser.NewLineTable(content)
+
+	start, ok := lines.Start(line)
+	if !ok {
+		return nil
+	}
+
+	cols, ok := parser.QueryColumns(content, name, start+char)
+	if !ok {
+		return nil
+	}
+
+	items := make([]protocol.CompletionItem, 0, len(cols)+3)
+	seen := map[string]bool{}
+
+	add := func(label, detail string, kind protocol.CompletionItemKind, rank string) {
+		if seen[strings.ToLower(label)] {
+			return
+		}
+
+		seen[strings.ToLower(label)] = true
+
+		items = append(items, protocol.CompletionItem{
+			Label:    label,
+			Kind:     kind,
+			Detail:   protocol.NewOptional(detail),
+			SortText: protocol.NewOptional(rank + label),
+		})
+	}
+
+	for _, c := range cols {
+		add(c, "query column", protocol.CompletionItemKindField, "0")
+	}
+
+	add("recordCount", "query property", protocol.CompletionItemKindProperty, "1")
+	add("currentRow", "query property", protocol.CompletionItemKindProperty, "1")
+	add("columnList", "query property", protocol.CompletionItemKindProperty, "1")
 
 	return items
 }

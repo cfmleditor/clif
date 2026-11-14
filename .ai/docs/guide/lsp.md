@@ -30,6 +30,14 @@ Declared in `Server.capabilities()` (`internal/server/server.go`):
 - `clif.searchDocs` (query, "tag" | "function" | "all", limit) and `clif.docEntry` (name, kind)
   answer the compiled-in CFML docs, so an editor can offer a documentation browser without carrying
   a copy of them (`internal/server/docs_command.go`). A name match ranks above a description match.
+- **Query columns** complete after `name.` when the document declares the query
+  (`parser.QueryColumns`, `queryColumnItems` in `completion.go`): a `<cfquery name>` whose SELECT list
+  names them, `queryNew( "a,b" )`, or `queryExecute( "SELECT a, b …" )` as a string literal, the last
+  declaration before the cursor. Columns come first, then `recordCount`, `currentRow` and
+  `columnList`. A column the list names by `*`, or an expression with no alias, is not guessed:
+  `SELECT *` offers nothing, and `count(*)` with no alias is left out of a list that is otherwise
+  known. Also offered inside `#users.` in a `<cfoutput>`. It replaced no existing completion; the
+  generic member-function list is what it falls back to.
 - **Application lifecycle code actions** (`internal/server/lifecycle_actions.go`): in an
   Application.cfc, one refactor action for each application event the component does not declare
   (`onSessionStart`, `onRequestStart`, …) and one for all of them, written as the component is

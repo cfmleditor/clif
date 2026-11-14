@@ -4,6 +4,8 @@
 
 ### Added
 
+- **Query column completion.** After `name.`, and inside `#name.` in a `<cfoutput>`, a query the document declares offers its columns, then `recordCount`, `currentRow` and `columnList`: from a `<cfquery name>` whose SELECT names them (aliases, `table.column`, quoted names), `queryNew( "a,b" )`, or `queryExecute( "SELECT … " )` with a literal string. `SELECT *` offers nothing, and a column that is an expression with no alias is left out rather than guessed.
+
 - **Inlay hints** (`features.inlayHints`, off by default): a component's own dot path beside its declaration, `Path: (models.User)`.
 - **`clif.searchDocs` and `clif.docEntry`** answer the built-in CFML tag and function documentation, so an editor can offer a documentation browser without bundling the docs. A name match ranks above a description match.
 - **Application lifecycle code actions.** In an `Application.cfc`, a refactor action adds each application event the component does not declare (`onSessionStart`, `onRequestStart`, `onError`, …), or all of them, as script or as tags to match the component.
