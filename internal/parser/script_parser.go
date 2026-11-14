@@ -1094,7 +1094,8 @@ func (p *scriptParser) recordScopedMemberCall(scopeTok, nameTok Token) {
 // recordDynamicChain records the hops chained onto a call whose receiver is
 // dynamic, keeping every one of them dynamic. The scanner must sit just past
 // the first call's ')'.
-func (p *scriptParser) recordDynamicChain(recv string, line int, caller string) {
+// Each hop is on the line its own name is written on.
+func (p *scriptParser) recordDynamicChain(recv, caller string) {
 	for p.sc.PeekSkipComments().Kind == TokDot {
 		p.sc.NextSkipComments() // consume .
 
@@ -1113,7 +1114,7 @@ func (p *scriptParser) recordDynamicChain(recv string, line int, caller string) 
 			FuncName:  methTok.Value,
 			Variable:  recv,
 			Component: "$any",
-			Line:      conv.Uint32(p.baseLine + line),
+			Line:      conv.Uint32(p.baseLine + int(methTok.Line)),
 			Caller:    caller,
 			Resolved:  true,
 		})
@@ -2120,7 +2121,7 @@ func (p *scriptParser) recordStaticCall(component string, startTok Token) {
 	// A static field, `Color::RED.getRed()`: a value of a type nothing here
 	// can say, so what is chained on it is dynamic, not a bare call.
 	if p.sc.PeekSkipComments().Kind != TokLParen {
-		p.recordDynamicChain(qualifier, int(startTok.Line), caller)
+		p.recordDynamicChain(qualifier, caller)
 
 		return
 	}
@@ -2143,7 +2144,7 @@ func (p *scriptParser) recordStaticCall(component string, startTok Token) {
 
 	if p.skipParens() {
 		// What a static method returns is not typed here either.
-		p.recordDynamicChain(qualifier, int(startTok.Line), caller)
+		p.recordDynamicChain(qualifier, caller)
 	}
 }
 
@@ -4794,7 +4795,7 @@ func (p *scriptParser) continueExtendedChain(recv, first string, ext []string, l
 			FuncName: method, Variable: recv, Component: "$any", Resolved: true,
 			Line: conv.Uint32(p.baseLine + line), Caller: caller,
 		})
-		p.recordDynamicChain(recv, line, caller)
+		p.recordDynamicChain(recv, caller)
 
 		return []string{method, "?"} // the rest is dynamic: see dynamicIfTyped
 	}
