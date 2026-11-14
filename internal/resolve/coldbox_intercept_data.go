@@ -1,7 +1,6 @@
 package resolve
 
 import (
-	"regexp"
 	"slices"
 	"strings"
 
@@ -36,7 +35,7 @@ import (
 type interceptSite struct {
 	file   string
 	line   int
-	target *regexp.Regexp
+	target *wildPattern
 	data   []parser.Token
 }
 
@@ -63,7 +62,7 @@ func (r *Resolver) interceptData(variable, caller string, pr *parser.ParseResult
 	sites := r.interceptSites()
 	for i := range sites {
 		s := &sites[i]
-		if s.target != nil && !s.target.MatchString(caller) {
+		if s.target != nil && !s.target.match(caller) {
 			continue
 		}
 
@@ -236,46 +235,10 @@ func interceptSitesIn(pr *parser.ParseResult, file string) []interceptSite {
 // interceptTarget is a pattern for the interception points a state value can
 // name: its literal parts, with what is computed matching any run of name
 // characters. It is nil when nothing is spelled.
-func interceptTarget(value []parser.Token) *regexp.Regexp {
-	var b strings.Builder
+func interceptTarget(value []parser.Token) *wildPattern {
+	var b wildBuilder
 
-	literal := false
-	wild := func() {
-		if !strings.HasSuffix(b.String(), `\w*`) {
-			b.WriteString(`\w*`)
-		}
-	}
+	spelledParts(value, &b, false)
 
-	for _, t := range value {
-		switch t.Kind {
-		case parser.TokString:
-			text := t.Value
-			if len(text) >= 2 {
-				text = text[1 : len(text)-1]
-			}
-
-			for i, part := range strings.Split(text, "#") {
-				if i%2 == 1 {
-					wild()
-
-					continue
-				}
-
-				if part != "" {
-					b.WriteString(regexp.QuoteMeta(part))
-
-					literal = true
-				}
-			}
-		case parser.TokAmpersand:
-		default:
-			wild()
-		}
-	}
-
-	if !literal {
-		return nil
-	}
-
-	return compiledPattern(`(?i)^` + b.String() + `$`)
+	return b.pattern(wildWord, false)
 }

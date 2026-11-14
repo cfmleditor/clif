@@ -1,7 +1,6 @@
 package resolve
 
 import (
-	"regexp"
 	"slices"
 	"testing"
 )
@@ -15,10 +14,10 @@ func TestMuraSitesForAreThoseThatCouldIncludeThePath(t *testing.T) {
 	r := &Resolver{
 		muraSitesBuilt: true,
 		muraSites: []muraObjectSite{
-			{target: regexp.MustCompile(`/display_objects/a\.cfm$`)},
+			{target: &wildPattern{pieces: []string{"display_objects/a.cfm"}, atSegment: true}},
 			{target: nil},
-			{target: regexp.MustCompile(`/b\.cfm$`)},
-			{target: regexp.MustCompile(`/display_objects/`)},
+			{target: &wildPattern{pieces: []string{"b.cfm"}, atSegment: true}},
+			{target: &wildPattern{pieces: []string{"display_objects/", ""}, kind: wildSegment, atSegment: true}},
 		},
 	}
 
@@ -45,7 +44,7 @@ func TestMuraSitesForAreThoseThatCouldIncludeThePath(t *testing.T) {
 		t.Error("the sites for a path were worked out again")
 	}
 
-	none := &Resolver{muraSitesBuilt: true, muraSites: []muraObjectSite{{target: regexp.MustCompile(`x\.cfm$`)}}}
+	none := &Resolver{muraSitesBuilt: true, muraSites: []muraObjectSite{{target: &wildPattern{pieces: []string{"x.cfm"}, atSegment: true}}}}
 	if none.muraObjectMayInclude("/w/y.cfm") {
 		t.Error("a pattern that does not match the template counted")
 	}

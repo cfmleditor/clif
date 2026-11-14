@@ -1,7 +1,6 @@
 package resolve
 
 import (
-	"regexp"
 	"slices"
 	"strings"
 
@@ -143,21 +142,14 @@ func invokeSelects(selector, name string) bool {
 		return false
 	}
 
-	var pattern strings.Builder
-
-	pattern.WriteString("(?i)^")
-
-	for i, piece := range pieces {
-		if i%2 == 1 {
-			pattern.WriteString(".+")
-		} else {
-			pattern.WriteString(regexp.QuoteMeta(piece))
-		}
+	// Each computed part stands for one character or more, the literals
+	// between them in order.
+	literals := make([]string, 0, len(pieces)/2+1)
+	for i := 0; i < len(pieces); i += 2 {
+		literals = append(literals, pieces[i])
 	}
 
-	pattern.WriteString("$")
-
-	return compiledPattern(pattern.String()).MatchString(name)
+	return (&wildPattern{pieces: literals, kind: wildLine}).match(name)
 }
 
 // Argument aliases follow the builtin signature. A duplicate semantic slot,
