@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -1159,6 +1160,21 @@ func (r *Resolver) bareCallInComponent(call *parser.CallSite, pr *parser.ParseRe
 
 			return true
 		}
+	}
+
+	// A script function's parameters are not among the names the body walk
+	// declares (FuncDeclares reads `var` locals and <cfargument> tags), so
+	// `function apply( fn, v ) { return fn( v ); }` was reported as a call to a
+	// function called fn. It is a call through the argument's value.
+	if call.Caller != "" && pr != nil &&
+		slices.ContainsFunc(pr.Funcs, func(f parser.FunctionDef) bool {
+			return strings.EqualFold(f.Name, call.Caller) &&
+				slices.ContainsFunc(f.Arguments, func(a parser.Argument) bool { return strings.EqualFold(a.Name, funcName) })
+		}) {
+		tr.addf("%q is an argument of the enclosing function %q — treating as a call through a function-reference value, not a missing function", funcName, call.Caller)
+		tr.hit(TargetDynamic, "", nil)
+
+		return true
 	}
 
 	// Check extends chain

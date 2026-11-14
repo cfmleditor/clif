@@ -362,3 +362,42 @@ func TestAStaticCallIsReadAsANewPathIs(t *testing.T) {
 		t.Fatalf("reported %v, want %v; %+v", reported, want, got.Calls)
 	}
 }
+
+// A call through a script function's parameter is a call through its value:
+// `function apply( fn, v ) { return fn( v ); }` calls whatever it was handed.
+// The body walk declares the locals and <cfargument> tags, not these, and every
+// such call was reported as a missing function. The name is an argument of the
+// function it is called in only; another function's parameter, and a function
+// that is declared nowhere, are still reported.
+func TestACallThroughAScriptParameterIsNotAMissingFunction(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, src string) string {
+		f := filepath.Join(dir, name)
+		if err := os.WriteFile(f, []byte(src), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		return f
+	}
+
+	files := []string{write("Use.cfc", `component {
+	function apply( fn, v ) { return fn( v ); }
+	function typed( required any callback ) { return callback(); }
+	function viaDefault( function cb=function(){} ) { return cb(); }
+	function other( x ) { return fn( x ); }
+	function gone() { return nowhereDeclared(); }
+}`)}
+
+	got := Scan(vfs.OS{}, files, files, &Options{Settings: resolve.Settings{WorkspaceFolders: []string{dir}}, InferArgs: true})
+
+	var reported []string
+	for _, c := range got.Calls {
+		reported = append(reported, c.Function)
+	}
+
+	slices.Sort(reported)
+
+	if want := []string{"fn", "nowhereDeclared"}; !slices.Equal(reported, want) {
+		t.Fatalf("reported %v, want %v (fn only from other(), which has no such parameter)", reported, want)
+	}
+}
