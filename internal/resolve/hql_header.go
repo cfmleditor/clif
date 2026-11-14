@@ -1,9 +1,8 @@
 package resolve
 
 import (
-	"strings"
-
 	"github.com/cfmleditor/clif/internal/lex"
+	"github.com/cfmleditor/clif/internal/parser"
 )
 
 // The entity a literal HQL query selects from is read from its start, and its
@@ -109,7 +108,7 @@ func hqlEndsHere(s string, i int) bool {
 // match of `(?i)\bkw\b`, or -1.
 func hqlKeywordIndex(s, kw string) int {
 	for from := 0; from+len(kw) <= len(s); from++ {
-		at := indexFoldFrom(s, kw, from)
+		at := parser.IndexFoldFrom(s, kw, from)
 		if at < 0 {
 			return -1
 		}
@@ -119,18 +118,6 @@ func hqlKeywordIndex(s, kw string) int {
 		}
 
 		from = at
-	}
-
-	return -1
-}
-
-// indexFoldFrom is the index of the first fold-equal occurrence of kw in s at
-// or after from.
-func indexFoldFrom(s, kw string, from int) int {
-	for i := from; i+len(kw) <= len(s); i++ {
-		if strings.EqualFold(s[i:i+len(kw)], kw) {
-			return i
-		}
 	}
 
 	return -1
