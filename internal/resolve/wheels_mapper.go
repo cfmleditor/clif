@@ -3,7 +3,6 @@ package resolve
 import (
 	"maps"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -622,21 +621,16 @@ func defaultSelfReturnModes(params [][]parser.Token, body string) (string, []str
 		}
 
 		name := strings.ToLower(param[eq-1].Value)
-		condition := `if\t\(\targuments\t\.\t` + regexp.QuoteMeta(name) + `\t(?:eq|=\t=)\t"[^"#]*"\t\)\t\{\treturn\t[^;{}]+\t;\t\}`
-		pattern := compiledPattern(condition + `(?:\telse\t` + condition + `)*\telse\t\{\treturn\tthis\t;\t\}\t$`)
-
-		loc := pattern.FindStringIndex(body)
-		if loc == nil || !selfDispatchPrefixSafe(body[:loc[0]], name) {
+		start, found := selfDispatchStart(body, name)
+		if !found || !selfDispatchPrefixSafe(body[:start], name) {
 			continue
 		}
 
-		match := body[loc[0]:loc[1]]
+		match := body[start:]
 		if !strings.Contains(match, name+"\teq\t\"self\"") && !strings.Contains(match, name+"\t=\t=\t\"self\"") {
-			selector := compiledPattern(`arguments\t\.\t` + regexp.QuoteMeta(name) + `\t(?:eq|=\t=)\t"([^"#]*)"`)
-
 			var modes []string
-			for _, mode := range selector.FindAllStringSubmatch(match, -1) {
-				modes = append(modes, strings.ToLower(mode[1]))
+			for _, mode := range selfDispatchModes(match, name) {
+				modes = append(modes, strings.ToLower(mode))
 			}
 
 			return name, modes
