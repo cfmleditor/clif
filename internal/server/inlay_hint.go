@@ -69,7 +69,7 @@ func (s *Server) handleInlayHint(_ context.Context, rawParams []byte) (any, erro
 		return []protocol.InlayHint{}, nil
 	}
 
-	dotPath := s.fileToPackage(file)
+	dotPath, _ := s.fileToPackageIn(file)
 	if dotPath == "" {
 		return []protocol.InlayHint{}, nil
 	}

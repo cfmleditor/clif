@@ -176,16 +176,6 @@ func (s *Server) stopStructureDiagnostics() {
 	}
 }
 
-// functionSpansOf are the function spans of pr when it is the parse of
-// content, and nil when it is not or there is none.
-func functionSpansOf(content string, pr *parser.ParseResult) []parser.FunctionSpan {
-	if pr == nil || pr.Content != content {
-		return nil
-	}
-
-	return pr.FunctionSpans()
-}
-
 // functionSpansOfDoc are the function spans of content, the text of docURI:
 // those of the parse the server holds when it is of this text, and those of a
 // fresh parse when it is not or there is none. The caller holds the document's

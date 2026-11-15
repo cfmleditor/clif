@@ -154,3 +154,17 @@ func TestInlayHintComesBeforeATrailingComment(t *testing.T) {
 		t.Errorf("hints %+v, want one before the comment", hints)
 	}
 }
+
+func TestInlayHintOfAFileUnderNoRootIsSkipped(t *testing.T) {
+	root := t.TempDir()
+	s := newTestServer()
+	s.WorkspaceFolders = []string{root}
+	s.Features.InlayHints = true
+
+	outside := uri.File(filepath.Join(t.TempDir(), "Stray.cfc"))
+	openDoc(t, s, outside, "component {\n}\n")
+
+	if got := inlayHints(t, s, outside, wholeDocument); len(got) != 0 {
+		t.Errorf("a file outside every root got %d hints", len(got))
+	}
+}

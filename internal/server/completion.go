@@ -476,7 +476,8 @@ func (s *Server) dotCompletionMethods(content string, docURI uri.URI, line, char
 		return s.superCompletion(docURI)
 	}
 
-	// A query the document declares offers its columns.
+	// A query the document declares offers its columns. (Before the ref: a
+	// query is given a native type, which is a ref too.)
 	if items := s.queryColumnItems(docURI, content, varName, line, char); len(items) > 0 {
 		return items
 	}

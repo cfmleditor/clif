@@ -877,16 +877,26 @@ func (s *Server) safeGo(label string, fn func()) {
 
 // fileToPackage converts a file path to a CFML dot-path relative to workspace.
 func (s *Server) fileToPackage(filePath string) string {
-	for _, root := range s.searchRoots() {
-		if strings.HasPrefix(filePath, root+"/") {
-			rel := filePath[len(root)+1:]
-			rel = strings.TrimSuffix(rel, filepath.Ext(rel))
-
-			return strings.ReplaceAll(rel, "/", ".")
-		}
+	if path, ok := s.fileToPackageIn(filePath); ok {
+		return path
 	}
 
 	base := filepath.Base(filePath)
 
 	return strings.TrimSuffix(base, filepath.Ext(base))
+}
+
+// fileToPackageIn is the dot-path of filePath under a search root, and false
+// when it is under none, where it has no path that names it.
+func (s *Server) fileToPackageIn(filePath string) (string, bool) {
+	for _, root := range s.searchRoots() {
+		if strings.HasPrefix(filePath, root+"/") {
+			rel := filePath[len(root)+1:]
+			rel = strings.TrimSuffix(rel, filepath.Ext(rel))
+
+			return strings.ReplaceAll(rel, "/", "."), true
+		}
+	}
+
+	return "", false
 }

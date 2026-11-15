@@ -445,6 +445,15 @@ var paramAttributes = map[string]bool{
 	"default": true, "hint": true, "type": true, "displayname": true, "passby": true, "inject": true, "required": true,
 }
 
+// paramTypes are the built-in types a parameter is declared with. A word after
+// one is the parameter's name, whatever it is spelled: `string type = "a"` has a
+// parameter called type, where `a type = "string"` has an attribute.
+var paramTypes = map[string]bool{
+	"any": true, "array": true, "binary": true, "boolean": true, "component": true, "date": true, "function": true,
+	"guid": true, "numeric": true, "query": true, "string": true, "struct": true, "uuid": true, "variablename": true,
+	"xml": true, "void": true, "required": true,
+}
+
 // parseParams reads a parameter list, inside its parentheses. Each parameter's
 // name is its last word before a default: what comes before it is its type and
 // modifiers.
@@ -497,7 +506,7 @@ func parseParams(text string) []param {
 
 			// `x default="y"`: a word after the name and before an `=` is an
 			// attribute of the parameter, not its name.
-			if cur.name != "" && i+1 < len(toks) && toks[i+1].Kind == TokEquals && paramAttributes[strings.ToLower(t.Value)] {
+			if cur.name != "" && !paramTypes[strings.ToLower(cur.name)] && i+1 < len(toks) && toks[i+1].Kind == TokEquals && paramAttributes[strings.ToLower(t.Value)] {
 				inAttr = true
 
 				break

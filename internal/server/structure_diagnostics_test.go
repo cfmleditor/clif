@@ -51,7 +51,7 @@ func waitForStructure(t *testing.T, s *Server, docURI uri.URI, want []string) {
 // The ranges are the problem's own text, in the UTF-16 columns of the editor.
 func TestStructureDiagnosticRanges(t *testing.T) {
 	content := "<cfset s = \"é\">\n<p>é</p><cfif a>\n<cffunction>x</cffunction>\n"
-	ds := structureDiagnosticsFrom(content, functionSpansOf(content, nil))
+	ds := structureDiagnosticsFrom(content, nil)
 
 	if len(ds) != 2 {
 		t.Fatalf("%d diagnostics, want 2: %+v", len(ds), ds)
@@ -85,7 +85,7 @@ func TestStructureDiagnosticRanges(t *testing.T) {
 func TestStructureDiagnosticsNameAFunctionsRepeatedArgument(t *testing.T) {
 	content := "component {\n\tfunction f( a, b, A ) { return a; }\n\tfunction g( a, b ) { return a; }\n}\n"
 	pr := parser.ParseWithOptions(testURI(), content, &parser.ParseOptions{})
-	ds := structureDiagnosticsFrom(content, functionSpansOf(content, pr))
+	ds := structureDiagnosticsFrom(content, pr.FunctionSpans())
 
 	if len(ds) != 1 {
 		t.Fatalf("%d diagnostics, want 1: %+v", len(ds), ds)
@@ -94,11 +94,6 @@ func TestStructureDiagnosticsNameAFunctionsRepeatedArgument(t *testing.T) {
 	d := ds[0]
 	if code, _ := d.Code.(protocol.String); code != "duplicate-argument" || d.Range.Start.Line != 1 || d.Range.Start.Character != 19 || d.Range.End.Character != 20 {
 		t.Errorf("got %v at %+v, want duplicate-argument at line 1, columns 19 to 20", d.Code, d.Range)
-	}
-
-	// A parse of other text says nothing of this one.
-	if got := structureDiagnosticsFrom(content, functionSpansOf(content, parser.ParseWithOptions(testURI(), content+" ", &parser.ParseOptions{}))); len(got) != 0 {
-		t.Errorf("a stale parse gave %d diagnostics", len(got))
 	}
 }
 
@@ -176,7 +171,7 @@ func TestDuplicateArgumentsAreUnderlinedAtTheRepeat(t *testing.T) {
 
 		var cols []string
 
-		for _, d := range structureDiagnosticsFrom(c.src, functionSpansOf(c.src, pr)) {
+		for _, d := range structureDiagnosticsFrom(c.src, pr.FunctionSpans()) {
 			if code, _ := d.Code.(protocol.String); code == "duplicate-argument" {
 				cols = append(cols, fmt.Sprintf("%d:%d-%d", d.Range.Start.Line, d.Range.Start.Character, d.Range.End.Character))
 			}

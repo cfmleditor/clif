@@ -115,7 +115,7 @@ func TestLifecycleActionsAddTheEventsAnApplicationLacks(t *testing.T) {
 	}
 
 	// And the result is a component that declares every event.
-	declared := declaredFunctionNames(filled, nil)
+	declared := declaredFunctionNames(filled)
 	for _, st := range lifecycleStubs {
 		if !declared[strings.ToLower(st.name)] {
 			t.Errorf("the filled component does not parse as declaring %s", st.name)
@@ -282,12 +282,12 @@ func TestACFCommentHoldingTheClosingTagIsNotTheEnd(t *testing.T) {
 }
 
 func TestAnEventSetAsAPropertyIsDeclared(t *testing.T) {
-	declared := declaredFunctionNames("component {\n\tthis.onError = function( e ) {};\n\tthis.onErrorLog = 1;\n}\n", nil)
+	declared := declaredFunctionNames("component {\n\tthis.onError = function( e ) {};\n\tthis.onErrorLog = 1;\n}\n")
 	if !declared["onerror"] {
 		t.Error("this.onError = function is not counted as declared")
 	}
 
-	if got := declaredFunctionNames("component {\n\t// this.onSessionStart = function() {}\n\tx = \"this.onError = 1\";\n\ty = this.onAbort == 1;\n}\n", nil); got["onsessionstart"] || got["onerror"] || got["onabort"] {
+	if got := declaredFunctionNames("component {\n\t// this.onSessionStart = function() {}\n\tx = \"this.onError = 1\";\n\ty = this.onAbort == 1;\n}\n"); got["onsessionstart"] || got["onerror"] || got["onabort"] {
 		t.Errorf("a comment, a string and a comparison declared events: %v", got)
 	}
 }

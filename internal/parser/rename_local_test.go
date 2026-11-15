@@ -342,3 +342,10 @@ func TestOperatorWordsAreNotVariableNames(t *testing.T) {
 		t.Error("an ordinary name is refused")
 	}
 }
+
+func TestParametersNamedLikeAttributesKeepTheirNames(t *testing.T) {
+	got := paramNames(`string type = "a", string hint = "b", numeric default = 1, a inject="x"`)
+	if !slices.Equal(got, []string{"type", "hint", "default", "a"}) {
+		t.Errorf("got %q", got)
+	}
+}

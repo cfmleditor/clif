@@ -84,12 +84,8 @@ func (s *Server) lifecycleActions(docURI uri.URI, content string) []protocol.Cod
 		return cached.actions
 	}
 
-	// The parse the declared events are read from is changed in place by an
-	// edit, under the document's lock.
-	unlock := s.lockDoc(docURI)
+	// Read from the text alone: nothing here waits on the parse an edit defers.
 	actions := s.buildLifecycleActions(docURI, content)
-
-	unlock()
 
 	// Kept while the document is open, decided under the lock a close takes
 	// the document away under, so one racing a close does not outlive it.
@@ -110,7 +106,7 @@ type lifecycleCached struct {
 
 // buildLifecycleActions is lifecycleActions for an Application.cfc, uncached.
 func (s *Server) buildLifecycleActions(docURI uri.URI, content string) []protocol.CodeAction {
-	declared := declaredFunctionNames(content, s.parseResultOf(docURI))
+	declared := declaredFunctionNames(content)
 
 	var missing []lifecycleStub
 
@@ -164,35 +160,21 @@ func (s *Server) parseResultOf(docURI uri.URI) *parser.ParseResult {
 	return s.parseResults[docURI]
 }
 
-// declaredFunctionNames are the lowercased names of the functions content
-// declares, from pr when it is the parse of content, else from a fresh parse.
-func declaredFunctionNames(content string, pr *parser.ParseResult) map[string]bool {
-	if pr == nil || pr.Content != content {
-		pr = parser.ParseWithOptions("", content, &parser.ParseOptions{Shallow: true})
-	}
-
-	out := make(map[string]bool, len(pr.Funcs))
-	for i := range pr.Funcs {
-		out[strings.ToLower(pr.Funcs[i].Name)] = true
-	}
-
-	// An event set as a property, `this.onError = function( e ) { ... }`, is
-	// declared too.
-	for name := range thisAssignments(content) {
-		out[name] = true
-	}
-
-	return out
-}
-
-// thisAssignments are the lowercased names assigned as `this.<name> =`, read
-// from the tokens, so a comment or a string that spells one declares nothing.
-func thisAssignments(content string) map[string]bool {
-	if parser.IndexFold(content, "this.") < 0 {
-		return nil
-	}
-
+// declaredFunctionNames are the lowercased names content declares as events:
+// a function (`function onError(`, or a <cffunction name>) or a property set to
+// one (`this.onError = function( e ) { ... }`). They are read from the tokens in
+// one pass, so a comment or a string that spells one declares nothing, and
+// nothing waits on the parse an edit defers.
+func declaredFunctionNames(content string) map[string]bool {
 	out := map[string]bool{}
+
+	if parser.IndexFold(content, "<cffunction") >= 0 {
+		for _, tag := range parser.CFTags(content, "cffunction") {
+			if name, ok := tag.Attr("name"); ok && !tag.Close {
+				out[strings.ToLower(name)] = true
+			}
+		}
+	}
 
 	var toks []parser.Token
 
@@ -201,11 +183,16 @@ func thisAssignments(content string) map[string]bool {
 		toks = append(toks, t)
 	}
 
-	for i := 0; i+3 < len(toks); i++ {
-		if toks[i].Kind == parser.TokIdent && strings.EqualFold(toks[i].Value, "this") &&
+	for i := range toks {
+		switch {
+		case toks[i].Kind != parser.TokIdent:
+		case strings.EqualFold(toks[i].Value, "function") && i+2 < len(toks) &&
+			toks[i+1].Kind == parser.TokIdent && toks[i+2].Kind == parser.TokLParen && (i == 0 || toks[i-1].Kind != parser.TokDot):
+			out[strings.ToLower(toks[i+1].Value)] = true
+		case strings.EqualFold(toks[i].Value, "this") && i+3 < len(toks) && (i == 0 || toks[i-1].Kind != parser.TokDot) &&
 			toks[i+1].Kind == parser.TokDot && toks[i+2].Kind == parser.TokIdent && toks[i+3].Kind == parser.TokEquals &&
-			(i+4 >= len(toks) || toks[i+4].Kind != parser.TokEquals) &&
-			(i == 0 || toks[i-1].Kind != parser.TokDot) {
+			(i+4 >= len(toks) || toks[i+4].Kind != parser.TokEquals):
+			// `this.onError = function( e ) { ... }`
 			out[strings.ToLower(toks[i+2].Value)] = true
 		}
 	}
