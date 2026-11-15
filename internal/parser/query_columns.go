@@ -74,9 +74,10 @@ func DeclaredQueryColumns(content, name string, before int, scope *QueryScope) (
 		from, to = scope.From, scope.To
 	}
 
-	sc, base := NewSourceScannerRange(content, from, to)
+	script := isScriptFile(content)
+	sc, base := sourceScannerRange(content, from, to, script)
 
-	if base == 0 && !isScriptFile(content) {
+	if !script {
 		queryTagColumns(content, name, inSkip, consider)
 	}
 

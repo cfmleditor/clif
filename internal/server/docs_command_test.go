@@ -117,3 +117,11 @@ func TestSearchDocsLimitFarPastAnIntIsClamped(t *testing.T) {
 		t.Error("a huge limit answered nothing")
 	}
 }
+
+func TestSearchDocsFractionalLimitStillAnswers(t *testing.T) {
+	s := newTestServer()
+
+	if got, _ := runCommand(t, s, "clif.searchDocs", "", "tag", 0.5).([]docSummary); len(got) != 1 {
+		t.Errorf("a limit of 0.5 answered %d entries, want 1", len(got))
+	}
+}

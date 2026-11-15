@@ -171,8 +171,13 @@ func NewScriptScanner(src string) *Scanner {
 // it is in, as ClassifyRegions splits the file: a <cfscript> block's by
 // CFScript's, the markup around it by the plain one.
 func NewSourceScanner(src string) *Scanner {
+	return newSourceScanner(src, isScriptFile(src))
+}
+
+// newSourceScanner is NewSourceScanner for a text whose isScriptFile is known.
+func newSourceScanner(src string, script bool) *Scanner {
 	sc := NewScanner(src)
-	if isScriptFile(src) {
+	if script {
 		sc.interpStrings = true
 
 		return sc
@@ -930,14 +935,16 @@ func identEq(val, keyword string) bool {
 	return strings.EqualFold(val, keyword)
 }
 
-// NewSourceScannerRange scans the bytes [from, to) of content as
-// NewSourceScanner scans the whole of it, and reports the offset its tokens are relative to. For
-// a script file only the range is tokenized, read as script, as the file is;
-// for any other the whole text is scanned, as its regions need, and the base
-// is 0.
-func NewSourceScannerRange(content string, from, to int) (sc *Scanner, base int) {
-	if from < 0 || to > len(content) || from >= to || !isScriptFile(content) {
-		return NewSourceScanner(content), 0
+// sourceScannerRange scans the bytes [from, to) of content as NewSourceScanner
+// scans the whole of it, and reports the offset its tokens are relative to.
+// script is whether content is a script file (isScriptFile, which the caller
+// has already asked, since it reads the file). For a script file only the
+// range is tokenized, read as script, as the file is. For any other file, or a
+// range that is empty or outside the text, the whole text is scanned, as its
+// regions need, and the base is 0.
+func sourceScannerRange(content string, from, to int, script bool) (sc *Scanner, base int) {
+	if !script || from < 0 || to > len(content) || from >= to {
+		return newSourceScanner(content, script), 0
 	}
 
 	sc = NewScanner(content[from:to])

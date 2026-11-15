@@ -956,6 +956,12 @@ func (w *renameWalk) declaration(toks []Token, i int, st *bracketState) {
 			break
 		}
 
+		// Semicolons are optional: `var x` ends at its line, and the next
+		// line's first word is another statement.
+		if last >= 0 && t.Line != toks[last].Line {
+			break
+		}
+
 		last = j
 	}
 

@@ -131,18 +131,13 @@ func tagRegionProblems(text string, base int, problems []TagProblem, stack []pro
 		rest := text[lt:]
 
 		switch {
-		case strings.HasPrefix(rest, "<!--") && lt > 0 && (text[lt-1] == '"' || text[lt-1] == '\''):
-			// A string in a `#...#` expression, `replace( s, "<!--", "" )`, is
-			// no comment: markup's never follows a quote.
-			pos = lt + 4
+		case strings.HasPrefix(rest, "<!---"):
+			pos = SkipCFMLComment(text, lt)
 		case strings.HasPrefix(rest, "<!--"):
-			if strings.HasPrefix(rest, "<!---") {
-				pos = SkipCFMLComment(text, lt)
-			} else if c := strings.Index(rest[4:], "-->"); c >= 0 {
-				pos = lt + 4 + c + 3
-			} else {
-				pos = len(text)
-			}
+			// An HTML comment hides nothing from the engine: CF tags written
+			// in it run, so they are read as tags. (A `<!--` after a quote,
+			// `replace( s, "<!--", "" )`, is a string in an expression.)
+			pos = lt + 4
 		case len(rest) > 1 && rest[1] == '/':
 			name := tagName(rest[2:])
 			if name == "" {

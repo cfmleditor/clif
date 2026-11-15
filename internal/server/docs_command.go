@@ -49,7 +49,7 @@ func (s *Server) cmdSearchDocs(_ context.Context, args []protocol.LSPAny) (any, 
 
 	limit := defaultDocResults
 	if n, ok := argFloat(args, 2); ok && n > 0 {
-		limit = int(min(n, maxDocResults))
+		limit = max(1, int(min(n, maxDocResults)))
 	}
 
 	switch kind {
