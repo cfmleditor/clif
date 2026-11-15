@@ -41,6 +41,7 @@ func (s *Server) handleCodeAction(_ context.Context, rawParams []byte) (any, err
 	if wantsKind(params.Context.Only, protocol.CodeActionKindRefactor) {
 		u := params.TextDocument.URI
 		lifecycle := s.lifecycleActions(u, content, params.Range)
+
 		for i := range lifecycle {
 			action := lifecycle[i]
 			action.Edit = s.documentEdit(u, action.Edit.Changes[u])

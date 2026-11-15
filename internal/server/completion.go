@@ -868,7 +868,17 @@ func queryColumnItems(content, name string, line, char int, spans []parser.Funct
 
 	var scope *parser.QueryScope
 
-	if around != nil {
+	if around != nil && strings.HasPrefix(name, "variables.") {
+		// The component (or page) can initialize variables outside this function.
+		// Assignments in other functions do not run just because they occur first.
+		scope = &parser.QueryScope{}
+		for i := range spans {
+			sp := &spans[i]
+			if sp.Start > around.Start || sp.End < around.End {
+				scope.Skip = append(scope.Skip, *sp)
+			}
+		}
+	} else if around != nil {
 		scope = &parser.QueryScope{From: around.Start, To: around.End}
 	} else if len(spans) > 0 {
 		// Outside every function: what the functions declare is theirs.
@@ -932,8 +942,12 @@ func queryReceiverQualifier(content string, line, char int) string {
 		return ""
 	}
 
-	if owner := strings.ToLower(parser.WordBeforeDot(content, line, dot+1)); owner != "" {
-		return owner
+	owner := strings.ToLower(parser.WordBeforeDot(content, line, dot+1))
+	if owner != "" {
+		ownerStart := dot - len(owner)
+		if ownerStart == 0 || text[ownerStart-1] != '.' {
+			return owner
+		}
 	}
 
 	return "."

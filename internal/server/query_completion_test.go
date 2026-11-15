@@ -93,12 +93,14 @@ func TestQueryColumnsOutsideFunctionsIgnoreTheirBodies(t *testing.T) {
 // A word that is another object's member is not the query of that name.
 func TestQueryColumnsAreNotOfAnotherObjectsMember(t *testing.T) {
 	for text, want := range map[string]bool{
-		"cfg.users.":       true,
-		"session.users.":   true,
-		"local.users.":     false,
-		"variables.users.": false,
-		"users.":           false,
-		"x = f(users.":     false,
+		"cfg.users.":           true,
+		"cfg.local.users.":     true,
+		"cfg.variables.users.": true,
+		"session.users.":       true,
+		"local.users.":         false,
+		"variables.users.":     false,
+		"users.":               false,
+		"x = f(users.":         false,
 	} {
 		if got := memberOfAnother(text, 0, len(text)); got != want {
 			t.Errorf("%q: got %v, want %v", text, got, want)
@@ -162,5 +164,14 @@ func TestQueryColumnsDistinguishExplicitScopes(t *testing.T) {
 	variables := dotCompletionLabels(t, text, 5, uint32(len(" variables.rows.")))
 	if !hasLabel(variables, "component_id") || hasLabel(variables, "local_id") {
 		t.Errorf("variables.rows columns = %q, want component_id only", variables)
+	}
+}
+
+func TestQueryColumnsSeeComponentScopeFromAFunction(t *testing.T) {
+	text := "component {\n variables.rows = queryNew(\"component_id\");\n function other() { variables.rows = queryNew(\"other_id\"); }\n function f() {\n  local.rows = queryNew(\"local_id\");\n  variables.rows.\n }\n}\n"
+
+	got := dotCompletionLabels(t, text, 5, uint32(len("  variables.rows.")))
+	if !hasLabel(got, "component_id") || hasLabel(got, "local_id") || hasLabel(got, "other_id") {
+		t.Errorf("variables.rows columns = %q, want component_id only", got)
 	}
 }
