@@ -104,20 +104,23 @@ func DeclaredQueryColumns(content, name string, before int, scope *QueryScope) (
 	}
 
 	for t := read(); t.Kind != TokEOF; t = read() {
-		if t.Kind != TokIdent || !strings.EqualFold(t.Value, name) || sc.PeekSkipComments().Kind != TokEquals || inSkip(base+t.Offset) {
+		if t.Kind != TokIdent || !strings.EqualFold(t.Value, name) || inSkip(base+t.Offset) {
 			continue
 		}
 
-		// `cfg.users = ...` sets another object's member, and a struct's
-		// `{ a = 1, users = ... }` a key; `local.users` is the variable.
-		if prev.Kind == TokComma || prev.Kind == TokDot && !isLocalScope(owner) || prev.Kind == TokLBrace && opensStruct(owner) {
+		// `for ( var users in rows )` binds the name to another value.
+		next := sc.PeekSkipComments()
+		if next.Kind == TokIdent && strings.EqualFold(next.Value, "in") {
+			consider(base+t.Offset, nil, false)
+
 			continue
 		}
 
-		// A statement sets the variable; a named argument, a condition and an
-		// arrow's parameter `users => ...` stand elsewhere.
-		statement := startsAssignment(prev, owner) || inLabel && prev.Kind == TokColon
-		if !statement {
+		if next.Kind != TokEquals {
+			continue
+		}
+
+		if !assignsAt(prev, owner, inLabel) {
 			continue
 		}
 
@@ -701,4 +704,16 @@ func MayDeclareQueryNamed(content, name string) bool {
 	}
 
 	return false
+}
+
+// assignsAt reports whether a word after prev, which follows owner, is the target
+// of an assignment statement to the variable of that name: not another object's
+// member (`cfg.users = ...`), a struct's key (`{ a = 1, users = ... }`), a named
+// argument or a condition, but a statement, or the `local.` form of one.
+func assignsAt(prev, owner Token, inLabel bool) bool {
+	if prev.Kind == TokComma || prev.Kind == TokDot && !isLocalScope(owner) || prev.Kind == TokLBrace && opensStruct(owner) {
+		return false
+	}
+
+	return startsAssignment(prev, owner) || inLabel && prev.Kind == TokColon
 }

@@ -251,3 +251,10 @@ func TestQueryColumnsOfACFQueryInABranchAreUnknown(t *testing.T) {
 		t.Errorf("inside the branch: got %q %v", got, ok)
 	}
 }
+
+func TestQueryColumnsForgetAVarThatIsRebound(t *testing.T) {
+	src := "function f() {\n var q = queryExecute( \"SELECT a, b FROM t\" );\n for ( var q in z ) {}\n"
+	if got, ok := QueryColumns(src, "q", len(src)); ok {
+		t.Errorf("got %q known after the name was rebound by a loop", got)
+	}
+}

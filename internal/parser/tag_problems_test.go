@@ -144,3 +144,16 @@ func TestAWordInABareValueIsNotAnAttribute(t *testing.T) {
 		}
 	}
 }
+
+func TestSpacesAroundEqualsLeaveTheValueAValue(t *testing.T) {
+	for _, src := range []string{`<cfparam default = #name#>`, `<cfinclude foo = #template#>`} {
+		if got := TagProblems(src); len(got) == 0 || got[0].Kind != ProblemMissingAttribute {
+			t.Errorf("%s: got %v, want a missing attribute", src, got)
+		}
+	}
+
+	// And a name written with spaces around its = is still a name.
+	if got := TagProblems(`<cfparam name = x>`); len(got) != 0 {
+		t.Errorf("name = x: %v", got)
+	}
+}

@@ -73,8 +73,8 @@ func (s *Server) scheduleStructureDiagnostics(docURI uri.URI) {
 // cancelStructureDiagnostics stops a pending check of docURI, and takes its
 // diagnostics back: the document is closed.
 func (s *Server) cancelStructureDiagnostics(ctx context.Context, docURI uri.URI) {
-	// A check already running, which publishes with no lock held, finds its
-	// document closed afterwards and takes its own publication back.
+	// A check already running finds its document closed after its send, and
+	// takes its own publication back.
 	s.mu.Lock()
 
 	published := false
@@ -165,24 +165,24 @@ func (s *Server) publishStructureDiagnostics(docURI uri.URI) {
 		return
 	}
 
-	// Sent with no lock held: a slow client must not stall a close. A close
-	// that comes between the check above and the send has already taken the
-	// document's diagnostics back, so the send is followed by a look at whether
-	// the document is still open, and a take-back if it is not.
+	// Sent while no lock of the server's own is held. A close that comes between
+	// the check above and the send has already taken the document's diagnostics
+	// back, so the send is followed by a look at whether the opening it was for
+	// is still the one open: if the document was closed, the publication is
+	// taken back; if it was reopened, the new opening's own run publishes, and
+	// the close has already cleared this one.
 	s.setDiagnostics(context.Background(), docURI, sourceStructure, found)
 
-	// The mark is on the opening the run began in; of a reopened document it is
-	// not.
 	s.mu.Lock()
 
-	stillOpen := s.structure[docURI] == run.st
-	if stillOpen {
+	current := s.structure[docURI]
+	if current == run.st {
 		run.st.published = true
 	}
 
 	s.mu.Unlock()
 
-	if !stillOpen {
+	if current == nil {
 		s.setDiagnostics(context.Background(), docURI, sourceStructure, nil)
 	}
 }

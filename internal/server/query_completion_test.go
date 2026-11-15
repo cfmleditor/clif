@@ -100,7 +100,7 @@ func TestQueryColumnsAreNotOfAnotherObjectsMember(t *testing.T) {
 		"users.":           false,
 		"x = f(users.":     false,
 	} {
-		if got := memberOfAnother(text, len(text)); got != want {
+		if got := memberOfAnother(text, 0, len(text)); got != want {
 			t.Errorf("%q: got %v, want %v", text, got, want)
 		}
 	}
@@ -137,5 +137,16 @@ func TestQueryColumnsInAScriptComponentScanOnlyTheFunction(t *testing.T) {
 
 	if !hasLabel(labels, "id") || hasLabel(labels, "x") {
 		t.Errorf("labels %q, want b's columns id and name, not a's x", labels)
+	}
+}
+
+func TestMemberOfAnotherReadsALongerLine(t *testing.T) {
+	content := "x = 1;\ny = cfg.users."
+	if !memberOfAnother(content, 1, len("y = cfg.users.")) {
+		t.Error("cfg.users. is not a member of another object")
+	}
+
+	if memberOfAnother("users.", 0, len("users.")) {
+		t.Error("a bare name is a member")
 	}
 }

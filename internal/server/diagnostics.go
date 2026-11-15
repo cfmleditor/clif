@@ -74,7 +74,9 @@ func diagKey(u uri.URI) string {
 func (s *Server) setDiagnostics(ctx context.Context, u uri.URI, source string, d []protocol.Diagnostic) {
 	// Stored and sent together: two sources publishing at once would otherwise
 	// reach the client in the other order than they were stored, and an older
-	// set would stay over a newer.
+	// set would stay over a newer. The cost is that a client slow to read holds
+	// every publisher, the close handler among them: notify already blocks the
+	// handler that calls it, and an ordered stream is worth the wait.
 	s.diagSendMu.Lock()
 	defer s.diagSendMu.Unlock()
 
@@ -195,6 +197,10 @@ func (s *Server) diagnosticsFor(u uri.URI) []protocol.Diagnostic {
 func (s *Server) diagnosticsOpened(ctx context.Context, u uri.URI) {
 	st := &s.diag
 	key := diagKey(u)
+
+	// Stored and sent together, like setDiagnostics.
+	s.diagSendMu.Lock()
+	defer s.diagSendMu.Unlock()
 
 	st.mu.Lock()
 
@@ -396,6 +402,10 @@ func (s *Server) loadKnownIssuesFile(ctx context.Context, file string) {
 	// An open-only source reaches the client only for an open file, so for a
 	// closed one the store is updated and nothing is sent.
 	publish := func(u uri.URI, d []protocol.Diagnostic) {
+		// Stored and sent together, like setDiagnostics.
+		s.diagSendMu.Lock()
+		defer s.diagSendMu.Unlock()
+
 		params := s.storeDiagnostics(u, source, d)
 		if !openOnly || s.isDiagnosticsOpen(u) {
 			s.notify(ctx, protocol.MethodTextDocumentPublishDiagnostics, params)

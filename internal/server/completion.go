@@ -12,7 +12,6 @@ import (
 
 	"github.com/cfmleditor/clif/internal/conv"
 	"github.com/cfmleditor/clif/internal/docs"
-	"github.com/cfmleditor/clif/internal/lex"
 	cflog "github.com/cfmleditor/clif/internal/log"
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
@@ -842,7 +841,7 @@ func appendScopedVars(items []protocol.CompletionItem, names []string, prefix st
 // around the cursor is read: a variable of another function, or an argument,
 // that shares the name is not it.
 func (s *Server) queryColumnItems(docURI uri.URI, content, name string, line, char int) []protocol.CompletionItem {
-	if !parser.MayDeclareQueryNamed(content, name) || memberOfAnother(parser.LineTextAt(content, line), char) {
+	if !parser.MayDeclareQueryNamed(content, name) || memberOfAnother(content, line, char) {
 		return nil
 	}
 
@@ -906,27 +905,24 @@ func queryColumnItems(content, name string, line, char int, spans []parser.Funct
 	return items
 }
 
-// memberOfAnother reports whether the word before the dot at char-1 of text is
-// a member of another object, `cfg.users.`: it is not the variable of that
+// memberOfAnother reports whether the word before the dot at char-1 of the line
+// is a member of another object, `cfg.users.`: it is not the variable of that
 // name. A `local.` or `variables.` before it is the variable's own scope.
-func memberOfAnother(text string, char int) bool {
-	end := min(char-1, len(text))
-	start := end
-
-	for start > 0 && lex.IsIdent(text[start-1]) {
-		start--
-	}
-
-	if start == 0 || text[start-1] != '.' {
+func memberOfAnother(content string, line, char int) bool {
+	name := parser.WordBeforeDot(content, line, char)
+	if name == "" {
 		return false
 	}
 
-	scope := start - 1
-	for scope > 0 && lex.IsIdent(text[scope-1]) {
-		scope--
+	// The dot before the word, and the word before that dot.
+	text := parser.LineTextAt(content, line)
+
+	dot := char - 2 - len(name) // the dot after the word is at char-1, the word before it
+	if dot < 0 || dot >= len(text) || text[dot] != '.' {
+		return false
 	}
 
-	owner := strings.ToLower(text[scope : start-1])
+	owner := strings.ToLower(parser.WordBeforeDot(content, line, dot+1))
 
 	return owner != "local" && owner != "variables"
 }

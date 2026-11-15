@@ -344,24 +344,28 @@ func unquoted(tag string) string {
 
 	var quote byte
 
-	afterEquals := false // a bare value is being read
+	afterEquals, started := false, false // a bare value is being read; its first byte has been
 
 	for i, c := range b {
+		blank := c == ' ' || c == '\t' || c == '\r' || c == '\n'
+
 		switch {
 		case quote != 0 && c == quote:
 			quote = 0
 		case quote != 0:
 			b[i] = ' '
-		case afterEquals && (c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == '>' || c == '/'):
+		case afterEquals && blank && !started:
+			// blanks between `=` and the value
+		case afterEquals && (blank || c == '>' || c == '/'):
 			afterEquals = false
 		case afterEquals && (c == '"' || c == '\''):
 			quote, afterEquals = c, false
 		case afterEquals:
-			b[i] = ' '
+			b[i], started = ' ', true
 		case c == '"' || c == '\'':
 			quote = c
 		case c == '=':
-			afterEquals = true
+			afterEquals, started = true, false
 		}
 	}
 

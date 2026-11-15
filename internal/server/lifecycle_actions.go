@@ -40,7 +40,7 @@ var lifecycleStubs = []lifecycleStub{
 		`<cffunction name="onRequestStart" access="public" returntype="boolean">` + "\n\t" + `<cfargument name="targetPage" type="string" required="true">` + "\n\t<cfreturn true>\n</cffunction>",
 	},
 	{
-		"onRequest", "public void function onRequest( required string targetPage ) {\n\tinclude arguments.targetPage;\n}",
+		"onRequest", "public void function onRequest( required string targetPage ) {\n\tinclude \"#arguments.targetPage#\";\n}",
 		`<cffunction name="onRequest" access="public" returntype="void">` + "\n\t" + `<cfargument name="targetPage" type="string" required="true">` + "\n\t" + `<cfinclude template="#arguments.targetPage#">` + "\n</cffunction>",
 	},
 	{
