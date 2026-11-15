@@ -25,6 +25,19 @@ jobs:
         with:
           go-version-file: go.mod
 
+      # setup-go's shared cache key does not distinguish ordinary, race, and
+      # lint builds. Restore a job-specific snapshot of the Go build cache.
+      - name: Locate the Go build cache
+        id: go-build-cache
+        run: echo "path=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Go build artifacts for this job
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.go-build-cache.outputs.path }}
+          key: go-build-v1-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('go.mod', 'go.sum') }}-${{ github.sha }}
+          restore-keys: go-build-v1-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('go.mod', 'go.sum') }}-
+
       # The generated CFML docs (internal/docs/generated_docs.go) are committed,
       # so nothing here needs `make docs` and its network fetches.
       - name: Build
@@ -76,6 +89,19 @@ jobs:
         with:
           go-version-file: go.mod
 
+      # setup-go's shared cache key does not distinguish ordinary, race, and
+      # lint builds. Restore a job-specific snapshot of the Go build cache.
+      - name: Locate the Go build cache
+        id: go-build-cache
+        run: echo "path=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Go build artifacts for this job
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.go-build-cache.outputs.path }}
+          key: go-build-v1-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('go.mod', 'go.sum') }}-${{ github.sha }}
+          restore-keys: go-build-v1-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('go.mod', 'go.sum') }}-
+
       # The server's config loading is concurrent (initialize spawns the
       # workspace index and the linter), so this is worth its own job.
       - name: Test with -race
@@ -92,6 +118,19 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+
+      # setup-go's shared cache key does not distinguish ordinary, race, and
+      # lint builds. Restore a job-specific snapshot of the Go build cache.
+      - name: Locate the Go build cache
+        id: go-build-cache
+        run: echo "path=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Go build artifacts for this job
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.go-build-cache.outputs.path }}
+          key: go-build-v1-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('go.mod', 'go.sum') }}-${{ github.sha }}
+          restore-keys: go-build-v1-${{ runner.os }}-${{ runner.arch }}-${{ github.job }}-${{ hashFiles('go.mod', 'go.sum') }}-
 
       # `make lint` rather than golangci-lint-action, for the same reason the
       # vuln job below runs `make vuln`: one pinned version, shared by CI, the
@@ -130,7 +169,7 @@ jobs:
           restore-keys: golangci-lint-analysis-${{ runner.os }}-
 
       - name: Run golangci-lint
-        run: make lint
+        run: make lint GOLANGCI_FLAGS=-v
 
   vuln:
     name: govulncheck
