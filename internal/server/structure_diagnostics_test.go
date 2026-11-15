@@ -212,6 +212,7 @@ func TestAStructureRunOfAnEarlierOpeningIsNotTheLatest(t *testing.T) {
 	s.Features.StructureDiagnostics = true
 
 	docURI := uri.File("/tmp/structure_reopened.cfc")
+	s.setDocument(docURI, "<cfif a>")
 	s.scheduleStructureDiagnostics(docURI)
 
 	old, ok := s.startStructureRun(docURI)
@@ -241,6 +242,7 @@ func TestAnEditSupersedesAStructureRunInFlight(t *testing.T) {
 	s.Features.StructureDiagnostics = true
 
 	docURI := uri.File("/tmp/structure_inflight.cfc")
+	s.setDocument(docURI, "<cfif a>")
 	s.scheduleStructureDiagnostics(docURI)
 
 	run, _ := s.startStructureRun(docURI)

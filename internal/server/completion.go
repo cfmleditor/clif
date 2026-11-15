@@ -12,6 +12,7 @@ import (
 
 	"github.com/cfmleditor/clif/internal/conv"
 	"github.com/cfmleditor/clif/internal/docs"
+	"github.com/cfmleditor/clif/internal/lex"
 	cflog "github.com/cfmleditor/clif/internal/log"
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
@@ -840,20 +841,11 @@ func appendScopedVars(items []protocol.CompletionItem, names []string, prefix st
 // around the cursor is read: a variable of another function, or an argument,
 // that shares the name is not it.
 func (s *Server) queryColumnItems(docURI uri.URI, content, name string, line, char int) []protocol.CompletionItem {
-	if !parser.MayDeclareQuery(content) {
+	if !parser.MayDeclareQuery(content) || memberOfAnother(parser.LineTextAt(content, line), char) {
 		return nil
 	}
 
-	s.mu.RLock()
-	pr := s.parseResults[docURI]
-	s.mu.RUnlock()
-
-	var spans []parser.FunctionSpan
-	if pr != nil && pr.Content == content {
-		spans = pr.FunctionSpans()
-	}
-
-	return queryColumnItems(content, name, line, char, spans)
+	return queryColumnItems(content, name, line, char, s.functionSpansOfDoc(docURI, content))
 }
 
 // queryColumnItems is s.queryColumnItems for the function spans of content, nil
@@ -866,7 +858,7 @@ func queryColumnItems(content, name string, line, char int, spans []parser.Funct
 		return nil
 	}
 
-	text, off := content, start+char
+	off := start + char
 
 	// The innermost function around the cursor.
 	var around *parser.FunctionSpan
@@ -877,16 +869,16 @@ func queryColumnItems(content, name string, line, char int, spans []parser.Funct
 		}
 	}
 
-	var skip []parser.FunctionSpan
+	var scope *parser.QueryScope
 
 	if around != nil {
-		text, off = content[around.Start:around.End], off-around.Start
-	} else {
+		scope = &parser.QueryScope{From: around.Start, To: around.End}
+	} else if len(spans) > 0 {
 		// Outside every function: what the functions declare is theirs.
-		skip = spans
+		scope = &parser.QueryScope{Skip: spans}
 	}
 
-	cols, ok := parser.DeclaredQueryColumns(text, name, off, skip)
+	cols, ok := parser.DeclaredQueryColumns(content, name, off, scope)
 	if !ok {
 		return nil
 	}
@@ -918,4 +910,29 @@ func queryColumnItems(content, name string, line, char int, spans []parser.Funct
 	add("columnList", "query property", protocol.CompletionItemKindProperty, "1")
 
 	return items
+}
+
+// memberOfAnother reports whether the word before the dot at char-1 of text is
+// a member of another object, `cfg.users.`: it is not the variable of that
+// name. A `local.` or `variables.` before it is the variable's own scope.
+func memberOfAnother(text string, char int) bool {
+	end := min(char-1, len(text))
+	start := end
+
+	for start > 0 && lex.IsIdent(text[start-1]) {
+		start--
+	}
+
+	if start == 0 || text[start-1] != '.' {
+		return false
+	}
+
+	scope := start - 1
+	for scope > 0 && lex.IsIdent(text[scope-1]) {
+		scope--
+	}
+
+	owner := strings.ToLower(text[scope : start-1])
+
+	return owner != "local" && owner != "variables"
 }

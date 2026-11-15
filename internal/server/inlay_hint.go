@@ -64,8 +64,10 @@ func (s *Server) handleInlayHint(_ context.Context, rawParams []byte) (any, erro
 
 		end++
 	} else {
-		// Before the brace, and before the blanks leading up to it on its line.
-		for end > 0 && (content[end-1] == ' ' || content[end-1] == '\t') {
+		// Before the brace, and before the blanks leading up to it, which for a
+		// brace on a line of its own reaches back to the end of the line of
+		// the declaration.
+		for end > 0 && (content[end-1] == ' ' || content[end-1] == '\t' || content[end-1] == '\n' || content[end-1] == '\r') {
 			end--
 		}
 	}

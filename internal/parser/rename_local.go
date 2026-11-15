@@ -427,7 +427,12 @@ type param struct {
 }
 
 // paramAttributes are the attributes a script parameter takes after its name.
-var paramAttributes = map[string]bool{"default": true, "hint": true, "type": true, "displayname": true, "passby": true}
+// `inject` is WireBox's. A word that is none of these before an `=` is the
+// name, with a type before it and a default after: `string c = "x"`, which
+// reads the same as `c inject="x"` but for the word.
+var paramAttributes = map[string]bool{
+	"default": true, "hint": true, "type": true, "displayname": true, "passby": true, "inject": true, "required": true,
+}
 
 // parseParams reads a parameter list, inside its parentheses. Each parameter's
 // name is its last word before a default: what comes before it is its type and
@@ -697,6 +702,8 @@ func (w *renameWalk) walk(text string, base int, hash bool) {
 		}
 
 		if w.inNested(base + t.Offset) {
+			w.nestedRead(toks, i)
+
 			continue
 		}
 
@@ -1301,4 +1308,25 @@ func matchingBack(toks []Token, i int, open, shut TokenKind) int {
 	}
 
 	return -1
+}
+
+// nestedRead refuses the rename when a named function inside the body reads
+// the variable, toks[i] among its tokens: it is a scope of its own, which this
+// walk does not follow, so the read could not be renamed with the rest. The
+// function's own name is not a read.
+func (w *renameWalk) nestedRead(toks []Token, i int) {
+	t := toks[i]
+	if t.Kind != TokIdent || w.name == "" || !strings.EqualFold(t.Value, w.name) {
+		return
+	}
+
+	if i > 0 && toks[i-1].Kind == TokDot {
+		return
+	}
+
+	if i > 0 && toks[i-1].Kind == TokIdent && strings.EqualFold(toks[i-1].Value, "function") && i+1 < len(toks) && toks[i+1].Kind == TokLParen {
+		return
+	}
+
+	w.fail("a function inside this one reads '" + w.name + "', which this rename cannot follow")
 }

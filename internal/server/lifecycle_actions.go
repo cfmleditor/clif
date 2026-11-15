@@ -86,8 +86,12 @@ func (s *Server) lifecycleActions(docURI uri.URI, content string) []protocol.Cod
 
 	actions := s.buildLifecycleActions(docURI, content)
 
+	// Kept while the document is open, decided under the lock a close takes
+	// the document away under, so one racing a close does not outlive it.
 	s.mu.Lock()
-	s.lifecycleCache[docURI] = lifecycleCached{content: content, actions: actions}
+	if _, open := s.documents[docURI]; open {
+		s.lifecycleCache[docURI] = lifecycleCached{content: content, actions: actions}
+	}
 	s.mu.Unlock()
 
 	return actions

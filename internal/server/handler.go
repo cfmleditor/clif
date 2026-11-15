@@ -352,13 +352,7 @@ func (s *Server) handleDidChange(_ context.Context, rawParams []byte) (any, erro
 
 	// The structure is checked once the document has been left alone a moment,
 	// whichever way this change is applied.
-	// (Of an open document only: a change for one that is not has nothing to
-	// check, and no close to take the check back.)
-	defer func() {
-		if _, open := s.getDocument(docURI); open {
-			s.scheduleStructureDiagnostics(docURI)
-		}
-	}()
+	defer s.scheduleStructureDiagnostics(docURI)
 
 	s.mu.RLock()
 	pr := s.parseResults[docURI]

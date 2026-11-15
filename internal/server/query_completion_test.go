@@ -89,3 +89,30 @@ func TestQueryColumnsOutsideFunctionsIgnoreTheirBodies(t *testing.T) {
 		t.Errorf("a function's query offered %d items at the top level", len(items))
 	}
 }
+
+// A word that is another object's member is not the query of that name.
+func TestQueryColumnsAreNotOfAnotherObjectsMember(t *testing.T) {
+	for text, want := range map[string]bool{
+		"cfg.users.":       true,
+		"session.users.":   true,
+		"local.users.":     false,
+		"variables.users.": false,
+		"users.":           false,
+		"x = f(users.":     false,
+	} {
+		if got := memberOfAnother(text, len(text)); got != want {
+			t.Errorf("%q: got %v, want %v", text, got, want)
+		}
+	}
+}
+
+// A function in a <cfscript> block is read as the file is: a hash expression in
+// a string before the query is declared does not lose it.
+func TestQueryColumnsInAFunctionOfACFScriptBlock(t *testing.T) {
+	src := "<cfscript>\nfunction a() {\n var s = \"#now()# \\\"x\\\"\";\n var q = queryNew(\"id,name\");\n q.\n}\n</cfscript>\n"
+	pr := parser.ParseWithOptions("file:///t.cfm", src, &parser.ParseOptions{})
+
+	if items := queryColumnItems(src, "q", 4, 3, pr.FunctionSpans()); len(items) == 0 {
+		t.Error("the query declared after a string with a hash expression is lost")
+	}
+}

@@ -24,13 +24,29 @@ func QueryColumns(content, name string, before int) (columns []string, ok bool) 
 	return DeclaredQueryColumns(content, name, before, nil)
 }
 
+// QueryScope limits where a query is looked for. A query is a variable of the
+// function that declares it: the search is within the function around the
+// cursor, or, outside every function, passes over them all. The text is the
+// whole file either way, so it is read as the file is, script or tags.
+type QueryScope struct {
+	From, To int            // only declarations from From to To are read; To <= 0 is the end
+	Skip     []FunctionSpan // declarations in these are not read
+}
+
 // DeclaredQueryColumns is QueryColumns without the test of MayDeclareQuery, for
-// a caller that has made it, and with the spans of the functions to pass over:
-// a query a function declares is the function's, not the page's.
-func DeclaredQueryColumns(content, name string, before int, skip []FunctionSpan) (columns []string, ok bool) {
+// a caller that has made it, and within scope, nil for the whole text.
+func DeclaredQueryColumns(content, name string, before int, scope *QueryScope) (columns []string, ok bool) {
 	inSkip := func(off int) bool {
-		for i := range skip {
-			if off >= skip[i].Start && off < skip[i].End {
+		if scope == nil {
+			return false
+		}
+
+		if off < scope.From || scope.To > 0 && off >= scope.To {
+			return true
+		}
+
+		for i := range scope.Skip {
+			if off >= scope.Skip[i].Start && off < scope.Skip[i].End {
 				return true
 			}
 		}

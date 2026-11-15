@@ -38,6 +38,13 @@ func (s *Server) scheduleStructureDiagnostics(docURI uri.URI) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// Of an open document only, decided under the lock a close takes the
+	// document away under: a change that follows a close has nothing to
+	// check, and no close left to take the check back.
+	if _, open := s.documents[docURI]; !open {
+		return
+	}
+
 	st := s.structure[docURI]
 	if st == nil {
 		st = &structureState{}
@@ -132,12 +139,8 @@ func (s *Server) publishStructureDiagnostics(docURI uri.URI) {
 
 	content, ok := s.getDocument(docURI)
 
-	s.mu.RLock()
-	pr := s.parseResults[docURI]
-	s.mu.RUnlock()
-
 	// An edit changes a parse in place, so what is read from it is read here.
-	spans := functionSpansOf(content, pr)
+	spans := s.functionSpansOfDoc(docURI, content)
 
 	unlock()
 
@@ -177,6 +180,12 @@ func functionSpansOf(content string, pr *parser.ParseResult) []parser.FunctionSp
 	}
 
 	return pr.FunctionSpans()
+}
+
+// functionSpansOfDoc are the function spans of the parse the server holds for
+// docURI when it is of content, and nil when it is not.
+func (s *Server) functionSpansOfDoc(docURI uri.URI, content string) []parser.FunctionSpan {
+	return functionSpansOf(content, s.parseResultOf(docURI))
 }
 
 // structureDiagnosticsFrom is the structure problems of content: those of its

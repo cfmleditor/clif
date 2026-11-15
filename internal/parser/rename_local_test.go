@@ -93,6 +93,7 @@ func TestPlanLocalRenameRefuses(t *testing.T) {
 		{"an arrow that binds the name after a default with a call", "component {\n function f( a ) {\n  var ¦x = 1;\n  arrayEach( a, ( y = foo( 1 ), x ) => { g( x ); } );\n }\n}", "arrow function"},
 		{"a struct shorthand", "component {\n function f() {\n  var x = 1;\n  var m = { a: 1, x };\n  return ¦x;\n }\n}", "key as well"},
 		{"an ordinary refusal matches ErrNotRenameable", "component {\n function f( ¦a ) {\n  return a;\n }\n}", "argument"},
+		{"a nested named function that reads the variable", "component {\n function f() {\n  var ¦count = 1;\n  function inner() { return count + 1; }\n  return inner() + count;\n }\n}", "inside this one reads"},
 		{"evaluate", "component {\n function f() {\n  var x = 1;\n  return evaluate( \"¦x\" );\n }\n}", "evaluate"},
 		{"a closure that declares the name itself", "component {\n function f( l ) {\n  var ¦x = 1;\n  l.each( function() { var x = 2; } );\n }\n}", "inside this one declares"},
 		{"a closure that takes the name", "component {\n function f( l ) {\n  var ¦x = 1;\n  l.each( function( x ) { return x; } );\n }\n}", "own argument"},
@@ -312,5 +313,12 @@ func TestEveryRefusalIsNotRenameable(t *testing.T) {
 	_, err := PlanLocalRename(content, FunctionSpansOf("t.cfc", content), at)
 	if !errors.Is(err, ErrNotRenameable) {
 		t.Errorf("%v does not match ErrNotRenameable", err)
+	}
+}
+
+func TestParametersWithOtherAttributesKeepTheirNames(t *testing.T) {
+	got := paramNames(`required any a inject="svcA", required any b inject="svcB", string c = "x" hint="h"`)
+	if !slices.Equal(got, []string{"a", "b", "c"}) {
+		t.Errorf("got %q", got)
 	}
 }

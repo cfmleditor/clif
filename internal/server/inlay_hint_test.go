@@ -124,3 +124,18 @@ func TestInlayHintOfATagComponentFollowsTheTag(t *testing.T) {
 		t.Errorf("a self-closed component got %d hints", len(got))
 	}
 }
+
+func TestInlayHintOfABraceOnItsOwnLineSitsOnTheDeclarationLine(t *testing.T) {
+	dir := t.TempDir()
+	s := newTestServer()
+	s.WorkspaceFolders = []string{dir}
+	s.Features.InlayHints = true
+
+	user := uri.File(filepath.Join(dir, "models", "User.cfc"))
+	openDoc(t, s, user, "component extends=\"Base\"\n{\n}\n")
+
+	hints := inlayHints(t, s, user, wholeDocument)
+	if len(hints) != 1 || hints[0].Position.Line != 0 || hints[0].Position.Character != uint32(len("component extends=\"Base\"")) {
+		t.Errorf("hints %+v, want one at the end of line 0", hints)
+	}
+}
