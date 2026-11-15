@@ -87,19 +87,14 @@ func newTagEnds(s string) tagEnds {
 // opens at from, relative to from, or -1 when the tag has no end. The '>' of
 // an arrow function's `=>` is not one (arrowContinues).
 func (t *tagEnds) at(from int) int {
-	end := t.atRaw(from)
-
-	for end > 0 && arrowContinues(t.s, from+end) {
-		next := t.atRaw(from + end + 1)
-		if next < 0 {
-			break
-		}
-
-		end += 1 + next
-		t.ltFrom = -1
+	raw := t.atRaw(from)
+	if raw <= 0 || !arrowContinues(t.s, from+raw) || !readingCFTag(t.s, from) {
+		return raw
 	}
 
-	return end
+	t.ltFrom = -1
+
+	return pastArrows(t.s, from, raw, t.atRaw)
 }
 
 // atRaw is at, reading every '>' outside a quote or comment as the end.

@@ -214,16 +214,46 @@ func skipToClose(sc *Scanner, open, closing TokenKind) Token {
 }
 
 // inScriptRegion reports whether offset at falls inside the text of one of
-// regions' script regions.
+// regions' script regions and outside every tag island, which lies inside its
+// script region and is tags.
 func inScriptRegion(regions []Region, at int) bool {
+	script := false
+
 	for i := range regions {
 		r := &regions[i]
-		if r.Kind == RegionScript && at >= r.Offset && at < r.Offset+len(r.Text) {
-			return true
+		if at < r.Offset || at >= r.Offset+len(r.Text) {
+			continue
 		}
+
+		// A tag island lies inside its script region and is tags.
+		if r.Island {
+			return false
+		}
+
+		script = script || r.Kind == RegionScript
 	}
 
-	return false
+	return script
+}
+
+// commentCovering is the end of the <!--- comment that begins at or after
+// from and holds offset at, or -1 when at is in none.
+func commentCovering(src string, from, at int) int {
+	for k := from; k < at; {
+		o := strings.Index(src[k:at], "<!---")
+		if o < 0 {
+			return -1
+		}
+
+		end := SkipCFMLComment(src, k+o)
+		if end > at {
+			return end
+		}
+
+		k = end
+	}
+
+	return -1
 }
 
 // findTagFuncScopesIdx finds <cffunction>...</cffunction> boundaries, for a
@@ -249,7 +279,6 @@ func findTagFuncScopesIdx(src string, baseLine int, idx LineTable, regions []Reg
 	}
 
 	pos := 0
-	commentDepth := 0
 
 	for {
 		i := indexCFTag(src[pos:], "cffunction")
@@ -259,29 +288,11 @@ func findTagFuncScopesIdx(src string, baseLine int, idx LineTable, regions []Reg
 
 		i += pos
 
-		// Update comment depth from pos to i
-		for j := pos; j < i; j++ {
-			if j+4 < len(src) && src[j:j+5] == "<!---" {
-				commentDepth++
-				j += 4
-			} else if j+3 < len(src) && src[j:j+4] == "--->" {
-				commentDepth--
-				if commentDepth < 0 {
-					commentDepth = 0
-				}
-
-				j += 3
-			}
-		}
-
-		// Skip if inside a CFML comment block
-		if commentDepth > 0 {
-			if closeIdx := strings.Index(src[i:], "--->"); closeIdx >= 0 {
-				pos = i + closeIdx + 4
-				commentDepth--
-			} else {
-				break
-			}
+		// A <cffunction in a comment is none. The comments are read by the one
+		// comment reader, which closes a comment of dashes alone where a count
+		// of "<!---" and "--->" left `<!----->` open.
+		if end := commentCovering(src, pos, i); end >= 0 {
+			pos = end
 
 			continue
 		}
