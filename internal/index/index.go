@@ -1315,7 +1315,10 @@ func entityOf(fileURI uri.URI, pr *parser.ParseResult) (bool, string) {
 }
 
 // otherEntityBase reports whether extends names a base class of an ORM that
-// is not the engine's, whose models spell a table and an entity name too.
+// is not the engine's, whose models spell a table and an entity name too. It
+// knows the two spellings (`quick.`, `cborm.`): a model that reaches its base
+// through an alias or a base class of the project's own is not told from a Mura
+// bean that does the same, and the chain is not followed (see entityOf).
 func otherEntityBase(extends string) bool {
 	lower := strings.ToLower(extends)
 

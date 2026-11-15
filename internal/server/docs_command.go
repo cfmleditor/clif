@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/cfmleditor/clif/internal/docs"
 	"go.lsp.dev/protocol"
@@ -68,38 +69,33 @@ func (s *Server) cmdSearchDocs(_ context.Context, args []protocol.LSPAny) (any, 
 func searchDocs(query, kind string, limit int) []docSummary {
 	query = strings.ToLower(strings.TrimSpace(query))
 
-	var pool []*docs.Entry
-
-	if kind != "function" {
-		pool = append(pool, docs.AllTags()...)
-	}
-
-	if kind != "tag" {
-		pool = append(pool, docs.AllFunctions()...)
-	}
+	pool := docSearchPool()
 
 	type ranked struct {
-		e    *docs.Entry
+		e    *docSearchEntry
 		rank int
 	}
 
 	var hits []ranked
 
-	for _, e := range pool {
-		name := strings.ToLower(e.Name)
+	for i := range pool {
+		e := &pool[i]
+		if kind == "function" && !e.function || kind == "tag" && e.function {
+			continue
+		}
 
 		rank := -1
 
 		switch {
 		case query == "":
 			rank = 0
-		case name == query:
+		case e.name == query:
 			rank = 0
-		case strings.HasPrefix(name, query):
+		case strings.HasPrefix(e.name, query):
 			rank = 1
-		case strings.Contains(name, query):
+		case strings.Contains(e.name, query):
 			rank = 2
-		case strings.Contains(strings.ToLower(e.Description), query):
+		case strings.Contains(e.description, query):
 			rank = 3
 		}
 
@@ -113,17 +109,41 @@ func searchDocs(query, kind string, limit int) []docSummary {
 			return hits[i].rank < hits[j].rank
 		}
 
-		return strings.ToLower(hits[i].e.Name) < strings.ToLower(hits[j].e.Name)
+		return hits[i].e.name < hits[j].e.name
 	})
 
 	out := make([]docSummary, 0, min(limit, len(hits)))
 
 	for _, h := range hits[:min(limit, len(hits))] {
-		out = append(out, summaryOf(h.e))
+		out = append(out, summaryOf(h.e.entry))
 	}
 
 	return out
 }
+
+// docSearchEntry is a documentation entry with the lowercased text a search
+// compares against, made once: a search is run on each keystroke of a browser.
+type docSearchEntry struct {
+	entry       *docs.Entry
+	name        string
+	description string
+	function    bool
+}
+
+var docSearchPool = sync.OnceValue(func() []docSearchEntry {
+	tags, funcs := docs.AllTags(), docs.AllFunctions()
+	pool := make([]docSearchEntry, 0, len(tags)+len(funcs))
+
+	for _, e := range tags {
+		pool = append(pool, docSearchEntry{entry: e, name: strings.ToLower(e.Name), description: strings.ToLower(e.Description)})
+	}
+
+	for _, e := range funcs {
+		pool = append(pool, docSearchEntry{entry: e, name: strings.ToLower(e.Name), description: strings.ToLower(e.Description), function: true})
+	}
+
+	return pool
+})
 
 func summaryOf(e *docs.Entry) docSummary {
 	first, _, _ := strings.Cut(strings.TrimSpace(e.Description), "\n")

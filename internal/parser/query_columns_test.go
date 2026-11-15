@@ -258,3 +258,16 @@ func TestQueryColumnsForgetAVarThatIsRebound(t *testing.T) {
 		t.Errorf("got %q known after the name was rebound by a loop", got)
 	}
 }
+
+func TestQueryExecuteThatReturnsNoQueryHasNoColumns(t *testing.T) {
+	for src, want := range map[string]bool{
+		"rows = queryExecute( \"select a, b from t\", {}, { returntype = \"array\" } );\n": false,
+		"rows = queryExecute( \"select a, b from t\", {}, { returntype: 'struct' } );\n":   false,
+		"rows = queryExecute( \"select a, b from t\", {}, { returntype = \"query\" } );\n": true,
+		"rows = queryExecute( \"select a, b from t\", {}, { datasource = \"d\" } );\n":     true,
+	} {
+		if _, ok := QueryColumns(src, "rows", len(src)); ok != want {
+			t.Errorf("%s: known %v, want %v", src, ok, want)
+		}
+	}
+}

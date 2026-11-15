@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/cfmleditor/clif/internal/conv"
+	"github.com/cfmleditor/clif/internal/lex"
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
 	"go.lsp.dev/protocol"
@@ -59,7 +61,11 @@ func (s *Server) handleInlayHint(_ context.Context, rawParams []byte) (any, erro
 		return []protocol.InlayHint{}, nil
 	}
 
-	at := rangePositioner(content, parser.NewLineTable(content))(end)
+	// One offset: the lines before it counted, and its own line's columns, not a
+	// table of the whole file.
+	line := strings.Count(content[:end], "\n")
+	lineStart := strings.LastIndexByte(content[:end], '\n') + 1
+	at := protocol.Position{Line: conv.Uint32(line), Character: conv.Uint32(lex.UTF16Len(content[lineStart:end]))}
 
 	if !positionInRange(at, params.Range) {
 		return []protocol.InlayHint{}, nil

@@ -23,6 +23,20 @@ code lines before and after), then `unresolved` byte-identical on a corpus.
   `matchResolverWithCache`, `splitPrefix`/`findPrefixPos`, `substitutePlaceholder`
 - `internal/server/server.go` — `Server` struct, capabilities, per-URI caches
 - `internal/server/handler.go` — LSP method dispatch and `workspace/executeCommand`
+- `internal/parser/rename_local.go` — `PlanLocalRename`: one walk over a function's tokens finds the
+  ranges a local variable's rename edits and the names it already uses (`Taken`), and refuses with a
+  reason where a use cannot be followed; `ClassifyVariableName` for a new name
+- `internal/parser/query_columns.go` — `QueryColumns`/`DeclaredQueryColumns`: the columns of a query
+  variable from its `<cfquery>`, `queryNew` or `queryExecute`, branch-aware; `sqlSelectColumns`
+- `internal/parser/tag_problems.go` — `TagProblems`: unclosed, unmatched, misplaced and missing or
+  repeated attributes of CF tags; `duplicate_arguments.go` repeats of a function's arguments
+- `internal/parser/component_header.go` — `ComponentDeclarationBounds`/`ComponentBodyEnd`: where a
+  component's declaration and body end, script or tags
+- `internal/lex/wild.go` — `Wild`/`WildMemo`: the bounded backtracking matcher behind
+  `placeholderGlob` (`parser/matchers.go`) and `wildPattern` (`resolve/wild_pattern.go`)
+- `internal/server/structure_diagnostics.go` — the debounced tag-structure check and its publish;
+  `rename.go`, `inlay_hint.go`, `docs_command.go` and `lifecycle_actions.go` are the rename,
+  inlay-hint, documentation-command and Application-event code-action handlers
 - `internal/resolve/resolve.go` — `ComponentPath`, `CanResolveCall`, `ExplainCall`, extends walking
 - `internal/config/config.go` — `.clif.json` schema and defaults
 - `internal/docs/` — generated; regenerate via `make generate`, never hand-edit

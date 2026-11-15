@@ -167,6 +167,13 @@ func DeclaredQueryColumns(content, name string, before int, scope *QueryScope) (
 			consider(start, splitColumnList(text), !strings.Contains(text, "#"))
 		case strings.EqualFold(fn.Value, "queryExecute"):
 			cols, known := sqlSelectColumns(text)
+
+			// An options argument that asks for an array or a struct returns no
+			// query.
+			if returnsNoQuery(callTail(content, base+sc.Pos())) {
+				known = false
+			}
+
 			consider(start, cols, known)
 		default:
 			consider(start, nil, false)
@@ -716,4 +723,45 @@ func assignsAt(prev, owner Token, inLabel bool) bool {
 	}
 
 	return startsAssignment(prev, owner) || inLabel && prev.Kind == TokColon
+}
+
+// callTail is the text of a call from just after an argument to its closing
+// parenthesis, strings stepped over.
+func callTail(content string, from int) string {
+	depth := 1
+
+	for i := from; i < len(content); i++ {
+		switch content[i] {
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 {
+				return content[from:i]
+			}
+		case '"', '\'':
+			i = skipSQLString(content, i)
+		}
+	}
+
+	return content[min(from, len(content)):]
+}
+
+// returnsNoQuery reports whether the options of a queryExecute, text after the
+// SQL, ask for a result that is not a query: a `returntype` that is not
+// "query".
+func returnsNoQuery(tail string) bool {
+	i := IndexFold(tail, "returntype")
+	if i < 0 {
+		return false
+	}
+
+	rest := strings.TrimLeft(tail[i+len("returntype"):], " \t\r\n")
+	if rest == "" || rest[0] != '=' && rest[0] != ':' {
+		return false
+	}
+
+	rest = strings.TrimLeft(rest[1:], " \t\r\n\"'")
+
+	return !lex.HasPrefixFold(rest, "query")
 }

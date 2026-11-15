@@ -87,6 +87,16 @@ Declared in `Server.capabilities()` (`internal/server/server.go`):
   never follows a quote). `CLIF_TAGPROBLEMS_CORPUS=<dirs> go test -run TestTagProblemsCorpus -v
   ./internal/parser/` lists what it finds in a corpus; read each by hand. `TestTagProblems` holds
   the rules, and the mutation checks in its history show each one fails when removed.
+  **Publishing.** The check runs on a timer goroutine, 300 ms after the last change, and publishes
+  through `setDiagnostics`, which stores a source's set and sends the file's merged set under one
+  mutex (`diagSendMu`), so a later set cannot be overtaken by an earlier one; the known-issues
+  reload and `diagnosticsOpened` take the same mutex. The cost is that a client that stops reading
+  holds every publisher, the timer goroutine and the close handler among them. `notify` already
+  blocks the handler that calls it, and an ordered stream was judged worth that; a sender goroutine
+  with a queue would remove it, at the price of diagnostics tests that watch notifications
+  synchronously. A run is numbered per opening of the document (`structureRun`), so one that
+  finishes after a close, or after a reopen, publishes nothing and takes nothing back that is not
+  its own.
 - `textDocument/documentHighlight` (`internal/server/documenthighlight.go`) shades the other
   occurrences of the identifier under the cursor. Deliberately a *textual* answer, reported as
   `DocumentHighlightKindText`: matching is whole-identifier and case-folded through the same
