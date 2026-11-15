@@ -868,19 +868,21 @@ func queryColumnItems(content, name string, line, char int, spans []parser.Funct
 
 	var scope *parser.QueryScope
 
-	if around != nil && strings.HasPrefix(name, "variables.") {
+	switch {
+	case around != nil && strings.HasPrefix(name, "variables."):
 		// The component (or page) can initialize variables outside this function.
 		// Assignments in other functions do not run just because they occur first.
 		scope = &parser.QueryScope{}
+
 		for i := range spans {
 			sp := &spans[i]
 			if sp.Start > around.Start || sp.End < around.End {
 				scope.Skip = append(scope.Skip, *sp)
 			}
 		}
-	} else if around != nil {
+	case around != nil:
 		scope = &parser.QueryScope{From: around.Start, To: around.End}
-	} else if len(spans) > 0 {
+	case len(spans) > 0:
 		// Outside every function: what the functions declare is theirs.
 		scope = &parser.QueryScope{Skip: spans}
 	}

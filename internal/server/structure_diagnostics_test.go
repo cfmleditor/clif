@@ -345,6 +345,7 @@ func TestStructureRunRejectsANewVersionBeforeRescheduling(t *testing.T) {
 	// didChange records its version before releasing the document lock and
 	// scheduling the next structure check.
 	s.setDocVersion(docURI, 2)
+
 	if s.structureRunIsLatest(docURI, run) {
 		t.Error("a run of the previous document version is still current")
 	}
