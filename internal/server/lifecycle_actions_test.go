@@ -291,3 +291,23 @@ func TestAnEventSetAsAPropertyIsDeclared(t *testing.T) {
 		t.Errorf("a comment, a string and a comparison declared events: %v", got)
 	}
 }
+
+func TestLifecycleStubsFollowTheIndentationOfTheFunctions(t *testing.T) {
+	dir := t.TempDir()
+	s := newTestServer()
+	s.WorkspaceFolders = []string{dir}
+
+	app := uri.File(filepath.Join(dir, "Application.cfc"))
+	src := "<cfcomponent>\n<cffunction name=\"onApplicationStart\">\n\t<cfargument name=\"x\">\n</cffunction>\n</cfcomponent>\n"
+	openDoc(t, s, app, src)
+
+	one, ok := actionTitled(lifecycleCodeActions(t, s, app), "Add onSessionStart() to Application.cfc")
+	if !ok {
+		t.Fatal("onSessionStart is not offered")
+	}
+
+	got := applyActionEdit(t, src, one)
+	if !strings.Contains(got, "\n<cffunction name=\"onSessionStart\"") || !strings.Contains(got, "\n\t<cfargument") {
+		t.Errorf("the stub is not flush left like its siblings, with nested lines tab-indented:\n%s", got)
+	}
+}

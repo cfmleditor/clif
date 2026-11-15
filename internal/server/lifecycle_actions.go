@@ -252,26 +252,56 @@ func insertStubs(content string, end int, tags bool, stubs []lifecycleStub) prot
 	return protocol.TextEdit{Range: protocol.Range{Start: pos, End: pos}, NewText: text}
 }
 
-// indentUnit is what the file indents with: the leading whitespace of its first
-// indented line, or a tab when no line is.
+// indentUnit is the indentation of the file's functions: the leading whitespace
+// of the first line that declares one (`function`, a modifier before it, or
+// <cffunction>), as the stubs are functions that stand beside them. A file with
+// none is indented as its first indented line is, or with a tab.
 func indentUnit(content string) string {
+	var fallback string
+
 	for line := range strings.SplitSeq(content, "\n") {
 		line = strings.TrimSuffix(line, "\r")
-		if isCommentLine(strings.TrimLeft(line, " \t")) {
+
+		trimmed := strings.TrimLeft(line, " \t")
+		if trimmed == "" || isCommentLine(trimmed) {
 			continue
 		}
 
-		if rest := strings.TrimLeft(line, " \t"); rest != "" && len(rest) < len(line) {
-			return line[:len(line)-len(rest)]
+		lead := line[:len(line)-len(trimmed)]
+		lower := strings.ToLower(trimmed)
+
+		if strings.HasPrefix(lower, "<cffunction") || strings.HasPrefix(lower, "function ") || strings.Contains(lower, " function ") {
+			return lead
 		}
+
+		if fallback == "" && lead != "" {
+			fallback = lead
+		}
+	}
+
+	if fallback != "" {
+		return fallback
 	}
 
 	return "\t"
 }
 
+// nestedUnit is what a level of nesting inside a function is indented with, given
+// the indentation of the function itself: the same when the file indents at all,
+// a tab when its functions stand flush left.
+func nestedUnit(unit string) string {
+	if unit == "" {
+		return "\t"
+	}
+
+	return unit
+}
+
 // indentLines prefixes every non-blank line of text with indent, and writes
-// the tabs the text is indented with in the same unit.
+// the tabs the text is indented with in the file's unit for a nested level.
 func indentLines(text, indent string) string {
+	nested := nestedUnit(indent)
+
 	lines := strings.Split(text, "\n")
 	for i, l := range lines {
 		if l == "" {
@@ -279,7 +309,7 @@ func indentLines(text, indent string) string {
 		}
 
 		rest := strings.TrimLeft(l, "\t")
-		lines[i] = indent + strings.Repeat(indent, len(l)-len(rest)) + rest
+		lines[i] = indent + strings.Repeat(nested, len(l)-len(rest)) + rest
 	}
 
 	return strings.Join(lines, "\n")

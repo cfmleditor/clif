@@ -291,9 +291,7 @@ func (s *Server) handleDidOpen(_ context.Context, rawParams []byte) (any, error)
 
 	// Scheduled when the lock is released: scheduling takes the server's lock,
 	// which an open has no need to hold the document's for.
-	if s.Features.StructureDiagnostics {
-		defer s.scheduleStructureDiagnostics(docURI)
-	}
+	defer s.scheduleStructureDiagnostics(docURI)
 
 	defer s.lockDoc(docURI)()
 
@@ -355,9 +353,7 @@ func (s *Server) handleDidChange(_ context.Context, rawParams []byte) (any, erro
 	// whichever way this change is applied. Registered first, so that it runs
 	// last, after the document's lock is released: scheduling takes the
 	// server's lock, which a keystroke has no need to hold the document's for.
-	if s.Features.StructureDiagnostics {
-		defer s.scheduleStructureDiagnostics(docURI)
-	}
+	defer s.scheduleStructureDiagnostics(docURI)
 
 	// Not lockDoc: that would run the reparse deferred by the last keystroke
 	// before this one, which is the cost deferring exists to avoid.

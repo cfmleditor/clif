@@ -593,3 +593,45 @@ func (sc *QueryScope) skips(off int) bool {
 
 	return false
 }
+
+// MayDeclareQueryNamed is MayDeclareQuery for the query called name: the text
+// spells such a declaration, and spells the name where a variable is set or a
+// <cfquery> is named, `name =` or `name="name"`. A dot after a word that is
+// never set that way is not a query's, and the tag search and tokenize are
+// not made for it.
+func MayDeclareQueryNamed(content, name string) bool {
+	if name == "" || !MayDeclareQuery(content) {
+		return false
+	}
+
+	for from := 0; from < len(content); {
+		i := IndexFold(content[from:], name)
+		if i < 0 {
+			return false
+		}
+
+		i += from
+		end := i + len(name)
+		from = end
+
+		if i > 0 && lex.IsIdent(content[i-1]) || end < len(content) && lex.IsIdent(content[end]) {
+			continue
+		}
+
+		// `name =`, but not `name ==`
+		rest := strings.TrimLeft(content[end:], " \t")
+		if strings.HasPrefix(rest, "=") && !strings.HasPrefix(rest, "==") {
+			return true
+		}
+
+		// `name="users"`: the name is in quotes, after an `=`.
+		if i > 0 && (content[i-1] == '"' || content[i-1] == '\'') {
+			before := strings.TrimRight(content[:i-1], " \t")
+			if strings.HasSuffix(before, "=") {
+				return true
+			}
+		}
+	}
+
+	return false
+}

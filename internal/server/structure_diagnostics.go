@@ -25,8 +25,9 @@ const structureDelay = 300 * time.Millisecond
 // takes the whole of it away, so a run that finishes after that, or after a
 // reopen's new state, finds its number is not the latest.
 type structureState struct {
-	timer  *time.Timer
-	latest uint64
+	timer     *time.Timer
+	latest    uint64 // the generation of the text: an edit gives it a new one
+	published bool   // a check has published for this opening
 }
 
 // scheduleStructureDiagnostics checks the structure of docURI once it has been
@@ -80,21 +81,29 @@ func (s *Server) cancelStructureDiagnostics(ctx context.Context, docURI uri.URI)
 
 	s.mu.Lock()
 
-	if st := s.structure[docURI]; st != nil && st.timer != nil {
-		st.timer.Stop()
+	published := false
+
+	if st := s.structure[docURI]; st != nil {
+		published = st.published
+
+		if st.timer != nil {
+			st.timer.Stop()
+		}
 	}
 
 	delete(s.structure, docURI)
 
 	s.mu.Unlock()
 
-	if s.Features.StructureDiagnostics {
+	// Only what was published is taken back.
+	if published {
 		s.setDiagnostics(ctx, docURI, sourceStructure, nil)
 	}
 }
 
-// startStructureRun numbers a check of docURI, which is then the latest, or
-// reports that the document is not open.
+// startStructureRun is the number of a check of docURI of the text as it stands:
+// its generation, which an edit changes, so the check is the latest only until
+// the next edit. ok is false when the document is not open.
 func (s *Server) startStructureRun(docURI uri.URI) (run uint64, ok bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -103,9 +112,6 @@ func (s *Server) startStructureRun(docURI uri.URI) (run uint64, ok bool) {
 	if st == nil {
 		return 0, false
 	}
-
-	s.structureSeq++
-	st.latest = s.structureSeq
 
 	return st.latest, true
 }
@@ -157,6 +163,12 @@ func (s *Server) publishStructureDiagnostics(docURI uri.URI) {
 
 	if s.structureRunIsLatest(docURI, run) {
 		s.setDiagnostics(context.Background(), docURI, sourceStructure, found)
+
+		s.mu.Lock()
+		if st := s.structure[docURI]; st != nil {
+			st.published = true
+		}
+		s.mu.Unlock()
 	}
 }
 

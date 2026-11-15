@@ -56,7 +56,7 @@ Declared in `Server.capabilities()` (`internal/server/server.go`):
   A rename is only as safe as its refusals: a name built at run time (`"pre_" & name`,
   `structKeyExists( variables, k )`) cannot be seen, so the refusals cover the ways a function reads
   its variables by name that can be recognised (`evaluate`, a string that spells the name, `include`,
-  the whole `local` or `arguments` scope), and `prepareRename` answers null where the cursor is on no
+  the whole `local` scope; `arguments` holds no local variable), and `prepareRename` answers null where the cursor is on no
   variable at all, the reason only where a variable cannot be renamed.
   Function rename and cross-file rename are not here: the references engine cannot see dynamic
   calls, so a rename over it could leave a caller behind without saying so.

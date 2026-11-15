@@ -136,3 +136,11 @@ func TestUnbalancedTagsAreWarnings(t *testing.T) {
 		}
 	}
 }
+
+func TestAWordInABareValueIsNotAnAttribute(t *testing.T) {
+	for _, src := range []string{`<cfparam default=#name# type="string">`, `<cfinclude runonce="true" other=template>`} {
+		if got := TagProblems(src); len(got) == 0 || got[0].Kind != ProblemMissingAttribute {
+			t.Errorf("%s: got %v, want a missing attribute", src, got)
+		}
+	}
+}

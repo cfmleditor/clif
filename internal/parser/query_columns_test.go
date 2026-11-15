@@ -207,3 +207,13 @@ func TestMayDeclareQuery(t *testing.T) {
 		}
 	}
 }
+
+func TestMayDeclareQueryNamed(t *testing.T) {
+	src := "<cfquery name=\"users\">select 1</cfquery>\nq = queryNew('a');\nif ( x == 1 ) {}\n"
+
+	for name, want := range map[string]bool{"users": true, "q": true, "x": false, "this": false, "": false} {
+		if got := MayDeclareQueryNamed(src, name); got != want {
+			t.Errorf("%q: got %v, want %v", name, got, want)
+		}
+	}
+}

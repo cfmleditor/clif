@@ -255,17 +255,10 @@ func planScope(content string, spans []FunctionSpan, sc renameScope, at int) (*L
 // closuresAround are the anonymous functions written in owner's body whose
 // parameters or body hold at, innermost first.
 func closuresAround(content string, owner *FunctionSpan, at int) []renameScope {
-	var (
-		found []renameScope
-		toks  []Token
-	)
+	var found []renameScope
 
 	body := content[owner.Body:owner.BodyEnd]
-
-	sc := NewScriptScanner(body)
-	for t := sc.NextSkipComments(); t.Kind != TokEOF; t = sc.NextSkipComments() {
-		toks = append(toks, t)
-	}
+	toks := scriptTokens(body)
 
 	for i, t := range toks {
 		if t.Kind != TokIdent || !strings.EqualFold(t.Value, "function") || i > 0 && toks[i-1].Kind == TokDot {
@@ -458,12 +451,7 @@ var paramTypes = map[string]bool{
 // name is its last word before a default: what comes before it is its type and
 // modifiers.
 func parseParams(text string) []param {
-	var toks []Token
-
-	sc := NewScriptScanner(text)
-	for t := sc.NextSkipComments(); t.Kind != TokEOF; t = sc.NextSkipComments() {
-		toks = append(toks, t)
-	}
+	toks := scriptTokens(text)
 
 	var (
 		out    []param
@@ -714,12 +702,7 @@ func (b *bracketState) shut(kind TokenKind) {
 // function. hash is set for the expression of a `#...#`, which has no
 // statements.
 func (w *renameWalk) walk(text string, base int, hash bool) {
-	var toks []Token
-
-	sc := NewScriptScanner(text)
-	for t := sc.NextSkipComments(); t.Kind != TokEOF; t = sc.NextSkipComments() {
-		toks = append(toks, t)
-	}
+	toks := scriptTokens(text)
 
 	st := bracketState{types: map[int]bool{}, expr: hash}
 
@@ -1441,4 +1424,12 @@ func hasWord(text, word string) bool {
 // function's or a type's name, `function foo(` and `new Foo(`: not a call.
 func declaresOrCreates(t Token) bool {
 	return t.Kind == TokIdent && (strings.EqualFold(t.Value, "function") || strings.EqualFold(t.Value, "new"))
+}
+
+// scriptTokens are the tokens of src read as CFScript, without the EOF that
+// tokenize ends with.
+func scriptTokens(src string) []Token {
+	toks := tokenize(src)
+
+	return toks[:len(toks)-1]
 }

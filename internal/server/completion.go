@@ -842,7 +842,7 @@ func appendScopedVars(items []protocol.CompletionItem, names []string, prefix st
 // around the cursor is read: a variable of another function, or an argument,
 // that shares the name is not it.
 func (s *Server) queryColumnItems(docURI uri.URI, content, name string, line, char int) []protocol.CompletionItem {
-	if name == "" || !parser.MayDeclareQuery(content) || memberOfAnother(parser.LineTextAt(content, line), char) {
+	if !parser.MayDeclareQueryNamed(content, name) || memberOfAnother(parser.LineTextAt(content, line), char) {
 		return nil
 	}
 

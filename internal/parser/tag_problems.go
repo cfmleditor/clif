@@ -336,12 +336,15 @@ func valuelessAttribute(tag, attr string) bool {
 	}
 }
 
-// unquoted is tag with the inside of its quoted values blanked, so a word
-// written in a value is not taken for an attribute: `<cfparam default="name">`.
+// unquoted is tag with the inside of its values blanked, quoted or bare, so a
+// word written in a value is not taken for an attribute:
+// `<cfparam default="name">`, `<cfparam default=#name#>`.
 func unquoted(tag string) string {
 	b := []byte(tag)
 
 	var quote byte
+
+	afterEquals := false // a bare value is being read
 
 	for i, c := range b {
 		switch {
@@ -349,8 +352,16 @@ func unquoted(tag string) string {
 			quote = 0
 		case quote != 0:
 			b[i] = ' '
+		case afterEquals && (c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == '>' || c == '/'):
+			afterEquals = false
+		case afterEquals && (c == '"' || c == '\''):
+			quote, afterEquals = c, false
+		case afterEquals:
+			b[i] = ' '
 		case c == '"' || c == '\'':
 			quote = c
+		case c == '=':
+			afterEquals = true
 		}
 	}
 
