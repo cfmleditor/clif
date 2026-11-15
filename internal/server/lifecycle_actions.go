@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/cfmleditor/clif/internal/lex"
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
 	"go.lsp.dev/protocol"
@@ -84,7 +85,12 @@ func (s *Server) lifecycleActions(docURI uri.URI, content string) []protocol.Cod
 		return cached.actions
 	}
 
+	// The parse the declared events are read from is changed in place by an
+	// edit, under the document's lock.
+	unlock := s.lockDoc(docURI)
 	actions := s.buildLifecycleActions(docURI, content)
+
+	unlock()
 
 	// Kept while the document is open, decided under the lock a close takes
 	// the document away under, so one racing a close does not outlive it.
@@ -171,7 +177,39 @@ func declaredFunctionNames(content string, pr *parser.ParseResult) map[string]bo
 		out[strings.ToLower(pr.Funcs[i].Name)] = true
 	}
 
+	// An event set as a property, `this.onError = function( e ) { ... }`, is
+	// declared too.
+	for _, st := range lifecycleStubs {
+		if setsProperty(content, st.name) {
+			out[strings.ToLower(st.name)] = true
+		}
+	}
+
 	return out
+}
+
+// setsProperty reports whether content assigns `this.<name> =`, in any case.
+func setsProperty(content, name string) bool {
+	needle := "this." + name
+
+	for from := 0; ; {
+		i := parser.IndexFold(content[from:], needle)
+		if i < 0 {
+			return false
+		}
+
+		i += from
+		from = i + len(needle)
+
+		if i > 0 && lex.IsIdent(content[i-1]) || from < len(content) && lex.IsIdent(content[from]) {
+			continue
+		}
+
+		rest := strings.TrimLeft(content[from:], " \t")
+		if strings.HasPrefix(rest, "=") && !strings.HasPrefix(rest, "==") {
+			return true
+		}
+	}
 }
 
 // insertStubs is the edit that adds stubs before the end of the component's

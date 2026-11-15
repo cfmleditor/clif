@@ -50,26 +50,14 @@ func (s *Server) handleInlayHint(_ context.Context, rawParams []byte) (any, erro
 		return nil, nil
 	}
 
-	end, ok := parser.ComponentDeclarationEnd(content)
+	open, end, ok := parser.ComponentDeclarationBounds(content)
 	if !ok {
 		return nil, nil
 	}
 
-	if content[end] == '>' {
-		// A tag component: the hint follows the tag, not inside it, and a
-		// self-closed `<cfcomponent />` has no body to name.
-		if end > 0 && content[end-1] == '/' {
-			return []protocol.InlayHint{}, nil
-		}
-
-		end++
-	} else {
-		// Before the brace, and before the blanks leading up to it, which for a
-		// brace on a line of its own reaches back to the end of the line of
-		// the declaration.
-		for end > 0 && (content[end-1] == ' ' || content[end-1] == '\t' || content[end-1] == '\n' || content[end-1] == '\r') {
-			end--
-		}
+	// A self-closed `<cfcomponent />` has no body to name.
+	if content[open] == '>' && open > 0 && content[open-1] == '/' {
+		return []protocol.InlayHint{}, nil
 	}
 
 	lines := parser.NewLineTable(content)

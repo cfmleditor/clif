@@ -281,3 +281,15 @@ func TestAChangeToAnUnopenedDocumentSchedulesNothing(t *testing.T) {
 		t.Error("a structure check is scheduled for a document that is not open")
 	}
 }
+
+// A parse that is missing or of other text does not take the spans away: a
+// fresh parse stands in.
+func TestFunctionSpansOfADocWithoutAFreshParse(t *testing.T) {
+	s := newTestServer()
+	docURI := uri.File("/tmp/spans_fallback.cfc")
+	content := "component {\n function f( a, a ) {}\n}\n"
+
+	if got := s.functionSpansOfDoc(docURI, content); len(got) != 1 {
+		t.Errorf("%d spans with no parse held, want 1", len(got))
+	}
+}

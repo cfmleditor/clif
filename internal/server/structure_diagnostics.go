@@ -6,6 +6,7 @@ import (
 
 	cflog "github.com/cfmleditor/clif/internal/log"
 	"github.com/cfmleditor/clif/internal/parser"
+	cfpath "github.com/cfmleditor/clif/internal/path"
 	"go.lsp.dev/protocol"
 	"go.lsp.dev/uri"
 )
@@ -183,10 +184,16 @@ func functionSpansOf(content string, pr *parser.ParseResult) []parser.FunctionSp
 	return pr.FunctionSpans()
 }
 
-// functionSpansOfDoc are the function spans of the parse the server holds for
-// docURI when it is of content, and nil when it is not.
+// functionSpansOfDoc are the function spans of content, the text of docURI:
+// those of the parse the server holds when it is of this text, and those of a
+// fresh parse when it is not or there is none. The caller holds the document's
+// lock, which an edit changes a parse in place under.
 func (s *Server) functionSpansOfDoc(docURI uri.URI, content string) []parser.FunctionSpan {
-	return functionSpansOf(content, s.parseResultOf(docURI))
+	if pr := s.parseResultOf(docURI); pr != nil && pr.Content == content {
+		return pr.FunctionSpans()
+	}
+
+	return parser.FunctionSpansOf(cfpath.FromURI(string(docURI)), content)
 }
 
 // structureDiagnosticsFrom is the structure problems of content: those of its

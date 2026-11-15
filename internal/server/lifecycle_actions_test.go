@@ -280,3 +280,18 @@ func TestACFCommentHoldingTheClosingTagIsNotTheEnd(t *testing.T) {
 		t.Errorf("end %d tags %v ok %v", end, tags, ok)
 	}
 }
+
+func TestAnEventSetAsAPropertyIsDeclared(t *testing.T) {
+	declared := declaredFunctionNames("component {\n\tthis.onError = function( e ) {};\n\tthis.onErrorLog = 1;\n}\n", nil)
+	if !declared["onerror"] {
+		t.Error("this.onError = function is not counted as declared")
+	}
+
+	if declared["onerrorlog"] {
+		t.Error("a longer property name is counted as the event")
+	}
+
+	if setsProperty("this.onError == 1", "onError") {
+		t.Error("a comparison is counted as an assignment")
+	}
+}

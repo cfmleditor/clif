@@ -9,7 +9,6 @@ import (
 	"github.com/cfmleditor/clif/internal/conv"
 	"github.com/cfmleditor/clif/internal/lex"
 	"github.com/cfmleditor/clif/internal/parser"
-	cfpath "github.com/cfmleditor/clif/internal/path"
 	"go.lsp.dev/protocol"
 	"go.lsp.dev/uri"
 )
@@ -58,12 +57,7 @@ func (s *Server) renameAt(docURI uri.URI, pos protocol.Position) (*renameRequest
 
 	// The spans of the parse the server holds, when it is of this text: a
 	// request for each cursor placement is not a parse of the whole file.
-	var spans []parser.FunctionSpan
-	if pr := s.parseResultOf(docURI); pr != nil && pr.Content == content {
-		spans = pr.FunctionSpans() // a text with no function has none, and no parse is made for it
-	} else {
-		spans = parser.FunctionSpansOf(cfpath.FromURI(string(docURI)), content)
-	}
+	spans := s.functionSpansOfDoc(docURI, content)
 
 	plan, err := parser.PlanLocalRename(content, spans, at)
 	if err != nil {

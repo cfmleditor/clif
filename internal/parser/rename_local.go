@@ -660,6 +660,8 @@ func (b *bracketState) open(toks []Token, i int, hash bool) {
 		case b.pendBrace:
 			kind, b.pendBrace = rnFunc, false
 			b.fnDepth++
+		case i > 0 && prev.Kind == TokColon && afterCaseLabel(toks, i):
+			// `case 1: { ... }` is a block, whose assignments are statements.
 		case i == 0 && hash, i > 0 && structBefore(prev):
 			kind = rnStruct
 		default:
@@ -863,7 +865,14 @@ func (w *renameWalk) word(toks []Token, i int, st *bracketState, base int) {
 	case wordOther:
 		return
 	case wordLocal:
-		// `local.x` is the variable x, written or read.
+		// `local.x` is the variable x, written or read: where this function's
+		// own scope is; in a closure `local` is the closure's.
+		if strings.EqualFold(t.Value, w.name) && (st.fnDepth > 0 || st.inArrow(i)) {
+			w.fail("a function inside this one uses local." + w.name + ", which is that function's own variable")
+
+			return
+		}
+
 		w.take(t.Value, takenLocal)
 	default:
 		// A word the language reserves is no name the function means anything by.

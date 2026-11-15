@@ -6,20 +6,40 @@ package parser
 // is read by the script scanner, so a brace or `>` in a quoted value, and
 // anything in a comment before it, is no end of it.
 func ComponentDeclarationEnd(content string) (offset int, ok bool) {
+	offset, _, ok = componentDeclaration(content)
+
+	return offset, ok
+}
+
+// ComponentDeclarationBounds is ComponentDeclarationEnd with the byte offset
+// just past the last word of the declaration: before the blanks and any comment
+// that lead to the `{` on a line of its own, and just past the `>` of a tag
+// component. It is where a mark of the declaration belongs.
+func ComponentDeclarationBounds(content string) (open, textEnd int, ok bool) {
+	return componentDeclaration(content)
+}
+
+// componentDeclaration is the offset of the `{` or `>` that ends a component's
+// declaration, and the offset just past the last token before it.
+func componentDeclaration(content string) (open, textEnd int, ok bool) {
 	sc := NewScriptScanner(content)
 	inDeclaration := false
 	depth := 0 // braces open before the declaration: `<cfset x = {}>`, a struct
 
 	var prev Token
 
+	prevEnd := 0
+
 	for budget := declarationTokens; budget > 0; budget-- {
 		t := sc.NextSkipComments()
 
 		switch {
 		case t.Kind == TokEOF:
-			return 0, false
-		case t.Kind == TokLBrace && inDeclaration, t.Kind == TokGT && inDeclaration:
-			return t.Offset, true
+			return 0, 0, false
+		case t.Kind == TokLBrace && inDeclaration:
+			return t.Offset, prevEnd, true
+		case t.Kind == TokGT && inDeclaration:
+			return t.Offset, t.Offset + 1, true
 		case t.Kind == TokLBrace:
 			depth++
 		case t.Kind == TokRBrace:
@@ -28,10 +48,10 @@ func ComponentDeclarationEnd(content string) (offset int, ok bool) {
 			inDeclaration = opensDeclaration(t, prev)
 		}
 
-		prev = t
+		prev, prevEnd = t, sc.Pos()
 	}
 
-	return 0, false
+	return 0, 0, false
 }
 
 // declarationTokens is how many tokens ComponentDeclarationEnd reads before it
