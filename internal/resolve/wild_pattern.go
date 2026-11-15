@@ -58,52 +58,25 @@ func (k wildKind) least() int {
 
 // match reports whether s fits the pattern, ignoring case.
 func (p *wildPattern) match(s string) bool {
-	// A piece that fails from a position fails from it by any route: failed
-	// keeps the search to pieces times positions, where trying every split of
-	// the runs between many wildcards is exponential.
-	failed := &parser.FailedSet{On: len(p.pieces) > 2}
+	m := lex.Wild{Accept: p.kind.accepts, Least: p.kind.least(), EndAnchored: true}
+
+	var memo lex.WildMemo
 
 	if !p.atSegment {
-		return p.matchFrom(s, 0, 0, failed)
+		_, ok := m.MatchAt(s, p.pieces, 0, &memo, false)
+
+		return ok
 	}
 
 	for start := 0; start <= len(s); start++ {
-		if (start == 0 || s[start-1] == '/') && p.matchFrom(s, 0, start, failed) {
-			return true
+		if start == 0 || s[start-1] == '/' {
+			if _, ok := m.MatchAt(s, p.pieces, start, &memo, false); ok {
+				return true
+			}
 		}
 	}
 
 	return false
-}
-
-// matchFrom reports whether s from pos fits the pieces from piece on: the
-// piece, a wildcard, the next piece, and the last piece ends the text.
-func (p *wildPattern) matchFrom(s string, piece, pos int, failed *parser.FailedSet) bool {
-	lit := p.pieces[piece]
-	if pos+len(lit) > len(s) || !strings.EqualFold(s[pos:pos+len(lit)], lit) || failed.Has(piece, pos) {
-		return false
-	}
-
-	end := pos + len(lit)
-	if piece == len(p.pieces)-1 {
-		return end == len(s)
-	}
-
-	run := 0
-
-	for {
-		if run >= p.kind.least() && p.matchFrom(s, piece+1, end+run, failed) {
-			return true
-		}
-
-		if end+run >= len(s) || !p.kind.accepts(s[end+run]) {
-			failed.Add(piece, pos)
-
-			return false
-		}
-
-		run++
-	}
 }
 
 // wildBuilder collects the literal and computed parts of a spelled name.

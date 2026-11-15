@@ -116,3 +116,26 @@ func TestQueryColumnsInAFunctionOfACFScriptBlock(t *testing.T) {
 		t.Error("the query declared after a string with a hash expression is lost")
 	}
 }
+
+func TestQueryColumnsOfAnEmptyNameAreNone(t *testing.T) {
+	src := "<cfquery name=\"\">select a from t</cfquery>\n<cfoutput>#.</cfoutput>\n"
+	if items := queryColumnItems(src, "", 1, 11, nil); len(items) != 0 {
+		t.Errorf("a dot after no word offered %d items", len(items))
+	}
+}
+
+func TestQueryColumnsInAScriptComponentScanOnlyTheFunction(t *testing.T) {
+	src := "component {\n function a() { var q = queryNew(\"x\"); }\n function b() {\n  var s = \"#now()#\";\n  var q = queryNew(\"id,name\");\n  q.\n }\n}\n"
+	pr := parser.ParseWithOptions("file:///t.cfc", src, &parser.ParseOptions{})
+
+	items := queryColumnItems(src, "q", 5, 4, pr.FunctionSpans())
+
+	var labels []string
+	for _, it := range items {
+		labels = append(labels, it.Label)
+	}
+
+	if !hasLabel(labels, "id") || hasLabel(labels, "x") {
+		t.Errorf("labels %q, want b's columns id and name, not a's x", labels)
+	}
+}

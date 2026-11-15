@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf16"
 	"unsafe"
 )
@@ -299,5 +300,53 @@ func TestNormalizeLineBreaks(t *testing.T) {
 
 	if !CROnly("a\rb") || CROnly("a\r\nb") || CROnly("ab") {
 		t.Error("CROnly")
+	}
+}
+
+func TestWildMatchesPiecesWithRunsBetween(t *testing.T) {
+	anyChar := Wild{Accept: func(c byte) bool { return c != '\n' }, Least: 1}
+
+	runs, ok := anyChar.MatchAt("getUserService()", []string{"get", "Service"}, 0, nil, true)
+	if !ok || len(runs) != 1 || "getUserService()"[runs[0][0]:runs[0][1]] != "User" {
+		t.Errorf("runs %v ok %v, want the run User", runs, ok)
+	}
+
+	if _, ok := anyChar.MatchAt("getService", []string{"get", "Service"}, 0, nil, false); ok {
+		t.Error("a run of at least one character matched none")
+	}
+
+	if _, ok := anyChar.MatchAt("get\nxService", []string{"get", "Service"}, 0, nil, false); ok {
+		t.Error("a run crossed a newline")
+	}
+
+	anchored := Wild{Accept: func(c byte) bool { return c != '/' }, EndAnchored: true}
+	if _, ok := anchored.MatchAt("a/bc", []string{"a/", "c"}, 0, nil, false); !ok {
+		t.Error("an anchored match failed")
+	}
+
+	if _, ok := anchored.MatchAt("a/bcd", []string{"a/", "c"}, 0, nil, false); ok {
+		t.Error("an anchored match left text after the last piece")
+	}
+
+	// Many wildcards over a text that cannot match are bounded by the memo.
+	pieces := []string{"a", "a", "a", "a", "a", "a", "a", "a", "b"}
+	text := strings.Repeat("a", 200)
+
+	done := make(chan bool)
+
+	go func() {
+		var memo WildMemo
+
+		_, ok := anyChar.MatchAt(text, pieces, 0, &memo, false)
+		done <- ok
+	}()
+
+	select {
+	case got := <-done:
+		if got {
+			t.Error("matched a text with no b")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("still backtracking after 5s")
 	}
 }

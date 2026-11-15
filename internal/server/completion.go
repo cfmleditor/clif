@@ -841,7 +841,7 @@ func appendScopedVars(items []protocol.CompletionItem, names []string, prefix st
 // around the cursor is read: a variable of another function, or an argument,
 // that shares the name is not it.
 func (s *Server) queryColumnItems(docURI uri.URI, content, name string, line, char int) []protocol.CompletionItem {
-	if !parser.MayDeclareQuery(content) || memberOfAnother(parser.LineTextAt(content, line), char) {
+	if name == "" || !parser.MayDeclareQuery(content) || memberOfAnother(parser.LineTextAt(content, line), char) {
 		return nil
 	}
 
@@ -851,14 +851,7 @@ func (s *Server) queryColumnItems(docURI uri.URI, content, name string, line, ch
 // queryColumnItems is s.queryColumnItems for the function spans of content, nil
 // when there are none: the whole text is then read.
 func queryColumnItems(content, name string, line, char int, spans []parser.FunctionSpan) []protocol.CompletionItem {
-	lines := parser.NewLineTable(content)
-
-	start, ok := lines.Start(line)
-	if !ok {
-		return nil
-	}
-
-	off := start + char
+	off := lineStartOffset(content, line) + char
 
 	// The innermost function around the cursor.
 	var around *parser.FunctionSpan

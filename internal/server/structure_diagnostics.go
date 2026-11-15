@@ -123,8 +123,8 @@ func (s *Server) structureRunIsLatest(docURI uri.URI, run uint64) bool {
 // publishes what it finds. lockDoc runs the reparse an edit deferred, so the
 // parse the spans are read from is the document's.
 func (s *Server) publishStructureDiagnostics(docURI uri.URI) {
-	// A document closed since the timer fired has nothing to check, and
-	// lockDoc would make a lock for it that nothing removes. A check that
+	// A document closed since the timer fired has nothing to check. (Its lock
+	// is the one it had while open: docLocks keeps its entries.) A check that
 	// starts after this one is of newer text: this one, if it finishes later,
 	// has nothing to publish.
 	run, ok := s.startStructureRun(docURI)

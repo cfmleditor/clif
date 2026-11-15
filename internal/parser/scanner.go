@@ -929,3 +929,19 @@ func charToKind(ch byte) TokenKind {
 func identEq(val, keyword string) bool {
 	return strings.EqualFold(val, keyword)
 }
+
+// NewSourceScannerRange scans the bytes [from, to) of content as
+// NewSourceScanner scans the whole of it, and reports the offset its tokens are relative to. For
+// a script file only the range is tokenized, read as script, as the file is;
+// for any other the whole text is scanned, as its regions need, and the base
+// is 0.
+func NewSourceScannerRange(content string, from, to int) (sc *Scanner, base int) {
+	if from < 0 || to > len(content) || from >= to || !isScriptFile(content) {
+		return NewSourceScanner(content), 0
+	}
+
+	sc = NewScanner(content[from:to])
+	sc.interpStrings = true
+
+	return sc, from
+}

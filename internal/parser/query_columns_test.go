@@ -160,3 +160,14 @@ func TestSQLSelectColumnsSkipComments(t *testing.T) {
 		}
 	}
 }
+
+func TestQueryColumnsOfAConcatenatedStringAreUnknown(t *testing.T) {
+	for _, src := range []string{
+		"users = queryExecute( \"SELECT id, \" & extra & \" FROM t\" );\n",
+		"users = queryNew( \"a,\" & more );\n",
+	} {
+		if got, ok := QueryColumns(src, "users", len(src)); ok {
+			t.Errorf("%s: got %q known", src, got)
+		}
+	}
+}

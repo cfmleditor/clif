@@ -36,6 +36,10 @@ type QueryScope struct {
 // DeclaredQueryColumns is QueryColumns without the test of MayDeclareQuery, for
 // a caller that has made it, and within scope, nil for the whole text.
 func DeclaredQueryColumns(content, name string, before int, scope *QueryScope) (columns []string, ok bool) {
+	if name == "" {
+		return nil, false
+	}
+
 	inSkip := func(off int) bool {
 		if scope == nil {
 			return false
@@ -62,30 +66,19 @@ func DeclaredQueryColumns(content, name string, before int, scope *QueryScope) (
 		}
 	}
 
-	var openAt, openEnd int
-
-	opened := false
-
-	for _, tag := range CFTags(content, "cfquery") {
-		if tag.Close {
-			if opened {
-				cols, known := sqlSelectColumns(content[openEnd:tag.Start])
-				consider(openAt, cols, known)
-			}
-
-			opened = false
-
-			continue
-		}
-
-		if v, has := tag.Attr("name"); has && !inSkip(tag.Start) && strings.EqualFold(unscoped(v), name) {
-			openAt, openEnd, opened = tag.Start, tag.End, true
-		} else {
-			opened = false
-		}
+	// A scope within a script file is scanned as that range alone, read as the
+	// file is, and its tokens are relative to base; any other text is scanned
+	// whole, and its tags are searched.
+	from, to := 0, len(content)
+	if scope != nil && scope.To > 0 {
+		from, to = scope.From, scope.To
 	}
 
-	sc := NewSourceScanner(content)
+	sc, base := NewSourceScannerRange(content, from, to)
+
+	if base == 0 && !isScriptFile(content) {
+		queryTagColumns(content, name, inSkip, consider)
+	}
 
 	// read is the next token, with the two before it kept: a `.` before a
 	// name, and what that `.` follows.
@@ -101,7 +94,7 @@ func DeclaredQueryColumns(content, name string, before int, scope *QueryScope) (
 	}
 
 	for t := read(); t.Kind != TokEOF; t = read() {
-		if t.Kind != TokIdent || !strings.EqualFold(t.Value, name) || sc.PeekSkipComments().Kind != TokEquals || inSkip(t.Offset) {
+		if t.Kind != TokIdent || !strings.EqualFold(t.Value, name) || sc.PeekSkipComments().Kind != TokEquals || inSkip(base+t.Offset) {
 			continue
 		}
 
@@ -117,7 +110,7 @@ func DeclaredQueryColumns(content, name string, before int, scope *QueryScope) (
 			continue
 		}
 
-		start := t.Offset
+		start := base + t.Offset
 
 		eq := read() // =
 
@@ -139,6 +132,14 @@ func DeclaredQueryColumns(content, name string, before int, scope *QueryScope) (
 
 		arg := read()
 		if arg.Kind != TokString || len(arg.Value) < 2 {
+			consider(start, nil, false)
+
+			continue
+		}
+
+		// A string that goes on, `"SELECT id, " & cols & " FROM t"`, is the
+		// front of one that is not known.
+		if next := sc.PeekSkipComments(); next.Kind != TokComma && next.Kind != TokRParen {
 			consider(start, nil, false)
 
 			continue
@@ -516,4 +517,31 @@ func blankSQLComments(sql string) string {
 	}
 
 	return string(b)
+}
+
+// queryTagColumns reports to consider the columns of each <cfquery> named name
+// that is not in a skipped place: the query's SELECT, where it opens.
+func queryTagColumns(content, name string, inSkip func(int) bool, consider func(int, []string, bool)) {
+	var openAt, openEnd int
+
+	opened := false
+
+	for _, tag := range CFTags(content, "cfquery") {
+		if tag.Close {
+			if opened {
+				cols, known := sqlSelectColumns(content[openEnd:tag.Start])
+				consider(openAt, cols, known)
+			}
+
+			opened = false
+
+			continue
+		}
+
+		if v, has := tag.Attr("name"); has && !inSkip(tag.Start) && strings.EqualFold(unscoped(v), name) {
+			openAt, openEnd, opened = tag.Start, tag.End, true
+		} else {
+			opened = false
+		}
+	}
 }

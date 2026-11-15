@@ -1236,12 +1236,27 @@ func hashSegments(inner string) [][2]int {
 			continue
 		}
 
-		end := strings.IndexByte(inner[open+1:], '#')
+		// The expression ends at the next hash outside a string of its own:
+		// `#f( '#x#' )#` holds a string, which has hashes too.
+		end, quote := -1, byte(0)
+
+		for k := open + 1; k < len(inner) && end < 0; k++ {
+			switch c := inner[k]; {
+			case quote != 0:
+				if c == quote {
+					quote = 0
+				}
+			case c == '"' || c == '\'':
+				quote = c
+			case c == '#':
+				end = k
+			}
+		}
+
 		if end < 0 {
 			return out
 		}
 
-		end += open + 1
 		out = append(out, [2]int{open + 1, end})
 		from = end + 1
 	}
@@ -1316,6 +1331,23 @@ func matchingBack(toks []Token, i int, open, shut TokenKind) int {
 // function's own name is not a read.
 func (w *renameWalk) nestedRead(toks []Token, i int) {
 	t := toks[i]
+
+	// A string that names the variable, or reads it in a `#...#`.
+	if t.Kind == TokString && w.name != "" && len(t.Value) >= 2 {
+		inner := stringContent(t.Value)
+
+		mentioned := namesInPath(strings.ToLower(strings.TrimSpace(inner)), strings.ToLower(w.name))
+		for _, seg := range hashSegments(inner) {
+			mentioned = mentioned || hasWord(inner[seg[0]:seg[1]], w.name)
+		}
+
+		if mentioned {
+			w.fail("a function inside this one names '" + w.name + "' in a string, where no rename can follow it")
+		}
+
+		return
+	}
+
 	if t.Kind != TokIdent || w.name == "" || !strings.EqualFold(t.Value, w.name) {
 		return
 	}
@@ -1329,4 +1361,24 @@ func (w *renameWalk) nestedRead(toks []Token, i int) {
 	}
 
 	w.fail("a function inside this one reads '" + w.name + "', which this rename cannot follow")
+}
+
+// hasWord reports whether text holds word, without regard to case, as a word of
+// its own.
+func hasWord(text, word string) bool {
+	lower, word := strings.ToLower(text), strings.ToLower(word)
+
+	for from := 0; ; {
+		i := strings.Index(lower[from:], word)
+		if i < 0 {
+			return false
+		}
+
+		i += from
+		from = i + len(word)
+
+		if (i == 0 || !lex.IsIdent(lower[i-1])) && (from >= len(lower) || !lex.IsIdent(lower[from])) {
+			return true
+		}
+	}
 }

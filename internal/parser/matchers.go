@@ -435,44 +435,22 @@ type placeholderGlob struct{ parts []string }
 func (g *placeholderGlob) String() string { return strings.Join(g.parts, "$N") }
 
 func (g *placeholderGlob) Match(expr string) ([]string, bool) {
-	for start := 0; start <= len(expr); start += runeWidth(expr, start) {
-		if start+len(g.parts[0]) > len(expr) || !strings.EqualFold(expr[start:start+len(g.parts[0])], g.parts[0]) {
-			continue
-		}
+	m := lex.Wild{Accept: func(c byte) bool { return c != '\n' }, Least: 1}
 
-		if captures, ok := g.capture(expr, 1, start+len(g.parts[0]), nil, &FailedSet{On: len(g.parts) > 3}); ok {
+	var memo lex.WildMemo
+
+	for start := 0; start <= len(expr); start += runeWidth(expr, start) {
+		if runs, ok := m.MatchAt(expr, g.parts, start, &memo, true); ok {
+			captures := make([]string, len(runs))
+			for i, r := range runs {
+				captures[i] = expr[r[0]:r[1]]
+			}
+
 			return captures, true
 		}
 	}
 
 	return nil, false
-}
-
-// FailedSet remembers the (piece, position) pairs a bounded backtracking
-// match found to fail, so that the search is bounded by pieces times positions
-// where trying every split of the runs between many wildcards is exponential.
-// It is off when On is false, for a pattern with too few wildcards to explode,
-// and the map is made on the first failure. A match that failed from a piece
-// and position fails from it by any route.
-type FailedSet struct {
-	On bool
-	m  map[[2]int]bool
-}
-
-// Has reports whether the match failed from piece at pos.
-func (f *FailedSet) Has(piece, pos int) bool { return f.m[[2]int{piece, pos}] }
-
-// Add records that the match failed from piece at pos.
-func (f *FailedSet) Add(piece, pos int) {
-	if !f.On {
-		return
-	}
-
-	if f.m == nil {
-		f.m = map[[2]int]bool{}
-	}
-
-	f.m[[2]int{piece, pos}] = true
 }
 
 // runeWidth is the width of the character at i, one at the end of s.
@@ -484,40 +462,4 @@ func runeWidth(s string, i int) int {
 	_, width := utf8.DecodeRuneInString(s[i:])
 
 	return width
-}
-
-// capture reads the run before parts[i] from pos and the parts that follow,
-// the shortest run first. A run is whole characters, one or more, none a newline.
-//
-// A part that cannot be matched from a position cannot be from it by any other
-// route either, so failed remembers those: the search is bounded by the parts
-// times the positions, not by the ways to split the run between them.
-func (g *placeholderGlob) capture(expr string, i, pos int, so []string, failed *FailedSet) ([]string, bool) {
-	if i == len(g.parts) {
-		return so, true
-	}
-
-	if failed.Has(i, pos) {
-		return nil, false
-	}
-
-	lit := g.parts[i]
-
-	for end := pos; end < len(expr); {
-		if expr[end] == '\n' {
-			return nil, false
-		}
-
-		end += runeWidth(expr, end)
-
-		if end+len(lit) <= len(expr) && strings.EqualFold(expr[end:end+len(lit)], lit) {
-			if captures, ok := g.capture(expr, i+1, end+len(lit), append(so, expr[pos:end]), failed); ok {
-				return captures, true
-			}
-		}
-	}
-
-	failed.Add(i, pos)
-
-	return nil, false
 }

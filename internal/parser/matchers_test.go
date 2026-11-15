@@ -217,7 +217,7 @@ func TestPlaceholderGlobDoesNotBacktrackWithoutBound(t *testing.T) {
 	done := make(chan struct{})
 
 	go func() {
-		g.capture(expr, 1, 0, nil, &FailedSet{On: true})
+		g.Match(expr)
 		close(done)
 	}()
 
