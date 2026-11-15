@@ -1375,7 +1375,7 @@ func (w *renameWalk) nestedRead(toks []Token, i int) {
 
 		mentioned := namesInPath(strings.ToLower(strings.TrimSpace(inner)), strings.ToLower(w.name))
 		for _, seg := range hashSegments(inner) {
-			mentioned = mentioned || hasWord(inner[seg[0]:seg[1]], w.name)
+			mentioned = mentioned || hasWordFold(inner[seg[0]:seg[1]], w.name)
 		}
 
 		if mentioned {
@@ -1400,36 +1400,16 @@ func (w *renameWalk) nestedRead(toks []Token, i int) {
 	w.fail("a function inside this one reads '" + w.name + "', which this rename cannot follow")
 }
 
-// hasWord reports whether text holds word, without regard to case, as a word of
-// its own.
-func hasWord(text, word string) bool {
-	lower, word := strings.ToLower(text), strings.ToLower(word)
-
-	for from := 0; ; {
-		i := strings.Index(lower[from:], word)
-		if i < 0 {
-			return false
-		}
-
-		i += from
-		from = i + len(word)
-
-		if (i == 0 || !lex.IsIdent(lower[i-1])) && (from >= len(lower) || !lex.IsIdent(lower[from])) {
-			return true
-		}
-	}
-}
-
-// declaresOrCreates reports whether t is the word before a name that makes it a
-// function's or a type's name, `function foo(` and `new Foo(`: not a call.
-func declaresOrCreates(t Token) bool {
-	return t.Kind == TokIdent && (strings.EqualFold(t.Value, "function") || strings.EqualFold(t.Value, "new"))
-}
-
 // scriptTokens are the tokens of src read as CFScript, without the EOF that
 // tokenize ends with.
 func scriptTokens(src string) []Token {
 	toks := tokenize(src)
 
 	return toks[:len(toks)-1]
+}
+
+// declaresOrCreates reports whether t is the word before a name that makes it a
+// function's or a type's name, `function foo(` and `new Foo(`: not a call.
+func declaresOrCreates(t Token) bool {
+	return t.Kind == TokIdent && (strings.EqualFold(t.Value, "function") || strings.EqualFold(t.Value, "new"))
 }

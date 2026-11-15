@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/cfmleditor/clif/internal/conv"
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
 	"go.lsp.dev/protocol"
@@ -60,10 +59,7 @@ func (s *Server) handleInlayHint(_ context.Context, rawParams []byte) (any, erro
 		return []protocol.InlayHint{}, nil
 	}
 
-	lines := parser.NewLineTable(content)
-	line := lines.LineOf(end)
-	start, _ := lines.Start(line)
-	at := protocol.Position{Line: conv.Uint32(line), Character: newColMapper(content).col(conv.Uint32(line), conv.Uint32(end-start))}
+	at := rangePositioner(content, parser.NewLineTable(content))(end)
 
 	if !positionInRange(at, params.Range) {
 		return []protocol.InlayHint{}, nil

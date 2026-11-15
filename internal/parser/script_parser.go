@@ -4207,7 +4207,7 @@ func (p *scriptParser) scanParenArgs() (firstArg string, positional []string, ok
 		// or a ternary's `:`, and the string after it is a piece of an
 		// expression.
 		assign = (tok.Kind == TokEquals || tok.Kind == TokColon) && namesArgument
-		namesArgument = tok.Kind == TokIdent && argStart && depth == 1
+		namesArgument = (tok.Kind == TokIdent || tok.Kind == TokString) && argStart && depth == 1
 
 		if depth == 1 && collecting {
 			switch {

@@ -89,7 +89,6 @@ type Server struct {
 	funcRanges            map[uri.URI][]cache.FuncRange   // cached function line ranges per file
 	cacheTimers           map[uri.URI]*time.Timer         // debounce timers for completion cache rebuild
 	reindexTimers         map[uri.URI]*time.Timer         // deferred-reparse timers; see scheduleReparse
-	structureMu           sync.Mutex                      // orders a structure check's publish against a close
 	lifecycleCache        map[uri.URI]lifecycleCached     // the lifecycle actions of an Application.cfc, by text
 	structure             map[uri.URI]*structureState     // the open documents' structure checks; see scheduleStructureDiagnostics
 	structureStopped      bool                            // the server is going: no more checks are scheduled

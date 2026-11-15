@@ -46,6 +46,7 @@ func lifecycleCodeActions(t *testing.T, s *Server, docURI uri.URI) []protocol.Co
 
 	raw := makeCall(t, protocol.MethodTextDocumentCodeAction, protocol.CodeActionParams{
 		TextDocument: protocol.TextDocumentIdentifier{URI: docURI},
+		Range:        protocol.Range{End: protocol.Position{Line: 1000}},
 	})
 
 	got, err := s.handleCodeAction(context.Background(), raw)
@@ -309,5 +310,46 @@ func TestLifecycleStubsFollowTheIndentationOfTheFunctions(t *testing.T) {
 	got := applyActionEdit(t, src, one)
 	if !strings.Contains(got, "\n<cffunction name=\"onSessionStart\"") || !strings.Contains(got, "\n\t<cfargument") {
 		t.Errorf("the stub is not flush left like its siblings, with nested lines tab-indented:\n%s", got)
+	}
+}
+
+// The events are offered where the component is declared or closed.
+func TestLifecycleActionsAreOfferedOnTheDeclarationAndTheEnd(t *testing.T) {
+	dir := t.TempDir()
+	s := newTestServer()
+	s.WorkspaceFolders = []string{dir}
+
+	app := uri.File(filepath.Join(dir, "Application.cfc"))
+	openDoc(t, s, app, "component {\n\tthis.name = \"a\";\n\n\tthis.x = 1;\n}\n")
+
+	at := func(line uint32) int {
+		raw := makeCall(t, protocol.MethodTextDocumentCodeAction, protocol.CodeActionParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: app},
+			Range:        protocol.Range{Start: protocol.Position{Line: line}, End: protocol.Position{Line: line}},
+		})
+
+		got, err := s.handleCodeAction(context.Background(), raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		actions, _ := got.([]protocol.CodeAction)
+		n := 0
+
+		for i := range actions {
+			if strings.HasPrefix(actions[i].Title, "Add ") {
+				n++
+			}
+		}
+
+		return n
+	}
+
+	if at(0) == 0 || at(4) == 0 {
+		t.Error("the events are not offered on the declaration and the closing brace")
+	}
+
+	if got := at(1); got != 0 {
+		t.Errorf("%d events offered on a plain line", got)
 	}
 }

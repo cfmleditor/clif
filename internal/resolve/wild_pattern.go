@@ -35,17 +35,23 @@ type wildPattern struct {
 	atSegment bool
 }
 
-// accepts reports whether c may stand in a wildcard's run.
-func (k wildKind) accepts(c byte) bool {
+// accepts is the test of a byte that may stand in a wildcard's run. They are
+// functions of the package, not method values, so that choosing one allocates
+// nothing on the path of every match.
+func (k wildKind) accepts() func(c byte) bool {
 	switch k {
 	case wildWord:
-		return lex.IsWord(c)
+		return acceptWord
 	case wildSegment:
-		return c != '/'
+		return acceptSegment
 	default:
-		return c != '\n'
+		return acceptLine
 	}
 }
+
+func acceptWord(c byte) bool    { return lex.IsWord(c) }
+func acceptSegment(c byte) bool { return c != '/' }
+func acceptLine(c byte) bool    { return c != '\n' }
 
 // least is how many characters a wildcard's run holds at the fewest.
 func (k wildKind) least() int {
@@ -58,7 +64,7 @@ func (k wildKind) least() int {
 
 // match reports whether s fits the pattern, ignoring case.
 func (p *wildPattern) match(s string) bool {
-	m := lex.Wild{Accept: p.kind.accepts, Least: p.kind.least(), EndAnchored: true}
+	m := lex.Wild{Accept: p.kind.accepts(), Least: p.kind.least(), EndAnchored: true}
 
 	var memo lex.WildMemo
 

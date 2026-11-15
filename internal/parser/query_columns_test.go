@@ -57,7 +57,7 @@ func TestQueryColumns(t *testing.T) {
 		{"another query", "<cfquery name=\"a\">SELECT id FROM u</cfquery>", "b", nil, false},
 		{"the last declaration wins", "<cfquery name=\"q\">SELECT a FROM t</cfquery><cfquery name=\"q\">SELECT b, c FROM t</cfquery>", "q", []string{"b", "c"}, true},
 		{"queryNew", `<cfset q = queryNew( "id,name,email", "integer,varchar,varchar" )>`, "q", []string{"id", "name", "email"}, true},
-		{"queryNew in script", "function f() {\n var q = queryNew(\"a, b\");\n q.\n}", "q", []string{"a", "b"}, true},
+		{"queryNew in script", "function f() {\n var q = queryNew(\"a, b\");\n q.\n", "q", []string{"a", "b"}, true},
 		{"queryExecute", `var rs = queryExecute( "SELECT id, title FROM posts WHERE id = :id", { id = 1 } );`, "rs", []string{"id", "title"}, true},
 		{"queryExecute with a star", `rs = queryExecute( "SELECT * FROM posts" );`, "rs", nil, false},
 		{"queryExecute built from a variable", `rs = queryExecute( sqlText );`, "rs", nil, false},
@@ -192,7 +192,7 @@ func TestQueryColumnsReadBracketAliasesAndHashLists(t *testing.T) {
 }
 
 func TestQueryColumnsAfterACaseLabel(t *testing.T) {
-	src := "function f( t ) {\n switch ( t ) { case 1: users = queryNew( \"id,name\" ); break; }\n"
+	src := "function f( t ) {\n switch ( t ) { case 1: users = queryNew( \"id,name\" ); break; \n"
 	if got, ok := QueryColumns(src, "users", len(src)); !ok || !slices.Equal(got, []string{"id", "name"}) {
 		t.Errorf("got %q %v, want the columns assigned after case 1:", got, ok)
 	}
@@ -215,5 +215,27 @@ func TestMayDeclareQueryNamed(t *testing.T) {
 		if got := MayDeclareQueryNamed(src, name); got != want {
 			t.Errorf("%q: got %v, want %v", name, got, want)
 		}
+	}
+}
+
+func TestQueryColumnsAfterABranchAreUnknown(t *testing.T) {
+	for _, src := range []string{
+		"<cfset users = queryNew(\"a\")><cfif x><cfset users = queryNew(\"b\")></cfif>",
+		"users = queryNew( \"a\" );\nif ( x ) { users = queryNew( \"b\" ); }\n",
+	} {
+		if got, ok := QueryColumns(src, "users", len(src)); ok {
+			t.Errorf("%s: got %q known after a conditional reassignment", src, got)
+		}
+	}
+
+	// Inside the branch the assignment applies; a branch that did not change it leaves the columns.
+	inside := "users = queryNew( \"a\" );\nif ( x ) { users = queryNew( \"b\" ); users."
+	if got, ok := QueryColumns(inside, "users", len(inside)); !ok || !slices.Equal(got, []string{"b"}) {
+		t.Errorf("inside the branch: got %q %v, want b", got, ok)
+	}
+
+	other := "users = queryNew( \"a\" );\nif ( x ) { y = 1; }\n"
+	if got, ok := QueryColumns(other, "users", len(other)); !ok || !slices.Equal(got, []string{"a"}) {
+		t.Errorf("an unrelated branch: got %q %v, want a", got, ok)
 	}
 }

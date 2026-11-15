@@ -73,12 +73,8 @@ func (s *Server) scheduleStructureDiagnostics(docURI uri.URI) {
 // cancelStructureDiagnostics stops a pending check of docURI, and takes its
 // diagnostics back: the document is closed.
 func (s *Server) cancelStructureDiagnostics(ctx context.Context, docURI uri.URI) {
-	// A check already running publishes under this lock, and only while its
-	// document still has its state: one that finishes after the close has
-	// nothing left to publish.
-	s.structureMu.Lock()
-	defer s.structureMu.Unlock()
-
+	// A check already running, which publishes with no lock held, finds its
+	// document closed afterwards and takes its own publication back.
 	s.mu.Lock()
 
 	published := false
@@ -158,17 +154,27 @@ func (s *Server) publishStructureDiagnostics(docURI uri.URI) {
 
 	found := structureDiagnosticsFrom(content, spans)
 
-	s.structureMu.Lock()
-	defer s.structureMu.Unlock()
+	if !s.structureRunIsLatest(docURI, run) {
+		return
+	}
 
-	if s.structureRunIsLatest(docURI, run) {
-		s.setDiagnostics(context.Background(), docURI, sourceStructure, found)
+	// Sent with no lock held: a slow client must not stall a close. A close
+	// that comes between the check above and the send has already taken the
+	// document's diagnostics back, so the send is followed by a look at whether
+	// the document is still open, and a take-back if it is not.
+	s.setDiagnostics(context.Background(), docURI, sourceStructure, found)
 
-		s.mu.Lock()
-		if st := s.structure[docURI]; st != nil {
-			st.published = true
-		}
-		s.mu.Unlock()
+	s.mu.Lock()
+
+	st := s.structure[docURI]
+	if st != nil {
+		st.published = true
+	}
+
+	s.mu.Unlock()
+
+	if st == nil {
+		s.setDiagnostics(context.Background(), docURI, sourceStructure, nil)
 	}
 }
 

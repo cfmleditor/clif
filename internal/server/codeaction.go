@@ -33,7 +33,7 @@ func (s *Server) handleCodeAction(_ context.Context, rawParams []byte) (any, err
 	// They are refactorings: a client asking only for quick fixes has no use
 	// for the scan that finds them.
 	if wantsKind(params.Context.Only, protocol.CodeActionKindRefactor) {
-		actions = append(actions, s.lifecycleActions(params.TextDocument.URI, content)...)
+		actions = append(actions, s.lifecycleActions(params.TextDocument.URI, content, params.Range)...)
 	}
 
 	// Offered only on a line that looks as if it holds a call, so it is not

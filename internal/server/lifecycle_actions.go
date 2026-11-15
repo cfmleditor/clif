@@ -69,7 +69,7 @@ var lifecycleStubs = []lifecycleStub{
 // Application.cfc does not yet declare: one for each, and one for all of
 // them. They are offered in an Application.cfc only, written as the component
 // is written, tags or script.
-func (s *Server) lifecycleActions(docURI uri.URI, content string) []protocol.CodeAction {
+func (s *Server) lifecycleActions(docURI uri.URI, content string, at protocol.Range) []protocol.CodeAction {
 	if !strings.EqualFold(filepath.Base(cfpath.FromURI(string(docURI))), "Application.cfc") {
 		return nil
 	}
@@ -80,32 +80,40 @@ func (s *Server) lifecycleActions(docURI uri.URI, content string) []protocol.Cod
 	cached, ok := s.lifecycleCache[docURI]
 	s.mu.RUnlock()
 
-	if ok && cached.content == content {
-		return cached.actions
+	if !ok || cached.content != content {
+		// Read from the text alone: nothing here waits on the parse an edit
+		// defers.
+		cached = lifecycleCached{content: content}
+		cached.actions, cached.lines = s.buildLifecycleActions(docURI, content)
 	}
-
-	// Read from the text alone: nothing here waits on the parse an edit defers.
-	actions := s.buildLifecycleActions(docURI, content)
 
 	// Kept while the document is open, decided under the lock a close takes
 	// the document away under, so one racing a close does not outlive it.
 	s.mu.Lock()
 	if _, open := s.documents[docURI]; open {
-		s.lifecycleCache[docURI] = lifecycleCached{content: content, actions: actions}
+		s.lifecycleCache[docURI] = cached
 	}
 	s.mu.Unlock()
 
-	return actions
+	// Offered where the component is declared or closed, not on every line.
+	for _, line := range cached.lines {
+		if int(at.Start.Line) <= line && line <= int(at.End.Line) {
+			return cached.actions
+		}
+	}
+
+	return nil
 }
 
 // lifecycleCached is the lifecycle actions of one version of a document.
 type lifecycleCached struct {
 	content string
 	actions []protocol.CodeAction
+	lines   []int // the lines they are offered on: the component's declaration and its end
 }
 
 // buildLifecycleActions is lifecycleActions for an Application.cfc, uncached.
-func (s *Server) buildLifecycleActions(docURI uri.URI, content string) []protocol.CodeAction {
+func (s *Server) buildLifecycleActions(docURI uri.URI, content string) ([]protocol.CodeAction, []int) {
 	declared := declaredFunctionNames(content)
 
 	var missing []lifecycleStub
@@ -117,15 +125,20 @@ func (s *Server) buildLifecycleActions(docURI uri.URI, content string) []protoco
 	}
 
 	if len(missing) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	// The body's end is a scan of the file: only an application that lacks an
 	// event is worth it.
 	end, tags, ok := parser.ComponentBodyEnd(content)
 	if !ok {
-		return nil
+		return nil, nil
 	}
+
+	lines := parser.NewLineTable(content)
+
+	openAt, textEnd, _ := parser.ComponentDeclarationBounds(content)
+	where := []int{lines.LineOf(openAt), lines.LineOf(textEnd), lines.LineOf(end)}
 
 	var actions []protocol.CodeAction
 
@@ -149,7 +162,7 @@ func (s *Server) buildLifecycleActions(docURI uri.URI, content string) []protoco
 		add("Add "+st.name+"() to Application.cfc", []lifecycleStub{st})
 	}
 
-	return actions
+	return actions, where
 }
 
 // parseResultOf is docURI's parse, or nil.
@@ -176,24 +189,23 @@ func declaredFunctionNames(content string) map[string]bool {
 		}
 	}
 
-	var toks []parser.Token
+	// A window of the last five tokens read, the oldest first: the tokens are
+	// not all held.
+	var win [5]parser.Token
+
+	n := 0
 
 	sc := parser.NewSourceScanner(content)
-	for t := sc.NextSkipComments(); t.Kind != parser.TokEOF; t = sc.NextSkipComments() {
-		toks = append(toks, t)
-	}
+	for t := sc.NextSkipComments(); ; t = sc.NextSkipComments() {
+		copy(win[:], win[1:])
+		win[len(win)-1] = t
 
-	for i := range toks {
-		switch {
-		case toks[i].Kind != parser.TokIdent:
-		case strings.EqualFold(toks[i].Value, "function") && i+2 < len(toks) &&
-			toks[i+1].Kind == parser.TokIdent && toks[i+2].Kind == parser.TokLParen && (i == 0 || toks[i-1].Kind != parser.TokDot):
-			out[strings.ToLower(toks[i+1].Value)] = true
-		case strings.EqualFold(toks[i].Value, "this") && i+3 < len(toks) && (i == 0 || toks[i-1].Kind != parser.TokDot) &&
-			toks[i+1].Kind == parser.TokDot && toks[i+2].Kind == parser.TokIdent && toks[i+3].Kind == parser.TokEquals &&
-			(i+4 >= len(toks) || toks[i+4].Kind != parser.TokEquals):
-			// `this.onError = function( e ) { ... }`
-			out[strings.ToLower(toks[i+2].Value)] = true
+		n++
+
+		markDeclared(out, win[:], n)
+
+		if t.Kind == parser.TokEOF {
+			break
 		}
 	}
 
@@ -319,4 +331,27 @@ func indentLines(text, indent string) string {
 // comment or a doc comment's line: its blanks are not the code's indentation.
 func isCommentLine(trimmed string) bool {
 	return strings.HasPrefix(trimmed, "*") || strings.HasPrefix(trimmed, "/*") || strings.HasPrefix(trimmed, "//") || strings.HasPrefix(trimmed, "<!--")
+}
+
+// markDeclared adds to out what the window win, the last five tokens read (n
+// read in all) ends the declaration of: `function name(`, or `this.name =` (and
+// not `==`), each looked for where the token before it was not a `.`.
+func markDeclared(out map[string]bool, win []parser.Token, n int) {
+	// win[4] is the newest. `this . name =` is win[0..3] with win[4] after it.
+	if n >= 5 {
+		a, b, c, d, e := win[0], win[1], win[2], win[3], win[4]
+
+		if a.Kind == parser.TokIdent && strings.EqualFold(a.Value, "this") &&
+			b.Kind == parser.TokDot && c.Kind == parser.TokIdent && d.Kind == parser.TokEquals && e.Kind != parser.TokEquals {
+			out[strings.ToLower(c.Value)] = true
+		}
+	}
+
+	if n >= 3 {
+		a, b, c := win[2], win[3], win[4]
+
+		if a.Kind == parser.TokIdent && strings.EqualFold(a.Value, "function") && b.Kind == parser.TokIdent && c.Kind == parser.TokLParen {
+			out[strings.ToLower(b.Value)] = true
+		}
+	}
 }

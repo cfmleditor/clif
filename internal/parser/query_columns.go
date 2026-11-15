@@ -44,9 +44,17 @@ func DeclaredQueryColumns(content, name string, before int, scope *QueryScope) (
 
 	best := -1
 
+	// depth is how many blocks are open at the token being read, braces and the
+	// tags that hold a branch; a declaration made in a block that has closed by
+	// the cursor happened only if the branch was taken: the columns are not
+	// known. bestDepth is the depth of the declaration that is the latest, and
+	// leastSince how shallow it has been since.
+	depth, bestDepth, leastSince := 0, 0, 0
+
 	consider := func(start int, cols []string, known bool) {
 		if start < before && start > best {
 			best, columns, ok = start, cols, known && len(cols) > 0
+			bestDepth, leastSince = depth, depth
 		}
 	}
 
@@ -82,6 +90,12 @@ func DeclaredQueryColumns(content, name string, before int, scope *QueryScope) (
 			inLabel = true
 		case t.Kind == TokSemicolon || t.Kind == TokLBrace || t.Kind == TokRBrace:
 			inLabel = false
+		}
+
+		depth = max(depth+blockChange(t, prev, owner), 0)
+
+		if best >= 0 && base+t.Offset < before {
+			leastSince = min(leastSince, depth)
 		}
 
 		return t
@@ -154,7 +168,39 @@ func DeclaredQueryColumns(content, name string, before int, scope *QueryScope) (
 		}
 	}
 
+	if ok && leastSince < bestDepth {
+		return nil, false // a branch that was not certainly taken
+	}
+
 	return columns, ok
+}
+
+// blockChange is how t changes the depth of blocks open: a brace, or the tag
+// that opens or closes a branch (`<cfif>`, `</cfloop>`).
+func blockChange(t, prev, owner Token) int {
+	switch {
+	case t.Kind == TokLBrace:
+		return 1
+	case t.Kind == TokRBrace:
+		return -1
+	case t.Kind != TokIdent || prev.Kind == TokDot:
+		return 0
+	}
+
+	switch strings.ToLower(t.Value) {
+	case "cfif", "cfloop", "cfswitch", "cftry", "cfcase", "cfdefaultcase", "cfcatch", "cffinally", "cfwhile":
+	default:
+		return 0
+	}
+
+	switch {
+	case prev.Kind == TokLT:
+		return 1
+	case prev.Kind == TokSlash && owner.Kind == TokLT:
+		return -1
+	default:
+		return 0
+	}
 }
 
 // splitColumnList is the names in a queryNew column list, "id,name".

@@ -20,3 +20,15 @@ func TestFirstArgumentIsNotAComparedString(t *testing.T) {
 		}
 	}
 }
+
+func TestFirstArgumentWithAStringLabel(t *testing.T) {
+	for src, want := range map[string]string{
+		`"name": "Provider" )`: "Provider",
+		`"a" = "Provider" )`:   "Provider",
+	} {
+		got, _ := newScriptParser(src, "f.cfc", 0, nil).scanParenBody()
+		if got != want {
+			t.Errorf("%s: got %q, want %q", src, got, want)
+		}
+	}
+}
