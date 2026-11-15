@@ -318,7 +318,7 @@ func TestAnOldStructureRunCannotReplaceReopenedDiagnostics(t *testing.T) {
 
 	fresh := &structureState{latest: 2}
 	s.structure[docURI] = fresh
-	current := []protocol.Diagnostic{{Message: "new opening"}}
+	current := []protocol.Diagnostic{{Message: protocol.String("new opening")}}
 	s.publishStructureRun(docURI, structureRun{st: fresh, gen: 2}, current)
 	s.publishStructureRun(docURI, structureRun{st: old, gen: 1}, nil)
 
