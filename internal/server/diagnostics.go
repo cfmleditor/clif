@@ -77,9 +77,8 @@ func (s *Server) setDiagnostics(ctx context.Context, u uri.URI, source string, d
 
 // setDiagnosticsIf is setDiagnostics, made only if ok, asked under the lock that
 // orders the sends: a result that is no longer the latest is dropped with
-// nothing between the question and the store for a newer one to pass. It
-// reports whether it was made.
-func (s *Server) setDiagnosticsIf(ctx context.Context, u uri.URI, source string, d []protocol.Diagnostic, ok func() bool) bool {
+// nothing between the question and the store for a newer one to pass.
+func (s *Server) setDiagnosticsIf(ctx context.Context, u uri.URI, source string, d []protocol.Diagnostic, ok func() bool) {
 	// Stored and sent together: two sources publishing at once would otherwise
 	// reach the client in the other order than they were stored, and an older
 	// set would stay over a newer. The cost is that a client slow to read holds
@@ -89,12 +88,10 @@ func (s *Server) setDiagnosticsIf(ctx context.Context, u uri.URI, source string,
 	defer s.diagSendMu.Unlock()
 
 	if ok != nil && !ok() {
-		return false
+		return
 	}
 
 	s.notify(ctx, protocol.MethodTextDocumentPublishDiagnostics, s.storeDiagnostics(u, source, d))
-
-	return true
 }
 
 // storeDiagnostics is setDiagnostics without the publish: it records d and

@@ -429,3 +429,22 @@ func TestAMemberNamedLikeAnEventDeclaresNothing(t *testing.T) {
 		t.Errorf("a member declared an event: %v", got)
 	}
 }
+
+func TestLifecycleActionEditUsesDocumentVersion(t *testing.T) {
+	s := newTestServer()
+	s.clientDocChanges = true
+
+	app := uri.File(filepath.Join(t.TempDir(), "Application.cfc"))
+	openDoc(t, s, app, "component {\n}\n")
+	s.setDocVersion(app, 42)
+
+	action, ok := actionTitled(lifecycleCodeActions(t, s, app), "Add onSessionStart() to Application.cfc")
+	if !ok || action.Edit == nil || len(action.Edit.DocumentChanges) != 1 {
+		t.Fatalf("expected one versioned edit, got %+v", action)
+	}
+
+	edit, ok := action.Edit.DocumentChanges[0].(*protocol.TextDocumentEdit)
+	if !ok || edit.TextDocument.Version == nil || *edit.TextDocument.Version != 42 {
+		t.Fatalf("expected document version 42, got %+v", action.Edit.DocumentChanges[0])
+	}
+}

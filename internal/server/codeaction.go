@@ -18,6 +18,12 @@ func (s *Server) handleCodeAction(_ context.Context, rawParams []byte) (any, err
 		return nil, err
 	}
 
+	if _, open := s.getDocument(params.TextDocument.URI); !open {
+		return nil, nil
+	}
+
+	defer s.lockDocOnly(params.TextDocument.URI)()
+
 	content, ok := s.getDocument(params.TextDocument.URI)
 	if !ok {
 		return nil, nil
@@ -33,7 +39,14 @@ func (s *Server) handleCodeAction(_ context.Context, rawParams []byte) (any, err
 	// They are refactorings: a client asking only for quick fixes has no use
 	// for the scan that finds them.
 	if wantsKind(params.Context.Only, protocol.CodeActionKindRefactor) {
-		actions = append(actions, s.lifecycleActions(params.TextDocument.URI, content, params.Range)...)
+		u := params.TextDocument.URI
+		lifecycle := s.lifecycleActions(u, content, params.Range)
+
+		for i := range lifecycle {
+			action := lifecycle[i]
+			action.Edit = s.documentEdit(u, action.Edit.Changes[u])
+			actions = append(actions, action)
+		}
 	}
 
 	// Offered only on a line that looks as if it holds a call, so it is not

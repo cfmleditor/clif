@@ -845,6 +845,10 @@ func (s *Server) queryColumnItems(docURI uri.URI, content, name string, line, ch
 		return nil
 	}
 
+	if owner := queryReceiverQualifier(content, line, char); owner != "" {
+		name = owner + "." + name
+	}
+
 	return queryColumnItems(content, name, line, char, s.functionSpansOfDoc(docURI, content))
 }
 
@@ -864,9 +868,21 @@ func queryColumnItems(content, name string, line, char int, spans []parser.Funct
 
 	var scope *parser.QueryScope
 
-	if around != nil {
+	switch {
+	case around != nil && strings.HasPrefix(name, "variables."):
+		// The component (or page) can initialize variables outside this function.
+		// Assignments in other functions do not run just because they occur first.
+		scope = &parser.QueryScope{}
+
+		for i := range spans {
+			sp := &spans[i]
+			if sp.Start > around.Start || sp.End < around.End {
+				scope.Skip = append(scope.Skip, *sp)
+			}
+		}
+	case around != nil:
 		scope = &parser.QueryScope{From: around.Start, To: around.End}
-	} else if len(spans) > 0 {
+	case len(spans) > 0:
 		// Outside every function: what the functions declare is theirs.
 		scope = &parser.QueryScope{Skip: spans}
 	}
@@ -909,9 +925,15 @@ func queryColumnItems(content, name string, line, char int, spans []parser.Funct
 // is a member of another object, `cfg.users.`: it is not the variable of that
 // name. A `local.` or `variables.` before it is the variable's own scope.
 func memberOfAnother(content string, line, char int) bool {
+	owner := queryReceiverQualifier(content, line, char)
+
+	return owner != "" && owner != "local" && owner != "variables"
+}
+
+func queryReceiverQualifier(content string, line, char int) string {
 	name := parser.WordBeforeDot(content, line, char)
 	if name == "" {
-		return false
+		return ""
 	}
 
 	// The dot before the word, and the word before that dot.
@@ -919,10 +941,16 @@ func memberOfAnother(content string, line, char int) bool {
 
 	dot := char - 2 - len(name) // the dot after the word is at char-1, the word before it
 	if dot < 0 || dot >= len(text) || text[dot] != '.' {
-		return false
+		return ""
 	}
 
 	owner := strings.ToLower(parser.WordBeforeDot(content, line, dot+1))
+	if owner != "" {
+		ownerStart := dot - len(owner)
+		if ownerStart == 0 || text[ownerStart-1] != '.' {
+			return owner
+		}
+	}
 
-	return owner != "local" && owner != "variables"
+	return "."
 }

@@ -32,6 +32,12 @@ import (
 var version = "dev"
 
 func main() {
+	if code := runMain(); code != 0 {
+		os.Exit(code)
+	}
+}
+
+func runMain() int {
 	stopProfiling := startProfiling()
 	defer stopProfiling()
 
@@ -45,13 +51,13 @@ func main() {
 			if wantsHelp(args) {
 				fmt.Print(cmd.usage)
 
-				return
+				return 0
 			}
 
 			tuneBatchMemory(systemMemory())
 			cmd.run(args)
 
-			return
+			return 0
 		}
 
 		switch name {
@@ -63,25 +69,31 @@ func main() {
 		case "version", "--version", "-version", "-v":
 			fmt.Printf("clif %s\n", version)
 
-			return
+			return 0
 		case "help", "--help", "-h":
 			// "help <command>" is that command's --help.
 			if len(args) > 0 {
 				if cmd, ok := subcommands()[args[0]]; ok {
 					fmt.Print(cmd.usage)
 
-					return
+					return 0
 				}
 			}
 
 			printHelp()
 
-			return
+			return 0
 		}
+
+		fmt.Fprintf(os.Stderr, "clif: unknown command or option %q (see clif --help)\n", name)
+
+		return 2
 	}
 
 	// Default: run LSP server, supervised (supervise.go)
 	serveLanguage()
+
+	return 0
 }
 
 func printHelp() {
