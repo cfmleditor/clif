@@ -615,7 +615,7 @@ func (s *Server) handleDidClose(ctx context.Context, rawParams []byte) (any, err
 	docURI := params.TextDocument.URI
 
 	// lockDocOnly: a deferred reparse of a document being closed is wasted.
-	release := s.lockDocOnly(docURI)
+	defer s.lockDocOnly(docURI)()
 
 	s.removeDocument(docURI)
 
@@ -648,8 +648,6 @@ func (s *Server) handleDidClose(ctx context.Context, rawParams []byte) (any, err
 	}
 
 	s.mu.Unlock()
-
-	release()
 
 	// s.docLocks deliberately keeps its entry. Stop() reports false for a timer
 	// whose goroutine has already started, and that goroutine is by then

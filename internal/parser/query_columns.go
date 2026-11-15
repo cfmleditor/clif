@@ -17,7 +17,7 @@ import (
 func QueryColumns(content, name string, before int) (columns []string, ok bool) {
 	// Dot completion asks on every `.`: a file that declares no query cannot
 	// have this one, and the tag search and tokenize below are passes over it.
-	if !MayDeclareQueryNamed(content, name) {
+	if !MayDeclareQueryNamed(content, unscoped(name)) {
 		return nil, false
 	}
 
@@ -38,6 +38,11 @@ type QueryScope struct {
 func DeclaredQueryColumns(content, name string, before int, scope *QueryScope) (columns []string, ok bool) {
 	if name == "" {
 		return nil, false
+	}
+
+	qualifier, variable, qualified := strings.Cut(name, ".")
+	if qualified {
+		name = variable
 	}
 
 	inSkip := scope.skips
@@ -70,7 +75,7 @@ func DeclaredQueryColumns(content, name string, before int, scope *QueryScope) (
 	sc, base := sourceScannerRange(content, from, to, script)
 
 	if !script {
-		queryTagColumns(content, name, inSkip, consider, func(d int) { depth = d })
+		queryTagColumns(content, name, qualifier, qualified, inSkip, consider, func(d int) { depth = d })
 
 		depth = 0
 	}
@@ -106,6 +111,17 @@ func DeclaredQueryColumns(content, name string, before int, scope *QueryScope) (
 	for t := read(); t.Kind != TokEOF; t = read() {
 		if t.Kind != TokIdent || !strings.EqualFold(t.Value, name) || inSkip(base+t.Offset) {
 			continue
+		}
+
+		if qualified {
+			switch {
+			case prev.Kind == TokDot:
+				if !strings.EqualFold(owner.Value, qualifier) {
+					continue
+				}
+			case !strings.EqualFold(qualifier, "local"):
+				continue
+			}
 		}
 
 		// `for ( var users in rows )` binds the name to another value.
@@ -600,7 +616,7 @@ var blockTagNames = []string{"cfif", "cfloop", "cfswitch", "cftry", "cfcase", "c
 // queryTagColumns reports to consider the columns of each <cfquery> named name
 // that is not in a skipped place: the query's SELECT, where it opens. setDepth
 // is told how many branch tags are open at each, as the token walk counts them.
-func queryTagColumns(content, name string, inSkip func(int) bool, consider func(int, []string, bool), setDepth func(int)) {
+func queryTagColumns(content, name, qualifier string, qualified bool, inSkip func(int) bool, consider func(int, []string, bool), setDepth func(int)) {
 	var openAt, openEnd, openDepth int
 
 	opened := false
@@ -642,12 +658,23 @@ func queryTagColumns(content, name string, inSkip func(int) bool, consider func(
 			consider(tag.Start, nil, false)
 
 			opened = false
-		case has && strings.EqualFold(unscoped(v), name):
+		case has && queryTagNameMatches(v, name, qualifier, qualified):
 			openAt, openEnd, openDepth, opened = tag.Start, tag.End, depth, true
 		default:
 			opened = false
 		}
 	}
+}
+
+func queryTagNameMatches(value, name, qualifier string, qualified bool) bool {
+	if !qualified {
+		return strings.EqualFold(unscoped(value), name)
+	}
+
+	value = strings.TrimSpace(value)
+
+	return strings.EqualFold(value, qualifier+"."+name) ||
+		strings.EqualFold(qualifier, "local") && strings.EqualFold(value, name)
 }
 
 // skips reports whether a declaration at off is left out of the scope: before or

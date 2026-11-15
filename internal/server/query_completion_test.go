@@ -150,3 +150,17 @@ func TestMemberOfAnotherReadsALongerLine(t *testing.T) {
 		t.Error("a bare name is a member")
 	}
 }
+
+func TestQueryColumnsDistinguishExplicitScopes(t *testing.T) {
+	text := "component {\nfunction f() {\n local.rows = queryNew(\"local_id\");\n variables.rows = queryNew(\"component_id\");\n local.rows.\n variables.rows.\n}\n}\n"
+
+	local := dotCompletionLabels(t, text, 4, uint32(len(" local.rows.")))
+	if !hasLabel(local, "local_id") || hasLabel(local, "component_id") {
+		t.Errorf("local.rows columns = %q, want local_id only", local)
+	}
+
+	variables := dotCompletionLabels(t, text, 5, uint32(len(" variables.rows.")))
+	if !hasLabel(variables, "component_id") || hasLabel(variables, "local_id") {
+		t.Errorf("variables.rows columns = %q, want component_id only", variables)
+	}
+}

@@ -78,6 +78,9 @@ func main() {
 
 			return
 		}
+
+		fmt.Fprintf(os.Stderr, "clif: unknown command or option %q (see clif --help)\n", name)
+		os.Exit(2)
 	}
 
 	// Default: run LSP server, supervised (supervise.go)

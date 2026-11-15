@@ -73,28 +73,23 @@ func (s *Server) scheduleStructureDiagnostics(docURI uri.URI) {
 // cancelStructureDiagnostics stops a pending check of docURI, and takes its
 // diagnostics back: the document is closed.
 func (s *Server) cancelStructureDiagnostics(ctx context.Context, docURI uri.URI) {
-	// A check already running finds its document closed after its send, and
-	// takes its own publication back.
-	s.mu.Lock()
+	s.setDiagnosticsIf(ctx, docURI, sourceStructure, nil, func() bool {
+		s.mu.Lock()
+		defer s.mu.Unlock()
 
-	published := false
-
-	if st := s.structure[docURI]; st != nil {
-		published = st.published
+		st := s.structure[docURI]
+		if st == nil {
+			return false
+		}
 
 		if st.timer != nil {
 			st.timer.Stop()
 		}
-	}
 
-	delete(s.structure, docURI)
+		delete(s.structure, docURI)
 
-	s.mu.Unlock()
-
-	// Only what was published is taken back.
-	if published {
-		s.setDiagnostics(ctx, docURI, sourceStructure, nil)
-	}
+		return st.published
+	})
 }
 
 // structureRun is a check of one opening of a document: the state of that
@@ -126,6 +121,11 @@ func (s *Server) structureRunIsLatest(docURI uri.URI, run structureRun) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
+	return s.isLatestStructureRun(docURI, run)
+}
+
+// isLatestStructureRun requires s.mu to be held.
+func (s *Server) isLatestStructureRun(docURI uri.URI, run structureRun) bool {
 	return run.st != nil && s.structure[docURI] == run.st && run.st.latest == run.gen
 }
 
@@ -160,30 +160,23 @@ func (s *Server) publishStructureDiagnostics(docURI uri.URI) {
 	}
 
 	found := structureDiagnosticsFrom(content, spans)
+	s.publishStructureRun(docURI, run, found)
+}
 
-	// Whether the run is still the latest is asked under the lock that orders the
-	// sends, so no newer run can be sent between the question and the send. A
-	// close that comes after has already taken the document's diagnostics back,
-	// so the send is followed by a look at whether the opening it was for
-	// is still the one open: if the document was closed, the publication is
-	// taken back; if it was reopened, the new opening's own run publishes, and
-	// the close has already cleared this one.
-	if !s.setDiagnosticsIf(context.Background(), docURI, sourceStructure, found, func() bool { return s.structureRunIsLatest(docURI, run) }) {
-		return // a newer check, or a close, has the say
-	}
+func (s *Server) publishStructureRun(docURI uri.URI, run structureRun, found []protocol.Diagnostic) {
+	// A close invalidates the opening under the same lock that orders sends.
+	s.setDiagnosticsIf(context.Background(), docURI, sourceStructure, found, func() bool {
+		s.mu.Lock()
+		defer s.mu.Unlock()
 
-	s.mu.Lock()
+		if !s.isLatestStructureRun(docURI, run) {
+			return false
+		}
 
-	current := s.structure[docURI]
-	if current == run.st {
 		run.st.published = true
-	}
 
-	s.mu.Unlock()
-
-	if current == nil {
-		s.setDiagnostics(context.Background(), docURI, sourceStructure, nil)
-	}
+		return true
+	})
 }
 
 // stopStructureDiagnostics stops every pending check: the server is going.
