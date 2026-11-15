@@ -16,7 +16,11 @@ func TestComponentDeclarationEnd(t *testing.T) {
 		{"tag with a > in a value", `<cfcomponent hint="a > b">` + "\nx", ">\nx", true},
 		{"upper case", "COMPONENT {\n}", "{\n}", true},
 		{"no component", "<cfset x = 1>", "", false},
-		{"a brace before any declaration", "{ x = 1 } component {}", "", false},
+		{"a struct literal in a tag before the declaration", "<cfset x = {}>\n<cfcomponent>\n</cfcomponent>", ">\n</cfcomponent", true},
+		{"a balanced block before the declaration", "{ x = 1 } component {}", "{}", true},
+		{"an unbalanced brace before any declaration", "{ x = 1 component {}", "", false},
+		{"a script interface", "interface {\n}", "{\n}", true},
+		{"a tag interface", "<cfinterface>\n</cfinterface>", ">\n</cfinterface", true},
 		{"empty", "", "", false},
 	} {
 		t.Run(c.name, func(t *testing.T) {

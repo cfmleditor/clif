@@ -91,3 +91,11 @@ func TestBraceIndexIgnoresQuotesInMarkup(t *testing.T) {
 		t.Error("the closing brace after the markup was lost")
 	}
 }
+
+// A <cfscript> block is script whatever its strings spell.
+func TestBraceIndexReadsAScriptRegionAsScript(t *testing.T) {
+	content := "<cfscript>\nx = \"<cfif a>{#listLast( p, \"{\" )#\";\nif ( a ) {\n b();\n}\n</cfscript>\n"
+	if !blockClosedBetween(content, 3, 6) {
+		t.Error("the block closed after the string was lost")
+	}
+}

@@ -53,6 +53,7 @@ func TestPlanLocalRename(t *testing.T) {
 		{"an assignment after else, a type and a condition is not a label", "component {\n function f( a ) {\n  var numeric ¦count = 0;\n  if ( a ) count = 1; else count = 2;\n  return count;\n }\n}", "component {\n function f( a ) {\n  var numeric N = 0;\n  if ( a ) N = 1; else N = 2;\n  return N;\n }\n}"},
 		{"a nested quote in a hash expression", "component {\n function f() {\n  var x = 1;\n  return \"#g( '#¦x#' )#\";\n }\n}", "component {\n function f() {\n  var N = 1;\n  return \"#g( '#N#' )#\";\n }\n}"},
 		{"a var with no semicolon ends at its line", "component {\n function f() {\n  var ¦x\n  y = 1\n  return x\n }\n}", "component {\n function f() {\n  var N\n  y = 1\n  return N\n }\n}"},
+		{"a static call's qualifier is a component", "component {\n function f( id ) {\n  var user = User::find( id );\n  return ¦user;\n }\n}", "component {\n function f( id ) {\n  var N = User::find( id );\n  return N;\n }\n}"},
 		{"a comment is left", "component {\n function f() {\n  var count = 0; // count it\n  return ¦count;\n }\n}", "component {\n function f() {\n  var N = 0; // count it\n  return N;\n }\n}"},
 		{"a variable a closure declares for itself", "component {\n function f( l ) {\n  var x = 1;\n  l.each( function( i ) {\n   var ¦x = i;\n   g( x );\n  } );\n  return x;\n }\n}", "component {\n function f( l ) {\n  var x = 1;\n  l.each( function( i ) {\n   var N = i;\n   g( N );\n  } );\n  return x;\n }\n}"},
 		{"the outer variable, from inside a closure that only uses it", "component {\n function f( l ) {\n  var x = 1;\n  l.each( function( i ) {\n   g( ¦x + i );\n  } );\n  return x;\n }\n}", "component {\n function f( l ) {\n  var N = 1;\n  l.each( function( i ) {\n   g( N + i );\n  } );\n  return N;\n }\n}"},
@@ -323,5 +324,17 @@ func TestParametersWithOtherAttributesKeepTheirNames(t *testing.T) {
 	got := paramNames(`required any a inject="svcA", required any b inject="svcB", string c = "x" hint="h"`)
 	if !slices.Equal(got, []string{"a", "b", "c"}) {
 		t.Errorf("got %q", got)
+	}
+}
+
+func TestOperatorWordsAreNotVariableNames(t *testing.T) {
+	for _, w := range []string{"greater", "Equal", "than", "to", "less", "does", "contain"} {
+		if ClassifyVariableName(w) != NameReserved {
+			t.Errorf("%q is not refused as a new name", w)
+		}
+	}
+
+	if ClassifyVariableName("total") != NameFree {
+		t.Error("an ordinary name is refused")
 	}
 }

@@ -98,7 +98,7 @@ func newBraceIndex(content string) braceIndex {
 			continue
 		}
 
-		sc := parser.NewSourceScanner(r.Text)
+		sc := parser.NewScriptScanner(r.Text) // the region is script, whatever its text spells
 
 		for tok := sc.NextSkipComments(); tok.Kind != parser.TokEOF; tok = sc.NextSkipComments() {
 			switch tok.Kind {

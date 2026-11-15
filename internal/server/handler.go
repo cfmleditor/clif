@@ -346,13 +346,17 @@ func (s *Server) handleDidChange(_ context.Context, rawParams []byte) (any, erro
 		return nil, nil
 	}
 
+	// The structure is checked once the document has been left alone a moment,
+	// whichever way this change is applied. Registered first, so that it runs
+	// last, after the document's lock is released: scheduling takes the
+	// server's lock, which a keystroke has no need to hold the document's for.
+	if s.Features.StructureDiagnostics {
+		defer s.scheduleStructureDiagnostics(docURI)
+	}
+
 	// Not lockDoc: that would run the reparse deferred by the last keystroke
 	// before this one, which is the cost deferring exists to avoid.
 	defer s.lockDocOnly(docURI)()
-
-	// The structure is checked once the document has been left alone a moment,
-	// whichever way this change is applied.
-	defer s.scheduleStructureDiagnostics(docURI)
 
 	s.mu.RLock()
 	pr := s.parseResults[docURI]

@@ -171,3 +171,10 @@ func TestQueryColumnsOfAConcatenatedStringAreUnknown(t *testing.T) {
 		}
 	}
 }
+
+func TestQueryColumnsForgetAComputedQueryName(t *testing.T) {
+	src := "<cfquery name=\"users\">SELECT id FROM u</cfquery>\n<cfquery name=\"#qName#\">SELECT x FROM v</cfquery>\n"
+	if got, ok := QueryColumns(src, "users", len(src)); ok {
+		t.Errorf("got %q known after a query whose name is computed", got)
+	}
+}

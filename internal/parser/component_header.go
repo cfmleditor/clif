@@ -8,6 +8,7 @@ package parser
 func ComponentDeclarationEnd(content string) (offset int, ok bool) {
 	sc := NewScriptScanner(content)
 	inDeclaration := false
+	depth := 0 // braces open before the declaration: `<cfset x = {}>`, a struct
 
 	for {
 		t := sc.NextSkipComments()
@@ -18,10 +19,12 @@ func ComponentDeclarationEnd(content string) (offset int, ok bool) {
 		case t.Kind == TokLBrace && inDeclaration, t.Kind == TokGT && inDeclaration:
 			return t.Offset, true
 		case t.Kind == TokLBrace:
-			// A brace before any declaration: not a component.
-			return 0, false
-		case t.Kind == TokIdent && !inDeclaration:
-			inDeclaration = identEq(t.Value, "component") || identEq(t.Value, "cfcomponent")
+			depth++
+		case t.Kind == TokRBrace:
+			depth = max(depth-1, 0)
+		case t.Kind == TokIdent && !inDeclaration && depth == 0:
+			inDeclaration = identEq(t.Value, "component") || identEq(t.Value, "cfcomponent") ||
+				identEq(t.Value, "interface") || identEq(t.Value, "cfinterface")
 		}
 	}
 }
@@ -40,7 +43,7 @@ func ComponentBodyEnd(content string) (offset int, tags, ok bool) {
 		// The last closing tag that is one: not a word in a comment.
 		at := -1
 
-		for _, tag := range CFTags(content, "cfcomponent") {
+		for _, tag := range CFTags(content, "cfcomponent", "cfinterface") {
 			if tag.Close {
 				at = tag.Start
 			}

@@ -539,9 +539,20 @@ func queryTagColumns(content, name string, inSkip func(int) bool, consider func(
 			continue
 		}
 
-		if v, has := tag.Attr("name"); has && !inSkip(tag.Start) && strings.EqualFold(unscoped(v), name) {
+		v, has := tag.Attr("name")
+
+		switch {
+		case has && inSkip(tag.Start):
+			opened = false
+		case has && strings.Contains(v, "#"):
+			// A name computed at run time may be any: what was known of the
+			// variable before it no longer holds.
+			consider(tag.Start, nil, false)
+
+			opened = false
+		case has && strings.EqualFold(unscoped(v), name):
 			openAt, openEnd, opened = tag.Start, tag.End, true
-		} else {
+		default:
 			opened = false
 		}
 	}

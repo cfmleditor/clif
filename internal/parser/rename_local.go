@@ -86,12 +86,21 @@ const (
 	NameStatementWord
 )
 
+// operatorWords are the words of CFML's longhand operators that hardReserved
+// does not hold, `a is greater than or equal to b`. They are not refused as the
+// name a variable has now, `var to = 1`, which reads where an expression stands,
+// but a new name must not be one: a function that spells the operator would read
+// the variable as part of it.
+var operatorWords = map[string]bool{
+	"equal": true, "greater": true, "less": true, "than": true, "does": true, "contain": true, "to": true,
+}
+
 // ClassifyVariableName says whether name, in any case, may be a variable's.
 func ClassifyVariableName(name string) NameWord {
 	lower := strings.ToLower(name)
 
 	switch {
-	case hardReserved[lower]:
+	case hardReserved[lower], operatorWords[lower]:
 		return NameReserved
 	case statementWords[lower]:
 		return NameStatementWord
@@ -917,6 +926,11 @@ func classifyWord(toks []Token, i int, st *bracketState) wordKind {
 		case prev.Kind == TokIdent && strings.EqualFold(prev.Value, "new"):
 			return wordOther // `new Foo()` names a type
 		}
+	}
+
+	// `User::find()`: the qualifier is a component's name.
+	if i+1 < len(toks) && toks[i+1].Kind == TokDoubleColon {
+		return wordOther
 	}
 
 	if i+1 < len(toks) {
