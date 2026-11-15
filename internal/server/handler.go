@@ -289,6 +289,12 @@ func (s *Server) handleDidOpen(_ context.Context, rawParams []byte) (any, error)
 		return nil, nil
 	}
 
+	// Scheduled when the lock is released: scheduling takes the server's lock,
+	// which an open has no need to hold the document's for.
+	if s.Features.StructureDiagnostics {
+		defer s.scheduleStructureDiagnostics(docURI)
+	}
+
 	defer s.lockDoc(docURI)()
 
 	// Lines end at a bare \r too, as the editor counts them; a document that
@@ -318,7 +324,6 @@ func (s *Server) handleDidOpen(_ context.Context, rawParams []byte) (any, error)
 	s.mu.Unlock()
 
 	s.reindexFromParseResult(docURI, pr)
-	s.scheduleStructureDiagnostics(docURI)
 
 	s.safeGo("rebuildFileCompletionCacheFromPR", func() {
 		defer s.lockDoc(docURI)()

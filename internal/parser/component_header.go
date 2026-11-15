@@ -10,7 +10,9 @@ func ComponentDeclarationEnd(content string) (offset int, ok bool) {
 	inDeclaration := false
 	depth := 0 // braces open before the declaration: `<cfset x = {}>`, a struct
 
-	for {
+	var prev Token
+
+	for budget := declarationTokens; budget > 0; budget-- {
 		t := sc.NextSkipComments()
 
 		switch {
@@ -23,9 +25,37 @@ func ComponentDeclarationEnd(content string) (offset int, ok bool) {
 		case t.Kind == TokRBrace:
 			depth = max(depth-1, 0)
 		case t.Kind == TokIdent && !inDeclaration && depth == 0:
-			inDeclaration = identEq(t.Value, "component") || identEq(t.Value, "cfcomponent") ||
-				identEq(t.Value, "interface") || identEq(t.Value, "cfinterface")
+			inDeclaration = opensDeclaration(t, prev)
 		}
+
+		prev = t
+	}
+
+	return 0, false
+}
+
+// declarationTokens is how many tokens ComponentDeclarationEnd reads before it
+// decides a text declares no component: a header is a few, however long a
+// struct literal before it, and a text that declares none is not read to its end
+// on each request.
+const declarationTokens = 2000
+
+// opensDeclaration reports whether the word t, which follows prev, names the
+// component or interface the text declares: the tag `<cfcomponent`, or the
+// script word where it is not a member, a value or an argument.
+func opensDeclaration(t, prev Token) bool {
+	switch {
+	case identEq(t.Value, "cfcomponent"), identEq(t.Value, "cfinterface"):
+		return prev.Kind == TokLT
+	case identEq(t.Value, "component"), identEq(t.Value, "interface"):
+		switch prev.Kind {
+		case TokDot, TokEquals, TokLParen, TokComma, TokColon, TokLT:
+			return false
+		default:
+			return true
+		}
+	default:
+		return false
 	}
 }
 

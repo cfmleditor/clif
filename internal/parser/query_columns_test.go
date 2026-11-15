@@ -178,3 +178,15 @@ func TestQueryColumnsForgetAComputedQueryName(t *testing.T) {
 		t.Errorf("got %q known after a query whose name is computed", got)
 	}
 }
+
+func TestQueryColumnsReadBracketAliasesAndHashLists(t *testing.T) {
+	got, known := sqlSelectColumns("SELECT id AS [user id], name, `a b` FROM t")
+	if !known || !slices.Equal(got, []string{"user id", "name", "a b"}) {
+		t.Errorf("got %q %v", got, known)
+	}
+
+	src := "users = queryNew( \"id,#extra#\" );\n"
+	if cols, ok := QueryColumns(src, "users", len(src)); ok {
+		t.Errorf("a list with a hash expression is known: %q", cols)
+	}
+}

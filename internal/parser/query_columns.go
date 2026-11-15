@@ -150,7 +150,8 @@ func DeclaredQueryColumns(content, name string, before int, scope *QueryScope) (
 
 		switch {
 		case strings.EqualFold(fn.Value, "queryNew"):
-			consider(start, splitColumnList(text), true)
+			// A list with a `#...#` is not the text it spells.
+			consider(start, splitColumnList(text), !strings.Contains(text, "#"))
 		case strings.EqualFold(fn.Value, "queryExecute"):
 			cols, known := sqlSelectColumns(text)
 			consider(start, cols, known)
@@ -350,8 +351,13 @@ func columnName(item string) string {
 			depth++
 		case c == ')':
 			depth--
-		case c == '\'' || c == '"':
+		case c == '\'' || c == '"' || c == '`':
 			i = skipSQLString(item, i)
+		case c == '[':
+			// `[user id]`: a name in brackets holds blanks.
+			if end := strings.IndexByte(item[i:], ']'); end >= 0 {
+				i += end
+			}
 		case depth == 0 && lex.IsRegexpSpace(c):
 			cut = i
 		}
