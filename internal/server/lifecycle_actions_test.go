@@ -105,7 +105,13 @@ func TestLifecycleActionsAddTheEventsAnApplicationLacks(t *testing.T) {
 	}
 
 	filled := applyActionEdit(t, src, all)
+
 	for _, st := range lifecycleStubs {
+		// The events whose stub changes what a request does are left out.
+		if changesRequests[strings.ToLower(st.name)] {
+			continue
+		}
+
 		if !strings.Contains(strings.ToLower(filled), "function "+strings.ToLower(st.name)+"(") {
 			t.Errorf("%s is not in the filled component", st.name)
 		}
@@ -115,9 +121,14 @@ func TestLifecycleActionsAddTheEventsAnApplicationLacks(t *testing.T) {
 		t.Error("onApplicationStart was added again")
 	}
 
-	// And the result is a component that declares every event.
+	// And the result is a component that declares every event the action adds.
 	declared := declaredFunctionNames(filled)
+
 	for _, st := range lifecycleStubs {
+		if changesRequests[strings.ToLower(st.name)] {
+			continue
+		}
+
 		if !declared[strings.ToLower(st.name)] {
 			t.Errorf("the filled component does not parse as declaring %s", st.name)
 		}
@@ -351,5 +362,63 @@ func TestLifecycleActionsAreOfferedOnTheDeclarationAndTheEnd(t *testing.T) {
 
 	if got := at(1); got != 0 {
 		t.Errorf("%d events offered on a plain line", got)
+	}
+}
+
+func TestTheBulkActionLeavesOutEventsThatChangeRequests(t *testing.T) {
+	dir := t.TempDir()
+	s := newTestServer()
+	s.WorkspaceFolders = []string{dir}
+
+	app := uri.File(filepath.Join(dir, "Application.cfc"))
+	src := "component {\n\tthis.name = \"a\";\n}\n"
+	openDoc(t, s, app, src)
+
+	all, ok := actionTitled(lifecycleCodeActions(t, s, app), "Add all missing application events to Application.cfc")
+	if !ok {
+		t.Fatal("the bulk action is missing")
+	}
+
+	got := applyActionEdit(t, src, all)
+	for _, risky := range []string{"onError", "onCFCRequest", "onRequest(", "onMissingTemplate", "onAbort"} {
+		if strings.Contains(got, "function "+risky) {
+			t.Errorf("%s is in the bulk action", risky)
+		}
+	}
+
+	if !strings.Contains(got, "function onSessionStart") {
+		t.Error("an inert event is missing from the bulk action")
+	}
+
+	// Each is still offered on its own.
+	if _, ok := actionTitled(lifecycleCodeActions(t, s, app), "Add onError() to Application.cfc"); !ok {
+		t.Error("onError is not offered on its own")
+	}
+}
+
+func TestStubsAreWrittenWithBareCRLineBreaksWhenTheFileHasThem(t *testing.T) {
+	dir := t.TempDir()
+	s := newTestServer()
+	s.WorkspaceFolders = []string{dir}
+
+	app := uri.File(filepath.Join(dir, "Application.cfc"))
+	raw := "component {\r\tthis.name = \"a\";\r}\r"
+	open := makeCall(t, protocol.MethodTextDocumentDidOpen, protocol.DidOpenTextDocumentParams{
+		TextDocument: protocol.TextDocumentItem{URI: app, LanguageID: "cfml", Version: 1, Text: raw},
+	})
+
+	if _, err := s.handleDidOpen(context.Background(), open); err != nil {
+		t.Fatal(err)
+	}
+
+	one, ok := actionTitled(lifecycleCodeActions(t, s, app), "Add onSessionStart() to Application.cfc")
+	if !ok {
+		t.Fatal("onSessionStart is not offered")
+	}
+
+	for _, edits := range one.Edit.Changes {
+		if strings.Contains(edits[0].NewText, "\n") {
+			t.Errorf("a line feed in an edit to a CR-only file: %q", edits[0].NewText)
+		}
 	}
 }

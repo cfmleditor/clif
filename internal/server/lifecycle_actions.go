@@ -2,6 +2,7 @@ package server
 
 import (
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/parser"
@@ -65,6 +66,12 @@ var lifecycleStubs = []lifecycleStub{
 	},
 }
 
+// changesRequests are the lifecycle events whose stub is not inert: declaring one
+// takes a behaviour from the engine's default.
+var changesRequests = map[string]bool{
+	"onerror": true, "oncfcrequest": true, "onrequest": true, "onmissingtemplate": true, "onabort": true,
+}
+
 // lifecycleActions are the code actions that add the application events an
 // Application.cfc does not yet declare: one for each, and one for all of
 // them. They are offered in an Application.cfc only, written as the component
@@ -99,7 +106,7 @@ func (s *Server) lifecycleActions(docURI uri.URI, content string, at protocol.Ra
 	// Offered where the component is declared or closed, not on every line.
 	for _, line := range cached.lines {
 		if int(at.Start.Line) <= line && line <= int(at.End.Line) {
-			return cached.actions
+			return s.withCRLineBreaks(docURI, cached.actions)
 		}
 	}
 
@@ -155,8 +162,20 @@ func (s *Server) buildLifecycleActions(docURI uri.URI, content string) ([]protoc
 		})
 	}
 
-	if len(missing) > 1 {
-		add("Add all missing application events to Application.cfc", missing)
+	// The bulk action leaves out the events whose stub changes what a request
+	// does: one handler that swallows exceptions, runs no CFC method, serves a
+	// blank page for a missing template or ends the request early is no
+	// placeholder. Each is still offered on its own.
+	var inert []lifecycleStub
+
+	for _, st := range missing {
+		if !changesRequests[strings.ToLower(st.name)] {
+			inert = append(inert, st)
+		}
+	}
+
+	if len(inert) > 1 {
+		add("Add all missing application events to Application.cfc", inert)
 	}
 
 	for _, st := range missing {
@@ -355,4 +374,40 @@ func markDeclared(out map[string]bool, win []parser.Token, n int) {
 			out[strings.ToLower(b.Value)] = true
 		}
 	}
+}
+
+// withCRLineBreaks is actions with the line feeds of their edits written as the
+// document writes them, when it ends its lines with a bare \r: an edit must not
+// write line feeds into it. The actions are the cache's, so the edits are copied.
+func (s *Server) withCRLineBreaks(docURI uri.URI, actions []protocol.CodeAction) []protocol.CodeAction {
+	s.mu.RLock()
+	crOnly := s.crOnlyDocs[docURI]
+	s.mu.RUnlock()
+
+	if !crOnly {
+		return actions
+	}
+
+	out := slices.Clone(actions)
+
+	for i := range out {
+		if out[i].Edit == nil {
+			continue
+		}
+
+		changes := make(map[uri.URI][]protocol.TextEdit, len(out[i].Edit.Changes))
+
+		for u, edits := range out[i].Edit.Changes {
+			edits = slices.Clone(edits)
+			for j := range edits {
+				edits[j].NewText = strings.ReplaceAll(edits[j].NewText, "\n", "\r")
+			}
+
+			changes[u] = edits
+		}
+
+		out[i].Edit = &protocol.WorkspaceEdit{Changes: changes}
+	}
+
+	return out
 }

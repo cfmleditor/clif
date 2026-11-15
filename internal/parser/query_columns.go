@@ -17,7 +17,7 @@ import (
 func QueryColumns(content, name string, before int) (columns []string, ok bool) {
 	// Dot completion asks on every `.`: a file that declares no query cannot
 	// have this one, and the tag search and tokenize below are passes over it.
-	if !MayDeclareQuery(content) {
+	if !MayDeclareQueryNamed(content, name) {
 		return nil, false
 	}
 
@@ -673,9 +673,9 @@ func (sc *QueryScope) skips(off int) bool {
 
 // MayDeclareQueryNamed is MayDeclareQuery for the query called name: the text
 // spells such a declaration, and spells the name where a variable is set or a
-// <cfquery> is named, `name =` or `name="name"`. A dot after a word that is
-// never set that way is not a query's, and the tag search and tokenize are
-// not made for it.
+// <cfquery> is named: `name =`, `local.name =`, `name="name"`, `name="local.name"`
+// or `name=name`. A dot after a word that is never set that way is not a query's,
+// and the tag search and tokenize are not made for it.
 func MayDeclareQueryNamed(content, name string) bool {
 	if name == "" || !MayDeclareQuery(content) {
 		return false
@@ -695,22 +695,46 @@ func MayDeclareQueryNamed(content, name string) bool {
 			continue
 		}
 
-		// `name =`, but not `name ==`
+		// `name =`, but not `name ==`: also `local.name =`, whose dot comes before.
 		rest := strings.TrimLeft(content[end:], " \t")
 		if strings.HasPrefix(rest, "=") && !strings.HasPrefix(rest, "==") {
 			return true
 		}
 
-		// `name="users"`: the name is in quotes, after an `=`.
-		if i > 0 && (content[i-1] == '"' || content[i-1] == '\'') {
-			before := strings.TrimRight(content[:i-1], " \t")
-			if strings.HasSuffix(before, "=") {
-				return true
-			}
+		// `name="users"`, `name="local.users"`, `name=users`: the name follows an
+		// `=`, past a quote and a scope.
+		if followsEquals(content, i) {
+			return true
 		}
 	}
 
 	return false
+}
+
+// followsEquals reports whether the word at i follows `=`, past a quote and a
+// scope in front of it (`local.`, `variables.`).
+func followsEquals(content string, i int) bool {
+	j := i
+
+	// A scope before the word.
+	if j > 1 && content[j-1] == '.' {
+		k := j - 1
+		for k > 0 && lex.IsIdent(content[k-1]) {
+			k--
+		}
+
+		if scope := strings.ToLower(content[k : j-1]); scope == "local" || scope == "variables" {
+			j = k
+		}
+	}
+
+	if j > 0 && (content[j-1] == '"' || content[j-1] == '\'') {
+		j--
+	}
+
+	before := strings.TrimRight(content[:j], " \t")
+
+	return strings.HasSuffix(before, "=") && !strings.HasSuffix(before, "==")
 }
 
 // assignsAt reports whether a word after prev, which follows owner, is the target

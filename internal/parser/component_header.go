@@ -1,20 +1,13 @@
 package parser
 
-// ComponentDeclarationEnd is the byte offset where a component's declaration
-// ends: the `{` that opens a script component's body, or the `>` of a
-// <cfcomponent> tag. ok is false for text that declares none. The declaration
-// is read by the script scanner, so a brace or `>` in a quoted value, and
-// anything in a comment before it, is no end of it.
-func ComponentDeclarationEnd(content string) (offset int, ok bool) {
-	offset, _, ok = componentDeclaration(content)
-
-	return offset, ok
-}
-
-// ComponentDeclarationBounds is ComponentDeclarationEnd with the byte offset
-// just past the last word of the declaration: before the blanks and any comment
-// that lead to the `{` on a line of its own, and just past the `>` of a tag
-// component. It is where a mark of the declaration belongs.
+// ComponentDeclarationBounds is where a component's declaration ends: open is
+// the byte offset of the `{` that opens a script component's body, or the `>` of
+// a <cfcomponent> tag, and textEnd the offset just past the last word of the
+// declaration, before the blanks and any comment that lead to a `{` on a line of
+// its own, and just past a tag's `>`: where a mark of the declaration belongs. ok
+// is false for text that declares none. The declaration is read by the script
+// scanner, so a brace or `>` in a quoted value, and anything in a comment before
+// it, is no end of it.
 func ComponentDeclarationBounds(content string) (open, textEnd int, ok bool) {
 	return componentDeclaration(content)
 }
@@ -62,7 +55,7 @@ func componentDeclaration(content string) (open, textEnd int, ok bool) {
 	return 0, 0, false
 }
 
-// declarationTokens is how many tokens ComponentDeclarationEnd reads before it
+// declarationTokens is how many tokens ComponentDeclarationBounds reads before it
 // decides a text declares no component: a header is a few, however long a
 // struct literal before it, and a text that declares none is not read to its end
 // on each request.
@@ -92,7 +85,7 @@ func opensDeclaration(t, prev Token) bool {
 // and whether the component is written as tags. ok is false when the text
 // declares no component or never closes it.
 func ComponentBodyEnd(content string) (offset int, tags, ok bool) {
-	open, ok := ComponentDeclarationEnd(content)
+	open, _, ok := ComponentDeclarationBounds(content)
 	if !ok {
 		return 0, false, false
 	}

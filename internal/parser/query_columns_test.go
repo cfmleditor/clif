@@ -271,3 +271,20 @@ func TestQueryExecuteThatReturnsNoQueryHasNoColumns(t *testing.T) {
 		}
 	}
 }
+
+func TestMayDeclareQueryNamedAcceptsScopedAndBareNames(t *testing.T) {
+	for _, src := range []string{
+		"<cfquery name=\"local.users\">select a from t</cfquery>",
+		"<cfquery name=\"variables.users\">select a from t</cfquery>",
+		"<cfquery name=users>select a from t</cfquery>",
+		"local.users = queryNew( \"a\" );",
+	} {
+		if !MayDeclareQueryNamed(src, "users") {
+			t.Errorf("%s: the gate refuses a declaration QueryColumns reads", src)
+		}
+
+		if got, ok := QueryColumns(src, "users", len(src)); !ok || len(got) != 1 {
+			t.Errorf("%s: got %q %v", src, got, ok)
+		}
+	}
+}

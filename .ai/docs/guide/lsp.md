@@ -24,7 +24,7 @@ Declared in `Server.capabilities()` (`internal/server/server.go`):
   reports `$any` and `$builtin.` as unknown. A return type counts only when dotted: a bare
   word is far more often `struct` than a component in the same directory.
 - `textDocument/inlayHint` (`internal/server/inlay_hint.go`) shows a component's own dot path beside
-  its declaration, `Path: (models.User)`, from `parser.ComponentDeclarationEnd` and the path
+  its declaration, `Path: (models.User)`, from `parser.ComponentDeclarationBounds` and the path
   `clif.copyPackage` answers. **Opt-in** (`features.inlayHints`, default off; advertised only when
   on). An Application.cfc and anything that is not a .cfc has none.
 - `clif.searchDocs` (query, "tag" | "function" | "all", limit) and `clif.docEntry` (name, kind)

@@ -2,7 +2,7 @@ package parser
 
 import "testing"
 
-func TestComponentDeclarationEnd(t *testing.T) {
+func TestComponentDeclarationBounds(t *testing.T) {
 	for _, c := range []struct {
 		name, src, at string // at is the text the offset points at, with what follows
 		ok            bool
@@ -27,7 +27,7 @@ func TestComponentDeclarationEnd(t *testing.T) {
 		{"empty", "", "", false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			at, ok := ComponentDeclarationEnd(c.src)
+			at, _, ok := ComponentDeclarationBounds(c.src)
 			if ok != c.ok {
 				t.Fatalf("ok is %v, want %v", ok, c.ok)
 			}
@@ -68,7 +68,7 @@ func TestComponentBodyEnd(t *testing.T) {
 func TestAnAttributeNamedComponentIsNotTheDeclaration(t *testing.T) {
 	src := "<cfinvoke component=\"x\" method=\"y\">\n<cfcomponent>\n</cfcomponent>"
 
-	open, ok := ComponentDeclarationEnd(src)
+	open, _, ok := ComponentDeclarationBounds(src)
 	if !ok || src[open:min(len(src), open+len(">\n</cfcomponent"))] != ">\n</cfcomponent" {
 		t.Errorf("offset %d is at %q, want the > of <cfcomponent>", open, src[open:])
 	}
