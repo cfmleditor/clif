@@ -72,7 +72,7 @@ Declared in `Server.capabilities()` (`internal/server/server.go`):
   Application.cfc, one refactor action for each application event the component does not declare
   (`onSessionStart`, `onRequestStart`, …) and one for all of them, written as the component is
   written (script or tags) and inserted before the body's closing `}` or `</cfcomponent>`
-  (`parser.ComponentBodyEnd`). What is declared is read from the parse, so case does not matter.
+  (`parser.ComponentBodyEnd`). What is declared (`function name(`, `<cffunction name>` or `this.name =`) is read from a window of tokens over the text, not from the parse, so case does not matter and nothing waits on a reparse an edit deferred.
 - **Structure diagnostics** (`internal/server/structure_diagnostics.go`, `parser.TagProblems`) publish
   what is wrong with a document's CF tags as it is opened and edited, under the source `clif`:
   unclosed tags, closing tags with no opener, tags outside the tag they belong to (`<cfcatch>` in

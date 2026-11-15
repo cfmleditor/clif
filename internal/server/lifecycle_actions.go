@@ -85,15 +85,16 @@ func (s *Server) lifecycleActions(docURI uri.URI, content string, at protocol.Ra
 		// defers.
 		cached = lifecycleCached{content: content}
 		cached.actions, cached.lines = s.buildLifecycleActions(docURI, content)
-	}
 
-	// Kept while the document is open, decided under the lock a close takes
-	// the document away under, so one racing a close does not outlive it.
-	s.mu.Lock()
-	if _, open := s.documents[docURI]; open {
-		s.lifecycleCache[docURI] = cached
+		// Kept while the document is open, decided under the lock a close takes
+		// the document away under, so one racing a close does not outlive it.
+		// Only a version made here is stored: a hit takes no write lock.
+		s.mu.Lock()
+		if _, open := s.documents[docURI]; open {
+			s.lifecycleCache[docURI] = cached
+		}
+		s.mu.Unlock()
 	}
-	s.mu.Unlock()
 
 	// Offered where the component is declared or closed, not on every line.
 	for _, line := range cached.lines {

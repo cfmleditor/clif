@@ -72,6 +72,12 @@ func diagKey(u uri.URI) string {
 // setDiagnostics replaces one source's diagnostics for a file and publishes the
 // file's merged set. Empty d removes the source.
 func (s *Server) setDiagnostics(ctx context.Context, u uri.URI, source string, d []protocol.Diagnostic) {
+	// Stored and sent together: two sources publishing at once would otherwise
+	// reach the client in the other order than they were stored, and an older
+	// set would stay over a newer.
+	s.diagSendMu.Lock()
+	defer s.diagSendMu.Unlock()
+
 	s.notify(ctx, protocol.MethodTextDocumentPublishDiagnostics, s.storeDiagnostics(u, source, d))
 }
 

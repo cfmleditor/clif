@@ -97,29 +97,36 @@ func (s *Server) cancelStructureDiagnostics(ctx context.Context, docURI uri.URI)
 	}
 }
 
-// startStructureRun is the number of a check of docURI of the text as it stands:
-// its generation, which an edit changes, so the check is the latest only until
-// the next edit. ok is false when the document is not open.
-func (s *Server) startStructureRun(docURI uri.URI) (run uint64, ok bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	st := s.structure[docURI]
-	if st == nil {
-		return 0, false
-	}
-
-	return st.latest, true
+// structureRun is a check of one opening of a document: the state of that
+// opening, and the generation of the text the check began with. An edit gives
+// the state a new generation, and a close ends the state, so a run is the latest
+// only until either, and a run of an earlier opening is never the latest of a
+// reopened one.
+type structureRun struct {
+	st  *structureState
+	gen uint64
 }
 
-// structureRunIsLatest reports whether run is still the latest check of docURI.
-func (s *Server) structureRunIsLatest(docURI uri.URI, run uint64) bool {
+// startStructureRun is the run of a check of docURI as it stands. ok is false
+// when the document is not open.
+func (s *Server) startStructureRun(docURI uri.URI) (run structureRun, ok bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	st := s.structure[docURI]
+	if st == nil {
+		return structureRun{}, false
+	}
 
-	return st != nil && st.latest == run
+	return structureRun{st: st, gen: st.latest}, true
+}
+
+// structureRunIsLatest reports whether run is still the latest check of docURI.
+func (s *Server) structureRunIsLatest(docURI uri.URI, run structureRun) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return run.st != nil && s.structure[docURI] == run.st && run.st.latest == run.gen
 }
 
 // publishStructureDiagnostics checks the structure of docURI as it stands and
@@ -137,7 +144,7 @@ func (s *Server) publishStructureDiagnostics(docURI uri.URI) {
 
 	content, open := s.getDocument(docURI)
 
-	var run uint64
+	var run structureRun
 	if open {
 		run, open = s.startStructureRun(docURI)
 	}
@@ -164,16 +171,18 @@ func (s *Server) publishStructureDiagnostics(docURI uri.URI) {
 	// the document is still open, and a take-back if it is not.
 	s.setDiagnostics(context.Background(), docURI, sourceStructure, found)
 
+	// The mark is on the opening the run began in; of a reopened document it is
+	// not.
 	s.mu.Lock()
 
-	st := s.structure[docURI]
-	if st != nil {
-		st.published = true
+	stillOpen := s.structure[docURI] == run.st
+	if stillOpen {
+		run.st.published = true
 	}
 
 	s.mu.Unlock()
 
-	if st == nil {
+	if !stillOpen {
 		s.setDiagnostics(context.Background(), docURI, sourceStructure, nil)
 	}
 }

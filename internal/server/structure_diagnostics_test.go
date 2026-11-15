@@ -225,7 +225,7 @@ func TestAStructureRunOfAnEarlierOpeningIsNotTheLatest(t *testing.T) {
 
 	fresh, _ := s.startStructureRun(docURI)
 	if s.structureRunIsLatest(docURI, old) || !s.structureRunIsLatest(docURI, fresh) {
-		t.Errorf("old run %d latest %v, fresh run %d latest %v", old, s.structureRunIsLatest(docURI, old), fresh, s.structureRunIsLatest(docURI, fresh))
+		t.Errorf("old run %v latest %v, fresh run %v latest %v", old, s.structureRunIsLatest(docURI, old), fresh, s.structureRunIsLatest(docURI, fresh))
 	}
 
 	s.stopStructureDiagnostics()

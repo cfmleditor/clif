@@ -90,6 +90,7 @@ type Server struct {
 	cacheTimers           map[uri.URI]*time.Timer         // debounce timers for completion cache rebuild
 	reindexTimers         map[uri.URI]*time.Timer         // deferred-reparse timers; see scheduleReparse
 	lifecycleCache        map[uri.URI]lifecycleCached     // the lifecycle actions of an Application.cfc, by text
+	diagSendMu            sync.Mutex                      // orders a diagnostics store with its publish
 	structure             map[uri.URI]*structureState     // the open documents' structure checks; see scheduleStructureDiagnostics
 	structureStopped      bool                            // the server is going: no more checks are scheduled
 	structureSeq          uint64                          // the last structure check started, over all documents

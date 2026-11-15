@@ -239,3 +239,15 @@ func TestQueryColumnsAfterABranchAreUnknown(t *testing.T) {
 		t.Errorf("an unrelated branch: got %q %v, want a", got, ok)
 	}
 }
+
+func TestQueryColumnsOfACFQueryInABranchAreUnknown(t *testing.T) {
+	src := "<cfif a><cfquery name=\"q\" datasource=\"d\">select a, b from t</cfquery></cfif>\n"
+	if got, ok := QueryColumns(src, "q", len(src)); ok {
+		t.Errorf("got %q known for a query declared in a branch that closed", got)
+	}
+
+	inside := "<cfif a><cfquery name=\"q\">select a, b from t</cfquery>"
+	if got, ok := QueryColumns(inside, "q", len(inside)); !ok || !slices.Equal(got, []string{"a", "b"}) {
+		t.Errorf("inside the branch: got %q %v", got, ok)
+	}
+}

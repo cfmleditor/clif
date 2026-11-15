@@ -64,3 +64,12 @@ func TestComponentBodyEnd(t *testing.T) {
 		})
 	}
 }
+
+func TestAnAttributeNamedComponentIsNotTheDeclaration(t *testing.T) {
+	src := "<cfinvoke component=\"x\" method=\"y\">\n<cfcomponent>\n</cfcomponent>"
+
+	open, ok := ComponentDeclarationEnd(src)
+	if !ok || src[open:min(len(src), open+len(">\n</cfcomponent"))] != ">\n</cfcomponent" {
+		t.Errorf("offset %d is at %q, want the > of <cfcomponent>", open, src[open:])
+	}
+}

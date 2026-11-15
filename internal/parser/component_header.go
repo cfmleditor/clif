@@ -29,6 +29,7 @@ func componentDeclaration(content string) (open, textEnd int, ok bool) {
 	var prev Token
 
 	prevEnd := 0
+	inTag := false // between `<name` and its `>`: a `component=` there is an attribute
 
 	for budget := declarationTokens; budget > 0; budget-- {
 		t := sc.NextSkipComments()
@@ -38,6 +39,8 @@ func componentDeclaration(content string) (open, textEnd int, ok bool) {
 			return 0, 0, false
 		case t.Kind == TokLBrace && inDeclaration:
 			return t.Offset, prevEnd, true
+		case t.Kind == TokGT && !inDeclaration:
+			inTag = false
 		case t.Kind == TokGT && inDeclaration:
 			return t.Offset, t.Offset + 1, true
 		case t.Kind == TokLBrace:
@@ -45,7 +48,12 @@ func componentDeclaration(content string) (open, textEnd int, ok bool) {
 		case t.Kind == TokRBrace:
 			depth = max(depth-1, 0)
 		case t.Kind == TokIdent && !inDeclaration && depth == 0:
+			if inTag {
+				break
+			}
+
 			inDeclaration = opensDeclaration(t, prev)
+			inTag = !inDeclaration && prev.Kind == TokLT
 		}
 
 		prev, prevEnd = t, sc.Pos()

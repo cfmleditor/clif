@@ -70,7 +70,9 @@ func DeclaredQueryColumns(content, name string, before int, scope *QueryScope) (
 	sc, base := sourceScannerRange(content, from, to, script)
 
 	if !script {
-		queryTagColumns(content, name, inSkip, consider)
+		queryTagColumns(content, name, inSkip, consider, func(d int) { depth = d })
+
+		depth = 0
 	}
 
 	// read is the next token, with the two before it kept: a `.` before a
@@ -94,7 +96,7 @@ func DeclaredQueryColumns(content, name string, before int, scope *QueryScope) (
 
 		depth = max(depth+blockChange(t, prev, owner), 0)
 
-		if best >= 0 && base+t.Offset < before {
+		if best >= 0 && base+t.Offset < before && base+t.Offset > best {
 			leastSince = min(leastSince, depth)
 		}
 
@@ -581,17 +583,35 @@ func blankSQLComments(sql string) string {
 	return string(b)
 }
 
+// blockTagNames are the tags that hold a branch or a loop: a query inside one is
+// declared only if it ran.
+var blockTagNames = []string{"cfif", "cfloop", "cfswitch", "cftry", "cfcase", "cfdefaultcase", "cfcatch", "cffinally", "cfwhile"}
+
 // queryTagColumns reports to consider the columns of each <cfquery> named name
-// that is not in a skipped place: the query's SELECT, where it opens.
-func queryTagColumns(content, name string, inSkip func(int) bool, consider func(int, []string, bool)) {
-	var openAt, openEnd int
+// that is not in a skipped place: the query's SELECT, where it opens. setDepth
+// is told how many branch tags are open at each, as the token walk counts them.
+func queryTagColumns(content, name string, inSkip func(int) bool, consider func(int, []string, bool), setDepth func(int)) {
+	var openAt, openEnd, openDepth int
 
 	opened := false
+	depth := 0
 
-	for _, tag := range CFTags(content, "cfquery") {
+	for _, tag := range CFTags(content, append([]string{"cfquery"}, blockTagNames...)...) {
+		if tag.Name != "cfquery" {
+			if tag.Close {
+				depth = max(depth-1, 0)
+			} else {
+				depth++
+			}
+
+			continue
+		}
+
 		if tag.Close {
 			if opened {
 				cols, known := sqlSelectColumns(content[openEnd:tag.Start])
+
+				setDepth(openDepth)
 				consider(openAt, cols, known)
 			}
 
@@ -608,11 +628,12 @@ func queryTagColumns(content, name string, inSkip func(int) bool, consider func(
 		case has && strings.Contains(v, "#"):
 			// A name computed at run time may be any: what was known of the
 			// variable before it no longer holds.
+			setDepth(depth)
 			consider(tag.Start, nil, false)
 
 			opened = false
 		case has && strings.EqualFold(unscoped(v), name):
-			openAt, openEnd, opened = tag.Start, tag.End, true
+			openAt, openEnd, openDepth, opened = tag.Start, tag.End, depth, true
 		default:
 			opened = false
 		}
