@@ -40,7 +40,9 @@ func (s *Server) handleCodeAction(_ context.Context, rawParams []byte) (any, err
 	// for the scan that finds them.
 	if wantsKind(params.Context.Only, protocol.CodeActionKindRefactor) {
 		u := params.TextDocument.URI
-		for _, action := range s.lifecycleActions(u, content, params.Range) {
+		lifecycle := s.lifecycleActions(u, content, params.Range)
+		for i := range lifecycle {
+			action := lifecycle[i]
 			action.Edit = s.documentEdit(u, action.Edit.Changes[u])
 			actions = append(actions, action)
 		}

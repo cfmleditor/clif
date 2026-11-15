@@ -113,15 +113,8 @@ func DeclaredQueryColumns(content, name string, before int, scope *QueryScope) (
 			continue
 		}
 
-		if qualified {
-			switch {
-			case prev.Kind == TokDot:
-				if !strings.EqualFold(owner.Value, qualifier) {
-					continue
-				}
-			case !strings.EqualFold(qualifier, "local"):
-				continue
-			}
+		if qualified && !queryAssignmentScopeMatches(prev, owner, qualifier) {
+			continue
 		}
 
 		// `for ( var users in rows )` binds the name to another value.
@@ -201,6 +194,14 @@ func DeclaredQueryColumns(content, name string, before int, scope *QueryScope) (
 	}
 
 	return columns, ok
+}
+
+func queryAssignmentScopeMatches(prev, owner Token, qualifier string) bool {
+	if prev.Kind == TokDot {
+		return strings.EqualFold(owner.Value, qualifier)
+	}
+
+	return strings.EqualFold(qualifier, "local")
 }
 
 // blockChange is how t changes the depth of blocks open: a brace, or the tag
