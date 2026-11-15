@@ -935,7 +935,8 @@ func classifyWord(toks []Token, i int, st *bracketState) wordKind {
 			return wordOther
 		case prev.Kind == TokDot:
 			// `a.x` is another object's; `local.x` is the variable's.
-			if i >= 2 && toks[i-2].Kind == TokIdent && strings.EqualFold(toks[i-2].Value, "local") {
+			// (A `local` that is itself a member, `request.local.x`, is not the scope.)
+			if i >= 2 && toks[i-2].Kind == TokIdent && strings.EqualFold(toks[i-2].Value, "local") && (i < 3 || toks[i-3].Kind != TokDot) {
 				return wordLocal
 			}
 

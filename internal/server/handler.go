@@ -151,6 +151,7 @@ func (s *Server) handleInitialize(_ context.Context, rawParams []byte) (any, err
 	s.initialized = true
 	s.watchedFilesDynamic = clientWatchesFiles(params.Capabilities)
 	s.completionDefer = clientDefers(params.Capabilities)
+	s.clientDocChanges = clientTakesDocumentChanges(params.Capabilities)
 
 	folders, _ := params.WorkspaceFolders.Get()
 
@@ -238,6 +239,17 @@ func (s *Server) handleInitialize(_ context.Context, rawParams []byte) (any, err
 // workspace/didChangeWatchedFiles registration. There is no static way to ask
 // for file watching — the protocol only offers dynamic registration — so a
 // client that does not advertise it cannot be watched at all.
+// clientTakesDocumentChanges reports whether the client said it applies a
+// WorkspaceEdit's versioned documentChanges.
+func clientTakesDocumentChanges(caps protocol.ClientCapabilities) bool {
+	w := caps.Workspace
+	if w == nil || w.WorkspaceEdit == nil || w.WorkspaceEdit.DocumentChanges == nil {
+		return false
+	}
+
+	return *w.WorkspaceEdit.DocumentChanges
+}
+
 func clientWatchesFiles(caps protocol.ClientCapabilities) bool {
 	w := caps.Workspace
 	if w == nil || w.DidChangeWatchedFiles == nil {
@@ -301,6 +313,7 @@ func (s *Server) handleDidOpen(_ context.Context, rawParams []byte) (any, error)
 	s.setCROnly(docURI, lex.CROnly(params.TextDocument.Text))
 
 	s.setDocument(docURI, text)
+	s.setDocVersion(docURI, params.TextDocument.Version)
 	s.diagnosticsOpened(context.Background(), docURI)
 
 	pr := s.parseContent(docURI, text)
@@ -367,6 +380,8 @@ func (s *Server) handleDidChange(_ context.Context, rawParams []byte) (any, erro
 	if !ok {
 		return nil, nil
 	}
+
+	s.setDocVersion(docURI, params.TextDocument.Version)
 
 	changeCount := s.noteChange(docURI, time.Now())
 
@@ -646,6 +661,7 @@ func (s *Server) handleDidClose(ctx context.Context, rawParams []byte) (any, err
 
 	s.mu.Lock()
 	delete(s.lifecycleCache, docURI)
+	delete(s.docVersions, docURI)
 	s.mu.Unlock()
 
 	// Clear the document's own diagnostics on close. A known issue is about the
@@ -895,4 +911,11 @@ func (s *Server) fileToPackageIn(filePath string) (string, bool) {
 	}
 
 	return "", false
+}
+
+// setDocVersion records the version the client gave docURI.
+func (s *Server) setDocVersion(docURI uri.URI, version int32) {
+	s.mu.Lock()
+	s.docVersions[docURI] = version
+	s.mu.Unlock()
 }

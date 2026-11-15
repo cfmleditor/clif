@@ -89,6 +89,8 @@ type Server struct {
 	funcRanges            map[uri.URI][]cache.FuncRange   // cached function line ranges per file
 	cacheTimers           map[uri.URI]*time.Timer         // debounce timers for completion cache rebuild
 	reindexTimers         map[uri.URI]*time.Timer         // deferred-reparse timers; see scheduleReparse
+	docVersions           map[uri.URI]int32               // the version the client last gave each open document
+	clientDocChanges      bool                            // the client takes versioned document edits
 	lifecycleCache        map[uri.URI]lifecycleCached     // the lifecycle actions of an Application.cfc, by text
 	diagSendMu            sync.Mutex                      // orders a diagnostics store with its publish
 	structure             map[uri.URI]*structureState     // the open documents' structure checks; see scheduleStructureDiagnostics
@@ -140,6 +142,7 @@ func NewServer(conn jsonrpc2.Conn, log cflog.Logger, sharedIndex ...*index.Index
 		cacheTimers:              make(map[uri.URI]*time.Timer),
 		reindexTimers:            make(map[uri.URI]*time.Timer),
 		lifecycleCache:           make(map[uri.URI]lifecycleCached),
+		docVersions:              make(map[uri.URI]int32),
 		structure:                make(map[uri.URI]*structureState),
 		reparsePending:           make(map[uri.URI]bool),
 		docLocks:                 make(map[uri.URI]*sync.Mutex),

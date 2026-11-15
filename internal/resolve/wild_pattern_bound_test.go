@@ -36,3 +36,23 @@ func TestSpelledStringReadsDoubledHashesAsLiterals(t *testing.T) {
 		t.Errorf("pieces %q then %q, want %q then c", b.pieces, b.cur.String(), want)
 	}
 }
+
+func TestAdjacentHashExpressionsAreNotAroundALiteralHash(t *testing.T) {
+	var b wildBuilder
+
+	spelledString("x.#a##b#", &b, false)
+
+	// Two expressions in a row are one wildcard, and no literal hash is left
+	// between them.
+	if len(b.pieces) != 1 || b.pieces[0] != "x." || b.cur.String() != "" {
+		t.Errorf("pieces %q then %q, want x. and a wildcard with nothing after", b.pieces, b.cur.String())
+	}
+
+	var lit wildBuilder
+
+	spelledString("a##b", &lit, false)
+
+	if lit.cur.String() != "a#b" {
+		t.Errorf("a doubled hash is %q, want a#b", lit.cur.String())
+	}
+}

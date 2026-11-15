@@ -422,3 +422,10 @@ func TestStubsAreWrittenWithBareCRLineBreaksWhenTheFileHasThem(t *testing.T) {
 		}
 	}
 }
+
+func TestAMemberNamedLikeAnEventDeclaresNothing(t *testing.T) {
+	got := declaredFunctionNames("component {\n\tconfig.this.onError = handler;\n\tx.function onSessionStart( a ) {}\n}\n")
+	if got["onerror"] || got["onsessionstart"] {
+		t.Errorf("a member declared an event: %v", got)
+	}
+}

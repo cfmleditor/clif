@@ -282,13 +282,37 @@ func oracleFill(value []parser.Token, rng *rand.Rand) string {
 
 var _ = fmt.Sprint
 
-// hashRuns is the text of a string cut at its hashes: the even runs are
-// literal and the odd ones are computed, and a doubled hash is a literal one.
+// hashRuns is the text of a string cut at its hashes, written with a regular
+// expression for the check: the even runs are literal and the odd ones are
+// computed, `##` is a literal hash, and an expression has no hash of its own (the
+// strings of these checks hold no quotes). An opener with no partner starts an
+// expression that is left out.
 func hashRuns(text string) []string {
-	runs := strings.Split(strings.ReplaceAll(text, "##", "\x00"), "#")
-	for i := range runs {
-		runs[i] = strings.ReplaceAll(runs[i], "\x00", "#")
+	var (
+		runs []string
+		lit  strings.Builder
+	)
+
+	at := 0
+
+	for _, m := range regexp.MustCompile(`##|#[^#]*#`).FindAllStringIndex(text, -1) {
+		lit.WriteString(text[at:m[0]])
+
+		if text[m[0]:m[1]] == "##" {
+			lit.WriteByte('#')
+		} else {
+			runs = append(runs, lit.String(), "")
+
+			lit.Reset()
+		}
+
+		at = m[1]
 	}
 
-	return runs
+	rest := text[at:]
+	if before, _, found := strings.Cut(rest, "#"); found {
+		return append(runs, lit.String()+before, "")
+	}
+
+	return append(runs, lit.String()+rest)
 }

@@ -209,20 +209,16 @@ func declaredFunctionNames(content string) map[string]bool {
 		}
 	}
 
-	// A window of the last five tokens read, the oldest first: the tokens are
+	// A window of the last six tokens read, the oldest first: the tokens are
 	// not all held.
-	var win [5]parser.Token
-
-	n := 0
+	var win [6]parser.Token
 
 	sc := parser.NewSourceScanner(content)
 	for t := sc.NextSkipComments(); ; t = sc.NextSkipComments() {
 		copy(win[:], win[1:])
 		win[len(win)-1] = t
 
-		n++
-
-		markDeclared(out, win[:], n)
+		markDeclared(out, &win)
 
 		if t.Kind == parser.TokEOF {
 			break
@@ -353,26 +349,20 @@ func isCommentLine(trimmed string) bool {
 	return strings.HasPrefix(trimmed, "*") || strings.HasPrefix(trimmed, "/*") || strings.HasPrefix(trimmed, "//") || strings.HasPrefix(trimmed, "<!--")
 }
 
-// markDeclared adds to out what the window win, the last five tokens read (n
-// read in all) ends the declaration of: `function name(`, or `this.name =` (and
-// not `==`), each looked for where the token before it was not a `.`.
-func markDeclared(out map[string]bool, win []parser.Token, n int) {
-	// win[4] is the newest. `this . name =` is win[0..3] with win[4] after it.
-	if n >= 5 {
-		a, b, c, d, e := win[0], win[1], win[2], win[3], win[4]
-
-		if a.Kind == parser.TokIdent && strings.EqualFold(a.Value, "this") &&
-			b.Kind == parser.TokDot && c.Kind == parser.TokIdent && d.Kind == parser.TokEquals && e.Kind != parser.TokEquals {
-			out[strings.ToLower(c.Value)] = true
-		}
+// markDeclared adds to out what the window win, the last six tokens read (the
+// newest last), ends the declaration of: `this.name =` (and not `==`), and
+// `function name(`, each where the token before it was not a `.`.
+func markDeclared(out map[string]bool, win *[6]parser.Token) {
+	// `this . name = x` is win[1..5], and win[0] what stands before it.
+	if win[0].Kind != parser.TokDot && win[1].Kind == parser.TokIdent && strings.EqualFold(win[1].Value, "this") &&
+		win[2].Kind == parser.TokDot && win[3].Kind == parser.TokIdent && win[4].Kind == parser.TokEquals && win[5].Kind != parser.TokEquals {
+		out[strings.ToLower(win[3].Value)] = true
 	}
 
-	if n >= 3 {
-		a, b, c := win[2], win[3], win[4]
-
-		if a.Kind == parser.TokIdent && strings.EqualFold(a.Value, "function") && b.Kind == parser.TokIdent && c.Kind == parser.TokLParen {
-			out[strings.ToLower(b.Value)] = true
-		}
+	// `function name (` is win[3..5], and win[2] what stands before it.
+	if win[2].Kind != parser.TokDot && win[3].Kind == parser.TokIdent && strings.EqualFold(win[3].Value, "function") &&
+		win[4].Kind == parser.TokIdent && win[5].Kind == parser.TokLParen {
+		out[strings.ToLower(win[4].Value)] = true
 	}
 }
 

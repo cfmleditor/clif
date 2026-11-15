@@ -141,7 +141,35 @@ func (s *Server) handleRename(_ context.Context, rawParams []byte) (any, error) 
 		})
 	}
 
-	return &protocol.WorkspaceEdit{Changes: map[uri.URI][]protocol.TextEdit{docURI: edits}}, nil
+	return s.documentEdit(docURI, edits), nil
+}
+
+// documentEdit is the WorkspaceEdit of edits to docURI: versioned, with the
+// version of the text they were made from, when the client takes versioned edits
+// and the version is known, so that a client whose document has since changed
+// refuses an edit whose ranges no longer fit; else the plain Changes map.
+func (s *Server) documentEdit(docURI uri.URI, edits []protocol.TextEdit) *protocol.WorkspaceEdit {
+	s.mu.RLock()
+	version, known := s.docVersions[docURI]
+	versioned := s.clientDocChanges
+	s.mu.RUnlock()
+
+	if !versioned || !known {
+		return &protocol.WorkspaceEdit{Changes: map[uri.URI][]protocol.TextEdit{docURI: edits}}
+	}
+
+	elements := make([]protocol.TextDocumentEditElement, len(edits))
+	for i := range edits {
+		elements[i] = &edits[i]
+	}
+
+	return &protocol.WorkspaceEdit{DocumentChanges: []protocol.DocumentChange{&protocol.TextDocumentEdit{
+		TextDocument: protocol.OptionalVersionedTextDocumentIdentifier{
+			TextDocumentIdentifier: protocol.TextDocumentIdentifier{URI: docURI},
+			Version:                &version,
+		},
+		Edits: elements,
+	}}}
 }
 
 // checkNewName reports why name cannot be the new name of the variable plan

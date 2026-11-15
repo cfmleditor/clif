@@ -148,19 +148,17 @@ func spelledParts(value []parser.Token, b *wildBuilder, trimLeadingSlash bool) {
 	}
 }
 
-// spelledString notes the parts of the text of one string: a run between
-// hashes is computed, and `##` is a literal hash.
+// spelledString notes the parts of the text of one string: a run between hashes
+// is computed, and `##` is a literal hash where a hash would open an expression,
+// so `#a##b#` is two expressions, not one around a literal hash. The expression
+// ends at the next hash outside a string of its own, as the rename's reading of
+// the same text does.
 func spelledString(text string, b *wildBuilder, trimLeadingSlash bool) {
-	const hash = "\x00" // a doubled hash, out of the way of the split
+	var lit strings.Builder
 
-	for i, part := range strings.Split(strings.ReplaceAll(text, "##", hash), "#") {
-		if i%2 == 1 {
-			b.wild()
-
-			continue
-		}
-
-		part = strings.ReplaceAll(part, hash, "#")
+	flush := func() {
+		part := lit.String()
+		lit.Reset()
 
 		if trimLeadingSlash && b.empty() {
 			part = strings.TrimPrefix(part, "/")
@@ -168,4 +166,50 @@ func spelledString(text string, b *wildBuilder, trimLeadingSlash bool) {
 
 		b.text(part)
 	}
+
+	for i := 0; i < len(text); {
+		switch {
+		case text[i] != '#':
+			lit.WriteByte(text[i])
+
+			i++
+		case i+1 < len(text) && text[i+1] == '#':
+			lit.WriteByte('#')
+
+			i += 2
+		default:
+			flush()
+			b.wild()
+
+			end := hashEnd(text, i+1)
+			if end < 0 {
+				return
+			}
+
+			i = end + 1
+		}
+	}
+
+	flush()
+}
+
+// hashEnd is the offset of the hash that ends the expression which starts at
+// from in text, a hash outside a string of the expression's own, or -1.
+func hashEnd(text string, from int) int {
+	var quote byte
+
+	for k := from; k < len(text); k++ {
+		switch c := text[k]; {
+		case quote != 0:
+			if c == quote {
+				quote = 0
+			}
+		case c == '"' || c == '\'':
+			quote = c
+		case c == '#':
+			return k
+		}
+	}
+
+	return -1
 }

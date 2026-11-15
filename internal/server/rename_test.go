@@ -309,3 +309,31 @@ func TestRenameRefusesAStatementWordAfterAConditionOrALabel(t *testing.T) {
 		}
 	}
 }
+
+// A client that takes versioned edits gets the version the ranges were made from.
+func TestRenameEditIsVersionedForAClientThatTakesThem(t *testing.T) {
+	s, docURI := renameServer(t, renameSource)
+	s.clientDocChanges = true
+	s.setDocVersion(docURI, 7)
+
+	got, err := renameTo(t, s, docURI, 2, 7, "total")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(got.Changes) != 0 || len(got.DocumentChanges) != 1 {
+		t.Fatalf("changes %v, document changes %d, want one versioned edit", got.Changes, len(got.DocumentChanges))
+	}
+
+	edit, _ := got.DocumentChanges[0].(*protocol.TextDocumentEdit)
+	if edit == nil || edit.TextDocument.Version == nil || *edit.TextDocument.Version != 7 || len(edit.Edits) == 0 {
+		t.Errorf("edit %+v is not versioned 7 with edits", edit)
+	}
+
+	// A client that does not take them gets the plain map.
+	s.clientDocChanges = false
+
+	if plain, err := renameTo(t, s, docURI, 2, 7, "total"); err != nil || len(plain.Changes) != 1 {
+		t.Errorf("a plain client got %+v, %v", plain, err)
+	}
+}
