@@ -326,3 +326,26 @@ func TestAnOldStructureRunCannotReplaceReopenedDiagnostics(t *testing.T) {
 		t.Fatal("the old run cleared the reopened document's diagnostics")
 	}
 }
+
+func TestStructureRunRejectsANewVersionBeforeRescheduling(t *testing.T) {
+	s := newTestServer()
+	s.Features.StructureDiagnostics = true
+	t.Cleanup(s.stopStructureDiagnostics)
+
+	docURI := uri.File("/tmp/structure_version.cfc")
+	s.setDocument(docURI, "<cfif a>")
+	s.setDocVersion(docURI, 1)
+	s.scheduleStructureDiagnostics(docURI)
+
+	run, ok := s.startStructureRun(docURI)
+	if !ok {
+		t.Fatal("an open document has no run")
+	}
+
+	// didChange records its version before releasing the document lock and
+	// scheduling the next structure check.
+	s.setDocVersion(docURI, 2)
+	if s.structureRunIsLatest(docURI, run) {
+		t.Error("a run of the previous document version is still current")
+	}
+}

@@ -98,8 +98,9 @@ func (s *Server) cancelStructureDiagnostics(ctx context.Context, docURI uri.URI)
 // only until either, and a run of an earlier opening is never the latest of a
 // reopened one.
 type structureRun struct {
-	st  *structureState
-	gen uint64
+	st      *structureState
+	gen     uint64
+	version int32
 }
 
 // startStructureRun is the run of a check of docURI as it stands. ok is false
@@ -113,7 +114,7 @@ func (s *Server) startStructureRun(docURI uri.URI) (run structureRun, ok bool) {
 		return structureRun{}, false
 	}
 
-	return structureRun{st: st, gen: st.latest}, true
+	return structureRun{st: st, gen: st.latest, version: s.docVersions[docURI]}, true
 }
 
 // structureRunIsLatest reports whether run is still the latest check of docURI.
@@ -126,7 +127,8 @@ func (s *Server) structureRunIsLatest(docURI uri.URI, run structureRun) bool {
 
 // isLatestStructureRun requires s.mu to be held.
 func (s *Server) isLatestStructureRun(docURI uri.URI, run structureRun) bool {
-	return run.st != nil && s.structure[docURI] == run.st && run.st.latest == run.gen
+	return run.st != nil && s.structure[docURI] == run.st && run.st.latest == run.gen &&
+		s.docVersions[docURI] == run.version
 }
 
 // publishStructureDiagnostics checks the structure of docURI as it stands and
