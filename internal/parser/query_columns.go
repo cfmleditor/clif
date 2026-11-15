@@ -113,7 +113,7 @@ func DeclaredQueryColumns(content, name string, before int, scope *QueryScope) (
 			continue
 		}
 
-		if qualified && !queryAssignmentScopeMatches(prev, owner, qualifier) {
+		if !queryAssignmentScopeMatches(prev, owner, qualifier, qualified) {
 			continue
 		}
 
@@ -196,7 +196,11 @@ func DeclaredQueryColumns(content, name string, before int, scope *QueryScope) (
 	return columns, ok
 }
 
-func queryAssignmentScopeMatches(prev, owner Token, qualifier string) bool {
+func queryAssignmentScopeMatches(prev, owner Token, qualifier string, qualified bool) bool {
+	if !qualified {
+		return true
+	}
+
 	if prev.Kind == TokDot {
 		return strings.EqualFold(owner.Value, qualifier)
 	}
