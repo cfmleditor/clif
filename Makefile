@@ -263,8 +263,10 @@ fmt: $(GOLANGCI_BIN)
 	gofmt -w .
 	$(GOLANGCI_BIN) run --fix ./...
 
+GOLANGCI_FLAGS ?=
+
 lint: $(GOLANGCI_BIN)
-	$(GOLANGCI_BIN) run ./...
+	$(GOLANGCI_BIN) run $(GOLANGCI_FLAGS) ./...
 
 # Every check CI runs on a pull request, in one command, to run before pushing:
 # build, vet (plain and with CFLint embedded), gofmt, the tests under the race
