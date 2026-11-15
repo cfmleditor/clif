@@ -42,7 +42,7 @@ func (s *Server) scheduleStructureDiagnostics(docURI uri.URI) {
 	// Of an open document only, decided under the lock a close takes the
 	// document away under: a change that follows a close has nothing to
 	// check, and no close left to take the check back.
-	if _, open := s.documents[docURI]; !open {
+	if _, open := s.documents[docURI]; !open || s.structureStopped {
 		return
 	}
 
@@ -164,6 +164,8 @@ func (s *Server) publishStructureDiagnostics(docURI uri.URI) {
 func (s *Server) stopStructureDiagnostics() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	s.structureStopped = true
 
 	for docURI, st := range s.structure {
 		if st.timer != nil {

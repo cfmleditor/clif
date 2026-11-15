@@ -3,6 +3,7 @@ package resolve
 import (
 	"math/bits"
 	"sort"
+	"strings"
 
 	"github.com/cfmleditor/clif/internal/parser"
 )
@@ -88,6 +89,11 @@ func (b braceIndex) floorLen() int {
 // before a <cfscript> block (`don't`) must not swallow the script after it.
 func newBraceIndex(content string) braceIndex {
 	var b braceIndex
+
+	// No brace, no regions to classify: the index of nothing.
+	if strings.IndexByte(content, '{') < 0 && strings.IndexByte(content, '}') < 0 {
+		return b
+	}
 
 	d := int32(0)
 

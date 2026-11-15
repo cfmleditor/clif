@@ -293,3 +293,22 @@ func TestFunctionSpansOfADocWithoutAFreshParse(t *testing.T) {
 		t.Errorf("%d spans with no parse held, want 1", len(got))
 	}
 }
+
+// After shutdown nothing is scheduled.
+func TestNoStructureCheckIsScheduledAfterShutdown(t *testing.T) {
+	s := newTestServer()
+	s.Features.StructureDiagnostics = true
+
+	docURI := uri.File("/tmp/structure_stopped.cfc")
+	s.setDocument(docURI, "<cfif a>")
+	s.stopStructureDiagnostics()
+	s.scheduleStructureDiagnostics(docURI)
+
+	s.mu.RLock()
+	_, scheduled := s.structure[docURI]
+	s.mu.RUnlock()
+
+	if scheduled {
+		t.Error("a check was scheduled after the server stopped")
+	}
+}

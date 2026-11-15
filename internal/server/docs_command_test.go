@@ -125,3 +125,15 @@ func TestSearchDocsFractionalLimitStillAnswers(t *testing.T) {
 		t.Errorf("a limit of 0.5 answered %d entries, want 1", len(got))
 	}
 }
+
+func TestDocsKindIsReadWithoutCaseAndRejectedWhenUnknown(t *testing.T) {
+	s := newTestServer()
+
+	if got, _ := runCommand(t, s, "clif.searchDocs", "", " Function ", 3).([]docSummary); len(got) != 3 || got[0].Type != "function" {
+		t.Errorf("a kind of ' Function ' answered %+v", got)
+	}
+
+	if got := runCommand(t, s, "clif.docEntry", "arrayAppend", "FUNCTION"); got == nil {
+		t.Error("docEntry of FUNCTION found nothing")
+	}
+}

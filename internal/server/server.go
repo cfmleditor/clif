@@ -92,6 +92,7 @@ type Server struct {
 	structureMu           sync.Mutex                      // orders a structure check's publish against a close
 	lifecycleCache        map[uri.URI]lifecycleCached     // the lifecycle actions of an Application.cfc, by text
 	structure             map[uri.URI]*structureState     // the open documents' structure checks; see scheduleStructureDiagnostics
+	structureStopped      bool                            // the server is going: no more checks are scheduled
 	structureSeq          uint64                          // the last structure check started, over all documents
 	reparsePending        map[uri.URI]bool                // documents whose ParseResult lags their text; see flushReparse
 	docLocks              map[uri.URI]*sync.Mutex         // serialises access to each document's ParseResult

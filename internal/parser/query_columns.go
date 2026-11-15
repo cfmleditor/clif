@@ -40,23 +40,7 @@ func DeclaredQueryColumns(content, name string, before int, scope *QueryScope) (
 		return nil, false
 	}
 
-	inSkip := func(off int) bool {
-		if scope == nil {
-			return false
-		}
-
-		if off < scope.From || scope.To > 0 && off >= scope.To {
-			return true
-		}
-
-		for i := range scope.Skip {
-			if off >= scope.Skip[i].Start && off < scope.Skip[i].End {
-				return true
-			}
-		}
-
-		return false
-	}
+	inSkip := scope.skips
 
 	best := -1
 
@@ -87,9 +71,18 @@ func DeclaredQueryColumns(content, name string, before int, scope *QueryScope) (
 
 	var last Token
 
+	inLabel := false // after `case x` or `default`, up to its statement
+
 	read := func() Token {
 		t := sc.NextSkipComments()
 		prev, owner, last = last, prev, t
+
+		switch {
+		case t.Kind == TokIdent && (strings.EqualFold(t.Value, "case") || strings.EqualFold(t.Value, "default")):
+			inLabel = true
+		case t.Kind == TokSemicolon || t.Kind == TokLBrace || t.Kind == TokRBrace:
+			inLabel = false
+		}
 
 		return t
 	}
@@ -107,7 +100,8 @@ func DeclaredQueryColumns(content, name string, before int, scope *QueryScope) (
 
 		// A statement sets the variable; a named argument, a condition and an
 		// arrow's parameter `users => ...` stand elsewhere.
-		if !startsAssignment(prev, owner) {
+		statement := startsAssignment(prev, owner) || inLabel && prev.Kind == TokColon
+		if !statement {
 			continue
 		}
 
@@ -454,7 +448,22 @@ func opensStruct(t Token) bool {
 // query variable. A cheap test, for the per-keystroke callers of
 // QueryColumns to ask before they build anything for it.
 func MayDeclareQuery(content string) bool {
-	return IndexFold(content, "cfquery") >= 0 || IndexFold(content, "querynew") >= 0 || IndexFold(content, "queryexecute") >= 0
+	// One pass, looking only at the bytes a spelling starts with: three
+	// searches of a large file are three passes.
+	for i := range len(content) {
+		switch content[i] {
+		case '<':
+			if lex.HasPrefixFold(content[i:], "<cfquery") {
+				return true
+			}
+		case 'q', 'Q':
+			if lex.HasPrefixFold(content[i:], "querynew") || lex.HasPrefixFold(content[i:], "queryexecute") {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 // startsAssignment reports whether a word after prev, which follows owner, can
@@ -562,4 +571,25 @@ func queryTagColumns(content, name string, inSkip func(int) bool, consider func(
 			opened = false
 		}
 	}
+}
+
+// skips reports whether a declaration at off is left out of the scope: before or
+// after its range, or in one of the functions it passes over. A nil scope
+// leaves nothing out.
+func (sc *QueryScope) skips(off int) bool {
+	if sc == nil {
+		return false
+	}
+
+	if off < sc.From || sc.To > 0 && off >= sc.To {
+		return true
+	}
+
+	for i := range sc.Skip {
+		if off >= sc.Skip[i].Start && off < sc.Skip[i].End {
+			return true
+		}
+	}
+
+	return false
 }

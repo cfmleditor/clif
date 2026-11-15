@@ -287,11 +287,7 @@ func TestAnEventSetAsAPropertyIsDeclared(t *testing.T) {
 		t.Error("this.onError = function is not counted as declared")
 	}
 
-	if declared["onerrorlog"] {
-		t.Error("a longer property name is counted as the event")
-	}
-
-	if setsProperty("this.onError == 1", "onError") {
-		t.Error("a comparison is counted as an assignment")
+	if got := declaredFunctionNames("component {\n\t// this.onSessionStart = function() {}\n\tx = \"this.onError = 1\";\n\ty = this.onAbort == 1;\n}\n", nil); got["onsessionstart"] || got["onerror"] || got["onabort"] {
+		t.Errorf("a comment, a string and a comparison declared events: %v", got)
 	}
 }

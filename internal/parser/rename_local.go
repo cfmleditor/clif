@@ -241,6 +241,8 @@ func planScope(content string, spans []FunctionSpan, sc renameScope, at int) (*L
 		return nil, w.err
 	case !w.declared:
 		return nil, errUndeclared
+	case w.called && !w.assignedFn:
+		return nil, refuse("'" + name + "' is also called, and a call to an unscoped name may be a method of the component, which a rename would leave behind")
 	case len(w.ranges) == 0:
 		return nil, refuse("no use of '" + name + "' found")
 	}
@@ -549,6 +551,11 @@ type renameWalk struct {
 	ranges         [][2]int
 	declared       bool
 	statementStart bool
+	// called is set when the name is called, `foo( 2 )`, and assignedFn when
+	// the variable is given a function, `foo = function(`: a call to an
+	// unscoped name is the variable's only if the variable holds a function,
+	// and else a method of the component, which keeps its name.
+	called, assignedFn bool
 	// mentionOnly collects the names the text means something by and renames
 	// nothing, so it refuses nothing: it reads a function around the one being
 	// renamed.
@@ -841,6 +848,15 @@ func (w *renameWalk) word(toks []Token, i int, st *bracketState, base int) {
 		w.nestedParameter(toks, i)
 
 		return
+	}
+
+	if strings.EqualFold(t.Value, w.name) && w.name != "" {
+		switch {
+		case next.Kind == TokLParen && prev.Kind != TokDot && !declaresOrCreates(prev):
+			w.called = true
+		case next.Kind == TokEquals && !equalsPair(toks, i+1) && i+2 < len(toks) && toks[i+2].Kind == TokIdent && strings.EqualFold(toks[i+2].Value, "function"):
+			w.assignedFn = true
+		}
 	}
 
 	// `{ x }` is the shorthand of `{ x: x }`: the key is the name, which a
@@ -1410,4 +1426,10 @@ func hasWord(text, word string) bool {
 			return true
 		}
 	}
+}
+
+// declaresOrCreates reports whether t is the word before a name that makes it a
+// function's or a type's name, `function foo(` and `new Foo(`: not a call.
+func declaresOrCreates(t Token) bool {
+	return t.Kind == TokIdent && (strings.EqualFold(t.Value, "function") || strings.EqualFold(t.Value, "new"))
 }

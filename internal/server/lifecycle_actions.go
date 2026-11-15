@@ -4,7 +4,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/cfmleditor/clif/internal/lex"
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
 	"go.lsp.dev/protocol"
@@ -179,37 +178,39 @@ func declaredFunctionNames(content string, pr *parser.ParseResult) map[string]bo
 
 	// An event set as a property, `this.onError = function( e ) { ... }`, is
 	// declared too.
-	for _, st := range lifecycleStubs {
-		if setsProperty(content, st.name) {
-			out[strings.ToLower(st.name)] = true
-		}
+	for name := range thisAssignments(content) {
+		out[name] = true
 	}
 
 	return out
 }
 
-// setsProperty reports whether content assigns `this.<name> =`, in any case.
-func setsProperty(content, name string) bool {
-	needle := "this." + name
+// thisAssignments are the lowercased names assigned as `this.<name> =`, read
+// from the tokens, so a comment or a string that spells one declares nothing.
+func thisAssignments(content string) map[string]bool {
+	if parser.IndexFold(content, "this.") < 0 {
+		return nil
+	}
 
-	for from := 0; ; {
-		i := parser.IndexFold(content[from:], needle)
-		if i < 0 {
-			return false
-		}
+	out := map[string]bool{}
 
-		i += from
-		from = i + len(needle)
+	var toks []parser.Token
 
-		if i > 0 && lex.IsIdent(content[i-1]) || from < len(content) && lex.IsIdent(content[from]) {
-			continue
-		}
+	sc := parser.NewSourceScanner(content)
+	for t := sc.NextSkipComments(); t.Kind != parser.TokEOF; t = sc.NextSkipComments() {
+		toks = append(toks, t)
+	}
 
-		rest := strings.TrimLeft(content[from:], " \t")
-		if strings.HasPrefix(rest, "=") && !strings.HasPrefix(rest, "==") {
-			return true
+	for i := 0; i+3 < len(toks); i++ {
+		if toks[i].Kind == parser.TokIdent && strings.EqualFold(toks[i].Value, "this") &&
+			toks[i+1].Kind == parser.TokDot && toks[i+2].Kind == parser.TokIdent && toks[i+3].Kind == parser.TokEquals &&
+			(i+4 >= len(toks) || toks[i+4].Kind != parser.TokEquals) &&
+			(i == 0 || toks[i-1].Kind != parser.TokDot) {
+			out[strings.ToLower(toks[i+2].Value)] = true
 		}
 	}
+
+	return out
 }
 
 // insertStubs is the edit that adds stubs before the end of the component's

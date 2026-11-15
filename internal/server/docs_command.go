@@ -46,6 +46,7 @@ type docDetail struct {
 func (s *Server) cmdSearchDocs(_ context.Context, args []protocol.LSPAny) (any, error) {
 	query, _ := argString(args, 0)
 	kind, _ := argString(args, 1)
+	kind = strings.ToLower(strings.TrimSpace(kind))
 
 	limit := defaultDocResults
 	if n, ok := argFloat(args, 2); ok && n > 0 {
@@ -140,6 +141,7 @@ func (s *Server) cmdDocEntry(_ context.Context, args []protocol.LSPAny) (any, er
 	}
 
 	kind, _ := argString(args, 1)
+	kind = strings.ToLower(strings.TrimSpace(kind))
 
 	var (
 		e  *docs.Entry
@@ -151,10 +153,12 @@ func (s *Server) cmdDocEntry(_ context.Context, args []protocol.LSPAny) (any, er
 		e, ok = docs.LookupFunction(name)
 	case "tag":
 		e, ok = docs.LookupTag(name)
-	default:
+	case "", "all":
 		if e, ok = docs.LookupTag(name); !ok {
 			e, ok = docs.LookupFunction(name)
 		}
+	default:
+		return nil, errors.New("clif.docEntry: the kind is tag, function or all")
 	}
 
 	if !ok {

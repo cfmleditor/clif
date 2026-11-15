@@ -190,3 +190,20 @@ func TestQueryColumnsReadBracketAliasesAndHashLists(t *testing.T) {
 		t.Errorf("a list with a hash expression is known: %q", cols)
 	}
 }
+
+func TestQueryColumnsAfterACaseLabel(t *testing.T) {
+	src := "function f( t ) {\n switch ( t ) { case 1: users = queryNew( \"id,name\" ); break; }\n"
+	if got, ok := QueryColumns(src, "users", len(src)); !ok || !slices.Equal(got, []string{"id", "name"}) {
+		t.Errorf("got %q %v, want the columns assigned after case 1:", got, ok)
+	}
+}
+
+func TestMayDeclareQuery(t *testing.T) {
+	for src, want := range map[string]bool{
+		"x = 1;": false, "<cfQUERY name=a>": true, "q = QueryNew('a');": true, "queryExecute('x')": true, "quer": false, "": false,
+	} {
+		if got := MayDeclareQuery(src); got != want {
+			t.Errorf("%q: got %v, want %v", src, got, want)
+		}
+	}
+}
