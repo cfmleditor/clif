@@ -3,6 +3,7 @@ package resolve
 import (
 	"math/bits"
 	"sort"
+	"strings"
 
 	"github.com/cfmleditor/clif/internal/parser"
 )
@@ -60,7 +61,7 @@ func blockClosedBetween(content string, fromLine, toLine int) bool {
 // file is asked about once per use of a variable a native type was claimed
 // for, over the lines from its ref to the use, and each ask scanned those
 // lines: on Lucee that was 36 of the 46 times the scan read its text.
-var braces = &textCache[braceIndex]{size: func(b braceIndex) int { return 8*len(b.offs) + 4*len(b.depth) + 4*len(b.floor) }}
+var braces = &textCache[braceIndex]{size: func(b braceIndex) int { return 8*len(b.offs) + 4*len(b.depth) + 4*b.floorLen() }}
 
 // braceIndex is where a text's braces are and how deep each leaves it, so
 // whether a span closes a block it did not open is a search and a minimum
@@ -71,24 +72,53 @@ type braceIndex struct {
 	floor [][]int32 // floor[k][i] is the least depth after braces i to i+2^k-1
 }
 
+// floorLen is the number of values the sparse table holds beyond depth, which
+// floor[0] is.
+func (b braceIndex) floorLen() int {
+	n := 0
+
+	for _, row := range b.floor[min(1, len(b.floor)):] {
+		n += len(row)
+	}
+
+	return n
+}
+
+// newBraceIndex indexes the braces of content's script. Each script region is
+// scanned from its own start, as a span of it was: a stray quote in the markup
+// before a <cfscript> block (`don't`) must not swallow the script after it.
 func newBraceIndex(content string) braceIndex {
 	var b braceIndex
 
-	sc := parser.NewSourceScanner(content)
+	// No brace, no regions to classify: the index of nothing.
+	if strings.IndexByte(content, '{') < 0 && strings.IndexByte(content, '}') < 0 {
+		return b
+	}
+
 	d := int32(0)
 
-	for tok := sc.NextSkipComments(); tok.Kind != parser.TokEOF; tok = sc.NextSkipComments() {
-		switch tok.Kind {
-		case parser.TokLBrace:
-			d++
-		case parser.TokRBrace:
-			d--
-		default:
+	regions, _ := parser.ClassifyRegionsIdx(content)
+	for i := range regions {
+		r := &regions[i]
+		if r.Kind != parser.RegionScript {
 			continue
 		}
 
-		b.offs = append(b.offs, tok.Offset)
-		b.depth = append(b.depth, d)
+		sc := parser.NewScriptScanner(r.Text) // the region is script, whatever its text spells
+
+		for tok := sc.NextSkipComments(); tok.Kind != parser.TokEOF; tok = sc.NextSkipComments() {
+			switch tok.Kind {
+			case parser.TokLBrace:
+				d++
+			case parser.TokRBrace:
+				d--
+			default:
+				continue
+			}
+
+			b.offs = append(b.offs, r.Offset+tok.Offset)
+			b.depth = append(b.depth, d)
+		}
 	}
 
 	b.floor = append(b.floor, b.depth)

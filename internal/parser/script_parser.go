@@ -4153,7 +4153,8 @@ func (p *scriptParser) scanParenArgs() (firstArg string, positional []string, ok
 	// shows whether it was the whole argument.
 	argStart, collecting := true, true
 	pending, havePending := "", false
-	wholeCandidate, prevKind := "", TokEOF
+	wholeCandidate := ""
+	assign, namesArgument := false, false
 
 	var arrow arrowParams
 
@@ -4197,11 +4198,16 @@ func (p *scriptParser) scanParenArgs() (firstArg string, positional []string, ok
 			wholeCandidate = ""
 		}
 
-		if tok.Kind == TokString && firstArg == "" && depth == 1 && (argStart || prevKind == TokEquals || prevKind == TokColon) {
+		if tok.Kind == TokString && firstArg == "" && depth == 1 && (argStart || assign) {
 			wholeCandidate = unquote(tok.Value)
 		}
 
-		prevKind = tok.Kind
+		// An `=` or `:` straight after the first word of an argument names it,
+		// `f( name = "x" )`; after anything else it is half of `==`, `!=`, `<=`
+		// or a ternary's `:`, and the string after it is a piece of an
+		// expression.
+		assign = (tok.Kind == TokEquals || tok.Kind == TokColon) && namesArgument
+		namesArgument = (tok.Kind == TokIdent || tok.Kind == TokString) && argStart && depth == 1
 
 		if depth == 1 && collecting {
 			switch {

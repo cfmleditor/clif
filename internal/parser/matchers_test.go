@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 )
 
 // matcherCase is a matcher held to the pattern it replaced: the expression the
@@ -207,4 +208,22 @@ func FuzzMatchers(f *testing.F) {
 			}
 		}
 	})
+}
+
+func TestPlaceholderGlobDoesNotBacktrackWithoutBound(t *testing.T) {
+	g := &placeholderGlob{parts: []string{"", "a", "a", "a", "a", "a", "a", "Service"}}
+	expr := strings.Repeat("a", 190)
+
+	done := make(chan struct{})
+
+	go func() {
+		g.Match(expr)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("capture still backtracking after 5s")
+	}
 }

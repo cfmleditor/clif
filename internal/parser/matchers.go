@@ -435,12 +435,17 @@ type placeholderGlob struct{ parts []string }
 func (g *placeholderGlob) String() string { return strings.Join(g.parts, "$N") }
 
 func (g *placeholderGlob) Match(expr string) ([]string, bool) {
-	for start := 0; start <= len(expr); start += runeWidth(expr, start) {
-		if start+len(g.parts[0]) > len(expr) || !strings.EqualFold(expr[start:start+len(g.parts[0])], g.parts[0]) {
-			continue
-		}
+	m := lex.Wild{Accept: func(c byte) bool { return c != '\n' }, Least: 1}
 
-		if captures, ok := g.capture(expr, 1, start+len(g.parts[0]), nil); ok {
+	var memo lex.WildMemo
+
+	for start := 0; start <= len(expr); start += runeWidth(expr, start) {
+		if runs, ok := m.MatchAt(expr, g.parts, start, &memo, true); ok {
+			captures := make([]string, len(runs))
+			for i, r := range runs {
+				captures[i] = expr[r[0]:r[1]]
+			}
+
 			return captures, true
 		}
 	}
@@ -457,30 +462,4 @@ func runeWidth(s string, i int) int {
 	_, width := utf8.DecodeRuneInString(s[i:])
 
 	return width
-}
-
-// capture reads the run before parts[i] from pos and the parts that follow,
-// the shortest run first. A run is whole characters, one or more, none a newline.
-func (g *placeholderGlob) capture(expr string, i, pos int, so []string) ([]string, bool) {
-	if i == len(g.parts) {
-		return so, true
-	}
-
-	lit := g.parts[i]
-
-	for end := pos; end < len(expr); {
-		if expr[end] == '\n' {
-			return nil, false
-		}
-
-		end += runeWidth(expr, end)
-
-		if end+len(lit) <= len(expr) && strings.EqualFold(expr[end:end+len(lit)], lit) {
-			if captures, ok := g.capture(expr, i+1, end+len(lit), append(so, expr[pos:end])); ok {
-				return captures, true
-			}
-		}
-	}
-
-	return nil, false
 }

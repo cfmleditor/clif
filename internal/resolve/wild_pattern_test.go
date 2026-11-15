@@ -58,7 +58,7 @@ func oracleSpelled(value []parser.Token, wildcard string, trim bool) (string, bo
 				text = text[1 : len(text)-1]
 			}
 
-			for i, part := range strings.Split(text, "#") {
+			for i, part := range hashRuns(text) {
 				if i%2 == 1 {
 					wild()
 
@@ -268,7 +268,7 @@ func oracleFill(value []parser.Token, rng *rand.Rand) string {
 			text = text[1 : len(text)-1]
 		}
 
-		for i, part := range strings.Split(text, "#") {
+		for i, part := range hashRuns(text) {
 			if i%2 == 1 {
 				b.WriteString(randomWildString(rng, 2))
 			} else {
@@ -281,3 +281,38 @@ func oracleFill(value []parser.Token, rng *rand.Rand) string {
 }
 
 var _ = fmt.Sprint
+
+// hashRuns is the text of a string cut at its hashes, written with a regular
+// expression for the check: the even runs are literal and the odd ones are
+// computed, `##` is a literal hash, and an expression has no hash of its own (the
+// strings of these checks hold no quotes). An opener with no partner starts an
+// expression that is left out.
+func hashRuns(text string) []string {
+	var (
+		runs []string
+		lit  strings.Builder
+	)
+
+	at := 0
+
+	for _, m := range regexp.MustCompile(`##|#[^#]*#`).FindAllStringIndex(text, -1) {
+		lit.WriteString(text[at:m[0]])
+
+		if text[m[0]:m[1]] == "##" {
+			lit.WriteByte('#')
+		} else {
+			runs = append(runs, lit.String(), "")
+
+			lit.Reset()
+		}
+
+		at = m[1]
+	}
+
+	rest := text[at:]
+	if before, _, found := strings.Cut(rest, "#"); found {
+		return append(runs, lit.String()+before, "")
+	}
+
+	return append(runs, lit.String()+rest)
+}

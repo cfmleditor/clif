@@ -5,6 +5,7 @@ import (
 	"encoding/json/v2"
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
@@ -27,6 +28,13 @@ func (s *Server) handleCodeAction(_ context.Context, rawParams []byte) (any, err
 	docURI := string(params.TextDocument.URI)
 
 	var actions []protocol.CodeAction
+
+	// An Application.cfc is offered the application events it does not declare.
+	// They are refactorings: a client asking only for quick fixes has no use
+	// for the scan that finds them.
+	if wantsKind(params.Context.Only, protocol.CodeActionKindRefactor) {
+		actions = append(actions, s.lifecycleActions(params.TextDocument.URI, content, params.Range)...)
+	}
 
 	// Offered only on a line that looks as if it holds a call, so it is not
 	// noise on every line of the file; the cursor need not be on the call
@@ -162,4 +170,21 @@ func lspAnyArgs(args ...any) []protocol.LSPAny {
 	}
 
 	return out
+}
+
+// wantsKind reports whether a request limited to only (every kind when empty)
+// can be answered with an action of kind: it is one of them, or one of them
+// is its parent, `refactor` for `refactor.rewrite`.
+func wantsKind(only []protocol.CodeActionKind, kind protocol.CodeActionKind) bool {
+	if len(only) == 0 {
+		return true
+	}
+
+	for _, o := range only {
+		if o == "" || o == kind || strings.HasPrefix(string(kind), string(o)+".") {
+			return true
+		}
+	}
+
+	return false
 }

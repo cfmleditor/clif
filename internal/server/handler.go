@@ -74,10 +74,12 @@ func (s *Server) Handler() jsonrpc2.Handler {
 			// to a closing connection is at best ignored and at worst an error
 			// logged about logging.
 			s.detachLogSink()
+			s.stopStructureDiagnostics()
 
 			return nil, nil
 		case protocol.MethodExit:
 			s.detachLogSink()
+			s.stopStructureDiagnostics()
 
 			return nil, nil
 		case protocol.MethodTextDocumentDidOpen:
@@ -96,6 +98,12 @@ func (s *Server) Handler() jsonrpc2.Handler {
 			return s.handleDefinition(ctx, req.Params())
 		case protocol.MethodTextDocumentTypeDefinition:
 			return s.handleTypeDefinition(ctx, req.Params())
+		case protocol.MethodTextDocumentInlayHint:
+			return s.handleInlayHint(ctx, req.Params())
+		case protocol.MethodTextDocumentPrepareRename:
+			return s.handlePrepareRename(ctx, req.Params())
+		case protocol.MethodTextDocumentRename:
+			return s.handleRename(ctx, req.Params())
 		case protocol.MethodTextDocumentReferences:
 			return s.handleReferences(ctx, req.Params())
 		case protocol.MethodTextDocumentFormatting:
@@ -143,6 +151,7 @@ func (s *Server) handleInitialize(_ context.Context, rawParams []byte) (any, err
 	s.initialized = true
 	s.watchedFilesDynamic = clientWatchesFiles(params.Capabilities)
 	s.completionDefer = clientDefers(params.Capabilities)
+	s.clientDocChanges = clientTakesDocumentChanges(params.Capabilities)
 
 	folders, _ := params.WorkspaceFolders.Get()
 
@@ -208,6 +217,9 @@ func (s *Server) handleInitialize(_ context.Context, rawParams []byte) (any, err
 		cflog.Bool("documentHighlight", s.Features.DocumentHighlight),
 		cflog.Bool("folding", s.Features.Folding),
 		cflog.Bool("typeDefinition", s.Features.TypeDefinition),
+		cflog.Bool("structureDiagnostics", s.Features.StructureDiagnostics),
+		cflog.Bool("inlayHints", s.Features.InlayHints),
+		cflog.Bool("rename", s.Features.Rename),
 		cflog.Bool("watchedFiles", s.Features.WatchedFiles),
 		cflog.Bool("rangeFormatting", s.Features.RangeFormatting),
 		cflog.Bool("routesConfigured", s.Routes.Enabled()))
@@ -227,6 +239,17 @@ func (s *Server) handleInitialize(_ context.Context, rawParams []byte) (any, err
 // workspace/didChangeWatchedFiles registration. There is no static way to ask
 // for file watching — the protocol only offers dynamic registration — so a
 // client that does not advertise it cannot be watched at all.
+// clientTakesDocumentChanges reports whether the client said it applies a
+// WorkspaceEdit's versioned documentChanges.
+func clientTakesDocumentChanges(caps protocol.ClientCapabilities) bool {
+	w := caps.Workspace
+	if w == nil || w.WorkspaceEdit == nil || w.WorkspaceEdit.DocumentChanges == nil {
+		return false
+	}
+
+	return *w.WorkspaceEdit.DocumentChanges
+}
+
 func clientWatchesFiles(caps protocol.ClientCapabilities) bool {
 	w := caps.Workspace
 	if w == nil || w.DidChangeWatchedFiles == nil {
@@ -278,6 +301,10 @@ func (s *Server) handleDidOpen(_ context.Context, rawParams []byte) (any, error)
 		return nil, nil
 	}
 
+	// Scheduled when the lock is released: scheduling takes the server's lock,
+	// which an open has no need to hold the document's for.
+	defer s.scheduleStructureDiagnostics(docURI)
+
 	defer s.lockDoc(docURI)()
 
 	// Lines end at a bare \r too, as the editor counts them; a document that
@@ -286,6 +313,7 @@ func (s *Server) handleDidOpen(_ context.Context, rawParams []byte) (any, error)
 	s.setCROnly(docURI, lex.CROnly(params.TextDocument.Text))
 
 	s.setDocument(docURI, text)
+	s.setDocVersion(docURI, params.TextDocument.Version)
 	s.diagnosticsOpened(context.Background(), docURI)
 
 	pr := s.parseContent(docURI, text)
@@ -334,6 +362,12 @@ func (s *Server) handleDidChange(_ context.Context, rawParams []byte) (any, erro
 		return nil, nil
 	}
 
+	// The structure is checked once the document has been left alone a moment,
+	// whichever way this change is applied. Registered first, so that it runs
+	// last, after the document's lock is released: scheduling takes the
+	// server's lock, which a keystroke has no need to hold the document's for.
+	defer s.scheduleStructureDiagnostics(docURI)
+
 	// Not lockDoc: that would run the reparse deferred by the last keystroke
 	// before this one, which is the cost deferring exists to avoid.
 	defer s.lockDocOnly(docURI)()
@@ -346,6 +380,8 @@ func (s *Server) handleDidChange(_ context.Context, rawParams []byte) (any, erro
 	if !ok {
 		return nil, nil
 	}
+
+	s.setDocVersion(docURI, params.TextDocument.Version)
 
 	changeCount := s.noteChange(docURI, time.Now())
 
@@ -623,10 +659,16 @@ func (s *Server) handleDidClose(ctx context.Context, rawParams []byte) (any, err
 	// session has opened is the cheaper side of that trade.
 	s.log.Debug("document closed", cflog.String("uri", string(docURI)))
 
+	s.mu.Lock()
+	delete(s.lifecycleCache, docURI)
+	delete(s.docVersions, docURI)
+	s.mu.Unlock()
+
 	// Clear the document's own diagnostics on close. A known issue is about the
 	// file, not the buffer, and stays — unless its source is open-only.
 	s.diagnosticsClosed(docURI)
 	s.storeDiagnostics(docURI, sourceCFLint, nil)
+	s.cancelStructureDiagnostics(ctx, docURI)
 	s.setDiagnostics(ctx, docURI, sourceParse, nil)
 
 	return nil, nil
@@ -847,16 +889,33 @@ func (s *Server) safeGo(label string, fn func()) {
 
 // fileToPackage converts a file path to a CFML dot-path relative to workspace.
 func (s *Server) fileToPackage(filePath string) string {
-	for _, root := range s.searchRoots() {
-		if strings.HasPrefix(filePath, root+"/") {
-			rel := filePath[len(root)+1:]
-			rel = strings.TrimSuffix(rel, filepath.Ext(rel))
-
-			return strings.ReplaceAll(rel, "/", ".")
-		}
+	if path, ok := s.fileToPackageIn(filePath); ok {
+		return path
 	}
 
 	base := filepath.Base(filePath)
 
 	return strings.TrimSuffix(base, filepath.Ext(base))
+}
+
+// fileToPackageIn is the dot-path of filePath under a search root, and false
+// when it is under none, where it has no path that names it.
+func (s *Server) fileToPackageIn(filePath string) (string, bool) {
+	for _, root := range s.searchRoots() {
+		if strings.HasPrefix(filePath, root+"/") {
+			rel := filePath[len(root)+1:]
+			rel = strings.TrimSuffix(rel, filepath.Ext(rel))
+
+			return strings.ReplaceAll(rel, "/", "."), true
+		}
+	}
+
+	return "", false
+}
+
+// setDocVersion records the version the client gave docURI.
+func (s *Server) setDocVersion(docURI uri.URI, version int32) {
+	s.mu.Lock()
+	s.docVersions[docURI] = version
+	s.mu.Unlock()
 }

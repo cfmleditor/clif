@@ -72,7 +72,29 @@ func diagKey(u uri.URI) string {
 // setDiagnostics replaces one source's diagnostics for a file and publishes the
 // file's merged set. Empty d removes the source.
 func (s *Server) setDiagnostics(ctx context.Context, u uri.URI, source string, d []protocol.Diagnostic) {
+	s.setDiagnosticsIf(ctx, u, source, d, nil)
+}
+
+// setDiagnosticsIf is setDiagnostics, made only if ok, asked under the lock that
+// orders the sends: a result that is no longer the latest is dropped with
+// nothing between the question and the store for a newer one to pass. It
+// reports whether it was made.
+func (s *Server) setDiagnosticsIf(ctx context.Context, u uri.URI, source string, d []protocol.Diagnostic, ok func() bool) bool {
+	// Stored and sent together: two sources publishing at once would otherwise
+	// reach the client in the other order than they were stored, and an older
+	// set would stay over a newer. The cost is that a client slow to read holds
+	// every publisher, the close handler among them: notify already blocks the
+	// handler that calls it, and an ordered stream is worth the wait.
+	s.diagSendMu.Lock()
+	defer s.diagSendMu.Unlock()
+
+	if ok != nil && !ok() {
+		return false
+	}
+
 	s.notify(ctx, protocol.MethodTextDocumentPublishDiagnostics, s.storeDiagnostics(u, source, d))
+
+	return true
 }
 
 // storeDiagnostics is setDiagnostics without the publish: it records d and
@@ -189,6 +211,10 @@ func (s *Server) diagnosticsFor(u uri.URI) []protocol.Diagnostic {
 func (s *Server) diagnosticsOpened(ctx context.Context, u uri.URI) {
 	st := &s.diag
 	key := diagKey(u)
+
+	// Stored and sent together, like setDiagnostics.
+	s.diagSendMu.Lock()
+	defer s.diagSendMu.Unlock()
 
 	st.mu.Lock()
 
@@ -390,6 +416,10 @@ func (s *Server) loadKnownIssuesFile(ctx context.Context, file string) {
 	// An open-only source reaches the client only for an open file, so for a
 	// closed one the store is updated and nothing is sent.
 	publish := func(u uri.URI, d []protocol.Diagnostic) {
+		// Stored and sent together, like setDiagnostics.
+		s.diagSendMu.Lock()
+		defer s.diagSendMu.Unlock()
+
 		params := s.storeDiagnostics(u, source, d)
 		if !openOnly || s.isDiagnosticsOpen(u) {
 			s.notify(ctx, protocol.MethodTextDocumentPublishDiagnostics, params)

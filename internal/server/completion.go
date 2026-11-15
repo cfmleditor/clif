@@ -246,6 +246,16 @@ func (s *Server) completionItemsFor(params *protocol.CompletionParams, cc *compl
 	case inDocBlock:
 		items = docItems
 	case cc.inHashExpr:
+		// `#users.` after a query the page declares offers its columns.
+		if cc.triggeredByDot && hasDoc {
+			line := int(params.Position.Line)
+			if cols := s.queryColumnItems(params.TextDocument.URI, content, parser.WordBeforeDot(content, line, char), line, char); len(cols) > 0 {
+				items = cols
+
+				break
+			}
+		}
+
 		items = s.completionFromCache(params.TextDocument.URI, int(params.Position.Line))
 	case cc.inAttrValue:
 		if CompletionAttributes {
@@ -463,6 +473,12 @@ func (s *Server) dotCompletionMethods(content string, docURI uri.URI, line, char
 		return s.scopeArgumentsCompletion(docURI, line)
 	case "SUPER":
 		return s.superCompletion(docURI)
+	}
+
+	// A query the document declares offers its columns. (Before the ref: a
+	// query is given a native type, which is a ref too.)
+	if items := s.queryColumnItems(docURI, content, varName, line, char); len(items) > 0 {
+		return items
 	}
 
 	// Look up component ref for this variable in the current file
@@ -815,4 +831,98 @@ func appendScopedVars(items []protocol.CompletionItem, names []string, prefix st
 	}
 
 	return items
+}
+
+// queryColumnItems are the completions after `name.` when name is a query the
+// document declares: its columns, which the declaration names
+// (parser.QueryColumns), and the properties every query has.
+//
+// A query is a variable of the function that declares it, so only the function
+// around the cursor is read: a variable of another function, or an argument,
+// that shares the name is not it.
+func (s *Server) queryColumnItems(docURI uri.URI, content, name string, line, char int) []protocol.CompletionItem {
+	if !parser.MayDeclareQueryNamed(content, name) || memberOfAnother(content, line, char) {
+		return nil
+	}
+
+	return queryColumnItems(content, name, line, char, s.functionSpansOfDoc(docURI, content))
+}
+
+// queryColumnItems is s.queryColumnItems for the function spans of content, nil
+// when there are none: the whole text is then read.
+func queryColumnItems(content, name string, line, char int, spans []parser.FunctionSpan) []protocol.CompletionItem {
+	off := lineStartOffset(content, line) + char
+
+	// The innermost function around the cursor.
+	var around *parser.FunctionSpan
+
+	for i := range spans {
+		if sp := &spans[i]; sp.Start <= off && off <= sp.End && (around == nil || sp.End-sp.Start < around.End-around.Start) {
+			around = sp
+		}
+	}
+
+	var scope *parser.QueryScope
+
+	if around != nil {
+		scope = &parser.QueryScope{From: around.Start, To: around.End}
+	} else if len(spans) > 0 {
+		// Outside every function: what the functions declare is theirs.
+		scope = &parser.QueryScope{Skip: spans}
+	}
+
+	cols, ok := parser.DeclaredQueryColumns(content, name, off, scope)
+	if !ok {
+		return nil
+	}
+
+	items := make([]protocol.CompletionItem, 0, len(cols)+3)
+	seen := map[string]bool{}
+
+	add := func(label, detail string, kind protocol.CompletionItemKind, rank string) {
+		if seen[strings.ToLower(label)] {
+			return
+		}
+
+		seen[strings.ToLower(label)] = true
+
+		items = append(items, protocol.CompletionItem{
+			Label:    label,
+			Kind:     kind,
+			Detail:   protocol.NewOptional(detail),
+			SortText: protocol.NewOptional(rank + label),
+		})
+	}
+
+	for _, c := range cols {
+		add(c, "query column", protocol.CompletionItemKindField, "0")
+	}
+
+	add("recordCount", "query property", protocol.CompletionItemKindProperty, "1")
+	add("currentRow", "query property", protocol.CompletionItemKindProperty, "1")
+	add("columnList", "query property", protocol.CompletionItemKindProperty, "1")
+
+	return items
+}
+
+// memberOfAnother reports whether the word before the dot at char-1 of the line
+// is a member of another object, `cfg.users.`: it is not the variable of that
+// name. A `local.` or `variables.` before it is the variable's own scope.
+func memberOfAnother(content string, line, char int) bool {
+	name := parser.WordBeforeDot(content, line, char)
+	if name == "" {
+		return false
+	}
+
+	// The dot before the word, and the word before that dot.
+	text := parser.LineTextAt(content, line)
+
+	dot := char - 2 - len(name) // the dot after the word is at char-1, the word before it
+	if dot < 0 || dot >= len(text) || text[dot] != '.' {
+		return false
+	}
+
+	owner := strings.ToLower(parser.WordBeforeDot(content, line, dot+1))
+
+	return owner != "local" && owner != "variables"
 }

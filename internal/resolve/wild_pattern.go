@@ -35,17 +35,23 @@ type wildPattern struct {
 	atSegment bool
 }
 
-// accepts reports whether c may stand in a wildcard's run.
-func (k wildKind) accepts(c byte) bool {
+// accepts is the test of a byte that may stand in a wildcard's run. They are
+// functions of the package, not method values, so that choosing one allocates
+// nothing on the path of every match.
+func (k wildKind) accepts() func(c byte) bool {
 	switch k {
 	case wildWord:
-		return lex.IsWord(c)
+		return acceptWord
 	case wildSegment:
-		return c != '/'
+		return acceptSegment
 	default:
-		return c != '\n'
+		return acceptLine
 	}
 }
+
+func acceptWord(c byte) bool    { return lex.IsWord(c) }
+func acceptSegment(c byte) bool { return c != '/' }
+func acceptLine(c byte) bool    { return c != '\n' }
 
 // least is how many characters a wildcard's run holds at the fewest.
 func (k wildKind) least() int {
@@ -58,45 +64,25 @@ func (k wildKind) least() int {
 
 // match reports whether s fits the pattern, ignoring case.
 func (p *wildPattern) match(s string) bool {
+	m := lex.Wild{Accept: p.kind.accepts(), Least: p.kind.least(), EndAnchored: true}
+
+	var memo lex.WildMemo
+
 	if !p.atSegment {
-		return p.matchFrom(s, 0, 0)
+		_, ok := m.MatchAt(s, p.pieces, 0, &memo, false)
+
+		return ok
 	}
 
 	for start := 0; start <= len(s); start++ {
-		if (start == 0 || s[start-1] == '/') && p.matchFrom(s, 0, start) {
-			return true
+		if start == 0 || s[start-1] == '/' {
+			if _, ok := m.MatchAt(s, p.pieces, start, &memo, false); ok {
+				return true
+			}
 		}
 	}
 
 	return false
-}
-
-// matchFrom reports whether s from pos fits the pieces from piece on: the
-// piece, a wildcard, the next piece, and the last piece ends the text.
-func (p *wildPattern) matchFrom(s string, piece, pos int) bool {
-	lit := p.pieces[piece]
-	if pos+len(lit) > len(s) || !strings.EqualFold(s[pos:pos+len(lit)], lit) {
-		return false
-	}
-
-	end := pos + len(lit)
-	if piece == len(p.pieces)-1 {
-		return end == len(s)
-	}
-
-	run := 0
-
-	for {
-		if run >= p.kind.least() && p.matchFrom(s, piece+1, end+run) {
-			return true
-		}
-
-		if end+run >= len(s) || !p.kind.accepts(s[end+run]) {
-			return false
-		}
-
-		run++
-	}
 }
 
 // wildBuilder collects the literal and computed parts of a spelled name.
@@ -154,22 +140,76 @@ func spelledParts(value []parser.Token, b *wildBuilder, trimLeadingSlash bool) {
 				text = text[1 : len(text)-1]
 			}
 
-			for i, part := range strings.Split(text, "#") {
-				if i%2 == 1 {
-					b.wild()
-
-					continue
-				}
-
-				if trimLeadingSlash && b.empty() {
-					part = strings.TrimPrefix(part, "/")
-				}
-
-				b.text(part)
-			}
+			spelledString(text, b, trimLeadingSlash)
 		case parser.TokAmpersand:
 		default:
 			b.wild()
 		}
 	}
+}
+
+// spelledString notes the parts of the text of one string: a run between hashes
+// is computed, and `##` is a literal hash where a hash would open an expression,
+// so `#a##b#` is two expressions, not one around a literal hash. The expression
+// ends at the next hash outside a string of its own, as the rename's reading of
+// the same text does.
+func spelledString(text string, b *wildBuilder, trimLeadingSlash bool) {
+	var lit strings.Builder
+
+	flush := func() {
+		part := lit.String()
+		lit.Reset()
+
+		if trimLeadingSlash && b.empty() {
+			part = strings.TrimPrefix(part, "/")
+		}
+
+		b.text(part)
+	}
+
+	for i := 0; i < len(text); {
+		switch {
+		case text[i] != '#':
+			lit.WriteByte(text[i])
+
+			i++
+		case i+1 < len(text) && text[i+1] == '#':
+			lit.WriteByte('#')
+
+			i += 2
+		default:
+			flush()
+			b.wild()
+
+			end := hashEnd(text, i+1)
+			if end < 0 {
+				return
+			}
+
+			i = end + 1
+		}
+	}
+
+	flush()
+}
+
+// hashEnd is the offset of the hash that ends the expression which starts at
+// from in text, a hash outside a string of the expression's own, or -1.
+func hashEnd(text string, from int) int {
+	var quote byte
+
+	for k := from; k < len(text); k++ {
+		switch c := text[k]; {
+		case quote != 0:
+			if c == quote {
+				quote = 0
+			}
+		case c == '"' || c == '\'':
+			quote = c
+		case c == '#':
+			return k
+		}
+	}
+
+	return -1
 }
