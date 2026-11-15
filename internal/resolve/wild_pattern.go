@@ -56,34 +56,12 @@ func (k wildKind) least() int {
 	return 0
 }
 
-// failedSet remembers the (piece, position) pairs that failed. It is off for a
-// pattern with one wildcard or none, which has nothing to explode, and the map
-// is made on the first failure.
-type failedSet struct {
-	on bool
-	m  map[[2]int]bool
-}
-
-func (f *failedSet) has(piece, pos int) bool { return f.m[[2]int{piece, pos}] }
-
-func (f *failedSet) add(piece, pos int) {
-	if !f.on {
-		return
-	}
-
-	if f.m == nil {
-		f.m = map[[2]int]bool{}
-	}
-
-	f.m[[2]int{piece, pos}] = true
-}
-
 // match reports whether s fits the pattern, ignoring case.
 func (p *wildPattern) match(s string) bool {
 	// A piece that fails from a position fails from it by any route: failed
 	// keeps the search to pieces times positions, where trying every split of
 	// the runs between many wildcards is exponential.
-	failed := &failedSet{on: len(p.pieces) > 2}
+	failed := &parser.FailedSet{On: len(p.pieces) > 2}
 
 	if !p.atSegment {
 		return p.matchFrom(s, 0, 0, failed)
@@ -100,9 +78,9 @@ func (p *wildPattern) match(s string) bool {
 
 // matchFrom reports whether s from pos fits the pieces from piece on: the
 // piece, a wildcard, the next piece, and the last piece ends the text.
-func (p *wildPattern) matchFrom(s string, piece, pos int, failed *failedSet) bool {
+func (p *wildPattern) matchFrom(s string, piece, pos int, failed *parser.FailedSet) bool {
 	lit := p.pieces[piece]
-	if pos+len(lit) > len(s) || !strings.EqualFold(s[pos:pos+len(lit)], lit) || failed.has(piece, pos) {
+	if pos+len(lit) > len(s) || !strings.EqualFold(s[pos:pos+len(lit)], lit) || failed.Has(piece, pos) {
 		return false
 	}
 
@@ -119,7 +97,7 @@ func (p *wildPattern) matchFrom(s string, piece, pos int, failed *failedSet) boo
 		}
 
 		if end+run >= len(s) || !p.kind.accepts(s[end+run]) {
-			failed.add(piece, pos)
+			failed.Add(piece, pos)
 
 			return false
 		}

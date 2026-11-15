@@ -37,6 +37,12 @@ func (s *Server) handleInlayHint(_ context.Context, rawParams []byte) (any, erro
 		return nil, nil
 	}
 
+	// An unopened document has no text to hint, and no close to take its lock
+	// away again.
+	if _, open := s.getDocument(docURI); !open {
+		return nil, nil
+	}
+
 	defer s.lockDocOnly(docURI)()
 
 	content, ok := s.getDocument(docURI)

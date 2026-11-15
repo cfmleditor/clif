@@ -4,7 +4,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/cfmleditor/clif/internal/conv"
 	cflog "github.com/cfmleditor/clif/internal/log"
 	"github.com/cfmleditor/clif/internal/parser"
 	"go.lsp.dev/protocol"
@@ -46,6 +45,10 @@ func (s *Server) scheduleStructureDiagnostics(docURI uri.URI) {
 	} else if st.timer != nil {
 		st.timer.Stop()
 	}
+
+	// An edit makes a run in flight one of older text.
+	s.structureSeq++
+	st.latest = s.structureSeq
 
 	st.timer = time.AfterFunc(structureDelay, func() {
 		defer func() {
@@ -184,18 +187,7 @@ func structureDiagnosticsFrom(content string, spans []parser.FunctionSpan) []pro
 
 	var out []protocol.Diagnostic
 
-	lines := parser.NewLineTable(content)
-	cols := newColMapper(content)
-
-	at := func(offset int) protocol.Position {
-		line := lines.LineOf(offset)
-		start, _ := lines.Start(line)
-
-		return protocol.Position{
-			Line:      conv.Uint32(line),
-			Character: cols.col(conv.Uint32(line), conv.Uint32(offset-start)),
-		}
-	}
+	at := rangePositioner(content, parser.NewLineTable(content))
 
 	for _, p := range problems {
 		severity := protocol.DiagnosticSeverityError

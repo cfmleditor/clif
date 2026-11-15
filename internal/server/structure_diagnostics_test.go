@@ -234,3 +234,48 @@ func TestAStructureRunOfAnEarlierOpeningIsNotTheLatest(t *testing.T) {
 
 	s.stopStructureDiagnostics()
 }
+
+// An edit makes a run already in flight one of older text.
+func TestAnEditSupersedesAStructureRunInFlight(t *testing.T) {
+	s := newTestServer()
+	s.Features.StructureDiagnostics = true
+
+	docURI := uri.File("/tmp/structure_inflight.cfc")
+	s.scheduleStructureDiagnostics(docURI)
+
+	run, _ := s.startStructureRun(docURI)
+
+	s.scheduleStructureDiagnostics(docURI) // the next keystroke
+
+	if s.structureRunIsLatest(docURI, run) {
+		t.Error("a run begun before an edit is still the latest")
+	}
+
+	s.stopStructureDiagnostics()
+}
+
+// A change for a document that is not open leaves nothing behind.
+func TestAChangeToAnUnopenedDocumentSchedulesNothing(t *testing.T) {
+	s := newTestServer()
+	s.Features.StructureDiagnostics = true
+
+	docURI := uri.File("/tmp/structure_unopened.cfc")
+	change := makeCall(t, protocol.MethodTextDocumentDidChange, protocol.DidChangeTextDocumentParams{
+		TextDocument: protocol.VersionedTextDocumentIdentifier{TextDocumentIdentifier: protocol.TextDocumentIdentifier{URI: docURI}, Version: 2},
+		ContentChanges: []protocol.TextDocumentContentChangeEvent{
+			&protocol.TextDocumentContentChangeWholeDocument{Text: "<cfif a>"},
+		},
+	})
+
+	if _, err := s.handleDidChange(context.Background(), change); err != nil {
+		t.Fatal(err)
+	}
+
+	s.mu.RLock()
+	_, scheduled := s.structure[docURI]
+	s.mu.RUnlock()
+
+	if scheduled {
+		t.Error("a structure check is scheduled for a document that is not open")
+	}
+}

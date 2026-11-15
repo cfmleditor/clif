@@ -877,14 +877,16 @@ func queryColumnItems(content, name string, line, char int, spans []parser.Funct
 		}
 	}
 
+	var skip []parser.FunctionSpan
+
 	if around != nil {
 		text, off = content[around.Start:around.End], off-around.Start
-	} else if len(spans) > 0 {
+	} else {
 		// Outside every function: what the functions declare is theirs.
-		text = blankSpans(content, spans)
+		skip = spans
 	}
 
-	cols, ok := parser.QueryColumns(text, name, off)
+	cols, ok := parser.DeclaredQueryColumns(text, name, off, skip)
 	if !ok {
 		return nil
 	}
@@ -916,20 +918,4 @@ func queryColumnItems(content, name string, line, char int, spans []parser.Funct
 	add("columnList", "query property", protocol.CompletionItemKindProperty, "1")
 
 	return items
-}
-
-// blankSpans is content with each span written over with blanks, newlines kept,
-// so every offset outside the spans is where it was.
-func blankSpans(content string, spans []parser.FunctionSpan) string {
-	b := []byte(content)
-
-	for k := range spans {
-		for i := max(spans[k].Start, 0); i < min(spans[k].End, len(b)); i++ {
-			if b[i] != '\n' {
-				b[i] = ' '
-			}
-		}
-	}
-
-	return string(b)
 }

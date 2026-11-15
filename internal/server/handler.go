@@ -352,7 +352,13 @@ func (s *Server) handleDidChange(_ context.Context, rawParams []byte) (any, erro
 
 	// The structure is checked once the document has been left alone a moment,
 	// whichever way this change is applied.
-	defer s.scheduleStructureDiagnostics(docURI)
+	// (Of an open document only: a change for one that is not has nothing to
+	// check, and no close to take the check back.)
+	defer func() {
+		if _, open := s.getDocument(docURI); open {
+			s.scheduleStructureDiagnostics(docURI)
+		}
+	}()
 
 	s.mu.RLock()
 	pr := s.parseResults[docURI]
@@ -638,6 +644,10 @@ func (s *Server) handleDidClose(ctx context.Context, rawParams []byte) (any, err
 	// exact race the lock exists to prevent. One sync.Mutex per file the
 	// session has opened is the cheaper side of that trade.
 	s.log.Debug("document closed", cflog.String("uri", string(docURI)))
+
+	s.mu.Lock()
+	delete(s.lifecycleCache, docURI)
+	s.mu.Unlock()
 
 	// Clear the document's own diagnostics on close. A known issue is about the
 	// file, not the buffer, and stays — unless its source is open-only.

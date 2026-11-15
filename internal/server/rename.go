@@ -92,6 +92,10 @@ func (s *Server) handlePrepareRename(_ context.Context, rawParams []byte) (any, 
 		return nil, err
 	}
 
+	if _, open := s.getDocument(params.TextDocument.URI); !open {
+		return nil, nil
+	}
+
 	defer s.lockDoc(params.TextDocument.URI)()
 
 	req, err := s.renameAt(params.TextDocument.URI, params.Position)
@@ -122,6 +126,10 @@ func (s *Server) handleRename(_ context.Context, rawParams []byte) (any, error) 
 	}
 
 	docURI := params.TextDocument.URI
+
+	if _, open := s.getDocument(docURI); !open {
+		return nil, errors.New("the document is not open")
+	}
 
 	defer s.lockDoc(docURI)()
 

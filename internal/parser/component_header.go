@@ -1,7 +1,5 @@
 package parser
 
-import "strings"
-
 // ComponentDeclarationEnd is the byte offset where a component's declaration
 // ends: the `{` that opens a script component's body, or the `>` of a
 // <cfcomponent> tag. ok is false for text that declares none. The declaration
@@ -39,7 +37,15 @@ func ComponentBodyEnd(content string) (offset int, tags, ok bool) {
 	}
 
 	if content[open] == '>' {
-		at := lastIndexFoldASCII(content, "</cfcomponent")
+		// The last closing tag that is one: not a word in a comment.
+		at := -1
+
+		for _, tag := range CFTags(content, "cfcomponent") {
+			if tag.Close {
+				at = tag.Start
+			}
+		}
+
 		if at < open {
 			return 0, true, false
 		}
@@ -65,16 +71,4 @@ func ComponentBodyEnd(content string) (offset int, tags, ok bool) {
 		default:
 		}
 	}
-}
-
-// lastIndexFoldASCII is the offset of the last occurrence of needle, an ASCII
-// string, in s without regard to case, or -1.
-func lastIndexFoldASCII(s, needle string) int {
-	for i := len(s) - len(needle); i >= 0; i-- {
-		if strings.EqualFold(s[i:i+len(needle)], needle) {
-			return i
-		}
-	}
-
-	return -1
 }

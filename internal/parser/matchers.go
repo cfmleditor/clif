@@ -440,7 +440,7 @@ func (g *placeholderGlob) Match(expr string) ([]string, bool) {
 			continue
 		}
 
-		if captures, ok := g.capture(expr, 1, start+len(g.parts[0]), nil, &globFailed{on: len(g.parts) > 3}); ok {
+		if captures, ok := g.capture(expr, 1, start+len(g.parts[0]), nil, &FailedSet{On: len(g.parts) > 3}); ok {
 			return captures, true
 		}
 	}
@@ -448,18 +448,23 @@ func (g *placeholderGlob) Match(expr string) ([]string, bool) {
 	return nil, false
 }
 
-// globFailed remembers the (part, position) pairs that failed. It is off for a
-// pattern with at most two placeholders, which cannot explode, and the map is
-// made on the first failure.
-type globFailed struct {
-	on bool
+// FailedSet remembers the (piece, position) pairs a bounded backtracking
+// match found to fail, so that the search is bounded by pieces times positions
+// where trying every split of the runs between many wildcards is exponential.
+// It is off when On is false, for a pattern with too few wildcards to explode,
+// and the map is made on the first failure. A match that failed from a piece
+// and position fails from it by any route.
+type FailedSet struct {
+	On bool
 	m  map[[2]int]bool
 }
 
-func (f *globFailed) has(i, pos int) bool { return f.m[[2]int{i, pos}] }
+// Has reports whether the match failed from piece at pos.
+func (f *FailedSet) Has(piece, pos int) bool { return f.m[[2]int{piece, pos}] }
 
-func (f *globFailed) add(i, pos int) {
-	if !f.on {
+// Add records that the match failed from piece at pos.
+func (f *FailedSet) Add(piece, pos int) {
+	if !f.On {
 		return
 	}
 
@@ -467,7 +472,7 @@ func (f *globFailed) add(i, pos int) {
 		f.m = map[[2]int]bool{}
 	}
 
-	f.m[[2]int{i, pos}] = true
+	f.m[[2]int{piece, pos}] = true
 }
 
 // runeWidth is the width of the character at i, one at the end of s.
@@ -487,12 +492,12 @@ func runeWidth(s string, i int) int {
 // A part that cannot be matched from a position cannot be from it by any other
 // route either, so failed remembers those: the search is bounded by the parts
 // times the positions, not by the ways to split the run between them.
-func (g *placeholderGlob) capture(expr string, i, pos int, so []string, failed *globFailed) ([]string, bool) {
+func (g *placeholderGlob) capture(expr string, i, pos int, so []string, failed *FailedSet) ([]string, bool) {
 	if i == len(g.parts) {
 		return so, true
 	}
 
-	if failed.has(i, pos) {
+	if failed.Has(i, pos) {
 		return nil, false
 	}
 
@@ -512,7 +517,7 @@ func (g *placeholderGlob) capture(expr string, i, pos int, so []string, failed *
 		}
 	}
 
-	failed.add(i, pos)
+	failed.Add(i, pos)
 
 	return nil, false
 }

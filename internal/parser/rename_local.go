@@ -4,6 +4,8 @@ import (
 	"errors"
 	"slices"
 	"strings"
+
+	"github.com/cfmleditor/clif/internal/lex"
 )
 
 // LocalRename is what renaming a local variable of a script function changes:
@@ -118,7 +120,14 @@ var takenRank = map[string]int{takenArgument: 3, takenLocal: 2, takenCatch: 1, t
 // cannot.
 var ErrNotRenameable = errors.New("cannot rename")
 
-func refuse(why string) error { return errors.New(ErrNotRenameable.Error() + ": " + why) }
+func refuse(why string) error { return refusal{why} }
+
+// refusal is a reason a variable cannot be renamed; it matches ErrNotRenameable.
+type refusal struct{ why string }
+
+func (r refusal) Error() string { return ErrNotRenameable.Error() + ": " + r.why }
+
+func (r refusal) Is(target error) bool { return target == ErrNotRenameable }
 
 // ErrNoVariable is what a refusal matches when the cursor is not on a
 // variable at all, where the others name a variable that cannot be renamed.
@@ -393,12 +402,12 @@ func wordAt(content string, at int) string {
 	}
 
 	start := at
-	for start > 0 && isRenameIdentByte(content[start-1]) {
+	for start > 0 && lex.IsIdent(content[start-1]) {
 		start--
 	}
 
 	end := at
-	for end < len(content) && isRenameIdentByte(content[end]) {
+	for end < len(content) && lex.IsIdent(content[end]) {
 		end++
 	}
 
@@ -407,10 +416,6 @@ func wordAt(content string, at int) string {
 	}
 
 	return content[start:end]
-}
-
-func isRenameIdentByte(c byte) bool {
-	return c == '_' || c == '$' || c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
 }
 
 // param is one parameter of a list: its name, and where its default
@@ -818,6 +823,16 @@ func (w *renameWalk) word(toks []Token, i int, st *bracketState, base int) {
 		w.nestedParameter(toks, i)
 
 		return
+	}
+
+	// `{ x }` is the shorthand of `{ x: x }`: the key is the name, which a
+	// rename would change.
+	if strings.EqualFold(t.Value, w.name) && (prev.Kind == TokLBrace || prev.Kind == TokComma) && (next.Kind == TokRBrace || next.Kind == TokComma) {
+		if f := st.top(); f != nil && f.kind == rnStruct {
+			w.fail("'" + w.name + "' stands alone in a struct, where it is the key as well")
+
+			return
+		}
 	}
 
 	// `thread name="t" count=count`, `http url="a" result=result`: after a

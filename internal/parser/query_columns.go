@@ -21,6 +21,23 @@ func QueryColumns(content, name string, before int) (columns []string, ok bool) 
 		return nil, false
 	}
 
+	return DeclaredQueryColumns(content, name, before, nil)
+}
+
+// DeclaredQueryColumns is QueryColumns without the test of MayDeclareQuery, for
+// a caller that has made it, and with the spans of the functions to pass over:
+// a query a function declares is the function's, not the page's.
+func DeclaredQueryColumns(content, name string, before int, skip []FunctionSpan) (columns []string, ok bool) {
+	inSkip := func(off int) bool {
+		for i := range skip {
+			if off >= skip[i].Start && off < skip[i].End {
+				return true
+			}
+		}
+
+		return false
+	}
+
 	best := -1
 
 	consider := func(start int, cols []string, known bool) {
@@ -45,7 +62,7 @@ func QueryColumns(content, name string, before int) (columns []string, ok bool) 
 			continue
 		}
 
-		if v, has := tag.Attr("name"); has && strings.EqualFold(unscoped(v), name) {
+		if v, has := tag.Attr("name"); has && !inSkip(tag.Start) && strings.EqualFold(unscoped(v), name) {
 			openAt, openEnd, opened = tag.Start, tag.End, true
 		} else {
 			opened = false
@@ -68,7 +85,7 @@ func QueryColumns(content, name string, before int) (columns []string, ok bool) 
 	}
 
 	for t := read(); t.Kind != TokEOF; t = read() {
-		if t.Kind != TokIdent || !strings.EqualFold(t.Value, name) || sc.PeekSkipComments().Kind != TokEquals {
+		if t.Kind != TokIdent || !strings.EqualFold(t.Value, name) || sc.PeekSkipComments().Kind != TokEquals || inSkip(t.Offset) {
 			continue
 		}
 

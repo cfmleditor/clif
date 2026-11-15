@@ -90,6 +90,7 @@ type Server struct {
 	cacheTimers           map[uri.URI]*time.Timer         // debounce timers for completion cache rebuild
 	reindexTimers         map[uri.URI]*time.Timer         // deferred-reparse timers; see scheduleReparse
 	structureMu           sync.Mutex                      // orders a structure check's publish against a close
+	lifecycleCache        map[uri.URI]lifecycleCached     // the lifecycle actions of an Application.cfc, by text
 	structure             map[uri.URI]*structureState     // the open documents' structure checks; see scheduleStructureDiagnostics
 	structureSeq          uint64                          // the last structure check started, over all documents
 	reparsePending        map[uri.URI]bool                // documents whose ParseResult lags their text; see flushReparse
@@ -137,6 +138,7 @@ func NewServer(conn jsonrpc2.Conn, log cflog.Logger, sharedIndex ...*index.Index
 		funcRanges:               make(map[uri.URI][]cache.FuncRange),
 		cacheTimers:              make(map[uri.URI]*time.Timer),
 		reindexTimers:            make(map[uri.URI]*time.Timer),
+		lifecycleCache:           make(map[uri.URI]lifecycleCached),
 		structure:                make(map[uri.URI]*structureState),
 		reparsePending:           make(map[uri.URI]bool),
 		docLocks:                 make(map[uri.URI]*sync.Mutex),

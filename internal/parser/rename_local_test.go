@@ -91,6 +91,8 @@ func TestPlanLocalRenameRefuses(t *testing.T) {
 		{"a path string", "component {\n function f() {\n  var x = {};\n  return isDefined( \"x.y\" ) ? ¦x : 0;\n }\n}", "string"},
 		{"an indexed path string", "component {\n function f() {\n  var x = [];\n  return structGet( \"local.x[1]\" ) ?: ¦x;\n }\n}", "string"},
 		{"an arrow that binds the name after a default with a call", "component {\n function f( a ) {\n  var ¦x = 1;\n  arrayEach( a, ( y = foo( 1 ), x ) => { g( x ); } );\n }\n}", "arrow function"},
+		{"a struct shorthand", "component {\n function f() {\n  var x = 1;\n  var m = { a: 1, x };\n  return ¦x;\n }\n}", "key as well"},
+		{"an ordinary refusal matches ErrNotRenameable", "component {\n function f( ¦a ) {\n  return a;\n }\n}", "argument"},
 		{"evaluate", "component {\n function f() {\n  var x = 1;\n  return evaluate( \"¦x\" );\n }\n}", "evaluate"},
 		{"a closure that declares the name itself", "component {\n function f( l ) {\n  var ¦x = 1;\n  l.each( function() { var x = 2; } );\n }\n}", "inside this one declares"},
 		{"a closure that takes the name", "component {\n function f( l ) {\n  var ¦x = 1;\n  l.each( function( x ) { return x; } );\n }\n}", "own argument"},
@@ -300,5 +302,15 @@ func TestClassifyVariableName(t *testing.T) {
 		if got := ClassifyVariableName(name); got != want {
 			t.Errorf("ClassifyVariableName(%q) = %v, want %v", name, got, want)
 		}
+	}
+}
+
+func TestEveryRefusalIsNotRenameable(t *testing.T) {
+	content := "component {\n function f( a ) {\n  return a;\n }\n}"
+	at := strings.Index(content, "a )")
+
+	_, err := PlanLocalRename(content, FunctionSpansOf("t.cfc", content), at)
+	if !errors.Is(err, ErrNotRenameable) {
+		t.Errorf("%v does not match ErrNotRenameable", err)
 	}
 }

@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cfmleditor/clif/internal/parser"
+
 	"go.lsp.dev/protocol"
 	"go.lsp.dev/uri"
 )
@@ -240,5 +242,41 @@ func TestLifecycleStubsIgnoreADocCommentsIndentation(t *testing.T) {
 
 	if got := applyActionEdit(t, src, one); !strings.Contains(got, "\n\tpublic void function onSessionStart() {\n\t\treturn;\n\t}\n") {
 		t.Errorf("the stub is not tab-indented:\n%s", got)
+	}
+}
+
+func TestLifecycleStubsBlankLineHandling(t *testing.T) {
+	for name, c := range map[string]struct{ src, want string }{
+		"an indented blank line before the closer": {
+			"component {\n\tthis.name = \"a\";\n\t\n}\n",
+			"component {\n\tthis.name = \"a\";\n\t\n\tpublic void function onSessionStart() {\n\t\treturn;\n\t}\n}\n",
+		},
+		"a closer on the line of code": {
+			"component {\n\tthis.name = \"a\"; }\n",
+			"component {\n\tthis.name = \"a\"; \n\n\tpublic void function onSessionStart() {\n\t\treturn;\n\t}\n}\n",
+		},
+	} {
+		dir := t.TempDir()
+		s := newTestServer()
+		s.WorkspaceFolders = []string{dir}
+
+		app := uri.File(filepath.Join(dir, "Application.cfc"))
+		openDoc(t, s, app, c.src)
+
+		one, ok := actionTitled(lifecycleCodeActions(t, s, app), "Add onSessionStart() to Application.cfc")
+		if !ok {
+			t.Fatalf("%s: onSessionStart is not offered", name)
+		}
+
+		if got := applyActionEdit(t, c.src, one); got != c.want {
+			t.Errorf("%s:\ngot  %q\nwant %q", name, got, c.want)
+		}
+	}
+}
+
+func TestACFCommentHoldingTheClosingTagIsNotTheEnd(t *testing.T) {
+	src := "<cfcomponent>\n</cfcomponent>\n<!--- </cfcomponent> --->\n"
+	if end, tags, ok := parser.ComponentBodyEnd(src); !ok || !tags || end != strings.Index(src, "</cfcomponent>") {
+		t.Errorf("end %d tags %v ok %v", end, tags, ok)
 	}
 }

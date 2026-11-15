@@ -4,7 +4,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/cfmleditor/clif/internal/conv"
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
 	"go.lsp.dev/protocol"
@@ -75,6 +74,33 @@ func (s *Server) lifecycleActions(docURI uri.URI, content string) []protocol.Cod
 		return nil
 	}
 
+	// Asked on every cursor move, and the answer is the text's: made once for
+	// each version of it.
+	s.mu.RLock()
+	cached, ok := s.lifecycleCache[docURI]
+	s.mu.RUnlock()
+
+	if ok && cached.content == content {
+		return cached.actions
+	}
+
+	actions := s.buildLifecycleActions(docURI, content)
+
+	s.mu.Lock()
+	s.lifecycleCache[docURI] = lifecycleCached{content: content, actions: actions}
+	s.mu.Unlock()
+
+	return actions
+}
+
+// lifecycleCached is the lifecycle actions of one version of a document.
+type lifecycleCached struct {
+	content string
+	actions []protocol.CodeAction
+}
+
+// buildLifecycleActions is lifecycleActions for an Application.cfc, uncached.
+func (s *Server) buildLifecycleActions(docURI uri.URI, content string) []protocol.CodeAction {
 	declared := declaredFunctionNames(content, s.parseResultOf(docURI))
 
 	var missing []lifecycleStub
@@ -170,12 +196,18 @@ func insertStubs(content string, end int, tags bool, stubs []lifecycleStub) prot
 	lineStart := strings.LastIndexByte(content[:end], '\n') + 1
 	atLineStart := strings.TrimLeft(content[lineStart:end], " \t") == ""
 
-	at, text := end, "\n"+body.String()+"\n"
+	// A closer that follows code on its line is moved to the line after the
+	// stubs, which are set apart from that code by a blank line.
+	at, text := end, "\n\n"+body.String()+"\n"
 	if atLineStart {
 		at, text = lineStart, body.String()+"\n"
-		// A blank line before the stubs, unless there already is one.
+		// A blank line before the stubs, unless there already is one: the line
+		// before is blank when only blanks stand on it.
 		before := strings.ReplaceAll(content[:lineStart], "\r\n", "\n")
-		if prev := strings.TrimRight(before, " \t\n"); prev != "" && !strings.HasSuffix(before, "\n\n") {
+		lastLine := strings.TrimSuffix(before, "\n")
+		lastLine = lastLine[strings.LastIndexByte(lastLine, '\n')+1:]
+
+		if strings.TrimSpace(before) != "" && strings.TrimSpace(lastLine) != "" {
 			text = "\n" + text
 		}
 	}
@@ -185,10 +217,7 @@ func insertStubs(content string, end int, tags bool, stubs []lifecycleStub) prot
 		text = strings.ReplaceAll(text, "\n", "\r\n")
 	}
 
-	lines := parser.NewLineTable(content)
-	line := lines.LineOf(at)
-	start, _ := lines.Start(line)
-	pos := protocol.Position{Line: conv.Uint32(line), Character: newColMapper(content).col(conv.Uint32(line), conv.Uint32(at-start))}
+	pos := rangePositioner(content, parser.NewLineTable(content))(at)
 
 	return protocol.TextEdit{Range: protocol.Range{Start: pos, End: pos}, NewText: text}
 }
