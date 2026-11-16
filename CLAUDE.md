@@ -106,10 +106,13 @@ vendored `docs/lucee` are each built beside themselves and swapped in (`scripts/
 with the old copy restored after a failure or an interrupt, and `docs/data/order` is written to a
 temporary file and renamed into place. The scripts and the generator take a lock (`docs/.lock`, a
 symlink naming its owner's PID, created atomically) so two docs runs cannot interleave, and a
-generation never reads a half-swapped source. It is never taken over: a lock left by a run killed
-with `kill -9` is removed by hand (`rm docs/.lock`), as the error says. The scripts retry a failed
-network step twice (`scripts/lib/retry.sh`), and work from the repository root wherever they are run
-from.
+generation never reads a half-swapped source. Every exit releases it, Ctrl-C and SIGTERM included
+(the scripts' EXIT traps; the generator's signal handler, registered before it takes the lock). A
+lock whose PID no longer exists (a run killed with `kill -9`) is taken over, decided by `kill -0`
+alone (no `ps`, nothing locale- or time-zone-dependent) and under `docs/.lock.takeover`, an atomic
+`mkdir`, so two runs cannot both take it over; a PID since reused by another process still looks
+alive, and the run stops and says to `rm docs/.lock`. The scripts retry a failed network step twice
+(`scripts/lib/retry.sh`), and work from the repository root wherever they are run from.
 
 **`scripts/generate_docs.go` refuses to lose an entry.** It compares the new entries, by type and
 name, with `internal/docs/generated_sources.txt` as committed at `HEAD`, or at `DOCS_BASELINE_REF`
@@ -171,7 +174,11 @@ change, so `generated_docs.go` is always what the pinned and vendored sources pr
 or a pin bumped without regenerating, fails it. On a pull request it also regenerates against the
 PR's base (`DOCS_BASELINE_REF`), since `HEAD` is the PR's own commit and would hold nothing to miss
 if the PR itself committed a lossy regeneration. Only the losses `docs/allowed-removals` lists pass
-there, so dropping an entry on purpose takes a reviewed change to that file.
+there, so dropping an entry on purpose takes a reviewed change to that file. The generator reads it
+itself (`DOCS_ALLOWED_REMOVALS_FILE`, through `sources.ParseAllowedRemovals`), strictly: a line it
+cannot read, `1` (which would switch the comparison off), or an entry the PR does not actually
+remove (a stale one, which would wave the same loss through later) fails the step. `DOCS_BASELINE_REF`
+must name a commit; a value starting with `-` is refused, as git would read it as an option.
 
 Go toolchain is pinned at **1.27.4** (`go.mod`). CGO is required (tree-sitter grammar).
 

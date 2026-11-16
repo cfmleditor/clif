@@ -253,7 +253,9 @@ func ManifestHash(files map[string][]byte) string {
 // scripts/check_vendored.go) and what TestVendoredLuceeMatchesItsSource
 // compares with it, so the two cannot read or hash the files differently.
 func HashDir(dir string) (hash string, broken []string, err error) {
-	// Read through an fs.FS rooted at dir, so every read stays inside it.
+	// os.DirFS keeps every name inside dir, but follows a symlink wherever it
+	// points; so a symlinked file is refused, not read, below. Vendored files
+	// are kept byte for byte as downloaded, and a zip extracts none.
 	fsys := os.DirFS(dir)
 
 	names, err := fs.Glob(fsys, "*.json")
@@ -268,6 +270,19 @@ func HashDir(dir string) (hash string, broken []string, err error) {
 	files := make(map[string][]byte, len(names))
 
 	for _, n := range names {
+		info, err := fs.Lstat(fsys, n)
+		if err != nil {
+			broken = append(broken, fmt.Sprintf("%s: %v", n, err))
+
+			continue
+		}
+
+		if !info.Mode().IsRegular() {
+			broken = append(broken, fmt.Sprintf("%s: not a regular file (%s)", n, info.Mode().Type()))
+
+			continue
+		}
+
 		b, err := fs.ReadFile(fsys, n)
 		if err != nil {
 			broken = append(broken, fmt.Sprintf("%s: %v", n, err))
@@ -283,4 +298,47 @@ func HashDir(dir string) (hash string, broken []string, err error) {
 	}
 
 	return ManifestHash(files), broken, nil
+}
+
+// ParseAllowedRemovals reads docs/allowed-removals: one "function <name>" or
+// "tag <name>" per line, blank lines and # comments (whole-line or trailing)
+// aside. It is strict, because CI's comparison with a pull request's base
+// accepts exactly these losses: a line it cannot read is an error naming it,
+// never a warning that lets the loss through, or refuses it, unnoticed. "1",
+// which DOCS_ALLOW_REMOVALS takes for "accept everything", is refused here: a
+// pull request cannot switch the comparison off by adding one line. label
+// names the file in errors.
+func ParseAllowedRemovals(label string, b []byte) (map[string]bool, error) {
+	keys := map[string]bool{}
+
+	for i, line := range Lines(b) {
+		if c := strings.IndexByte(line, '#'); c >= 0 {
+			line = line[:c]
+		}
+
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		f := strings.Fields(line)
+		typ := ""
+
+		if len(f) == 2 {
+			typ = strings.ToLower(f[0])
+		}
+
+		if len(f) != 2 || (typ != "function" && typ != "tag") || !ValidName(f[1]) {
+			return nil, fmt.Errorf("%s:%d: want \"function <name>\" or \"tag <name>\", have %q", label, i+1, line)
+		}
+
+		k := Key(typ, f[1])
+		if keys[k] {
+			return nil, fmt.Errorf("%s:%d: %q listed twice", label, i+1, k)
+		}
+
+		keys[k] = true
+	}
+
+	return keys, nil
 }

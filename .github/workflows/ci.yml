@@ -291,8 +291,10 @@ jobs:
             echo "The base has no generated_sources.txt yet: nothing to compare with."
             exit 0
           fi
-          allowed=$(grep -v '^[[:space:]]*\(#\|$\)' docs/allowed-removals 2>/dev/null | paste -sd, - || true)
-          DOCS_BASELINE_REF="$BASE" DOCS_ALLOW_REMOVALS="$allowed" go run scripts/generate_docs.go
+          # The generator reads docs/allowed-removals itself, strictly: a line
+          # it cannot read, "1" (which would accept every loss), or an entry
+          # this PR does not actually remove (a stale one) fails the step.
+          DOCS_BASELINE_REF="$BASE" DOCS_ALLOWED_REMOVALS_FILE=docs/allowed-removals go run scripts/generate_docs.go
 
       - name: Check nothing changed
         run: |

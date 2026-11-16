@@ -8,14 +8,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 
 	docsources "github.com/cfmleditor/clif/internal/docs/sources"
 )
@@ -53,11 +56,28 @@ var stagedMarkers = map[string]string{"cfdocs": "docs/.sha-cfdocs"}
 // a PR whose own commit already holds a lossy regeneration (its HEAD then has
 // nothing to miss) is still compared with what it would change.
 func baselineRef() string {
-	if r := strings.TrimSpace(os.Getenv("DOCS_BASELINE_REF")); r != "" {
-		return r
+	r := strings.TrimSpace(os.Getenv("DOCS_BASELINE_REF"))
+	if r == "" {
+		return "HEAD"
 	}
 
-	return "HEAD"
+	// git would take a value starting with "-" for an option, not a commit.
+	if strings.HasPrefix(r, "-") {
+		refuse(fmt.Sprintf("DOCS_BASELINE_REF=%q is not a commit: it starts with \"-\".", r))
+	}
+
+	return r
+}
+
+// resolves reports whether ref names a commit. HEAD's answer comes from
+// gitInfo, the one the banner's notes use, so the baseline read and the
+// banner cannot disagree about it within one run.
+func resolves(ref string) bool {
+	if ref == "HEAD" {
+		return gitInfo().head
+	}
+
+	return exec.Command("git", "rev-parse", "--verify", "--quiet", ref+"^{commit}").Run() == nil
 }
 
 // baselineStatus says what reading a committed file found. Each case is its
@@ -88,7 +108,7 @@ func committed(path string) (status baselineStatus, data []byte, err error) {
 	}
 
 	ref := baselineRef()
-	if exec.Command("git", "rev-parse", "--verify", "--quiet", ref+"^{commit}").Run() != nil {
+	if !resolves(ref) {
 		return baselineNoRef, nil, nil
 	}
 
@@ -194,19 +214,46 @@ type Entry struct {
 // docsLock is the lock scripts/lib/swapdir.sh takes: a symlink naming its
 // owner's PID, created atomically. The generator holds it too, so a fetch or
 // bump cannot swap a source directory (or move cfdocs' marker) while this
-// reads it, and a half-swapped source is never what gets generated from.
+// reads it, and a half-swapped source is never what gets generated from. The
+// rules match the shell's: a lock whose PID no longer exists is taken over,
+// under docsLock+".takeover" (an atomic mkdir), so two runs cannot both.
 const docsLock = "docs/.lock"
 
 var lockHeld bool
 
 func lock() {
-	if err := os.Symlink(strconv.Itoa(os.Getpid()), docsLock); err != nil {
-		held, _ := os.Readlink(docsLock)
-		fmt.Fprintf(os.Stderr, "error: %s is held by PID %s: another docs run is in progress.\n", docsLock, held)
-		fmt.Fprintf(os.Stderr, "       If none is (a run killed with kill -9 leaves it), delete it: rm %s\n", docsLock)
-		os.Exit(1)
+	me := strconv.Itoa(os.Getpid())
+	if os.Symlink(me, docsLock) == nil {
+		lockHeld = true
+
+		return
 	}
-	lockHeld = true
+
+	held, _ := os.Readlink(docsLock)
+	// Gone means "no such process" (ESRCH) only: EPERM is a live process
+	// owned by someone else, and anything else is not proof of death.
+	if pid, err := strconv.Atoi(held); err == nil && pid > 0 && errors.Is(syscall.Kill(pid, 0), syscall.ESRCH) {
+		// Its owner is gone: take it over, one taker at a time.
+		takeover := docsLock + ".takeover"
+		if os.Mkdir(takeover, 0o755) == nil {
+			cur, _ := os.Readlink(docsLock)
+			if cur == held {
+				_ = os.Remove(docsLock)
+			}
+			err := os.Symlink(me, docsLock)
+			_ = os.Remove(takeover)
+			if err == nil {
+				fmt.Fprintf(os.Stderr, "note: took over %s from PID %s, which is no longer running\n", docsLock, held)
+				lockHeld = true
+
+				return
+			}
+		}
+	}
+
+	fmt.Fprintf(os.Stderr, "error: %s is held by PID %s: another docs run is in progress.\n", docsLock, held)
+	fmt.Fprintf(os.Stderr, "       If none is (that PID now belongs to another process), delete it: rm %s\n", docsLock)
+	os.Exit(1)
 }
 
 func unlock() {
@@ -214,6 +261,21 @@ func unlock() {
 		_ = os.Remove(docsLock)
 	}
 	lockHeld = false
+}
+
+// releaseOnSignal releases the lock when the run is interrupted (Ctrl-C) or
+// terminated, then exits as the signal would have: otherwise the lock would
+// outlive the run, naming a process that no longer exists.
+func releaseOnSignal() {
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+
+	go func() {
+		sig := <-c
+		unlock()
+		fmt.Fprintf(os.Stderr, "\n%v: stopped; nothing was written\n", sig)
+		os.Exit(130)
+	}()
 }
 
 // exit releases the lock and exits: every way out of main goes through here,
@@ -278,17 +340,17 @@ func checkPins() {
 
 		return docsources.ReadPairs(path, b)
 	}
-	lock, err := read(lockFile)
+	pins, err := read(lockFile)
 	if err != nil {
 		refuse("Cannot read the pins: "+err.Error(), "Restore docs/sources.lock from git, or `make docs-bump`.")
 	}
 	var off []string
 	for src := range stagedMarkers {
-		if lock[src] == "" {
+		if pins[src] == "" {
 			off = append(off, fmt.Sprintf("%s: not pinned in %s at all", src, lockFile))
 		}
 	}
-	for src, pin := range lock {
+	for src, pin := range pins {
 		got := ""
 		if marker, ok := stagedMarkers[src]; ok {
 			if b, err := os.ReadFile(marker); err == nil {
@@ -310,7 +372,12 @@ func checkPins() {
 }
 
 func main() {
+	// The handler first, then the lock: a signal arriving the moment the lock
+	// is taken must still release it. (Before the lock is held, unlock is a
+	// no-op.)
+	releaseOnSignal()
 	lock()
+	defer unlock() // a panic unwinds through here
 	ob, err := os.ReadFile(orderFile)
 	if err != nil {
 		refuse(fmt.Sprintf("No %s: run `make docs` first (fetches cfdocs and assembles the order).", orderFile))
@@ -475,9 +542,30 @@ func main() {
 	// nothing to compare with, and every check would pass: that is refused
 	// too, unless DOCS_ALLOW_REMOVALS=1 says this run is the one that
 	// creates it.
-	accept, ignored := docsources.ParseAcceptance(os.Getenv("DOCS_ALLOW_REMOVALS"))
-	for _, k := range ignored {
-		fmt.Fprintf(os.Stderr, "warning: DOCS_ALLOW_REMOVALS: %q is not \"function <name>\" or \"tag <name>\"; ignored\n", k)
+	// DOCS_ALLOWED_REMOVALS_FILE (CI's comparison with a pull request's
+	// base) takes the accepted losses from a committed file, read strictly;
+	// DOCS_ALLOW_REMOVALS (a person at a terminal) from the environment.
+	allowedFile := os.Getenv("DOCS_ALLOWED_REMOVALS_FILE")
+	var accept docsources.Acceptance
+	if allowedFile != "" {
+		if os.Getenv("DOCS_ALLOW_REMOVALS") != "" {
+			refuse("DOCS_ALLOW_REMOVALS and DOCS_ALLOWED_REMOVALS_FILE are both set: use one.")
+		}
+		b, err := os.ReadFile(allowedFile)
+		if err != nil && !errors.Is(err, fs.ErrNotExist) {
+			refuse("Cannot read " + allowedFile + ": " + err.Error())
+		}
+		keys, err := docsources.ParseAllowedRemovals(allowedFile, b)
+		if err != nil {
+			refuse(err.Error())
+		}
+		accept = docsources.Acceptance{Keys: keys}
+	} else {
+		var ignored []string
+		accept, ignored = docsources.ParseAcceptance(os.Getenv("DOCS_ALLOW_REMOVALS"))
+		for _, k := range ignored {
+			fmt.Fprintf(os.Stderr, "warning: DOCS_ALLOW_REMOVALS: %q is not \"function <name>\" or \"tag <name>\"; ignored\n", k)
+		}
 	}
 	status, committedRaw, readErr := committed(sourcesFile)
 	ref := baselineRef()
@@ -544,10 +632,21 @@ func main() {
 		named = append(named, k)
 	}
 	sort.Strings(named)
+	var stale []string
 	for _, k := range named {
 		if !slices.Contains(removed, k) && lostByKey[k] == "" {
-			fmt.Fprintf(os.Stderr, "warning: DOCS_ALLOW_REMOVALS names %q, which this run neither removes nor moves\n", k)
+			stale = append(stale, k)
 		}
+	}
+	// In the committed file, a line that accepts nothing is stale: left in,
+	// it would wave through the same loss in a later pull request, made by
+	// accident. It is refused, so it gets cleared.
+	if len(stale) > 0 && allowedFile != "" {
+		reason := append([]string{allowedFile + " lists entries this pull request neither removes nor moves:"}, stale...)
+		refuse(append(reason, "", "Delete those lines (an entry stays listed only in the pull request that drops it).")...)
+	}
+	for _, k := range stale {
+		fmt.Fprintf(os.Stderr, "warning: DOCS_ALLOW_REMOVALS names %q, which this run neither removes nor moves\n", k)
 	}
 
 	if len(refusedRemoved)+len(refusedLost) > 0 {
@@ -563,8 +662,18 @@ func main() {
 		reason = append(reason,
 			"So this build has none of the sources' other updates either. If a source failed to fetch,",
 			"fix that. If upstream stopped publishing them, copy each entry into docs/retained/ (see its",
-			"README). To accept a loss deliberately, rerun `make generate` with DOCS_ALLOW_REMOVALS set to",
-			"the entries, comma-separated (DOCS_ALLOW_REMOVALS=\"function foo,tag bar\"), or to 1 for all.")
+			"README).")
+		if allowedFile != "" {
+			// CI's comparison with the pull request's base: the banner's
+			// HEAD notes below are about the checkout, not this baseline.
+			reason = append(reason,
+				fmt.Sprintf("This compared with %s, the pull request's base, not HEAD: a local `make generate`", ref),
+				"can pass while this fails. To drop an entry on purpose, list it in "+allowedFile+".")
+		} else {
+			reason = append(reason,
+				"To accept a loss deliberately, rerun `make generate` with DOCS_ALLOW_REMOVALS set to the entries,",
+				"comma-separated (DOCS_ALLOW_REMOVALS=\"function foo,tag bar\"), or to 1 for all.")
+		}
 		refuse(reason...)
 	}
 

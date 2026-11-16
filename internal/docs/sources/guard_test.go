@@ -1,7 +1,10 @@
 package sources
 
 import (
+	"os"
+	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -149,5 +152,62 @@ func TestManifestHash(t *testing.T) {
 		if ManifestHash(files) == h {
 			t.Errorf("%s: same hash", name)
 		}
+	}
+}
+
+func TestParseAllowedRemovals(t *testing.T) {
+	keys, err := ParseAllowedRemovals("f", []byte("# header\r\n\nfunction JwtSign   # dropped by the engine\r\nTag cfstatic\n  # indented comment\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(keys) != 2 || !keys["function jwtsign"] || !keys["tag cfstatic"] {
+		t.Errorf("keys = %v, want function jwtsign and tag cfstatic", keys)
+	}
+
+	// Each would otherwise accept a loss nobody listed, or refuse one that
+	// was, with nothing louder than a warning.
+	for name, text := range map[string]string{
+		"accept everything": "1\n",
+		"no type":           "jwtsign\n",
+		"bad type":          "funktion jwtsign\n",
+		"three words":       "function jwt sign\n",
+		"twice":             "function a\nfunction A\n",
+	} {
+		if _, err := ParseAllowedRemovals("f", []byte(text)); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+
+	if keys, err := ParseAllowedRemovals("f", nil); err != nil || len(keys) != 0 {
+		t.Errorf("an empty file = %v, %v; want no keys and no error", keys, err)
+	}
+}
+
+// TestHashDirRefusesASymlink: os.DirFS follows a symlink out of the folder;
+// a vendored file must be the bytes downloaded, not a link elsewhere.
+func TestHashDirRefusesASymlink(t *testing.T) {
+	dir := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "elsewhere.json")
+
+	if err := os.WriteFile(filepath.Join(dir, "a.json"), []byte(`{"name": "a", "type": "function"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(outside, []byte(`{"name": "b", "type": "function"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.Symlink(outside, filepath.Join(dir, "b.json")); err != nil {
+		t.Skip("symlinks unavailable:", err)
+	}
+
+	_, broken, err := HashDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(broken) != 1 || !strings.HasPrefix(broken[0], "b.json") {
+		t.Errorf("broken = %v, want b.json refused as a symlink", broken)
 	}
 }
