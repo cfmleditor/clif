@@ -101,27 +101,30 @@ outside `make docs-bump`. `SOURCES` in `assemble-docs.sh` is the only place the 
 written, and the generator takes each entry from the highest source that documents it, whatever the
 file is called: Lucee outranks `docs/retained`, which outranks cfdocs, and when Lucee documents a
 retained name again the generator says the retained file can go. Every source is read where it is,
-never copied, so a file just added, fixed, broken or pulled always counts. The staged cfdocs and
-the vendored `docs/lucee` are each built beside themselves and swapped in (`scripts/lib/swapdir.sh`),
+never copied, so a file just added, fixed, broken or pulled always counts. The staged cfdocs and the
+vendored `docs/lucee` are each built beside themselves and swapped in (`scripts/lib/swapdir.sh`),
 with the old copy restored after a failure or an interrupt, and `docs/data/order` is written to a
-temporary file and renamed into place. The scripts take a lock (`docs/.lock`, an atomic symlink
-naming its owner's PID and start time, so a dead run's lock is taken over) so two docs runs cannot
-interleave, retry a failed network step twice (`scripts/lib/retry.sh`), and work from the repository
-root wherever they are run from.
+temporary file and renamed into place. The scripts and the generator take a lock (`docs/.lock`, a
+symlink naming its owner's PID, created atomically) so two docs runs cannot interleave, and a
+generation never reads a half-swapped source. It is never taken over: a lock left by a run killed
+with `kill -9` is removed by hand (`rm docs/.lock`), as the error says. The scripts retry a failed
+network step twice (`scripts/lib/retry.sh`), and work from the repository root wherever they are run
+from.
 
 **`scripts/generate_docs.go` refuses to lose an entry.** It compares the new entries, by type and
-name, with `internal/docs/generated_sources.txt` as committed at `HEAD` (`git show HEAD:./…`, so it
-also works with clif inside another repository), never the working copy, so an uncommitted
-regeneration that already lost entries cannot become the baseline. If any are missing it prints a
-banner listing them and writes nothing. It refuses the same way when an entry would come from a
-lower-ranked source than before (Lucee's, or a retained one, replaced by cfdocs' Adobe entry): the
-name survives, so nothing is "missing", but the signature changes. Ranks are judged by the order the
-baseline was generated under (its `# order:` line), so a source missing today still ranks where it
-did. A move to `docs/retained` is never a fallback: copying in an entry Lucee dropped is the fix.
-`generated_sources.txt` records each entry's source; `TestGeneratedSourcesMatchTheDocs` keeps it in
-step with `generated_docs.go`. Both are written to temporary files first and renamed into place only
-once both are written, so a full disk cannot split them; a rename failing between the two can, and
-that test then fails until a regeneration rewrites both. **Commit them together.**
+name, with `internal/docs/generated_sources.txt` as committed at `HEAD`, or at `DOCS_BASELINE_REF`
+when that names another commit (`git show REF:./…`, so it also works with clif inside another
+repository), never the working copy, so an uncommitted regeneration that already lost entries cannot
+become the baseline. If any are missing it prints a banner listing them and writes nothing. It
+refuses the same way when an entry would come from a lower-ranked source than before (Lucee's, or a
+retained one, replaced by cfdocs' Adobe entry): the name survives, so nothing is "missing", but the
+signature changes. Ranks are judged by the order the baseline was generated under (its `# order:`
+line), so a source missing today still ranks where it did. A move to `docs/retained` is never a
+fallback: copying in an entry Lucee dropped is the fix. `generated_sources.txt` records each entry's
+source; `TestGeneratedSourcesMatchTheDocs` keeps it in step with `generated_docs.go`. Both are
+written to temporary files first and renamed into place only once both are written, so a full disk
+cannot split them; a rename failing between the two can, and that test then fails until a
+regeneration rewrites both. **Commit them together.**
 
 With no baseline to compare with (no `generated_sources.txt` at `HEAD`, a `HEAD` that does not
 resolve, or no usable git to ask: not installed, or a checkout git distrusts) it refuses rather than
@@ -165,7 +168,10 @@ with its own syntax and parameters (or that Lucee now documents it), and
 `go test ./internal/docs/...`, once, ahead of the platform builds, rather than grepping the
 generated file. CI's `docs-reproducible` job runs `make generate` and fails if the committed docs
 change, so `generated_docs.go` is always what the pinned and vendored sources produce: a hand edit,
-or a pin bumped without regenerating, fails it.
+or a pin bumped without regenerating, fails it. On a pull request it also regenerates against the
+PR's base (`DOCS_BASELINE_REF`), since `HEAD` is the PR's own commit and would hold nothing to miss
+if the PR itself committed a lossy regeneration. Only the losses `docs/allowed-removals` lists pass
+there, so dropping an entry on purpose takes a reviewed change to that file.
 
 Go toolchain is pinned at **1.27.4** (`go.mod`). CGO is required (tree-sitter grammar).
 

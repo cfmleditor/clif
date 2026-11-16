@@ -35,49 +35,31 @@ swap_in() {
 # run's cleanup would delete another's half-built copy or move its DIR.old
 # back mid-swap.
 #
-# The lock is a symlink whose target names its owner: creating a symlink is
-# atomic, and it is born holding the owner, so there is no moment when a lock
-# exists without one (a directory, then a PID file, had that gap, and a run
-# arriving in it took the lock as stale). The owner is "<pid>@<start time>":
-# a lock left by a run that died (kill -9) names a process that is gone, or a
-# PID since reused by another process, whose start time then differs, so it is
-# taken over rather than blocking every later run.
+# The lock is a symlink naming its owner's PID: creating a symlink is atomic,
+# and it is born holding the owner, so two runs can never both take it. A
+# lock is never taken over: deciding that its owner is gone needs ps (absent
+# in minimal containers) and a start time it formats by locale and time zone,
+# and two runs deciding at once could both win. A lock left by a run that was
+# killed outright is removed by hand, as the error says; every normal exit,
+# Ctrl-C included, releases it.
 DOCS_LOCK="docs/.lock"
 
-# docs_owner PID: the owner string for a process, or nothing if it is gone.
-docs_owner() {
-    local start
-    start=$(ps -p "$1" -o lstart= 2>/dev/null | tr -s ' ' '_' | sed 's/^_//; s/_$//')
-    [ -n "$start" ] && echo "$1@$start"
-}
-
-# docs_lock: take the lock, or exit 1 if a live run holds it.
+# docs_lock: take the lock, or exit 1 if a run holds it.
 docs_lock() {
     mkdir -p docs
-    DOCS_LOCK_OWNER=$(docs_owner $$)
-    if ln -s "$DOCS_LOCK_OWNER" "$DOCS_LOCK" 2>/dev/null; then
-        return 0
-    fi
-
-    local held pid
-    held=$(readlink "$DOCS_LOCK" 2>/dev/null || true)
-    pid=${held%%@*}
-    if [ -n "$pid" ] && [ "$(docs_owner "$pid")" = "$held" ]; then
-        echo "error: another docs run (PID $pid) is in progress; wait for it" >&2
+    if ! ln -s "$$" "$DOCS_LOCK" 2>/dev/null; then
+        local held
+        held=$(readlink "$DOCS_LOCK" 2>/dev/null || echo "?")
+        echo "error: docs/.lock is held by PID $held: another docs run is in progress." >&2
+        echo "       If none is (a run killed with kill -9 leaves it), delete it: rm docs/.lock" >&2
         exit 1
     fi
-
-    # Stale: its owner is gone. Two runs may both get here; only one ln wins.
-    rm -f "$DOCS_LOCK"
-    if ! ln -s "$DOCS_LOCK_OWNER" "$DOCS_LOCK" 2>/dev/null; then
-        echo "error: another docs run took the lock first; wait for it" >&2
-        exit 1
-    fi
+    DOCS_LOCKED=1
 }
 
 # docs_unlock: release it, if this run holds it.
 docs_unlock() {
-    if [ -n "${DOCS_LOCK_OWNER:-}" ] && [ "$(readlink "$DOCS_LOCK" 2>/dev/null || true)" = "$DOCS_LOCK_OWNER" ]; then
+    if [ -n "${DOCS_LOCKED:-}" ] && [ "$(readlink "$DOCS_LOCK" 2>/dev/null || true)" = "$$" ]; then
         rm -f "$DOCS_LOCK"
     fi
 }

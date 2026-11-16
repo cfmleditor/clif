@@ -276,6 +276,24 @@ jobs:
       - name: Regenerate the docs
         run: make generate
 
+      # `make generate` compares with HEAD, the PR's own commit: if that
+      # already holds a lossy regeneration (made with DOCS_ALLOW_REMOVALS, or
+      # by hand), HEAD has nothing to miss. So a pull request is also compared
+      # with its base, accepting only the losses docs/allowed-removals lists,
+      # a file the PR has to change, in review, to drop an entry on purpose.
+      - name: Compare with the pull request's base
+        if: github.event_name == 'pull_request'
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          git fetch --no-tags --depth=1 origin "$BASE"
+          if ! git cat-file -e "$BASE:internal/docs/generated_sources.txt" 2>/dev/null; then
+            echo "The base has no generated_sources.txt yet: nothing to compare with."
+            exit 0
+          fi
+          allowed=$(grep -v '^[[:space:]]*\(#\|$\)' docs/allowed-removals 2>/dev/null | paste -sd, - || true)
+          DOCS_BASELINE_REF="$BASE" DOCS_ALLOW_REMOVALS="$allowed" go run scripts/generate_docs.go
+
       - name: Check nothing changed
         run: |
           # git status, not just git diff: a file make generate creates that

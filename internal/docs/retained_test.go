@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"testing"
 
 	"github.com/cfmleditor/clif/internal/docs/sources"
@@ -241,34 +240,26 @@ func TestVendoredLuceeMatchesItsSource(t *testing.T) {
 		t.Fatalf("%v: check docs/lucee was added to git", err)
 	}
 
-	want := ""
-
-	for _, line := range sources.Lines(src) {
-		if k, v, ok := strings.Cut(line, " "); ok && k == "json-sha256" {
-			want = v
-		}
+	fields, err := sources.ReadPairs("docs/lucee/SOURCE", src)
+	if err != nil {
+		t.Fatal(err)
 	}
 
+	want := fields["json-sha256"]
 	if want == "" {
 		t.Fatal("docs/lucee/SOURCE records no json-sha256: rerun `make docs-bump`")
 	}
 
-	paths, err := filepath.Glob(filepath.Join(dir, "*.json"))
-	if err != nil || len(paths) == 0 {
-		t.Fatalf("no docs/lucee/*.json (%v): check docs/lucee was added to git", err)
+	got, broken, err := sources.HashDir(dir)
+	if err != nil {
+		t.Fatalf("%v: check docs/lucee was added to git", err)
 	}
 
-	files := make(map[string][]byte, len(paths))
-	for _, p := range paths {
-		b, err := os.ReadFile(p)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		files[filepath.Base(p)] = b
+	for _, b := range broken {
+		t.Logf("broken vendored file (make generate skips it): %s", b)
 	}
 
-	if got := sources.ManifestHash(files); got != want {
+	if got != want {
 		t.Errorf("docs/lucee's JSON hashes to %s, but SOURCE records %s: a vendored file was edited by hand, "+
 			"or added or removed; restore it (git checkout -- docs/lucee), or take Lucee's latest with `make docs-bump`", got, want)
 	}

@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -47,68 +48,78 @@ const (
 // only once the new copy is whole).
 var stagedMarkers = map[string]string{"cfdocs": "docs/.sha-cfdocs"}
 
-// errNoHEAD is why there is no baseline when HEAD does not resolve.
-var errNoHEAD = errors.New("HEAD does not resolve to a commit")
+// baselineRef is the commit whose committed files are the baseline: HEAD,
+// unless DOCS_BASELINE_REF names another. CI names the pull request's base, so
+// a PR whose own commit already holds a lossy regeneration (its HEAD then has
+// nothing to miss) is still compared with what it would change.
+func baselineRef() string {
+	if r := strings.TrimSpace(os.Getenv("DOCS_BASELINE_REF")); r != "" {
+		return r
+	}
 
-// errNoGit is why there is no baseline when git cannot answer.
-var errNoGit = errors.New("git is not available here, or does not trust this checkout")
+	return "HEAD"
+}
 
-// committed is a generated file as committed at HEAD, never as it is on disk:
-// an uncommitted regeneration that already lost entries must not become the
-// baseline the next one is compared with. When git cannot say (not
-// installed, not a checkout, or a checkout git refuses as unsafe) there is no
-// baseline at all, and the caller refuses rather than trust the disk.
+// baselineStatus says what reading a committed file found. Each case is its
+// own value, not a combination of nils and errors to reassemble: confusing
+// "could not read the baseline" with "there is none" would let
+// DOCS_ALLOW_REMOVALS=1 drop it without anyone meaning to.
+type baselineStatus int
+
+const (
+	baselinePresent    baselineStatus = iota // the file at the ref: data holds it, never nil
+	baselineAbsent                           // the ref has no such file
+	baselineNoGit                            // git is missing, or distrusts this checkout
+	baselineNoRef                            // the ref does not resolve (no commits yet, a corrupt ref)
+	baselineUnreadable                       // the ref has it, but git failed to read it (err says why)
+)
+
+// committed reads a generated file as committed at baselineRef, never as it
+// is on disk: an uncommitted regeneration that already lost entries must not
+// become the baseline the next one is compared with.
 //
-// "HEAD:./path" is relative to the working directory; "HEAD:path" would be
+// "REF:./path" is relative to the working directory; "REF:path" would be
 // relative to the repository root, and miss when clif is a subdirectory of
 // another repository (vendored, or in a monorepo).
-//
-// Three answers: (nil, nil) when the file is not at HEAD (or there is no HEAD
-// yet), (nil, errNoGit) when git cannot say, and the content otherwise, never
-// nil even when empty. Any other git failure (a shallow or partial clone
-// missing the object) is an error, not "not committed": that would let
-// DOCS_ALLOW_REMOVALS=1 drop the baseline without anyone meaning to.
-func committed(path string) ([]byte, error) {
+func committed(path string) (status baselineStatus, data []byte, err error) {
 	g := gitInfo()
 	if !g.available {
-		return nil, errNoGit
+		return baselineNoGit, nil, nil
 	}
 
-	if !g.head {
-		// No commits yet, or a HEAD git cannot resolve (a corrupt ref, a
-		// worktree on a pruned branch): either way there is no baseline to
-		// read, and the caller refuses unless DOCS_ALLOW_REMOVALS=1 says,
-		// deliberately, to go ahead without one.
-		return nil, errNoHEAD
+	ref := baselineRef()
+	if exec.Command("git", "rev-parse", "--verify", "--quiet", ref+"^{commit}").Run() != nil {
+		return baselineNoRef, nil, nil
 	}
 
-	at, err := atHEAD(path)
+	at, err := atRef(ref, path)
 	if err != nil {
-		return nil, err
+		return baselineUnreadable, nil, err
 	}
+
 	if !at {
-		return nil, nil
+		return baselineAbsent, nil, nil
 	}
 
-	b, err := exec.Command("git", "show", "HEAD:./"+path).Output()
+	b, err := exec.Command("git", "show", ref+":./"+path).Output()
 	if err != nil {
-		return nil, fmt.Errorf("git show HEAD:./%s: %w", path, err)
+		return baselineUnreadable, nil, fmt.Errorf("git show %s:./%s: %w", ref, path, err)
 	}
+
 	if b == nil {
 		b = []byte{}
 	}
 
-	return b, nil
+	return baselinePresent, b, nil
 }
 
-// atHEAD reports whether HEAD has path (relative to the working directory),
-// for both the baseline read and the banner's notes, so the two cannot
-// disagree. ls-tree lists the path when HEAD has it and nothing when it does
-// not; it fails only when git does.
-func atHEAD(path string) (bool, error) {
-	listed, err := exec.Command("git", "ls-tree", "--name-only", "HEAD", "--", path).Output()
+// atRef reports whether ref has path (relative to the working directory).
+// ls-tree lists the path when ref has it and nothing when it does not; it
+// fails only when git does.
+func atRef(ref, path string) (bool, error) {
+	listed, err := exec.Command("git", "ls-tree", "--name-only", ref, "--", path).Output()
 	if err != nil {
-		return false, fmt.Errorf("git ls-tree HEAD -- %s: %w", path, err)
+		return false, fmt.Errorf("git ls-tree %s -- %s: %w", ref, path, err)
 	}
 
 	return strings.TrimSpace(string(listed)) != "", nil
@@ -180,6 +191,38 @@ type Entry struct {
 	} `json:"member_details"`
 }
 
+// docsLock is the lock scripts/lib/swapdir.sh takes: a symlink naming its
+// owner's PID, created atomically. The generator holds it too, so a fetch or
+// bump cannot swap a source directory (or move cfdocs' marker) while this
+// reads it, and a half-swapped source is never what gets generated from.
+const docsLock = "docs/.lock"
+
+var lockHeld bool
+
+func lock() {
+	if err := os.Symlink(strconv.Itoa(os.Getpid()), docsLock); err != nil {
+		held, _ := os.Readlink(docsLock)
+		fmt.Fprintf(os.Stderr, "error: %s is held by PID %s: another docs run is in progress.\n", docsLock, held)
+		fmt.Fprintf(os.Stderr, "       If none is (a run killed with kill -9 leaves it), delete it: rm %s\n", docsLock)
+		os.Exit(1)
+	}
+	lockHeld = true
+}
+
+func unlock() {
+	if held, err := os.Readlink(docsLock); lockHeld && err == nil && held == strconv.Itoa(os.Getpid()) {
+		_ = os.Remove(docsLock)
+	}
+	lockHeld = false
+}
+
+// exit releases the lock and exits: every way out of main goes through here,
+// since os.Exit runs no deferred calls.
+func exit(code int) {
+	unlock()
+	os.Exit(code)
+}
+
 // refuse stops without writing anything, and exits 1.
 func refuse(reason ...string) {
 	bar := strings.Repeat("=", 78)
@@ -200,7 +243,7 @@ func refuse(reason ...string) {
 	}
 	for _, f := range files {
 		var note string
-		at, err := atHEAD(f)
+		at, err := atRef("HEAD", f)
 		switch {
 		case err != nil:
 			continue // git cannot say: no note rather than a wrong one
@@ -219,7 +262,7 @@ func refuse(reason ...string) {
 	}
 
 	fmt.Fprintln(os.Stderr, bar)
-	os.Exit(1)
+	exit(1)
 }
 
 // checkPins refuses unless every source docs/sources.lock pins was staged at
@@ -240,6 +283,11 @@ func checkPins() {
 		refuse("Cannot read the pins: "+err.Error(), "Restore docs/sources.lock from git, or `make docs-bump`.")
 	}
 	var off []string
+	for src := range stagedMarkers {
+		if lock[src] == "" {
+			off = append(off, fmt.Sprintf("%s: not pinned in %s at all", src, lockFile))
+		}
+	}
 	for src, pin := range lock {
 		got := ""
 		if marker, ok := stagedMarkers[src]; ok {
@@ -262,6 +310,7 @@ func checkPins() {
 }
 
 func main() {
+	lock()
 	ob, err := os.ReadFile(orderFile)
 	if err != nil {
 		refuse(fmt.Sprintf("No %s: run `make docs` first (fetches cfdocs and assembles the order).", orderFile))
@@ -430,24 +479,27 @@ func main() {
 	for _, k := range ignored {
 		fmt.Fprintf(os.Stderr, "warning: DOCS_ALLOW_REMOVALS: %q is not \"function <name>\" or \"tag <name>\"; ignored\n", k)
 	}
-	committedRaw, gitErr := committed(sourcesFile)
+	status, committedRaw, readErr := committed(sourcesFile)
+	ref := baselineRef()
 
-	noBaseline := errors.Is(gitErr, errNoGit) || errors.Is(gitErr, errNoHEAD) || (gitErr == nil && committedRaw == nil)
-	if noBaseline {
-		if !accept.All {
-			why := fmt.Sprintf("No committed %s to compare the new entries with", sourcesFile)
-			if gitErr != nil {
-				why += " (" + gitErr.Error() + ")"
-			}
-			refuse(why+", so a loss could not be seen.",
-				"Commit it with generated_docs.go (both are written together). To create it from nothing,",
-				"rerun `make generate` with DOCS_ALLOW_REMOVALS=1 and review the generated_docs.go diff.")
-		}
-	} else if gitErr != nil {
-		// git is here and HEAD has the file, but reading it failed: never
-		// "no baseline", which DOCS_ALLOW_REMOVALS=1 would wave through.
-		refuse("Could not read the committed baseline: "+gitErr.Error(),
+	switch status {
+	case baselinePresent:
+	case baselineUnreadable:
+		// The ref has the file but git could not read it: never "no
+		// baseline", which DOCS_ALLOW_REMOVALS=1 would wave through.
+		refuse(fmt.Sprintf("Could not read the baseline at %s: %v", ref, readErr),
 			"A shallow or partial clone may lack it: fetch the commit, then rerun.")
+	default:
+		if !accept.All {
+			why := map[baselineStatus]string{
+				baselineAbsent: fmt.Sprintf("%s has no %s", ref, sourcesFile),
+				baselineNoGit:  "git is not available here, or does not trust this checkout",
+				baselineNoRef:  fmt.Sprintf("%s does not resolve to a commit", ref),
+			}[status]
+			refuse(fmt.Sprintf("No baseline to compare the new entries with (%s), so a loss could not be seen.", why),
+				"Commit generated_sources.txt with generated_docs.go (both are written together). To create it",
+				"from nothing, rerun `make generate` with DOCS_ALLOW_REMOVALS=1 and review the generated_docs.go diff.")
+		}
 	}
 
 	parsed, err := docsources.Parse(sourcesFile, committedRaw)
@@ -455,7 +507,7 @@ func main() {
 	if err != nil {
 		refuse(err.Error(), "Fix the committed file (a merge left it broken?), or regenerate from a good commit.")
 	}
-	if committedRaw != nil && len(committedSources) == 0 {
+	if status == baselinePresent && len(committedSources) == 0 {
 		refuse(fmt.Sprintf("The committed %s lists no entries: a baseline of nothing protects nothing.", sourcesFile),
 			"Restore it from an earlier commit.")
 	}
@@ -523,7 +575,7 @@ func main() {
 
 	if err := os.MkdirAll("internal/docs", 0o755); err != nil {
 		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		exit(1)
 	}
 
 	// Both files are built in memory and written to temporary files first,
@@ -602,10 +654,11 @@ func main() {
 	}
 	if err := writeAll([]generated{{outFile, out.Bytes()}, {sourcesFile, []byte(sb.String())}}); err != nil {
 		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		exit(1)
 	}
 
 	fmt.Fprintf(os.Stderr, "generated %s with %d entries, and %s\n", outFile, len(entries), sourcesFile)
+	unlock()
 }
 
 // generated is one file writeAll writes.

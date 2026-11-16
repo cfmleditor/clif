@@ -72,7 +72,12 @@ fi
 # that may have seen another version. curl -L dumps every response's headers
 # in turn; each status line starts a new one, so only the final response's
 # ETag survives, and none (rather than a redirect's) when it sends none.
-etag=$(awk '/^HTTP\// { e = "" } tolower($1) == "etag:" { e = $2 } END { print e }' "$TMP/headers" | tr -d '\r')
+# The header name is matched on its own, so `ETag:"x"` (no space after the
+# colon, as valid HTTP allows) is read as well as `ETag: "x"`.
+etag=$(tr -d '\r' < "$TMP/headers" | awk '
+    /^HTTP\// { e = "" }
+    tolower(substr($0, 1, 5)) == "etag:" { v = substr($0, 6); gsub(/^[ \t]+|[ \t]+$/, "", v); e = v }
+    END { print e }')
 
 # Build the new copy beside the old one, then swap: a failure before the swap
 # leaves docs/lucee as it was, and one during it is undone by cleanup.

@@ -1,0 +1,6 @@
+# Doc entries a pull request removes on purpose, one per line: "function <name>"
+# or "tag <name>". CI compares a pull request's regenerated docs with its base
+# (.github/workflows/ci.yml, docs-reproducible) and refuses every entry lost, or
+# fallen back to a lower source, that is not listed here. List an entry only
+# when the engine no longer has it; an upstream that merely stopped publishing
+# one belongs in docs/retained instead. Entries may be cleared once merged.

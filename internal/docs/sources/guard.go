@@ -5,6 +5,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io/fs"
+	"os"
 	"sort"
 	"strings"
 )
@@ -243,4 +245,42 @@ func ManifestHash(files map[string][]byte) string {
 	}
 
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+// HashDir reads every *.json in dir, checks each (CheckEntryFile), and returns
+// their ManifestHash and the problems found, one line per broken file. It is
+// what `make docs-bump` records in docs/lucee/SOURCE (through
+// scripts/check_vendored.go) and what TestVendoredLuceeMatchesItsSource
+// compares with it, so the two cannot read or hash the files differently.
+func HashDir(dir string) (hash string, broken []string, err error) {
+	// Read through an fs.FS rooted at dir, so every read stays inside it.
+	fsys := os.DirFS(dir)
+
+	names, err := fs.Glob(fsys, "*.json")
+	if err != nil {
+		return "", nil, err
+	}
+
+	if len(names) == 0 {
+		return "", nil, fmt.Errorf("no *.json in %s", dir)
+	}
+
+	files := make(map[string][]byte, len(names))
+
+	for _, n := range names {
+		b, err := fs.ReadFile(fsys, n)
+		if err != nil {
+			broken = append(broken, fmt.Sprintf("%s: %v", n, err))
+
+			continue
+		}
+
+		files[n] = b
+
+		if err := CheckEntryFile(b); err != nil {
+			broken = append(broken, fmt.Sprintf("%s: %v", n, err))
+		}
+	}
+
+	return ManifestHash(files), broken, nil
 }
