@@ -1,0 +1,92 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/tags/log.html",
+        "minimum_version": "",
+        "notes": "For better performance, always use the `log` attribute with the name of a log which is either defined in the admin, or via [[tag-application]] `this.logs`\n\nThe `file` attribute is *deprecated* but still works, however, the file connection isn't cached, and will be slower than using a predefined `log`\n"
+    }},
+    "name": "cflog",
+    "description": "Writes a message to a log file.",
+    "syntax": "<cflog/>",
+    "returns": "void",
+    "type": "tag",
+    "params": [
+        {
+            "name": "text",
+            "description": "The message to log\n",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "exception",
+            "description": "An exception to log\n",
+            "default": false,
+            "type": "any",
+            "required": false
+        },
+        {
+            "name": "charset",
+            "description": "Character set name for the file contents.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "log",
+            "description": "Specifies the log to which to write the message.  This reference can be defined in the Lucee Administrator.  Ignored if you specify a file attribute.\n",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "file",
+            "description": "Define instead a log reference in the Lucee Administrator and use the name of the generated log with the attribute log.\nSpecify only the main part of the filename.\nFor example, to log to the Testing.log file, specify\n\"Testing\".\nThe file must be located in the default log directory. You\ncannot specify a directory path. If the file does not\nexist, it is created automatically, with the suffix .log.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "async",
+            "description": "only works in combination with the attribute \"file\", if set to true the file is written in a separate thread.",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "type",
+            "description": "the following is the log type (level) in decreasing order of severity:\n\n- fatal: Severe errors that cause premature termination.\n- error: Other runtime errors or unexpected conditions.\n- warn,warning: Use of deprecated APIs, poor use of API, 'almost' errors, other runtime situations that are undesirable or unexpected, but not necessarily \"wrong\".\n- info,information (default): Interesting runtime events.\n- debug: Detailed information on the flow through the system.\n- trace: Most detailed information.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "thread",
+            "description": "This attribute has been deprecated and is non-functional.",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "date",
+            "description": "This attribute has been deprecated and is non-functional.",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "time",
+            "description": "This attribute has been deprecated and is non-functional.",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "application",
+            "description": "Specifies whether to log the application name if one has been specified in a cfapplication tag.",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        }
+    ],
+    "body": "none"
+}

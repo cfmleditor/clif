@@ -1,0 +1,33 @@
+{
+    "member_details": {
+        "name": "some",
+        "type": "string",
+        "returns": "string"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/stringsome.html",
+        "minimum_version": "6.0.0.126",
+        "notes": "Since Lucee 6, this function iterates over each character in the string.\n\nFor list-based iteration with delimiters, use [[function-listsome]] instead.\n\n[LDEV-3747](https://luceeserver.atlassian.net/browse/LDEV-3747)\n"
+    }},
+    "name": "StringSome",
+    "description": "This function calls a given closure/function with every element in a given string and returns true, if one of the closure calls returns true.",
+    "syntax": "StringSome( string string, [function closure] )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [
+        {
+            "name": "string",
+            "description": "Input string.",
+            "aliases": "inputString,object",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "closure",
+            "description": "The value to find or a closure/function that gets every value of the array as input and returns true if the given value is right.",
+            "aliases": "function,callback,udf",
+            "type": "function",
+            "required": false
+        }
+    ]
+}

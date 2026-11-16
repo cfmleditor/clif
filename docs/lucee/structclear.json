@@ -1,0 +1,23 @@
+{
+    "member_details": {
+        "name": "clear",
+        "type": "struct",
+        "returns": "struct"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/structclear.html",
+        "minimum_version": ""
+    }},
+    "name": "structClear",
+    "description": "Removes all data from a structure.",
+    "syntax": "structClear( struct struct )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [{
+        "name": "struct",
+        "description": "Structure to clear",
+        "aliases": "structure,object",
+        "type": "struct",
+        "required": true
+    }]
+}

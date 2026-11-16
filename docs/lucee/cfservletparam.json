@@ -1,0 +1,42 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/tags/servletparam.html",
+        "minimum_version": ""
+    }},
+    "name": "cfservletparam",
+    "description": "This tag has been deprecated and is non-functional.",
+    "syntax": "<cfservletparam name=\"\"/>",
+    "returns": "void",
+    "type": "tag",
+    "params": [
+        {
+            "name": "name",
+            "description": "This attribute has been deprecated and is non-functional.",
+            "default": false,
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "value",
+            "description": "This attribute has been deprecated and is non-functional.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "variable",
+            "description": "This attribute has been deprecated and is non-functional.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "type",
+            "description": "This attribute has been deprecated and is non-functional.",
+            "default": false,
+            "type": "string",
+            "required": false
+        }
+    ],
+    "body": "none"
+}

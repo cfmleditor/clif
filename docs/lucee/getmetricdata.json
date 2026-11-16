@@ -1,0 +1,17 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/getmetricdata.html",
+        "minimum_version": ""
+    }},
+    "name": "getMetricData",
+    "description": "Gets server performance metrics.",
+    "syntax": "getMetricData( string monitor_name )",
+    "returns": "any",
+    "type": "function",
+    "params": [{
+        "name": "monitor_name",
+        "description": "name of the monitor",
+        "type": "string",
+        "required": true
+    }]
+}

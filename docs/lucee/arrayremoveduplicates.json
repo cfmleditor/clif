@@ -1,0 +1,30 @@
+{
+    "member_details": {
+        "name": "removeDuplicates",
+        "type": "array",
+        "returns": "array"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/arrayremoveduplicates.html",
+        "minimum_version": "6.0.0.119"
+    }},
+    "name": "ArrayRemoveDuplicates",
+    "description": "Removes duplicate values from array.",
+    "syntax": "ArrayRemoveDuplicates( array array, [boolean ignoreCase] )",
+    "returns": "array",
+    "type": "function",
+    "params": [
+        {
+            "name": "array",
+            "description": "An array to deduplicate\n",
+            "type": "array",
+            "required": true
+        },
+        {
+            "name": "ignoreCase",
+            "description": "if set to true, the duplicate value will not be case sensitive",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

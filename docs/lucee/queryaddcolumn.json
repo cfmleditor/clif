@@ -1,0 +1,44 @@
+{
+    "member_details": {
+        "name": "addColumn",
+        "type": "query",
+        "returns": "query"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/queryaddcolumn.html",
+        "minimum_version": ""
+    }},
+    "name": "queryAddColumn",
+    "description": "Adds a column to a query and populates its rows with the\ncontents of a one-dimensional array. Pads query columns,\nif necessary, to ensure that all columns have the same number\nof rows.",
+    "syntax": "queryAddColumn( query query, string column, [any datatype_or_array], [any array] )",
+    "returns": "number",
+    "type": "function",
+    "params": [
+        {
+            "name": "query",
+            "description": "Name of a query object.",
+            "type": "query",
+            "required": true
+        },
+        {
+            "name": "column",
+            "description": "Name of the new column.",
+            "aliases": "columnName",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "datatype_or_array",
+            "description": "Column data type.",
+            "aliases": "datatype",
+            "type": "any",
+            "required": false
+        },
+        {
+            "name": "array",
+            "description": "Name of an array whose elements populate the new column.",
+            "type": "any",
+            "required": false
+        }
+    ]
+}

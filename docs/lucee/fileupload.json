@@ -1,0 +1,77 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/fileupload.html",
+        "minimum_version": ""
+    }},
+    "name": "FileUpload",
+    "description": "Uploads file to a directory on the server.",
+    "syntax": "FileUpload( string destination, [string fileField], [string accept], [string nameConflict], [boolean strict], [any allowedExtensions], [any blockedExtensions], [string mode], [string attributes], [object acl] )",
+    "returns": "struct",
+    "type": "function",
+    "params": [
+        {
+            "name": "destination",
+            "description": "Absolute pathname of directory or file on web server.",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "fileField",
+            "description": "Name of form field used to select the file.",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "accept",
+            "description": "Limits the MIME types to accept. Comma-delimited list.\n\nFor example, to permit JPG and Microsoft Word file uploads:\naccept = \"image/jpg, application/msword\"\n\nThe browser uses file extension to determine file type.",
+            "aliases": "mimeType",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "nameConflict",
+            "description": "Action to take if filename is the same as that of a file in the directory.\n\n- skip\n- error\n- overwrite\n- makeunique\n- forceunique",
+            "aliases": "onConflict",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "strict",
+            "description": "true (default), only mimetypes are supported in the accept attribute.\nif set to false, it supports file extension/mimetypes in the accept attribute",
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "allowedExtensions",
+            "description": "String list or string array of allowed extensions.",
+            "minimum_version": "6.0.0.12",
+            "type": "any",
+            "required": false
+        },
+        {
+            "name": "blockedExtensions",
+            "description": "String list or string array of not allowed extensions.",
+            "minimum_version": "6.0.0.12",
+            "type": "any",
+            "required": false
+        },
+        {
+            "name": "mode",
+            "description": "Applies only to Solaris and HP-UX. Permissions. Octal values of UNIX chmod command. Assigned to owner, group, and other, respectively.",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "attributes",
+            "description": "One attribute (Windows) or a comma-delimited list of attributes (other platforms) to set on the file.\nIf omitted, the file's attributes are maintained.",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "acl",
+            "description": "only used for S3 Resources",
+            "type": "object",
+            "required": false
+        }
+    ]
+}

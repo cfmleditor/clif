@@ -1,0 +1,65 @@
+{
+    "member_details": {
+        "name": "encrypt",
+        "type": "string",
+        "returns": "string"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/encrypt.html",
+        "minimum_version": "",
+        "notes": "The new `precise` argument can be set to false for backwards compatibility [LDEV-4101](https://luceeserver.atlassian.net/browse/LDEV-4101)"
+    }},
+    "name": "encrypt",
+    "description": "Encrypts a string. Uses a symmetric key-based algorithm, in which the same key is used to encrypt and decrypt a string.",
+    "syntax": "encrypt( string string, string key, [string algorithm], [string encoding], [any IVorSalt], [number iterations], [boolean precise] )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "string",
+            "description": "String to encrypt.",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "key",
+            "description": "Key or seed used to encrypt the string.\n\n- For the CFMX_COMPAT algorithm, any combination of any number of characters; used as a seed used to generate a 32-bit encryption key.\n- For all other algorithms, a key in the format used by the algorithm. For these algorithms, use the [[function-GenerateSecretKey]] function to generate the key.",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "algorithm",
+            "description": "The algorithm to use to decrypt the string. Must be the same as the algorithm used to encrypt the string.\n\n- CFMX_COMPAT(default): the CFML specific algorithm. This algorithm is the least secure option\n- AES: the Advanced Encryption Standard specified by the National Institute of Standards and Technology (NIST) FIPS-197\n- BLOWFISH: the Blowfish algorithm defined by Bruce Schneier\n- DES: the Data Encryption Standard algorithm defined by NIST FIPS-46-3\n- DESEDE: the \"Triple DES\" algorithm defined by NIST FIPS-46-3\n\nYou may also specify other algorithm names as well as the feedback mode and padding scheme where applicable (in the format algorithm/mode/padding) as documented in the Java Cryptography Architecture (JCA) Reference Guide.",
+            "default": "cfmx_compat",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "encoding",
+            "description": "The binary encoding used to represent the data as a string. Must be the same as the algorithm used to encrypt the string.\n\n- Base64: the Base64 algorithm, as specified by IETF RFC 2045.\n- Base64URL: the URL and filename safe Base64 algorithm without padding, as specified by IETF RFC 4648 section 5.\n- Hex: the characters A-F and 0-9 represent the hexadecimal byte values.\n- UU(default): the UNIX standard UUEncode algorithm .",
+            "default": "uu",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "IVorSalt",
+            "description": "Initialization Vector for algorithms with Feedback Mode that is not ECB, or Salt for Password Based Encryption algorithms",
+            "type": "any",
+            "required": false
+        },
+        {
+            "name": "iterations",
+            "description": "number of Iterations for Password Based Encryption algorithms (ignored for all other algorithms). NIST recommends a minimum value of 1000.",
+            "type": "number",
+            "required": false
+        },
+        {
+            "name": "precise",
+            "description": "if set to true the input must follow the rule for that encoding a 100%, the decryptor will not try to interpret inputs that are not a 100% correct. This should be used to avoid false positives.",
+            "minimum_version": "6.0.0.227",
+            "default": "true",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

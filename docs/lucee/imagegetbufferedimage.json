@@ -1,0 +1,23 @@
+{
+    "member_details": {
+        "name": "getBufferedImage",
+        "type": "image",
+        "returns": "image"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/imagegetbufferedimage.html",
+        "minimum_version": ""
+    }},
+    "name": "ImageGetBufferedImage",
+    "description": "Returns the java.awt.BufferedImage object underlying the current image.",
+    "syntax": "ImageGetBufferedImage( any image )",
+    "returns": "any",
+    "type": "function",
+    "params": [{
+        "name": "image",
+        "description": "The image on which this operation is performed.",
+        "aliases": "name",
+        "type": "any",
+        "required": true
+    }]
+}

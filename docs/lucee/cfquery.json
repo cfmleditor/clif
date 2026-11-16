@@ -1,0 +1,238 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/tags/query.html",
+        "minimum_version": ""
+    }},
+    "name": "cfquery",
+    "description": "Passes SQL statements to a data source. Not limited to queries.",
+    "syntax": "<cfquery/>",
+    "returns": "void",
+    "type": "tag",
+    "params": [
+        {
+            "name": "name",
+            "description": "The name query. Must begin with a letter and may consist of letters, numbers, and the underscore\ncharacter, spaces are not allowed. The query name is used later in the page to reference the query's\nrecord set.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "columnKey",
+            "description": "Specifies the column to use as primary key when returnType is set to struct.\n",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "result",
+            "description": "Specifies a name for the structure in which cfquery returns\nthe result variables.\n\n- SQL: The SQL statement that was executed. (string)\n- Cached: If the query was cached. (boolean)\n- SqlParameters: An ordered Array of cfqueryparam values. (array)\n- RecordCount: Total number of records in the query. (numeric)\n- ColumnList: Column list, comma separated. (string)\n- ExecutionTime: Execution time for the SQL request. (numeric)\n",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "dataSource",
+            "description": "The name of the data source from which this query should retrieve data.",
+            "default": false,
+            "type": "any",
+            "required": false
+        },
+        {
+            "name": "dbType",
+            "description": "The following values are supported\n\n- query: for doing a query on an existing query object (QoQ / Query of Queries)\n- hql: for doing a query on orm\n",
+            "default": false,
+            "type": "any",
+            "required": false
+        },
+        {
+            "name": "dbServer",
+            "description": "This attribute has been deprecated and is non-functional.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "dbName",
+            "description": "This attribute has been deprecated and is non-functional.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "tags",
+            "description": "tags stored with the cache.",
+            "default": false,
+            "type": "any",
+            "required": false
+        },
+        {
+            "name": "connectString",
+            "description": "This attribute has been deprecated and is non-functional.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "username",
+            "description": "If specified, username overrides the username value specified in the data source setup.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "password",
+            "description": "If specified, password overrides the password value specified in the data source setup.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "maxRows",
+            "description": "Specifies the maximum number of rows to return in the record set.",
+            "default": false,
+            "type": "number",
+            "required": false
+        },
+        {
+            "name": "blockFactor",
+            "description": "Specifies the maximum number of rows to fetch at a time from the server. The range is 1,\ndefault to 100. This parameter applies to ORACLE native database drivers and to ODBC drivers.\nCertain ODBC drivers may dynamically reduce the block factor at runtime.",
+            "default": false,
+            "type": "number",
+            "required": false
+        },
+        {
+            "name": "timeout",
+            "description": "The maximum number of seconds for the query to execute before returning an error\nindicating that the query has timed-out. This attribute is not supported by most ODBC drivers.\ntimeout is supported by the SQL Server 6.x or above driver. The minimum and maximum allowable values\nvary, depending on the driver.\n",
+            "default": false,
+            "type": "any",
+            "required": false
+        },
+        {
+            "name": "cachedAfter",
+            "description": "This is the age of which the query data can be",
+            "default": false,
+            "type": "datetime",
+            "required": false
+        },
+        {
+            "name": "cachedWithin",
+            "description": "Supported values are:\n\n- String \"request\": If original query was created within the current request, cached query data is used.\n- a timespan (created with function [[function-CreateTimeSpan]]): If original query date falls within the time span, cached query data is used.\n\nTo use cached data, the current query must use the same SQL statement, params, data source, query name, user name, and password.\n",
+            "default": false,
+            "type": "object",
+            "required": false
+        },
+        {
+            "name": "provider",
+            "description": "This attribute has been deprecated and is non-functional.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "providerDSN",
+            "description": "This attribute has been deprecated and is non-functional.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "debug",
+            "description": "Used for debugging queries. Specifying this attribute causes the SQL statement submitted to the\ndata source and the number of records returned from the query to be returned.",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "cacheName",
+            "description": "This attribute has been deprecated and is non-functional.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "psq",
+            "description": "preserve single quote or not",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "unique",
+            "description": "Specifies if the object parameter is unique, used only for dbtype=orm or hql",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "ormOptions",
+            "description": "Object parameter for the entity.",
+            "default": false,
+            "type": "struct",
+            "required": false
+        },
+        {
+            "name": "indexName",
+            "description": "Name of the column to index, see `QueryRowByIndex()`, `QueryGetCellByIndex()` and `QueryRowDataByIndex()`",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "returnType",
+            "description": "One of the following values:\n\n- `query`: default for all dbtype expect \"hql\", returns a query object\n- `array_of_entity`: works only with dbtype \"hql\" and is also the default value for dbtype \"hql\"\n- `array`: converts the query object into an array of structs\n- `struct`: returns either a struct of structs where the key is specified by the keyColumn attribute and each value is a struct with a query record, or a single record if keyColumn is not set, where each key is a column name and each value has its corresponding value\n",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "timezone",
+            "description": "the timezone used to convert a date object to a timestamp (string), this value is needed when your database runs in another timezone and you are not using cfqueryparam to insert dates.",
+            "default": false,
+            "type": "timezone",
+            "required": false
+        },
+        {
+            "name": "lazy",
+            "description": "**Deprecated** \u2014 use the [[function-querylazy]] function instead, which provides explicit row/block streaming via a listener callback and a bounded connection lifecycle.\n\nIf \"lazy\" is set to true (default \"false\") Lucee does not initially load all the data from the datasource.\n\nWhen \"true\" the data is only loaded when requested, this means the data is dependent on the datasource connection. If the datasource connection has been lost for some reason and the data has not yet been requested, Lucee throws an error if you try to access the data.\n\nThe \"lazy\" attribute only works if the following attributes are not used: cachewithin, cacheafter and result.\n\nWhen iteration completes the underlying ResultSet is held until the request ends or [[function-queryclose]] is called explicitly. This is the main reason `queryLazy()` is preferred \u2014 its connection lifetime is bounded by the function call.\n",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "params",
+            "description": "Alternative to using nested cfqueryparam tags. Supports two parameter styles:\n\n- Positional parameters (Array): Use question marks (?) as placeholders in SQL.\n\nSQL example: \n\n        \"SELECT * FROM users WHERE status = ? AND id > ? LIMIT ?\"\n        Params: [\n        { type: \"string\", value: \"active\" },\n        { type: \"integer\", value: 42 },\n        { type: \"integer\", value: 100 }\n        ]\n\n- Named parameters (Struct): Use colon-prefixed names as placeholders in SQL.\n\nSQL example: \n\n        \"SELECT * FROM users WHERE status = :status AND id > :id LIMIT :limit\"\n        Params: {\n        \"status\": { type: \"string\", value: \"active\" },\n        \"id\": { type: \"integer\", value: 42 },\n        \"limit\": { type: \"integer\", value: 100 }\n        }\n\n- List parameters (for IN clauses): Set list=true to expand arrays into comma-separated values.\n\nSQL example:\n\n        \"SELECT * FROM users WHERE status IN (?)\"\n        Params: [\n        { type: \"string\", value: [\"active\", \"pending\"], list: true }\n        ]\n(The same can be done with named parameters)",
+            "default": false,
+            "type": "object",
+            "required": false
+        },
+        {
+            "name": "sql",
+            "description": "the SQL query to execute.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "listener",
+            "description": "Listener for the query.\n\nThe listener can have 3 (optional) functions, `before`, `after` and `error` that get triggered before and after executing the query and in case of an exception.\n\nThe functions get all data about the query.\n\nThis attributes overwrites any query listener defined in the `application.cfc/cfapplication`.\n\nAll the functions can also modify all data, by returning a struct containing the keys to overwrite following the same structure as the input coming in the argument scope.\n\nThe listener can be a component looking like this:\n\n```\ncomponent {\n    function before( cachedAfter, cachedWithin, columnName, datasource, dbType, debug,\n        maxRows, name, ormOptions, username, password, result,\n        returnType, timeout, timezone, unique, sql, args, params, caller){}\n    function after( result, meta, cachedAfter, cachedWithin, columnName, datasource,\n        dbType, debug, maxRows, name, ormOptions, username, password, result,\n        returnType, timeout, timezone, unique, sql, args, params, caller){}\n    function error(exception, lastExecution, nextExecution, created, id, type, detail,\n        tries, remainingTries, closed, caller, advanced, passed, exception){}\n}\n```\n\nor a struct looking like this:\n\n```\ncomponent {\n    before:function(...){},\n    after:function(...){},\n    error:function(...){}}\n```",
+            "default": false,
+            "type": "any",
+            "required": false
+        },
+        {
+            "name": "async",
+            "description": "If set to `true`, the query is executed asynchronously by the Lucee Task manager,\n\nIf set to `false` (default) the query is executed in the same thread that executes the request.",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "cacheId",
+            "description": "Attribute not supported",
+            "default": false,
+            "type": "string",
+            "required": false
+        }
+    ],
+    "body": "optional"
+}

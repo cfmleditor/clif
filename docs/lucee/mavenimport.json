@@ -1,0 +1,26 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/mavenimport.html",
+        "minimum_version": "7.1.0.98"
+    }},
+    "name": "MavenImport",
+    "description": "Rehydrates Lucee's local maven cache from a pom.xml, resolving each listed dependency \u2014 the inverse of mavenExport for reproducible deploys.",
+    "syntax": "MavenImport( string pomPath, [boolean includeTransitive] )",
+    "returns": "query",
+    "type": "function",
+    "params": [
+        {
+            "name": "pomPath",
+            "description": "Filesystem path to a pom.xml file to import.",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "includeTransitive",
+            "description": "If false (default), only the literal `<dependency>` entries in the pom are resolved. If true, the full transitive dependency tree is resolved for each entry.",
+            "default": "false",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

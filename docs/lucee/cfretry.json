@@ -1,0 +1,13 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/tags/retry.html",
+        "minimum_version": ""
+    }},
+    "name": "cfretry",
+    "description": "used to jump from a catch block, back to the beginning of the try block.",
+    "syntax": "<cfretry/>",
+    "returns": "void",
+    "type": "tag",
+    "params": [],
+    "body": "none"
+}

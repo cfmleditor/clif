@@ -1,0 +1,37 @@
+{
+    "member_details": {
+        "name": "timeFormat",
+        "type": "datetime",
+        "returns": "datetime"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/timeformat.html",
+        "minimum_version": ""
+    }},
+    "name": "timeFormat",
+    "description": "Formats a time string to a given output",
+    "syntax": "timeFormat( any time, [string mask], [timezone timezone] )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "time",
+            "description": "date object; for example, [[function-now|now()]]",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "mask",
+            "description": "Formatting mask for time:\n\n- h: hours; no leading zero for single-digit hours (12-hour clock)\n- hh: hours; leading zero for single-digit hours (12-hour clock)\n- H: hours; no leading zero for single-digit hours (24-hour clock)\n- HH: hours; leading zero for single-digit hours (24-hour clock)\n- m: minutes; no leading zero for single-digit minutes\n- mm: minutes; a leading zero for single-digit minutes\n- s: seconds; no leading zero for single-digit seconds\n- ss: seconds; leading zero for single-digit seconds\n- l or L: milliseconds, with no leading zeros\n- t: one-character time marker string, such as A or P\n- tt: multiple-character time marker string, such as AM or PM\n\nThe following masks are options to format the full time and cannot be combined with other masks:\n\n- short: equivalent to h:mm tt\n- medium: equivalent to h:mm:ss tt\n- long: equivalent to h:mm:ss tt {timezone-3-letters}\n- full: equivalent to h:mm:ss tt {timezone-3-letters}",
+            "default": "hh:mm tt",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "timezone",
+            "description": "A datetime object is independent of a specific timezone; it is only an offset in milliseconds from `1970-1-1 00.00:00 UTC` (Coordinated Universal Time).\n\nThe timezone only comes into play when you need specific information like hours in a day, minutes in a hour or which day it is as these calculations depend on the timezone.\n\nA timezone must be specified in order to translate the date object to something else. If you do not provide the timezone in the function call, it will default to the timezone specified in the Lucee Administrator (Settings/Regional), or the timezone specified for the current request using the function [[function-setTimezone|setTimezone()]].\n\nYou can find a list of all available timezones in the Lucee administrator (Settings/Regional). Some examples of valid timezones include:\n\n - AGT (for time in Argentina)\n - Europe/Zurich (for time in Zurich/Switzerland)\n - HST (Hawaiian Standard Time in the USA)\n- JVM (JVM / Server Default Timezone)",
+            "type": "timezone",
+            "required": false
+        }
+    ]
+}

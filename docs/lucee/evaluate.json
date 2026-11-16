@@ -1,0 +1,12 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/evaluate.html",
+        "minimum_version": ""
+    }},
+    "name": "evaluate",
+    "description": "Evaluates one or more string expressions, dynamically, from\nleft to right. (The results of an evaluation on the left can\nhave meaning in an expression to the right.) Returns the\nresult of evaluating the rightmost expression.",
+    "syntax": "evaluate()",
+    "returns": "any",
+    "type": "function",
+    "params": []
+}

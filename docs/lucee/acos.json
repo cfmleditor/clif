@@ -1,0 +1,22 @@
+{
+    "member_details": {
+        "name": "aCos",
+        "type": "numeric",
+        "returns": "numeric"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/acos.html",
+        "minimum_version": ""
+    }},
+    "name": "aCos",
+    "description": "Returns the angle whose cosine is the value passed as the argument.",
+    "syntax": "aCos( number number )",
+    "returns": "number",
+    "type": "function",
+    "params": [{
+        "name": "number",
+        "description": "The value to be converted into an angle. Must be between -1 and 1.",
+        "type": "number",
+        "required": true
+    }]
+}

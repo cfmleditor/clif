@@ -1,0 +1,12 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/gettemplatepath.html",
+        "minimum_version": ""
+    }},
+    "name": "getTemplatePath",
+    "description": "This function is deprecated.\nUse the GetBaseTemplatePath() function instead.",
+    "syntax": "getTemplatePath()",
+    "returns": "any",
+    "type": "function",
+    "params": []
+}

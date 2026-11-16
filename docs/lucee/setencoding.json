@@ -1,0 +1,25 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/setencoding.html",
+        "minimum_version": ""
+    }},
+    "name": "setEncoding",
+    "description": "Sets the character encoding (character set) of Form and URL\nscope variable values; used when the character encoding of\nthe input to a form, or the character encoding of a URL, is\nnot in UTF-8 encoding.",
+    "syntax": "setEncoding( string scope, string encoding )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "scope",
+            "description": "url, form",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "encoding",
+            "description": "The character encoding in which text in the scope variables is encoded",
+            "type": "string",
+            "required": true
+        }
+    ]
+}

@@ -1,0 +1,17 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/isobject.html",
+        "minimum_version": ""
+    }},
+    "name": "isObject",
+    "description": "Determines whether a value is an object.",
+    "syntax": "isObject( any value )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [{
+        "name": "value",
+        "description": "A value, typically the name of a variable.",
+        "type": "any",
+        "required": true
+    }]
+}

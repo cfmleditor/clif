@@ -1,0 +1,17 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/valuearray.html",
+        "minimum_version": ""
+    }},
+    "name": "valueArray",
+    "description": "Returns an array of all the values, for a given column within the query.\nthis function is deprecated, use instead the function queryColumnData",
+    "syntax": "valueArray( queryColumn query_column )",
+    "returns": "array",
+    "type": "function",
+    "params": [{
+        "name": "query_column",
+        "description": "Name of an executed query and column. Separate query name and column name with a period.",
+        "type": "querycolumn",
+        "required": true
+    }]
+}

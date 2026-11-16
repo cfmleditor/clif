@@ -1,0 +1,18 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/filereadbinary.html",
+        "minimum_version": ""
+    }},
+    "name": "FileReadBinary",
+    "description": "Reads an on-disk or in-memory binary file (such as an executable or image file) on the server, into a binary object",
+    "syntax": "FileReadBinary( any file )",
+    "returns": "any",
+    "type": "function",
+    "params": [{
+        "name": "file",
+        "description": "file path",
+        "aliases": "source,filePath,path",
+        "type": "any",
+        "required": true
+    }]
+}

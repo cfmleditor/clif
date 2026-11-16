@@ -1,0 +1,26 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/astfromstring.html",
+        "minimum_version": "7.0.0.296"
+    }},
+    "name": "astFromString",
+    "description": "**Parses CFML source code from a string and returns its Abstract Syntax Tree (AST) representation.**\nThe AST is a structured tree that represents the syntactic structure of the CFML code, making it useful for:\n- **Code Analysis**: Static analysis, complexity metrics, dependency tracking\n- **IDE Tooling**: Syntax highlighting, autocomplete, refactoring support  \n- **Transformation**: Code generation, minification, transpilation\n- **Documentation**: Automatic API documentation generation\n- **Quality Assurance**: Linting, code style enforcement, security scanning\nThe returned AST uses **neutral, language-agnostic node types** following ESTree conventions such as `BinaryExpression`, `IfStatement`, `FunctionDeclaration`, and literal types. Each node includes **source position information** for precise error reporting and IDE integration.",
+    "syntax": "astFromString( string cfmlCode, [string mode] )",
+    "returns": "struct",
+    "type": "function",
+    "params": [
+        {
+            "name": "cfmlCode",
+            "description": "a string containing CFML code to be parsed into an AST structure",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "mode",
+            "description": "Is the CFML code given script or tag based, possibles values are:\n\n- **tag** (default): the CFML code is tag based\n- **script**: the CFML code is script based.",
+            "minimum_version": "7.0.1.51",
+            "type": "string",
+            "required": false
+        }
+    ]
+}

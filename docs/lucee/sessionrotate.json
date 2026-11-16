@@ -1,0 +1,12 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/sessionrotate.html",
+        "minimum_version": ""
+    }},
+    "name": "SessionRotate",
+    "description": "invalidate current session, creates a new session and migrate the data from the old session to the new.",
+    "syntax": "SessionRotate()",
+    "returns": "void",
+    "type": "function",
+    "params": []
+}

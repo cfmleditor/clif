@@ -1,0 +1,49 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/tags/ajaximport.html",
+        "minimum_version": ""
+    }},
+    "name": "cfajaximport",
+    "description": "Controls the JavaScript files that are imported for use on pages that use Luceex AJAX tags and features.",
+    "syntax": "<cfajaximport/>",
+    "returns": "void",
+    "type": "tag",
+    "params": [
+        {
+            "name": "scriptSrc",
+            "description": "Specifies the URL, relative to the web root, of the directory that contains the JavaScript files used by Lucee.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "tags",
+            "description": "A comma-delimited list of tags or tag-attribute combinations for which to import the supporting JavaScript files on this page.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "cssSrc",
+            "description": "Specifies the URL, relative to the web root, of the directory that contains the CSS files used by AJAX features",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "adapter",
+            "description": "",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "params",
+            "description": "",
+            "default": false,
+            "type": "struct",
+            "required": false
+        }
+    ],
+    "body": "optional"
+}

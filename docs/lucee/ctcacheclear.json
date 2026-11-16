@@ -1,0 +1,12 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/ctcacheclear.html",
+        "minimum_version": ""
+    }},
+    "name": "ctCacheClear",
+    "description": "flush the custom tag path cache",
+    "syntax": "ctCacheClear()",
+    "returns": "void",
+    "type": "function",
+    "params": []
+}

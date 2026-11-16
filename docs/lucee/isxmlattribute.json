@@ -1,0 +1,17 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/isxmlattribute.html",
+        "minimum_version": ""
+    }},
+    "name": "IsXmlAttribute",
+    "description": "Determines whether the function parameter is an\nXML Document Object Model (DOM) attribute node.",
+    "syntax": "IsXmlAttribute( any value )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [{
+        "name": "value",
+        "description": "Name of an XML attribute",
+        "type": "any",
+        "required": true
+    }]
+}

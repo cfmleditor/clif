@@ -1,0 +1,17 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/getfunctiondata.html",
+        "minimum_version": ""
+    }},
+    "name": "getFunctionData",
+    "description": "Returns information about a built in function (BIF)",
+    "syntax": "getFunctionData( string functionName )",
+    "returns": "struct",
+    "type": "function",
+    "params": [{
+        "name": "functionName",
+        "description": "Name of the built in function to return information about",
+        "type": "string",
+        "required": true
+    }]
+}

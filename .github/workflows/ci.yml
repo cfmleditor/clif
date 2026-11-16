@@ -243,3 +243,47 @@ jobs:
             | tee -a "$GITHUB_STEP_SUMMARY" || true
 
           echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+  # The built-in docs are generated from pinned and vendored sources (the cfdocs
+  # commit in docs/sources.lock, docs/lucee, docs/retained), so regenerating
+  # them must reproduce the committed files exactly. This catches a hand edit
+  # to generated_docs.go, a regeneration committed without its sources, or a
+  # pin bumped without regenerating. It fetches the pinned cfdocs commit from
+  # GitHub, the only network it needs.
+  docs-reproducible:
+    name: Docs regenerate as committed
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      # The staged cfdocs depends only on the pinned commit, so it is cached on
+      # docs/sources.lock: most runs fetch nothing, and a network blip cannot
+      # fail a PR that never touched the docs (the fetch retries as well).
+      - name: Cache the staged cfdocs
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            docs/src/cfdocs
+            docs/.sha-cfdocs
+          key: docs-cfdocs-v1-${{ hashFiles('docs/sources.lock') }}
+
+      - name: Regenerate the docs
+        run: make generate
+
+      - name: Check nothing changed
+        run: |
+          # git status, not just git diff: a file make generate creates that
+          # was never committed is a change too, and git diff ignores it.
+          changed=$(git status --porcelain -- internal/docs docs)
+          if [ -n "$changed" ]; then
+            echo "$changed"
+            git diff -- internal/docs docs | head -200
+            echo "::error::make generate changed the committed docs: regenerate (make generate) and commit the result with its sources"
+            exit 1
+          fi

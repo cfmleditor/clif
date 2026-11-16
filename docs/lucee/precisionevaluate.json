@@ -1,0 +1,13 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/precisionevaluate.html",
+        "minimum_version": "",
+        "notes": "You can see in the examples that use of PrecisionEvaluate() uses a 'string'.\nDespite using the PrecisionEvaluate function, if you omit the quotes, Lucee will perform \"normal\" math on the arguments, supplied."
+    }},
+    "name": "PrecisionEvaluate",
+    "description": "Evaluates one or more string expressions.",
+    "syntax": "PrecisionEvaluate()",
+    "returns": "any",
+    "type": "function",
+    "params": []
+}

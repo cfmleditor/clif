@@ -1,0 +1,18 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/transactionsetsavepoint.html",
+        "minimum_version": "",
+        "notes": "This function is not currently supported for ORM transactions"
+    }},
+    "name": "transactionSetsavepoint",
+    "description": "Saves a specific state within a transaction",
+    "syntax": "transactionSetsavepoint( [string savepoint] )",
+    "returns": "void",
+    "type": "function",
+    "params": [{
+        "name": "savepoint",
+        "description": "name of the savepoint to set, this argument is optional, if set it creates an unnamed savepoint.\n",
+        "type": "string",
+        "required": false
+    }]
+}

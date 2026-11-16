@@ -1,0 +1,32 @@
+{
+    "member_details": {
+        "name": "flip",
+        "type": "image",
+        "returns": "image"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/imageflip.html",
+        "minimum_version": ""
+    }},
+    "name": "ImageFlip",
+    "description": "Transforms an image by flipping or rotating it along specified axes. This operation modifies the original image in place.",
+    "syntax": "ImageFlip( any image, [string transpose] )",
+    "returns": "void",
+    "type": "function",
+    "params": [
+        {
+            "name": "image",
+            "description": "The image on which this operation is performed.",
+            "aliases": "name",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "transpose",
+            "description": "Transpose the image:\n\n- vertical (default): Flip an image across an imaginary horizontal line that runs through the center of the image.\n- horizontal: Flip an image across an imaginary vertical line that runs through the center of the image.\n- diagonal: Flip an image across its main diagonal that runs from the upper-left to the lower-right corner.\n- antidiagonal: Flip an image across its main diagonal that runs from the upper-right to the lower-left corner.\n- (\"90|180|270\"): Rotate an image clockwise by 90, 180, or 270 degrees.",
+            "default": "vertical",
+            "type": "string",
+            "required": false
+        }
+    ]
+}

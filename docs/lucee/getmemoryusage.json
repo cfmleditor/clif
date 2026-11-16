@@ -1,0 +1,17 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/getmemoryusage.html",
+        "minimum_version": ""
+    }},
+    "name": "GetMemoryUsage",
+    "description": "Returns detailed information to the memory usage of the container.",
+    "syntax": "GetMemoryUsage( [string type] )",
+    "returns": "query",
+    "type": "function",
+    "params": [{
+        "name": "type",
+        "description": "type of the memory information, valid values are:\n\n- heap\n- non_heap\n\nif this attribute is not provided all types are returned.",
+        "type": "string",
+        "required": false
+    }]
+}

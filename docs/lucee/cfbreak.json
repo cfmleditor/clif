@@ -1,0 +1,20 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/tags/break.html",
+        "minimum_version": "",
+        "notes": "`<cfswitch>`/`<cfcase>` does **not** fall through \u2014 once a case body finishes, the switch exits. There is no need (and no way) for `<cfbreak>` to \"break the switch.\"\n\nIf you place `<cfbreak>` inside a `<cfcase>` that sits inside a `<cfloop>` or `<cfwhile>`, the break hoists past the implicit case-end and terminates the **enclosing loop**:\n\n```luceescript+trycf\n<cfloop from=\"1\" to=\"3\" index=\"i\">\n    <cfswitch expression=\"#i#\">\n        <cfcase value=\"2\">\n            <cfoutput>hit two <\/cfoutput>\n            <cfbreak>\n        <\/cfcase>\n        <cfdefaultcase>\n            <cfoutput>i=#i# <\/cfoutput>\n        <\/cfdefaultcase>\n    <\/cfswitch>\n<\/cfloop>\n<!-- i=1 hit two -->\n```\n\nThe loop never reaches `i=3` because `<cfbreak>` exits the loop, not the switch.\n\nThis differs from script `break;`, which follows C-style semantics \u2014 script `case` blocks fall through by default and `break;` exits the switch only, leaving the surrounding loop running.\n\n| Construct | Case fall-through | What `break` exits |\n| --- | --- | --- |\n| `<cfswitch>` / `<cfcase>` | no (implicit case-end) | the enclosing `<cfloop>` / `<cfwhile>` |\n| `switch` / `case` (script) | yes | the switch |\n\nMixing the two mental models is the usual footgun: a `<cfbreak>` added defensively inside a `<cfcase>` will silently cut an outer loop short, with no error or warning.\n"
+    }},
+    "name": "cfbreak",
+    "description": "Used to break out of a cfloop,cfwhile or cfforeach.",
+    "syntax": "<cfbreak/>",
+    "returns": "void",
+    "type": "tag",
+    "params": [{
+        "name": "label",
+        "description": "used to address a specific loop instead of the nearest one.",
+        "default": false,
+        "type": "string",
+        "required": false
+    }],
+    "body": "none"
+}

@@ -1,0 +1,18 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/extensionlist.html",
+        "minimum_version": ""
+    }},
+    "name": "ExtensionList",
+    "description": "Checks if a certain extension exists or not.",
+    "syntax": "ExtensionList( [boolean imageObject] )",
+    "returns": "query",
+    "type": "function",
+    "params": [{
+        "name": "imageObject",
+        "description": "If set to true means extension image shows as imageObject instead of base64 string.",
+        "minimum_version": "5.3.9.40",
+        "type": "boolean",
+        "required": false
+    }]
+}

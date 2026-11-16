@@ -1,0 +1,18 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/ormgetsession.html",
+        "minimum_version": "",
+        "notes": "Returns the native `org.hibernate.Session` object for the current request. Lucee returns the Hibernate session directly \u2014 unlike ACF which wraps it in `coldfusion.orm.hibernate.SessionWrapper`.\n\nIf you're migrating from ACF code that calls `.getActualSession()`, remove that call on Lucee.\n\nDo **not** assign the result to a variable named `session` \u2014 that is a reserved scope in CFML. Use `ormSess`, `hibernateSession`, or similar.\n\nThe session is created lazily on first ORM operation and closed at the end of the request.\n\nSee [[orm-session-and-transactions]] for session lifecycle details.\n"
+    }},
+    "name": "ORMGetSession",
+    "description": "Returns the current ORM session.",
+    "syntax": "ORMGetSession( [string datasource] )",
+    "returns": "object",
+    "type": "function",
+    "params": [{
+        "name": "datasource",
+        "description": "datasource used for the session, if nor defined the datasource defined in application.cfc/cfapplication is used.",
+        "type": "string",
+        "required": false
+    }]
+}

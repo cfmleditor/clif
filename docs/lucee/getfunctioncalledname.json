@@ -1,0 +1,12 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/getfunctioncalledname.html",
+        "minimum_version": ""
+    }},
+    "name": "GetFunctionCalledName",
+    "description": "Returns the name of variable used to call the current function",
+    "syntax": "GetFunctionCalledName()",
+    "returns": "string",
+    "type": "function",
+    "params": []
+}

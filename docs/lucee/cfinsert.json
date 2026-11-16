@@ -1,0 +1,71 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/tags/insert.html",
+        "minimum_version": ""
+    }},
+    "name": "cfinsert",
+    "description": "Inserts records in data sources.",
+    "syntax": "<cfinsert tableName=\"\"/>",
+    "returns": "void",
+    "type": "tag",
+    "params": [
+        {
+            "name": "dataSource",
+            "description": "Name of the data source that contains your table.",
+            "default": false,
+            "type": "object",
+            "required": false
+        },
+        {
+            "name": "tableName",
+            "description": "Name of the table you want the form fields inserted in.",
+            "default": false,
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "tableOwner",
+            "description": "For data sources that support table ownership such as SQL Server, Oracle, and Sybase SQL\n\tAnywhere, use this field to specify the owner of the table.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "tableQualifier",
+            "description": "For data sources that support table qualifiers, use this field to specify the qualifier for the\n\ttable. The purpose of table qualifiers varies across drivers. For SQL Server and Oracle, the qualifier\n\trefers to the name of the database that contains the table. For the Intersolv dBase driver, the\n\tqualifier refers to the directory where the DBF files are located.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "username",
+            "description": "If specified, username overrides the username value specified in the ODBC setup.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "password",
+            "description": "If specified, password overrides the password value specified in the ODBC setup.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "formFields",
+            "description": "A comma-separated list of form fields to insert. If this attribute is not specified, all\n\tfields in the form are included in the operation.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "source",
+            "description": "Default is the `form` scope. Can be a struct or a variable name of a struct",
+            "minimum_version": "7.0.0.232",
+            "default": false,
+            "type": "object",
+            "required": false
+        }
+    ],
+    "body": "none"
+}

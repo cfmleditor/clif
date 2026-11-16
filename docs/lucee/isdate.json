@@ -1,0 +1,18 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/isdate.html",
+        "minimum_version": ""
+    }},
+    "name": "isDate",
+    "description": "Determines whether a string or Java object can be converted\nto a date/time value.",
+    "syntax": "isDate( any value )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [{
+        "name": "value",
+        "description": "A string or a variable that contains one.",
+        "aliases": "string",
+        "type": "any",
+        "required": true
+    }]
+}

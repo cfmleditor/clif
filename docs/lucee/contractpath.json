@@ -1,0 +1,26 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/contractpath.html",
+        "minimum_version": ""
+    }},
+    "name": "ContractPath",
+    "description": "Does the opposite of the function expandPath(). Tries to match given absolute path to the mappings in the environment.  When no mappings match, lucee creates a relative path from the current position.",
+    "syntax": "ContractPath( string path, [boolean placeholder] )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "path",
+            "description": "An absolute path.\n",
+            "aliases": "absolute_path,absolutePath",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "placeholder",
+            "description": "A boolean indicating whether Lucee placeholder names should be prefixed to the path.\n\nDefault: false.\n",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

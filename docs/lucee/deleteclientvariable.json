@@ -1,0 +1,17 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/deleteclientvariable.html",
+        "minimum_version": ""
+    }},
+    "name": "deleteClientVariable",
+    "description": "Removes the element represented by the key from the [client] scope",
+    "syntax": "deleteClientVariable( string name )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [{
+        "name": "name",
+        "description": "Name of a client variable to delete, surrounded by double-quotation marks",
+        "type": "string",
+        "required": true
+    }]
+}

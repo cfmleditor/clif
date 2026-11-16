@@ -1,0 +1,26 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/cachegetallids.html",
+        "minimum_version": ""
+    }},
+    "name": "CacheGetAllIds",
+    "description": "this function return an array containing all keys inside the cache.",
+    "syntax": "CacheGetAllIds( [string filter], [string cacheName] )",
+    "returns": "array",
+    "type": "function",
+    "params": [
+        {
+            "name": "filter",
+            "description": "key filter for the elements, the filter follow the same rules as for cfdirectory-filter.",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "cacheName",
+            "description": "definition of the cache used by name, when not set the \"default Object Cache\" defined in Lucee Administrator is used instead.",
+            "aliases": "cache,region",
+            "type": "string",
+            "required": false
+        }
+    ]
+}

@@ -1,0 +1,17 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/ispdfobject.html",
+        "minimum_version": ""
+    }},
+    "name": "IsPDFObject",
+    "description": "Determines whether a value is a PDF object.",
+    "syntax": "IsPDFObject( any value )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [{
+        "name": "value",
+        "description": "A value, typically the PDF object stored as a variable name.",
+        "type": "any",
+        "required": true
+    }]
+}

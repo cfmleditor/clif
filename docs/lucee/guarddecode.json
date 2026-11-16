@@ -1,0 +1,25 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/guarddecode.html",
+        "minimum_version": ""
+    }},
+    "name": "GuardDecode",
+    "description": "Reverses encoding on a string to retrieve its original value. Useful for processing encoded input before validation.",
+    "syntax": "GuardDecode( string decodeFrom, string string )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "decodeFrom",
+            "description": "The encoding format to reverse. Valid values:\n\n- url: Decodes standard URL-encoded strings.",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "string",
+            "description": "The encoded string to process.",
+            "type": "string",
+            "required": true
+        }
+    ]
+}

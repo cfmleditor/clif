@@ -1,0 +1,39 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/hmac.html",
+        "minimum_version": ""
+    }},
+    "name": "HMAC",
+    "description": "Creates a hash-based message authentication code (HMAC) ",
+    "syntax": "HMAC( object message, object key, [string algorithm], [string encoding] )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "message",
+            "description": "The message to be hashed. Can be a string or a byte array.\n",
+            "type": "object",
+            "required": true
+        },
+        {
+            "name": "key",
+            "description": "The secret cryptographic key to be combined with the message and hashed. Can be a string or a byte array.\n",
+            "type": "object",
+            "required": true
+        },
+        {
+            "name": "algorithm",
+            "description": "The algorithm to use for hashing your input, default is `HmacMD5`.\n\nThe available algorithms (depending on your JVM) are\n\n- HmacSHA512\n- HmacSHA3-384\n- HmacSHA384\n- HmacSHA3-512\n- HmacSHA512/256\n- HmacSHA3-224\n- HmacSHA512/224\n- HmacSHA3-256\n- HmacSHA256\n- SslMacMD5\n- HmacSHA224\n- SslMacSHA1\n- HmacSHA1\n- HmacMD5",
+            "default": "HmacMD5",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "encoding",
+            "description": "The character encoding to use when converting the message to bytes. Must be a character encoding name recognized by the Java runtime.\n\n* utf-8\n* iso-8859-1\n* windows-1252\n* us-ascii\n* shift_jis\n* iso-2022-jp\n* euc-jp\n* euc-kr\n* big5\n* euc-cn\n* utf-16\n",
+            "aliases": "charset",
+            "type": "string",
+            "required": false
+        }
+    ]
+}

@@ -1,0 +1,26 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/monthasstring.html",
+        "minimum_version": ""
+    }},
+    "name": "monthAsString",
+    "description": "Returns the string label for the given month",
+    "syntax": "monthAsString( number month, [locale locale] )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "month",
+            "description": "a number between 1 and 12",
+            "aliases": "monthNumber,number",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "locale",
+            "description": "Locale to use instead of the locale of the page when processing the function",
+            "type": "locale",
+            "required": false
+        }
+    ]
+}

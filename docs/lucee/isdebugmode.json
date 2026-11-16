@@ -1,0 +1,12 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/isdebugmode.html",
+        "minimum_version": ""
+    }},
+    "name": "isDebugMode",
+    "description": "Determines whether debugging output is enabled.",
+    "syntax": "isDebugMode()",
+    "returns": "boolean",
+    "type": "function",
+    "params": []
+}

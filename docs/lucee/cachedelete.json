@@ -1,0 +1,33 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/cachedelete.html",
+        "minimum_version": ""
+    }},
+    "name": "CacheDelete",
+    "description": "Deletes a single element from the cache.",
+    "syntax": "CacheDelete( object id, [boolean throwOnError], [string cacheName] )",
+    "returns": "void",
+    "type": "function",
+    "params": [
+        {
+            "name": "id",
+            "description": "the id of the element to delete, can also contain a \",\" (not used as separator)",
+            "aliases": "name,key",
+            "type": "object",
+            "required": true
+        },
+        {
+            "name": "throwOnError",
+            "description": "define if the functions throws an exception when the element does not exist.\n\nDefault is false.",
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "cacheName",
+            "description": "definition of the cache used by name, when not set the \"default Object Cache\" defined in Lucee Administrator is used instead.",
+            "aliases": "cache,region",
+            "type": "string",
+            "required": false
+        }
+    ]
+}

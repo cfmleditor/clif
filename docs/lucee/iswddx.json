@@ -1,0 +1,17 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/iswddx.html",
+        "minimum_version": ""
+    }},
+    "name": "isWddx",
+    "description": "Determines whether a value is a well-formed WDDX packet.",
+    "syntax": "isWddx( any value )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [{
+        "name": "value",
+        "description": "A WDDX packet",
+        "type": "any",
+        "required": true
+    }]
+}

@@ -1,0 +1,25 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/storesetmetadata.html",
+        "minimum_version": "5.0.0.000"
+    }},
+    "name": "StoreSetMetaData",
+    "description": "Sets the metadata on bucket or object. This function operates identically to \"S3SetMetaData\", making it deprecated. The updated function offers greater flexibility in defining the endpoint.",
+    "syntax": "StoreSetMetaData( string url, struct metadata )",
+    "returns": "void",
+    "type": "function",
+    "params": [
+        {
+            "name": "url",
+            "description": "Amazon S3 URL",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "metadata",
+            "description": "",
+            "type": "struct",
+            "required": true
+        }
+    ]
+}

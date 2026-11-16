@@ -1,0 +1,17 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/issimplevalue.html",
+        "minimum_version": ""
+    }},
+    "name": "isSimpleValue",
+    "description": "Determines if the object represents a simple value like a string, number, boolean etc",
+    "syntax": "isSimpleValue( any value )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [{
+        "name": "value",
+        "description": "Variable or expression",
+        "type": "any",
+        "required": true
+    }]
+}

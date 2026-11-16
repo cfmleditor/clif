@@ -1,0 +1,18 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/isipv6.html",
+        "minimum_version": ""
+    }},
+    "name": "IsIPv6",
+    "description": "checks if given IP is of IPV6 format",
+    "syntax": "IsIPv6( [string hostname] )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [{
+        "name": "hostname",
+        "description": "the hostname to check \n\nif no hostname is provided, it defaults to checking the local machine's network interfaces\n",
+        "aliases": "value",
+        "type": "string",
+        "required": false
+    }]
+}

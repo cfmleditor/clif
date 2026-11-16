@@ -1,0 +1,77 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/tags/distributedlock.html",
+        "minimum_version": ""
+    }},
+    "name": "cfdistributedlock",
+    "description": "A Redis-backed distributed lock that coordinates access to a shared resource across multiple servers or threads. \nUnlike a local cflock, this tag uses Redis as the shared state store, making it safe to use in clustered and multi-server environments.\nThe body of the tag executes only once a lock slot is successfully acquired. If the lock cannot be obtained within the timeout period,\nexecution either continues silently or throws an exception depending on the throwOnTimeout attribute.",
+    "syntax": "<cfdistributedlock name=\"\", cache=\"\"/>",
+    "returns": "void",
+    "type": "tag",
+    "params": [
+        {
+            "name": "name",
+            "description": "Specifies the name of the lock.\n\nOnly {amount} (see attribute amount) request(s) can execute inside this tag with a given name.\n\nTherefore, providing the name attribute allows for synchronizing access to resources from different parts of an application.\n\nLock names are global to a server. \n\nThey are shared between applications and user sessions, but not across clustered servers.",
+            "default": false,
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "cache",
+            "description": "name of the redis cache used to lock.",
+            "default": false,
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "timeout",
+            "description": "Specifies the maximum amount of time in seconds, to wait to obtain a lock.\n\nIf a lock can be obtained within the specified period, execution continues inside the body of the tag. \n\nOtherwise, the behavior depends on the value of the `throwOnTimeout` attribute. \n\nThe value must be at least 0.01.",
+            "default": false,
+            "type": "numeric",
+            "required": false
+        },
+        {
+            "name": "throwOnTimeout",
+            "description": "Yes or No. Specifies how timeout conditions are handled.\n\nIf the value is Yes, an exception is generated to provide notification of the timeout.\n\nIf the value is No, execution continues after the tag. Default is No.",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "logOnTimeout",
+            "description": "In case we reach a timeout, and the value is set to yes, we log this to the application.log. Default is Yes.",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "log",
+            "description": "Name of the Lucee log to write lock lifecycle events to (acquire, release, timeout, errors).\nIf not specified, the tag attempts to resolve a log in this order: \"distributedlock\", \"redis\", \"application\".\nUse this attribute to route lock events to a dedicated log file for easier monitoring.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "amount",
+            "description": "Defines the amount of parallel threads allowed within the lock, default is 1.",
+            "default": false,
+            "type": "numeric",
+            "required": false
+        },
+        {
+            "name": "expires",
+            "description": "The time in seconds a lock remains in case it not get released, by default this is 10 minutes.",
+            "default": false,
+            "type": "numeric",
+            "required": false
+        },
+        {
+            "name": "bypass",
+            "description": "If set to true the lock is not done at all.",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        }
+    ],
+    "body": "required"
+}

@@ -1,0 +1,36 @@
+{
+    "member_details": {
+        "name": "slice",
+        "type": "query",
+        "returns": "query"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/queryslice.html",
+        "minimum_version": ""
+    }},
+    "name": "querySlice",
+    "description": "creates a new query containing a part of the given query",
+    "syntax": "querySlice( query query, number offset, [number length] )",
+    "returns": "query",
+    "type": "function",
+    "params": [
+        {
+            "name": "query",
+            "description": "Query object to slice.",
+            "type": "query",
+            "required": true
+        },
+        {
+            "name": "offset",
+            "description": "Start position in the original query to slice",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "length",
+            "description": "The number of rows to slice from the offset. ",
+            "type": "number",
+            "required": false
+        }
+    ]
+}

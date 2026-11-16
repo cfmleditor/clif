@@ -1,0 +1,27 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/dollarformat.html",
+        "minimum_version": ""
+    }},
+    "name": "dollarFormat",
+    "description": "Formats a string in U.S. format.",
+    "syntax": "dollarFormat( string number, [boolean useBrackets] )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "number",
+            "description": "Number to format",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "useBrackets",
+            "description": "When a number is negative, by default, it is wrapped in brackets",
+            "minimum_version": "6.2.3.19",
+            "default": "true",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

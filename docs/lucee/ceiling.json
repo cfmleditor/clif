@@ -1,0 +1,22 @@
+{
+    "member_details": {
+        "name": "ceiling",
+        "type": "numeric",
+        "returns": "numeric"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/ceiling.html",
+        "minimum_version": ""
+    }},
+    "name": "ceiling",
+    "description": "Determines the closest integer that is greater than a\nspecified number.",
+    "syntax": "ceiling( number number )",
+    "returns": "number",
+    "type": "function",
+    "params": [{
+        "name": "number",
+        "description": "A real number",
+        "type": "number",
+        "required": true
+    }]
+}

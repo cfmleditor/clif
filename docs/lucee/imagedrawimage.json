@@ -1,0 +1,43 @@
+{
+    "member_details": {
+        "name": "drawImage",
+        "type": "image",
+        "returns": "image"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/imagedrawimage.html",
+        "minimum_version": ""
+    }},
+    "name": "ImageDrawImage",
+    "description": "this function is deprecated, use ImagePaste instead. Draws a image on a image with the baseline of the first character positioned at (x,y) in the image.",
+    "syntax": "ImageDrawImage( any image, any image, number x, number y )",
+    "returns": "void",
+    "type": "function",
+    "params": [
+        {
+            "name": "image",
+            "description": "the image to draw",
+            "aliases": "name",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "image",
+            "description": "the image to draw",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "x",
+            "description": "The x coordinate of the of the top left corner of the image to draw.",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "y",
+            "description": "The y coordinate of the of the top left corner of the image to draw.",
+            "type": "number",
+            "required": true
+        }
+    ]
+}

@@ -1,0 +1,18 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/ormclosesession.html",
+        "minimum_version": "",
+        "notes": "Closes the current ORM session and releases its database connection back to the pool. All entities in the session become detached.\n\nA new session is automatically created on the next ORM operation. The session is also automatically closed at the end of every request regardless of whether you call this function.\n\nIn most cases you don't need to call this \u2014 it's mainly useful for explicitly releasing resources in long-running requests.\n\nSee [[orm-session-and-transactions]] for session lifecycle details.\n"
+    }},
+    "name": "ORMCloseSession",
+    "description": "Closes the current ORM session.",
+    "syntax": "ORMCloseSession( [string datasource] )",
+    "returns": "void",
+    "type": "function",
+    "params": [{
+        "name": "datasource",
+        "description": "datasource used for the session, if nor defined the datasource defined in application.cfc/cfapplication is used.",
+        "type": "string",
+        "required": false
+    }]
+}

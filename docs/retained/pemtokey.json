@@ -1,0 +1,15 @@
+{
+    "name": "PemToKey",
+    "description": "Parses a PEM-encoded key string into a Java key object.",
+    "syntax": "PemToKey( string pem )",
+    "returns": "any",
+    "type": "function",
+    "params": [
+        {
+            "name": "pem",
+            "description": "PEM-encoded key string",
+            "type": "string",
+            "required": true
+        }
+    ]
+}

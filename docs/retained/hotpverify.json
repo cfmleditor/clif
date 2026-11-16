@@ -1,0 +1,33 @@
+{
+    "name": "HOTPVerify",
+    "description": "Verifies an HOTP code against a secret and counter (RFC 4226). Optional window for counter desync tolerance.",
+    "syntax": "HOTPVerify( string secret, string code, numeric counter, [struct options] )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [
+        {
+            "name": "secret",
+            "description": "Base32-encoded secret",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "code",
+            "description": "The HOTP code to verify",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "counter",
+            "description": "Expected counter value",
+            "type": "numeric",
+            "required": true
+        },
+        {
+            "name": "options",
+            "description": "Optional struct: window (default 0 — exact match), digits (default 6), algorithm (SHA1|SHA256|SHA512, default SHA1)",
+            "type": "struct",
+            "required": false
+        }
+    ]
+}

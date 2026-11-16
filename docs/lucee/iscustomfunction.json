@@ -1,0 +1,26 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/iscustomfunction.html",
+        "minimum_version": ""
+    }},
+    "name": "isCustomFunction",
+    "description": "Determines whether a name represents a custom function",
+    "syntax": "isCustomFunction( any name, [string type] )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [
+        {
+            "name": "name",
+            "description": "Name of a custom function. Must not be in quotation marks. If not a defined variable or function name, Lucee generates an error.",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "type",
+            "description": "Limit to a specific type:\n\n- closure\n- lambda\n- udf\n\nIf not specified, all custom function types are accepted.\n",
+            "minimum_version": "5.0.0.0",
+            "type": "string",
+            "required": false
+        }
+    ]
+}

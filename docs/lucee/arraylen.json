@@ -1,0 +1,22 @@
+{
+    "member_details": {
+        "name": "len",
+        "type": "array",
+        "returns": "array"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/arraylen.html",
+        "minimum_version": ""
+    }},
+    "name": "arrayLen",
+    "description": "Returns the length of a given array",
+    "syntax": "arrayLen( array array )",
+    "returns": "number",
+    "type": "function",
+    "params": [{
+        "name": "array",
+        "description": "array to check",
+        "type": "array",
+        "required": true
+    }]
+}

@@ -1,0 +1,39 @@
+{
+    "name": "Argon2Hash",
+    "description": "Generates an Argon2 password hash with OWASP-recommended defaults (argon2id, 19 MB memory, 2 iterations). Use this instead of the deprecated GenerateArgon2Hash().",
+    "syntax": "Argon2Hash( string input, [string variant], [numeric parallelismFactor], [numeric memoryCost], [numeric iterations] )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "input",
+            "description": "Password to hash",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "variant",
+            "description": "Argon2 variant: argon2i, argon2d, or argon2id",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "parallelismFactor",
+            "description": "Parallelism factor (1-10)",
+            "type": "numeric",
+            "required": false
+        },
+        {
+            "name": "memoryCost",
+            "description": "Memory cost in KB (8-100000). OWASP recommends 19456 (19 MB).",
+            "type": "numeric",
+            "required": false
+        },
+        {
+            "name": "iterations",
+            "description": "Number of iterations (1-20)",
+            "type": "numeric",
+            "required": false
+        }
+    ]
+}

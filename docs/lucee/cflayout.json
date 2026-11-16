@@ -1,0 +1,91 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/tags/layout.html",
+        "minimum_version": ""
+    }},
+    "name": "cflayout",
+    "description": "",
+    "syntax": "<cflayout type=\"\"/>",
+    "returns": "void",
+    "type": "tag",
+    "params": [
+        {
+            "name": "type",
+            "description": "",
+            "default": false,
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "name",
+            "description": "",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "style",
+            "description": "",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "jsLib",
+            "description": "",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "tabHeight",
+            "description": "",
+            "default": false,
+            "type": "numeric",
+            "required": false
+        },
+        {
+            "name": "tabsSelect",
+            "description": "",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "tabsAdd",
+            "description": "",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "tabsRemove",
+            "description": "",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "tabsEnable",
+            "description": "",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "tabsDisable",
+            "description": "",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "tabsLoad",
+            "description": "",
+            "default": false,
+            "type": "string",
+            "required": false
+        }
+    ],
+    "body": "optional"
+}

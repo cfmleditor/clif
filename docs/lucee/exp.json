@@ -1,0 +1,22 @@
+{
+    "member_details": {
+        "name": "exp",
+        "type": "numeric",
+        "returns": "numeric"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/exp.html",
+        "minimum_version": ""
+    }},
+    "name": "exp",
+    "description": "Calculates the exponent whose base is e that represents number.",
+    "syntax": "exp( number number )",
+    "returns": "number",
+    "type": "function",
+    "params": [{
+        "name": "number",
+        "description": "Exponent to apply to the base e",
+        "type": "number",
+        "required": true
+    }]
+}

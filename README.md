@@ -1880,7 +1880,9 @@ just made is shadowed by another `clif` earlier on `PATH`.
 
 | Command | Description |
 |---|---|
-| `make build` | Update grammar, generate docs, and build the binary with CFLint inside, as releases are (`go build ./cmd/clif` builds without it). |
+| `make build` | Build the binary from the committed docs, with CFLint inside, as releases are (`go build ./cmd/clif` builds without it). |
+| `make generate` | Fetch the pinned cfdocs commit (`docs/sources.lock`) and regenerate the built-in docs from it, `docs/retained` and the vendored Lucee docs (`docs/lucee`); refuses when an entry would be lost (see `docs/retained/README.md`). |
+| `make docs-bump` | Move the cfdocs pin and the vendored Lucee docs to upstream's latest; follow with `make generate` and review the diffs. |
 | `make test` | Run all tests. |
 | `make lint` | Run golangci-lint. Use an official v2 release binary — one built with `go install` is compiled against golangci-lint's own (older) Go toolchain and then refuses this repo's newer `go.mod` target: *"the Go language version used to build golangci-lint is lower than the targeted Go version"*. |
 | `make lint-fix` | Run golangci-lint with auto-fix. |

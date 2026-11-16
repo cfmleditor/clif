@@ -1,0 +1,22 @@
+{
+    "member_details": {
+        "name": "columnCount",
+        "type": "query",
+        "returns": "query"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/querycolumncount.html",
+        "minimum_version": ""
+    }},
+    "name": "queryColumnCount",
+    "description": "column count of given query",
+    "syntax": "queryColumnCount( query query )",
+    "returns": "number",
+    "type": "function",
+    "params": [{
+        "name": "query",
+        "description": "Query object to get data from.",
+        "type": "query",
+        "required": true
+    }]
+}

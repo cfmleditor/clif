@@ -1,0 +1,39 @@
+{
+    "member_details": {
+        "name": "containsNoCase",
+        "type": "array",
+        "returns": "array"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/arraycontainsnocase.html",
+        "minimum_version": ""
+    }},
+    "name": "ArrayContainsNoCase",
+    "description": "Returns the position of the first element in the array whose string value contains the substring passed (not case sensitive), or 0 if no such element is found.",
+    "syntax": "ArrayContainsNoCase( array haystack, object needle, [boolean substringMatch] )",
+    "returns": "number",
+    "type": "function",
+    "params": [
+        {
+            "name": "haystack",
+            "description": "The array in which to search for the substring",
+            "aliases": "array,arr",
+            "type": "array",
+            "required": true
+        },
+        {
+            "name": "needle",
+            "description": "The substring to search for (not case sensitive)",
+            "aliases": "value,object,obj,o",
+            "type": "object",
+            "required": true
+        },
+        {
+            "name": "substringMatch",
+            "description": "If set to true then if a then a substring match will also return true. This will only work with simple values. Passing true with complex objects will throw an exception.",
+            "default": "false",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

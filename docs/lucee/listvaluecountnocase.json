@@ -1,0 +1,44 @@
+{
+    "member_details": {
+        "name": "listValueCountNoCase",
+        "type": "string",
+        "returns": "string"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/listvaluecountnocase.html",
+        "minimum_version": ""
+    }},
+    "name": "listValueCountNoCase",
+    "description": "Counts instances of a specified value in a list. The search is\ncase-insensitive.",
+    "syntax": "listValueCountNoCase( string list, string value, [string delimiter], [boolean includeEmptyFields] )",
+    "returns": "number",
+    "type": "function",
+    "params": [
+        {
+            "name": "list",
+            "description": "a string list",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "value",
+            "description": "Item for which to search",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "delimiter",
+            "description": "Characters that separate list elements. The default value is comma.",
+            "default": ",",
+            "aliases": "delimiters",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "includeEmptyFields",
+            "description": "if set to true, empty values are included as well",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

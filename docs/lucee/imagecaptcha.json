@@ -1,0 +1,62 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/imagecaptcha.html",
+        "minimum_version": ""
+    }},
+    "name": "ImageCaptcha",
+    "description": "Creates a captcha image",
+    "syntax": "ImageCaptcha( string text, numeric height, numeric width, [string difficulty], [any fonts], [numeric fontsize], [string fontcolor] )",
+    "returns": "any",
+    "type": "function",
+    "params": [
+        {
+            "name": "text",
+            "description": "Text in the captcha.",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "height",
+            "description": "Height of the captcha.",
+            "type": "numeric",
+            "required": true
+        },
+        {
+            "name": "width",
+            "description": "Width of the captcha.",
+            "type": "numeric",
+            "required": true
+        },
+        {
+            "name": "difficulty",
+            "description": "Level of complexity of the CAPTCHA text.\n\nSpecify one of the following levels of text distortion: low, medium, high",
+            "default": "low",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "fonts",
+            "description": "One or more valid fonts to use for the CAPTCHA text, as an array or as string list (separate multiple fonts with commas).\nLucee supports only the system fonts that the JDK can recognize. For example, TTF fonts in the Windows directory are supported on Windows.",
+            "default": "arial",
+            "aliases": "font",
+            "type": "any",
+            "required": false
+        },
+        {
+            "name": "fontsize",
+            "description": "font size of the text in the CAPTCHA image.",
+            "default": "24",
+            "aliases": "size",
+            "type": "numeric",
+            "required": false
+        },
+        {
+            "name": "fontcolor",
+            "description": "font color of the text in the CAPTCHA image.",
+            "default": "black",
+            "aliases": "color",
+            "type": "string",
+            "required": false
+        }
+    ]
+}

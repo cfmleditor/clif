@@ -1,0 +1,39 @@
+{
+    "member_details": {
+        "name": "contains",
+        "type": "array",
+        "returns": "array"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/arraycontains.html",
+        "minimum_version": "",
+        "notes": "Lucee returns the index of the match, while ACF returns a Boolean, both of which are truthy"
+    }},
+    "name": "ArrayContains",
+    "description": "Returns the position of the first element in the array that matches the item that we are searching for, or 0 if the item is not found.",
+    "syntax": "ArrayContains( array haystack, object needle, [boolean substringMatch] )",
+    "returns": "number",
+    "type": "function",
+    "params": [
+        {
+            "name": "haystack",
+            "description": "The array in which to search for the item",
+            "aliases": "array,arr",
+            "type": "array",
+            "required": true
+        },
+        {
+            "name": "needle",
+            "description": "The item that we are looking for in the array",
+            "aliases": "object,obj,o",
+            "type": "object",
+            "required": true
+        },
+        {
+            "name": "substringMatch",
+            "description": "If set to true then a substring match will also return an array position. This will only work with simple values. Passing true with complex objects will throw an exception.\n",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

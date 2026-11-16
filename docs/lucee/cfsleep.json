@@ -1,0 +1,19 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/tags/sleep.html",
+        "minimum_version": ""
+    }},
+    "name": "cfsleep",
+    "description": "Pauses the execution of the page for a given interval",
+    "syntax": "<cfsleep time=\"\"/>",
+    "returns": "void",
+    "type": "tag",
+    "params": [{
+        "name": "time",
+        "description": "Expressed in milli seconds.",
+        "default": false,
+        "type": "number",
+        "required": true
+    }],
+    "body": "none"
+}

@@ -1,0 +1,31 @@
+{
+    "member_details": {
+        "name": "find",
+        "type": "array",
+        "returns": "array"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/arrayfind.html",
+        "minimum_version": ""
+    }},
+    "name": "arrayFind",
+    "description": "These functions searches the array for the specified object.",
+    "syntax": "arrayFind( array array, any value_or_closure )",
+    "returns": "number",
+    "type": "function",
+    "params": [
+        {
+            "name": "array",
+            "description": "The array to search in",
+            "type": "array",
+            "required": true
+        },
+        {
+            "name": "value_or_closure",
+            "description": "The value to find or a closure/function that gets every value of the array as input and returns true if the given value is right.",
+            "aliases": "object,value,closure,function,udf,callback",
+            "type": "any",
+            "required": true
+        }
+    ]
+}

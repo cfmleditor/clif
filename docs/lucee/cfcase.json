@@ -1,0 +1,29 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/tags/case.html",
+        "minimum_version": "",
+        "notes": "`<cfcase>` does **not** fall through to the next case. When a case body finishes, the `<cfswitch>` exits \u2014 there is no implicit fall-through and no explicit break is needed.\n\nA `<cfbreak>` written inside a `<cfcase>` is therefore redundant for ending the case, and is a common footgun: if the `<cfswitch>` sits inside a `<cfloop>` or `<cfwhile>`, the `<cfbreak>` will exit that enclosing loop instead. See [[tag-break]] for details.\n\nThis differs from script `case`, which follows C-style fall-through semantics where `break;` is required to stop after a match.\n"
+    }},
+    "name": "cfcase",
+    "description": "Handle one case of a cfswitch",
+    "syntax": "<cfcase value=\"\"/>",
+    "returns": "void",
+    "type": "tag",
+    "params": [
+        {
+            "name": "value",
+            "description": "One or more constant values that cfswitch compares to the specified expression case-insensitive comparison.\n\nIf a value matches the expression, cfswitch executes the code between the cfcase start and end tags.\n\nSeparate multiple values with a comma or other delimiter, as specified in the delimiters parameter.\n\nDuplicate value attributes are not allowed and causes a runtime error.",
+            "default": false,
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "delimiters",
+            "description": "Specifies the character that separates multiple entries in a list of values. You can specify multiple delimiter characters and you can use any of them to separate the values to be matched. Delimiters can only be used in the tag syntax.\n\nDefault delimiter: ,\n\nNote: in [[tag-script]], delimitered values are not supported for case statements. Use an individual case statement for each value.\n",
+            "default": false,
+            "type": "string",
+            "required": false
+        }
+    ],
+    "body": "required"
+}

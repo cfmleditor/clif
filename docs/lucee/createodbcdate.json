@@ -1,0 +1,25 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/createodbcdate.html",
+        "minimum_version": ""
+    }},
+    "name": "createODBCDate",
+    "description": "Creates an ODBC date object.",
+    "syntax": "createODBCDate( datetime date, [timezone timezone] )",
+    "returns": "datetime",
+    "type": "function",
+    "params": [
+        {
+            "name": "date",
+            "description": "date object; for example, [[function-now|now()]]",
+            "type": "datetime",
+            "required": true
+        },
+        {
+            "name": "timezone",
+            "description": "timezone to use",
+            "type": "timezone",
+            "required": false
+        }
+    ]
+}

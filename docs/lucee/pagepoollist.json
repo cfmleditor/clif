@@ -1,0 +1,12 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/pagepoollist.html",
+        "minimum_version": ""
+    }},
+    "name": "pagePoolList",
+    "description": "Lists all the cfml code (cfm, cfcs) in the cache of compiled code (aka the Page Pool)",
+    "syntax": "pagePoolList()",
+    "returns": "array",
+    "type": "function",
+    "params": []
+}

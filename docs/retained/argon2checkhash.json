@@ -1,0 +1,21 @@
+{
+    "name": "Argon2CheckHash",
+    "description": "Returns hash of input using Argon2.",
+    "syntax": "Argon2CheckHash( string input, string hash )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [
+        {
+            "name": "input",
+            "description": "Input string.",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "hash",
+            "description": "Argon2 hash to compare against input string",
+            "type": "string",
+            "required": true
+        }
+    ]
+}

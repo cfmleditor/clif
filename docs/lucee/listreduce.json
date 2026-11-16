@@ -1,0 +1,60 @@
+{
+    "member_details": {
+        "name": "listReduce",
+        "type": "string",
+        "returns": "string"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/listreduce.html",
+        "minimum_version": ""
+    }},
+    "name": "ListReduce",
+    "description": "Iterates over every entry of the given list and calls the closure with every element. \nThis function will reduce the list to a single value and will return the value.",
+    "syntax": "ListReduce( string list, function closure, [object initialValue], [string delimiter], [boolean includeEmptyFields], [boolean multiCharacterDelimiter] )",
+    "returns": "any",
+    "type": "function",
+    "params": [
+        {
+            "name": "list",
+            "description": "string list to iterate",
+            "aliases": "string",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "closure",
+            "description": "function/closure that implements the following constructor\n\n`function(any result, object value, numeric index, string list, string delimiter){ return result; }`",
+            "aliases": "function,callback,udf",
+            "type": "function",
+            "required": true
+        },
+        {
+            "name": "initialValue",
+            "description": "initial value passed as part of the first closure call",
+            "aliases": "initial,initalValue",
+            "type": "object",
+            "required": false
+        },
+        {
+            "name": "delimiter",
+            "description": "delimiter used to separate the string list",
+            "default": ",",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "includeEmptyFields",
+            "description": "include empty fields or not",
+            "default": "false",
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "multiCharacterDelimiter",
+            "description": "specifying whether the delimiters parameter specifies a multi-character delimiter.\n\nIf this parameter is true, the delimiters parameter must specify a single delimiter consisting of multiple characters.\n\nThis parameter enables the ListToArray function to convert a list such as the following to an array of color names: red:|orange:|yellow:|green:|blue:|indigo:|violet.",
+            "default": "true",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

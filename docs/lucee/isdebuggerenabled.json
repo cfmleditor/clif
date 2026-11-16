@@ -1,0 +1,12 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/isdebuggerenabled.html",
+        "minimum_version": "7.1.0.45"
+    }},
+    "name": "isDebuggerEnabled",
+    "description": "Returns true if DAP debugger support is enabled (via LUCEE_DAP_SECRET env var or lucee.dap.secret system property). Use with breakpoint() BIF.",
+    "syntax": "isDebuggerEnabled()",
+    "returns": "boolean",
+    "type": "function",
+    "params": []
+}

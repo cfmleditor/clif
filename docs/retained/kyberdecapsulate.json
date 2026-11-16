@@ -1,0 +1,21 @@
+{
+    "name": "KyberDecapsulate",
+    "description": "Performs Kyber (ML-KEM) key decapsulation to recover a shared secret. Post-quantum secure key exchange.",
+    "syntax": "KyberDecapsulate( any privateKey, string ciphertext )",
+    "returns": "binary",
+    "type": "function",
+    "params": [
+        {
+            "name": "privateKey",
+            "description": "Kyber private key (PEM string or Java object)",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "ciphertext",
+            "description": "Base64-encoded ciphertext from KyberEncapsulate",
+            "type": "string",
+            "required": true
+        }
+    ]
+}

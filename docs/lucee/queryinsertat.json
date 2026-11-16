@@ -1,0 +1,36 @@
+{
+    "member_details": {
+        "name": "insertAt",
+        "type": "query",
+        "returns": "query"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/queryinsertat.html",
+        "minimum_version": "6.0.0.16"
+    }},
+    "name": "QueryInsertAt",
+    "description": "Adds data (query,struct or array) into query.",
+    "syntax": "QueryInsertAt( query query, any value, numeric index )",
+    "returns": "query",
+    "type": "function",
+    "params": [
+        {
+            "name": "query",
+            "description": "query to add data.",
+            "type": "query",
+            "required": true
+        },
+        {
+            "name": "value",
+            "description": "data to insert, can be a query, a struct or an array.",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "index",
+            "description": "position to insert data into, existing data get moved to the \"right\".",
+            "type": "numeric",
+            "required": true
+        }
+    ]
+}

@@ -1,0 +1,26 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/isxml.html",
+        "minimum_version": ""
+    }},
+    "name": "isXML",
+    "description": "Determines whether a string is well-formed XML text.",
+    "syntax": "isXML( any value, [struct xmlFeatures] )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [
+        {
+            "name": "value",
+            "description": "A string containing the XML document text",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "xmlFeatures",
+            "description": "A struct of `xmlFeatures` directives to override the application-level XML security settings for this single call. See the [[xml-security-xmlfeatures]] recipe for available keys and examples.",
+            "minimum_version": "5.4.2.20",
+            "type": "struct",
+            "required": false
+        }
+    ]
+}

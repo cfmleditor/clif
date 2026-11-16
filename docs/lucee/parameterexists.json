@@ -1,0 +1,18 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/parameterexists.html",
+        "minimum_version": ""
+    }},
+    "name": "parameterExists",
+    "description": "Determines if the parameter exists",
+    "syntax": "parameterExists( variableString parameter )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [{
+        "name": "parameter",
+        "description": "Name of the string variable to test for.",
+        "aliases": "param",
+        "type": "variablestring",
+        "required": true
+    }]
+}

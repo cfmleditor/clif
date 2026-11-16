@@ -1,0 +1,18 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/redisconnectionpoolinfo.html",
+        "minimum_version": ""
+    }},
+    "name": "RedisConnectionPoolInfo",
+    "description": "Gives back detailed information about the Redis connection pool.",
+    "syntax": "RedisConnectionPoolInfo( [string cache] )",
+    "returns": "any",
+    "type": "function",
+    "params": [{
+        "name": "cache",
+        "description": "name of the cache to use, this must be a redis cache.",
+        "aliases": "cacheName",
+        "type": "string",
+        "required": false
+    }]
+}

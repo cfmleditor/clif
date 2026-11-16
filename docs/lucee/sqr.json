@@ -1,0 +1,22 @@
+{
+    "member_details": {
+        "name": "sqr",
+        "type": "numeric",
+        "returns": "numeric"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/sqr.html",
+        "minimum_version": ""
+    }},
+    "name": "sqr",
+    "description": "Calculates the square root of a number.",
+    "syntax": "sqr( number number )",
+    "returns": "number",
+    "type": "function",
+    "params": [{
+        "name": "number",
+        "description": "A positive integer. Number whose square root to get.",
+        "type": "number",
+        "required": true
+    }]
+}

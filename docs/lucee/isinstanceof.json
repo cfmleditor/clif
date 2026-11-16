@@ -1,0 +1,26 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/isinstanceof.html",
+        "minimum_version": ""
+    }},
+    "name": "IsInstanceOf",
+    "description": "Determines whether an object is an instance of a Lucee interface or component, or of a Java class.",
+    "syntax": "IsInstanceOf( any obj, string type )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [
+        {
+            "name": "obj",
+            "description": "The CFC instance or Java object that you are testing",
+            "aliases": "value",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "type",
+            "description": "The name of the interface, component, or Java class of which the object might be an instance.",
+            "type": "string",
+            "required": true
+        }
+    ]
+}

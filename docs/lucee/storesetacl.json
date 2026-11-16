@@ -1,0 +1,26 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/storesetacl.html",
+        "minimum_version": ""
+    }},
+    "name": "StoreSetACL",
+    "description": "Sets the ACL for object or bucket. This function operates identically to \"S3SetACL\", making it deprecated. The updated function offers greater flexibility in defining the endpoint.",
+    "syntax": "StoreSetACL( string url, object aclObject )",
+    "returns": "void",
+    "type": "function",
+    "params": [
+        {
+            "name": "url",
+            "description": "Amazon S3 URL",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "aclObject",
+            "description": "an array of struct where each struct represents an ACL grant",
+            "aliases": "acl",
+            "type": "object",
+            "required": true
+        }
+    ]
+}

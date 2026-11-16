@@ -1,0 +1,46 @@
+{
+    "member_details": {
+        "name": "ToStruct",
+        "type": "query",
+        "returns": "query"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/querytostruct.html",
+        "minimum_version": "6.0.0.302"
+    }},
+    "name": "queryToStruct",
+    "description": "Copy the query columns data to struct by using the columnKey argument",
+    "syntax": "queryToStruct( query query, string columnKey, [string structType], [boolean valueRowNumber] )",
+    "returns": "struct",
+    "type": "function",
+    "params": [
+        {
+            "name": "query",
+            "description": "A query to copy to a struct",
+            "type": "query",
+            "required": true
+        },
+        {
+            "name": "columnKey",
+            "description": "Column name that values are used for struct key",
+            "aliases": "column,columnName",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "structType",
+            "description": "default:ordered, Struct type to created",
+            "default": "ordered",
+            "aliases": "type",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "valueRowNumber",
+            "description": "default: false, the boolean value that indicates the struct values return as column data or row number",
+            "aliases": "valueAsRowNumber",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

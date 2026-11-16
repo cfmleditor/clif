@@ -1,0 +1,32 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/javacast.html",
+        "minimum_version": ""
+    }},
+    "name": "javaCast",
+    "description": "Converts the data type of a CFML variable to pass as an\nargument to an overloaded method of a Java object. Use only\nfor scalar and string arguments.\n[type - quickly]\nboolean,int,long,float,double,string",
+    "syntax": "javaCast( string type, any variable, [struct javaSettings] )",
+    "returns": "any",
+    "type": "function",
+    "params": [
+        {
+            "name": "type",
+            "description": "Data type to which to convert variable:\nbigdecimal (converts to java.math.BigDecimal)\n\n- boolean\n- byte\n- char\n- int\n- long\n- float\n- double\n- short\n- string\n- {type}[] - where {type} is any of the preceding types, e.g. string[]\n- null - see also the built in function nullValue()\n- a Java class name",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "variable",
+            "description": "the object to cast",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "javaSettings",
+            "description": "javasettings to use to load the class",
+            "minimum_version": "6.2.0.26",
+            "type": "struct",
+            "required": false
+        }
+    ]
+}

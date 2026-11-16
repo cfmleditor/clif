@@ -1,0 +1,32 @@
+{
+    "member_details": {
+        "name": "toList",
+        "type": "array",
+        "returns": "array"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/arraytolist.html",
+        "minimum_version": ""
+    }},
+    "name": "arrayToList",
+    "description": "Transform the array to a list of elements delimiter by the given string",
+    "syntax": "arrayToList( array array, [string delimiter] )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "array",
+            "description": "Name of array",
+            "type": "array",
+            "required": true
+        },
+        {
+            "name": "delimiter",
+            "description": "Character or multicharacter string to separate list elements.\n\nThe default value is comma.",
+            "default": ",",
+            "aliases": "delimiters",
+            "type": "string",
+            "required": false
+        }
+    ]
+}

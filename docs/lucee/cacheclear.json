@@ -1,0 +1,27 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/cacheclear.html",
+        "minimum_version": ""
+    }},
+    "name": "CacheClear",
+    "description": "Flushes the cache",
+    "syntax": "CacheClear( [any filterOrTags], [string cacheName] )",
+    "returns": "number",
+    "type": "function",
+    "params": [
+        {
+            "name": "filterOrTags",
+            "description": "You can define 2 different things here:\n\n1. a String containing a key filter for the elements in the cache to flush, the filter follow the same rules as for [[tag-directory]]-filter.\n2. an Array containing tags defined when put the element to the cache",
+            "aliases": "filter,tags,tag",
+            "type": "any",
+            "required": false
+        },
+        {
+            "name": "cacheName",
+            "description": "definition of the cache used by name, when not set the \"default Object Cache\" defined in Lucee Administrator is used instead.",
+            "aliases": "cache,region",
+            "type": "string",
+            "required": false
+        }
+    ]
+}

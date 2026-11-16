@@ -1,0 +1,12 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/createuuid.html",
+        "minimum_version": ""
+    }},
+    "name": "createUUID",
+    "description": "Creates a Universally Unique Identifier (UUID). A UUID is a\n35-character string representation of a unique 128-bit integer\nxxxxxxxx-xxxx-xxxx-xxxxxxxxxxxxxxxx where x is a hexadecimal digit.",
+    "syntax": "createUUID()",
+    "returns": "string",
+    "type": "function",
+    "params": []
+}

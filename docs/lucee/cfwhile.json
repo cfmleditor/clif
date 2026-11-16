@@ -1,0 +1,28 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/tags/while.html",
+        "minimum_version": ""
+    }},
+    "name": "cfwhile",
+    "description": "Simplification of the tag cfloop-condition, analog to the cfscript \"while\" loop.",
+    "syntax": "<cfwhile/>",
+    "returns": "void",
+    "type": "tag",
+    "params": [
+        {
+            "name": "condition",
+            "description": "condition o the expression",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "label",
+            "description": "used to address this loop from a \"break\" or \"continue\" statement (instead of the nearest one).",
+            "default": false,
+            "type": "string",
+            "required": false
+        }
+    ],
+    "body": "required"
+}

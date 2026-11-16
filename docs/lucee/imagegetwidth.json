@@ -1,0 +1,23 @@
+{
+    "member_details": {
+        "name": "getWidth",
+        "type": "image",
+        "returns": "image"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/imagegetwidth.html",
+        "minimum_version": ""
+    }},
+    "name": "ImageGetWidth",
+    "description": "Retrieves the width of the specified image.",
+    "syntax": "ImageGetWidth( any image )",
+    "returns": "number",
+    "type": "function",
+    "params": [{
+        "name": "image",
+        "description": "The image on which this operation is performed.",
+        "aliases": "name",
+        "type": "any",
+        "required": true
+    }]
+}

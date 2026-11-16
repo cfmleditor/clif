@@ -1,0 +1,45 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/cacheput.html",
+        "minimum_version": ""
+    }},
+    "name": "cachePut",
+    "description": "Stores an object in the cache, with a life time and an idle time.",
+    "syntax": "cachePut( string id, object value, [timespan timeSpan], [timespan idleTime], [string cacheName] )",
+    "returns": "void",
+    "type": "function",
+    "params": [
+        {
+            "name": "id",
+            "description": "The id for the cache object.",
+            "aliases": "key,name",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "value",
+            "description": "The value of the object.",
+            "type": "object",
+            "required": true
+        },
+        {
+            "name": "timeSpan",
+            "description": "The interval until the object is flushed from the cache, as a decimal number of days. One way to set the value is to use the return value from the CreateTimeSpan function. The default is to not time out the object.",
+            "type": "timespan",
+            "required": false
+        },
+        {
+            "name": "idleTime",
+            "description": "A decimal number of days after which the object is flushed from the cache if it is not accessed during that time. One way to set the value is to use the return value from the CreateTimeSpan function.",
+            "type": "timespan",
+            "required": false
+        },
+        {
+            "name": "cacheName",
+            "description": "definition of the cache used by name, when not set the \"default Object Cache\" defined in Lucee Administrator is used instead.",
+            "aliases": "cache,region",
+            "type": "string",
+            "required": false
+        }
+    ]
+}

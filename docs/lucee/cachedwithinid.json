@@ -1,0 +1,25 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/cachedwithinid.html",
+        "minimum_version": "7.1.0.11"
+    }},
+    "name": "CachedWithinId",
+    "description": "Returns the cache identifier (cache key) for a cached object. \nThis ID can be used with `cacheRemove()` to manually flush the cache entry. \nWorks with cached queries, functions, and HTTP results. \nFor cached functions, the cache ID is unique per combination of function and arguments.",
+    "syntax": "CachedWithinId( any cacheObject, [any arguments] )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "cacheObject",
+            "description": "The cached object to retrieve the cache ID for. \nMust be a valid cache object such as a query result, function reference, or HTTP result struct that was cached using the `cachedwithin` attribute.",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "arguments",
+            "description": "The arguments used when the cache entry was created. \nRequired for cached functions to identify the specific cache entry, as each unique set of arguments creates a separate cache entry. \nCan be provided as an array `[arg1, arg2]` for positional arguments or as a struct `{key: value}` for named arguments. Not required for queries or HTTP results.",
+            "type": "any",
+            "required": false
+        }
+    ]
+}

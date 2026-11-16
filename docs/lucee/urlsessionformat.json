@@ -1,0 +1,17 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/urlsessionformat.html",
+        "minimum_version": ""
+    }},
+    "name": "uRLSessionFormat",
+    "description": "Encodes the URL with the CFTOKEN/CFID/JSESSIONID",
+    "syntax": "uRLSessionFormat( string url )",
+    "returns": "string",
+    "type": "function",
+    "params": [{
+        "name": "url",
+        "description": "URL of a cfml template",
+        "type": "string",
+        "required": true
+    }]
+}

@@ -1,0 +1,46 @@
+{
+    "member_details": {
+        "name": "setCell",
+        "type": "query",
+        "returns": "query"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/querysetcell.html",
+        "minimum_version": ""
+    }},
+    "name": "querySetCell",
+    "description": "Sets a cell to a value. If no row number is specified, the cell on the last row is set.",
+    "syntax": "querySetCell( query query, string column_name, any value, [number row_number] )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [
+        {
+            "name": "query",
+            "description": "Name of an executed query.",
+            "aliases": "query",
+            "type": "query",
+            "required": true
+        },
+        {
+            "name": "column_name",
+            "description": "Name of the column to populate.",
+            "aliases": "columnName",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "value",
+            "description": "The value to populate the query cell with.",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "row_number",
+            "description": "Query row number to populate.",
+            "default": "-9999",
+            "aliases": "row,number",
+            "type": "number",
+            "required": false
+        }
+    ]
+}

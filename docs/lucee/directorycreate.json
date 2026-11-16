@@ -1,0 +1,41 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/directorycreate.html",
+        "minimum_version": ""
+    }},
+    "name": "DirectoryCreate",
+    "description": "Creates new directory for specified path",
+    "syntax": "DirectoryCreate( string path, [boolean createPath], [boolean ignoreExists], [string mode] )",
+    "returns": "void",
+    "type": "function",
+    "params": [
+        {
+            "name": "path",
+            "description": "Absolute path of the directory to be created",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "createPath",
+            "description": "Create parent directory when not exist",
+            "default": "true",
+            "aliases": "doParent",
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "ignoreExists",
+            "description": "Pass false (default) to throw an error if the directory already exists, or true to skip the create operation without an error",
+            "default": "false",
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "mode",
+            "description": "Mode to for the new directory, pass -1 to inherit",
+            "default": "777",
+            "type": "string",
+            "required": false
+        }
+    ]
+}

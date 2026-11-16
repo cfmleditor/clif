@@ -1,0 +1,67 @@
+{
+    "member_details": {
+        "name": "listFilter",
+        "type": "string",
+        "returns": "string"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/listfilter.html",
+        "minimum_version": ""
+    }},
+    "name": "listFilter",
+    "description": "This function creates a new string list that returns all entries from an string list that match the given filter.",
+    "syntax": "listFilter( string list, function filter, [string delimiter], [boolean includeEmptyFields], [boolean multiCharacterDelimiter], [boolean parallel], [number maxThreads] )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "list",
+            "description": "list to filter entries from",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "filter",
+            "description": "A function/closure that implements the following constructor\n\n`function(any value, numeric index, string list, string delimiter) { return true/false;}`",
+            "aliases": "closure,function,callback",
+            "type": "function",
+            "required": true
+        },
+        {
+            "name": "delimiter",
+            "description": "delimiter used to separate the string list",
+            "default": ",",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "includeEmptyFields",
+            "description": "include empty fields or not",
+            "default": "false",
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "multiCharacterDelimiter",
+            "description": "specifying whether the delimiters parameter specifies a multi-character delimiter.\n\nIf this parameter is true, the delimiters parameter must specify a single delimiter consisting of multiple characters.\n\nThis parameter enables the ListToArray function to convert a list such as the following to an array of color names: red:|orange:|yellow:|green:|blue:|indigo:|violet.",
+            "default": "true",
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "parallel",
+            "description": "execute closures parallel",
+            "default": "false",
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "maxThreads",
+            "description": "maximum number of threads executed, ignored when argument \"parallel\" is set to false",
+            "default": "20",
+            "aliases": "maxThreadCount",
+            "type": "number",
+            "required": false
+        }
+    ]
+}

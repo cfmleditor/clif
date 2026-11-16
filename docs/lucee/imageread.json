@@ -1,0 +1,17 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/imageread.html",
+        "minimum_version": ""
+    }},
+    "name": "ImageRead",
+    "description": "Reads the source pathname or URL and creates a image.",
+    "syntax": "ImageRead( any path )",
+    "returns": "any",
+    "type": "function",
+    "params": [{
+        "name": "path",
+        "description": "On-disk or in-memory pathname or URL of the source image.",
+        "type": "any",
+        "required": true
+    }]
+}

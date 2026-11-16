@@ -1,0 +1,22 @@
+{
+    "member_details": {
+        "name": "first",
+        "type": "array",
+        "returns": "array"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/arrayfirst.html",
+        "minimum_version": ""
+    }},
+    "name": "arrayFirst",
+    "description": "Returns the first item from an array. Throws an error if the array is empty.",
+    "syntax": "arrayFirst( array array )",
+    "returns": "any",
+    "type": "function",
+    "params": [{
+        "name": "array",
+        "description": "The array to obtain the first Item from",
+        "type": "array",
+        "required": true
+    }]
+}

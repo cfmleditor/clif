@@ -1,0 +1,22 @@
+{
+    "member_details": {
+        "name": "trimWhiteSpace",
+        "type": "string",
+        "returns": "string"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/trimwhitespace.html",
+        "minimum_version": ""
+    }},
+    "name": "TrimWhiteSpace",
+    "description": "clean white space of the given string",
+    "syntax": "TrimWhiteSpace( string input )",
+    "returns": "string",
+    "type": "function",
+    "params": [{
+        "name": "input",
+        "description": "string to clean up.",
+        "type": "string",
+        "required": true
+    }]
+}

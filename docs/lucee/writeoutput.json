@@ -1,0 +1,25 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/writeoutput.html",
+        "minimum_version": ""
+    }},
+    "name": "writeOutput",
+    "description": "Writes the given string to the main response buffer regardless of\nconditions established by the cfsetting tag.",
+    "syntax": "writeOutput( string string, [string encodeFor] )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [
+        {
+            "name": "string",
+            "description": "A string to write to the buffer.",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "encodeFor",
+            "description": "encode for what, valid values are:\n\n- css: for output inside Cascading Style Sheets (CSS)\n- dn: for output in LDAP Distinguished Names\n- html: for output inside HTML\n- html_attr: for output inside HTML Attributes\n- javascript: for output inside JavaScript\n- ldap: for output in LDAP queries\n- url: for output in URL\n- vbscript: for output inside vbscript\n- xml: for output inside XML\n- xml_attr: for output inside XML Attributes\n- xpath: for output in XPath",
+            "type": "string",
+            "required": false
+        }
+    ]
+}

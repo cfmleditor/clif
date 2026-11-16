@@ -1,0 +1,23 @@
+{
+    "member_details": {
+        "name": "val",
+        "type": "string",
+        "returns": "string"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/val.html",
+        "minimum_version": ""
+    }},
+    "name": "val",
+    "description": "Converts numeric characters that occur at the beginning of a string to an number.",
+    "syntax": "val( string value )",
+    "returns": "number",
+    "type": "function",
+    "params": [{
+        "name": "value",
+        "description": "A string or a variable that contains one",
+        "aliases": "string",
+        "type": "string",
+        "required": true
+    }]
+}

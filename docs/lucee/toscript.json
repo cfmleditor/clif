@@ -1,0 +1,38 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/toscript.html",
+        "minimum_version": ""
+    }},
+    "name": "ToScript",
+    "description": "Creates a JavaScript expression that assigns the value of a variable to a JavaScript variable. \nThis function can convert strings, numbers, arrays, structures, and queries to JavaScript syntax that defines equivalent variables and values.",
+    "syntax": "ToScript( any cfvar, string javascriptVar, [boolean outputFormat], [boolean ASFormat] )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "cfvar",
+            "description": "A variable.",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "javascriptVar",
+            "description": "A string that specifies the name of the JavaScript variable\nthat the ToScript function creates.",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "outputFormat",
+            "description": "A Boolean value that determines whether to create\nWDDX (JavaScript) or ActionScript style output for\nstructures and queries.\nDefault: true",
+            "default": "true",
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "ASFormat",
+            "description": "A Boolean value that specifies whether to use\nActionScript shortcuts in the script.\nDefault: false",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

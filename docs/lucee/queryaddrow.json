@@ -1,0 +1,32 @@
+{
+    "member_details": {
+        "name": "addRow",
+        "type": "query",
+        "returns": "query"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/queryaddrow.html",
+        "minimum_version": ""
+    }},
+    "name": "queryAddRow",
+    "description": "Adds rows to a query, either empty row(s) or you can add a row with data",
+    "syntax": "queryAddRow( query query, [any numberOrData] )",
+    "returns": "number",
+    "type": "function",
+    "params": [
+        {
+            "name": "query",
+            "description": "Name of an executed query.",
+            "type": "query",
+            "required": true
+        },
+        {
+            "name": "numberOrData",
+            "description": "Number of rows to add to the query or a struct/array containing the data to populate the row.\n\nExamples:\n\n- ```queryAddRow(qry, 3);```\n- ```queryAddRow(qry, [ \"Susi\", 20] );```\n- ```queryAddRow(qry, { name: \"Susi\", age: 20 } );```",
+            "default": "1",
+            "aliases": "number,data",
+            "type": "any",
+            "required": false
+        }
+    ]
+}

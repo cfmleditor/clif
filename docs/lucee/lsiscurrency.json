@@ -1,0 +1,26 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/lsiscurrency.html",
+        "minimum_version": ""
+    }},
+    "name": "lSIsCurrency",
+    "description": "Determines whether a string is a valid representation of a\ncurrency amount in the current locale.",
+    "syntax": "lSIsCurrency( string number, [locale locale] )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [
+        {
+            "name": "number",
+            "description": "A currency string",
+            "aliases": "string,currency_number,currency",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "locale",
+            "description": "Locale to use instead of the locale of the page when processing the function",
+            "type": "locale",
+            "required": false
+        }
+    ]
+}

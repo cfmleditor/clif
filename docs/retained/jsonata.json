@@ -1,0 +1,33 @@
+{
+    "name": "JSONata",
+    "description": "Query and transform JSON data using JSONata expressions. See https://jsonata.org for expression syntax.",
+    "syntax": "JSONata( string expression, any data, [struct bindings], [struct options] )",
+    "returns": "any",
+    "type": "function",
+    "params": [
+        {
+            "name": "expression",
+            "description": "JSONata expression string. Examples: \"$sum(c)\", \"$.name\", \"orders[status='complete']\", \"{ 'total': $sum(items.price) }\"",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "data",
+            "description": "JSON data to query - can be a struct, array, or JSON string.",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "bindings",
+            "description": "Optional struct of variable bindings accessible in the expression. Example: { maxPrice: 100 } makes $maxPrice available.",
+            "type": "struct",
+            "required": false
+        },
+        {
+            "name": "options",
+            "description": "Optional struct with runtime options. Supported keys: timeout (milliseconds, default 5000), maxDepth (recursion limit, default 100), functions (struct of closures/UDFs to register as custom $functions).",
+            "type": "struct",
+            "required": false
+        }
+    ]
+}

@@ -1,0 +1,36 @@
+{
+    "member_details": {
+        "name": "bitMaskClear",
+        "type": "numeric",
+        "returns": "numeric"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/bitmaskclear.html",
+        "minimum_version": ""
+    }},
+    "name": "bitMaskClear",
+    "description": "Performs a bitwise mask clear operation.",
+    "syntax": "bitMaskClear( number number, number start, number length )",
+    "returns": "number",
+    "type": "function",
+    "params": [
+        {
+            "name": "number",
+            "description": "an integer",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "start",
+            "description": "Integer, in the range 0-31, inclusive; start bit for mask",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "length",
+            "description": "Integer, in the range 0-31, inclusive; length of mask",
+            "type": "number",
+            "required": true
+        }
+    ]
+}

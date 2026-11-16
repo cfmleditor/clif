@@ -1,0 +1,30 @@
+{
+    "member_details": {
+        "name": "formatBaseN",
+        "type": "numeric",
+        "returns": "numeric"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/formatbasen.html",
+        "minimum_version": ""
+    }},
+    "name": "formatBaseN",
+    "description": "String Converts number to a string, in the base specified by\nradix. For example: #FormatBaseN(1024,16)#",
+    "syntax": "formatBaseN( number number, number radix )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "number",
+            "description": "Number to convert",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "radix",
+            "description": "Base of the result",
+            "type": "number",
+            "required": true
+        }
+    ]
+}

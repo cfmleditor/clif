@@ -1,0 +1,36 @@
+{
+    "member_details": {
+        "name": "removeChars",
+        "type": "string",
+        "returns": "string"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/removechars.html",
+        "minimum_version": ""
+    }},
+    "name": "removeChars",
+    "description": "Removes characters from a string.",
+    "syntax": "removeChars( string string, number start, number count )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "string",
+            "description": "String in which to search.",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "start",
+            "description": "Start position of search from the left.",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "count",
+            "description": "Count of characters to be removed.",
+            "type": "number",
+            "required": true
+        }
+    ]
+}

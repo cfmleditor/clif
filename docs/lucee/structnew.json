@@ -1,0 +1,27 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/structnew.html",
+        "minimum_version": ""
+    }},
+    "name": "structNew",
+    "description": "Creates an empty structure.",
+    "syntax": "structNew( [string type], [function onMissingKey] )",
+    "returns": "struct",
+    "type": "function",
+    "params": [
+        {
+            "name": "type",
+            "description": "the type of structure created:\n\n  - **normal** (default): a regular struct ( thread safe )\n  - **ordered**: a struct with linked or ordered keys that maintain their insertion order ( alias **linked** )  \n  - **soft**: a struct with soft reference values, which are cleared at the discretion of the garbage collector in response to memory demand.\n  - **weak**: a struct containing weakly referenced values, which do not prevent their referents from being garbage collected. Weak references are most often used to implement simple caches.\n  - **observable**: a struct that calls the function defined with the argument **onChange** after a key was set, updated or removed. Requires the argument **onChange** ( since Lucee 9.0.0.564 )\n\n  _Note, the older type \"synchronized\" is now same as the default, **normal**; all struct/scopes are \"thread safe\" since version 4.1._\n",
+            "default": "normal",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "onMissingKey",
+            "description": "listener function that get invoked in case a request key does not exist.",
+            "minimum_version": "6.0.0.107",
+            "type": "function",
+            "required": false
+        }
+    ]
+}

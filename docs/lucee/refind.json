@@ -1,0 +1,58 @@
+{
+    "member_details": {
+        "name": "reFind",
+        "type": "string",
+        "returns": "string"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/refind.html",
+        "minimum_version": "",
+        "notes": "The regex engine depends on the application settings (`this.regex.type`). Up to Lucee 8 the default is `perl` (Apache ORO), which is deprecated: Lucee 9 uses `java` as the default, see [[regex-migration-lucee-9]].\n"
+    }},
+    "name": "rEFind",
+    "description": "Uses a regular expression (RE) to search a string for a pattern. The search is case sensitive.",
+    "syntax": "rEFind( string reg_expression, string string, [number start], [boolean returnSubExpressions], [string scope], [boolean multiline] )",
+    "returns": "any",
+    "type": "function",
+    "params": [
+        {
+            "name": "reg_expression",
+            "description": "Regular expression for which to search. Case sensitive.",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "string",
+            "description": "String in which to search.",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "start",
+            "description": "A positive integer. Position in the string at which to start search. The default value is 1.",
+            "default": "1",
+            "type": "number",
+            "required": false
+        },
+        {
+            "name": "returnSubExpressions",
+            "description": "Default: false, If set `true` means returns the result as a struct with keys `pos`, `match` and `len`. \n\nEach are an array with elements for the position and length of the match (first element), and the position and length of any matched subexpressions in the subsequent elements.",
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "scope",
+            "description": "One: (Default)Returns the first value that matches the regex\n\nAll: Returns all values that match the regex",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "multiline",
+            "description": "If true indicate the regular expression should treat input as having multiple lines.\n\t\t\t\tThis option affects the interpretation of the ^ and $ metacharacters. \n\t\t\t\tWhen true the ^ metacharacter matches at the beginning of every line, and the $ metacharacter matches at the end of every line. \n\t\t\t\tAdditionally the . metacharacter will not match newlines when true.",
+            "minimum_version": "5.3.8.23",
+            "default": "false",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

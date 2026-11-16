@@ -1,0 +1,27 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/filesetattribute.html",
+        "minimum_version": "",
+        "notes": "Prior to Lucee 6.2, this function didn't always work as expected"
+    }},
+    "name": "FileSetAttribute",
+    "description": "For the given path, sets the file attributes.",
+    "syntax": "FileSetAttribute( any file, string attribute )",
+    "returns": "void",
+    "type": "function",
+    "params": [
+        {
+            "name": "file",
+            "description": "file path",
+            "aliases": "filePath,source,path",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "attribute",
+            "description": "One of the following:\n\n- readOnly\n- normal\n\nOn Windows, the following additional attributes are supported (ignored on unix)\n\n- system\n- hidden\n- archive\n\nSet the attribute to normal to make a file not read-only and not hidden.\n",
+            "type": "string",
+            "required": true
+        }
+    ]
+}

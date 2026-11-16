@@ -1,0 +1,31 @@
+{
+    "member_details": {
+        "name": "toBase64",
+        "type": "string",
+        "returns": "string"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/tobase64.html",
+        "minimum_version": ""
+    }},
+    "name": "toBase64",
+    "description": "Calculates the Base64 representation of a string or binary object.",
+    "syntax": "toBase64( any strOrBin, [string encoding] )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "strOrBin",
+            "description": "A string, the name of a string, or a binary object.",
+            "aliases": "string,BinaryData",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "encoding",
+            "description": "For a string, defines how characters are represented in a\nbyte array.",
+            "type": "string",
+            "required": false
+        }
+    ]
+}

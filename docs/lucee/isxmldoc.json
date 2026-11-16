@@ -1,0 +1,17 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/isxmldoc.html",
+        "minimum_version": ""
+    }},
+    "name": "isXmlDoc",
+    "description": "Determines whether a function parameter is an Extended Markup\nlanguage (XML) document object.",
+    "syntax": "isXmlDoc( any value )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [{
+        "name": "value",
+        "description": "Name of an XML document object",
+        "type": "any",
+        "required": true
+    }]
+}

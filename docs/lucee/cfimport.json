@@ -1,0 +1,35 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/tags/import.html",
+        "minimum_version": ""
+    }},
+    "name": "cfimport",
+    "description": "The tag `import` has multiple purposes:\n1. Import components with the attribute `path`\n2. Import Java classes (Lucee 6.2+) with the attribute `path` or its alias `java` \n3. Import CFML/JSP custom tags with the attributes `prefix` and `taglib`\nIn script syntax, you can use:\n- `cfimport(path=\"org.lucee.example.MyCFC\");` \n- `import org.lucee.example.MyCFC;` \n- `import \"org.lucee.example.MyCFC\";`\nFor importing multiple components, use the wildcard syntax:\n- `import \"org.lucee.example.*\";`\nFor Java classes (Lucee 6.2+), the classpath is shared between components and Java classes. By default, Lucee first looks for components and then for Java classes if not found. Optionally, you can explicitly specify the type:\n- `import java:java.util.HashMap;`\n- `import cfml:org.lucee.cfml.Query;`\nNote: Imports only affect the current template, not the entire request.\nReference: See addional documentation for import at https://github.com/lucee/lucee-docs/blob/master/docs/recipes/import.md",
+    "syntax": "<cfimport/>",
+    "returns": "void",
+    "type": "tag",
+    "params": [
+        {
+            "name": "taglib",
+            "description": "Path to a custom tag library or a JSP tag library descriptor (TLD).\n\nAs cfimport is a compiler directive,  `Application.cfc` mappings won't work, but mappings configured via the admin will.\n\nUsed in conjunction with the `prefix` attribute to import custom tags:\n\n```cfml\n<cfimport prefix=\"my\" taglib=\"/path/to/tags/\">\n```\n\nIn script:\n\n```cfml\ncfimport(prefix=\"my\", taglib=\"/path/to/tags/\");\n```",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "prefix",
+            "description": "Prefix by which to access the imported custom CFML or JSP tags.\n\nIf you import a CFML custom tag directory and specify an empty value, \"\", for this attribute, you can call the custom tags without using a prefix. \n\nYou must specify and use a prefix for a JSP tag library.\n\nExample usage after import:\n\n```cfml\n<my:customTag attribute=\"value\">\n```",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "path",
+            "description": "Path of components or Java classes to be imported. \n\nFor components:\n\n- Import a specific component: `path=\"org.lucee.example.MyCFC\"`\n- Import all components in a package: `path=\"org.lucee.example.*\"`\n\nFor Java classes (Lucee 6.2+):\n\n- Standard import: `path=\"java.util.HashMap\"` \n- Type-specific import: `path=\"java:java.util.HashMap\"` (optional)\n\nBy default, Lucee uses a single classpath that includes both components and Java classes. \n\nWhen there's a naming conflict, Lucee first searches for a component, then for a Java class if the component is not found. \n\nSpecifying the type prefix (`java:` or `cfml:`) is optional but helpful to resolve ambiguities.\n\nIn script syntax, the keyword `import` can be used as an alternative:\n\n```cfml\nimport org.lucee.example.MyCFC;\n```\n\nNote: The `java` attribute is an alias for `path` when importing Java classes.",
+            "default": false,
+            "type": "string",
+            "required": false
+        }
+    ],
+    "body": "none"
+}

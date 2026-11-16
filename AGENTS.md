@@ -37,8 +37,8 @@ the policy. If approval is denied, report the denial and use available CI.
 After setup, routine builds and tests can use the cached dependencies.
 Use `go build ./...`, `go vet ./...`, `go test -short ./...`,
 `go test -short -race ./...`, `make lint`, and `git diff --check` as appropriate
-for the change. `make build` regenerates documentation and needs network;
-plain `go build` uses the committed generated files.
+for the change. `make build` and plain `go build` both use the committed generated
+docs; only `make generate` fetches the doc sources (network) and regenerates them.
 
 For resolution changes, follow `.ai/docs/RESOLUTION-GAPS.md`: confirm new regressions
 fail without the fix, compare corpus findings per entry, and state any

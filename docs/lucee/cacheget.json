@@ -1,0 +1,34 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/cacheget.html",
+        "minimum_version": ""
+    }},
+    "name": "cacheGet",
+    "description": "Gets an object that is stored in the cache.",
+    "syntax": "cacheGet( string id, [object throwWhenNotExist], [string cacheName] )",
+    "returns": "object",
+    "type": "function",
+    "params": [
+        {
+            "name": "id",
+            "description": "name of the element to return",
+            "aliases": "name,key",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "throwWhenNotExist",
+            "description": "define if the functions throws an exception when the element does not exist.\n\nDefault is false.",
+            "default": "false",
+            "type": "object",
+            "required": false
+        },
+        {
+            "name": "cacheName",
+            "description": "definition of the cache used by name, when not set the \"default Object Cache\" defined in Lucee Administrator is used instead.",
+            "aliases": "cache,region",
+            "type": "string",
+            "required": false
+        }
+    ]
+}

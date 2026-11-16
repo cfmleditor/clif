@@ -1,0 +1,18 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/len.html",
+        "minimum_version": ""
+    }},
+    "name": "len",
+    "description": "Determines the length of a string, array or struct",
+    "syntax": "len( object value )",
+    "returns": "number",
+    "type": "function",
+    "params": [{
+        "name": "value",
+        "description": "the object to measure the length of",
+        "aliases": "string,object",
+        "type": "object",
+        "required": true
+    }]
+}

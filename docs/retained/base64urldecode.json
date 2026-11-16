@@ -1,0 +1,21 @@
+{
+    "name": "Base64UrlDecode",
+    "description": "Decodes a Base64URL-encoded string.",
+    "syntax": "Base64UrlDecode( string encoded, [string charset] )",
+    "returns": "any",
+    "type": "function",
+    "params": [
+        {
+            "name": "encoded",
+            "description": "Base64URL-encoded string",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "charset",
+            "description": "If provided, returns decoded data as string using this charset",
+            "type": "string",
+            "required": false
+        }
+    ]
+}

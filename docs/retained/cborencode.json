@@ -1,0 +1,15 @@
+{
+    "name": "CborEncode",
+    "description": "Encodes a CFML value (struct, array, string, number, binary, boolean) to CBOR binary format.",
+    "syntax": "CborEncode( any data )",
+    "returns": "binary",
+    "type": "function",
+    "params": [
+        {
+            "name": "data",
+            "description": "CFML value to encode (struct, array, string, number, binary, boolean)",
+            "type": "any",
+            "required": true
+        }
+    ]
+}

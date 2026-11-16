@@ -1,0 +1,17 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/getsoaprequest.html",
+        "minimum_version": ""
+    }},
+    "name": "getSOAPRequest",
+    "description": "Returns an XML object that contains the entire SOAP\nrequest. Usually called from within a web service CFC.",
+    "syntax": "getSOAPRequest( [any webservice] )",
+    "returns": "any",
+    "type": "function",
+    "params": [{
+        "name": "webservice",
+        "description": "A webservice object as returned from the cfobject tag or the CreateObject function.",
+        "type": "any",
+        "required": false
+    }]
+}

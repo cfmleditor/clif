@@ -1,0 +1,18 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/isuserinrole.html",
+        "minimum_version": ""
+    }},
+    "name": "isUserInRole",
+    "description": "Determines whether an authenticated user belongs to the\nspecified Role.",
+    "syntax": "isUserInRole( any role_name )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [{
+        "name": "role_name",
+        "description": "Name of a security role",
+        "aliases": "roleName,role,name,value",
+        "type": "any",
+        "required": true
+    }]
+}

@@ -1,0 +1,31 @@
+{
+    "member_details": {
+        "name": "findNoCase",
+        "type": "array",
+        "returns": "array"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/arrayfindnocase.html",
+        "minimum_version": ""
+    }},
+    "name": "arrayFindNoCase",
+    "description": "These functions performs a case-insensitive search in the array for the specified object.",
+    "syntax": "arrayFindNoCase( array array, any value )",
+    "returns": "number",
+    "type": "function",
+    "params": [
+        {
+            "name": "array",
+            "description": "The array to search in",
+            "type": "array",
+            "required": true
+        },
+        {
+            "name": "value",
+            "description": "The value to find",
+            "aliases": "object",
+            "type": "any",
+            "required": true
+        }
+    ]
+}

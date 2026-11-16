@@ -1,0 +1,15 @@
+{
+    "name": "Base64UrlEncode",
+    "description": "Encodes data using Base64URL encoding (URL-safe, no padding).",
+    "syntax": "Base64UrlEncode( any data )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "data",
+            "description": "String or binary data to encode",
+            "type": "any",
+            "required": true
+        }
+    ]
+}

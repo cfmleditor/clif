@@ -1,0 +1,32 @@
+{
+    "member_details": {
+        "name": "setDrawingTransparency",
+        "type": "image",
+        "returns": "image"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/imagesetdrawingtransparency.html",
+        "minimum_version": ""
+    }},
+    "name": "ImageSetDrawingTransparency",
+    "description": "Specifies the degree of transparency of drawing functions.",
+    "syntax": "ImageSetDrawingTransparency( any image, [number percent] )",
+    "returns": "void",
+    "type": "function",
+    "params": [
+        {
+            "name": "image",
+            "description": "The image on which this operation is performed.",
+            "aliases": "name",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "percent",
+            "description": "Percent of transparency, a floating point number in range 0-100",
+            "default": "1",
+            "type": "number",
+            "required": false
+        }
+    ]
+}

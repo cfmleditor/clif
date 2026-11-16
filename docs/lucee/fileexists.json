@@ -1,0 +1,25 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/fileexists.html",
+        "minimum_version": ""
+    }},
+    "name": "FileExists",
+    "description": "Determines whether a file exists",
+    "syntax": "FileExists( any source, [object allowRealPath] )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [
+        {
+            "name": "source",
+            "description": "a file path or URI.\n",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "allowRealPath",
+            "description": "boolean that defines if relative paths are interpreted or not",
+            "type": "object",
+            "required": false
+        }
+    ]
+}

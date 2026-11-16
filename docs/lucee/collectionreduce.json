@@ -1,0 +1,34 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/collectionreduce.html",
+        "minimum_version": ""
+    }},
+    "name": "collectionReduce",
+    "description": "Iterates over every entry of the collection and calls the closure with every element. \nThis function will reduce the array to a single value and will return the value.",
+    "syntax": "collectionReduce( object collection, function closure, [object initialValue] )",
+    "returns": "any",
+    "type": "function",
+    "params": [
+        {
+            "name": "collection",
+            "description": "collection to iterate",
+            "aliases": "object",
+            "type": "object",
+            "required": true
+        },
+        {
+            "name": "closure",
+            "description": "function/closure that implements the following constructor [function(... depending on the given collection ...):any].",
+            "aliases": "function,callback,udf",
+            "type": "function",
+            "required": true
+        },
+        {
+            "name": "initialValue",
+            "description": "initial value passed as part of the first closure call",
+            "aliases": "initial,initalValue",
+            "type": "object",
+            "required": false
+        }
+    ]
+}

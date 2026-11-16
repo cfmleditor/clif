@@ -1,0 +1,27 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/runasync.html",
+        "minimum_version": ""
+    }},
+    "name": "RunAsync",
+    "description": "A function that returns a Future object, which is an eventual result of an asynchronous operation",
+    "syntax": "RunAsync( object closure, [number timeout] )",
+    "returns": "object",
+    "type": "function",
+    "params": [
+        {
+            "name": "closure",
+            "description": "Closure function that returns a Future object, which holds the result.",
+            "aliases": "callback,udf,function",
+            "type": "object",
+            "required": true
+        },
+        {
+            "name": "timeout",
+            "description": "timeout for the action",
+            "default": "0",
+            "type": "number",
+            "required": false
+        }
+    ]
+}

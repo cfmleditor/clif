@@ -1,0 +1,22 @@
+{
+    "member_details": {
+        "name": "tan",
+        "type": "numeric",
+        "returns": "numeric"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/tan.html",
+        "minimum_version": ""
+    }},
+    "name": "tan",
+    "description": "Calculates the tangent of an angle that is entered in radians.",
+    "syntax": "tan( number number )",
+    "returns": "number",
+    "type": "function",
+    "params": [{
+        "name": "number",
+        "description": "Angle, in radians, for which to calculate the tangent.",
+        "type": "number",
+        "required": true
+    }]
+}

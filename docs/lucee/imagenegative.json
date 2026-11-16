@@ -1,0 +1,23 @@
+{
+    "member_details": {
+        "name": "negative",
+        "type": "image",
+        "returns": "image"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/imagenegative.html",
+        "minimum_version": ""
+    }},
+    "name": "ImageNegative",
+    "description": "Creates a negative version of the image by inverting all pixel values. Each color channel value is subtracted from 255, resulting in opposite colors (e.g., white becomes black, red becomes cyan).",
+    "syntax": "ImageNegative( any image )",
+    "returns": "void",
+    "type": "function",
+    "params": [{
+        "name": "image",
+        "description": "The image on which this operation is performed.",
+        "aliases": "name",
+        "type": "any",
+        "required": true
+    }]
+}

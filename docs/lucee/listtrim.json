@@ -1,0 +1,27 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/listtrim.html",
+        "minimum_version": ""
+    }},
+    "name": "listTrim",
+    "description": "this function is deprecated, use instead ListCompact",
+    "syntax": "listTrim( string list, [string delimiters] )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "list",
+            "description": "a string list",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "delimiters",
+            "description": "Characters that separate list elements. The default value is comma.",
+            "default": ",",
+            "aliases": "delimiter",
+            "type": "string",
+            "required": false
+        }
+    ]
+}

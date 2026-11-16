@@ -1,0 +1,36 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/binarydecode.html",
+        "minimum_version": "",
+        "notes": "The new `precise` argument can be set to false for backwards compatibility [LDEV-4101](https://luceeserver.atlassian.net/browse/LDEV-4101)"
+    }},
+    "name": "binaryDecode",
+    "description": "Converts a string to a binary object. Used to convert\nbinary data that has been encoded into string format\nback into binary data.",
+    "syntax": "binaryDecode( string encoded_binary, string binaryEncoding, [boolean precise] )",
+    "returns": "binary",
+    "type": "function",
+    "params": [
+        {
+            "name": "encoded_binary",
+            "description": "A string containing encoded binary data.",
+            "aliases": "encodedBinary,string,value",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "binaryEncoding",
+            "description": "A string specifying the algorithm used to encode the original\nbinary data into a string; must be one of the following:\n\n- hex: characters 0-9 and A-F represent the hexadecimal value of each byte\n- UU: data is encoded using the UNIX UUencode algorithm\n- base64: data is encoded using the Base64 algorithm\n- base64url: data is encoded using the URL and filename safe Base64 alphabet (- and _ instead of + and /), as specified by IETF RFC 4648 section 5, as used for example by JWT, OAuth and PKCE. The padding (=) is optional when decoding.",
+            "aliases": "encoding",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "precise",
+            "description": "if set to true the input must follow the rule for that encoding a 100%, the decryptor will not try to interpret inputs that are not a 100% correct. This should be used to avoid false positives.",
+            "minimum_version": "6.0.0.227",
+            "default": "true",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

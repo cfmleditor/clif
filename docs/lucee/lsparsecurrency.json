@@ -1,0 +1,26 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/lsparsecurrency.html",
+        "minimum_version": ""
+    }},
+    "name": "lSParseCurrency",
+    "description": "Converts a locale-specific currency string into a formatted\nnumber. Attempts conversion by comparing the string with each\nthe three supported currency formats (none, local,\ninternational) and using the first that matches.",
+    "syntax": "lSParseCurrency( string string, [locale locale] )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "string",
+            "description": "A locale-specific string",
+            "aliases": "currency,number",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "locale",
+            "description": "Locale to use instead of the locale of the page when processing the function",
+            "type": "locale",
+            "required": false
+        }
+    ]
+}

@@ -1,0 +1,40 @@
+{
+    "member_details": {
+        "name": "REMatchNoCase",
+        "type": "string",
+        "returns": "string"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/rematchnocase.html",
+        "minimum_version": "",
+        "notes": "The regex engine depends on the application settings (`this.regex.type`). Up to Lucee 8 the default is `perl` (Apache ORO), which is deprecated: Lucee 9 uses `java` as the default, see [[regex-migration-lucee-9]].\n"
+    }},
+    "name": "REMatchNoCase",
+    "description": "Uses a regular expression (RE) to search a string for a pattern, starting from a specified position.",
+    "syntax": "REMatchNoCase( string reg_expression, string string, [boolean multiline] )",
+    "returns": "array",
+    "type": "function",
+    "params": [
+        {
+            "name": "reg_expression",
+            "description": "Regular expression for which to search. Case-insensitive.",
+            "aliases": "regex",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "string",
+            "description": "String in which to search.",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "multiline",
+            "description": "If true indicate the regular expression should treat input as having multiple lines.\n\t\t\t\tThis option affects the interpretation of the ^ and $ metacharacters. \n\t\t\t\tWhen true the ^ metacharacter matches at the beginning of every line, and the $ metacharacter matches at the end of every line. \n\t\t\t\tAdditionally the . metacharacter will not match newlines when true.",
+            "minimum_version": "5.3.8.23",
+            "default": "false",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

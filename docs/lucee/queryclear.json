@@ -1,0 +1,22 @@
+{
+    "member_details": {
+        "name": "clear",
+        "type": "query",
+        "returns": "query"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/queryclear.html",
+        "minimum_version": "6.0.0.15"
+    }},
+    "name": "QueryClear",
+    "description": "Clears all rows from a query",
+    "syntax": "QueryClear( query query )",
+    "returns": "query",
+    "type": "function",
+    "params": [{
+        "name": "query",
+        "description": "query to clear all data.",
+        "type": "query",
+        "required": true
+    }]
+}

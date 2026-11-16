@@ -1,0 +1,35 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/objectequals.html",
+        "minimum_version": ""
+    }},
+    "name": "ObjectEquals",
+    "description": "compares simply and complex objects for equality, by default, string comparison is not case sensitive",
+    "syntax": "ObjectEquals( any left, any right, [boolean caseSensitive] )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [
+        {
+            "name": "left",
+            "description": "left operand",
+            "aliases": "param1,clientObject",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "right",
+            "description": "right operant",
+            "aliases": "param2,originalObject",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "caseSensitive",
+            "description": "Use case sensitive string comparison",
+            "minimum_version": "7.0.0.190",
+            "default": "false",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

@@ -1,0 +1,37 @@
+{
+    "member_details": {
+        "name": "shearDrawingAxis",
+        "type": "image",
+        "returns": "image"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/imagesheardrawingaxis.html",
+        "minimum_version": ""
+    }},
+    "name": "ImageShearDrawingAxis",
+    "description": "Shears the drawing canvas.",
+    "syntax": "ImageShearDrawingAxis( any image, number shx, number shy )",
+    "returns": "void",
+    "type": "function",
+    "params": [
+        {
+            "name": "image",
+            "description": "The image on which this operation is performed.",
+            "aliases": "name",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "shx",
+            "description": "The multiplier by which coordinates are shifted in the positive x axis direction as a function of the y coordinate.",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "shy",
+            "description": "the multiplier by which coordinates are shifted in the positive y axis direction as a function of the x coordinate.",
+            "type": "number",
+            "required": true
+        }
+    ]
+}

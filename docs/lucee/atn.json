@@ -1,0 +1,22 @@
+{
+    "member_details": {
+        "name": "atn",
+        "type": "numeric",
+        "returns": "numeric"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/atn.html",
+        "minimum_version": ""
+    }},
+    "name": "atn",
+    "description": "ArcTangent function. The arcTangent is the angle whose tangent\nis number.",
+    "syntax": "atn( number number )",
+    "returns": "number",
+    "type": "function",
+    "params": [{
+        "name": "number",
+        "description": "Tangent of an angle. Must be between -1 and 1.",
+        "type": "number",
+        "required": true
+    }]
+}

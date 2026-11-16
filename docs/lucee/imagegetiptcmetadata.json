@@ -1,0 +1,23 @@
+{
+    "member_details": {
+        "name": "getIptcMetadata",
+        "type": "image",
+        "returns": "image"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/imagegetiptcmetadata.html",
+        "minimum_version": ""
+    }},
+    "name": "ImageGetIptcMetadata",
+    "description": "Retrieves the International Press Telecommunications Council (IPTC )headers in a image as a struct. The IPTC metadata contains text that describes the image that is stored with it. IPTC metadata includes, but is not limited to, caption, keywords, credit, copyright, object name, created date, byline, headline, and source.",
+    "syntax": "ImageGetIptcMetadata( any image )",
+    "returns": "struct",
+    "type": "function",
+    "params": [{
+        "name": "image",
+        "description": "The image on which this operation is performed.",
+        "aliases": "name",
+        "type": "any",
+        "required": true
+    }]
+}

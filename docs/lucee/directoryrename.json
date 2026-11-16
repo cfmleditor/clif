@@ -1,0 +1,32 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/directoryrename.html",
+        "minimum_version": "",
+        "notes": "With Lucee 6 this function now returns the new path"
+    }},
+    "name": "DirectoryRename",
+    "description": "Renames given directory",
+    "syntax": "DirectoryRename( string oldPath, string newPath, [boolean createPath] )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "oldPath",
+            "description": "Absolute path of the directory to be renamed",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "newPath",
+            "description": "new name for the directory",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "createPath",
+            "description": "if set to false, expects all parent directories to exist, true (default) will generate necessary directories",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

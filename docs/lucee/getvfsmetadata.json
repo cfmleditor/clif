@@ -1,0 +1,17 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/getvfsmetadata.html",
+        "minimum_version": ""
+    }},
+    "name": "GetVFSMetaData",
+    "description": "Returns metadata about the Virtual File system (VFS)",
+    "syntax": "GetVFSMetaData( string scheme )",
+    "returns": "struct",
+    "type": "function",
+    "params": [{
+        "name": "scheme",
+        "description": "the scheme of the virtual filesystem\n\n- ram\n- file\n- s3\n- http\n- https\n- zip\n- tar",
+        "type": "string",
+        "required": true
+    }]
+}

@@ -1,0 +1,12 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/sessionstarttime.html",
+        "minimum_version": ""
+    }},
+    "name": "SessionStartTime",
+    "description": "Provides information about the time when the current users session scope was created.",
+    "syntax": "SessionStartTime()",
+    "returns": "date",
+    "type": "function",
+    "params": []
+}

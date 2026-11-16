@@ -1,0 +1,33 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/querynew.html",
+        "minimum_version": ""
+    }},
+    "name": "queryNew",
+    "description": "Creates an empty query (query object).",
+    "syntax": "queryNew( object columnNames, [object columnTypes], [any data] )",
+    "returns": "query",
+    "type": "function",
+    "params": [
+        {
+            "name": "columnNames",
+            "description": "column names for the query created, allowed are comma-delimited string lists or an array.",
+            "aliases": "names,columns,columnList",
+            "type": "object",
+            "required": true
+        },
+        {
+            "name": "columnTypes",
+            "description": "column types for the query created, allowed are comma-delimited string lists or an array.",
+            "aliases": "types,columnTypeList",
+            "type": "object",
+            "required": false
+        },
+        {
+            "name": "data",
+            "description": "data to populate the new Query, an array of arrays or an array of structs.\n\nExample usage:\n\n- ```queryNew( \"name,age\", \"varchar,numeric\", [ [ \"Susi\", 20 ],[ \"Urs\", 24 ] ] );```\n- ```queryNew( \"name,age\", \"varchar,numeric\", [ [ name:\"Susi\", age:20 ], [ name:\"Urs\", age:24 ] ] );```\n- ```queryNew( \"name,age\", \"varchar,numeric\", { name:[ \"Susi\", \"Urs\" ], age:[ 20, 24 ] } );```\n",
+            "type": "any",
+            "required": false
+        }
+    ]
+}

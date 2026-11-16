@@ -1,0 +1,42 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/sslcertificateinstall.html",
+        "minimum_version": "",
+        "notes": "Lucee 5 bundled a caerts file, which caused problems as it was never updated and root certs change, causing SSL errors for normal websites with valid certs.\n\nLucee 6 by default uses the JVM cacerts file, which currently doesn't work with this function [LDEV-917](https://luceeserver.atlassian.net/browse/LDEV-917)\n\nTo use the old behaviour, use `lucee.use.lucee.SSL.TrustStore=true` or `LUCEE_USE_LUCEE_SSL_TRUSTSTORE=true`"
+    }},
+    "name": "SSLCertificateInstall",
+    "description": "install certificates of a specific host",
+    "syntax": "SSLCertificateInstall( string host, [number port], [any cacertPath], [string password] )",
+    "returns": "void",
+    "type": "function",
+    "params": [
+        {
+            "name": "host",
+            "description": "host to get Certificates from",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "port",
+            "description": "port of the host, default is 443",
+            "default": "443",
+            "type": "number",
+            "required": false
+        },
+        {
+            "name": "cacertPath",
+            "description": "Path to custom cacert file",
+            "minimum_version": "7.0.0.234",
+            "aliases": "path,cacert",
+            "type": "any",
+            "required": false
+        },
+        {
+            "name": "password",
+            "description": "Password for cacert database",
+            "minimum_version": "7.0.0.234",
+            "type": "string",
+            "required": false
+        }
+    ]
+}

@@ -1,0 +1,22 @@
+{
+    "member_details": {
+        "name": "reverse",
+        "type": "query",
+        "returns": "query"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/queryreverse.html",
+        "minimum_version": "6.0.0.18"
+    }},
+    "name": "QueryReverse",
+    "description": "reverse the row order of a complete query",
+    "syntax": "QueryReverse( query query )",
+    "returns": "query",
+    "type": "function",
+    "params": [{
+        "name": "query",
+        "description": "query to reverse rows.",
+        "type": "query",
+        "required": true
+    }]
+}

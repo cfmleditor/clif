@@ -1,0 +1,36 @@
+{
+    "member_details": {
+        "name": "delete",
+        "type": "array",
+        "returns": "array"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/arraydelete.html",
+        "minimum_version": ""
+    }},
+    "name": "arrayDelete",
+    "description": "Deletes specified object from given array",
+    "syntax": "arrayDelete( array array, object value, [string scope] )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [
+        {
+            "name": "array",
+            "description": "The array to delete from",
+            "type": "array",
+            "required": true
+        },
+        {
+            "name": "value",
+            "description": "The value to delete",
+            "type": "object",
+            "required": true
+        },
+        {
+            "name": "scope",
+            "description": "one: replaces the first occurrence (default)\nall: replaces all occurrences",
+            "type": "string",
+            "required": false
+        }
+    ]
+}

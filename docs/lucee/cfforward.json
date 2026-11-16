@@ -1,0 +1,20 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/tags/forward.html",
+        "minimum_version": "",
+        "notes": "The request ends after the forward, like it does after [[tag-location]]. Code after the tag is not executed (Lucee 9.0 and newer, see [[breaking-changes-8-0-to-9-0]]). Use [[tag-include]] if the page has to continue after the other template.\n"
+    }},
+    "name": "cfforward",
+    "description": "Leads the request to a different page.\nThis tag acts like the tag cflocation except that the relocation is done directly on the server.",
+    "syntax": "<cfforward template=\"\"/>",
+    "returns": "void",
+    "type": "tag",
+    "params": [{
+        "name": "template",
+        "description": "template path to forward to",
+        "default": false,
+        "type": "string",
+        "required": true
+    }],
+    "body": "none"
+}

@@ -1,0 +1,32 @@
+{
+    "member_details": {
+        "name": "toStruct",
+        "type": "array",
+        "returns": "array"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/arraytostruct.html",
+        "minimum_version": ""
+    }},
+    "name": "arrayToStruct",
+    "description": "Transform the array to a struct, by default, the index of the array is the key of the struct",
+    "syntax": "arrayToStruct( array array, [boolean valueAsKey] )",
+    "returns": "struct",
+    "type": "function",
+    "params": [
+        {
+            "name": "array",
+            "description": "array to translate",
+            "type": "array",
+            "required": true
+        },
+        {
+            "name": "valueAsKey",
+            "description": "use the value as the key of the struct, rather than the index",
+            "minimum_version": "6.0.0.79",
+            "default": "false",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

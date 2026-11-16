@@ -1,0 +1,26 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/entitysave.html",
+        "minimum_version": "",
+        "notes": "`entitySave()` does **not** immediately write to the database. It marks the entity as pending in the ORM session. The actual INSERT or UPDATE executes when the session flushes \u2014 either at transaction commit, on explicit [[function-ormflush]], or at request end if `flushAtRequestEnd` is `true`.\n\nFor new entities with `generator=\"native\"` or `generator=\"identity\"`, the INSERT executes immediately because Hibernate needs the database-generated ID.\n\nWhen `forceInsert` is `true`, Hibernate always attempts an INSERT regardless of whether the entity already exists. Use this when you know the entity is new but Hibernate might think otherwise (e.g. assigned IDs).\n\nAlways wrap saves in a `transaction` block for rollback safety. See [[orm-session-and-transactions]].\n"
+    }},
+    "name": "EntitySave",
+    "description": "Saves or updates data of the entity and all related entities to the database.\nEntitySave(entity, [forceInsert])",
+    "syntax": "EntitySave( object entity, [boolean forceInsert] )",
+    "returns": "void",
+    "type": "function",
+    "params": [
+        {
+            "name": "entity",
+            "description": "Name of the entity that must be saved in the database.",
+            "type": "object",
+            "required": true
+        },
+        {
+            "name": "forceInsert",
+            "description": "If true, then Lucee always tries to insert the entity as a new record.",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

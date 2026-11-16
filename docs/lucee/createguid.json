@@ -1,0 +1,12 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/createguid.html",
+        "minimum_version": ""
+    }},
+    "name": "createGUID",
+    "description": "Creates a Globally Unique Identifier (GUID). A GUID is a\n36-character string representation of a unique 128-bit integer\nxxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx where x is a hexadecimal digit.\nA GUID is just a UUID with one extra dash.",
+    "syntax": "createGUID()",
+    "returns": "string",
+    "type": "function",
+    "params": []
+}

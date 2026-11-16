@@ -1,0 +1,31 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/systemoutput.html",
+        "minimum_version": ""
+    }},
+    "name": "SystemOutput",
+    "description": "writes the given string to the output stream.",
+    "syntax": "SystemOutput( Object obj, [boolean addNewLine], [boolean doErrorStream] )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [
+        {
+            "name": "obj",
+            "description": "Any kind of object. Lucee will serialize all complex objects passed in to a string.\n\nIf you pass a string you can include `<print-stack-trace>`, which Lucee will replace with a stacktrace of the current position.\n",
+            "type": "object",
+            "required": true
+        },
+        {
+            "name": "addNewLine",
+            "description": "Whether or not to add a newline",
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "doErrorStream",
+            "description": "Which stream the output should go to: choose between 'Output stream' and 'Error stream.' If true, the output will go to the error stream.",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

@@ -1,0 +1,15 @@
+{
+    "name": "CertificateInfo",
+    "description": "Extracts information from an X.509 certificate.",
+    "syntax": "CertificateInfo( any certificate )",
+    "returns": "struct",
+    "type": "function",
+    "params": [
+        {
+            "name": "certificate",
+            "description": "PEM string or Java X509Certificate object",
+            "type": "any",
+            "required": true
+        }
+    ]
+}

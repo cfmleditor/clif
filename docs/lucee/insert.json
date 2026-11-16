@@ -1,0 +1,36 @@
+{
+    "member_details": {
+        "name": "insert",
+        "type": "string",
+        "returns": "string"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/insert.html",
+        "minimum_version": ""
+    }},
+    "name": "insert",
+    "description": "Inserts a substring in a string after a specified character\nposition. If position = 0, prefixes the substring to the\nstring.",
+    "syntax": "insert( string substring, string string, number position )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "substring",
+            "description": "String to insert.",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "string",
+            "description": "String into which to insert substring.",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "position",
+            "description": "position in string after which to insert substring.",
+            "type": "number",
+            "required": true
+        }
+    ]
+}

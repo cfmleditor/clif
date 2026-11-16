@@ -1,0 +1,22 @@
+{
+    "member_details": {
+        "name": "avg",
+        "type": "array",
+        "returns": "array"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/arrayavg.html",
+        "minimum_version": ""
+    }},
+    "name": "arrayAvg",
+    "description": "Calculates the average of the values in an array.\nAll elements in the array must contain values that can be automatically converted to numeric.",
+    "syntax": "arrayAvg( array array )",
+    "returns": "number",
+    "type": "function",
+    "params": [{
+        "name": "array",
+        "description": "The array to calculate the average values from",
+        "type": "array",
+        "required": true
+    }]
+}

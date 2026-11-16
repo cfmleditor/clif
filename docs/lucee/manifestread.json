@@ -1,0 +1,17 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/manifestread.html",
+        "minimum_version": "5.0.0.0"
+    }},
+    "name": "ManifestRead",
+    "description": "reads a manifest file and returns the content as struct",
+    "syntax": "ManifestRead( string str )",
+    "returns": "struct",
+    "type": "function",
+    "params": [{
+        "name": "str",
+        "description": "Path to a jar file containing a \"MANIFEST.MF\" file in the directory \"/META-INF/\",\npath to a Manifest file or the content of a Manifest File",
+        "type": "string",
+        "required": true
+    }]
+}

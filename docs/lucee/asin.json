@@ -1,0 +1,22 @@
+{
+    "member_details": {
+        "name": "aSin",
+        "type": "numeric",
+        "returns": "numeric"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/asin.html",
+        "minimum_version": ""
+    }},
+    "name": "aSin",
+    "description": "Determines the arcSine of a number. The arcSine is the angle\nwhose sine is number.",
+    "syntax": "aSin( number number )",
+    "returns": "number",
+    "type": "function",
+    "params": [{
+        "name": "number",
+        "description": "Sine of an angle. The value must be between -1 and 1, inclusive.",
+        "type": "number",
+        "required": true
+    }]
+}

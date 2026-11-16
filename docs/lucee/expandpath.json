@@ -1,0 +1,19 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/expandpath.html",
+        "minimum_version": "",
+        "notes": "if the path doesn't exist under mappings, it will sometimes resolve to the root filesystem on Linux "
+    }},
+    "name": "expandPath",
+    "description": "Creates an absolute, platform-appropriate path that is\nequivalent to the value of relative_path, appended to the base\npath. This function (despite its name) can accept an absolute\nor relative path in the relative_path attribute",
+    "syntax": "expandPath( string relative_path )",
+    "returns": "string",
+    "type": "function",
+    "params": [{
+        "name": "relative_path",
+        "description": "Relative or absolute directory reference or filename, within the current directory, (.\\\\ and ..\\\\) to convert to an absolute path.\n\nCan include forward or backward slashes.",
+        "aliases": "relativePath,path",
+        "type": "string",
+        "required": true
+    }]
+}

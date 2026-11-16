@@ -1,0 +1,25 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/tonumeric.html",
+        "minimum_version": ""
+    }},
+    "name": "ToNumeric",
+    "description": "Converts given value to a number",
+    "syntax": "ToNumeric( any value, [any radix] )",
+    "returns": "number",
+    "type": "function",
+    "params": [
+        {
+            "name": "value",
+            "description": "Value that should be converted to a numeric value",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "radix",
+            "description": "The base for conversion of the given value, default is 10\n\nSupported values are:\n\n- 2-36\n- bin\n- oct\n- dec\n- hex",
+            "type": "any",
+            "required": false
+        }
+    ]
+}

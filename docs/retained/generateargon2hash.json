@@ -1,0 +1,39 @@
+{
+    "name": "GenerateArgon2Hash",
+    "description": "Returns hash of input using Argon2.",
+    "syntax": "GenerateArgon2Hash( string input, [string variant], [number parallelismFactor], [number memoryCost], [number iterations] )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "input",
+            "description": "Input string.",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "variant",
+            "description": "Either Argon2i, Argon2d or Argon2id",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "parallelismFactor",
+            "description": "Degrees of parallelism, a number between 1 and 10.",
+            "type": "number",
+            "required": false
+        },
+        {
+            "name": "memoryCost",
+            "description": "A number between 8 and 100000.",
+            "type": "number",
+            "required": false
+        },
+        {
+            "name": "iterations",
+            "description": "A number between 1 and 20.",
+            "type": "number",
+            "required": false
+        }
+    ]
+}

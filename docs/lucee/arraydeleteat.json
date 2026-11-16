@@ -1,0 +1,31 @@
+{
+    "member_details": {
+        "name": "deleteAt",
+        "type": "array",
+        "returns": "array"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/arraydeleteat.html",
+        "minimum_version": ""
+    }},
+    "name": "arrayDeleteAt",
+    "description": "Deletes an element from an array and resizes the array so that the deleted element doesn't leave a gap.",
+    "syntax": "arrayDeleteAt( array array, number position )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [
+        {
+            "name": "array",
+            "description": "The array that the element will be deleted from.",
+            "type": "array",
+            "required": true
+        },
+        {
+            "name": "position",
+            "description": "The numeric position of the element. Remember that CFML arrays start at 1 not 0.",
+            "aliases": "index",
+            "type": "number",
+            "required": true
+        }
+    ]
+}

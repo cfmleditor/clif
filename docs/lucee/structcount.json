@@ -1,0 +1,23 @@
+{
+    "member_details": {
+        "name": "len",
+        "type": "struct",
+        "returns": "struct"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/structcount.html",
+        "minimum_version": ""
+    }},
+    "name": "structCount",
+    "description": "Counts the keys in a structure.",
+    "syntax": "structCount( struct struct )",
+    "returns": "number",
+    "type": "function",
+    "params": [{
+        "name": "struct",
+        "description": "Structure to access",
+        "aliases": "structure,object",
+        "type": "struct",
+        "required": true
+    }]
+}

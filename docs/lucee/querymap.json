@@ -1,0 +1,52 @@
+{
+    "member_details": {
+        "name": "map",
+        "type": "query",
+        "returns": "query"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/querymap.html",
+        "minimum_version": ""
+    }},
+    "name": "QueryMap",
+    "description": "Calls the given closure with every row in the query.",
+    "syntax": "QueryMap( query query, function closure, [query resQuery], [boolean parallel], [number maxThreads] )",
+    "returns": "query",
+    "type": "function",
+    "params": [
+        {
+            "name": "query",
+            "description": "query to iterate",
+            "type": "query",
+            "required": true
+        },
+        {
+            "name": "closure",
+            "description": "filter can be a function/closure that implements the following constructor\n\n`function(struct row[, number rowNumber, query query]):struct`.\n\nThe returned struct is used to fill a single query row.",
+            "aliases": "function,callback,udf",
+            "type": "function",
+            "required": true
+        },
+        {
+            "name": "resQuery",
+            "description": "Resulted query.",
+            "aliases": "resultingQuery",
+            "type": "query",
+            "required": false
+        },
+        {
+            "name": "parallel",
+            "description": "execute closures parallel",
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "maxThreads",
+            "description": "maximum number of threads executed, ignored when argument \"parallel\" is set to false",
+            "default": "20",
+            "aliases": "maxThreadCount",
+            "type": "number",
+            "required": false
+        }
+    ]
+}

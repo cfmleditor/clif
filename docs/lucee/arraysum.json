@@ -1,0 +1,22 @@
+{
+    "member_details": {
+        "name": "sum",
+        "type": "array",
+        "returns": "array"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/arraysum.html",
+        "minimum_version": ""
+    }},
+    "name": "arraySum",
+    "description": "The sum of values in an array. If the array parameter value is\nan empty array, returns zero.",
+    "syntax": "arraySum( array array )",
+    "returns": "number",
+    "type": "function",
+    "params": [{
+        "name": "array",
+        "description": "Name of an array",
+        "type": "array",
+        "required": true
+    }]
+}

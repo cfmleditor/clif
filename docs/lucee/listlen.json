@@ -1,0 +1,38 @@
+{
+    "member_details": {
+        "name": "ListLen",
+        "type": "string",
+        "returns": "string"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/listlen.html",
+        "minimum_version": ""
+    }},
+    "name": "listLen",
+    "description": "Determines the number of elements in a list.",
+    "syntax": "listLen( string list, [string delimiters], [boolean includeEmptyFields] )",
+    "returns": "number",
+    "type": "function",
+    "params": [
+        {
+            "name": "list",
+            "description": "a string list",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "delimiters",
+            "description": "Characters that separate list elements. The default value is comma.",
+            "default": ",",
+            "aliases": "delimiter",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "includeEmptyFields",
+            "description": "if set to true, empty values are included as well",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

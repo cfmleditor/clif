@@ -1,0 +1,22 @@
+{
+    "member_details": {
+        "name": "int",
+        "type": "numeric",
+        "returns": "numeric"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/int.html",
+        "minimum_version": ""
+    }},
+    "name": "int",
+    "description": "Returns the largest integer less than or equal to the given number (floor). \nFor negative numbers, this rounds away from zero (e.g., int(-1.7) returns -2). \nThe result is not limited to a 32-bit integer range and can handle large values such as epoch timestamps.",
+    "syntax": "int( number number )",
+    "returns": "number",
+    "type": "function",
+    "params": [{
+        "name": "number",
+        "description": "Real number to round down to an integer.",
+        "type": "number",
+        "required": true
+    }]
+}

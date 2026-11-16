@@ -1,0 +1,31 @@
+{
+    "member_details": {
+        "name": "round",
+        "type": "numeric",
+        "returns": "numeric"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/round.html",
+        "minimum_version": ""
+    }},
+    "name": "round",
+    "description": "Rounds a number to the closest integer.",
+    "syntax": "round( number number, [number precision] )",
+    "returns": "number",
+    "type": "function",
+    "params": [
+        {
+            "name": "number",
+            "description": "Number to round",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "precision",
+            "description": "Number of decimal points to round to",
+            "default": "0",
+            "type": "number",
+            "required": false
+        }
+    ]
+}

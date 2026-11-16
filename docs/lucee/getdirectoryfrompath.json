@@ -1,0 +1,17 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/getdirectoryfrompath.html",
+        "minimum_version": ""
+    }},
+    "name": "getDirectoryFromPath",
+    "description": "Extracts a directory from an absolute path.\nReturns the absolute path, without the filename.",
+    "syntax": "getDirectoryFromPath( string path )",
+    "returns": "string",
+    "type": "function",
+    "params": [{
+        "name": "path",
+        "description": "file path",
+        "type": "string",
+        "required": true
+    }]
+}

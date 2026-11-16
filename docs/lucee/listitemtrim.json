@@ -1,0 +1,38 @@
+{
+    "member_details": {
+        "name": "listItemTrim",
+        "type": "string",
+        "returns": "string"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/listitemtrim.html",
+        "minimum_version": ""
+    }},
+    "name": "ListItemTrim",
+    "description": "Removes all the white space surrounding each element, returning back the new list",
+    "syntax": "ListItemTrim( string list, [string delimiters], [boolean includeEmptyFields] )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "list",
+            "description": "a string list",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "delimiters",
+            "description": "Characters that separate list elements. The default value is comma.",
+            "default": ",",
+            "aliases": "delimiter",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "includeEmptyFields",
+            "description": "if set to true, empty values are included as well",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

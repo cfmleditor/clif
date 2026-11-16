@@ -1,0 +1,26 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/directorydelete.html",
+        "minimum_version": ""
+    }},
+    "name": "DirectoryDelete",
+    "description": "Deltes directory for given path",
+    "syntax": "DirectoryDelete( string path, [boolean recurse] )",
+    "returns": "void",
+    "type": "function",
+    "params": [
+        {
+            "name": "path",
+            "description": "Absolute path of the directory to be deleted",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "recurse",
+            "description": "Delete content of the directory.\n\nDefault is false.",
+            "aliases": "recursive",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

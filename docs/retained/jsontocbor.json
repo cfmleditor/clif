@@ -1,0 +1,15 @@
+{
+    "name": "JsonToCbor",
+    "description": "Converts a JSON string to CBOR-encoded binary data.",
+    "syntax": "JsonToCbor( string json )",
+    "returns": "binary",
+    "type": "function",
+    "params": [
+        {
+            "name": "json",
+            "description": "JSON string to convert",
+            "type": "string",
+            "required": true
+        }
+    ]
+}

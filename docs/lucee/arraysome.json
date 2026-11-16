@@ -1,0 +1,46 @@
+{
+    "member_details": {
+        "name": "some",
+        "type": "array",
+        "returns": "array"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/arraysome.html",
+        "minimum_version": ""
+    }},
+    "name": "arraySome",
+    "description": "This function calls a given closure/function with every element in a given array and returns true, if one of the closure calls returns true.",
+    "syntax": "arraySome( array array, function closure, [boolean parallel], [number maxThreads] )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [
+        {
+            "name": "array",
+            "description": "array to iterate",
+            "aliases": "object",
+            "type": "array",
+            "required": true
+        },
+        {
+            "name": "closure",
+            "description": "function/closure that implements the following constructor [function(any value[, numeric index,array array]):boolean].",
+            "aliases": "function,callback,udf",
+            "type": "function",
+            "required": true
+        },
+        {
+            "name": "parallel",
+            "description": "execute closures parallel",
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "maxThreads",
+            "description": "maximum number of threads executed, ignored when argument \"parallel\" is set to false",
+            "default": "20",
+            "aliases": "maxThreadCount",
+            "type": "number",
+            "required": false
+        }
+    ]
+}

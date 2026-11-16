@@ -1,0 +1,31 @@
+{
+    "member_details": {
+        "name": "columnList",
+        "type": "query",
+        "returns": "query"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/querycolumnlist.html",
+        "minimum_version": ""
+    }},
+    "name": "queryColumnList",
+    "description": "return the column names as list",
+    "syntax": "queryColumnList( query query, [string delimiter] )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "query",
+            "description": "Query object to get data from.",
+            "type": "query",
+            "required": true
+        },
+        {
+            "name": "delimiter",
+            "description": "delimiter used to separate elements in list",
+            "default": ",",
+            "type": "string",
+            "required": false
+        }
+    ]
+}

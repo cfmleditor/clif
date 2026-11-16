@@ -1,0 +1,32 @@
+{
+    "member_details": {
+        "name": "setAntialiasing",
+        "type": "image",
+        "returns": "image"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/imagesetantialiasing.html",
+        "minimum_version": ""
+    }},
+    "name": "ImageSetAntialiasing",
+    "description": "Switches antialiasing on or off in rendered graphics.",
+    "syntax": "ImageSetAntialiasing( any image, [string antialias] )",
+    "returns": "void",
+    "type": "function",
+    "params": [
+        {
+            "name": "image",
+            "description": "The image on which this operation is performed.",
+            "aliases": "name",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "antialias",
+            "description": "Antialiasing switch:\n\n- on,true: (default)\n- off,false:",
+            "default": "on",
+            "type": "string",
+            "required": false
+        }
+    ]
+}

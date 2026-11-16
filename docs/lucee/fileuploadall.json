@@ -1,0 +1,71 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/fileuploadall.html",
+        "minimum_version": ""
+    }},
+    "name": "FileUploadAll",
+    "description": "Uploads file to a directory on the server.",
+    "syntax": "FileUploadAll( string destination, [string accept], [string nameConflict], [boolean strict], [any allowedExtensions], [any blockedExtensions], [string strict], [string attributes], [object acl] )",
+    "returns": "array",
+    "type": "function",
+    "params": [
+        {
+            "name": "destination",
+            "description": "Absolute pathname of directory or file on web server.",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "accept",
+            "description": "Limits the MIME types to accept. Comma-delimited list. For example, to permit JPG and Microsoft Word file uploads:\naccept = \"image/jpg, application/msword\"\nThe browser uses file extension to determine file type.",
+            "aliases": "mimeType",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "nameConflict",
+            "description": "Action to take if filename is the same as that of a file in the directory.\n\n- skip\n- error\n- overwrite\n- makeunique\n- forceunique\n",
+            "aliases": "onConflict",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "strict",
+            "description": "Applies only to Solaris and HP-UX. Permissions. Octal values of UNIX chmod command. Assigned to owner, group, and other, respectively.",
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "allowedExtensions",
+            "description": "String list or string array of allowed extensions.",
+            "minimum_version": "6.0.0.12",
+            "type": "any",
+            "required": false
+        },
+        {
+            "name": "blockedExtensions",
+            "description": "String list or string array of not allowed extensions.",
+            "minimum_version": "6.0.0.12",
+            "type": "any",
+            "required": false
+        },
+        {
+            "name": "strict",
+            "description": "Applies only to Solaris and HP-UX. Permissions. Octal values of UNIX chmod command. Assigned to owner, group, and other, respectively.",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "attributes",
+            "description": "One attribute (Windows) or a comma-delimited list of attributes (other platforms) to set on the file.\nIf omitted, the file's attributes are maintained.",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "acl",
+            "description": "Only used for S3 Resources",
+            "type": "object",
+            "required": false
+        }
+    ]
+}

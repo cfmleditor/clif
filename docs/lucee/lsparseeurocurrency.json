@@ -1,0 +1,26 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/lsparseeurocurrency.html",
+        "minimum_version": ""
+    }},
+    "name": "lSParseEuroCurrency",
+    "description": "use function lsParseCurrency instead",
+    "syntax": "lSParseEuroCurrency( string number, [locale locale] )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "number",
+            "description": "Locale-specific string",
+            "aliases": "string,currency_number,currency",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "locale",
+            "description": "Locale to use instead of the locale of the page when processing the function",
+            "type": "locale",
+            "required": false
+        }
+    ]
+}

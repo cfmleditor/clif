@@ -1,0 +1,15 @@
+{
+    "name": "JwksLoad",
+    "description": "Loads a JWKS (JSON Web Key Set) from a URL or JSON string. Returns an array of JWK structs, each suitable for passing to JwkToKey().",
+    "syntax": "JwksLoad( string source )",
+    "returns": "array",
+    "type": "function",
+    "params": [
+        {
+            "name": "source",
+            "description": "JWKS URL (https://...) or raw JSON string containing a keys array",
+            "type": "string",
+            "required": true
+        }
+    ]
+}

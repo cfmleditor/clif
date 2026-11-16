@@ -1,0 +1,25 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/filewriteline.html",
+        "minimum_version": ""
+    }},
+    "name": "FileWriteLine",
+    "description": "Opens up the file (or uses the existing file object) and appends the given line of text",
+    "syntax": "FileWriteLine( any file, string data )",
+    "returns": "void",
+    "type": "function",
+    "params": [
+        {
+            "name": "file",
+            "description": "the file object to which to write the line.",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "data",
+            "description": "data to add to the file object.",
+            "type": "string",
+            "required": true
+        }
+    ]
+}

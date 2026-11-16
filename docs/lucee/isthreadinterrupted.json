@@ -1,0 +1,17 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/isthreadinterrupted.html",
+        "minimum_version": "7.0.2.1"
+    }},
+    "name": "IsThreadInterrupted",
+    "description": "Checks whether a specified thread has been interrupted. The interrupted status of the thread is unaffected by this method.",
+    "syntax": "IsThreadInterrupted( string threadName )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [{
+        "name": "threadName",
+        "description": "The name of the thread to check.",
+        "type": "string",
+        "required": true
+    }]
+}

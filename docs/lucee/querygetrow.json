@@ -1,0 +1,31 @@
+{
+    "member_details": {
+        "name": "getRow",
+        "type": "query",
+        "returns": "query"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/querygetrow.html",
+        "minimum_version": ""
+    }},
+    "name": "QueryGetRow",
+    "description": "this function is deprecated, use function QueryRowData instead.",
+    "syntax": "QueryGetRow( query query, number rowNumber )",
+    "returns": "any",
+    "type": "function",
+    "params": [
+        {
+            "name": "query",
+            "description": "query object do get data from",
+            "type": "query",
+            "required": true
+        },
+        {
+            "name": "rowNumber",
+            "description": "position of the row to be returned",
+            "aliases": "rowNum",
+            "type": "number",
+            "required": true
+        }
+    ]
+}

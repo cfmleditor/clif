@@ -1,0 +1,25 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/parsenumber.html",
+        "minimum_version": ""
+    }},
+    "name": "parseNumber",
+    "description": "Parses the string argument as a numeric value.",
+    "syntax": "parseNumber( string number, [string radix] )",
+    "returns": "number",
+    "type": "function",
+    "params": [
+        {
+            "name": "number",
+            "description": "the String containing the numeric representation to be parsed",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "radix",
+            "description": "the radix to be used while parsing (bin,oct,dec,hex)",
+            "type": "string",
+            "required": false
+        }
+    ]
+}

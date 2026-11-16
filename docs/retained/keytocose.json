@@ -1,0 +1,15 @@
+{
+    "name": "KeyToCose",
+    "description": "Converts a Java key object, PEM string, or key pair struct to a COSE key struct (integer keys per RFC 9052). Supports EC (P-256, P-384, P-521) and Ed25519 keys.",
+    "syntax": "KeyToCose( any key )",
+    "returns": "struct",
+    "type": "function",
+    "params": [
+        {
+            "name": "key",
+            "description": "Key to convert: PublicKey, PrivateKey, PEM string, or key pair struct from GenerateKeyPair()",
+            "type": "any",
+            "required": true
+        }
+    ]
+}

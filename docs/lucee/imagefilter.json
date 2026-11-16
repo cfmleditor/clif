@@ -1,0 +1,37 @@
+{
+    "member_details": {
+        "name": "filter",
+        "type": "image",
+        "returns": "image"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/imagefilter.html",
+        "minimum_version": ""
+    }},
+    "name": "ImageFilter",
+    "description": "the function ImageFilter allows to execute a filter against a image.",
+    "syntax": "ImageFilter( any image, string filtername, [struct parameters] )",
+    "returns": "void",
+    "type": "function",
+    "params": [
+        {
+            "name": "image",
+            "description": "The image on which this operation is performed.",
+            "aliases": "name",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "filtername",
+            "description": "the name of the filter executed (average,block,blur ...)",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "parameters",
+            "description": "parameters for the filter defined with argument filtername",
+            "type": "struct",
+            "required": false
+        }
+    ]
+}

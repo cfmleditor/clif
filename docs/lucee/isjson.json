@@ -1,0 +1,28 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/isjson.html",
+        "minimum_version": ""
+    }},
+    "name": "IsJson",
+    "description": "Evaluates whether a string is in a valid JSON (JavaScript Object Notation) or JSON5 data interchange format.",
+    "syntax": "IsJson( any var, [string format] )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [
+        {
+            "name": "var",
+            "description": "A string or variable that represents one.",
+            "aliases": "value",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "format",
+            "description": "The format of the input string. Possible values are:\n\n- **json**: Standard JSON format\n- **json5**: JSON5 format which allows additional features such as comments and unquoted keys",
+            "minimum_version": "6.2.0.14",
+            "default": "json5",
+            "type": "string",
+            "required": false
+        }
+    ]
+}

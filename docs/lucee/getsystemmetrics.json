@@ -1,0 +1,12 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/getsystemmetrics.html",
+        "minimum_version": "5.2.5.7"
+    }},
+    "name": "GetSystemMetrics",
+    "description": "",
+    "syntax": "GetSystemMetrics()",
+    "returns": "struct",
+    "type": "function",
+    "params": []
+}

@@ -1,0 +1,12 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/pi.html",
+        "minimum_version": ""
+    }},
+    "name": "pi",
+    "description": "Gets the mathematical constant p, accurate to 15 digits.\nThe number 3.14159265358979.",
+    "syntax": "pi()",
+    "returns": "number",
+    "type": "function",
+    "params": []
+}

@@ -1,0 +1,18 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/filedelete.html",
+        "minimum_version": ""
+    }},
+    "name": "FileDelete",
+    "description": "Deletes the specified file on the server.",
+    "syntax": "FileDelete( any file )",
+    "returns": "void",
+    "type": "function",
+    "params": [{
+        "name": "file",
+        "description": "file to delete.",
+        "aliases": "source,filePath",
+        "type": "any",
+        "required": true
+    }]
+}

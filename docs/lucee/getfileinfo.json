@@ -1,0 +1,18 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/getfileinfo.html",
+        "minimum_version": ""
+    }},
+    "name": "GetFileInfo",
+    "description": "Retrieves information about file.",
+    "syntax": "GetFileInfo( any file )",
+    "returns": "struct",
+    "type": "function",
+    "params": [{
+        "name": "file",
+        "description": "file path",
+        "aliases": "filePath,source",
+        "type": "any",
+        "required": true
+    }]
+}

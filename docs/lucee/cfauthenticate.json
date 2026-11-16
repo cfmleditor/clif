@@ -1,0 +1,13 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/tags/authenticate.html",
+        "minimum_version": ""
+    }},
+    "name": "cfauthenticate",
+    "description": "Authenticates a user, setting a security context for the application.\nFor more information, see the descriptions of IsAuthenticated and AuthenticatedContext.",
+    "syntax": "<cfauthenticate/>",
+    "returns": "void",
+    "type": "tag",
+    "params": [],
+    "body": "none"
+}

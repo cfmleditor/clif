@@ -1,0 +1,12 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/getwriteableimageformats.html",
+        "minimum_version": ""
+    }},
+    "name": "GetWriteableImageFormats",
+    "description": "Returns a list of image formats that Lucee can write on the operating system where Lucee is deployed.",
+    "syntax": "GetWriteableImageFormats()",
+    "returns": "string",
+    "type": "function",
+    "params": []
+}

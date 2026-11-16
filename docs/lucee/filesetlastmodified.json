@@ -1,0 +1,26 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/filesetlastmodified.html",
+        "minimum_version": ""
+    }},
+    "name": "FileSetLastModified",
+    "description": "For the given file, set the last modification date",
+    "syntax": "FileSetLastModified( any file, date date )",
+    "returns": "void",
+    "type": "function",
+    "params": [
+        {
+            "name": "file",
+            "description": "file path",
+            "aliases": "filePath,source,path",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "date",
+            "description": "last modified date",
+            "type": "date",
+            "required": true
+        }
+    ]
+}

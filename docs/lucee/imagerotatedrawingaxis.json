@@ -1,0 +1,43 @@
+{
+    "member_details": {
+        "name": "rotateDrawingAxis",
+        "type": "image",
+        "returns": "image"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/imagerotatedrawingaxis.html",
+        "minimum_version": ""
+    }},
+    "name": "ImageRotateDrawingAxis",
+    "description": "Rotates all subsequent drawing on a image at a specified point by a specified angle.",
+    "syntax": "ImageRotateDrawingAxis( any image, [number angle], [number x], [number y] )",
+    "returns": "void",
+    "type": "function",
+    "params": [
+        {
+            "name": "image",
+            "description": "The image on which this operation is performed.",
+            "aliases": "name",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "angle",
+            "description": "The rotation angle in degrees.",
+            "type": "number",
+            "required": false
+        },
+        {
+            "name": "x",
+            "description": "The x coordinate for the point of rotation. The default value is 0.",
+            "type": "number",
+            "required": false
+        },
+        {
+            "name": "y",
+            "description": "The y coordinate for the point of rotation. The default value is 0.",
+            "type": "number",
+            "required": false
+        }
+    ]
+}

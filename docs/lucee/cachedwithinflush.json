@@ -1,0 +1,25 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/cachedwithinflush.html",
+        "minimum_version": "7.1.0.11"
+    }},
+    "name": "CachedWithinFlush",
+    "description": "Flushes a specific cached entry from the cache. Works with cached queries, functions, and HTTP results. \nThis allows selective cache invalidation instead of clearing entire caches, enabling fine-grained cache control when underlying data changes.",
+    "syntax": "CachedWithinFlush( any cacheObject, [any arguments] )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [
+        {
+            "name": "cacheObject",
+            "description": "The cached object to flush from cache. Must be a valid cache object such as a query result, function reference, or HTTP result struct that was cached using the `cachedwithin` attribute.",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "arguments",
+            "description": "The arguments used when the cache entry was created. \nRequired for cached functions to identify the specific cache entry, as each unique set of arguments creates a separate cache entry. \nCan be provided as an array `[arg1, arg2]` for positional arguments or as a struct `{key: value}` for named arguments. \nNot required for queries or HTTP results.",
+            "type": "any",
+            "required": false
+        }
+    ]
+}

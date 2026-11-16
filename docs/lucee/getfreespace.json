@@ -1,0 +1,18 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/getfreespace.html",
+        "minimum_version": ""
+    }},
+    "name": "GetFreeSpace",
+    "description": "Returns the number of unallocated bytes in the partition named by this abstract path name.",
+    "syntax": "GetFreeSpace( object file )",
+    "returns": "numeric",
+    "type": "function",
+    "params": [{
+        "name": "file",
+        "description": "file path",
+        "aliases": "path,filePath",
+        "type": "object",
+        "required": true
+    }]
+}

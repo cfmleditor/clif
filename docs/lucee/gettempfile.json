@@ -1,0 +1,33 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/gettempfile.html",
+        "minimum_version": ""
+    }},
+    "name": "getTempFile",
+    "description": "Creates a unique temporary file with a prefix in a directory.",
+    "syntax": "getTempFile( string prefix, [string dir], [string extension] )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "dir",
+            "description": "Directory name, defaults to getTempDirectory() since 6.2.1.19",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "prefix",
+            "description": "Prefix of a temporary file to create in the dir directory",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "extension",
+            "description": "Extension for the temporary file, default is .tmp",
+            "minimum_version": "5.3.9.72",
+            "aliases": "ext",
+            "type": "string",
+            "required": false
+        }
+    ]
+}

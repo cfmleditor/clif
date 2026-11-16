@@ -1,0 +1,19 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/newline.html",
+        "minimum_version": ""
+    }},
+    "name": "newLine",
+    "description": "returns a new line",
+    "syntax": "newLine( [boolean includeCROnWindows] )",
+    "returns": "string",
+    "type": "function",
+    "params": [{
+        "name": "includeCROnWindows",
+        "description": "On windows computer include Carriage Return.",
+        "minimum_version": "5.3.1.43",
+        "default": "true",
+        "type": "boolean",
+        "required": false
+    }]
+}

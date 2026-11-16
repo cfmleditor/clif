@@ -1,0 +1,52 @@
+{
+    "member_details": {
+        "name": "write",
+        "type": "image",
+        "returns": "image"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/imagewrite.html",
+        "minimum_version": ""
+    }},
+    "name": "ImageWrite",
+    "description": "Writes a image to the specified filename or destination.",
+    "syntax": "ImageWrite( any image, [string destination], [number quality], [boolean overwrite], [boolean noMetaData] )",
+    "returns": "void",
+    "type": "function",
+    "params": [
+        {
+            "name": "image",
+            "description": "The image on which this operation is performed.",
+            "aliases": "name",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "destination",
+            "description": "The path to write the file.\n\nIf you create the image with the ImageNew function or another operation where you do not specify the filename, specify the destination parameter.\nThe file format is derived from the extension of the filename. The default value for this parameter is the filename of the original image source.",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "quality",
+            "description": "Defines the JPEG quality used to encode the image. This parameter applies only to destination files with an extension of JPG or JPEG. Valid values are fractions that range from 0 through 1 (the lower the number, the lower the quality). The default value is 0.75.",
+            "default": "0.75",
+            "type": "number",
+            "required": false
+        },
+        {
+            "name": "overwrite",
+            "description": "If set to true (default), overwrites the destination file.",
+            "default": "true",
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "noMetaData",
+            "description": "if true the meta data from the source file are ignored.",
+            "default": "false",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

@@ -1,0 +1,18 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/objectload.html",
+        "minimum_version": ""
+    }},
+    "name": "ObjectLoad",
+    "description": "loads an object serialized in a binary form from a file or as binary input",
+    "syntax": "ObjectLoad( [any input] )",
+    "returns": "any",
+    "type": "function",
+    "params": [{
+        "name": "input",
+        "description": "a binary representation of an object or a path to a file that contains this",
+        "aliases": "object",
+        "type": "any",
+        "required": false
+    }]
+}

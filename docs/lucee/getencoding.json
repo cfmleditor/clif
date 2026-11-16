@@ -1,0 +1,17 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/getencoding.html",
+        "minimum_version": ""
+    }},
+    "name": "getEncoding",
+    "description": "Returns the encoding (character set) of the Form or URL scope.",
+    "syntax": "getEncoding( string scope )",
+    "returns": "string",
+    "type": "function",
+    "params": [{
+        "name": "scope",
+        "description": "one of the following\n\n- form\n- url",
+        "type": "string",
+        "required": true
+    }]
+}

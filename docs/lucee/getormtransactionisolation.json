@@ -1,0 +1,12 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/getormtransactionisolation.html",
+        "minimum_version": ""
+    }},
+    "name": "GetORMTransactionIsolation",
+    "description": "Returns the JDBC transaction isolation level from the ORM session's connection as a string (e.g. \"serializable\"). Returns \"\" if no ORM session is active. Matches the convention of the core getTransactionIsolation() BIF.",
+    "syntax": "GetORMTransactionIsolation()",
+    "returns": "string",
+    "type": "function",
+    "params": []
+}

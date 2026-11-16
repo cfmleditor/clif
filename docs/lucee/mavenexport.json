@@ -1,0 +1,12 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/mavenexport.html",
+        "minimum_version": "7.1.0.98"
+    }},
+    "name": "MavenExport",
+    "description": "Snapshots Lucee's local maven cache as a portable pom.xml listing every cached jar \u2014 for reproducible deploys, auditing, and air-gapped rehydration.",
+    "syntax": "MavenExport()",
+    "returns": "string",
+    "type": "function",
+    "params": []
+}

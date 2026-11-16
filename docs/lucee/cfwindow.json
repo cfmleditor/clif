@@ -1,0 +1,133 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/tags/window.html",
+        "minimum_version": ""
+    }},
+    "name": "cfwindow",
+    "description": "Creates a pop-up window in the browser. Does not create a separate browser pop-up instance.",
+    "syntax": "<cfwindow/>",
+    "returns": "void",
+    "type": "tag",
+    "params": [
+        {
+            "name": "name",
+            "description": "",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "title",
+            "description": "",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "source",
+            "description": "",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "onBindError",
+            "description": "",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "modal",
+            "description": "",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "refreshOnShow",
+            "description": "",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "width",
+            "description": "",
+            "default": false,
+            "type": "numeric",
+            "required": false
+        },
+        {
+            "name": "height",
+            "description": "",
+            "default": false,
+            "type": "numeric",
+            "required": false
+        },
+        {
+            "name": "minWidth",
+            "description": "",
+            "default": false,
+            "type": "numeric",
+            "required": false
+        },
+        {
+            "name": "minHeight",
+            "description": "",
+            "default": false,
+            "type": "numeric",
+            "required": false
+        },
+        {
+            "name": "initShow",
+            "description": "",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "resizable",
+            "description": "",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "draggable",
+            "description": "",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "jsLib",
+            "description": "",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "x",
+            "description": "",
+            "default": false,
+            "type": "numeric",
+            "required": false
+        },
+        {
+            "name": "y",
+            "description": "",
+            "default": false,
+            "type": "numeric",
+            "required": false
+        },
+        {
+            "name": "buttons",
+            "description": "",
+            "default": false,
+            "type": "string",
+            "required": false
+        }
+    ],
+    "body": "optional"
+}

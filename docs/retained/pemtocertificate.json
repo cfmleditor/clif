@@ -1,0 +1,15 @@
+{
+    "name": "PemToCertificate",
+    "description": "Parses a PEM-encoded certificate string into a Java X509Certificate object.",
+    "syntax": "PemToCertificate( string pem )",
+    "returns": "any",
+    "type": "function",
+    "params": [
+        {
+            "name": "pem",
+            "description": "PEM-encoded certificate string",
+            "type": "string",
+            "required": true
+        }
+    ]
+}

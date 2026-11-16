@@ -1,0 +1,31 @@
+{
+    "member_details": {
+        "name": "displayName",
+        "type": "locale",
+        "returns": "locale"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/getlocaledisplayname.html",
+        "minimum_version": ""
+    }},
+    "name": "getLocaleDisplayName",
+    "description": "Gets a locale value and displays the name in a manner\nthat is appropriate to a specific locale. By default,\ngets the current locale in the current locale's language.",
+    "syntax": "getLocaleDisplayName( [locale locale], [locale dspLocale] )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "locale",
+            "description": "Locale to use instead of the locale of the page when processing the function",
+            "type": "locale",
+            "required": false
+        },
+        {
+            "name": "dspLocale",
+            "description": "The locale in which to return the name. The default is the locale defined for the request.",
+            "aliases": "inLocale",
+            "type": "locale",
+            "required": false
+        }
+    ]
+}

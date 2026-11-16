@@ -1,0 +1,25 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/gettagdata.html",
+        "minimum_version": ""
+    }},
+    "name": "getTagData",
+    "description": "Returns Information about a Tag as Struct",
+    "syntax": "getTagData( string nameSpaceWithSeparator, string tagName )",
+    "returns": "struct",
+    "type": "function",
+    "params": [
+        {
+            "name": "nameSpaceWithSeparator",
+            "description": "The namespace of the tag with the separator Example: cf, rc: aso.",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "tagName",
+            "description": "The tag name without namespace Example: login,mail aso.",
+            "type": "string",
+            "required": true
+        }
+    ]
+}

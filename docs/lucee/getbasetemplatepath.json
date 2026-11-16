@@ -1,0 +1,12 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/getbasetemplatepath.html",
+        "minimum_version": ""
+    }},
+    "name": "getBaseTemplatePath",
+    "description": "Gets the absolute path of an application's base page.",
+    "syntax": "getBaseTemplatePath()",
+    "returns": "string",
+    "type": "function",
+    "params": []
+}

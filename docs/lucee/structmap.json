@@ -1,0 +1,46 @@
+{
+    "member_details": {
+        "name": "map",
+        "type": "struct",
+        "returns": "struct"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/structmap.html",
+        "minimum_version": ""
+    }},
+    "name": "structMap",
+    "description": "Calls the given closure with every element in the given struct.\nthe function returns a struct that contains all values returned by the closure.",
+    "syntax": "structMap( struct struct, function closure, [boolean parallel], [number maxThreads] )",
+    "returns": "struct",
+    "type": "function",
+    "params": [
+        {
+            "name": "struct",
+            "description": "struct to iterate",
+            "aliases": "structure",
+            "type": "struct",
+            "required": true
+        },
+        {
+            "name": "closure",
+            "description": "filter can be a function/closure that implements the following constructor\n\n[function(string key, any value[, struct struct]):any].",
+            "aliases": "function,callback,udf",
+            "type": "function",
+            "required": true
+        },
+        {
+            "name": "parallel",
+            "description": "execute closures parallel",
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "maxThreads",
+            "description": "maximum number of threads executed, ignored when argument \"parallel\" is set to false",
+            "default": "20",
+            "aliases": "maxThreadCount",
+            "type": "number",
+            "required": false
+        }
+    ]
+}

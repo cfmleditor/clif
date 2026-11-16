@@ -1,0 +1,9 @@
+# Lucee's docs, vendored: the JSON files from https://docs.lucee.org/lucee-docs.zip
+# (lucee-docs-json-zipped.zip > lucee-docs-json.zip). Lucee publishes only its
+# latest zip, so a pinned one could not be downloaded again; committing the
+# extracted files is what makes a regeneration reproducible on any machine.
+# `make docs-bump` replaces them with the latest and rewrites this file.
+zip-sha256 ed6dddb57e7eb609d928df5abcaa1ed7f2dc432afad4f67bf93474cc292204a3
+json-sha256 7459538c7f0f76061caf1c95b9d7cce3958f06fdc6f201cf8b055b996b67d1cb
+etag "4f400ece9149dac7b0854161cefaf869"
+fetched 2026-11-16

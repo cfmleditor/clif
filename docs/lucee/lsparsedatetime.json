@@ -1,0 +1,38 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/lsparsedatetime.html",
+        "minimum_version": ""
+    }},
+    "name": "lSParseDateTime",
+    "description": "Converts a string that is a valid date/time representation in\nthe current locale into a date/time object.",
+    "syntax": "lSParseDateTime( object date, [locale locale], [string timezone], [string format] )",
+    "returns": "datetime",
+    "type": "function",
+    "params": [
+        {
+            "name": "date",
+            "description": "A string in a format that is readable in the current locale.",
+            "type": "object",
+            "required": true
+        },
+        {
+            "name": "locale",
+            "description": "Locale to use instead of the locale of the page when processing the function",
+            "type": "locale",
+            "required": false
+        },
+        {
+            "name": "timezone",
+            "description": "A datetime object is independent of a specific timezone; it is only an offset in milliseconds from `1970-1-1 00.00:00 UTC` (Coordinated Universal Time).\n\nThe timezone only comes into play when you need specific information like hours in a day, minutes in a hour or which day it is as these calculations depend on the timezone.\n\nA timezone must be specified in order to translate the date object to something else. If you do not provide the timezone in the function call, it will default to the timezone specified in the Lucee Administrator (Settings/Regional), or the timezone specified for the current request using the function [[function-setTimezone|setTimezone()]].\n\nYou can find a list of all available timezones in the Lucee administrator (Settings/Regional). Some examples of valid timezones include:\n\n - AGT (for time in Argentina)\n - Europe/Zurich (for time in Zurich/Switzerland)\n - HST (Hawaiian Standard Time in the USA)\n- JVM (JVM / Server Default Timezone)",
+            "aliases": "timezone",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "format",
+            "description": "Mask that has to be used for formatting. The function follows Java date time mask. For details, see the Java documentation section [Date and Time Patterns](https://docs.oracle.com/javase/8/docs/api/java/text/SimpleDateFormat.html).\n",
+            "type": "string",
+            "required": false
+        }
+    ]
+}

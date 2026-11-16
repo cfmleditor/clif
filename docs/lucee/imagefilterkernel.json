@@ -1,0 +1,31 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/imagefilterkernel.html",
+        "minimum_version": ""
+    }},
+    "name": "ImageFilterKernel",
+    "description": "These are passed to the function ImageFilters ",
+    "syntax": "ImageFilterKernel( number width, number height, any data )",
+    "returns": "any",
+    "type": "function",
+    "params": [
+        {
+            "name": "width",
+            "description": "width of the kernel",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "height",
+            "description": "height of the kernel",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "data",
+            "description": "kernel data in row major order",
+            "type": "any",
+            "required": true
+        }
+    ]
+}

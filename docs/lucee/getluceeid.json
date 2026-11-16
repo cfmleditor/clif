@@ -1,0 +1,12 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/getluceeid.html",
+        "minimum_version": ""
+    }},
+    "name": "GetLuceeId",
+    "description": "return ids of the current context",
+    "syntax": "GetLuceeId()",
+    "returns": "struct",
+    "type": "function",
+    "params": []
+}

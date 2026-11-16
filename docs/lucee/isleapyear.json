@@ -1,0 +1,18 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/isleapyear.html",
+        "minimum_version": ""
+    }},
+    "name": "isLeapYear",
+    "description": "Determines whether a year is a leap year.",
+    "syntax": "isLeapYear( number year )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [{
+        "name": "year",
+        "description": "Number representing a year",
+        "aliases": "value",
+        "type": "number",
+        "required": true
+    }]
+}

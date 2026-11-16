@@ -1,0 +1,26 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/getbasetagdata.html",
+        "minimum_version": ""
+    }},
+    "name": "getBaseTagData",
+    "description": "Used within a custom tag. Finds calling (ancestor) tag by\nname and accesses its data.",
+    "syntax": "getBaseTagData( string tagName, [number instanceNumber] )",
+    "returns": "struct",
+    "type": "function",
+    "params": [
+        {
+            "name": "tagName",
+            "description": "Ancestor tag name for which to return data",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "instanceNumber",
+            "description": "Number of ancestor levels to jump before returning data.\n\nThe default value is 1 (closest ancestor).",
+            "default": "1",
+            "type": "number",
+            "required": false
+        }
+    ]
+}

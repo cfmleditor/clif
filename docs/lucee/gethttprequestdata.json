@@ -1,0 +1,18 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/gethttprequestdata.html",
+        "minimum_version": ""
+    }},
+    "name": "getHTTPRequestData",
+    "description": "Makes HTTP request headers and body available to CFML pages.\nUseful for capturing SOAP request data, which can be delivered\nin an HTTP header.",
+    "syntax": "getHTTPRequestData( [boolean includeBody] )",
+    "returns": "struct",
+    "type": "function",
+    "params": [{
+        "name": "includeBody",
+        "description": "You would like to retrieve the body of the request as well (true or false).\n\nDefault is true.\n",
+        "default": "true",
+        "type": "boolean",
+        "required": false
+    }]
+}

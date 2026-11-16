@@ -1,0 +1,33 @@
+{
+    "name": "GenerateBlake3Hash",
+    "description": "Generates a Blake3 hash. Blake3 is the latest in the Blake family - very fast, parallelizable, and supports arbitrary output lengths (XOF).",
+    "syntax": "GenerateBlake3Hash( any input, [numeric outputLength], [any key], [string context] )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "input",
+            "description": "Data to hash (string or binary)",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "outputLength",
+            "description": "Output length in bytes (any length, default 32)",
+            "type": "numeric",
+            "required": false
+        },
+        {
+            "name": "key",
+            "description": "Key for keyed hash mode (MAC), must be exactly 32 bytes",
+            "type": "any",
+            "required": false
+        },
+        {
+            "name": "context",
+            "description": "Context string for key derivation mode",
+            "type": "string",
+            "required": false
+        }
+    ]
+}

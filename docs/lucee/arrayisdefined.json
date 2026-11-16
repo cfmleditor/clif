@@ -1,0 +1,30 @@
+{
+    "member_details": {
+        "name": "isDefined",
+        "type": "array",
+        "returns": "array"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/arrayisdefined.html",
+        "minimum_version": ""
+    }},
+    "name": "ArrayIsDefined",
+    "description": "Returns whether there exists an item in the array at the selected index.",
+    "syntax": "ArrayIsDefined( array array, number index )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [
+        {
+            "name": "array",
+            "description": "The array to search",
+            "type": "array",
+            "required": true
+        },
+        {
+            "name": "index",
+            "description": "The index which to check",
+            "type": "number",
+            "required": true
+        }
+    ]
+}

@@ -1,0 +1,23 @@
+{
+    "member_details": {
+        "name": "info",
+        "type": "image",
+        "returns": "image"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/imageinfo.html",
+        "minimum_version": ""
+    }},
+    "name": "ImageInfo",
+    "description": "Returns a structure containing image information. When called with an image argument, returns details about the specific image including height, width, color model, size, and filename. When called without arguments, returns information about the Lucee image processing extension including its OSGi bundle version and status.",
+    "syntax": "ImageInfo( [any image] )",
+    "returns": "struct",
+    "type": "function",
+    "params": [{
+        "name": "image",
+        "description": "The image on which this operation is performed.",
+        "aliases": "name",
+        "type": "any",
+        "required": false
+    }]
+}

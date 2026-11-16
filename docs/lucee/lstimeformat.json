@@ -1,0 +1,43 @@
+{
+    "member_details": {
+        "name": "lSTimeFormat",
+        "type": "datetime",
+        "returns": "datetime"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/lstimeformat.html",
+        "minimum_version": ""
+    }},
+    "name": "lSTimeFormat",
+    "description": "Formats a time string to a given output using the current locale.",
+    "syntax": "lSTimeFormat( any time, [string mask], [locale locale], [timezone timezone] )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "time",
+            "description": "date object; for example, [[function-now|now()]]",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "mask",
+            "description": "Mask that has to be used for formatting.\n\nThe function follows Java date time mask.\n\nFor details, see the Java documentation section [Date and Time Patterns](https://docs.oracle.com/javase/8/docs/api/java/text/SimpleDateFormat.html).",
+            "default": "short",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "locale",
+            "description": "Locale to use instead of the locale of the page when processing the function",
+            "type": "locale",
+            "required": false
+        },
+        {
+            "name": "timezone",
+            "description": "A datetime object is independent of a specific timezone; it is only an offset in milliseconds from `1970-1-1 00.00:00 UTC` (Coordinated Universal Time).\n\nThe timezone only comes into play when you need specific information like hours in a day, minutes in a hour or which day it is as these calculations depend on the timezone.\n\nA timezone must be specified in order to translate the date object to something else.\n\nIf you do not provide the timezone in the function call, it will default to the timezone specified in the Lucee Administrator (Settings/Regional), or the timezone specified for the current request using the function [[function-setTimezone|setTimezone()]].\n\nYou can find a list of all available timezones in the Lucee administrator (Settings/Regional). Some examples of valid timezones include:\n\n - AGT (for time in Argentina)\n - Europe/Zurich (for time in Zurich/Switzerland)\n - HST (Hawaiian Standard Time in the USA)\n- JVM (JVM / Server Default Timezone)",
+            "type": "timezone",
+            "required": false
+        }
+    ]
+}

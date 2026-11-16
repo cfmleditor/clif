@@ -1,0 +1,47 @@
+{
+    "member_details": {
+        "name": "toJson",
+        "type": "any",
+        "returns": "any"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/serializejson.html",
+        "minimum_version": ""
+    }},
+    "name": "SerializeJSON",
+    "description": "Converts CFML data into a JSON (JavaScript Object Notation) representation of the data.",
+    "syntax": "SerializeJSON( any var, [any queryFormat], [any useSecureJSONPrefixOrCharset], [boolean compact] )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "var",
+            "description": "A CFML data value or variable that represents one.",
+            "aliases": "data",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "queryFormat",
+            "description": "Either a Boolean value that specifies whether to serialize CFML queries by Column,\nor one of the following formats as a String\n\n- 'struct'\n- 'row'\n- 'column'",
+            "aliases": "serializeQueryByColumns",
+            "type": "any",
+            "required": false
+        },
+        {
+            "name": "useSecureJSONPrefixOrCharset",
+            "description": "String characters that cannot be encoded by this charset get escaped, if not set the web charset is used.",
+            "aliases": "charset,charsetName,useSecureJSONPrefix",
+            "type": "any",
+            "required": false
+        },
+        {
+            "name": "compact",
+            "description": "If true, it does not use end-of-lines and indentation. Defaults to true.\n\nAlso commonly called pretty printing\n",
+            "minimum_version": "6.0.0.405",
+            "default": "No",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

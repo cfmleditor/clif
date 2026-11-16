@@ -1,0 +1,43 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/writelog.html",
+        "minimum_version": ""
+    }},
+    "name": "writeLog",
+    "description": "Writes a message to a log file.",
+    "syntax": "writeLog( string text, [string type], [boolean application], [string file], [string log] )",
+    "returns": "void",
+    "type": "function",
+    "params": [
+        {
+            "name": "text",
+            "description": "Message text to log.",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "type",
+            "description": "Type (severity) of the message:\n\n- information (default)\n- warning\n- error\n- fatal",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "application",
+            "description": "log application name, if it is specified in a cfapplication tag.",
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "file",
+            "description": "Message file. Specify only the main part of the filename. For example, to log to the Testing.log file, specify \"Testing\". The file must be located in the default log directory. You cannot specify a directory path.\nIf the file does not exist, it is created automatically, with the suffix .log.",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "log",
+            "description": "If you omit the file argument, writes messages to standard log file. Ignored, if you specify file argument.\n\n- application: writes to Application.log, normally used for application-specific messages.\n- scheduler: writes to Scheduler.log, normally used to log the execution of scheduled tasks.",
+            "type": "string",
+            "required": false
+        }
+    ]
+}

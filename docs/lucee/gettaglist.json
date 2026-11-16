@@ -1,0 +1,12 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/gettaglist.html",
+        "minimum_version": ""
+    }},
+    "name": "getTagList",
+    "description": "Returns a struct containing all the Tags supported by Lucee.",
+    "syntax": "getTagList()",
+    "returns": "struct",
+    "type": "function",
+    "params": []
+}

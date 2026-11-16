@@ -1,0 +1,18 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/ormflush.html",
+        "minimum_version": "",
+        "notes": "Flushes the current ORM session \u2014 all pending INSERT, UPDATE, and DELETE operations are executed against the database.\n\nIf a `datasource` argument is provided, only the session for that datasource is flushed. Otherwise the default ORM datasource session is flushed.\n\nPrefer using `transaction` blocks over manual `ormFlush()` calls \u2014 the transaction commit handles the flush and provides rollback safety. Calling `ormFlush()` outside a transaction means each statement auto-commits individually with no rollback on failure.\n\nSee [[orm-session-and-transactions]] for flush timing details.\n"
+    }},
+    "name": "ORMFlush",
+    "description": "Flushes the current ORM session. ORMFlush flushes all the pending CRUD operations in that request. Any changes made in the objects, in the current ORM session, are saved to the database.",
+    "syntax": "ORMFlush( [string datasource] )",
+    "returns": "void",
+    "type": "function",
+    "params": [{
+        "name": "datasource",
+        "description": "datasource used for the session, if nor defined the datasource defined in application.cfc/cfapplication is used.",
+        "type": "string",
+        "required": false
+    }]
+}

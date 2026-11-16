@@ -1,0 +1,12 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/issoaprequest.html",
+        "minimum_version": ""
+    }},
+    "name": "IsSOAPRequest",
+    "description": "Determines whether a CFC is being called as a web service.",
+    "syntax": "IsSOAPRequest()",
+    "returns": "boolean",
+    "type": "function",
+    "params": []
+}

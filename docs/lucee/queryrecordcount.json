@@ -1,0 +1,22 @@
+{
+    "member_details": {
+        "name": "recordCount",
+        "type": "query",
+        "returns": "query"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/queryrecordcount.html",
+        "minimum_version": ""
+    }},
+    "name": "queryRecordCount",
+    "description": "row count of given query",
+    "syntax": "queryRecordCount( query query )",
+    "returns": "number",
+    "type": "function",
+    "params": [{
+        "name": "query",
+        "description": "Query object to get data from.",
+        "type": "query",
+        "required": true
+    }]
+}

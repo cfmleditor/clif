@@ -1,0 +1,30 @@
+{
+    "member_details": {
+        "name": "shift",
+        "type": "array",
+        "returns": "array"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/arrayshift.html",
+        "minimum_version": "5.3.8.104"
+    }},
+    "name": "arrayShift",
+    "description": "pops the first element from an array and shift the rest of the values to the left. In case the array is empty an exception is thrown, \nunless the second argument \"defaultValue\" is provided, in that case that value is returned.",
+    "syntax": "arrayShift( array array, [any defaultValue] )",
+    "returns": "any",
+    "type": "function",
+    "params": [
+        {
+            "name": "array",
+            "description": "The array to shift.",
+            "type": "array",
+            "required": true
+        },
+        {
+            "name": "defaultValue",
+            "description": "this value is returned in case the array is empty",
+            "type": "any",
+            "required": false
+        }
+    ]
+}

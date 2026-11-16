@@ -1,0 +1,17 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/sleep.html",
+        "minimum_version": ""
+    }},
+    "name": "Sleep",
+    "description": "Causes the current thread to stop processing for a specified period of time.",
+    "syntax": "Sleep( number duration )",
+    "returns": "void",
+    "type": "function",
+    "params": [{
+        "name": "duration",
+        "description": "Time, in milliseconds, to stop processing the thread.",
+        "type": "number",
+        "required": true
+    }]
+}

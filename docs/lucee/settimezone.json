@@ -1,0 +1,17 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/settimezone.html",
+        "minimum_version": ""
+    }},
+    "name": "setTimeZone",
+    "description": "change the timezone definition for the current request.",
+    "syntax": "setTimeZone( timezone timezone )",
+    "returns": "timezone",
+    "type": "function",
+    "params": [{
+        "name": "timezone",
+        "description": "You can find a list of all available timezones in the Lucee administrator (Settings/Regional). Some examples of valid timezones include:\n\n - AGT (for time in Argentina)\n - Europe/Zurich (for time in Zurich/Switzerland)\n - HST (Hawaiian Standard Time in the USA)\n- JVM (JVM / Server Default Timezone)",
+        "type": "timezone",
+        "required": true
+    }]
+}

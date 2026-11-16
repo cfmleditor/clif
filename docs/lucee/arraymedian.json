@@ -1,0 +1,22 @@
+{
+    "member_details": {
+        "name": "median",
+        "type": "array",
+        "returns": "array"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/arraymedian.html",
+        "minimum_version": ""
+    }},
+    "name": "arrayMedian",
+    "description": "Calculates the Median value of items in an array.",
+    "syntax": "arrayMedian( array array )",
+    "returns": "number",
+    "type": "function",
+    "params": [{
+        "name": "array",
+        "description": "The array of which to calculate the Median value",
+        "type": "array",
+        "required": true
+    }]
+}

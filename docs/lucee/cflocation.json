@@ -1,0 +1,51 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/tags/location.html",
+        "minimum_version": ""
+    }},
+    "name": "cflocation",
+    "description": "Redirect the current request to another URL.",
+    "syntax": "<cflocation url=\"\"/>",
+    "returns": "void",
+    "type": "tag",
+    "params": [
+        {
+            "name": "url",
+            "description": "The URL of the HTML file or CFML page to open.",
+            "default": false,
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "addToken",
+            "description": "Yes or No. clientManagement must be enabled, see cfapplication. Yes appends client variable\ninformation to the URL you specify in the url.",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "abort",
+            "description": "if set to true then the request will be aborted instead of redirected to allow developers\n\t\tto troubleshoot code that contains redirects",
+            "minimum_version": "6.0.0.114",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "statusCode",
+            "description": "statuscode used for the redirect (301 or 302)",
+            "default": false,
+            "type": "number",
+            "required": false
+        },
+        {
+            "name": "encode",
+            "description": "Encode the given URL value (changed behavior in Lucee 6.0)",
+            "minimum_version": "6.0.0.320",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        }
+    ],
+    "body": "optional"
+}

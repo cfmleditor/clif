@@ -1,0 +1,26 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/webservicenew.html",
+        "minimum_version": "5.0.0.0"
+    }},
+    "name": "WebserviceNew",
+    "description": "create a Webservice Proxy object, a reference to a remote webservice",
+    "syntax": "WebserviceNew( string url, [struct args] )",
+    "returns": "any",
+    "type": "function",
+    "params": [
+        {
+            "name": "url",
+            "description": "URL of the remote webservice, for example:\n\n- [http://www.whatever.com/Weather.html?wsdl](http://www.whatever.com/Weather.html?wsdl)\n- [http://www.whatever.com/Weather.cfc](http://www.whatever.com/Weather.cfc)",
+            "aliases": "wsdlURL",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "args",
+            "description": "a struct containing the following optional keys (username,password,proxyServer,proxyPort,proxyUser,proxyPassword)",
+            "type": "struct",
+            "required": false
+        }
+    ]
+}

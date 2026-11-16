@@ -1,0 +1,12 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/applicationstarttime.html",
+        "minimum_version": ""
+    }},
+    "name": "ApplicationStartTime",
+    "description": "Provides information about the time when the current application scope was created.",
+    "syntax": "ApplicationStartTime()",
+    "returns": "date",
+    "type": "function",
+    "params": []
+}

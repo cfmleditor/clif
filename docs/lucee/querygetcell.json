@@ -1,0 +1,37 @@
+{
+    "member_details": {
+        "name": "getCell",
+        "type": "query",
+        "returns": "query"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/querygetcell.html",
+        "minimum_version": ""
+    }},
+    "name": "queryGetCell",
+    "description": "return the value of a specific query cell",
+    "syntax": "queryGetCell( query query, string column_name, [number row_number] )",
+    "returns": "any",
+    "type": "function",
+    "params": [
+        {
+            "name": "query",
+            "description": "query to get cell value from",
+            "type": "query",
+            "required": true
+        },
+        {
+            "name": "column_name",
+            "description": "name of the column",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "row_number",
+            "description": "row number (1-n)",
+            "default": "-9999",
+            "type": "number",
+            "required": false
+        }
+    ]
+}

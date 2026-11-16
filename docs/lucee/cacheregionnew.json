@@ -1,0 +1,40 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/cacheregionnew.html",
+        "minimum_version": "5.0.0.0"
+    }},
+    "name": "CacheRegionNew",
+    "description": "This function exists solely for the purpose of compatibility with other CFML Engines.",
+    "syntax": "CacheRegionNew( string cacheName, [any properties], [any throwOnError], [string password] )",
+    "returns": "void",
+    "type": "function",
+    "params": [
+        {
+            "name": "cacheName",
+            "description": "the name of the cache connection to create (also known as Region in other CFML engines).",
+            "aliases": "cache,region",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "properties",
+            "description": "a structure specifying the cache properties",
+            "aliases": "propsStruct,props",
+            "type": "any",
+            "required": false
+        },
+        {
+            "name": "throwOnError",
+            "description": "specifies whether the function should throw an exception if a cache connection with that name already exists.\n\nDefault is true.",
+            "type": "any",
+            "required": false
+        },
+        {
+            "name": "password",
+            "description": "the password for the web administrator is required to interact with Cache Connections.\nYou can optionally set it for your Application in Application.cfc using the variable [this.webAdminPassword].\n",
+            "aliases": "webAdminPassword",
+            "type": "string",
+            "required": false
+        }
+    ]
+}

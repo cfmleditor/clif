@@ -1,0 +1,23 @@
+{
+    "member_details": {
+        "name": "grayscale",
+        "type": "image",
+        "returns": "image"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/imagegrayscale.html",
+        "minimum_version": ""
+    }},
+    "name": "ImageGrayscale",
+    "description": "Converts a image to grayscale.",
+    "syntax": "ImageGrayscale( any image )",
+    "returns": "void",
+    "type": "function",
+    "params": [{
+        "name": "image",
+        "description": "The image on which this operation is performed.",
+        "aliases": "name",
+        "type": "any",
+        "required": true
+    }]
+}

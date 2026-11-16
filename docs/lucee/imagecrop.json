@@ -1,0 +1,49 @@
+{
+    "member_details": {
+        "name": "crop",
+        "type": "image",
+        "returns": "image"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/imagecrop.html",
+        "minimum_version": ""
+    }},
+    "name": "ImageCrop",
+    "description": "Crops an image to a specified rectangular area. The function modifies the original image by extracting the defined region. If the specified crop area extends beyond the image boundaries, the function automatically adjusts to fit within the image dimensions.",
+    "syntax": "ImageCrop( any image, number x, number y, number width, number height )",
+    "returns": "void",
+    "type": "function",
+    "params": [
+        {
+            "name": "image",
+            "description": "The image on which this operation is performed.",
+            "aliases": "name",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "x",
+            "description": "The X origin of the crop area.",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "y",
+            "description": "The Y origin of the crop area.",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "width",
+            "description": "The width of the crop area.",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "height",
+            "description": "The height of the crop area.",
+            "type": "number",
+            "required": true
+        }
+    ]
+}

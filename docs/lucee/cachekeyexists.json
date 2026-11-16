@@ -1,0 +1,27 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/cachekeyexists.html",
+        "minimum_version": ""
+    }},
+    "name": "CacheKeyExists",
+    "description": "this function is deprecated",
+    "syntax": "CacheKeyExists( string key, [string cacheName] )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [
+        {
+            "name": "key",
+            "description": "key to check",
+            "aliases": "name,id",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "cacheName",
+            "description": "definition of the cache used by name, when not set the \"default Object Cache\" defined in Lucee Administrator is used instead.",
+            "aliases": "cache,region",
+            "type": "string",
+            "required": false
+        }
+    ]
+}

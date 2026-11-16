@@ -1,0 +1,28 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/dbpoolclear.html",
+        "minimum_version": ""
+    }},
+    "name": "dbPoolClear",
+    "description": "Clears idle database connections from the connection pool. By default (force=true) clears all idle connections immediately. With force=false, only evicts connections that have exceeded their idleTimeout. The controller thread runs eviction automatically every minute.",
+    "syntax": "dbPoolClear( [string datasource], [boolean force] )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [
+        {
+            "name": "datasource",
+            "description": "specific datasource to clear, if not set all datasources get removed.",
+            "aliases": "datasourceName,name,ds",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "force",
+            "description": "If true (default), clears all idle connections immediately. If false, only evicts connections that have exceeded their idleTimeout.",
+            "minimum_version": "6.2.5.4",
+            "default": "true",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

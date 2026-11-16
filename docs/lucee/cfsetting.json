@@ -1,0 +1,75 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/tags/setting.html",
+        "minimum_version": ""
+    }},
+    "name": "cfsetting",
+    "description": "Controls various aspects of page processing, such as the output of HTML code in pages. One\nbenefit of this option is managing whitespace that can occur in output pages served by CFML.",
+    "syntax": "<cfsetting/>",
+    "returns": "void",
+    "type": "tag",
+    "params": [
+        {
+            "name": "enableCFoutputOnly",
+            "description": "Yes, No or Reset.\n\nWhen set to Yes, cfsetting blocks output of HTML that resides outside cfoutput tags.\n\nWhen used multiple times, this setting is cumulative, so enabling it twice, requires to it to be turned off twice.\n\nUse `reset`, to reset that count and re-enable output of html outside cfoutput tags.",
+            "default": false,
+            "type": "any",
+            "required": false
+        },
+        {
+            "name": "info",
+            "description": "name of variable created for all information for this tag.",
+            "minimum_version": "5.3.4.22",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "listen",
+            "description": "do log all action, so it can report more detail with info.",
+            "minimum_version": "5.3.4.22",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "showDebugOutput",
+            "description": "Yes or No.\n\nWhen set to No, showDebugOutput suppresses debugging information that would otherwise display at the end of the generated page.\n\nDefault is Yes.",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "showDebug",
+            "description": "Yes or No. When set to No, showDebug suppresses debugging information that would\notherwise display at the end of the generated page.",
+            "minimum_version": "6.1.0.155",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "showDoc",
+            "description": "Yes or No. When set to No, showDoc suppresses documentation/reference information that would\notherwise display at the end of the generated page.",
+            "minimum_version": "6.1.0.155",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "showMetric",
+            "description": "Yes or No. When set to No, showMetric suppresses metric information that would\notherwise display at the end of the generated page.",
+            "minimum_version": "6.1.0.155",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "requestTimeOut",
+            "description": "**Deprecated** since Lucee 7.1.3 ([LDEV-6919](https://luceeserver.atlassian.net/browse/LDEV-6919)). It still works, but a request timeout can only interrupt the request thread, so it does not stop a blocking query, network call or native code. Set a timeout on the operation itself instead, such as the `timeout` of [[tag-query]] / [[function-queryexecute]] (or `this.tag.cfquery.timeout`) and [[tag-http]]. See [[request-timeout]].\n\nNumber of seconds. Time limit, after which CFML processes the page as an unresponsive thread.\n\nOverrides the timeout set in the Lucee Administrator.\n\nIf one specifies a `requesttimeout` of `0`, the request will not time out.\n",
+            "default": false,
+            "type": "number",
+            "required": false
+        }
+    ],
+    "body": "optional"
+}

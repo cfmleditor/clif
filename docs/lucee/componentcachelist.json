@@ -1,0 +1,12 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/componentcachelist.html",
+        "minimum_version": ""
+    }},
+    "name": "componentCacheList",
+    "description": "list elements in the component path cache",
+    "syntax": "componentCacheList()",
+    "returns": "struct",
+    "type": "function",
+    "params": []
+}

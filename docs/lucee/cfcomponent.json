@@ -1,0 +1,154 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/tags/component.html",
+        "minimum_version": ""
+    }},
+    "name": "cfcomponent",
+    "description": "Creates and defines a component object",
+    "syntax": "<cfcomponent/>",
+    "returns": "void",
+    "type": "tag",
+    "params": [
+        {
+            "name": "accessors",
+            "description": "If set to true, enables implicit getters and setters for the component's properties. \n\nFor persistent (aka ORM) CFCs, accessors are always enabled.\n\n[[component-accessors]]",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "synchronized",
+            "description": "If set to true all calls to an instance of a component are synchronized. This setting allows a method to be executed only by one single thread at a time.\n\nThe flag is **per-class, not inherited**. A child component that does not redeclare `synchronized=\"true\"` is *not* synchronized, even when extending a synchronized parent. The runtime reads the flag from the leaf class's compile-time properties, so each class that needs serialised dispatch must declare `synchronized=\"true\"` itself.\n\n```luceescript\n// SyncedParent.cfc:  component synchronized=\"true\" { ... }\n// PlainChild.cfc:    component extends=\"SyncedParent\" { ... }\n\nvar sc = new PlainChild();\ngetMetaData( sc ).synchronized;          // false \u2014 child did not redeclare\ngetMetaData( sc ).extends.synchronized;  // true  \u2014 visible on the parent\n```\n\nMethod calls on `sc` run unsynchronised. If you want the child synchronised too, declare `synchronized=\"true\"` on the child as well.\n\n`Duplicate()` preserves the flag from the source \u2014 a duplicate of a synchronized component is itself synchronized.\n\n**Adobe ColdFusion compatibility.** `synchronized` is a Lucee-only attribute. It is not documented in Adobe ColdFusion's `cfcomponent` reference and ACF (verified through ACF 2025) does not honour it at runtime \u2014 the attribute is silently accepted and stored in metadata, but concurrent method dispatch on a CFC declaring `synchronized=\"true\"` is **not** serialised. If you need cross-engine thread safety, use `cflock` inside the methods that need it instead of relying on the component-level attribute.\n",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "persistent",
+            "description": "Specifies CFC is persistent or not",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "extends",
+            "description": "Name of parent Component from which to inherit Methods and Properties.\n\n- A component in the same folder: `roles`\n- Relative to the current folder, in a sub directory: `admin.roles`\n- Using a mapping or relative to webroot, using dotted paths: `models.admin.roles`\n- Absolute path using a mapping: `myapp.models.admin.roles` (where `myapp` is a defined mapping)\n\nThe `.cfc` extension is implicit and should not be included.\n\nPaths use dot notation, not slashes.\n\nComponent paths are case-insensitive in CFML.\n",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "implements",
+            "description": "Lists the interfaces that the component implements, specifying the set of functions that the component must provide.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "modifier",
+            "description": "Defines the type of component: `none` for a regular component, `abstract` for a component that cannot be instantiated directly and must be extended, or `final` for a component that cannot be extended by other components.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "displayName",
+            "description": "A string to be displayed when using introspection to show\ninformation about the CFC. The information appears on the\nheading, following the component name.\nIf the style attribute is set to document, the displayname\nattribute is used as the name of the service element in the WSDL.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "hint",
+            "description": "Text that displays when you use introspection to show information about the CFC. The hint attribute value appears below the component name heading. Use this attribute to describe the purpose of the component.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "output",
+            "description": "- true: permits component method output\n- false: suppresses component method output",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "style",
+            "description": "Specifies whether a CFC used for web services uses RPC-encoded style or document-literal style",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "namespace",
+            "description": "Specifies the namespace used in the WSDL when\nusing the CFC as a document-literal style web service.\nIf you don't specify this attribute, Lucee\nderives the namespace from the CFC class name.\nThis attribute applies only when style=\"document\".",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "servicePortName",
+            "description": "Specifies the name of the port element in the WSDL.\nThis attribute applies only when style=\"document\".",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "serviceAddress",
+            "description": "Specifies the SOAP URL of the web service. If you don't specify this attribute, Lucee uses the URL of the CFC in the WSDL service description.\nUse this attribute to specify the protocol, for example, by specifying a URL that starts with https://. This attribute applies only for web services.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "portTypeName",
+            "description": "Specifies the name of the porttype element in the WSDL.\nThis attribute applies only when style=\"document\".",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "bindingName",
+            "description": "Specifies the name of the binding element in the WSDL.\nThis attribute applies only when style=\"document\".",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "wsdlFile",
+            "description": "A properly formatted WSDL file to be used instead of\nWSDL generated by Lucee.\nThis attribute applies only when style=\"document\".",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "alias",
+            "description": "Defines an alternative name or alias for the component, providing flexibility in referencing the component in different contexts.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "mappedSuperClass",
+            "description": "Indicates whether the component acts as a mapped superclass. A mapped superclass serves as a base class for other components to extend but does not itself represent a database entity.",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "javasettings",
+            "description": "Specifies custom `JavaSettings` for this component. \n\nWhen provided, these settings override any server level JavaSettings that would otherwise be applied.\n\nSince 6.2 Lucee supports specifying Maven dependencies\n\n[[java-settings]]",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "initMethod",
+            "description": "Specifies the name of the initialization method to call when the component is instantiated using the `new` operator. If not specified, the default `init()` method is called.",
+            "default": false,
+            "type": "string",
+            "required": false
+        }
+    ],
+    "body": "required"
+}

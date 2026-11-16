@@ -1,0 +1,18 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/entitynamelist.html",
+        "minimum_version": "",
+        "notes": "Returns the names of all persistent entities mapped in the current application as a string list. Pass a custom delimiter as the argument \u2014 defaults to comma.\n\nUseful for debugging or building dynamic admin interfaces. See also [[function-entitynamearray]].\n"
+    }},
+    "name": "EntityNameList",
+    "description": "Returns all loaded entity names as a delimited string list.",
+    "syntax": "EntityNameList( [string delimiter] )",
+    "returns": "string",
+    "type": "function",
+    "params": [{
+        "name": "delimiter",
+        "description": "delimiter used for the list",
+        "type": "string",
+        "required": false
+    }]
+}

@@ -1,0 +1,37 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/arraynew.html",
+        "minimum_version": ""
+    }},
+    "name": "arrayNew",
+    "description": "create a new array",
+    "syntax": "arrayNew( [number dimension], [string type], [boolean synchronized] )",
+    "returns": "array",
+    "type": "function",
+    "params": [
+        {
+            "name": "dimension",
+            "description": "Number of dimensions in new array: 1, 2, or 3",
+            "default": "1",
+            "aliases": "dimensions",
+            "type": "number",
+            "required": false
+        },
+        {
+            "name": "type",
+            "description": "Type of the elements that the array can store.  \n\nIf set, attempting to add an element that can not be cast to the specified type, will throw an exception.\n",
+            "default": "",
+            "aliases": "typename",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "synchronized",
+            "description": "is the array synchronized or not (aka thread safe)\n",
+            "default": "true",
+            "aliases": "isSynchronized",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

@@ -1,0 +1,623 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/tags/input.html",
+        "minimum_version": ""
+    }},
+    "name": "cfinput",
+    "description": "Used inside cfform to place radio buttons, checkboxes, or text boxes. Provides input\nvalidation for the specified control type.",
+    "syntax": "<cfinput name=\"\"/>",
+    "returns": "void",
+    "type": "tag",
+    "params": [
+        {
+            "name": "autosuggest",
+            "description": "Specifies entry completion suggestions to\ndisplay as the user types into a text input. The\nuser can select a suggestion to complete the text\nentry.\n\nThe valid value can be either of the following:\n\n- A string consisting of the suggestion values\nseparated by the delimiter specified by the\ndelimiter attribute.\n- A bind expression that gets the suggestion\nvalues based on the current input text.\nValid only for cfinput type=\"text\".",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "autosuggestBindDelay",
+            "description": "The minimum time between autosuggest bind\nexpression invocations, in seconds. Use this\nattribute to limit the number of requests that are\nsent to the server when a user types.\nValid only for cfinput type=\"text\"",
+            "default": false,
+            "type": "number",
+            "required": false
+        },
+        {
+            "name": "autosuggestMinLength",
+            "description": "The minimum number of characters required in\nthe text box before invoking a bind expression to\nreturn items for suggestion.\n\nValid only for cfinput type=\"text\".",
+            "default": false,
+            "type": "number",
+            "required": false
+        },
+        {
+            "name": "delimiter",
+            "description": "The delimiter to use to separate entries in a static autosuggest list. This attribute is meaningful only if the autosuggest attribute is a string of delimited values.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "maxResultsDisplayed",
+            "description": "The maximum number suggestions to display in the autosuggest list.\nValid only for cfinput type=\"text\".",
+            "default": false,
+            "type": "number",
+            "required": false
+        },
+        {
+            "name": "onBindError",
+            "description": "The name of a JavaScript function to execute if evaluating a bind expression, including an autosuggest bind expression, results in an error. The function must take two attributes: an HTTP status code and a message.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "showAutosuggestLoadingIcon",
+            "description": "A Boolean value that specifies whether to display an animated icon when loading an autosuggest value for a text input.",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "sourceForTooltip",
+            "description": "The URL of a page to display as a tool tip. The page can include HTML markup to control the format, and the tip can include images.\nIf you specify this attribute, an animated icon appears with the text \"Loading...\" while the tip is being loaded.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "typeahead",
+            "description": "A Boolean value that specifies whether the autosuggest feature should automatically complete a user's entry with the first result in the suggestion list.\n\nValid only for cfinput type=\"text\".",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "validateAt",
+            "description": "How to do the validation; one or more of the following:\nonSubmit, onServer or onBlur.\nonBlur and onSubmit are identical in Flash forms. For\nmultiple values, use a comma-delimited list.\nDefault: onSubmit",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "type",
+            "description": "The input control type to create:\n\n- button: push button.\n- checkbox: check box.\n- file: file selector; not supported in Flash.\n- hidden: invisible control.\n- image: clickable button with an image.\n- password: password entry control; hides input values.\n- radio: radio button.\n- reset: form reset button.\n- submit: form submission button.\n- text: text entry box.\n- datefield: Flash only; date entry field with an expanding calendar for selecting dates.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "name",
+            "description": "A name for the form input element.",
+            "default": false,
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "value",
+            "description": "An initial value for the form input element.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "required",
+            "description": "Enter Yes or No. Default is No.",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "range",
+            "description": "Enter a minimum and maximum value range, separated by a comma. Valid only for numeric data.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "validate",
+            "description": "- date: verifies format mm/dd/yy.\n- eurodate: verifies date format dd/mm/yyyy.\n- time: verifies time format hh:mm:ss.\n- float: verifies floating point format.\n- integer: verifies integer format.\n- telephone: verifies telephone format ###-###-####. The separator can be a blank. Area code and exchange must begin with digit 1 - 9.\n- zipcode: verifies, in U.S. formats only, 5- or 9-digit format #####-####. The separator can be a blank.\n- creditcard: strips blanks and dashes; verifies number using mod10 algorithm. Number must have 13-16 digits.\n- social_security_number: verifies format ###-##-####. The separator can be a blank.\n- regular_expression: matches input against pattern attribute.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "bind",
+            "description": "**(not supported)**\nA Flash bind expression that populates the field with information from other form fields.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "bindAttribute",
+            "description": "Specifies the HTML tag attribute whose value is\nset by the bind attribute. You can only specify\nattributes in the browser's HTML DOM tree, not\nLucee-specific attributes.\nIgnored if there is no bind attribute.\nValid only for cfinput type=\"text\".",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "bindOnLoad",
+            "description": "A Boolean value that specifies whether to\nexecute the bind attribute expression when first\nloading the form.\nIgnored if there is no bind attribute.\nValid only for cfinput type=\"text\".",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "border",
+            "description": "passed through to input tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "accept",
+            "description": "passed through to input tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "accesskey",
+            "description": "passed through to input tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "align",
+            "description": "passed through to input tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "alt",
+            "description": "passed through to input tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "checked",
+            "description": "Selects a control. No value is required. Applies if\ntype=radio or checkbox.\nDefault: false",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "daynames",
+            "description": "A comma-delimited list that sets the names of the\nweekdays displayed in the calendar. Sunday is the\nfirst day and the rest of the weekday names follow in\nthe normal order.\n\nDefault is: S,M,T,W,Th,F,S",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "firstDayOfWeek",
+            "description": "Integer in the range 0-6 specifying the first day of the\nweek in the calendar, 0 indicates Sunday, 6 indicates Saturday.\nDefault is: 0",
+            "default": false,
+            "type": "number",
+            "required": false
+        },
+        {
+            "name": "monthNames",
+            "description": "A comma-delimited list of the month names that are\ndisplayed at the top of the calendar.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "height",
+            "description": "Applies to most Flash types, HTML image type on\nsome browsers. The height of the control, in pixels. The\ndisplayed height might be less than the specified size.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "width",
+            "description": "Applies to most Flash types, HTML image type on\nsome browsers. The width of the control, in pixels. For\nFlash forms, Lucee ignores this attribute if you also\nspecify a size attribute value.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "hspace",
+            "description": "passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "label",
+            "description": "Label to put next to the control on a Flash or XML form.\nNot used for button, hidden, image, reset, or submit types.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "mask",
+            "description": "A mask pattern that controls the character pattern that\nusers can enter, or that the form sends to Lucee.\n\nIn HTML and Flash for type=text use:\n\n- A = [A-Za-z]\n- X = [A-Za-z0-9]\n- 9 = [0-9]\n- ? = Any character\n- all other = the literal character\n\nIn Flash for type=datefield use:\n\n- D = day; can use 0-2 mask characters.\n- M = month; can use 0-4 mask characters.\n- Y = year; can use 0, 2, or 4 characters.\n- E = day in week; can use 0-4 characters.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "notab",
+            "description": "passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "datafld",
+            "description": "passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "datasrc",
+            "description": "passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "dataformatas",
+            "description": "passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "disabled",
+            "description": "Disables user input, making the control read-only. To\ndisable input, specify disabled without an attribute or\ndisabled=\"true\". To enable input, omit the attribute\nor specify disabled=\"false\".",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "ismap",
+            "description": "passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "readonly",
+            "description": "passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "src",
+            "description": "Applies to Flash button, reset, submit, and image types,\nand the HTML image type. URL of an image to use on\nthe button. Flash does not support GIF images.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "usemap",
+            "description": "passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "title",
+            "description": "passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "dir",
+            "description": "passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "lang",
+            "description": "passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "onValidate",
+            "description": "The name of a JavaScript function used to validate user input. The form object, input object,\n\tand input object value are passed to the specified routine, which should return true if validation\n\tsucceeds and false otherwise. If used, the validate attribute is ignored.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "pattern",
+            "description": "The JavaScript regular expression pattern to use to validate the input. Required only if you\n\tspecify validate = \"regular_expression\".",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "message",
+            "description": "Message text to appear if validation fails.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "onError",
+            "description": "The name of a JavaScript function you want to execute in the event of a failed validation.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "size",
+            "description": "The size of the input control. Ignored if type is Radio or Checkbox.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "maxLength",
+            "description": "The maximum length of text entered, if n type is Text.",
+            "default": false,
+            "type": "number",
+            "required": false
+        },
+        {
+            "name": "passThrough",
+            "description": "HTML attributes that are not explicitly supported by cfinput.\nIf you specify an attribute and value,\nthey are passed to the HTML code generated for the cfinput tag.",
+            "default": false,
+            "type": "any",
+            "required": false
+        },
+        {
+            "name": "class",
+            "description": "passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "id",
+            "description": "passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "onBlur",
+            "description": "passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "onChange",
+            "description": "passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "onClick",
+            "description": "passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "onDblclick",
+            "description": "passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "onFocus",
+            "description": "passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "onKeyDown",
+            "description": "passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "onKeyPress",
+            "description": "passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "onKeyUp",
+            "description": "passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "onMouseDown",
+            "description": "passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "onMouseMove",
+            "description": "passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "onselect",
+            "description": "passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "onMouseUp",
+            "description": "passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "onMouseOut",
+            "description": "passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "onMouseOver",
+            "description": "passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "style",
+            "description": "passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "tabIndex",
+            "description": "passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "enabled",
+            "description": "Flash only: Boolean value specifying whether the control is\nenabled. A disabled control appears in light gray. The\ninverse of the disabled attribute. Flash only.\nDefault: true",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "visible",
+            "description": "Flash only: Boolean value specifying whether to show the\ncontrol. Space that would be occupied by an invisible\ncontrol is blank.\nDefault: true",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "tooltip",
+            "description": "Flash only: Text to display when the mouse pointer hovers\nover the control.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "autocomplete",
+            "description": "HTML attribute: Specifies the types of files that can be submitted through a file upload (only for type=\"file\")",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "autofocus",
+            "description": "Specifies that the input field should have focus on page load (not for type=\"hidden\")",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "form",
+            "description": "HTML attribute: Specifies one or more forms the input field belongs to\n",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "formaction",
+            "description": "HTML attribute: Overrides the form's action attribute. Must be a valid URL that defines where to send the data when the form is submitted (for type=\"submit\" and type=\"image\")",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "formenctype",
+            "description": "HTML attribute: Overrides the form's enctype attribute. Specifies how form-data should be encoded before sending it to the server (for type=\"submit\" and type=\"image\")",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "formmethod",
+            "description": "HTML attribute: Overrides the form's method attribute. Defines the HTTP method for sending data to the action URL (for type=\"submit\" and type=\"image\")",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "formnovalidate",
+            "description": "HTML attribute: Overrides the form's novalidate attribute. If present the input field should not be validated when submitted",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "formtarget",
+            "description": "HTML attribute: Overrides the form's target attribute. Specifies the target window used when the form is submitted (for type=\"submit\" and type=\"image\")",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "list",
+            "description": "HTML attribute: Refers to a datalist containing predefined options for the input field",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "max",
+            "description": "HTML attribute: Specifies the input field's maximum value. Use together with the \"min\" attribute to create a range of legal values",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "min",
+            "description": "HTML attribute: Specifies the input field's minimum value. Use together with the \"max\" attribute to create a range of legal values",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "multiple",
+            "description": "HTML attribute: If present the user is allowed more than one value",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "placeholder",
+            "description": "HTML attribute: Specifies a hint to help users fill out the input field",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "step",
+            "description": "HTML attribute: Specifies the legal number intervals for the input field",
+            "default": false,
+            "type": "string",
+            "required": false
+        }
+    ],
+    "body": "none"
+}

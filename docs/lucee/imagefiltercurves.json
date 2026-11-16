@@ -1,0 +1,12 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/imagefiltercurves.html",
+        "minimum_version": ""
+    }},
+    "name": "ImageFilterCurves",
+    "description": "the curves for the wrap grid",
+    "syntax": "ImageFilterCurves()",
+    "returns": "any",
+    "type": "function",
+    "params": []
+}

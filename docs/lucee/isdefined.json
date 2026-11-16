@@ -1,0 +1,18 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/isdefined.html",
+        "minimum_version": ""
+    }},
+    "name": "isDefined",
+    "description": "Evaluates a string value to determine whether the variable\nnamed in it exists.",
+    "syntax": "isDefined( string value )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [{
+        "name": "value",
+        "description": "String, enclosed in quotation marks. Name of variable to test for.",
+        "aliases": "variable",
+        "type": "string",
+        "required": true
+    }]
+}

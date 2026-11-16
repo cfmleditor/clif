@@ -1,0 +1,25 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/tostring.html",
+        "minimum_version": ""
+    }},
+    "name": "toString",
+    "description": "Converts a value to a string.",
+    "syntax": "toString( [any value], [string encoding] )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "value",
+            "description": "Value to convert to a string; can be a simple value such as an integer, a binary object, an XML document object, or a Java InputStream.\n",
+            "type": "any",
+            "required": false
+        },
+        {
+            "name": "encoding",
+            "description": "The character encoding (character set) of the string.",
+            "type": "string",
+            "required": false
+        }
+    ]
+}

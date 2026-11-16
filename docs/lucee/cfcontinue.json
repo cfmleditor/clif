@@ -1,0 +1,19 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/tags/continue.html",
+        "minimum_version": ""
+    }},
+    "name": "cfcontinue",
+    "description": "Used within a cfloop tag. Returns processing to the top of a loop.",
+    "syntax": "<cfcontinue/>",
+    "returns": "void",
+    "type": "tag",
+    "params": [{
+        "name": "label",
+        "description": "used to address a specific loop instead of the nearest one.",
+        "default": false,
+        "type": "string",
+        "required": false
+    }],
+    "body": "none"
+}

@@ -1,0 +1,18 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/isstruct.html",
+        "minimum_version": ""
+    }},
+    "name": "isStruct",
+    "description": "Determines if the object is a structure",
+    "syntax": "isStruct( any variable )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [{
+        "name": "variable",
+        "description": "Variable name",
+        "aliases": "value",
+        "type": "any",
+        "required": true
+    }]
+}

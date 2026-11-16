@@ -1,0 +1,12 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/array.html",
+        "minimum_version": ""
+    }},
+    "name": "array",
+    "description": "Creates a new array",
+    "syntax": "array()",
+    "returns": "array",
+    "type": "function",
+    "params": []
+}

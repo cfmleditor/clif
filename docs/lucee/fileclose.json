@@ -1,0 +1,18 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/fileclose.html",
+        "minimum_version": ""
+    }},
+    "name": "fileClose",
+    "description": "Closes an file that is open.",
+    "syntax": "fileClose( any file )",
+    "returns": "void",
+    "type": "function",
+    "params": [{
+        "name": "file",
+        "description": "The file to close.",
+        "aliases": "fileObj",
+        "type": "any",
+        "required": true
+    }]
+}

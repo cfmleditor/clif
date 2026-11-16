@@ -1,0 +1,12 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/applicationstop.html",
+        "minimum_version": ""
+    }},
+    "name": "ApplicationStop",
+    "description": "stops the current application context",
+    "syntax": "ApplicationStop()",
+    "returns": "void",
+    "type": "function",
+    "params": []
+}

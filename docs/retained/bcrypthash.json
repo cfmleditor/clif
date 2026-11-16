@@ -1,0 +1,21 @@
+{
+    "name": "BCryptHash",
+    "description": "Generates a BCrypt password hash. Use this instead of the deprecated GenerateBCryptHash().",
+    "syntax": "BCryptHash( string input, [numeric cost] )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "input",
+            "description": "Password to hash",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "cost",
+            "description": "Cost factor (4-31)",
+            "type": "numeric",
+            "required": false
+        }
+    ]
+}

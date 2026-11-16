@@ -1,0 +1,70 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/tags/mapitem.html",
+        "minimum_version": ""
+    }},
+    "name": "cfmapitem",
+    "description": "",
+    "syntax": "<cfmapitem/>",
+    "returns": "void",
+    "type": "tag",
+    "params": [
+        {
+            "name": "name",
+            "description": "",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "address",
+            "description": "",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "latitude",
+            "description": "",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "longitude",
+            "description": "",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "tip",
+            "description": "",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "markerWindowContent",
+            "description": "",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "markerColor",
+            "description": "",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "markerIcon",
+            "description": "",
+            "default": false,
+            "type": "string",
+            "required": false
+        }
+    ],
+    "body": "optional"
+}

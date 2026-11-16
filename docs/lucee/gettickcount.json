@@ -1,0 +1,17 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/gettickcount.html",
+        "minimum_version": ""
+    }},
+    "name": "getTickCount",
+    "description": "Returns the elapsed time from a specific reference point, based on the specified `unit`. \nThe default unit, \"milli,\" represents milliseconds since midnight, January 1, 1970 UTC, and aligns with conventional system time. \nThe \"nano\" and \"micro\" units offer high-resolution timing based on the Java Virtual Machine's internal clock, ideal for measuring elapsed time rather than absolute wall-clock time. \nThese values are not tied to real-world dates but provide a consistent point of origin within the Java Virtual Machine for accurate time intervals. \nThis function is well-suited for performance testing, such as timing code execution, by capturing precise intervals.",
+    "syntax": "getTickCount( [string unit] )",
+    "returns": "number",
+    "type": "function",
+    "params": [{
+        "name": "unit",
+        "description": "base unit for the function, valid values are:\n\n- nano: nano seconds\n- milli (default): milli seconds\n- second: seconds",
+        "type": "string",
+        "required": false
+    }]
+}

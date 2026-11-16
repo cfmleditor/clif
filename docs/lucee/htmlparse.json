@@ -1,0 +1,26 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/htmlparse.html",
+        "minimum_version": ""
+    }},
+    "name": "htmlParse",
+    "description": "parse the given html (not only xhtml) as xml Object, work similar to xmlParse, but this function is very forgiving with the syntax..",
+    "syntax": "htmlParse( string html, [boolean caseSensitive] )",
+    "returns": "xml",
+    "type": "function",
+    "params": [
+        {
+            "name": "html",
+            "description": "A string or a variable that contains one, with HTML to be parsed",
+            "aliases": "string,text",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "caseSensitive",
+            "description": "Maintains the case of document elements and attributes",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

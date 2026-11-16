@@ -1,0 +1,22 @@
+{
+    "member_details": {
+        "name": "decrementValue",
+        "type": "numeric",
+        "returns": "numeric"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/decrementvalue.html",
+        "minimum_version": ""
+    }},
+    "name": "decrementValue",
+    "description": "this function is deprecated, use instead the -- operator;Decrements the current number by one",
+    "syntax": "decrementValue( number number )",
+    "returns": "number",
+    "type": "function",
+    "params": [{
+        "name": "number",
+        "description": "Number to decrement",
+        "type": "number",
+        "required": true
+    }]
+}

@@ -1,0 +1,26 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/charsetdecode.html",
+        "minimum_version": ""
+    }},
+    "name": "charsetDecode",
+    "description": "Converts as string to a binary representation.",
+    "syntax": "charsetDecode( string encoded_binary, string encoding )",
+    "returns": "binary",
+    "type": "function",
+    "params": [
+        {
+            "name": "encoded_binary",
+            "description": "A string containing data to encode in binary format.",
+            "aliases": "string,encodedBinary",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "encoding",
+            "description": "A string specifying encoding of the input data.",
+            "type": "string",
+            "required": true
+        }
+    ]
+}

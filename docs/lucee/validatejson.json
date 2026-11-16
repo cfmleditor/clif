@@ -1,0 +1,33 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/validatejson.html",
+        "minimum_version": ""
+    }},
+    "name": "ValidateJson",
+    "description": "validate a json string",
+    "syntax": "ValidateJson( string json, string schema, [boolean throwonError] )",
+    "returns": "struct",
+    "type": "function",
+    "params": [
+        {
+            "name": "json",
+            "description": "String to validate",
+            "aliases": "str",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "schema",
+            "description": "",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "throwonError",
+            "description": "throw an exception in case of an error, when false no exception is thrown, instead the errors are returned in an array of structs.",
+            "default": "false",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

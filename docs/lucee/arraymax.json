@@ -1,0 +1,22 @@
+{
+    "member_details": {
+        "name": "max",
+        "type": "array",
+        "returns": "array"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/arraymax.html",
+        "minimum_version": ""
+    }},
+    "name": "arrayMax",
+    "description": "Returns the largest numeric value in an array. If the array\nparameter value is an empty array, returns zero.\nAll elements must contain values that can be automatically\nconverted to numeric values.",
+    "syntax": "arrayMax( array array )",
+    "returns": "number",
+    "type": "function",
+    "params": [{
+        "name": "array",
+        "description": "Name of an array",
+        "type": "array",
+        "required": true
+    }]
+}

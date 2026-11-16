@@ -1,0 +1,17 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/threadterminate.html",
+        "minimum_version": ""
+    }},
+    "name": "threadTerminate",
+    "description": "Stops processing of the thread specified in the name attribute.",
+    "syntax": "threadTerminate( string name )",
+    "returns": "void",
+    "type": "function",
+    "params": [{
+        "name": "name",
+        "description": "The name of the thread to stop.",
+        "type": "string",
+        "required": true
+    }]
+}

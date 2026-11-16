@@ -1,0 +1,53 @@
+{
+    "member_details": {
+        "name": "rotate",
+        "type": "image",
+        "returns": "image"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/imagerotate.html",
+        "minimum_version": ""
+    }},
+    "name": "ImageRotate",
+    "description": "Rotates a image at a specified point by a specified angle.",
+    "syntax": "ImageRotate( any image, string x, [string y], [string angle], [string interpolation] )",
+    "returns": "void",
+    "type": "function",
+    "params": [
+        {
+            "name": "image",
+            "description": "The image on which this operation is performed.",
+            "aliases": "name",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "x",
+            "description": "The x coordinate for the point of rotation. The default value is 2.",
+            "default": "2",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "y",
+            "description": "The y coordinate for the point of rotation. The default value is 2.",
+            "default": "2",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "angle",
+            "description": "The rotation angle in degrees.",
+            "default": "0",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "interpolation",
+            "description": "Type of interpolation:\n\n- nearest (default): Applies the nearest neighbor method of interpolation. Image quality is lower than the other interpolation methods, but processing is fastest.\n- bilinear: Applies the bilinear method of interpolation. The quality of the image is less pixelated than the default, but processing is slower.\n- bicubic: Applies the bicubic method of interpolation. Generally, the quality of image is highest with this method and processing is slowest.",
+            "default": "nearest",
+            "type": "string",
+            "required": false
+        }
+    ]
+}

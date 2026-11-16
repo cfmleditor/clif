@@ -1,0 +1,22 @@
+{
+    "member_details": {
+        "name": "currentRow",
+        "type": "query",
+        "returns": "query"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/querycurrentrow.html",
+        "minimum_version": ""
+    }},
+    "name": "queryCurrentRow",
+    "description": "return the row where the pointer of the query is pointing ATM",
+    "syntax": "queryCurrentRow( query query )",
+    "returns": "numeric",
+    "type": "function",
+    "params": [{
+        "name": "query",
+        "description": "The query from which to return the current row index.",
+        "type": "query",
+        "required": true
+    }]
+}

@@ -1,0 +1,40 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/ormexecutequery.html",
+        "minimum_version": "",
+        "notes": "Executes an HQL (Hibernate Query Language) query. HQL operates on entity names and property names, not table and column names.\n\nThe function signature is flexible:\n\n- `ORMExecuteQuery( hql )` \u2014 no params, returns array\n- `ORMExecuteQuery( hql, params )` \u2014 params as struct (named) or array (positional)\n- `ORMExecuteQuery( hql, unique )` \u2014 no params, returns single entity if `true`\n- `ORMExecuteQuery( hql, params, unique )` \u2014 with params, returns single entity if `true`\n- `ORMExecuteQuery( hql, params, unique, options )` \u2014 full form with query options\n\nThe `options` struct supports: `maxresults`, `offset`, `cacheable`, `cachename`, `timeout`, `datasource`.\n\n`ORMQueryExecute()` is an alias for this function.\n\nFor bulk UPDATE/DELETE via HQL, entity lifecycle events do **not** fire. See [[orm-querying]] for full documentation.\n"
+    }},
+    "name": "ORMExecuteQuery",
+    "description": "Runs the HQL on the default data source specified for the application.",
+    "syntax": "ORMExecuteQuery( string hql, [any paramsOrUnique], [any uniqueOrQueryOptions], [any queryOptions] )",
+    "returns": "any",
+    "type": "function",
+    "params": [
+        {
+            "name": "hql",
+            "description": "The hql query to execute",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "paramsOrUnique",
+            "description": "Object parameter for the entity",
+            "aliases": "params",
+            "type": "any",
+            "required": false
+        },
+        {
+            "name": "uniqueOrQueryOptions",
+            "description": "Specifies if the object parameter is unique",
+            "aliases": "unique",
+            "type": "any",
+            "required": false
+        },
+        {
+            "name": "queryOptions",
+            "description": "Options for the query",
+            "type": "any",
+            "required": false
+        }
+    ]
+}

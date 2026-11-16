@@ -1,0 +1,39 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/ormqueryexecute.html",
+        "minimum_version": ""
+    }},
+    "name": "ORMQueryExecute",
+    "description": "Modern alias to ORMExecuteQuery(). Run an HQL query on the default ORM datasource.",
+    "syntax": "ORMQueryExecute( string hql, [any paramsOrUnique], [any uniqueOrQueryOptions], [any queryOptions] )",
+    "returns": "any",
+    "type": "function",
+    "params": [
+        {
+            "name": "hql",
+            "description": "The HQL query string to execute.",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "paramsOrUnique",
+            "description": "Struct of named parameters, array of positional parameters, or boolean unique flag.",
+            "aliases": "params",
+            "type": "any",
+            "required": false
+        },
+        {
+            "name": "uniqueOrQueryOptions",
+            "description": "Boolean unique flag (if params provided) or struct of query options.",
+            "aliases": "unique",
+            "type": "any",
+            "required": false
+        },
+        {
+            "name": "queryOptions",
+            "description": "Struct of query options: maxResults, offset, cacheable, cacheName, timeout, datasource.",
+            "type": "any",
+            "required": false
+        }
+    ]
+}

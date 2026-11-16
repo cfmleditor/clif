@@ -1,0 +1,17 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/chr.html",
+        "minimum_version": ""
+    }},
+    "name": "chr",
+    "description": "Returns the character represented by the ascii value",
+    "syntax": "chr( number number )",
+    "returns": "string",
+    "type": "function",
+    "params": [{
+        "name": "number",
+        "description": "A value (a number in the range 0 - 65535, inclusive)",
+        "type": "number",
+        "required": true
+    }]
+}

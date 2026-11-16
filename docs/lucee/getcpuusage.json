@@ -1,0 +1,19 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/getcpuusage.html",
+        "minimum_version": ""
+    }},
+    "name": "GetCPUUsage",
+    "description": "returns the CPU usage for a defined time range (default: 1000ms).",
+    "syntax": "GetCPUUsage( [number time] )",
+    "returns": "number",
+    "type": "function",
+    "params": [{
+        "name": "time",
+        "description": "time range for a certain range.",
+        "default": "1000",
+        "aliases": "interval",
+        "type": "number",
+        "required": false
+    }]
+}

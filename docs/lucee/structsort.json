@@ -1,0 +1,46 @@
+{
+    "member_details": {
+        "name": "sort",
+        "type": "struct",
+        "returns": "struct"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/structsort.html",
+        "minimum_version": ""
+    }},
+    "name": "structSort",
+    "description": "Returns a sorted array of the top level keys in a structure.\nSorts using alphabetic or numeric sorting, and can sort based\non the values of any structure element.",
+    "syntax": "structSort( struct base, [any sortTypeOrSortFunc], [string sortOrder], [string pathToSubElement] )",
+    "returns": "array",
+    "type": "function",
+    "params": [
+        {
+            "name": "base",
+            "description": "A structure with one field (an associative array).",
+            "type": "struct",
+            "required": true
+        },
+        {
+            "name": "sortTypeOrSortFunc",
+            "description": "Define one of the following:\n\n- numeric: sorts numbers\n- text: sorts text alphabetically, taking case into account (case sensitive)\n- textNoCase: sorts text alphabetically, without regard to case (case insensitive)\nor a function to be used as a comparator (introduced 6.2.1)\n\n`function(value1, value2, key1, key2)`",
+            "default": "text",
+            "aliases": "sortType",
+            "type": "any",
+            "required": false
+        },
+        {
+            "name": "sortOrder",
+            "description": "sort direction:\n\n- asc (default): ascending (a to z) sort order\n- desc: descending (z to a) sort order",
+            "default": "asc",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "pathToSubElement",
+            "description": "String or a variable that contains one",
+            "aliases": "path",
+            "type": "string",
+            "required": false
+        }
+    ]
+}

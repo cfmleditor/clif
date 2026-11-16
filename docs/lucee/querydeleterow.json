@@ -1,0 +1,31 @@
+{
+    "member_details": {
+        "name": "deleteRow",
+        "type": "query",
+        "returns": "query"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/querydeleterow.html",
+        "minimum_version": ""
+    }},
+    "name": "QueryDeleteRow",
+    "description": "Deletes the row within a query object. Modifies the original query object",
+    "syntax": "QueryDeleteRow( query query, [number row] )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [
+        {
+            "name": "query",
+            "description": "Name of an executed query.",
+            "type": "query",
+            "required": true
+        },
+        {
+            "name": "row",
+            "description": "The query row number to be deleted.",
+            "default": "-9999",
+            "type": "number",
+            "required": false
+        }
+    ]
+}

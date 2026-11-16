@@ -1,0 +1,17 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/metaphone.html",
+        "minimum_version": ""
+    }},
+    "name": "metaphone",
+    "description": "Metaphone is a phonetic algorithm, an algorithm published in 1990 for indexing words by their English pronunciation. The algorithm produces variable length keys as its output, as opposed to Soundex's fixed-length keys. Similar sounding words share the same keys.",
+    "syntax": "metaphone( string str )",
+    "returns": "string",
+    "type": "function",
+    "params": [{
+        "name": "str",
+        "description": "The input string",
+        "type": "string",
+        "required": true
+    }]
+}

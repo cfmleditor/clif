@@ -1,0 +1,37 @@
+{
+    "member_details": {
+        "name": "compare",
+        "type": "datetime",
+        "returns": "datetime"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/datecompare.html",
+        "minimum_version": ""
+    }},
+    "name": "dateCompare",
+    "description": "Compares two dates to a given optional resolution",
+    "syntax": "dateCompare( datetime date1, datetime date2, [string datePart] )",
+    "returns": "number",
+    "type": "function",
+    "params": [
+        {
+            "name": "date1",
+            "description": "date object; for example, [[function-now|now()]]",
+            "type": "datetime",
+            "required": true
+        },
+        {
+            "name": "date2",
+            "description": "date object; for example, [[function-now|now()]]",
+            "type": "datetime",
+            "required": true
+        },
+        {
+            "name": "datePart",
+            "description": "Precision of the comparison:\n\n- s (default): Precise to the second\n- n: Precise to the minute\n- h: Precise to the hour\n- d: Precise to the day\n- m: Precise to the month\n- yyyy: Precise to the year",
+            "default": "s",
+            "type": "string",
+            "required": false
+        }
+    ]
+}

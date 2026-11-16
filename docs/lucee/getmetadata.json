@@ -1,0 +1,31 @@
+{
+    "member_details": {
+        "name": "getMetadata",
+        "type": "any",
+        "returns": "any"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/getmetadata.html",
+        "minimum_version": ""
+    }},
+    "name": "getMetadata",
+    "description": "Returns back meta information depending on the object passed in",
+    "syntax": "getMetadata( [any object], [boolean source] )",
+    "returns": "any",
+    "type": "function",
+    "params": [
+        {
+            "name": "object",
+            "description": "A component, user-defined function, query object, XML, etc.\n\nWithin a CFC, the parameter can also specify the This scope",
+            "aliases": "value",
+            "type": "any",
+            "required": false
+        },
+        {
+            "name": "source",
+            "description": "return information of the source of the object",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

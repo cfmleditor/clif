@@ -1,0 +1,74 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/createdatetime.html",
+        "minimum_version": ""
+    }},
+    "name": "createDateTime",
+    "description": "Creates a CFML date/time object from the given year, month, day, hour, minute and second",
+    "syntax": "createDateTime( number year, [number month], [number day], [number hour], [number minute], [number second], [number millisecond], [timezone timezone] )",
+    "returns": "datetime",
+    "type": "function",
+    "params": [
+        {
+            "name": "year",
+            "description": "Integer in the range 0-9999. Integers in the range 0-29 are converted to 2000-2029. Integers in the range 30-99 are converted to 1930-1999. You cannot specify dates before AD 100.",
+            "aliases": "years",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "month",
+            "description": "Integer in the range 1-12",
+            "default": "1",
+            "aliases": "months",
+            "type": "number",
+            "required": false
+        },
+        {
+            "name": "day",
+            "description": "Integer in the range 1-31",
+            "default": "1",
+            "aliases": "days",
+            "type": "number",
+            "required": false
+        },
+        {
+            "name": "hour",
+            "description": "Integer in the range 0-23",
+            "default": "0",
+            "aliases": "hours",
+            "type": "number",
+            "required": false
+        },
+        {
+            "name": "minute",
+            "description": "Integer in the range 0-59",
+            "default": "0",
+            "aliases": "minutes",
+            "type": "number",
+            "required": false
+        },
+        {
+            "name": "second",
+            "description": "Integer in the range 0-59",
+            "default": "0",
+            "aliases": "seconds",
+            "type": "number",
+            "required": false
+        },
+        {
+            "name": "millisecond",
+            "description": "Integer in the range 0-999",
+            "default": "0",
+            "aliases": "milliseconds,millis",
+            "type": "number",
+            "required": false
+        },
+        {
+            "name": "timezone",
+            "description": "A datetime object is independent of a specific timezone; it is only an offset in milliseconds from `1970-1-1 00.00:00 UTC` (Coordinated Universal Time).\n\nThe timezone only comes into play when you need specific information like hours in a day, minutes in a hour or which day it is as these calculations depend on the timezone.\n\nA timezone must be specified in order to translate the date object to something else. If you do not provide the timezone in the function call, it will default to the timezone specified in the Lucee Administrator (Settings/Regional), or the timezone specified for the current request using the function [[function-setTimezone|setTimezone()]].\n\nYou can find a list of all available timezones in the Lucee administrator (Settings/Regional). Some examples of valid timezones include:\n\n - AGT (for time in Argentina)\n - Europe/Zurich (for time in Zurich/Switzerland)\n - HST (Hawaiian Standard Time in the USA)\n- JVM (JVM / Server Default Timezone)",
+            "type": "timezone",
+            "required": false
+        }
+    ]
+}

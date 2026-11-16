@@ -1,0 +1,55 @@
+{
+    "member_details": {
+        "name": "drawOval",
+        "type": "image",
+        "returns": "image"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/imagedrawoval.html",
+        "minimum_version": ""
+    }},
+    "name": "ImageDrawOval",
+    "description": "Draws an oval.",
+    "syntax": "ImageDrawOval( any image, number x, number y, number width, number height, [boolean filled] )",
+    "returns": "void",
+    "type": "function",
+    "params": [
+        {
+            "name": "image",
+            "description": "The image on which this operation is performed.",
+            "aliases": "name",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "x",
+            "description": "The x coordinate of the upper left corner of the oval to draw.",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "y",
+            "description": "The y coordinate of the upper left corner of the oval to draw.",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "width",
+            "description": "The width of the oval to draw.",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "height",
+            "description": "The height of the oval to draw.",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "filled",
+            "description": "Specify whether the oval is filled:\n\n- true: The oval is filled with the specified drawing color.\n- false (default): Only the outline of the oval is drawn.",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

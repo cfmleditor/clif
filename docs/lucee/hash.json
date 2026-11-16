@@ -1,0 +1,43 @@
+{
+    "member_details": {
+        "name": "hash",
+        "type": "string",
+        "returns": "string"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/hash.html",
+        "minimum_version": ""
+    }},
+    "name": "hash",
+    "description": "Returns the one-way hash of a variable-length input string based on the algorithm, producing a fixed-length string.",
+    "syntax": "hash( any input, [string algorithm], [string encoding], [number numIterations] )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "input",
+            "description": "String to hash.",
+            "aliases": "string",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "algorithm",
+            "description": "The algorithm to use for hashing your input. The following values are supported:\n\n* QUICK: Generates a 15 or 16-character, hexadecimal string. This algorithm provides fast hashing but offers no cryptographic security.\n* MD5: Generates a 32-character string using the MD5 algorithm. This algorithm is considered cryptographically broken and unsuitable for further cryptographical use.\n* CFMX_COMPAT: Deprecated. Lucee uses the MD5 algorithm instead.\n* SHA: Generates a 40-character string using the Secure Hash Algorithm, SHA-1, specified by National Institute of Standards and Technology (NIST) in the FIPS-180-2 standard. Cryptographic weaknesses were discovered in SHA-1, and the standard is no longer approved for most cryptographic uses.\n* SHA-256: Generates a 64-character string using the SHA-256 algorithm specified by the FIPS-180-2 standard.\n* SHA-384: Generates a 96-character string using the SHA-384 algorithm specified by the FIPS-180-2 standard.\n* SHA-512: Generates an 128-character string using the SHA-512 algorithm specified by the FIPS-180-2 standard.\n\nThe default value is MD5.\n",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "encoding",
+            "description": "The encoding to use when converting the input string to byte data.\n",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "numIterations",
+            "description": "The number of times to iterate hashing. A greater number of iterations will result in a cryptographically stronger hash but will also take more time to generate that hash.\n\nThe default value is 1.\n",
+            "type": "number",
+            "required": false
+        }
+    ]
+}

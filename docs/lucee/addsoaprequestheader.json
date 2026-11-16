@@ -1,0 +1,43 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/addsoaprequestheader.html",
+        "minimum_version": ""
+    }},
+    "name": "AddSOAPRequestHeader",
+    "description": "Adds a SOAP header to a web service request before making the request.",
+    "syntax": "AddSOAPRequestHeader( object webservice, string namespace, string name, object value, [boolean mustUnderstand] )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [
+        {
+            "name": "webservice",
+            "description": "A web service object as returned from the cfobject tag or the CreateObject function.",
+            "type": "object",
+            "required": true
+        },
+        {
+            "name": "namespace",
+            "description": "A String that is the namespace for the header.",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "name",
+            "description": "A String that is the name of the header",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "value",
+            "description": "the value for the SOAP header; this can be a CFML XML value.",
+            "type": "object",
+            "required": true
+        },
+        {
+            "name": "mustUnderstand",
+            "description": "Sets the SOAP mustunderstand value for this header.",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

@@ -1,0 +1,31 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/lsnumberformat.html",
+        "minimum_version": ""
+    }},
+    "name": "lSNumberFormat",
+    "description": "Formats a number to the given format mask in the current locale",
+    "syntax": "lSNumberFormat( any number, [string mask], [locale locale] )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "number",
+            "description": "Number to format",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "mask",
+            "description": "Mask that has to be used for formatting number: dollar sign, comma, and dot are mapped to their locale-specific equivalents.\n\n- `_,9` Digit placeholder;\n- `.` decimal point;\n- `0` Pads with zeros;\n- `( )` less than zero, puts parentheses around the mask\n- `+` plus sign before positive number minus before negative\n- `-` a space before positive minus sign before negative\n- `,` Separates every third decimal place with a comma.\n- `L,C` Left-justifies or center-justifies number\n- `$` dollar sign before formatted number.\n- `^` Separates left and right formatting.",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "locale",
+            "description": "Locale to use instead of the locale of the page when processing the function",
+            "type": "locale",
+            "required": false
+        }
+    ]
+}

@@ -1,0 +1,31 @@
+{
+    "member_details": {
+        "name": "asc",
+        "type": "string",
+        "returns": "string"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/asc.html",
+        "minimum_version": ""
+    }},
+    "name": "asc",
+    "description": "Determines the value of a character.",
+    "syntax": "asc( string string, [number position] )",
+    "returns": "number",
+    "type": "function",
+    "params": [
+        {
+            "name": "string",
+            "description": "A string",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "position",
+            "description": "Position of the character",
+            "default": "1",
+            "type": "number",
+            "required": false
+        }
+    ]
+}

@@ -1,0 +1,60 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/ec2describeinstances.html",
+        "minimum_version": ""
+    }},
+    "name": "EC2DescribeInstances",
+    "description": "This function interfaces with the EC2 service to retrieve detailed information about specified EC2 instances. It supports custom filtering, specific instance IDs, regional targeting, and legacy mode handling.",
+    "syntax": "EC2DescribeInstances( [string accessKeyId], [string secretAccessKey], [array instanceIds], [struct filters], [string host], [string location], [number timeout] )",
+    "returns": "object",
+    "type": "function",
+    "params": [
+        {
+            "name": "accessKeyId",
+            "description": "Your AWS access key ID. Used for authentication with AWS services. This key must have appropriate permissions for EC2 describe instance operations.",
+            "aliases": "accessKey",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "secretAccessKey",
+            "description": "Your AWS secret access key associated with the access key ID. This key is used in conjunction with the accessKeyId for authentication.",
+            "aliases": "secretkey",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "instanceIds",
+            "description": "An array of instance IDs specifying the EC2 instances to describe. If not provided, information for all instances will be returned.",
+            "type": "array",
+            "required": false
+        },
+        {
+            "name": "filters",
+            "description": "A struct of filters to apply to the instance description request. Each key in the struct is a filter name, and its value is an array of filter values.",
+            "type": "struct",
+            "required": false
+        },
+        {
+            "name": "host",
+            "description": "The endpoint or the provider to connect to. If not set, Amazon AWS is used. This can be used to specify a different AWS region or a custom EC2-compatible endpoint.",
+            "aliases": "provider,server",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "location",
+            "description": "The AWS region hosting the EC2 endpoint. If not specified, the default region associated with the provided credentials is used.",
+            "aliases": "region",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "timeout",
+            "description": "The timeout in milliseconds for the EC2 describe instances request. Defaults to 10000 milliseconds (10 seconds).",
+            "default": "10000",
+            "type": "number",
+            "required": false
+        }
+    ]
+}

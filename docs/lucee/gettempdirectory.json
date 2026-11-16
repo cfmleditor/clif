@@ -1,0 +1,20 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/gettempdirectory.html",
+        "minimum_version": ""
+    }},
+    "name": "getTempDirectory",
+    "description": "Returns the full path to the currently assigned temporary directory, optionally creating a unique temp directory",
+    "syntax": "getTempDirectory( [string unique] )",
+    "returns": "string",
+    "type": "function",
+    "params": [{
+        "minimum_version": "6.2.1.20",
+        "default": "false",
+        "aliases": "prefix",
+        "name": "unique",
+        "description": "If true or not empty, creates and returns a unique temp directory, optionally prefixed",
+        "type": "string",
+        "required": false
+    }]
+}

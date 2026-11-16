@@ -1,0 +1,23 @@
+{
+    "member_details": {
+        "name": "sort",
+        "type": "string",
+        "returns": "string"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/stringsort.html",
+        "minimum_version": "",
+        "notes": "Since Lucee 6, this function iterates over each character in the string.\n\nFor list-based iteration with delimiters, use [[function-listsort]] instead.\n\n[LDEV-3747](https://luceeserver.atlassian.net/browse/LDEV-3747)\n"
+    }},
+    "name": "StringSort",
+    "description": "Returns a string containing the sorted characters from the input.",
+    "syntax": "StringSort( string inputString )",
+    "returns": "string",
+    "type": "function",
+    "params": [{
+        "name": "inputString",
+        "description": "Input string.",
+        "type": "string",
+        "required": true
+    }]
+}

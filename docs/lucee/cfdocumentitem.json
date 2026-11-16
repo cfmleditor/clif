@@ -1,0 +1,35 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/tags/documentitem.html",
+        "minimum_version": ""
+    }},
+    "name": "cfdocumentitem",
+    "description": "Specifies action items for a PDF document created by the cfdocument tag.",
+    "syntax": "<cfdocumentitem type=\"\"/>",
+    "returns": "void",
+    "type": "tag",
+    "params": [
+        {
+            "name": "type",
+            "description": "Specifies the action:\n\n- pagebreak (starts a new page at the location of the tag)\n- header (uses the text between in the body of the tag as the running header)\n- footer (uses the text between the body of the tag as the running footer)\n- bookmark (set a bookmark, use the attribute name to define the name of the bookmark)",
+            "default": false,
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "name",
+            "description": "used only for type bookmark, name of the bookmark to define.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "evalAtPrint",
+            "description": "Determines if the contents of the cfdocumentitem tag body has to be evaluated at the time of printing the document.\n\n- true: evaluates the contents of the cfdocumentitem tag body only at the time of printing the document.\n- false (default): evaluates the contents of the cfdocumentitem tag body immediately.\n",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        }
+    ],
+    "body": "optional"
+}

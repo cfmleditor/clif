@@ -1,0 +1,45 @@
+{
+    "member_details": {
+        "name": "listFind",
+        "type": "string",
+        "returns": "string"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/listfind.html",
+        "minimum_version": ""
+    }},
+    "name": "listFind",
+    "description": "Determines the index of the first list element in which a\nspecified value occurs. Case-sensitive",
+    "syntax": "listFind( string list, string value, [string delimiters], [boolean includeEmptyFields] )",
+    "returns": "number",
+    "type": "function",
+    "params": [
+        {
+            "name": "list",
+            "description": "a string list",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "value",
+            "description": "element for which to search",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "delimiters",
+            "description": "Characters that separate list elements. The default value is comma.",
+            "default": ",",
+            "aliases": "delimiter",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "includeEmptyFields",
+            "description": "if set to true, empty values are included as well",
+            "default": "false",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

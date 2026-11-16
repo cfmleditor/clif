@@ -1,0 +1,22 @@
+{
+    "member_details": {
+        "name": "clear",
+        "type": "array",
+        "returns": "array"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/arrayclear.html",
+        "minimum_version": ""
+    }},
+    "name": "arrayClear",
+    "description": "Removes all elements from an array.",
+    "syntax": "arrayClear( array array )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [{
+        "name": "array",
+        "description": "Name of an array",
+        "type": "array",
+        "required": true
+    }]
+}

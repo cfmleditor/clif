@@ -1,0 +1,31 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/mavenexists.html",
+        "minimum_version": "7.1.0.98"
+    }},
+    "name": "MavenExists",
+    "description": "Checks whether a Maven artifact is already in Lucee's local maven cache \u2014 a cheap filesystem-only predicate with no network or tree walk.",
+    "syntax": "MavenExists( string groupId, [string artifactId], [string version] )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [
+        {
+            "name": "groupId",
+            "description": "The Maven group identifier, or a gradle-style coordinate string `\"group:artifact\"` / `\"group:artifact:version\"` when passed as the only argument.",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "artifactId",
+            "description": "The Maven artifact identifier. Omit when passing a gradle-style coordinate as the first argument.",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "version",
+            "description": "The specific version to check for. If omitted, the function returns true when any cached version of the coord is present.",
+            "type": "string",
+            "required": false
+        }
+    ]
+}

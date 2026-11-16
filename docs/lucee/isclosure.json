@@ -1,0 +1,18 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/isclosure.html",
+        "minimum_version": ""
+    }},
+    "name": "IsClosure",
+    "description": "checks if given Object is a closure or not.",
+    "syntax": "IsClosure( any object )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [{
+        "name": "object",
+        "description": "The object that is checked.",
+        "aliases": "obj,value",
+        "type": "any",
+        "required": true
+    }]
+}

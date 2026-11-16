@@ -1,0 +1,27 @@
+{
+    "name": "VerifyArgon2Hash",
+    "description": "Deprecated: renamed to Argon2Verify() for consistency with the {Algorithm}Hash/{Algorithm}Verify naming pattern. Functionally identical. Originally from extension-argon2.",
+    "syntax": "VerifyArgon2Hash( string input, string hash, [boolean throwOnError] )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [
+        {
+            "name": "input",
+            "description": "Password to verify",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "hash",
+            "description": "Argon2 hash to check against",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "throwOnError",
+            "description": "If true, throws an exception on invalid hash format instead of returning false",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

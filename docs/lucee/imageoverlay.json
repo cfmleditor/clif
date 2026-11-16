@@ -1,0 +1,30 @@
+{
+    "member_details": {
+        "name": "overlay",
+        "type": "image",
+        "returns": "image"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/imageoverlay.html",
+        "minimum_version": ""
+    }},
+    "name": "ImageOverlay",
+    "description": "Combines two images by overlaying one on top of the other using alpha compositing. The second image is blended with the first based on its transparency.",
+    "syntax": "ImageOverlay( any source1, any source2 )",
+    "returns": "void",
+    "type": "function",
+    "params": [
+        {
+            "name": "source1",
+            "description": "The image that is the bottom layer in the image.",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "source2",
+            "description": "the image that is the top layer (overlaid on the source1 image) in the image.",
+            "type": "any",
+            "required": true
+        }
+    ]
+}

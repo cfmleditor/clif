@@ -1,0 +1,33 @@
+{
+    "name": "TOTPGenerateUri",
+    "description": "Generates an otpauth:// URI for TOTP, suitable for QR code generation with authenticator apps.",
+    "syntax": "TOTPGenerateUri( string secret, string account, string issuer, [struct options] )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "secret",
+            "description": "Base32-encoded secret (from TOTPSecret)",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "account",
+            "description": "Account identifier, typically an email address",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "issuer",
+            "description": "Issuer name, typically the application or service name",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "options",
+            "description": "Optional struct: digits (default 6), period (default 30), algorithm (SHA1|SHA256|SHA512, default SHA1)",
+            "type": "struct",
+            "required": false
+        }
+    ]
+}

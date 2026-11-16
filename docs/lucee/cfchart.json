@@ -1,0 +1,301 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/tags/chart.html",
+        "minimum_version": ""
+    }},
+    "name": "cfchart",
+    "description": "Generates and displays a chart.",
+    "syntax": "<cfchart/>",
+    "returns": "void",
+    "type": "tag",
+    "params": [
+        {
+            "name": "backgroundColor",
+            "description": "Color of the area between the data background and the chart\nborder, around labels and around the legend. Hexadecimal\nvalue or supported named color. For a hex value, use the form:\ntextColor = \"##xxxxxx\", where x = 0-9 or A-F; use two hash\nsigns or none.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "chartHeight",
+            "description": "Chart height; integer number of pixels",
+            "default": false,
+            "type": "number",
+            "required": false
+        },
+        {
+            "name": "chartWidth",
+            "description": "Chart width; integer number of pixels",
+            "default": false,
+            "type": "number",
+            "required": false
+        },
+        {
+            "name": "dataBackgroundColor",
+            "description": "color for control. For a hex value, use the form:\ntextColor = \"##xxxxxx\", where x = 0-9 or A-F; use two hash\nsigns or none.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "font",
+            "description": "Font of data in column.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "fontBold",
+            "description": "Yes: displays grid control text in bold",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "fontItalic",
+            "description": "Yes: displays grid control text in italics",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "fontSize",
+            "description": "Size of text in column.",
+            "default": false,
+            "type": "number",
+            "required": false
+        },
+        {
+            "name": "foregroundColor",
+            "description": "color for control. For a hex value, use the form:\ntextColor = \"##xxxxxx\", where x = 0-9 or A-F; use two hash\nsigns or none.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "format",
+            "description": "File format in which to save graph. \n\n- gif\n- jpg\n- png\n",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "gridlines",
+            "description": "Number of grid lines to display on value axis, including\naxis; positive integer.",
+            "default": false,
+            "type": "number",
+            "required": false
+        },
+        {
+            "name": "labelFormat",
+            "description": "Format for Y-axis labels.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "categoryLabelPositions",
+            "description": "Label position relative to axis: standard, up_45, up_90, down_45, down_90 or horizontal (standard) and vertical (down_90).  Default is horizontal.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "markerSize",
+            "description": "Size of data point marker in pixels. Integer.",
+            "default": false,
+            "type": "number",
+            "required": false
+        },
+        {
+            "name": "name",
+            "description": "Page variable name. String. Generates the graph as\nbinary data and assigns it to the specified variable.\nSuppresses chart display. You can use the name value in\nthe cffile tag to write the chart to a file.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "pieSliceStyle",
+            "description": "Applies to chartseries type attribute value pie.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "scaleFrom",
+            "description": "Y-axis minimum value; integer",
+            "default": false,
+            "type": "number",
+            "required": false
+        },
+        {
+            "name": "scaleTo",
+            "description": "Y-axis max value; integer",
+            "default": false,
+            "type": "number",
+            "required": false
+        },
+        {
+            "name": "seriesPlacement",
+            "description": "Applies to charts that have more than one data series.\nRelative positions of series.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "show3D",
+            "description": "Display chart with three-dimensional appearance.",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "showBorder",
+            "description": "Whether to display a border around the chart",
+            "default": false,
+            "type": "any",
+            "required": false
+        },
+        {
+            "name": "showLegend",
+            "description": "yes: if chart contains more than one data series, display\nlegend",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "showMarkers",
+            "description": "Applies to chartseries type attribute values line, curve\nand scatter.\nyes: display markers at data points",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "showXGridlines",
+            "description": "yes: display X-axis gridlines",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "showXLabel",
+            "description": "yes: shows the x-axis labels",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "showTooltip",
+            "description": "show the tooltip or not",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "source",
+            "description": "variable name of the source path, if set the path to the source file is returned and no image tag is written to response stream.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "showYGridlines",
+            "description": "yes: display Y-axis gridlines",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "sortXAxis",
+            "description": "Display column labels in alphabetic order along X-axis.\nIgnored if the xAxisType attribute is scale.",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "style",
+            "description": "XML file or string to use to specify the style of the chart.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "title",
+            "description": "Title of the chart.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "tipbgcolor",
+            "description": "color for control. For a hex value, use the form:\ntextColor = \"##xxxxxx\", where x = 0-9 or A-F; use two hash\nsigns or none.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "tipStyle",
+            "description": "Determines the action that opens a popup window to display\ninformation about the current chart element.\n\n- mouseDown: display if the user positions the cursor at the element\nand clicks the mouse. Applies only to Flash format graph files (Flash not supported).\n- mouseOver: displays if the user positions the cursor at the element\n- none: suppresses display",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "url",
+            "description": "URL to open if the user clicks item in a data series; the onClick destination page. \n\nThe following variables will be substituted [ $SERIESLABEL$, $ITEMLABEL$, $VALUE$ ] \n\nIf the url does not contain a `?` the following is appended \n\n`?series=$SERIESLABEL$&category=$ITEMLABEL$&value=$VALUE$`\n\nOtherwise, you will need to specify the query string manually\n\nIf the url starts with `javascript:` only variable substitution is done (since 1.20.1)",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "xAxisTitle",
+            "description": "text; X-axis title",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "xAxisType",
+            "description": "\n- category\nThe axis indicates the data category. Data is sorted according to the sortXAxis attribute.\n- scale The axis is numeric. All cfchartdata item attribute values must numeric.\nThe X axis is automatically sorted numerically.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "xOffset",
+            "description": "Applies if show3D=\"yes\". Number of units by which to\ndisplay the chart as angled, horizontally",
+            "default": false,
+            "type": "number",
+            "required": false
+        },
+        {
+            "name": "yAxisTitle",
+            "description": "text; X-axis title",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "yAxisType",
+            "description": "Currently has no effect, as Y axis is always used for data\nvalues. Valid values are category and scale",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "yOffset",
+            "description": "Applies if show3D=\"yes\". Number of units by which to\ndisplay the chart as angled, horizontally.",
+            "default": false,
+            "type": "number",
+            "required": false
+        },
+        {
+            "name": "base64",
+            "description": "Render chart inline using a base64 data url.",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        }
+    ],
+    "body": "optional"
+}

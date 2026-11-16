@@ -1,0 +1,30 @@
+{
+    "member_details": {
+        "name": "info",
+        "type": "locale",
+        "returns": "locale"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/getlocaleinfo.html",
+        "minimum_version": "5.0.0.0"
+    }},
+    "name": "getLocaleInfo",
+    "description": "returns info to a specific Locale",
+    "syntax": "getLocaleInfo( [locale locale], [locale dspLocale] )",
+    "returns": "struct",
+    "type": "function",
+    "params": [
+        {
+            "name": "locale",
+            "description": "Locale provides the country",
+            "type": "locale",
+            "required": false
+        },
+        {
+            "name": "dspLocale",
+            "description": "Locale used to format the country.\n\nThe default is the locale defined for the request.",
+            "type": "locale",
+            "required": false
+        }
+    ]
+}

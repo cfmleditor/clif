@@ -1,0 +1,36 @@
+{
+    "member_details": {
+        "name": "add",
+        "type": "datetime",
+        "returns": "datetime"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/dateadd.html",
+        "minimum_version": ""
+    }},
+    "name": "dateAdd",
+    "description": "Adds units of time to a date object.",
+    "syntax": "dateAdd( string datePart, number number, datetime date )",
+    "returns": "datetime",
+    "type": "function",
+    "params": [
+        {
+            "name": "datePart",
+            "description": "One of the following units:\n\n- yyyy: Year\n- q: Quarter\n- m: Month\n- y: Day of year\n- d: Day\n- w: Weekday\n- ww: Week\n- h: Hour\n- n: Minute\n- s: Second\n- l: Millisecond",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "number",
+            "description": "Number of units of datepart to add to date (positive, to get dates in the future; negative, to get dates in the past). Number must be an integer.",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "date",
+            "description": "date object; for example, [[function-now|now()]]",
+            "type": "datetime",
+            "required": true
+        }
+    ]
+}

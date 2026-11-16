@@ -1,0 +1,13 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/ormcloseallsessions.html",
+        "minimum_version": "",
+        "notes": "Closes all ORM sessions across all datasources for the current request and releases their database connections back to the pool.\n\nEquivalent to calling [[function-ormclosesession]] for each active datasource.\n\nIn most cases you don't need to call this \u2014 sessions are automatically closed at the end of every request.\n"
+    }},
+    "name": "ORMCloseAllSessions",
+    "description": "Closes all ORM sessions.",
+    "syntax": "ORMCloseAllSessions()",
+    "returns": "void",
+    "type": "function",
+    "params": []
+}

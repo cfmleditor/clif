@@ -1,0 +1,44 @@
+{
+    "member_details": {
+        "name": "filter",
+        "type": "query",
+        "returns": "query"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/queryfilter.html",
+        "minimum_version": ""
+    }},
+    "name": "queryFilter",
+    "description": "This function creates a new Query that returns all rows from an query that match the given filter.",
+    "syntax": "queryFilter( query query, function filter, [boolean parallel], [number maxThreads] )",
+    "returns": "query",
+    "type": "function",
+    "params": [
+        {
+            "name": "query",
+            "description": "query to filter entries from",
+            "type": "query",
+            "required": true
+        },
+        {
+            "name": "filter",
+            "description": "A function/closure that implements the following constructor\n\n`function(struct row[, number rowNumber, query query]) { return true/false; }`\n\nfor best performance, use scoped variables, like `arguments.row`, instead of just `row`",
+            "type": "function",
+            "required": true
+        },
+        {
+            "name": "parallel",
+            "description": "execute closures parallel",
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "maxThreads",
+            "description": "maximum number of threads executed, ignored when argument \"parallel\" is set to false",
+            "default": "20",
+            "aliases": "maxThreadCount",
+            "type": "number",
+            "required": false
+        }
+    ]
+}

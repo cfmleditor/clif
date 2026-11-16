@@ -1,0 +1,22 @@
+{
+    "member_details": {
+        "name": "min",
+        "type": "array",
+        "returns": "array"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/arraymin.html",
+        "minimum_version": ""
+    }},
+    "name": "arrayMin",
+    "description": "Returns the smallest numeric value in an array. If the array\nparameter value is an empty array, returns zero.\nAll elements must contain values that can be automatically\nconverted to numeric values.",
+    "syntax": "arrayMin( array array )",
+    "returns": "number",
+    "type": "function",
+    "params": [{
+        "name": "array",
+        "description": "Name of an array",
+        "type": "array",
+        "required": true
+    }]
+}

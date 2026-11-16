@@ -1,0 +1,49 @@
+{
+    "member_details": {
+        "name": "drawDrawLines",
+        "type": "image",
+        "returns": "image"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/imagedrawlines.html",
+        "minimum_version": ""
+    }},
+    "name": "ImageDrawLines",
+    "description": "Draws a sequence of connected lines defined by arrays of x and y coordinates.",
+    "syntax": "ImageDrawLines( any image, array xcoords, array ycoords, [boolean isPolygon], [boolean filled] )",
+    "returns": "void",
+    "type": "function",
+    "params": [
+        {
+            "name": "image",
+            "description": "The image on which this operation is performed.",
+            "aliases": "name",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "xcoords",
+            "description": "An array of x coordinates.",
+            "type": "array",
+            "required": true
+        },
+        {
+            "name": "ycoords",
+            "description": "An array of y coordinates.",
+            "type": "array",
+            "required": true
+        },
+        {
+            "name": "isPolygon",
+            "description": "Specify whether the lines form a polygon:\n\n- true: The lines are connected to form a polygon.\n- false (default): The lines do not form a polygon.",
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "filled",
+            "description": "Specify whether the polygon is filled:\n\n- true: The polygon is filled with the specified drawing color.\n- false (default): Only the outline of the polygon is drawn.",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}
