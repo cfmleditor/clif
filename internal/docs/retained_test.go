@@ -255,8 +255,10 @@ func TestVendoredLuceeMatchesItsSource(t *testing.T) {
 		t.Fatalf("%v: check docs/lucee was added to git", err)
 	}
 
+	// A broken file (unreadable, a symlink, bad JSON) is left out of the hash,
+	// so name it plainly rather than let it surface only as a hash mismatch.
 	for _, b := range broken {
-		t.Logf("broken vendored file (make generate skips it): %s", b)
+		t.Errorf("broken vendored file: %s", b)
 	}
 
 	if got != want {

@@ -4,5 +4,6 @@
 # fallen back to a lower source, that is not listed here. List an entry only
 # when the engine no longer has it; an upstream that merely stopped publishing
 # one belongs in docs/retained instead. A trailing "# reason" is fine. CI fails
-# on a line it cannot read, on "1", and on an entry the pull request does not
-# actually remove: so clear an entry in the next pull request after it merges.
+# on a line it cannot read, on "1", and on an entry the base still documents
+# that the pull request does not remove (it would accept that loss by
+# accident later). Once a removal merges its line only warns: clear it then.

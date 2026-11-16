@@ -97,19 +97,11 @@ docs-assemble:
 
 # Moves the cfdocs pin in docs/sources.lock and the vendored docs/lucee to
 # upstream's latest, and stages them. Follow with `make generate`, and review
-# its diff with the lock's and docs/lucee's.
-#
-# cfdocs is staged and its commit checked before anything committed changes;
-# only then is docs/lucee replaced, and the lock written last, by a step that
-# can no longer fail on its input. A failure before the Lucee swap leaves
-# every committed file as it was (the staged cfdocs is then simply not the
-# pinned one, which the generator refuses), so the two are bumped together.
+# its diff with the lock's and docs/lucee's. scripts/docs-bump.sh holds
+# docs/.lock across every step, and orders them so nothing committed changes
+# unless both sources stage.
 docs-bump:
-	@DOCS_BUMP=1 ./scripts/fetch-docs-cfdocs.sh
-	@bash scripts/docs-lock.sh check "$$(cat docs/.sha-cfdocs)"
-	@DOCS_BUMP=1 ./scripts/fetch-docs-lucee.sh
-	@bash scripts/docs-lock.sh set cfdocs "$$(cat docs/.sha-cfdocs)"
-	@./scripts/assemble-docs.sh
+	@bash scripts/docs-bump.sh
 
 # Fetches every source and regenerates internal/docs/generated_docs.go (and
 # generated_sources.txt). Refuses (exit 1) to write a file that lost entries

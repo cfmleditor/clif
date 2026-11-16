@@ -287,7 +287,13 @@ jobs:
           BASE: ${{ github.event.pull_request.base.sha }}
         run: |
           git fetch --no-tags --depth=1 origin "$BASE"
-          if ! git cat-file -e "$BASE:internal/docs/generated_sources.txt" 2>/dev/null; then
+          # A base without the file (before #385) has nothing to compare with;
+          # git failing to say (a missing object) is an error, not that.
+          if ! listed=$(git ls-tree --name-only "$BASE" -- internal/docs/generated_sources.txt); then
+            echo "::error::could not read the base commit $BASE"
+            exit 1
+          fi
+          if [ -z "$listed" ]; then
             echo "The base has no generated_sources.txt yet: nothing to compare with."
             exit 0
           fi

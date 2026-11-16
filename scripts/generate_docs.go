@@ -19,6 +19,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	docsources "github.com/cfmleditor/clif/internal/docs/sources"
 )
@@ -212,69 +213,139 @@ type Entry struct {
 }
 
 // docsLock is the lock scripts/lib/swapdir.sh takes: a symlink naming its
-// owner's PID, created atomically. The generator holds it too, so a fetch or
-// bump cannot swap a source directory (or move cfdocs' marker) while this
-// reads it, and a half-swapped source is never what gets generated from. The
-// rules match the shell's: a lock whose PID no longer exists is taken over,
-// under docsLock+".takeover" (an atomic mkdir), so two runs cannot both.
+// owner, "<pid>@<host>", created atomically. The generator holds it too, so a
+// fetch or bump cannot swap a source directory (or move cfdocs' marker) while
+// this reads it. The rules match the shell's: a lock is taken over only when
+// it names this host and its PID no longer exists (a lock from a container,
+// whose processes this one cannot see, never is), under docsLock+".takeover",
+// an atomic mkdir, so two runs cannot both; a run whose lock already names
+// DOCS_LOCK_OWNER inherits it from the run that started it.
 const docsLock = "docs/.lock"
 
-var lockHeld bool
+var (
+	// lockMu guards lockHeld and the write: the signal handler takes it, so
+	// it can neither race unlock() nor stop the run between the two renames.
+	lockMu   sync.Mutex
+	lockHeld bool
+)
 
-func lock() {
-	me := strconv.Itoa(os.Getpid())
-	if os.Symlink(me, docsLock) == nil {
-		lockHeld = true
-
-		return
+func lockOwner() string {
+	host, err := os.Hostname()
+	if err != nil || host == "" {
+		host = "unknown"
 	}
 
-	held, _ := os.Readlink(docsLock)
-	// Gone means "no such process" (ESRCH) only: EPERM is a live process
-	// owned by someone else, and anything else is not proof of death.
-	if pid, err := strconv.Atoi(held); err == nil && pid > 0 && errors.Is(syscall.Kill(pid, 0), syscall.ESRCH) {
-		// Its owner is gone: take it over, one taker at a time.
+	return strconv.Itoa(os.Getpid()) + "@" + host
+}
+
+// ownerGone reports whether owner is this host's and its PID is gone: "no
+// such process" (ESRCH) only, since EPERM is a live process of another user.
+func ownerGone(owner string) bool {
+	pidPart, host, ok := strings.Cut(owner, "@")
+	if !ok || host != strings.SplitN(lockOwner(), "@", 2)[1] {
+		return false
+	}
+
+	pid, err := strconv.Atoi(pidPart)
+
+	return err == nil && pid > 0 && errors.Is(syscall.Kill(pid, 0), syscall.ESRCH)
+}
+
+func lock() {
+	if inherited := os.Getenv("DOCS_LOCK_OWNER"); inherited != "" {
+		if held, err := os.Readlink(docsLock); err == nil && held == inherited {
+			return // held by the run that started this one, which releases it
+		}
+	}
+
+	me := lockOwner()
+	held := ""
+	for range 2 {
+		if os.Symlink(me, docsLock) == nil {
+			lockMu.Lock()
+			lockHeld = true
+			lockMu.Unlock()
+
+			return
+		}
+		var err error
+		if held, err = os.Readlink(docsLock); err == nil {
+			break // released between the two: the loop tries once more
+		}
+	}
+
+	if ownerGone(held) {
 		takeover := docsLock + ".takeover"
+		// Left by a run killed mid-takeover, which takes milliseconds: stale.
+		if info, err := os.Stat(takeover); err == nil && time.Since(info.ModTime()) > time.Minute {
+			_ = os.Remove(takeover)
+		}
 		if os.Mkdir(takeover, 0o755) == nil {
-			cur, _ := os.Readlink(docsLock)
-			if cur == held {
+			if cur, _ := os.Readlink(docsLock); cur == held {
 				_ = os.Remove(docsLock)
 			}
 			err := os.Symlink(me, docsLock)
 			_ = os.Remove(takeover)
 			if err == nil {
-				fmt.Fprintf(os.Stderr, "note: took over %s from PID %s, which is no longer running\n", docsLock, held)
+				fmt.Fprintf(os.Stderr, "note: took over %s from %s, which is no longer running\n", docsLock, held)
+				lockMu.Lock()
 				lockHeld = true
+				lockMu.Unlock()
 
 				return
 			}
+			held, _ = os.Readlink(docsLock)
 		}
 	}
 
-	fmt.Fprintf(os.Stderr, "error: %s is held by PID %s: another docs run is in progress.\n", docsLock, held)
-	fmt.Fprintf(os.Stderr, "       If none is (that PID now belongs to another process), delete it: rm %s\n", docsLock)
+	if held == "" {
+		held = "?"
+	}
+	fmt.Fprintf(os.Stderr, "error: %s is held by %s: another docs run is in progress.\n", docsLock, held)
+	fmt.Fprintf(os.Stderr, "       If none is, delete it: rm %s (and %s.takeover, if there is one)\n", docsLock, docsLock)
 	os.Exit(1)
 }
 
-func unlock() {
-	if held, err := os.Readlink(docsLock); lockHeld && err == nil && held == strconv.Itoa(os.Getpid()) {
+// unlockLocked releases the lock; lockMu must be held.
+func unlockLocked() {
+	if held, err := os.Readlink(docsLock); lockHeld && err == nil && held == lockOwner() {
 		_ = os.Remove(docsLock)
 	}
 	lockHeld = false
 }
 
-// releaseOnSignal releases the lock when the run is interrupted (Ctrl-C) or
-// terminated, then exits as the signal would have: otherwise the lock would
-// outlive the run, naming a process that no longer exists.
+func unlock() {
+	lockMu.Lock()
+	defer lockMu.Unlock()
+	unlockLocked()
+}
+
+// written records that both generated files are in place, for the signal
+// handler's message; set, like the write itself, under lockMu.
+var written bool
+
+// releaseOnSignal releases the lock when the run is interrupted (Ctrl-C),
+// terminated or hung up, then exits with the shell's code for that signal
+// (128 + its number). It takes lockMu first, so a signal during the write
+// waits for both renames: the two files are never left split.
 func releaseOnSignal() {
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 
 	go func() {
 		sig := <-c
-		unlock()
-		fmt.Fprintf(os.Stderr, "\n%v: stopped; nothing was written\n", sig)
-		os.Exit(130)
+		lockMu.Lock()
+		unlockLocked()
+		what := "nothing was written"
+		if written {
+			what = "both generated files had already been written"
+		}
+		fmt.Fprintf(os.Stderr, "\n%v: stopped; %s\n", sig, what)
+		code := 130
+		if n, ok := sig.(syscall.Signal); ok {
+			code = 128 + int(n)
+		}
+		os.Exit(code)
 	}()
 }
 
@@ -625,7 +696,11 @@ func main() {
 	sort.Strings(refusedLost)
 
 	if len(accepted) > 0 {
-		fmt.Fprintf(os.Stderr, "DOCS_ALLOW_REMOVALS: accepting %d: %s\n", len(accepted), strings.Join(accepted, ", "))
+		from := "DOCS_ALLOW_REMOVALS"
+		if allowedFile != "" {
+			from = allowedFile
+		}
+		fmt.Fprintf(os.Stderr, "%s: accepting %d: %s\n", from, len(accepted), strings.Join(accepted, ", "))
 	}
 	named := make([]string, 0, len(accept.Keys))
 	for k := range accept.Keys {
@@ -638,15 +713,28 @@ func main() {
 			stale = append(stale, k)
 		}
 	}
-	// In the committed file, a line that accepts nothing is stale: left in,
-	// it would wave through the same loss in a later pull request, made by
-	// accident. It is refused, so it gets cleared.
-	if len(stale) > 0 && allowedFile != "" {
-		reason := append([]string{allowedFile + " lists entries this pull request neither removes nor moves:"}, stale...)
-		refuse(append(reason, "", "Delete those lines (an entry stays listed only in the pull request that drops it).")...)
-	}
+	// A committed line that accepts nothing in this run is stale. One the
+	// base still documents is refused: left in, it would wave through that
+	// entry's loss, made by accident, in this or a later pull request. One
+	// the base no longer has (its removal merged earlier) can accept nothing,
+	// so it only warns: refusing it would fail every pull request after the
+	// removal merged, docs or not, until someone cleared the line.
+	var staleLive []string
 	for _, k := range stale {
-		fmt.Fprintf(os.Stderr, "warning: DOCS_ALLOW_REMOVALS names %q, which this run neither removes nor moves\n", k)
+		if _, ok := committedSources[k]; ok && allowedFile != "" {
+			staleLive = append(staleLive, k)
+
+			continue
+		}
+		from := "DOCS_ALLOW_REMOVALS"
+		if allowedFile != "" {
+			from = allowedFile
+		}
+		fmt.Fprintf(os.Stderr, "warning: %s names %q, which this run neither removes nor moves; clear it\n", from, k)
+	}
+	if len(staleLive) > 0 {
+		reason := append([]string{allowedFile + " lists entries the base still documents that this pull request does not remove:"}, staleLive...)
+		refuse(append(reason, "", "Delete those lines: left in, they would accept those entries' loss by accident.")...)
 	}
 
 	if len(refusedRemoved)+len(refusedLost) > 0 {
@@ -761,7 +849,12 @@ func main() {
 	for _, k := range keys {
 		sb.WriteString(k + "\t" + sources[k] + "\n")
 	}
-	if err := writeAll([]generated{{outFile, out.Bytes()}, {sourcesFile, []byte(sb.String())}}); err != nil {
+	// Under lockMu: a signal arriving now waits until both renames are done.
+	lockMu.Lock()
+	err = writeAll([]generated{{outFile, out.Bytes()}, {sourcesFile, []byte(sb.String())}})
+	written = err == nil
+	lockMu.Unlock()
+	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		exit(1)
 	}

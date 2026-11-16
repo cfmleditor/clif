@@ -50,6 +50,12 @@ check)
     ;;
 set)
     [ $# -eq 3 ] || usage
+    # Writing the lock file takes the docs lock (inherited inside make
+    # docs-bump), so no generation reads it half-written.
+    # shellcheck source=lib/swapdir.sh
+    . scripts/lib/swapdir.sh
+    docs_lock
+    trap docs_unlock EXIT
     src=$2
     value=$3
     if ! valid_commit "$value"; then
