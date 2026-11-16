@@ -108,8 +108,8 @@ docs-bump:
 # the committed one has: see docs/retained/README.md. `build` does not run it:
 # a build compiles the committed docs, as CI and the release workflow do, and
 # regenerating is a deliberate step whose diff gets reviewed.
-generate: docs
-	go run scripts/generate_docs.go
+generate:
+	@bash scripts/generate.sh
 
 # Bumps the grammar first and regenerates the docs strictly last: a docs
 # problem (an upstream removal, a failed fetch) cannot stop the bump, and is

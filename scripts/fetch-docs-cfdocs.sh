@@ -24,14 +24,19 @@ NEW="$SRC.new"
 # shellcheck source=lib/retry.sh
 . scripts/lib/retry.sh
 
-docs_lock
+# The trap before the lock: an exit the moment the lock is taken still
+# releases it. Until then this run touches nothing shared.
 TMP=$(mktemp -d)
 cleanup() {
-    swap_recover "$SRC"
-    rm -rf "$TMP" "$NEW"
+    rm -rf "$TMP"
+    if docs_have_lock; then
+        swap_recover "$SRC"
+        rm -rf "$NEW"
+    fi
     docs_unlock
 }
 trap cleanup EXIT
+docs_lock
 
 # An interrupted earlier fetch may have left the previous copy aside (and no
 # marker, so it is never mistaken for the pin): put it back.

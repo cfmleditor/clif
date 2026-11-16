@@ -26,15 +26,21 @@ NEW="$DIR.new"
 # shellcheck source=lib/retry.sh
 . scripts/lib/retry.sh
 
-docs_lock
+# The trap before the lock: an exit the moment the lock is taken still
+# releases it. Until then this run touches nothing shared.
 TMP=""
 cleanup() {
-    swap_recover "$DIR"
-    rm -rf "$NEW"
-    [ -n "$TMP" ] && rm -rf "$TMP"
+    if [ -n "$TMP" ]; then
+        rm -rf "$TMP"
+    fi
+    if docs_have_lock; then
+        swap_recover "$DIR"
+        rm -rf "$NEW"
+    fi
     docs_unlock
 }
 trap cleanup EXIT
+docs_lock
 
 # On every run, not just a bump: an interrupted bump may have left the
 # committed copy aside in docs/lucee.old.

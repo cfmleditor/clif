@@ -54,8 +54,8 @@ set)
     # docs-bump), so no generation reads it half-written.
     # shellcheck source=lib/swapdir.sh
     . scripts/lib/swapdir.sh
-    docs_lock
     trap docs_unlock EXIT
+    docs_lock
     src=$2
     value=$3
     if ! valid_commit "$value"; then

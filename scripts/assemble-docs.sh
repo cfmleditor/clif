@@ -28,12 +28,16 @@ SOURCES="docs/src/cfdocs docs/retained docs/lucee"
 
 # The lock keeps a fetch or bump from swapping a source in while this checks
 # for it (and from having its set-aside copy moved back mid-swap below).
-docs_lock
+# The trap before the lock: an exit the moment the lock is taken still
+# releases it.
 cleanup() {
-    rm -f "$ORDER.tmp"
+    if docs_have_lock; then
+        rm -f "$ORDER.tmp"
+    fi
     docs_unlock
 }
 trap cleanup EXIT
+docs_lock
 
 # An interrupted fetch or bump may have left a copy aside: put each back
 # before checking for it.

@@ -33,7 +33,9 @@ swap_in() {
 
 # One docs run at a time: they share fixed paths (DIR.new, DIR.old), and one
 # run's cleanup would delete another's half-built copy or move its DIR.old
-# back mid-swap.
+# back mid-swap. This is the only implementation: scripts/generate_docs.go
+# takes no lock of its own, and only checks it was started under one
+# (scripts/generate.sh holds it across the fetch and the generator).
 #
 # The lock is a symlink naming its owner, "<pid>@<host>": creating a symlink
 # is atomic, and it is born holding the owner, so two runs can never both take
@@ -42,54 +44,92 @@ swap_in() {
 # with no ps and nothing locale- or time-zone-dependent. A lock from another
 # host, or a container whose processes this one cannot see, is never taken
 # over, since its owner may well be alive. The takeover happens under
-# DOCS_LOCK.takeover, an atomic mkdir, so two runs cannot both take it over.
-# A PID since reused by another process still looks alive: that run stops and
-# says to delete the lock, which is the safe way to be wrong.
+# DOCS_LOCK.takeover, an atomic mkdir (stale after a minute), so two runs
+# cannot both take it over. A PID since reused by another process still looks
+# alive: that run stops and says to delete the lock, the safe way to be wrong.
 #
-# A run started by one that holds the lock (make docs-bump's steps) inherits
-# it: the holder exports DOCS_LOCK_OWNER, and a run whose lock already names
-# that owner neither takes nor releases it. scripts/generate_docs.go follows
-# the same rules.
+# Locks from earlier versions of these scripts are recognised: a symlink to
+# "<pid>@<start time>" (taken as this host's), and a directory holding a pid
+# file. Either is taken over when its PID is gone.
+#
+# A run started by one that holds the lock inherits it: the holder exports
+# DOCS_LOCK_OWNER, and a run whose lock already names that owner neither takes
+# nor releases it.
 DOCS_LOCK="docs/.lock"
 
-docs_lock_self() { echo "$$@$(hostname 2>/dev/null || echo unknown)"; }
+docs_host() { hostname 2>/dev/null || uname -n 2>/dev/null || echo unknown; }
+docs_lock_self() { echo "$$@$(docs_host)"; }
 
-# docs_owner_gone OWNER: true only if OWNER is this host's and no process has
-# its PID. kill -0 fails for "no such process" and for "not permitted" (a live
-# process of another user) alike, so its message tells them apart; any other,
-# or a message in another language, counts as alive.
-docs_owner_gone() {
-    local pid=${1%%@*} host=${1#*@} out
-    [ "$host" = "$(hostname 2>/dev/null || echo unknown)" ] || return 1
-    case "$pid" in ''|*[!0-9]*) return 1 ;; esac
-    out=$(LC_ALL=C kill -0 "$pid" 2>&1) && return 1
+# docs_pid_gone PID: true only if no process has that PID. kill -0 fails for
+# "no such process" and for "not permitted" (a live process of another user)
+# alike, so its message tells them apart; any other, or a message in another
+# language, counts as alive.
+docs_pid_gone() {
+    local out
+    case "$1" in ''|*[!0-9]*) return 1 ;; esac
+    out=$(LC_ALL=C kill -0 "$1" 2>&1) && return 1
     case "$out" in *"No such process"*|*"no such process"*) return 0 ;; esac
     return 1
 }
+
+# docs_owner_gone OWNER: true only if OWNER is this host's and its PID is gone.
+# An earlier version's "<pid>@<start time>" (it holds a colon, which no host
+# name does) counts as this host's.
+docs_owner_gone() {
+    local pid=${1%%@*} host=${1#*@}
+    case "$host" in
+    *:*) ;;
+    "$(docs_host)") ;;
+    *) return 1 ;;
+    esac
+    docs_pid_gone "$pid"
+}
+
+# docs_have_lock: this run holds the lock, or inherited it.
+docs_have_lock() { [ -n "${DOCS_LOCK_HAVE:-}" ]; }
 
 # docs_lock: take the lock (or inherit it), or exit 1 if a live run holds it.
 docs_lock() {
     mkdir -p docs
     if [ -n "${DOCS_LOCK_OWNER:-}" ] && [ "$(readlink "$DOCS_LOCK" 2>/dev/null || true)" = "$DOCS_LOCK_OWNER" ]; then
-        return 0 # held by the run that started this one
+        DOCS_LOCK_HAVE=1 # held by the run that started this one, which releases it
+        return 0
+    fi
+
+    # An earlier version's lock: a directory with a pid file. Taken over when
+    # its PID is gone; refused otherwise, and never handed to ln -s, which
+    # would put the new link inside the directory and report success.
+    if [ -d "$DOCS_LOCK" ] && [ ! -L "$DOCS_LOCK" ]; then
+        local old
+        old=$(cat "$DOCS_LOCK/pid" 2>/dev/null || true)
+        if docs_pid_gone "$old"; then
+            rm -rf "$DOCS_LOCK"
+        else
+            echo "error: docs/.lock (an earlier version's lock directory) is held by PID ${old:-?}." >&2
+            echo "       If no docs run is in progress, delete it: rm -r docs/.lock" >&2
+            exit 1
+        fi
     fi
 
     local me held attempt
     me=$(docs_lock_self)
+    held=""
     for attempt in 1 2; do
         if ln -s "$me" "$DOCS_LOCK" 2>/dev/null; then
             DOCS_LOCKED=1
+            DOCS_LOCK_HAVE=1
             export DOCS_LOCK_OWNER="$me"
             return 0
         fi
-        # Released between the ln and here: try once more.
-        held=$(readlink "$DOCS_LOCK" 2>/dev/null) && break
+        # Readable: held, so stop. Unreadable: released between the ln and
+        # here, so the loop tries the ln once more.
+        if held=$(readlink "$DOCS_LOCK" 2>/dev/null); then
+            break
+        fi
     done
-    [ -n "${held:-}" ] || held="?"
+    [ -n "$held" ] || held="?"
 
     if docs_owner_gone "$held"; then
-        # A takeover dir left by a run killed mid-takeover is stale after a
-        # minute (a takeover takes milliseconds).
         if [ -d "$DOCS_LOCK.takeover" ] && [ -n "$(find "$DOCS_LOCK.takeover" -maxdepth 0 -mmin +1 2>/dev/null)" ]; then
             rmdir "$DOCS_LOCK.takeover" 2>/dev/null || true
         fi
@@ -99,13 +139,14 @@ docs_lock() {
                 rm -f "$DOCS_LOCK"
             fi
             if ln -s "$me" "$DOCS_LOCK" 2>/dev/null; then
-                rmdir "$DOCS_LOCK.takeover"
-                echo "note: took over docs/.lock from $held, which is no longer running" >&2
                 DOCS_LOCKED=1
+                DOCS_LOCK_HAVE=1
                 export DOCS_LOCK_OWNER="$me"
+                rmdir "$DOCS_LOCK.takeover" 2>/dev/null || true
+                echo "note: took over docs/.lock from $held, which is no longer running" >&2
                 return 0
             fi
-            rmdir "$DOCS_LOCK.takeover"
+            rmdir "$DOCS_LOCK.takeover" 2>/dev/null || true
             held=$(readlink "$DOCS_LOCK" 2>/dev/null || echo "?")
         fi
     fi
@@ -120,4 +161,6 @@ docs_unlock() {
     if [ -n "${DOCS_LOCKED:-}" ] && [ "$(readlink "$DOCS_LOCK" 2>/dev/null || true)" = "$(docs_lock_self)" ]; then
         rm -f "$DOCS_LOCK"
     fi
+    DOCS_LOCKED=""
+    DOCS_LOCK_HAVE=""
 }

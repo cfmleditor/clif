@@ -300,7 +300,7 @@ jobs:
           # The generator reads docs/allowed-removals itself, strictly: a line
           # it cannot read, "1" (which would accept every loss), or an entry
           # this PR does not actually remove (a stale one) fails the step.
-          DOCS_BASELINE_REF="$BASE" DOCS_ALLOWED_REMOVALS_FILE=docs/allowed-removals go run scripts/generate_docs.go
+          DOCS_BASELINE_REF="$BASE" DOCS_ALLOWED_REMOVALS_FILE=docs/allowed-removals bash scripts/generate.sh --generate-only
 
       - name: Check nothing changed
         run: |

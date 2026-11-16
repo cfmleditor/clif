@@ -23,8 +23,8 @@ cd "$(dirname "$0")/.."
 # shellcheck source=lib/swapdir.sh
 . scripts/lib/swapdir.sh
 
-docs_lock
 trap docs_unlock EXIT
+docs_lock
 
 DOCS_BUMP=1 bash scripts/fetch-docs-cfdocs.sh
 commit=$(cat docs/.sha-cfdocs)

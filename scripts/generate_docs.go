@@ -15,11 +15,9 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"syscall"
-	"time"
 
 	docsources "github.com/cfmleditor/clif/internal/docs/sources"
 )
@@ -102,13 +100,12 @@ const (
 // "REF:./path" is relative to the working directory; "REF:path" would be
 // relative to the repository root, and miss when clif is a subdirectory of
 // another repository (vendored, or in a monorepo).
-func committed(path string) (status baselineStatus, data []byte, err error) {
+func committed(ref, path string) (status baselineStatus, data []byte, err error) {
 	g := gitInfo()
 	if !g.available {
 		return baselineNoGit, nil, nil
 	}
 
-	ref := baselineRef()
 	if !resolves(ref) {
 		return baselineNoRef, nil, nil
 	}
@@ -212,130 +209,41 @@ type Entry struct {
 	} `json:"member_details"`
 }
 
-// docsLock is the lock scripts/lib/swapdir.sh takes: a symlink naming its
-// owner, "<pid>@<host>", created atomically. The generator holds it too, so a
-// fetch or bump cannot swap a source directory (or move cfdocs' marker) while
-// this reads it. The rules match the shell's: a lock is taken over only when
-// it names this host and its PID no longer exists (a lock from a container,
-// whose processes this one cannot see, never is), under docsLock+".takeover",
-// an atomic mkdir, so two runs cannot both; a run whose lock already names
-// DOCS_LOCK_OWNER inherits it from the run that started it.
+// docsLock is the lock scripts/lib/swapdir.sh takes and scripts/generate.sh
+// holds across the fetch, the assemble and this generator, so no fetch or
+// bump can swap a source while it is read. The generator takes no lock of its
+// own (the rules live once, in the shell): it only checks that the lock names
+// DOCS_LOCK_OWNER, the run that started it.
 const docsLock = "docs/.lock"
 
+func requireLock() {
+	owner := os.Getenv("DOCS_LOCK_OWNER")
+	held, err := os.Readlink(docsLock)
+	if owner == "" || err != nil || held != owner {
+		fmt.Fprintln(os.Stderr, "error: run the generator through `make generate` (scripts/generate.sh), which holds docs/.lock")
+		fmt.Fprintln(os.Stderr, "       across the fetch and the generation, so no other docs run can swap a source meanwhile.")
+		os.Exit(1)
+	}
+}
+
 var (
-	// lockMu guards lockHeld and the write: the signal handler takes it, so
-	// it can neither race unlock() nor stop the run between the two renames.
-	lockMu   sync.Mutex
-	lockHeld bool
+	// writeMu guards the write and written: the signal handler takes it, so
+	// a signal during the write waits until both renames are done, and the
+	// two generated files are never left split.
+	writeMu sync.Mutex
+	written bool
 )
 
-func lockOwner() string {
-	host, err := os.Hostname()
-	if err != nil || host == "" {
-		host = "unknown"
-	}
-
-	return strconv.Itoa(os.Getpid()) + "@" + host
-}
-
-// ownerGone reports whether owner is this host's and its PID is gone: "no
-// such process" (ESRCH) only, since EPERM is a live process of another user.
-func ownerGone(owner string) bool {
-	pidPart, host, ok := strings.Cut(owner, "@")
-	if !ok || host != strings.SplitN(lockOwner(), "@", 2)[1] {
-		return false
-	}
-
-	pid, err := strconv.Atoi(pidPart)
-
-	return err == nil && pid > 0 && errors.Is(syscall.Kill(pid, 0), syscall.ESRCH)
-}
-
-func lock() {
-	if inherited := os.Getenv("DOCS_LOCK_OWNER"); inherited != "" {
-		if held, err := os.Readlink(docsLock); err == nil && held == inherited {
-			return // held by the run that started this one, which releases it
-		}
-	}
-
-	me := lockOwner()
-	held := ""
-	for range 2 {
-		if os.Symlink(me, docsLock) == nil {
-			lockMu.Lock()
-			lockHeld = true
-			lockMu.Unlock()
-
-			return
-		}
-		var err error
-		if held, err = os.Readlink(docsLock); err == nil {
-			break // released between the two: the loop tries once more
-		}
-	}
-
-	if ownerGone(held) {
-		takeover := docsLock + ".takeover"
-		// Left by a run killed mid-takeover, which takes milliseconds: stale.
-		if info, err := os.Stat(takeover); err == nil && time.Since(info.ModTime()) > time.Minute {
-			_ = os.Remove(takeover)
-		}
-		if os.Mkdir(takeover, 0o755) == nil {
-			if cur, _ := os.Readlink(docsLock); cur == held {
-				_ = os.Remove(docsLock)
-			}
-			err := os.Symlink(me, docsLock)
-			_ = os.Remove(takeover)
-			if err == nil {
-				fmt.Fprintf(os.Stderr, "note: took over %s from %s, which is no longer running\n", docsLock, held)
-				lockMu.Lock()
-				lockHeld = true
-				lockMu.Unlock()
-
-				return
-			}
-			held, _ = os.Readlink(docsLock)
-		}
-	}
-
-	if held == "" {
-		held = "?"
-	}
-	fmt.Fprintf(os.Stderr, "error: %s is held by %s: another docs run is in progress.\n", docsLock, held)
-	fmt.Fprintf(os.Stderr, "       If none is, delete it: rm %s (and %s.takeover, if there is one)\n", docsLock, docsLock)
-	os.Exit(1)
-}
-
-// unlockLocked releases the lock; lockMu must be held.
-func unlockLocked() {
-	if held, err := os.Readlink(docsLock); lockHeld && err == nil && held == lockOwner() {
-		_ = os.Remove(docsLock)
-	}
-	lockHeld = false
-}
-
-func unlock() {
-	lockMu.Lock()
-	defer lockMu.Unlock()
-	unlockLocked()
-}
-
-// written records that both generated files are in place, for the signal
-// handler's message; set, like the write itself, under lockMu.
-var written bool
-
-// releaseOnSignal releases the lock when the run is interrupted (Ctrl-C),
-// terminated or hung up, then exits with the shell's code for that signal
-// (128 + its number). It takes lockMu first, so a signal during the write
-// waits for both renames: the two files are never left split.
-func releaseOnSignal() {
+// stopOnSignal exits on Ctrl-C, a kill or a hang-up with the shell's code for
+// that signal (128 + its number), once any write in progress is whole. The
+// lock is released by scripts/generate.sh's trap, not here.
+func stopOnSignal() {
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 
 	go func() {
 		sig := <-c
-		lockMu.Lock()
-		unlockLocked()
+		writeMu.Lock()
 		what := "nothing was written"
 		if written {
 			what = "both generated files had already been written"
@@ -349,10 +257,8 @@ func releaseOnSignal() {
 	}()
 }
 
-// exit releases the lock and exits: every way out of main goes through here,
-// since os.Exit runs no deferred calls.
+// exit is how main leaves: one place, should leaving ever need more.
 func exit(code int) {
-	unlock()
 	os.Exit(code)
 }
 
@@ -446,9 +352,8 @@ func main() {
 	// The handler first, then the lock: a signal arriving the moment the lock
 	// is taken must still release it. (Before the lock is held, unlock is a
 	// no-op.)
-	releaseOnSignal()
-	lock()
-	defer unlock() // a panic unwinds through here
+	stopOnSignal()
+	requireLock()
 	ob, err := os.ReadFile(orderFile)
 	if err != nil {
 		refuse(fmt.Sprintf("No %s: run `make docs` first (fetches cfdocs and assembles the order).", orderFile))
@@ -616,9 +521,19 @@ func main() {
 	// DOCS_ALLOWED_REMOVALS_FILE (CI's comparison with a pull request's
 	// base) takes the accepted losses from a committed file, read strictly;
 	// DOCS_ALLOW_REMOVALS (a person at a terminal) from the environment.
+	//
+	// In the file, only the lines this pull request adds (those the base's
+	// copy lacks) accept anything. A line the base already has is left over
+	// from an earlier pull request: it accepts nothing, so it can neither wave
+	// a later loss through by accident nor fail anyone, and only warns until
+	// cleared.
+	ref := baselineRef()
 	allowedFile := os.Getenv("DOCS_ALLOWED_REMOVALS_FILE")
+	acceptFrom := "DOCS_ALLOW_REMOVALS"
 	var accept docsources.Acceptance
+	var leftOver []string
 	if allowedFile != "" {
+		acceptFrom = allowedFile
 		if os.Getenv("DOCS_ALLOW_REMOVALS") != "" {
 			refuse("DOCS_ALLOW_REMOVALS and DOCS_ALLOWED_REMOVALS_FILE are both set: use one.")
 		}
@@ -630,7 +545,24 @@ func main() {
 		if err != nil {
 			refuse(err.Error())
 		}
-		accept = docsources.Acceptance{Keys: keys}
+		baseStatus, baseRaw, baseErr := committed(ref, allowedFile)
+		if baseStatus == baselineUnreadable {
+			refuse(fmt.Sprintf("Could not read %s at %s: %v", allowedFile, ref, baseErr))
+		}
+		baseKeys, err := docsources.ParseAllowedRemovals(ref+":"+allowedFile, baseRaw)
+		if err != nil {
+			refuse(err.Error())
+		}
+		added := map[string]bool{}
+		for k := range keys {
+			if baseKeys[k] {
+				leftOver = append(leftOver, k)
+			} else {
+				added[k] = true
+			}
+		}
+		sort.Strings(leftOver)
+		accept = docsources.Acceptance{Keys: added}
 	} else {
 		var ignored []string
 		accept, ignored = docsources.ParseAcceptance(os.Getenv("DOCS_ALLOW_REMOVALS"))
@@ -638,8 +570,7 @@ func main() {
 			fmt.Fprintf(os.Stderr, "warning: DOCS_ALLOW_REMOVALS: %q is not \"function <name>\" or \"tag <name>\"; ignored\n", k)
 		}
 	}
-	status, committedRaw, readErr := committed(sourcesFile)
-	ref := baselineRef()
+	status, committedRaw, readErr := committed(ref, sourcesFile)
 
 	switch status {
 	case baselinePresent:
@@ -696,11 +627,10 @@ func main() {
 	sort.Strings(refusedLost)
 
 	if len(accepted) > 0 {
-		from := "DOCS_ALLOW_REMOVALS"
-		if allowedFile != "" {
-			from = allowedFile
-		}
-		fmt.Fprintf(os.Stderr, "%s: accepting %d: %s\n", from, len(accepted), strings.Join(accepted, ", "))
+		fmt.Fprintf(os.Stderr, "%s: accepting %d: %s\n", acceptFrom, len(accepted), strings.Join(accepted, ", "))
+	}
+	for _, k := range leftOver {
+		fmt.Fprintf(os.Stderr, "warning: %s still lists %q from an earlier pull request; it accepts nothing now, so clear it\n", acceptFrom, k)
 	}
 	named := make([]string, 0, len(accept.Keys))
 	for k := range accept.Keys {
@@ -713,28 +643,15 @@ func main() {
 			stale = append(stale, k)
 		}
 	}
-	// A committed line that accepts nothing in this run is stale. One the
-	// base still documents is refused: left in, it would wave through that
-	// entry's loss, made by accident, in this or a later pull request. One
-	// the base no longer has (its removal merged earlier) can accept nothing,
-	// so it only warns: refusing it would fail every pull request after the
-	// removal merged, docs or not, until someone cleared the line.
-	var staleLive []string
-	for _, k := range stale {
-		if _, ok := committedSources[k]; ok && allowedFile != "" {
-			staleLive = append(staleLive, k)
-
-			continue
-		}
-		from := "DOCS_ALLOW_REMOVALS"
-		if allowedFile != "" {
-			from = allowedFile
-		}
-		fmt.Fprintf(os.Stderr, "warning: %s names %q, which this run neither removes nor moves; clear it\n", from, k)
+	// A line this pull request adds that accepts nothing is a mistake (a
+	// typo, or a removal since undone): refused, so it is not merged to sit
+	// there. Under DOCS_ALLOW_REMOVALS it only warns.
+	if len(stale) > 0 && allowedFile != "" {
+		reason := append([]string{allowedFile + ": this pull request adds entries it neither removes nor moves:"}, stale...)
+		refuse(append(reason, "", "Delete those lines, or check the name (\"function <name>\" or \"tag <name>\").")...)
 	}
-	if len(staleLive) > 0 {
-		reason := append([]string{allowedFile + " lists entries the base still documents that this pull request does not remove:"}, staleLive...)
-		refuse(append(reason, "", "Delete those lines: left in, they would accept those entries' loss by accident.")...)
+	for _, k := range stale {
+		fmt.Fprintf(os.Stderr, "warning: %s names %q, which this run neither removes nor moves\n", acceptFrom, k)
 	}
 
 	if len(refusedRemoved)+len(refusedLost) > 0 {
@@ -849,18 +766,17 @@ func main() {
 	for _, k := range keys {
 		sb.WriteString(k + "\t" + sources[k] + "\n")
 	}
-	// Under lockMu: a signal arriving now waits until both renames are done.
-	lockMu.Lock()
+	// Under writeMu: a signal arriving now waits until both renames are done.
+	writeMu.Lock()
 	err = writeAll([]generated{{outFile, out.Bytes()}, {sourcesFile, []byte(sb.String())}})
 	written = err == nil
-	lockMu.Unlock()
+	writeMu.Unlock()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		exit(1)
 	}
 
 	fmt.Fprintf(os.Stderr, "generated %s with %d entries, and %s\n", outFile, len(entries), sourcesFile)
-	unlock()
 }
 
 // generated is one file writeAll writes.
