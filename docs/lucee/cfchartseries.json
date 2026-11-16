@@ -1,0 +1,84 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/tags/chartseries.html",
+        "minimum_version": ""
+    }},
+    "name": "cfchartseries",
+    "description": "Used with the cfchart and cfchartseries tags. This tag defines chart data points. Its data is submitted to the cfchartseries tag.",
+    "syntax": "<cfchartseries type=\"\"/>",
+    "returns": "void",
+    "type": "tag",
+    "params": [
+        {
+            "name": "colorlist",
+            "description": "Applies if chartseries type attribute = \"pie\". Sets pie slice colors.\n\nComma-delimited list of hex values or supported, named web colors;\nsee name list in the [[tag-chart]] Usage section.\n\nFor a hex value, use the form \"##xxxxxx\", where x = 0-9 or A-F; use two pound signs or none.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "itemColumn",
+            "description": "Name of a column in the query specified in the query\nattribute; contains the item label for a data point to\ngraph.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "markerStyle",
+            "description": "Applies to chartseries type attribute values line, curve\nand scatter, and show3D attribute value no.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "paintStyle",
+            "description": "Sets the paint display style of the data series.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "query",
+            "description": "Name of CFML query from which to get data.",
+            "default": false,
+            "type": "any",
+            "required": false
+        },
+        {
+            "name": "seriesColor",
+            "description": "Color of the main element (such as the bars) of a chart.\nFor a pie chart, the color of the first slice.\n\nHex value or supported named color; see name list in the [[tag-chart]] Usage section.\n\nFor a hex value, use the form \"##xxxxxx\", where x = 0-9 or A-F; use two pound signs or none.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "seriesLabel",
+            "description": "Text of data series label",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "type",
+            "description": "Sets the chart display style",
+            "default": false,
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "valueColumn",
+            "description": "Name of a column in the query specified in the query\nattribute; contains data values to graph.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "dataLabelStyle",
+            "description": "Specifies the way in which the color is applied to the\nitem in the series:\n\n- None = nothing is printed (default)\n- Value = the value of the datapoint\n- Rowlabel = the row's label\n- Columnlabel = the column's label\n- Pattern",
+            "default": false,
+            "type": "string",
+            "required": false
+        }
+    ],
+    "body": "optional"
+}

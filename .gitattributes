@@ -1,0 +1,10 @@
+# Read line by line by scripts/generate_docs.go and internal/docs tests, which
+# compare each line exactly: keep them LF on a core.autocrlf checkout.
+internal/docs/generated_sources.txt text eol=lf
+docs/retained/*.json text eol=lf
+# Read line by line by scripts/docs-lock.sh and fetch-docs-lucee.sh (awk, exact
+# commit and hash compares that a trailing \r would break).
+docs/sources.lock text eol=lf
+docs/lucee/SOURCE text eol=lf
+# Upstream's files, vendored byte for byte: no line-ending conversion.
+docs/lucee/*.json -text

@@ -1,0 +1,33 @@
+{
+    "member_details": {
+        "name": "map",
+        "type": "string",
+        "returns": "string"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/stringmap.html",
+        "minimum_version": "6.0.0.105",
+        "notes": "Since Lucee 6, this function iterates over each character in the string.\n\nFor list-based iteration with delimiters, use [[function-listmap]] instead.\n\n[LDEV-3747](https://luceeserver.atlassian.net/browse/LDEV-3747)\n"
+    }},
+    "name": "StringMap",
+    "description": "Iterates over every entry of the string and calls the closure function to work on the element of the string.",
+    "syntax": "StringMap( string string, [function closure] )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "string",
+            "description": "Input string.",
+            "aliases": "inputString,object",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "closure",
+            "description": "Closure or a function reference that will be called for each of the iteration.",
+            "aliases": "callback",
+            "type": "function",
+            "required": false
+        }
+    ]
+}

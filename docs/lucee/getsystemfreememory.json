@@ -1,0 +1,12 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/getsystemfreememory.html",
+        "minimum_version": ""
+    }},
+    "name": "GetSystemFreeMemory",
+    "description": "The amount of memory that is currently free, in bytes.",
+    "syntax": "GetSystemFreeMemory()",
+    "returns": "number",
+    "type": "function",
+    "params": []
+}

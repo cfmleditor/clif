@@ -1,0 +1,30 @@
+{
+    "member_details": {
+        "name": "unshift",
+        "type": "array",
+        "returns": "array"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/arrayunshift.html",
+        "minimum_version": "5.3.8.104"
+    }},
+    "name": "arrayUnShift",
+    "description": "Adds an element at the beginning of the array and shifts the rest of the elements to the right.",
+    "syntax": "arrayUnShift( array array, any value )",
+    "returns": "numeric",
+    "type": "function",
+    "params": [
+        {
+            "name": "array",
+            "description": "The array where an object is to be added.",
+            "type": "array",
+            "required": true
+        },
+        {
+            "name": "value",
+            "description": "Element to be added at the beginning of an array\n",
+            "type": "any",
+            "required": true
+        }
+    ]
+}

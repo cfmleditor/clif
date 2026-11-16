@@ -1,0 +1,33 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/inquiryaisession.html",
+        "minimum_version": ""
+    }},
+    "name": "InquiryAISession",
+    "description": "Sends a question/message to an AI session and returns the response. The function maintains conversation context from previous interactions within the same session.\nThe response can either be returned as a complete string or streamed in chunks to a listener function for real-time processing.",
+    "syntax": "InquiryAISession( any session, any question, [function listener] )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "session",
+            "description": "The AI session object returned by LuceeCreateAISession(). This session maintains the conversation history and configuration settings like temperature and system message.",
+            "aliases": "aiSession",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "question",
+            "description": "The question or message to send to the AI. This can be plain text or structured data (like JSON) depending on how the session was configured in its system message.\n\nThe question becomes part of the conversation history and provides context for future interactions within the same session.",
+            "aliases": "message,parts",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "listener",
+            "description": "A user-defined function that receives the response in chunks as they arrive from the AI. This enables real-time processing or display of the response.\n\nThe listener function receives the response chunk as its first argument, followed by the chunk number, whether this is the last chunk, the type of the chunk (`text` or `binary`), its content type and the part number.\n\nWhen a listener is provided, the function still returns the complete response, but also streams each chunk to the listener as it arrives.\n\nThe listener can cancel the inquiry by returning boolean `false` *(since 9.0)*. Lucee then stops reading the response, closes the connection to the AI and returns what has been received so far, including the chunk the listener was called with when it returned `false`. The listener is not called again. A listener that returns nothing, `true` or any other value does not cancel, the response is streamed to the end.\n",
+            "type": "function",
+            "required": false
+        }
+    ]
+}

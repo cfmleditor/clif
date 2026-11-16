@@ -1,0 +1,49 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/tags/div.html",
+        "minimum_version": ""
+    }},
+    "name": "cfdiv",
+    "description": "Creates an HTML tag with specified contents and lets you to use bind expressions to dynamically control the tag contents.",
+    "syntax": "<cfdiv/>",
+    "returns": "void",
+    "type": "tag",
+    "params": [
+        {
+            "name": "id",
+            "description": "The HTML ID attribute value to assign to the generated container tag.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "bindOnLoad",
+            "description": "- true (executes the bind attribute expression when first loading the tag.\n- false (does not execute the bind attribute expression until the first bound event)\n\nTo use this attribute, you must also specify a bind attribute",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "bind",
+            "description": "**(not supported)** \nA bind expression that returns the container contents. Note: If a CFML page specified in this attribute contains tags that use AJAX features, such as cfform, cfgrid, and cfwindow, you must use a tag on the page with the tag. For more information, see cfajaximport.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "onBindError",
+            "description": "The name of a JavaScript function to execute if evaluating a bind expression results in an error. The function must take two attributes: an HTTP status code and a message.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "tagName",
+            "description": "The HTML container tag to create.",
+            "default": false,
+            "type": "string",
+            "required": false
+        }
+    ],
+    "body": "optional"
+}

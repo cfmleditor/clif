@@ -1,0 +1,13 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/ormflushall.html",
+        "minimum_version": "",
+        "notes": "Equivalent to calling [[function-ormflush]] for each active datasource session.\n\nUseful when your application uses multiple ORM datasources and you want to flush all pending changes in one call.\n\nLike [[function-ormflush]], prefer using `transaction` blocks over manual flush calls \u2014 calling `ORMFlushAll()` outside a transaction means each statement auto-commits individually with no rollback on failure.\n\nSee [[orm-session-and-transactions]] for multi-datasource details.\n"
+    }},
+    "name": "ORMFlushAll",
+    "description": "Flushes all open ORM sessions across all datasources. All pending CRUD operations in every active ORM session are saved to the database.",
+    "syntax": "ORMFlushAll()",
+    "returns": "void",
+    "type": "function",
+    "params": []
+}

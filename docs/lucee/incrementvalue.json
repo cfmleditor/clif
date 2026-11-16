@@ -1,0 +1,22 @@
+{
+    "member_details": {
+        "name": "incrementValue",
+        "type": "numeric",
+        "returns": "numeric"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/incrementvalue.html",
+        "minimum_version": ""
+    }},
+    "name": "incrementValue",
+    "description": "this function is deprecated, use instead the ++ operator;Increments the current number by one",
+    "syntax": "incrementValue( number number )",
+    "returns": "number",
+    "type": "function",
+    "params": [{
+        "name": "number",
+        "description": "Number to increment",
+        "type": "number",
+        "required": true
+    }]
+}

@@ -1,0 +1,32 @@
+{
+    "member_details": {
+        "name": "setDrawingColor",
+        "type": "image",
+        "returns": "image"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/imagesetdrawingcolor.html",
+        "minimum_version": ""
+    }},
+    "name": "ImageSetDrawingColor",
+    "description": "Sets the current drawing color for images. All subsequent graphics operations use the specified color.",
+    "syntax": "ImageSetDrawingColor( any image, string color )",
+    "returns": "void",
+    "type": "function",
+    "params": [
+        {
+            "name": "image",
+            "description": "The image on which this operation is performed.",
+            "aliases": "name",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "color",
+            "description": "Drawing color (The default value is \"black\"):\n\n- Hexadecimal value of RGB color. For example, specify the color white as ##FFFFFF or FFFFFF.\n- String value of color (for example, \"black\", \"red\", \"green\").\n- List of three numbers for (R,G,B) values. Each value must be in the range 0-255.",
+            "aliases": "colour",
+            "type": "string",
+            "required": true
+        }
+    ]
+}

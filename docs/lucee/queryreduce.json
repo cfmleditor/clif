@@ -1,0 +1,39 @@
+{
+    "member_details": {
+        "name": "reduce",
+        "type": "query",
+        "returns": "query"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/queryreduce.html",
+        "minimum_version": ""
+    }},
+    "name": "QueryReduce",
+    "description": "Iterates over every row of the given query and calls the closure with that row. \nThis function will reduce the query to a single value and will return this value.",
+    "syntax": "QueryReduce( query query, function closure, [object initialValue] )",
+    "returns": "any",
+    "type": "function",
+    "params": [
+        {
+            "name": "query",
+            "description": "query to iterate",
+            "aliases": "object",
+            "type": "query",
+            "required": true
+        },
+        {
+            "name": "closure",
+            "description": "function/closure that implements the following constructor\n\n`function(any result, struct row[, number rowNumber, query query]){ return result;}`",
+            "aliases": "function,callback,udf",
+            "type": "function",
+            "required": true
+        },
+        {
+            "name": "initialValue",
+            "description": "initial value passed as part of the first closure call",
+            "aliases": "initial,initalValue",
+            "type": "object",
+            "required": false
+        }
+    ]
+}

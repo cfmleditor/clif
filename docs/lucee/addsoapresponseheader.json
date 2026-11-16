@@ -1,0 +1,37 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/addsoapresponseheader.html",
+        "minimum_version": ""
+    }},
+    "name": "addSOAPResponseHeader",
+    "description": "Adds a SOAP response header to a web service response. Call only from within a CFC web service function that is processing a request as a SOAP web service.",
+    "syntax": "addSOAPResponseHeader( string namespace, string name, object value, [boolean mustUnderstand] )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [
+        {
+            "name": "namespace",
+            "description": "A String that is the namespace for the header.",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "name",
+            "description": "A String that is the name of the header",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "value",
+            "description": "the value for the SOAP header; this can be a XML value.",
+            "type": "object",
+            "required": true
+        },
+        {
+            "name": "mustUnderstand",
+            "description": "Sets the SOAP mustunderstand value for this header.",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

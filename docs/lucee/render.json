@@ -1,0 +1,18 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/render.html",
+        "minimum_version": "5.0.0.0"
+    }},
+    "name": "render",
+    "description": "Similar to the Evaluate() function, this function executes Lucee tag code that you provide as a string and returns any output as a string.",
+    "syntax": "render( string code )",
+    "returns": "string",
+    "type": "function",
+    "params": [{
+        "name": "code",
+        "description": "The code to evaluate, e.g. `\"#methodName#( argumentCollection=argsCollection )\"`",
+        "aliases": "cfml",
+        "type": "string",
+        "required": true
+    }]
+}

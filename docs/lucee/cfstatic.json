@@ -1,0 +1,13 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/tags/static.html",
+        "minimum_version": "5.0.0.0"
+    }},
+    "name": "cfstatic",
+    "description": "defines a static constructor within components",
+    "syntax": "<cfstatic/>",
+    "returns": "void",
+    "type": "tag",
+    "params": [],
+    "body": "required"
+}

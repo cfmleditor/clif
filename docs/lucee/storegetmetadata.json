@@ -1,0 +1,17 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/storegetmetadata.html",
+        "minimum_version": "5.0.0.000"
+    }},
+    "name": "StoreGetMetaData",
+    "description": "Returns the metadata related to the object or bucket. This function operates identically to \"S3GetMetaData\", making it deprecated. The updated function offers greater flexibility in defining the endpoint.",
+    "syntax": "StoreGetMetaData( string url )",
+    "returns": "struct",
+    "type": "function",
+    "params": [{
+        "name": "url",
+        "description": "Amazon S3 URL",
+        "type": "string",
+        "required": true
+    }]
+}

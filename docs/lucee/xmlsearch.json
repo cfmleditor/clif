@@ -1,0 +1,32 @@
+{
+    "member_details": {
+        "name": "search",
+        "type": "xml",
+        "returns": "xml"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/xmlsearch.html",
+        "minimum_version": ""
+    }},
+    "name": "xmlSearch",
+    "description": "Uses an XPath language expression to search an XML document object.",
+    "syntax": "xmlSearch( xml xml, string xpath )",
+    "returns": "object",
+    "type": "function",
+    "params": [
+        {
+            "name": "xml",
+            "description": "XML document object",
+            "aliases": "xmlObj,xmlDoc,node",
+            "type": "xml",
+            "required": true
+        },
+        {
+            "name": "xpath",
+            "description": "XPath expression",
+            "aliases": "path,xPathString",
+            "type": "string",
+            "required": true
+        }
+    ]
+}

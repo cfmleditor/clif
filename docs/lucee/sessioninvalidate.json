@@ -1,0 +1,12 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/sessioninvalidate.html",
+        "minimum_version": ""
+    }},
+    "name": "SessionInvalidate",
+    "description": "Invalidates or cleans up the current session.",
+    "syntax": "SessionInvalidate()",
+    "returns": "void",
+    "type": "function",
+    "params": []
+}

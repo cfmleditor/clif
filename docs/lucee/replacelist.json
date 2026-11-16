@@ -1,0 +1,56 @@
+{
+    "member_details": {
+        "name": "replaceList",
+        "type": "string",
+        "returns": "string"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/replacelist.html",
+        "minimum_version": ""
+    }},
+    "name": "replaceList",
+    "description": "Replaces occurrences of the elements from a delimited list\nin a string with corresponding elements from another delimited\nlist. The search is case-sensitive.",
+    "syntax": "replaceList( string string, string list1, string list2, [string delimiter_list1], [string delimiter_list2], [boolean includeEmptyFields] )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "string",
+            "description": "A string",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "list1",
+            "description": "string list of search strings",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "list2",
+            "description": "string list of replacement strings",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "delimiter_list1",
+            "description": "Delimiter for search, or if no replacement delimiter is defined, this delimiter is used for search and replacement.",
+            "aliases": "delimiter,delimiterList1",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "delimiter_list2",
+            "description": "Delimiter for replacement.",
+            "aliases": "delimiterList2",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "includeEmptyFields",
+            "description": "When true, empty elements are preserved",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

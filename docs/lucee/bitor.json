@@ -1,0 +1,30 @@
+{
+    "member_details": {
+        "name": "bitOr",
+        "type": "numeric",
+        "returns": "numeric"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/bitor.html",
+        "minimum_version": ""
+    }},
+    "name": "bitOr",
+    "description": "Performs a bitwise logical OR operation.",
+    "syntax": "bitOr( number number1, number number2 )",
+    "returns": "number",
+    "type": "function",
+    "params": [
+        {
+            "name": "number1",
+            "description": "an integer",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "number2",
+            "description": "an integer",
+            "type": "number",
+            "required": true
+        }
+    ]
+}

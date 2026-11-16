@@ -1,0 +1,26 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/lsisnumeric.html",
+        "minimum_version": ""
+    }},
+    "name": "lSIsNumeric",
+    "description": "Determines whether a string is a valid representation of a\nnumber in the current locale.",
+    "syntax": "lSIsNumeric( string number, [locale locale] )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [
+        {
+            "name": "number",
+            "description": "A string or a variable that contains one",
+            "aliases": "string",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "locale",
+            "description": "Locale to use instead of the locale of the page when processing the function",
+            "type": "locale",
+            "required": false
+        }
+    ]
+}

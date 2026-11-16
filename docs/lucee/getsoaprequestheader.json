@@ -1,0 +1,31 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/getsoaprequestheader.html",
+        "minimum_version": ""
+    }},
+    "name": "getSOAPRequestHeader",
+    "description": "Obtains a SOAP request header. Call only from within\na CFC web service function that is processing a request\nas a SOAP web service.",
+    "syntax": "getSOAPRequestHeader( string namespace, string name, [boolean asXML] )",
+    "returns": "any",
+    "type": "function",
+    "params": [
+        {
+            "name": "namespace",
+            "description": "A String that is the namespace for the header.",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "name",
+            "description": "A String that is the name of the header",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "asXML",
+            "description": "If True, the header is returned as a XML object;\nif false (default), the header is returned as a Java object.",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

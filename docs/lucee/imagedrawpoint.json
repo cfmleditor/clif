@@ -1,0 +1,37 @@
+{
+    "member_details": {
+        "name": "drawPoint",
+        "type": "image",
+        "returns": "image"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/imagedrawpoint.html",
+        "minimum_version": ""
+    }},
+    "name": "ImageDrawPoint",
+    "description": "Draws a point at the specified (x,y) coordinate.",
+    "syntax": "ImageDrawPoint( any image, number x, number y )",
+    "returns": "void",
+    "type": "function",
+    "params": [
+        {
+            "name": "image",
+            "description": "The image on which this operation is performed.",
+            "aliases": "name",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "x",
+            "description": "The x coordinate of the point.",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "y",
+            "description": "The y coordinate of the point.",
+            "type": "number",
+            "required": true
+        }
+    ]
+}

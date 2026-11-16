@@ -1,0 +1,27 @@
+{
+    "name": "GenerateSignature",
+    "description": "Creates a digital signature using a private key.",
+    "syntax": "GenerateSignature( any data, any privateKey, [string algorithm] )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "data",
+            "description": "Data to sign (string or binary)",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "privateKey",
+            "description": "Private key (PEM string or Java object)",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "algorithm",
+            "description": "Signature algorithm (e.g., SHA256withRSA, SHA256withECDSA, Ed25519). Auto-detected if omitted.",
+            "type": "string",
+            "required": false
+        }
+    ]
+}

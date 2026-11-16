@@ -1,0 +1,17 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/isboolean.html",
+        "minimum_version": ""
+    }},
+    "name": "isBoolean",
+    "description": "Determines if the object represents a boolean value",
+    "syntax": "isBoolean( any value )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [{
+        "name": "value",
+        "description": "Number or string",
+        "type": "any",
+        "required": true
+    }]
+}

@@ -1,0 +1,17 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/xmlnew.html",
+        "minimum_version": ""
+    }},
+    "name": "xmlNew",
+    "description": "Creates an XML document object.",
+    "syntax": "xmlNew( [boolean caseSensitive] )",
+    "returns": "xml",
+    "type": "function",
+    "params": [{
+        "name": "caseSensitive",
+        "description": "Determines how Lucee processes the case of XML document object component identifiers:",
+        "type": "boolean",
+        "required": false
+    }]
+}

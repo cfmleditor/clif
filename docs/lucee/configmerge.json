@@ -1,0 +1,25 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/configmerge.html",
+        "minimum_version": "7.0.4.5"
+    }},
+    "name": "ConfigMerge",
+    "description": "Merges two Lucee configuration structs (as used in .CFConfig.json) into a new struct,\nfollowing Lucee's internal merge rules. The right-hand config takes precedence over the\nleft-hand config for scalar values, while certain collection types (such as extensions)\nare appended rather than replaced. Neither input struct is modified; the result is\nreturned as a new struct.",
+    "syntax": "ConfigMerge( struct left, struct right )",
+    "returns": "struct",
+    "type": "function",
+    "params": [
+        {
+            "name": "left",
+            "description": "The base configuration struct. Acts as the default/fallback config. This struct is\nnot modified by the function.",
+            "type": "struct",
+            "required": true
+        },
+        {
+            "name": "right",
+            "description": "The overriding configuration struct. Scalar values in this struct overwrite\ncorresponding values in the left struct. Collection types such as extension arrays\nare merged by appending to the left struct's values rather than replacing them.\nThis struct is not modified by the function.",
+            "type": "struct",
+            "required": true
+        }
+    ]
+}

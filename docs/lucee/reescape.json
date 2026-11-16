@@ -1,0 +1,23 @@
+{
+    "member_details": {
+        "name": "reEscape",
+        "type": "string",
+        "returns": "string"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/reescape.html",
+        "minimum_version": "6.2.1.9",
+        "notes": "The regex engine depends on the application settings (`this.regex.type`). Up to Lucee 8 the default is `perl` (Apache ORO), which is deprecated: Lucee 9 uses `java` as the default, see [[regex-migration-lucee-9]].\n"
+    }},
+    "name": "REEscape",
+    "description": "Escapes regular expression control characters within a string.",
+    "syntax": "REEscape( string string )",
+    "returns": "string",
+    "type": "function",
+    "params": [{
+        "name": "string",
+        "description": "String to be escaped.",
+        "type": "string",
+        "required": true
+    }]
+}

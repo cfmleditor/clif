@@ -1,0 +1,51 @@
+{
+    "name": "JwtSign",
+    "description": "Creates a signed JWT (JWS). Supports HMAC (HS256/384/512), RSA (RS256/384/512, PS256/384/512), and ECDSA (ES256/384/512) algorithms.",
+    "syntax": "JwtSign( struct claims, any key, [string algorithm], [numeric expiresIn], [string issuer], [string audience], [string kid] )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "claims",
+            "description": "JWT payload claims. Standard claims: sub, iss, aud, exp, nbf, iat, jti. Custom claims allowed.",
+            "type": "struct",
+            "required": true
+        },
+        {
+            "name": "key",
+            "description": "Signing key. For HMAC: string or byte array. For RSA/EC: PEM string or Java PrivateKey object.",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "algorithm",
+            "description": "JWS algorithm: HS256, HS384, HS512, RS256, RS384, RS512, PS256, PS384, PS512, ES256, ES384, ES512. Auto-detected if omitted.",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "expiresIn",
+            "description": "Token expiration in seconds from now. Sets the 'exp' claim.",
+            "type": "numeric",
+            "required": false
+        },
+        {
+            "name": "issuer",
+            "description": "Token issuer. Sets the 'iss' claim (overrides claims struct).",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "audience",
+            "description": "Token audience. Sets the 'aud' claim (overrides claims struct).",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "kid",
+            "description": "Key ID to include in the JWT header.",
+            "type": "string",
+            "required": false
+        }
+    ]
+}

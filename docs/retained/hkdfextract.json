@@ -1,0 +1,27 @@
+{
+    "name": "HKDFExtract",
+    "description": "Performs the Extract phase of HKDF to create a Pseudo-Random Key (PRK). Use with HKDFExpand to derive multiple keys.",
+    "syntax": "HKDFExtract( string algorithm, any salt, any inputKeyMaterial )",
+    "returns": "binary",
+    "type": "function",
+    "params": [
+        {
+            "name": "algorithm",
+            "description": "Hash algorithm: SHA256, SHA384, or SHA512",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "salt",
+            "description": "Salt value (can be empty string or null)",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "inputKeyMaterial",
+            "description": "Input key material (secret)",
+            "type": "any",
+            "required": true
+        }
+    ]
+}

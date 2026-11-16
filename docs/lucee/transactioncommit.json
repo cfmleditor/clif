@@ -1,0 +1,12 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/transactioncommit.html",
+        "minimum_version": ""
+    }},
+    "name": "transactionCommit",
+    "description": "commits a pending transaction",
+    "syntax": "transactionCommit()",
+    "returns": "void",
+    "type": "function",
+    "params": []
+}

@@ -1,0 +1,27 @@
+{
+    "name": "SCryptVerify",
+    "description": "Verifies a password against an SCrypt hash. Use this instead of the deprecated VerifySCryptHash().",
+    "syntax": "SCryptVerify( string input, string hash, [boolean throwOnError] )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [
+        {
+            "name": "input",
+            "description": "Password to verify",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "hash",
+            "description": "SCrypt hash to check against",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "throwOnError",
+            "description": "If true, throws an exception on invalid hash format instead of returning false",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

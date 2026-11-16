@@ -1,0 +1,20 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/tags/switch.html",
+        "minimum_version": "",
+        "notes": "`<cfcase>` blocks do **not** fall through. Once a matching case body finishes, the switch exits \u2014 there is no implicit fall-through to the next case and no need for an explicit break.\n\nThis differs from script `switch`/`case`, which follows C-style fall-through semantics where `break;` is required to stop after a match.\n\nA consequence: `<cfbreak>` placed inside a `<cfcase>` does **not** \"break the switch\" (the switch is already exiting). If the switch sits inside a `<cfloop>` or `<cfwhile>`, the `<cfbreak>` will exit that enclosing loop instead. See [[tag-break]] for details.\n"
+    }},
+    "name": "cfswitch",
+    "description": "Used with cfcase and cfdefaultcase. Evaluates a passed expression and passes control to the\ncfcase tag that matches the expression result. You can optionally code a cfdefaultcase tag, which\nreceives control if there is no matching cfcase tag value.",
+    "syntax": "<cfswitch expression=\"\"/>",
+    "returns": "void",
+    "type": "tag",
+    "params": [{
+        "name": "expression",
+        "description": "Any CFML expression that yields a scalar value. CFML converts integers, real numbers,\nBooleans, and dates to numeric values.",
+        "default": false,
+        "type": "string",
+        "required": true
+    }],
+    "body": "required"
+}

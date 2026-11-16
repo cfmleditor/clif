@@ -1,0 +1,12 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/getreadableimageformats.html",
+        "minimum_version": ""
+    }},
+    "name": "GetReadableImageFormats",
+    "description": "Returns a list of image formats that Lucee can read on the operating system where Lucee is deployed.",
+    "syntax": "GetReadableImageFormats()",
+    "returns": "string",
+    "type": "function",
+    "params": []
+}

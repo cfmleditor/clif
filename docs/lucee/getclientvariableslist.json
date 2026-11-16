@@ -1,0 +1,12 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/getclientvariableslist.html",
+        "minimum_version": ""
+    }},
+    "name": "getClientVariablesList",
+    "description": "Finds the client variables to which a page has write access.\nComma-delimited list of non-read-only client variables",
+    "syntax": "getClientVariablesList()",
+    "returns": "string",
+    "type": "function",
+    "params": []
+}

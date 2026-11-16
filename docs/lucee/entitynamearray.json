@@ -1,0 +1,13 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/entitynamearray.html",
+        "minimum_version": "",
+        "notes": "Returns the names of all persistent entities mapped in the current application as an array.\n\nUseful for debugging or building dynamic admin interfaces. See also [[function-entitynamelist]].\n"
+    }},
+    "name": "EntityNameArray",
+    "description": "Returns all loaded entity names as an array.",
+    "syntax": "EntityNameArray()",
+    "returns": "array",
+    "type": "function",
+    "params": []
+}

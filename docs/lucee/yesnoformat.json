@@ -1,0 +1,22 @@
+{
+    "member_details": {
+        "name": "yesNoFormat",
+        "type": "boolean",
+        "returns": "boolean"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/yesnoformat.html",
+        "minimum_version": ""
+    }},
+    "name": "yesNoFormat",
+    "description": "Yes, for a non-zero value; No, otherwise.",
+    "syntax": "yesNoFormat( any value )",
+    "returns": "string",
+    "type": "function",
+    "params": [{
+        "name": "value",
+        "description": "a value that can be cast to a boolean\n",
+        "type": "any",
+        "required": true
+    }]
+}

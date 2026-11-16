@@ -1,0 +1,30 @@
+{
+    "member_details": {
+        "name": "cJustify",
+        "type": "string",
+        "returns": "string"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/cjustify.html",
+        "minimum_version": ""
+    }},
+    "name": "cJustify",
+    "description": "Returns the given string justified to the center, padding out the words with spaces accordingly",
+    "syntax": "cJustify( string string, number length )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "string",
+            "description": "May be empty. If it is a variable that is defined as a number, the function processes it as a string.",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "length",
+            "description": "A positive integer. Length of field.",
+            "type": "number",
+            "required": true
+        }
+    ]
+}

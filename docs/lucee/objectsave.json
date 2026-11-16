@@ -1,0 +1,26 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/objectsave.html",
+        "minimum_version": ""
+    }},
+    "name": "ObjectSave",
+    "description": "serialize a (Serializable) object to a binary representation of the object",
+    "syntax": "ObjectSave( any input, [string filepath] )",
+    "returns": "any",
+    "type": "function",
+    "params": [
+        {
+            "name": "input",
+            "description": "object to serialize",
+            "aliases": "object",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "filepath",
+            "description": "path where lucee should save the object",
+            "type": "string",
+            "required": false
+        }
+    ]
+}

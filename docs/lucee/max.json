@@ -1,0 +1,30 @@
+{
+    "member_details": {
+        "name": "max",
+        "type": "numeric",
+        "returns": "numeric"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/max.html",
+        "minimum_version": ""
+    }},
+    "name": "max",
+    "description": "Determines the greater of two numbers.",
+    "syntax": "max( number number1, number number2 )",
+    "returns": "number",
+    "type": "function",
+    "params": [
+        {
+            "name": "number1",
+            "description": "first number",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "number2",
+            "description": "second number",
+            "type": "number",
+            "required": true
+        }
+    ]
+}

@@ -1,0 +1,37 @@
+{
+    "member_details": {
+        "name": "findOneOf",
+        "type": "string",
+        "returns": "string"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/findoneof.html",
+        "minimum_version": ""
+    }},
+    "name": "findOneOf",
+    "description": "Finds the first occurrence of any one of a set of characters\nin a string, from a specified start position. The search is\ncase-sensitive.",
+    "syntax": "findOneOf( string set, string string, [number start] )",
+    "returns": "number",
+    "type": "function",
+    "params": [
+        {
+            "name": "set",
+            "description": "String that contains one or more characters to search for.",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "string",
+            "description": "String in which to search.",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "start",
+            "description": "Start position of search.",
+            "default": "1",
+            "type": "number",
+            "required": false
+        }
+    ]
+}

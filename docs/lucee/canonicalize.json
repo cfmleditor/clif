@@ -1,0 +1,42 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/canonicalize.html",
+        "minimum_version": ""
+    }},
+    "name": "Canonicalize",
+    "description": "Canonicalization is simply the operation of reducing a possibly encoded string down to its simplest form. \nThis is important, because attackers frequently use encoding to change their input in a way that will bypass validation filters, \nbut still be interpreted properly by the target of the attack. \nNote that data encoded more than once is not something that a normal user would generate and should be regarded as an attack.",
+    "syntax": "Canonicalize( string input, boolean restrictMultiple, boolean restrictMixed, [boolean throwOnError] )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "input",
+            "description": "the input string to encode",
+            "aliases": "inputString",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "restrictMultiple",
+            "description": "true if checking for multiple encoding is desired, false otherwise.",
+            "aliases": "multiple",
+            "type": "boolean",
+            "required": true
+        },
+        {
+            "name": "restrictMixed",
+            "description": "true if checking for mixed encoding is desired, false otherwise",
+            "aliases": "mixed",
+            "type": "boolean",
+            "required": true
+        },
+        {
+            "name": "throwOnError",
+            "description": "If the value of this argument is true, and if restrictMultiple or restrictMixed is true and the given input contains mixed or multiple encoded strings, an exception will be thrown.\n\t\t\tIf the value of this argument is false, an empty string will be returned instead of an exception.",
+            "default": "false",
+            "aliases": "error",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

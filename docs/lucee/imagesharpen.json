@@ -1,0 +1,32 @@
+{
+    "member_details": {
+        "name": "sharpen",
+        "type": "image",
+        "returns": "image"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/imagesharpen.html",
+        "minimum_version": ""
+    }},
+    "name": "ImageSharpen",
+    "description": "Enhances image clarity by applying an unsharp mask filter. \nThis technique works by:\n1. Creating a blurred copy of the original image\n2. Finding edges by comparing differences\n3. Enhancing edge contrast where differences are found\n*Note:* Despite the name \"unsharp mask\", this process actually increases sharpness.",
+    "syntax": "ImageSharpen( any image, [number gain] )",
+    "returns": "void",
+    "type": "function",
+    "params": [
+        {
+            "name": "image",
+            "description": "The image on which this operation is performed.",
+            "aliases": "name",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "gain",
+            "description": "Gain values can be integers or real numbers. The default value is 1.0.\nThe value determines whether the image is blurred or sharpened:\n\n- if > 0, the image is sharpened\n- if = 0, no effect\n- if < 0, the image is blurred",
+            "default": "1",
+            "type": "number",
+            "required": false
+        }
+    ]
+}

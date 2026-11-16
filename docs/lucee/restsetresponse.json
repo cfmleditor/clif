@@ -1,0 +1,18 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/restsetresponse.html",
+        "minimum_version": ""
+    }},
+    "name": "RestSetResponse",
+    "description": "Sets the custom responses.",
+    "syntax": "RestSetResponse( struct response )",
+    "returns": "void",
+    "type": "function",
+    "params": [{
+        "name": "response",
+        "description": "A struct that contains the response details.",
+        "aliases": "rsp",
+        "type": "struct",
+        "required": true
+    }]
+}

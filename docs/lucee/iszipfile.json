@@ -1,0 +1,18 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/iszipfile.html",
+        "minimum_version": "",
+        "notes": "Since Lucee 7.1, zip functionality moved from core to the Compress extension. It is included in the full jar."
+    }},
+    "name": "IsZipFile",
+    "description": "Verifies whether an zip file is valid.",
+    "syntax": "IsZipFile( string path )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [{
+        "name": "path",
+        "description": "path to the zip file",
+        "type": "string",
+        "required": true
+    }]
+}

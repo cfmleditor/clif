@@ -1,0 +1,22 @@
+{
+    "member_details": {
+        "name": "stripCr",
+        "type": "string",
+        "returns": "string"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/stripcr.html",
+        "minimum_version": ""
+    }},
+    "name": "stripCr",
+    "description": "Deletes return characters from a string.",
+    "syntax": "stripCr( string string )",
+    "returns": "string",
+    "type": "function",
+    "params": [{
+        "name": "string",
+        "description": "A string or a variable that contains one",
+        "type": "string",
+        "required": true
+    }]
+}

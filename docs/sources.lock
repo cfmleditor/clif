@@ -1,0 +1,5 @@
+# Pinned doc sources: scripts/fetch-docs-cfdocs.sh checks out exactly this
+# commit, so the same lock regenerates the same docs (Lucee's docs are vendored
+# in docs/lucee instead). `make docs-bump` moves it to upstream's latest; review
+# the generated_docs.go diff that `make generate` then makes.
+cfdocs cb5bdb1184c4cb63a8f2271374a2f5490b9aeb1b

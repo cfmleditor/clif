@@ -1,0 +1,30 @@
+{
+    "member_details": {
+        "name": "pop",
+        "type": "array",
+        "returns": "array"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/arraypop.html",
+        "minimum_version": "5.3.8.104"
+    }},
+    "name": "arrayPop",
+    "description": "pops the last element from an array. In case the array is empty an exception is thrown, \nunless the second argument \"defaultValue\" is provided, in that case that value is returned.",
+    "syntax": "arrayPop( array array, [any defaultValue] )",
+    "returns": "any",
+    "type": "function",
+    "params": [
+        {
+            "name": "array",
+            "description": "The array whose last element is to be removed.",
+            "type": "array",
+            "required": true
+        },
+        {
+            "name": "defaultValue",
+            "description": "this value is returned in case the array is empty",
+            "type": "any",
+            "required": false
+        }
+    ]
+}

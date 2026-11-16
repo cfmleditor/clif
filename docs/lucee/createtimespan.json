@@ -1,0 +1,43 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/createtimespan.html",
+        "minimum_version": ""
+    }},
+    "name": "createTimeSpan",
+    "description": "Creates a timespan object that defines a time period.",
+    "syntax": "createTimeSpan( number days, number hours, number minutes, number seconds, [number milliseconds] )",
+    "returns": "timespan",
+    "type": "function",
+    "params": [
+        {
+            "name": "days",
+            "description": "number of days in time period",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "hours",
+            "description": "number of hours in time period",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "minutes",
+            "description": "number of minutes in time period",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "seconds",
+            "description": "number of seconds in time period",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "milliseconds",
+            "description": "number of milliseconds in time period",
+            "type": "number",
+            "required": false
+        }
+    ]
+}

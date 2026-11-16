@@ -1,0 +1,26 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/isarray.html",
+        "minimum_version": ""
+    }},
+    "name": "isArray",
+    "description": "Determines whether a value is an array.",
+    "syntax": "isArray( any value, [number dimension] )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [
+        {
+            "name": "value",
+            "description": "Variable or array name",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "dimension",
+            "description": "function tests whether the array has exactly this dimension.",
+            "default": "-999",
+            "type": "number",
+            "required": false
+        }
+    ]
+}

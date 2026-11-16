@@ -1,0 +1,18 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/getcomponentmetadata.html",
+        "minimum_version": ""
+    }},
+    "name": "GetComponentMetaData",
+    "description": "Gets metadata (such as the functions and implemented interfaces of a component) for a CFC or Interface.",
+    "syntax": "GetComponentMetaData( object pathOrCFC )",
+    "returns": "struct",
+    "type": "function",
+    "params": [{
+        "name": "pathOrCFC",
+        "description": "path to a component or component itself",
+        "aliases": "path",
+        "type": "object",
+        "required": true
+    }]
+}

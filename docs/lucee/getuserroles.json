@@ -1,0 +1,12 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/getuserroles.html",
+        "minimum_version": ""
+    }},
+    "name": "GetUserRoles",
+    "description": "Retrieves the list of roles for the current user.",
+    "syntax": "GetUserRoles()",
+    "returns": "string",
+    "type": "function",
+    "params": []
+}

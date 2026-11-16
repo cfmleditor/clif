@@ -1,0 +1,21 @@
+{
+    "name": "CborDecode",
+    "description": "Decodes CBOR-encoded binary data to CFML types (struct, array, string, number, binary, boolean).",
+    "syntax": "CborDecode( any data, [struct options] )",
+    "returns": "any",
+    "type": "function",
+    "params": [
+        {
+            "name": "data",
+            "description": "CBOR-encoded binary data",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "options",
+            "description": "Optional struct with: preserveTags (boolean, default true) - when false, tagged values are unwrapped to just the inner value",
+            "type": "struct",
+            "required": false
+        }
+    ]
+}

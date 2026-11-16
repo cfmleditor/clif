@@ -1,0 +1,22 @@
+{
+    "member_details": {
+        "name": "sgn",
+        "type": "numeric",
+        "returns": "numeric"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/sgn.html",
+        "minimum_version": ""
+    }},
+    "name": "sgn",
+    "description": "Determines the sign of a number.",
+    "syntax": "sgn( number number )",
+    "returns": "number",
+    "type": "function",
+    "params": [{
+        "name": "number",
+        "description": "A number",
+        "type": "number",
+        "required": true
+    }]
+}

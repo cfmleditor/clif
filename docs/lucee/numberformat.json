@@ -1,0 +1,30 @@
+{
+    "member_details": {
+        "name": "numberFormat",
+        "type": "any",
+        "returns": "any"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/numberformat.html",
+        "minimum_version": ""
+    }},
+    "name": "numberFormat",
+    "description": "Creates a custom-formatted number value",
+    "syntax": "numberFormat( any number, [string mask] )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "number",
+            "description": "A number.",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "mask",
+            "description": "_ = optional digit\n. = decimal point\n0 = mandatory digit\n",
+            "type": "string",
+            "required": false
+        }
+    ]
+}

@@ -1,0 +1,17 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/isbinary.html",
+        "minimum_version": ""
+    }},
+    "name": "isBinary",
+    "description": "Determines whether a value is stored as binary data.",
+    "syntax": "isBinary( any value )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [{
+        "name": "value",
+        "description": "Number or string",
+        "type": "any",
+        "required": true
+    }]
+}

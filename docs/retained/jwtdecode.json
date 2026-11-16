@@ -1,0 +1,15 @@
+{
+    "name": "JwtDecode",
+    "description": "Decodes a JWT without verifying the signature. Useful for debugging and inspection. WARNING: Do not trust decoded claims without verification!",
+    "syntax": "JwtDecode( string token )",
+    "returns": "struct",
+    "type": "function",
+    "params": [
+        {
+            "name": "token",
+            "description": "JWT string to decode.",
+            "type": "string",
+            "required": true
+        }
+    ]
+}

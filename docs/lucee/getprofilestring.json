@@ -1,0 +1,31 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/getprofilestring.html",
+        "minimum_version": ""
+    }},
+    "name": "getProfileString",
+    "description": "Gets an initialization file entry.",
+    "syntax": "getProfileString( string iniPath, string section, string entry )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "iniPath",
+            "description": "Absolute path (drive, directory, filename, extension) of initialization file; for example, C:\\\\boot.ini",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "section",
+            "description": "Section of initialization file from which to extract information",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "entry",
+            "description": "Name of value to get",
+            "type": "string",
+            "required": true
+        }
+    ]
+}

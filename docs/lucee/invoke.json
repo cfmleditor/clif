@@ -1,0 +1,34 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/invoke.html",
+        "minimum_version": ""
+    }},
+    "name": "Invoke",
+    "description": "invokes a function/operation of the given object and if given object is a string, Lucee tries to load as component.",
+    "syntax": "Invoke( any object, string name, [any arguments] )",
+    "returns": "object",
+    "type": "function",
+    "params": [
+        {
+            "name": "object",
+            "description": "a component, struct or scope that holds a function,\n\ncan also be the name of a component, in this case the component get loaded.",
+            "aliases": "cfcInstance,obj,value,variable",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "name",
+            "description": "name of the function/operation",
+            "aliases": "methodName,method,functionName,function",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "arguments",
+            "description": "arguments to pass to the function/operation",
+            "aliases": "params,args,argumentCollection",
+            "type": "any",
+            "required": false
+        }
+    ]
+}

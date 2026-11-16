@@ -1,0 +1,26 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/breakpoint.html",
+        "minimum_version": "7.1.0.45"
+    }},
+    "name": "breakpoint",
+    "description": "Programmatic breakpoint - like JavaScript's \"debugger;\" statement. Suspends execution when a debugger is attached, allowing inspection of variables. Returns true if breakpoint was hit, false if skipped.",
+    "syntax": "breakpoint( [string label], [boolean condition] )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [
+        {
+            "name": "label",
+            "description": "Optional label to identify this breakpoint in the debugger UI.",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "condition",
+            "description": "When true, execution suspends. Use for conditional breakpoints.",
+            "default": "true",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

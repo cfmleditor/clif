@@ -1,0 +1,27 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/xmlvalidate.html",
+        "minimum_version": ""
+    }},
+    "name": "XmlValidate",
+    "description": "Uses a Document Type Definition (DTD) or XML Schema to validate an XML text document or an XML document object.",
+    "syntax": "XmlValidate( string xmlDoc, [any validator] )",
+    "returns": "struct",
+    "type": "function",
+    "params": [
+        {
+            "name": "xmlDoc",
+            "description": "The XML to validate",
+            "aliases": "xml,xmlText,xmlString,xmlStr",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "validator",
+            "description": "Any of the following:\n\n - A string containing a DTD or Schema.\n - The name of a DTD or Schema file.\n - The URL of a DTD or Schema file; valid protocol identifiers include http, https, ftp, and file.",
+            "aliases": "validators",
+            "type": "any",
+            "required": false
+        }
+    ]
+}

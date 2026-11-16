@@ -1,0 +1,18 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/isuserinanyrole.html",
+        "minimum_version": ""
+    }},
+    "name": "isUserInAnyRole",
+    "description": "Determines whether an authenticated user belongs to any role in a list of roles.",
+    "syntax": "isUserInAnyRole( [string role_list] )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [{
+        "name": "role_list",
+        "description": "A comma-delimited list of one or more roles to be tested.",
+        "aliases": "roleList,role,list",
+        "type": "string",
+        "required": false
+    }]
+}

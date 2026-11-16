@@ -1,0 +1,31 @@
+{
+    "member_details": {
+        "name": "setDrawingAlpha",
+        "type": "image",
+        "returns": "image"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/imagesetdrawingalpha.html",
+        "minimum_version": ""
+    }},
+    "name": "ImageSetDrawingAlpha",
+    "description": "Sets the current drawing alpha for images. All subsequent graphics operations use the specified alpha.",
+    "syntax": "ImageSetDrawingAlpha( any image, number alpha )",
+    "returns": "void",
+    "type": "function",
+    "params": [
+        {
+            "name": "image",
+            "description": "The image on which this operation is performed.",
+            "aliases": "name",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "alpha",
+            "description": "a floating point number in range 0-1",
+            "type": "number",
+            "required": true
+        }
+    ]
+}

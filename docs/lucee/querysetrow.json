@@ -1,0 +1,39 @@
+{
+    "member_details": {
+        "name": "setRow",
+        "type": "query",
+        "returns": "query"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/querysetrow.html",
+        "minimum_version": "5.3.8.120"
+    }},
+    "name": "querySetRow",
+    "description": "Adds a row to a query, either by struct or array",
+    "syntax": "querySetRow( query query, any rowData, [number rowNumber] )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [
+        {
+            "name": "query",
+            "description": "query object to set row",
+            "type": "query",
+            "required": true
+        },
+        {
+            "name": "rowNumber",
+            "description": "position of the row to updated, otherwise a new row is added",
+            "default": "0",
+            "aliases": "row",
+            "type": "number",
+            "required": false
+        },
+        {
+            "name": "rowData",
+            "description": "a struct or array",
+            "aliases": "data",
+            "type": "any",
+            "required": true
+        }
+    ]
+}

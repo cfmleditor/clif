@@ -1,0 +1,22 @@
+{
+    "member_details": {
+        "name": "abs",
+        "type": "numeric",
+        "returns": "numeric"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/abs.html",
+        "minimum_version": ""
+    }},
+    "name": "abs",
+    "description": "Absolute-value function. The absolute value of a number is the number without its sign.",
+    "syntax": "abs( number number )",
+    "returns": "number",
+    "type": "function",
+    "params": [{
+        "name": "number",
+        "description": "Number to find the absolute value of",
+        "type": "number",
+        "required": true
+    }]
+}

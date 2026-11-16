@@ -1,0 +1,17 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/ajaxonload.html",
+        "minimum_version": ""
+    }},
+    "name": "ajaxOnLoad",
+    "description": "Causes the specified JavaScript function to run when the page loads.",
+    "syntax": "ajaxOnLoad( [any functionname] )",
+    "returns": "any",
+    "type": "function",
+    "params": [{
+        "name": "functionname",
+        "description": "The name of the function to run when the page loads.\n\nThe specified function does not take a parameter.",
+        "type": "any",
+        "required": false
+    }]
+}

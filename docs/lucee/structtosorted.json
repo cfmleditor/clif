@@ -1,0 +1,46 @@
+{
+    "member_details": {
+        "name": "toSorted",
+        "type": "struct",
+        "returns": "struct"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/structtosorted.html",
+        "minimum_version": "6.2.1.6"
+    }},
+    "name": "structToSorted",
+    "description": "Returns a struct sorted by the top level keys in a structure.\nSorts using alphabetic or numeric sorting.",
+    "syntax": "structToSorted( struct base, [any sortTypeOrSortFunc], [string sortOrder], [boolean localeSensitive] )",
+    "returns": "struct",
+    "type": "function",
+    "params": [
+        {
+            "name": "base",
+            "description": "A structure with one field (an associative array).",
+            "type": "struct",
+            "required": true
+        },
+        {
+            "name": "sortTypeOrSortFunc",
+            "description": "The following sort types are available:\n\n- numeric: sorts numbers\n- text: sorts text alphabetically, taking case into account (case sensitive, default)\n- textNoCase: sorts text alphabetically, without regard to case (case insensitive)\n\nor a function to be used as a comparator (introduced 6.2.1)\n\n`function(key1, key2)`",
+            "default": "text",
+            "aliases": "sortType",
+            "type": "any",
+            "required": false
+        },
+        {
+            "name": "sortOrder",
+            "description": "Sort direction:\n\n- asc (default): ascending (a to z) sort order\n- desc: descending (z to a) sort order",
+            "default": "asc",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "localeSensitive",
+            "description": "Use locale aware sort",
+            "default": "false",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

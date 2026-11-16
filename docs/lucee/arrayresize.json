@@ -1,0 +1,31 @@
+{
+    "member_details": {
+        "name": "resize",
+        "type": "array",
+        "returns": "array"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/arrayresize.html",
+        "minimum_version": ""
+    }},
+    "name": "arrayResize",
+    "description": "Resets an array to a specified minimum number of elements.",
+    "syntax": "arrayResize( array array, number minimum_size )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [
+        {
+            "name": "array",
+            "description": "Name of an array",
+            "type": "array",
+            "required": true
+        },
+        {
+            "name": "minimum_size",
+            "description": "minimum size of the array",
+            "aliases": "minimum,size",
+            "type": "number",
+            "required": true
+        }
+    ]
+}

@@ -1,0 +1,18 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/setlocale.html",
+        "minimum_version": ""
+    }},
+    "name": "setLocale",
+    "description": "Sets the country/language locale for CFML processing and the page returned to the client.",
+    "syntax": "setLocale( locale new_locale )",
+    "returns": "locale",
+    "type": "function",
+    "params": [{
+        "name": "new_locale",
+        "description": "The name of a locale; for example, \\\"English (US)\\\"",
+        "aliases": "locale",
+        "type": "locale",
+        "required": true
+    }]
+}

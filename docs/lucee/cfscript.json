@@ -1,0 +1,19 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/tags/script.html",
+        "minimum_version": ""
+    }},
+    "name": "cfscript",
+    "description": "Encloses a code segment containing cfscript.",
+    "syntax": "<cfscript/>",
+    "returns": "void",
+    "type": "tag",
+    "params": [{
+        "name": "language",
+        "description": "",
+        "default": false,
+        "type": "string",
+        "required": false
+    }],
+    "body": "required"
+}

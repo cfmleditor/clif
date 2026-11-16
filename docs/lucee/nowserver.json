@@ -1,0 +1,12 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/nowserver.html",
+        "minimum_version": ""
+    }},
+    "name": "nowServer",
+    "description": "this function is deprecated, returns the current time on the server independent on lucee timezone definition",
+    "syntax": "nowServer()",
+    "returns": "datetime",
+    "type": "function",
+    "params": []
+}

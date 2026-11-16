@@ -1,0 +1,23 @@
+{
+    "member_details": {
+        "name": "getHeight",
+        "type": "image",
+        "returns": "image"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/imagegetheight.html",
+        "minimum_version": ""
+    }},
+    "name": "ImageGetHeight",
+    "description": "Retrieves the height of the image in pixels.",
+    "syntax": "ImageGetHeight( any image )",
+    "returns": "number",
+    "type": "function",
+    "params": [{
+        "name": "image",
+        "description": "The image on which this operation is performed.",
+        "aliases": "name",
+        "type": "any",
+        "required": true
+    }]
+}

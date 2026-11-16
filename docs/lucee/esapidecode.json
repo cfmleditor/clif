@@ -1,0 +1,25 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/esapidecode.html",
+        "minimum_version": ""
+    }},
+    "name": "ESAPIDecode",
+    "description": "Deprecated legacy function. Use GuardDecode instead.",
+    "syntax": "ESAPIDecode( string decodeFrom, string string )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "decodeFrom",
+            "description": "given value is encoded as:\n\n- url: also decodes html-encoded content in Lucee 4\n- html (not in Lucee 4)\n",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "string",
+            "description": "string to decode\n",
+            "type": "string",
+            "required": true
+        }
+    ]
+}

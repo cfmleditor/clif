@@ -1,0 +1,17 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/getnumericdate.html",
+        "minimum_version": ""
+    }},
+    "name": "getNumericDate",
+    "description": "Returns a real number whose integer part represents the number of days since the EPOCH and whose fractional part represents the time value expressed in hours then divided by 24",
+    "syntax": "getNumericDate( any arg1 )",
+    "returns": "number",
+    "type": "function",
+    "params": [{
+        "name": "arg1",
+        "description": "A datetime object or a date-parsable String.\n",
+        "type": "any",
+        "required": true
+    }]
+}

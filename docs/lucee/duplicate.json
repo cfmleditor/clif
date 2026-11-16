@@ -1,0 +1,32 @@
+{
+    "member_details": {
+        "name": "duplicate",
+        "type": "struct",
+        "returns": "struct"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/duplicate.html",
+        "minimum_version": ""
+    }},
+    "name": "duplicate",
+    "description": "Returns a new duplicated version of the given object, removing all references to the old one",
+    "syntax": "duplicate( any object, [boolean deepCopy] )",
+    "returns": "any",
+    "type": "function",
+    "params": [
+        {
+            "name": "object",
+            "description": "Name of a variable to duplicate",
+            "aliases": "variable_name,obj",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "deepCopy",
+            "description": "If set to true (default) the child elements are also cloned.\n\nIf false, child elements retain a reference to their corresponding element in the original object.\n\n**Note:** deeply cloned elements that are not native Lucee objects (i.e. Java objects) _may_ change data type when they can be converted to a native CFML object.\n",
+            "default": "true",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

@@ -1,0 +1,18 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/fileiseof.html",
+        "minimum_version": ""
+    }},
+    "name": "FileIsEOF",
+    "description": "Determines whether Lucee has reached the end of the file while reading it.",
+    "syntax": "FileIsEOF( any file )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [{
+        "name": "file",
+        "description": "The file object.",
+        "aliases": "source,filePath",
+        "type": "any",
+        "required": true
+    }]
+}

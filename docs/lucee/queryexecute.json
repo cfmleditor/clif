@@ -1,0 +1,40 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/queryexecute.html",
+        "minimum_version": ""
+    }},
+    "name": "QueryExecute",
+    "description": "Executes a SQL query, returns the result.",
+    "syntax": "QueryExecute( string sql, [any params], [struct options], [string name] )",
+    "returns": "any",
+    "type": "function",
+    "params": [
+        {
+            "name": "sql",
+            "description": "SQL to execute",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "params",
+            "description": "An array or structure containing parameter values.\n\nWhen passing an array, use `?` as place holders and pass them in the order they are referenced in the SQL.\n\nWhen passing a struct, use `:keyName`, where `keyName` is the name of the key in the structure corresponding to the parameter.\n\nThe array or structure can be a structure with keys that match the names of the [[tag-queryparam]] names: \n\n- maxlength\n- list\n- scale\n- separator\n- null\n- cfsqltype|sqltype|type\n-  value",
+            "aliases": "param",
+            "type": "any",
+            "required": false
+        },
+        {
+            "name": "options",
+            "description": "A struct containing the query options \n\nAll the [[tag-query]] tag attributes are supported, except the `name` attribute.",
+            "aliases": "option,queryOptions",
+            "type": "struct",
+            "required": false
+        },
+        {
+            "name": "name",
+            "description": "name of the query produced, visible in dumps or debugging output.",
+            "aliases": "queryName",
+            "type": "string",
+            "required": false
+        }
+    ]
+}

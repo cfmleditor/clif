@@ -1,0 +1,25 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/setvariable.html",
+        "minimum_version": ""
+    }},
+    "name": "setVariable",
+    "description": "Sets the value",
+    "syntax": "setVariable( string name, any value )",
+    "returns": "any",
+    "type": "function",
+    "params": [
+        {
+            "name": "name",
+            "description": "Name of the variable to set, allows using \".\" for structures/scopes.",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "value",
+            "description": "the value to set",
+            "type": "any",
+            "required": true
+        }
+    ]
+}

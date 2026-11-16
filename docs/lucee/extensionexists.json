@@ -1,0 +1,25 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/extensionexists.html",
+        "minimum_version": ""
+    }},
+    "name": "ExtensionExists",
+    "description": "Checks if a certain extension exists or not.",
+    "syntax": "ExtensionExists( string id, [string version] )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [
+        {
+            "name": "id",
+            "description": "Id of the Extension (UUID)",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "version",
+            "description": "Version of the Extension.",
+            "type": "string",
+            "required": false
+        }
+    ]
+}

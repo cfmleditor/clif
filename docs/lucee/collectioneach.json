@@ -1,0 +1,27 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/collectioneach.html",
+        "minimum_version": ""
+    }},
+    "name": "collectionEach",
+    "description": "call the given UDF/Closure with every entry (key/value) in the given collection.",
+    "syntax": "collectionEach( object collection, function closure )",
+    "returns": "void",
+    "type": "function",
+    "params": [
+        {
+            "name": "collection",
+            "description": "collection to take values from",
+            "aliases": "object",
+            "type": "object",
+            "required": true
+        },
+        {
+            "name": "closure",
+            "description": "UDF/Closure that call with the entries from struct",
+            "aliases": "function,callback,udf",
+            "type": "function",
+            "required": true
+        }
+    ]
+}

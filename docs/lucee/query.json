@@ -1,0 +1,12 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/query.html",
+        "minimum_version": ""
+    }},
+    "name": "query",
+    "description": "Create and populate a query object in the form query(columnName1:[1,2,3],columnName2:[4,5,6])",
+    "syntax": "query()",
+    "returns": "query",
+    "type": "function",
+    "params": []
+}

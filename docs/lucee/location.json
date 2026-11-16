@@ -1,0 +1,37 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/location.html",
+        "minimum_version": ""
+    }},
+    "name": "location",
+    "description": "Stops execution of the current request and redirect to another location.",
+    "syntax": "location( string url, [boolean addToken], [numeric statusCode], [boolean encode] )",
+    "returns": "void",
+    "type": "function",
+    "params": [
+        {
+            "name": "url",
+            "description": "URL where the call should redirect",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "addToken",
+            "description": "appends client variable information to URL (true|false)",
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "statusCode",
+            "description": "The HTTP status code (301,302(default), 303, 304, 305, 307)",
+            "type": "numeric",
+            "required": false
+        },
+        {
+            "name": "encode",
+            "description": "Encode the given URL value",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

@@ -1,0 +1,23 @@
+{
+    "member_details": {
+        "name": "isEmpty",
+        "type": "struct",
+        "returns": "struct"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/structisempty.html",
+        "minimum_version": ""
+    }},
+    "name": "structIsEmpty",
+    "description": "Determines whether a structure contains data.",
+    "syntax": "structIsEmpty( struct struct )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [{
+        "name": "struct",
+        "description": "Structure to test",
+        "aliases": "structure,object",
+        "type": "struct",
+        "required": true
+    }]
+}

@@ -1,0 +1,23 @@
+{
+    "member_details": {
+        "name": "valueArray",
+        "type": "struct",
+        "returns": "struct"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/structvaluearray.html",
+        "minimum_version": "5.3.8.117"
+    }},
+    "name": "structValueArray",
+    "description": "Returns an Array with the values of the Struct",
+    "syntax": "structValueArray( struct struct )",
+    "returns": "array",
+    "type": "function",
+    "params": [{
+        "name": "struct",
+        "description": "Structure from which to extract a list of keys",
+        "aliases": "structure,object",
+        "type": "struct",
+        "required": true
+    }]
+}

@@ -1,0 +1,12 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/getfunctionlist.html",
+        "minimum_version": ""
+    }},
+    "name": "getFunctionList",
+    "description": "Returns all the currently registered functions",
+    "syntax": "getFunctionList()",
+    "returns": "struct",
+    "type": "function",
+    "params": []
+}

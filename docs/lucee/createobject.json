@@ -1,0 +1,41 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/createobject.html",
+        "minimum_version": ""
+    }},
+    "name": "createObject",
+    "description": "The CreateObject function takes different arguments depending on the value of the first argument:",
+    "syntax": "createObject( string type, [object classname], [object context], [object delimiterOrVersion] )",
+    "returns": "any",
+    "type": "function",
+    "params": [
+        {
+            "name": "type",
+            "description": "one of the following:\n\n- com: for loading a com Object\n- java: for loading a Java object\n- webservice: for loading a remote webservice\n- component: for loading a Component",
+            "aliases": "componentType",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "classname",
+            "description": "the usage of this argument depend on type defined with argument \"type\":\n\n- com: Component ProgID for the object to invoke.\n- java: Java class to load\n- webservice: WSDL url to call\n- component: The CFC name; corresponds to the name of the file that defines the component",
+            "aliases": "component,class",
+            "type": "object",
+            "required": false
+        },
+        {
+            "name": "context",
+            "description": "The usage of this argument varies, depending on the value of the `type` argument:\n\n- \"java\":\n  * Classpath: String list or array of paths to class files or JAR files\n  * BundleName: Name of an OSGi bundle\n  * JavaSettings: Structure containing Maven and Java configuration including:\n    - maven: Array of Maven dependencies (groupId, artifactId, version)\n    - loadPaths: Array of paths to non-OSGi JAR files or directories\n    - bundlePaths: Array of paths to OSGi bundle files or directories\n    - reloadOnChange: Boolean to enable dynamic reload of updated classes\n    - watchInterval: Interval in seconds to check for changes\n    - watchExtensions: File extensions to monitor\n- \"webservice\": Structure with web service options (username, password, proxyServer, proxyPort, proxyUser, proxyPassword)\n- \"component\": Not used\n- \"com\": Not used",
+            "aliases": "bundleName,name,webservice,Assembly,WSPortName,thirdArg,javasettings",
+            "type": "object",
+            "required": false
+        },
+        {
+            "name": "delimiterOrVersion",
+            "description": "the usage of this argument depend on type defined with argument \"type\":\n\n- java: delimiter used for the classpath (default comma) or bundle version when the previous argument was a bundle name\n- webservice: not used (ignored)\n- component: not used (ignored)\n- com: not used (ignored)",
+            "aliases": "delimiter,version,bundleVersion",
+            "type": "object",
+            "required": false
+        }
+    ]
+}

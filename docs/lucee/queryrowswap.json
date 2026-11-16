@@ -1,0 +1,38 @@
+{
+    "member_details": {
+        "name": "rowSwap",
+        "type": "query",
+        "returns": "query"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/queryrowswap.html",
+        "minimum_version": "6.0.0.17"
+    }},
+    "name": "QueryRowSwap",
+    "description": "swaps one row of a query with an other.",
+    "syntax": "QueryRowSwap( query query, numeric source, numeric destination )",
+    "returns": "query",
+    "type": "function",
+    "params": [
+        {
+            "name": "query",
+            "description": "query object to swap rows",
+            "type": "query",
+            "required": true
+        },
+        {
+            "name": "source",
+            "description": "The row to swap.",
+            "aliases": "sourceRow,src",
+            "type": "numeric",
+            "required": true
+        },
+        {
+            "name": "destination",
+            "description": "The row to be swapped with.",
+            "aliases": "destinationRow,dest,target",
+            "type": "numeric",
+            "required": true
+        }
+    ]
+}

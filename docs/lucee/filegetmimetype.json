@@ -1,0 +1,29 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/filegetmimetype.html",
+        "minimum_version": "",
+        "notes": "Since Lucee 6, this function now throws an exception when an empty or missing file is passed in"
+    }},
+    "name": "FileGetMimeType",
+    "description": "Returns the mimetype of the given file",
+    "syntax": "FileGetMimeType( any file, [boolean strict] )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "file",
+            "description": "file path or object",
+            "aliases": "FilePath,source,path,FileObject",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "strict",
+            "description": "if set to true, Lucee checks the header of the file, when set to false, Lucee only checks the extension.",
+            "default": "true",
+            "aliases": "checkHeader,checkNotExtension",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

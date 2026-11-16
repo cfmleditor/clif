@@ -1,0 +1,23 @@
+{
+    "member_details": {
+        "name": "getNodeType",
+        "type": "xml",
+        "returns": "xml"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/xmlgetnodetype.html",
+        "minimum_version": ""
+    }},
+    "name": "XmlGetNodeType",
+    "description": "Determines the type of an XML document object node.",
+    "syntax": "XmlGetNodeType( xml xml )",
+    "returns": "string",
+    "type": "function",
+    "params": [{
+        "name": "xml",
+        "description": "An XML DOM object node",
+        "aliases": "xmlDoc,xmlObj",
+        "type": "xml",
+        "required": true
+    }]
+}

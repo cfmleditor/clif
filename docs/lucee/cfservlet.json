@@ -1,0 +1,49 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/tags/servlet.html",
+        "minimum_version": ""
+    }},
+    "name": "cfservlet",
+    "description": "This tag has been deprecated and is non-functional.",
+    "syntax": "<cfservlet code=\"\"/>",
+    "returns": "void",
+    "type": "tag",
+    "params": [
+        {
+            "name": "code",
+            "description": "This attribute has been obsoleted and removed from the language. It is non-functional.",
+            "default": false,
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "jrunProxy",
+            "description": "This attribute has been obsoleted and removed from the language. It is non-functional.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "timeout",
+            "description": "This attribute has been obsoleted and removed from the language. It is non-functional.",
+            "default": false,
+            "type": "number",
+            "required": false
+        },
+        {
+            "name": "writeOutput",
+            "description": "This attribute has been obsoleted and removed from the language. It is non-functional.",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "debug",
+            "description": "This attribute has been obsoleted and removed from the language. It is non-functional.",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        }
+    ],
+    "body": "none"
+}

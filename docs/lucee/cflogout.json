@@ -1,0 +1,13 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/tags/logout.html",
+        "minimum_version": ""
+    }},
+    "name": "cflogout",
+    "description": "Logs the current user out. Removes knowledge of the user ID, password, and roles from the server.\nIf you do not use this tag, the user is automatically logged out when the session ends.",
+    "syntax": "<cflogout/>",
+    "returns": "void",
+    "type": "tag",
+    "params": [],
+    "body": "none"
+}

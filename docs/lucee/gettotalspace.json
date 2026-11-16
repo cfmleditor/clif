@@ -1,0 +1,18 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/gettotalspace.html",
+        "minimum_version": ""
+    }},
+    "name": "GetTotalSpace",
+    "description": "Returns the size of the partition named by this abstract pathname.",
+    "syntax": "GetTotalSpace( object file )",
+    "returns": "numeric",
+    "type": "function",
+    "params": [{
+        "name": "file",
+        "description": "file path",
+        "aliases": "filepath,path",
+        "type": "object",
+        "required": true
+    }]
+}

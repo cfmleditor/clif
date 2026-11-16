@@ -1,0 +1,26 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/fileskipbytes.html",
+        "minimum_version": ""
+    }},
+    "name": "FileSkipBytes",
+    "description": "Shifts the file pointer by the given number of bytes.",
+    "syntax": "FileSkipBytes( any file, number len )",
+    "returns": "void",
+    "type": "function",
+    "params": [
+        {
+            "name": "file",
+            "description": "The file object.",
+            "aliases": "fileObj,source",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "len",
+            "description": "The number of bytes that must be skipped before the next file operation.",
+            "type": "number",
+            "required": true
+        }
+    ]
+}

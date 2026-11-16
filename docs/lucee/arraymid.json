@@ -1,0 +1,36 @@
+{
+    "member_details": {
+        "name": "mid",
+        "type": "array",
+        "returns": "array"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/arraymid.html",
+        "minimum_version": ""
+    }},
+    "name": "arrayMid",
+    "description": "Extracts a sub array from an array.",
+    "syntax": "arrayMid( array array, number start, [number count] )",
+    "returns": "array",
+    "type": "function",
+    "params": [
+        {
+            "name": "array",
+            "description": "array to subtract data from",
+            "type": "array",
+            "required": true
+        },
+        {
+            "name": "start",
+            "description": "The position of the first element to retrieve.",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "count",
+            "description": "The number of elements to retrieve. If not set, all elements until the end of the array will be returned.",
+            "type": "number",
+            "required": false
+        }
+    ]
+}

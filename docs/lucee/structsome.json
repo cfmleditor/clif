@@ -1,0 +1,46 @@
+{
+    "member_details": {
+        "name": "some",
+        "type": "struct",
+        "returns": "struct"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/structsome.html",
+        "minimum_version": ""
+    }},
+    "name": "structSome",
+    "description": "This function calls a closure/function on every element in a struct until one returns true.",
+    "syntax": "structSome( struct struct, function closure, [boolean parallel], [number maxThreads] )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [
+        {
+            "name": "struct",
+            "description": "struct to iterate",
+            "aliases": "structure,object",
+            "type": "struct",
+            "required": true
+        },
+        {
+            "name": "closure",
+            "description": "function/closure that implements the following constructor\n\n`function(key, value, st){}`\n\nand returns a boolean value",
+            "aliases": "function,callback,udf",
+            "type": "function",
+            "required": true
+        },
+        {
+            "name": "parallel",
+            "description": "execute closures parallel",
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "maxThreads",
+            "description": "maximum number of threads executed, ignored when argument \"parallel\" is set to false",
+            "default": "20",
+            "aliases": "maxThreadCount",
+            "type": "number",
+            "required": false
+        }
+    ]
+}

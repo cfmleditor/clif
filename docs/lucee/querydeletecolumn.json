@@ -1,0 +1,30 @@
+{
+    "member_details": {
+        "name": "deleteColumn",
+        "type": "query",
+        "returns": "query"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/querydeletecolumn.html",
+        "minimum_version": ""
+    }},
+    "name": "QueryDeleteColumn",
+    "description": "removes a row from a query and return removed row as array",
+    "syntax": "QueryDeleteColumn( query query, String column )",
+    "returns": "array",
+    "type": "function",
+    "params": [
+        {
+            "name": "query",
+            "description": "Name of an executed query.",
+            "type": "query",
+            "required": true
+        },
+        {
+            "name": "column",
+            "description": "Specify the column name to delete from query",
+            "type": "string",
+            "required": true
+        }
+    ]
+}

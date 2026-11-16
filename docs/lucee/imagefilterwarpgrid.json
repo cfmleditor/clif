@@ -1,0 +1,37 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/imagefilterwarpgrid.html",
+        "minimum_version": ""
+    }},
+    "name": "ImageFilterWarpGrid",
+    "description": "A warp grid. These are passed to the function ImageFilters (see ImageFilter documentation).",
+    "syntax": "ImageFilterWarpGrid( number rows, number cols, number width, number height )",
+    "returns": "any",
+    "type": "function",
+    "params": [
+        {
+            "name": "rows",
+            "description": "rows of the warp grid",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "cols",
+            "description": "cols of the warp grid",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "width",
+            "description": "width of the warp grid",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "height",
+            "description": "height of the warp grid",
+            "type": "number",
+            "required": true
+        }
+    ]
+}

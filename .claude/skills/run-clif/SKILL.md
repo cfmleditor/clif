@@ -20,7 +20,7 @@ make build
 # → target/release/clif   (the only artifact)
 ```
 
-`make build` needs network access: it depends on `generate` → `docs` → `scripts/fetch-docs-cfdocs.sh`, which git-clones the cfdocs repo into the gitignored `docs/data/`. The *generated* Go file (`internal/docs/generated_docs.go`) is committed, so when the fetch can't run, build directly instead:
+`make build` compiles the committed docs (`internal/docs/generated_docs.go`) and fetches no docs; it does try to fetch CFLint to embed, and builds without it when it can't. To skip that too, build directly:
 
 ```bash
 go build -o target/release/clif ./cmd/clif
@@ -48,9 +48,9 @@ Exits 0 if all 7 checks pass, 1 on any failure. Covers:
 - LSP `initialize` — server returns capabilities JSON over stdio
 - LSP `shutdown` — server responds with `{"result":null}` and exits 0
 
-The script starts with `make build`, so it inherits that target's network requirement (above). If the cfdocs fetch fails, build with `go build` first and comment out the `make build` line rather than treating the failure as a smoke-test failure.
+The script starts with `make build`, which needs no network for the docs (above); a CFLint download it cannot make is a warning, not a smoke-test failure.
 
-**Check `git status` after a smoke run.** `make build` regenerates `internal/docs/generated_docs.go` from the assembled `docs/data/`, which needs *both* doc sources staged (cfdocs and Lucee). If `docs.lucee.org` is unreachable — some sandboxes and proxies block it — the regenerated file loses every Lucee-sourced entry, leaving a several-hundred-line pure-deletion diff. `make docs` warns when a fetch fails, but the build continues. That churn is an artifact of running the smoke test, not a change you made: `git checkout -- internal/docs/generated_docs.go`.
+**A smoke run leaves the generated docs alone.** `make build` no longer regenerates them; only `make generate` does, and it refuses (writing nothing) when a source could not be fetched or an entry would be lost. If you did run `make generate` and want the committed docs back, restore both generated files together: `git checkout -- internal/docs/generated_docs.go internal/docs/generated_sources.txt`.
 
 ## Run (human path)
 

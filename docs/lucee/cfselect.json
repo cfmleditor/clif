@@ -1,0 +1,329 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/tags/select.html",
+        "minimum_version": ""
+    }},
+    "name": "cfselect",
+    "description": "Used inside cfform, cfselect lets you construct a drop-down list box form control. You can\npopulate the drop-down list box from a query, or using the option tag. Use option elements to populate\nlists. The syntax for the option tag is the same as for its HTML counterpart.",
+    "syntax": "<cfselect name=\"\"/>",
+    "returns": "void",
+    "type": "tag",
+    "params": [
+        {
+            "name": "datafld",
+            "description": "passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "caseSensitive",
+            "description": "is compare for selected case sensitive or not",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "datasrc",
+            "description": "passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "dataformatas",
+            "description": "passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "disabled",
+            "description": "passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "multiple",
+            "description": "Yes or No. Yes permits selection of multiple elements in the drop-down list box. The default\nis No.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "title",
+            "description": "passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "dir",
+            "description": "passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "lang",
+            "description": "passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "onmousedown",
+            "description": "JavaScript to run when the user releases a mouse button in the control.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "onmouseup",
+            "description": "JavaScript to run when the user presses a mouse button in the control.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "onmouseover",
+            "description": "passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "onmousemove",
+            "description": "passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "onmouseout",
+            "description": "passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "onkeypress",
+            "description": "passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "onkeyup",
+            "description": "JavaScript to run when the user releases a keyboard key in the control.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "onkeydown",
+            "description": "JavaScript to run when the user depresses a keyboard\nkey in the control.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "name",
+            "description": "Name of the form you are creating.",
+            "default": false,
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "size",
+            "description": "Number of entries in the drop-down list.",
+            "default": false,
+            "type": "number",
+            "required": false
+        },
+        {
+            "name": "required",
+            "description": "Yes or No. If Yes, a list element must be selected when the form is submitted, and the size of\nthe drop-down list must be at least two. Default is No.",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "message",
+            "description": "Message that displays if required = 'Yes' and no selection is made.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "onError",
+            "description": "The name of a valid JavaScript function to execute in the event of a failed validation.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "query",
+            "description": "Name of the query to be used to populate the drop-down list box.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "selected",
+            "description": "A value matching at least one entry in value to preselect the entry in the drop-down list box.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "value",
+            "description": "The query column value for the list element. Used with the query attribute.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "display",
+            "description": "The query column displayed. Defaults to the value of value. Used with the query attribute.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "passThrough",
+            "description": "HTML attributes that are not explicitly supported by cfselect. If you specify an attribute and\nits value, the attribute and its value are passed to the HTML code that is generated for the cfselect\ntag.",
+            "default": false,
+            "type": "any",
+            "required": false
+        },
+        {
+            "name": "class",
+            "description": "passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "id",
+            "description": "ID for form input element.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "onBlur",
+            "description": "",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "onChange",
+            "description": "JavaScript to run when the control changes due to user action.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "onClick",
+            "description": "JavaScript to run when the user clicks the control.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "onDblclick",
+            "description": "passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "onFocus",
+            "description": "passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "style",
+            "description": "Lucee passes the style attribute to the browser.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "tabIndex",
+            "description": "passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "label",
+            "description": "Label to put next to the control on a Flash or XML-format form.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "enabled",
+            "description": "Flash only: Boolean value specifying whether to show the control.\nSpace that would be occupied by an invisible control is\nblank.\nDefault: true",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "group",
+            "description": "Query column to use to group the items in the drop-down\nlist into a two-level hierarchical list.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "height",
+            "description": "The height of the control, in pixels.",
+            "default": false,
+            "type": "number",
+            "required": false
+        },
+        {
+            "name": "queryPosition",
+            "description": "If you populate the options list with a query and use HTML\noption child tags to specify additional entries, determines\nthe location of the items from the query relative to the items\nfrom the option tags:\n\n- above: Put the query items above the options items.\n- below: Put the query items below the options items.\n\nDefault: above",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "tooltip",
+            "description": "Flash only: Text to display when the mouse pointer hovers over the control.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "visible",
+            "description": "Flash only: Boolean value specifying whether to show the control.\nSpace that would be occupied by an invisible control is\nblank.\nDefault: true",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "width",
+            "description": "The width of the control, in pixels.",
+            "default": false,
+            "type": "number",
+            "required": false
+        },
+        {
+            "name": "editable",
+            "description": "Boolean value specifying whether you can edit the\ncontents of the control.",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        }
+    ],
+    "body": "required"
+}

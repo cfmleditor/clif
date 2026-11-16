@@ -1,0 +1,45 @@
+{
+    "member_details": {
+        "name": "filter",
+        "type": "array",
+        "returns": "array"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/arrayfilter.html",
+        "minimum_version": ""
+    }},
+    "name": "arrayFilter",
+    "description": "This function creates a new Array that returns all the values from an array that match the given filter.",
+    "syntax": "arrayFilter( array array, function filter, [boolean parallel], [number maxThreads] )",
+    "returns": "array",
+    "type": "function",
+    "params": [
+        {
+            "name": "array",
+            "description": "array to filter values from",
+            "type": "array",
+            "required": true
+        },
+        {
+            "name": "filter",
+            "description": "A function/closure that implements the following constructor\n\n`function(any arg){ return true/false;}`",
+            "aliases": "closure,function,callback",
+            "type": "function",
+            "required": true
+        },
+        {
+            "name": "parallel",
+            "description": "execute closures parallel",
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "maxThreads",
+            "description": "maximum number of threads executed, ignored when argument \"parallel\" is set to false",
+            "default": "20",
+            "aliases": "maxThreadCount",
+            "type": "number",
+            "required": false
+        }
+    ]
+}

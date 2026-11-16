@@ -1,0 +1,21 @@
+{
+    "name": "GenerateBCryptHash",
+    "description": "Deprecated: renamed to BCryptHash() for consistency with the {Algorithm}Hash/{Algorithm}Verify naming pattern. Same defaults (cost=10), functionally identical.",
+    "syntax": "GenerateBCryptHash( string input, [numeric cost] )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "input",
+            "description": "Password to hash",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "cost",
+            "description": "Cost factor (4-31)",
+            "type": "numeric",
+            "required": false
+        }
+    ]
+}

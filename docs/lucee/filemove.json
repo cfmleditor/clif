@@ -1,0 +1,25 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/filemove.html",
+        "minimum_version": ""
+    }},
+    "name": "fileMove",
+    "description": "Moves file from source to destination",
+    "syntax": "fileMove( any source, any destination )",
+    "returns": "void",
+    "type": "function",
+    "params": [
+        {
+            "name": "source",
+            "description": "file to move.",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "destination",
+            "description": "Pathname of the destination directory or file.\n\nIf not an absolute path, it is relative to the source directory.",
+            "type": "any",
+            "required": true
+        }
+    ]
+}

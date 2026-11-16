@@ -1,0 +1,44 @@
+{
+    "member_details": {
+        "name": "listIndexExists",
+        "type": "string",
+        "returns": "string"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/listindexexists.html",
+        "minimum_version": ""
+    }},
+    "name": "ListIndexExists",
+    "description": "Determines if an element at the given position exists or not",
+    "syntax": "ListIndexExists( string list, number index, [string delimiter], [boolean includeEmptyFields] )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [
+        {
+            "name": "list",
+            "description": "a string list",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "index",
+            "description": "index to check for.",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "delimiter",
+            "description": "Characters that separate list elements. The default value is comma.",
+            "default": ",",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "includeEmptyFields",
+            "description": "if set to true, empty values are included as well",
+            "default": "false",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

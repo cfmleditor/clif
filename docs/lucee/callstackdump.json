@@ -1,0 +1,18 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/callstackdump.html",
+        "minimum_version": ""
+    }},
+    "name": "CallStackDump",
+    "description": "Dump the context (stacktrace) of the current position.",
+    "syntax": "CallStackDump( [string output] )",
+    "returns": "void",
+    "type": "function",
+    "params": [{
+        "name": "output",
+        "description": "Where to send the results of cfdump. The following values are valid:\n\n- browser: outputs in browser window\n- console: outputs on (System.out stream; see also setting in lucee-server.xml {system-out})\n- filename: outputs in a file",
+        "default": "browser",
+        "type": "string",
+        "required": false
+    }]
+}

@@ -1,0 +1,41 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/each.html",
+        "minimum_version": "",
+        "notes": "When used with strings, since Lucee 6, this function iterates over each character in the string.\n\nFor list-based iteration with delimiters, use [[function-listeach]] instead.\n\n[LDEV-3747](https://luceeserver.atlassian.net/browse/LDEV-3747)\n"
+    }},
+    "name": "each",
+    "description": "call the given UDF/Closure with every entry (key/value) in the given collection.",
+    "syntax": "each( object collection, function closure, [boolean parallel], [number maxThreads] )",
+    "returns": "void",
+    "type": "function",
+    "params": [
+        {
+            "name": "collection",
+            "description": "collection to take values from",
+            "type": "object",
+            "required": true
+        },
+        {
+            "name": "closure",
+            "description": "UDF/Closure that call with the entries from the collection\n\n`function (value, idx, coll){}`",
+            "aliases": "function,callback,udf",
+            "type": "function",
+            "required": true
+        },
+        {
+            "name": "parallel",
+            "description": "execute closures parallel",
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "maxThreads",
+            "description": "maximum number of threads executed, ignored when argument \"parallel\" is set to false",
+            "default": "20",
+            "aliases": "maxThreadCount",
+            "type": "number",
+            "required": false
+        }
+    ]
+}

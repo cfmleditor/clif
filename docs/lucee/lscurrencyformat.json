@@ -1,0 +1,41 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/lscurrencyformat.html",
+        "minimum_version": ""
+    }},
+    "name": "lSCurrencyFormat",
+    "description": "Formats a number in a locale-specific currency format.",
+    "syntax": "lSCurrencyFormat( object number, [string type], [locale locale], [boolean useBrackets] )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "number",
+            "description": "Currency value",
+            "aliases": "currency_number",
+            "type": "object",
+            "required": true
+        },
+        {
+            "name": "type",
+            "description": "* local: the currency format and currency symbol used in the locale.\n* international: the international standard currency format and currency symbol of the locale.\n* none: the currency format used in the locale without a currency symbol.\n",
+            "default": "local",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "locale",
+            "description": "Locale to use instead of the locale of the page when processing the function",
+            "type": "locale",
+            "required": false
+        },
+        {
+            "name": "useBrackets",
+            "description": "When a number is negative, by default, it is wrapped in brackets",
+            "minimum_version": "6.2.3.19",
+            "default": "true",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

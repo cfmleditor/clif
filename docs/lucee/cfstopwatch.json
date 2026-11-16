@@ -1,0 +1,28 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/tags/stopwatch.html",
+        "minimum_version": ""
+    }},
+    "name": "cfstopwatch",
+    "description": "Stops the time from startTag to endTag",
+    "syntax": "<cfstopwatch/>",
+    "returns": "void",
+    "type": "tag",
+    "params": [
+        {
+            "name": "label",
+            "description": "The label for the stopwatch, used in debugging output.\n",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "variable",
+            "description": "The name of the variable which will contain the value of the time taken.\n",
+            "default": false,
+            "type": "string",
+            "required": false
+        }
+    ],
+    "body": "required"
+}

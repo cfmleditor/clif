@@ -1,0 +1,40 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/collectionfilter.html",
+        "minimum_version": ""
+    }},
+    "name": "collectionFilter",
+    "description": "This function creates a new collection that returns all entries from an collection that match the given filter.",
+    "syntax": "collectionFilter( object collection, function filter, [boolean parallel], [number maxThreads] )",
+    "returns": "object",
+    "type": "function",
+    "params": [
+        {
+            "name": "collection",
+            "description": "collection to filter entries from",
+            "aliases": "object",
+            "type": "object",
+            "required": true
+        },
+        {
+            "name": "filter",
+            "description": "filter can be a function/closure that implements the following constructor [function(... depending on given collection ...):boolean].",
+            "type": "function",
+            "required": true
+        },
+        {
+            "name": "parallel",
+            "description": "execute closures parallel",
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "maxThreads",
+            "description": "maximum number of threads executed, ignored when argument \"parallel\" is set to false",
+            "default": "20",
+            "aliases": "maxThreadCount",
+            "type": "number",
+            "required": false
+        }
+    ]
+}

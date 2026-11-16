@@ -1,0 +1,32 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/fileappend.html",
+        "minimum_version": ""
+    }},
+    "name": "FileAppend",
+    "description": "appends the entire content to the specified file.",
+    "syntax": "FileAppend( any file, any data, [string charset] )",
+    "returns": "void",
+    "type": "function",
+    "params": [
+        {
+            "name": "file",
+            "description": "file path",
+            "aliases": "filePath",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "data",
+            "description": "data to append to the file",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "charset",
+            "description": "The character encoding in which the file contents is encoded.",
+            "type": "string",
+            "required": false
+        }
+    ]
+}

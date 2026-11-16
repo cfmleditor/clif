@@ -1,0 +1,145 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/tags/search.html",
+        "minimum_version": ""
+    }},
+    "name": "cfsearch",
+    "description": "Executes searches against data indexed",
+    "syntax": "<cfsearch name=\"\", collection=\"\"/>",
+    "returns": "void",
+    "type": "tag",
+    "params": [
+        {
+            "name": "name",
+            "description": "A name for the search query.",
+            "default": false,
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "collection",
+            "description": "The logical collection name that is the target of the search operation or an external collection\nwith fully qualified path.",
+            "default": false,
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "type",
+            "description": "Specifies the criteria type for the search.\n\n- **simple**: Verity compatible search syntax (default)\n- **explicit**: search provider's native query syntax, i.e. Lucene (since Search Extension 3.0.0.166)\n",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "criteria",
+            "description": "Specifies the criteria for the search following the syntactic rules specified by type.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "maxRows",
+            "description": "Specifies the maximum number of entries for index queries. If omitted, all rows are returned.",
+            "default": false,
+            "type": "number",
+            "required": false
+        },
+        {
+            "name": "startRow",
+            "description": "Specifies the first row number to be retrieved. Default is 1.",
+            "default": false,
+            "type": "number",
+            "required": false
+        },
+        {
+            "name": "external",
+            "description": "This attribute has been deprecated and is non-functional.",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "language",
+            "description": "Deprecated. This attribute is now ignored and the language of the collection is used to perform the search.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "category",
+            "description": "A list of categories, separated by commas, to which\nthe search is limited. If specified, and the collection\ndoes not have categories enabled, Lucee throws an exception.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "categoryTree",
+            "description": "The location in a hierarchical category tree at which\nto start the search. Lucee searches at and\nbelow this level. If specified, and the collection does\nnot have categories enabled, Lucee throws an\nexception. Can be used in addition to category\nattribute.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "status",
+            "description": "Specifies the name of the structure variable into\nwhich Lucee places search information, including\nalternative criteria suggestions (spelling corrections).",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "suggestions",
+            "description": "Specifies whether Lucene returns spelling suggestions for possibly misspelled words.\nResults are returned in the `status` structure when the `status` attribute is specified.\n\n- **always**: always return spelling suggestions\n- **never**: never return spelling suggestions (default)\n- *positive number*: return suggestions when the result count is below this threshold\n",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "contextPassages",
+            "description": "The number of passages/sentences Lucene returns in\nthe context summary (that is, the context column of\nthe results).\nDefault: 3",
+            "minimum_version": "7.0.3.30",
+            "default": false,
+            "type": "number",
+            "required": false
+        },
+        {
+            "name": "contextPassageLength",
+            "description": "Used as a guide for splitting the text into paragraphs. The splitter tries to keep paragraphs close to this length \nwhile maintaining natural text boundaries. Note that paragraphs may exceed this length if no suitable break point is found.\nDefault: 150",
+            "minimum_version": "7.0.3.30",
+            "default": false,
+            "type": "number",
+            "required": false
+        },
+        {
+            "name": "contextBytes",
+            "description": "The maximum number of bytes Lucene returns in the\ncontext summary.\nDefault: 300",
+            "minimum_version": "7.0.3.30",
+            "default": false,
+            "type": "number",
+            "required": false
+        },
+        {
+            "name": "contextHighlightBegin",
+            "description": "The HTML to prepend to search terms in the context\nsummary. Use this attribute in conjunction with\ncontextHighlightEnd to highlight search terms in the\ncontext summary.\nDefault: <b>",
+            "minimum_version": "7.0.3.30",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "contextHighlightEnd",
+            "description": "The HTML to append to search terms in the context summary.\nUse this attribute in conjunction with contextHighlightBegin to highlight search terms in the context summary.\nDefault: `<\/b>`",
+            "minimum_version": "7.0.3.30",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "previousCriteria",
+            "description": "The name of a result set from an existing set of search\nresults. Lucene searches the result set for criteria\nwithout regard to the previous search score or rank.\nUse this attribute to implement searching within result\nsets.",
+            "default": false,
+            "type": "string",
+            "required": false
+        }
+    ],
+    "body": "none"
+}

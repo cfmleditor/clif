@@ -1,0 +1,17 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/imageformats.html",
+        "minimum_version": ""
+    }},
+    "name": "ImageFormats",
+    "description": "return all available readers and writers",
+    "syntax": "ImageFormats( [boolean detailed] )",
+    "returns": "struct",
+    "type": "function",
+    "params": [{
+        "name": "detailed",
+        "description": "Give more details on format, which coder does supply them.",
+        "type": "boolean",
+        "required": false
+    }]
+}

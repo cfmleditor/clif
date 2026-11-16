@@ -1,0 +1,44 @@
+{
+    "member_details": {
+        "name": "translate",
+        "type": "image",
+        "returns": "image"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/imagetranslate.html",
+        "minimum_version": ""
+    }},
+    "name": "ImageTranslate",
+    "description": "Moves an image to a new position by specified x and y offsets. The original image content is cleared and redrawn at the new location.",
+    "syntax": "ImageTranslate( any image, number xTrans, number yTrans, [string interpolation] )",
+    "returns": "void",
+    "type": "function",
+    "params": [
+        {
+            "name": "image",
+            "description": "The image on which this operation is performed.",
+            "aliases": "name",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "xTrans",
+            "description": "Displacement in the x direction.",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "yTrans",
+            "description": "Displacement in the y direction.",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "interpolation",
+            "description": "Type of interpolation:\n\n- nearest (default): Applies the nearest neighbor method of interpolation. Image quality is lower than the other interpolation methods, but processing is fastest.\n- bilinear: Applies the bilinear method of interpolation. The quality of the image is less pixelated than the default, but processing is slower.\n- bicubic: Applies the bicubic method of interpolation. Generally, the quality of image is highest with this method and processing is slowest.",
+            "default": "nearest",
+            "type": "string",
+            "required": false
+        }
+    ]
+}

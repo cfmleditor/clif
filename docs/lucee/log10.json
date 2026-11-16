@@ -1,0 +1,22 @@
+{
+    "member_details": {
+        "name": "log10",
+        "type": "numeric",
+        "returns": "numeric"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/log10.html",
+        "minimum_version": ""
+    }},
+    "name": "log10",
+    "description": "Calculates the logarithm of number, to base 10.",
+    "syntax": "log10( number number )",
+    "returns": "number",
+    "type": "function",
+    "params": [{
+        "name": "number",
+        "description": "Positive real number for which to calculate the logarithm",
+        "type": "number",
+        "required": true
+    }]
+}

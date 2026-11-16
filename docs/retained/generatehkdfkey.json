@@ -1,0 +1,39 @@
+{
+    "name": "GenerateHKDFKey",
+    "description": "Generates derived key material using HKDF (HMAC-based Key Derivation Function). Used in TLS 1.3, Signal Protocol, etc.",
+    "syntax": "GenerateHKDFKey( string algorithm, any inputKeyMaterial, any salt, any info, numeric outputLength )",
+    "returns": "binary",
+    "type": "function",
+    "params": [
+        {
+            "name": "algorithm",
+            "description": "Hash algorithm: SHA256, SHA384, or SHA512",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "inputKeyMaterial",
+            "description": "Input key material (secret)",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "salt",
+            "description": "Salt value (can be empty string or null)",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "info",
+            "description": "Context/application info (can be empty string or null)",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "outputLength",
+            "description": "Number of bytes to derive",
+            "type": "numeric",
+            "required": true
+        }
+    ]
+}

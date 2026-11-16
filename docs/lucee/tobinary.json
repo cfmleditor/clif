@@ -1,0 +1,25 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/tobinary.html",
+        "minimum_version": ""
+    }},
+    "name": "toBinary",
+    "description": "Calculates the binary representation of Base64-encoded data.",
+    "syntax": "toBinary( any data, [string charset] )",
+    "returns": "binary",
+    "type": "function",
+    "params": [
+        {
+            "name": "data",
+            "description": "A variable representing data in Base64-encoded format or a PDF document.",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "charset",
+            "description": "if first argument is a string and this argument is set, the string is not handled as base64 encoded string,\nit is simply converted to a binary, with help of the given argument.\n\nthe value can be a valid charset name, \"web\" for the web charset defined with this context or \"resource\" for the resource charset defined in the context.",
+            "type": "string",
+            "required": false
+        }
+    ]
+}

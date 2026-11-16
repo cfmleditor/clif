@@ -1,0 +1,25 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/dayofweekshortasstring.html",
+        "minimum_version": ""
+    }},
+    "name": "dayOfWeekShortAsString",
+    "description": "Returns the string representation of the given day index in short form",
+    "syntax": "dayOfWeekShortAsString( number day_of_week, [locale locale] )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "day_of_week",
+            "description": "Integer, in the range 1 (Sunday) - 7 (Saturday).",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "locale",
+            "description": "Locale to use instead of the locale of the page when processing the function",
+            "type": "locale",
+            "required": false
+        }
+    ]
+}

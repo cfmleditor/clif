@@ -1,0 +1,36 @@
+{
+    "member_details": {
+        "name": "slice",
+        "type": "array",
+        "returns": "array"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/arrayslice.html",
+        "minimum_version": ""
+    }},
+    "name": "arraySlice",
+    "description": "Returns a new array, from the start position up to the count of elements",
+    "syntax": "arraySlice( array array, number offset, [number length] )",
+    "returns": "array",
+    "type": "function",
+    "params": [
+        {
+            "name": "array",
+            "description": "array to slice",
+            "type": "array",
+            "required": true
+        },
+        {
+            "name": "offset",
+            "description": "start position in the original array to slice",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "length",
+            "description": "number of elements to slice from offset\n",
+            "type": "number",
+            "required": false
+        }
+    ]
+}

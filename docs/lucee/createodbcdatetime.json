@@ -1,0 +1,17 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/createodbcdatetime.html",
+        "minimum_version": ""
+    }},
+    "name": "createODBCDateTime",
+    "description": "Creates an ODBC date-time object.",
+    "syntax": "createODBCDateTime( datetime date )",
+    "returns": "datetime",
+    "type": "function",
+    "params": [{
+        "name": "date",
+        "description": "date object; for example, [[function-now|now()]]",
+        "type": "datetime",
+        "required": true
+    }]
+}

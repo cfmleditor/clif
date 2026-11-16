@@ -1,0 +1,27 @@
+{
+    "name": "TOTPVerify",
+    "description": "Verifies a TOTP code against a shared secret (RFC 6238). Supports configurable time window for clock skew tolerance.",
+    "syntax": "TOTPVerify( string secret, string code, [struct options] )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [
+        {
+            "name": "secret",
+            "description": "Base32-encoded secret",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "code",
+            "description": "The TOTP code to verify (typically 6 digits)",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "options",
+            "description": "Optional struct: window (default 1), digits (default 6), period (default 30), algorithm (SHA1|SHA256|SHA512, default SHA1)",
+            "type": "struct",
+            "required": false
+        }
+    ]
+}

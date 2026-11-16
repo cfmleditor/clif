@@ -1,0 +1,30 @@
+{
+    "member_details": {
+        "name": "compare",
+        "type": "string",
+        "returns": "string"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/compare.html",
+        "minimum_version": ""
+    }},
+    "name": "compare",
+    "description": "Performs a case-sensitive comparison of two strings.\n-1, if string1 is less than string2\n0, if string1 is equal to string2\n1, if string1 is greater than string2",
+    "syntax": "compare( string string1, string string2 )",
+    "returns": "number",
+    "type": "function",
+    "params": [
+        {
+            "name": "string1",
+            "description": "A string or a variable that contains one",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "string2",
+            "description": "A string or a variable that contains one",
+            "type": "string",
+            "required": true
+        }
+    ]
+}

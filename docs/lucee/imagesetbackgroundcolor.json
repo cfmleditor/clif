@@ -1,0 +1,32 @@
+{
+    "member_details": {
+        "name": "setBackgroundColor",
+        "type": "image",
+        "returns": "image"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/imagesetbackgroundcolor.html",
+        "minimum_version": ""
+    }},
+    "name": "ImageSetBackgroundColor",
+    "description": "Sets the background color for the image. The background color is used for clearing a region. Setting the background color only affects the subsequent ImageClearRect calls",
+    "syntax": "ImageSetBackgroundColor( any image, string color )",
+    "returns": "void",
+    "type": "function",
+    "params": [
+        {
+            "name": "image",
+            "description": "The image on which this operation is performed.",
+            "aliases": "name",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "color",
+            "description": "Background color (The default value is \"black\"):\n\n- Hexadecimal value of RGB color. For example, specify the color white as ##FFFFFF or FFFFFF.\n- String value of color (for example, \"black\", \"red\", \"green\").\n- List of three numbers for (R,G,B) values. Each value must be in the range 0-255.",
+            "aliases": "colour",
+            "type": "string",
+            "required": true
+        }
+    ]
+}

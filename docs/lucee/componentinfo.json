@@ -1,0 +1,17 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/componentinfo.html",
+        "minimum_version": ""
+    }},
+    "name": "componentInfo",
+    "description": "this function is deprecated, use function getMetadata instead.",
+    "syntax": "componentInfo( component component )",
+    "returns": "struct",
+    "type": "function",
+    "params": [{
+        "name": "component",
+        "description": "component to return info for it",
+        "type": "component",
+        "required": true
+    }]
+}

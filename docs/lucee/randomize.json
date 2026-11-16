@@ -1,0 +1,25 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/randomize.html",
+        "minimum_version": ""
+    }},
+    "name": "randomize",
+    "description": "Seeds the pseudo-random number generator with an\ninteger number, ensuring repeatable number patterns.",
+    "syntax": "randomize( number number, [string algorithm] )",
+    "returns": "number",
+    "type": "function",
+    "params": [
+        {
+            "name": "number",
+            "description": "a number",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "algorithm",
+            "description": "The algorithm to use to generated the random number.",
+            "type": "string",
+            "required": false
+        }
+    ]
+}

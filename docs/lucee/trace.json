@@ -1,0 +1,55 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/trace.html",
+        "minimum_version": ""
+    }},
+    "name": "trace",
+    "description": "Displays and logs debugging data about the state of an application at the time this function executes.",
+    "syntax": "trace( [string var], [string text], [string type], [string category], [boolean inline], [boolean abort], [boolean follow] )",
+    "returns": "void",
+    "type": "function",
+    "params": [
+        {
+            "name": "var",
+            "description": "The name of a simple or complex variable to display. Useful for displaying a temporary value, or a value that does not display on any CFM page.",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "text",
+            "description": "string, which can include simple variable, but not complex variables such as arrays.",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "type",
+            "description": "Corresponds to the cflog type attribute:\n\n- Information\n- Warning\n- Error\n- Fatal Information",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "category",
+            "description": "string name for identifying trace groups",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "inline",
+            "description": "if true displays trace code in line on the page in the location of the trace function,\naddition to the debugging information output.",
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "abort",
+            "description": "stops further processing of the request.",
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "follow",
+            "description": "If true, Lucee follows the variable defined in the [var] attribute and will log any changes to it. Ignored when attribute [var] is not defined.",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

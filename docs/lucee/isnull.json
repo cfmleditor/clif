@@ -1,0 +1,18 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/isnull.html",
+        "minimum_version": "",
+        "notes": "Always use scoped variable references with `isNull()`.\n\nWhen a null argument shares a name with an outer-scoped variable, `isNull()` can return the wrong result / unexpected due to scope cascading:\n\n```lucee\nname = \"default\";\n\nfunction greet( name ) {\n    if ( isNull( name ) ) {\n        writeOutput( \"Hello stranger\" );\n    } else {\n        writeOutput( \"Hello #name#\" );\n    }\n}\n\ngreet( javacast( \"null\", \"\" ) );\n// Outputs: \"Hello default\" - found the outer variable, not the null argument!\n```\n\nUse scoped references to reliably check for null:\n\n```lucee\nif ( isNull( arguments.name ) ) { ... }\nif ( isNull( local.result ) ) { ... }\nif ( isNull( variables.config ) ) { ... }\n```\n\nUnder default (partial) null support, a null in `local` or `variables` does not stop an unscoped lookup; the search continues through the remaining cascaded scopes. Adobe ColdFusion stops at the nearer-scope null. This is intentional in Lucee. See [[scopes|Scope Cascading]] and [[null_support]].\n"
+    }},
+    "name": "isNull",
+    "description": "Determines whether given object is null or not",
+    "syntax": "isNull( any object )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [{
+        "name": "object",
+        "description": "Object for which you perform the null check.",
+        "type": "any",
+        "required": true
+    }]
+}

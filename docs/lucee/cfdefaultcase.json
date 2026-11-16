@@ -1,0 +1,13 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/tags/defaultcase.html",
+        "minimum_version": ""
+    }},
+    "name": "cfdefaultcase",
+    "description": "Defines a default action inside a cfswitch statement, when none of the cfcase condition statements are true.",
+    "syntax": "<cfdefaultcase/>",
+    "returns": "void",
+    "type": "tag",
+    "params": [],
+    "body": "required"
+}

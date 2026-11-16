@@ -1,0 +1,30 @@
+{
+    "member_details": {
+        "name": "push",
+        "type": "array",
+        "returns": "array"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/arraypush.html",
+        "minimum_version": "5.3.8.104"
+    }},
+    "name": "arrayPush",
+    "description": "Inserts an array element at the end of an array and return the new size of the array.",
+    "syntax": "arrayPush( array array, any value )",
+    "returns": "numeric",
+    "type": "function",
+    "params": [
+        {
+            "name": "array",
+            "description": "The array where an value/object is to be added.",
+            "type": "array",
+            "required": true
+        },
+        {
+            "name": "value",
+            "description": "Element to be added at the end of an array",
+            "type": "any",
+            "required": true
+        }
+    ]
+}

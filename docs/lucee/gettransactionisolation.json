@@ -1,0 +1,17 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/gettransactionisolation.html",
+        "minimum_version": "7.1.0.70"
+    }},
+    "name": "getTransactionIsolation",
+    "description": "Returns the isolation level of the current transaction as a string. If a datasource is provided and no explicit isolation is set, returns the datasource's default isolation level.",
+    "syntax": "getTransactionIsolation( [string datasource] )",
+    "returns": "string",
+    "type": "function",
+    "params": [{
+        "name": "datasource",
+        "description": "Datasource name. When provided and no explicit isolation is set on the transaction, returns the datasource's default isolation level.",
+        "type": "string",
+        "required": false
+    }]
+}

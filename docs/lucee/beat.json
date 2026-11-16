@@ -1,0 +1,17 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/beat.html",
+        "minimum_version": ""
+    }},
+    "name": "beat",
+    "description": "Outputs the current swatch/beat time.",
+    "syntax": "beat( [any time] )",
+    "returns": "number",
+    "type": "function",
+    "params": [{
+        "name": "time",
+        "description": "The local time to get beat time from\n",
+        "type": "any",
+        "required": false
+    }]
+}

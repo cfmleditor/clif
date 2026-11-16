@@ -1,0 +1,12 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/getcurrenttemplatepath.html",
+        "minimum_version": ""
+    }},
+    "name": "getCurrentTemplatePath",
+    "description": "Gets the absolute path of the page that calls this function.",
+    "syntax": "getCurrentTemplatePath()",
+    "returns": "string",
+    "type": "function",
+    "params": []
+}

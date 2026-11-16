@@ -1,0 +1,12 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/getauthuser.html",
+        "minimum_version": ""
+    }},
+    "name": "getAuthUser",
+    "description": "Returns the name of the currently authenticated user. \nThis function checks the application's authentication system and returns the username of the logged-in user.\nIf no user is authenticated, it returns an empty string. \nThe function first attempts to retrieve credentials from the application security context, and if none exist, \nit falls back to checking the HTTP servlet request for remote user information.",
+    "syntax": "getAuthUser()",
+    "returns": "string",
+    "type": "function",
+    "params": []
+}

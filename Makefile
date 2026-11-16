@@ -19,7 +19,7 @@ LINK_DIR ?= $(GOBIN_DIR)
 LINK := $(LINK_DIR)/$(BINARY)
 LEGACY_LINK := $(LINK_DIR)/$(LEGACY_BINARY)
 
-.PHONY: build build-wasm check test conformance framework-stubs conformance-summary corpus gapcheck resolution-report shrink install link unlink link-status clean docs docs-cfdocs docs-lucee docs-assemble generate cfparse cfparse-build update-grammar vuln release release-dry
+.PHONY: build build-wasm check test conformance framework-stubs conformance-summary corpus gapcheck resolution-report shrink install link unlink link-status clean docs docs-cfdocs docs-assemble docs-bump generate cfparse cfparse-build update-grammar vuln release release-dry
 
 # Pinned so a scanner change never turns an unrelated build red on its own.
 # Bump deliberately; the advisory database itself is always fetched live, so a
@@ -74,40 +74,64 @@ $(GOLANGCI_BIN):
 	GOTOOLCHAIN=go$(GO_VERSION) GOBIN=$(CURDIR)/$(@D)/.build go install $(GOLANGCI)
 	mv $(@D)/.build/golangci-lint $@
 
-# Fetch every source, then assemble docs/data from all of them. Written as one
+# Stage every source, then assemble docs/data from all of them. Written as one
 # sequential recipe rather than as prerequisites so `make -j` cannot start the
-# assemble step before both fetches have finished.
+# assemble step before the fetch has finished.
 #
-# A single unreachable source must not abort the build: each fetch leaves its
-# previously staged copy intact on failure, so assemble still sees it. Only a
-# source that was never fetched at all goes missing, and assemble warns loudly
-# for that. Releases enforce completeness separately (.github/workflows).
+# cfdocs is fetched at the commit docs/sources.lock pins; Lucee's docs are
+# vendored in docs/lucee, so nothing is fetched for them. A failed cfdocs
+# fetch fails here, where its cause is printed, rather than going on to a
+# generator that would refuse the stale copy screens later. `make docs-bump`
+# moves the pin and the vendored copy.
 docs:
-	@./scripts/fetch-docs-cfdocs.sh || echo "warning: cfdocs fetch failed — using previously staged copy if present" >&2
-	@./scripts/fetch-docs-lucee.sh  || echo "warning: lucee fetch failed — using previously staged copy if present" >&2
+	@./scripts/fetch-docs-cfdocs.sh
+	@./scripts/fetch-docs-lucee.sh
 	@./scripts/assemble-docs.sh
 
 docs-cfdocs:
 	@./scripts/fetch-docs-cfdocs.sh
 	@./scripts/assemble-docs.sh
 
-docs-lucee:
-	@./scripts/fetch-docs-lucee.sh
-	@./scripts/assemble-docs.sh
-
 docs-assemble:
 	@./scripts/assemble-docs.sh
 
+# Moves the cfdocs pin in docs/sources.lock and the vendored docs/lucee to
+# upstream's latest, and stages them. Follow with `make generate`, and review
+# its diff with the lock's and docs/lucee's.
+#
+# cfdocs is staged and its commit checked before anything committed changes;
+# only then is docs/lucee replaced, and the lock written last, by a step that
+# can no longer fail on its input. A failure before the Lucee swap leaves
+# every committed file as it was (the staged cfdocs is then simply not the
+# pinned one, which the generator refuses), so the two are bumped together.
+docs-bump:
+	@DOCS_BUMP=1 ./scripts/fetch-docs-cfdocs.sh
+	@bash scripts/docs-lock.sh check "$$(cat docs/.sha-cfdocs)"
+	@DOCS_BUMP=1 ./scripts/fetch-docs-lucee.sh
+	@bash scripts/docs-lock.sh set cfdocs "$$(cat docs/.sha-cfdocs)"
+	@./scripts/assemble-docs.sh
+
+# Fetches every source and regenerates internal/docs/generated_docs.go (and
+# generated_sources.txt). Refuses (exit 1) to write a file that lost entries
+# the committed one has: see docs/retained/README.md. `build` does not run it:
+# a build compiles the committed docs, as CI and the release workflow do, and
+# regenerating is a deliberate step whose diff gets reviewed.
 generate: docs
 	go run scripts/generate_docs.go
 
-update-grammar: generate
+# Bumps the grammar first and regenerates the docs strictly last: a docs
+# problem (an upstream removal, a failed fetch) cannot stop the bump, and is
+# not passed over either, since this target is how the generated files get
+# refreshed together. The bump is done and kept when the docs step fails;
+# rerun `make generate` once the docs are sorted.
+update-grammar:
 	go get github.com/cfmleditor/tree-sitter-cfml@latest
 	go mod tidy
 	go clean -cache
 	@mkdir -p internal/language/queries
 	@curl -sL "https://raw.githubusercontent.com/cfmleditor/tree-sitter-cfml/$$(grep tree-sitter-cfml go.mod | awk '{print $$2}')/cfml/queries/injections.scm" -o internal/language/queries/injections.scm
 	@echo "Updated injections.scm from tree-sitter-cfml"
+	@$(MAKE) --no-print-directory generate
 
 # Rebuilds the JavaScript the generated code-map viewer embeds. Needs Node; the
 # bundle it produces is committed, which is what keeps `go build` free of that
@@ -136,13 +160,14 @@ update-d3:
 		&& { echo "ERROR: the bundle contains </script and cannot be inlined"; exit 1; } || true
 	@echo "Rebuilt $(VENDOR)/d3.bundle.js ($$(wc -c < $(VENDOR)/d3.bundle.js) bytes) - commit it"
 
-# Built as releases are, with CFLint inside: scripts/fetch-cflint.sh puts this
+# Built from the committed docs (no fetch; `make generate` refreshes them) and
+# as releases are, with CFLint inside: scripts/fetch-cflint.sh puts this
 # platform's pinned CFLint in internal/cflint/embedded/ (gitignored, and only
 # downloaded when it is not already there) for -tags cflint_embed. When it
 # cannot (no CFLint build for this platform, no network to GitHub's release
 # downloads), the build carries none, says so, and downloads CFLint on first
 # use, as `go build ./cmd/clif` does. The release workflow does not fall back.
-build: generate
+build:
 	@mkdir -p target/release
 	@tags=cflint_embed; \
 	if ! bash scripts/fetch-cflint.sh "$$(go env GOOS)" "$$(go env GOARCH)"; then \
@@ -151,7 +176,7 @@ build: generate
 	set -x; go build -trimpath -tags "$$tags" -ldflags="-s -w -X main.version=$(VERSION)" -o $(OUT) ./cmd/clif
 	@ln -sfn $(BINARY) $(LEGACY_OUT)
 
-build-wasm: generate
+build-wasm:
 	@mkdir -p target/release
 	CC=$(WASI_SDK)/bin/clang CGO_ENABLED=1 GOOS=wasip1 GOARCH=wasm \
 		go build -trimpath -ldflags="-s -w -X main.version=$(VERSION)" -o target/release/$(BINARY).wasm ./cmd/clif

@@ -1,0 +1,18 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/islocalhost.html",
+        "minimum_version": ""
+    }},
+    "name": "isLocalHost",
+    "description": "Determines whether the specified IP address is the localhost.",
+    "syntax": "isLocalHost( String ip )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [{
+        "name": "ip",
+        "description": "Valid IP address.",
+        "aliases": "value",
+        "type": "string",
+        "required": true
+    }]
+}

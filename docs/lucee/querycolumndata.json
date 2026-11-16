@@ -1,0 +1,37 @@
+{
+    "member_details": {
+        "name": "columnData",
+        "type": "query",
+        "returns": "query"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/querycolumndata.html",
+        "minimum_version": ""
+    }},
+    "name": "queryColumnData",
+    "description": "Returns all the data in a query for a given column",
+    "syntax": "queryColumnData( query query, string columnName, [function closure] )",
+    "returns": "array",
+    "type": "function",
+    "params": [
+        {
+            "name": "query",
+            "description": "query object do get data from",
+            "type": "query",
+            "required": true
+        },
+        {
+            "name": "columnName",
+            "description": "name of the column returned",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "closure",
+            "description": "UDF/Closure that call with the values from column",
+            "aliases": "function,callback,udf",
+            "type": "function",
+            "required": false
+        }
+    ]
+}

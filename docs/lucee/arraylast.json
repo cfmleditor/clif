@@ -1,0 +1,22 @@
+{
+    "member_details": {
+        "name": "last",
+        "type": "array",
+        "returns": "array"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/arraylast.html",
+        "minimum_version": ""
+    }},
+    "name": "arrayLast",
+    "description": "Returns the last element of an array",
+    "syntax": "arrayLast( array array )",
+    "returns": "any",
+    "type": "function",
+    "params": [{
+        "name": "array",
+        "description": "an array",
+        "type": "array",
+        "required": true
+    }]
+}

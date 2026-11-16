@@ -1,0 +1,49 @@
+{
+    "member_details": {
+        "name": "clearRect",
+        "type": "image",
+        "returns": "image"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/imageclearrect.html",
+        "minimum_version": ""
+    }},
+    "name": "ImageClearRect",
+    "description": "Clears the specified rectangle by filling it with the background color of the current drawing surface.",
+    "syntax": "ImageClearRect( object image, number x, number y, number width, number height )",
+    "returns": "void",
+    "type": "function",
+    "params": [
+        {
+            "name": "image",
+            "description": "The image on which this operation is performed.",
+            "aliases": "name",
+            "type": "object",
+            "required": true
+        },
+        {
+            "name": "x",
+            "description": "The X coordinate of the rectangle to clear.",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "y",
+            "description": "The Y coordinate of the rectangle to clear.",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "width",
+            "description": "The width of the rectangle to clear.",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "height",
+            "description": "The height of the rectangle to clear.",
+            "type": "number",
+            "required": true
+        }
+    ]
+}

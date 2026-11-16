@@ -1,0 +1,31 @@
+{
+    "member_details": {
+        "name": "getEXIFTag",
+        "type": "image",
+        "returns": "image"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/imagegetexiftag.html",
+        "minimum_version": ""
+    }},
+    "name": "ImageGetEXIFTag",
+    "description": "Retrieves the specified EXIF tag in an image.",
+    "syntax": "ImageGetEXIFTag( any image, string tagName )",
+    "returns": "any",
+    "type": "function",
+    "params": [
+        {
+            "name": "image",
+            "description": "The image on which this operation is performed.",
+            "aliases": "name",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "tagName",
+            "description": "The EXIF tag name to be returned.",
+            "type": "string",
+            "required": true
+        }
+    ]
+}

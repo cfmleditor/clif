@@ -1,0 +1,17 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/bundleinfo.html",
+        "minimum_version": "5.0.0.0"
+    }},
+    "name": "BundleInfo",
+    "description": "if the given object is loaded by an OSGi bundle, this function is returning information about that bundle",
+    "syntax": "BundleInfo( any object )",
+    "returns": "struct",
+    "type": "function",
+    "params": [{
+        "name": "object",
+        "description": "object to get bundle info for it",
+        "type": "any",
+        "required": true
+    }]
+}

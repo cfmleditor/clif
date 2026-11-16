@@ -1,0 +1,18 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/empty.html",
+        "minimum_version": ""
+    }},
+    "name": "Empty",
+    "description": "This function is deprecated, use instead IsEmpty()",
+    "syntax": "Empty( variableString variable )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [{
+        "name": "variable",
+        "description": "Variable to check",
+        "aliases": "variableName,object",
+        "type": "variablestring",
+        "required": true
+    }]
+}

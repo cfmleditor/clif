@@ -1,0 +1,45 @@
+{
+    "name": "GenerateSelfSignedCertificate",
+    "description": "Generates a self-signed X.509 certificate.",
+    "syntax": "GenerateSelfSignedCertificate( string subject, [any privateKey], [any publicKey], [struct keyPair], [numeric validityDays], [string algorithm] )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "privateKey",
+            "description": "Private key (PEM string or Java object). Provide either privateKey+publicKey OR keyPair.",
+            "type": "any",
+            "required": false
+        },
+        {
+            "name": "publicKey",
+            "description": "Public key (PEM string or Java object). Provide either privateKey+publicKey OR keyPair.",
+            "type": "any",
+            "required": false
+        },
+        {
+            "name": "keyPair",
+            "description": "Struct with 'private' and 'public' keys (from GenerateKeyPair or Lucee's built-in GenerateRSAKeys). Provide either keyPair OR privateKey+publicKey.",
+            "type": "struct",
+            "required": false
+        },
+        {
+            "name": "subject",
+            "description": "X.500 distinguished name (e.g., CN=localhost, O=My Company, C=AU)",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "validityDays",
+            "description": "Number of days the certificate is valid",
+            "type": "numeric",
+            "required": false
+        },
+        {
+            "name": "algorithm",
+            "description": "Signature algorithm (e.g., SHA256withRSA, SHA256withECDSA). Auto-detected if omitted.",
+            "type": "string",
+            "required": false
+        }
+    ]
+}

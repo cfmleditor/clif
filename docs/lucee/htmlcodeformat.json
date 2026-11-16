@@ -1,0 +1,25 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/htmlcodeformat.html",
+        "minimum_version": ""
+    }},
+    "name": "hTMLCodeFormat",
+    "description": "Replaces special characters in a string with their HTML-escaped\nequivalents and inserts <pre> and <\/pre> tags at the beginning\nand end of the string.\n[version]\nHTML version to use. currently ignored.\n-1: The latest implementation of HTML\n2.0: HTML 2.0 (Default)\n3.2: HTML 3.2",
+    "syntax": "hTMLCodeFormat( string string, [number version] )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "string",
+            "description": "A string or a variable that contains one.",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "version",
+            "description": "HTML version to use:\n-1: The latest implementation of HTML\n2.0: HTML 2.0 (default)\n3.2: HTML 3.2",
+            "type": "number",
+            "required": false
+        }
+    ]
+}

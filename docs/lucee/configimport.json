@@ -1,0 +1,51 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/configimport.html",
+        "minimum_version": "6.0.0.460"
+    }},
+    "name": "ConfigImport",
+    "description": "Imports configuration using the \"CFConfig.json\" format.",
+    "syntax": "ConfigImport( any path, [string type], [string password], [struct params], [boolean flushExistingData], [string charset] )",
+    "returns": "struct",
+    "type": "function",
+    "params": [
+        {
+            "name": "path",
+            "description": "Path to the .CFConfig.json file or the data itself as a Struct.",
+            "aliases": "path,data",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "type",
+            "description": "Config Context to manipulate, server or web context.",
+            "default": "server",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "password",
+            "description": "Password to access the configuration, depending on the value set for the attribute type. \n\nIf not set Lucee will check in the following places for the password (replace {type} with the actual type chosen for the attribute type).\n\nEnvironment variable \"LUCEE_{type}_ADMIN_PASSWORD\" or system property \"lucee.{type}.admin.password\".",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "params",
+            "description": "placeholder parameters to use as actual data for the placeholders inside the configuration, see main description of this function for more details.",
+            "type": "struct",
+            "required": false
+        },
+        {
+            "name": "flushExistingData",
+            "description": "if true that existing data get replaced with the given data, if set to false they get updated.",
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "charset",
+            "description": "charset to use to read the .CFConfig file, if not defined, Lucee will use the default resource charset.",
+            "type": "string",
+            "required": false
+        }
+    ]
+}

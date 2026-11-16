@@ -1,0 +1,42 @@
+{
+    "member_details": {
+        "name": "paste",
+        "type": "image",
+        "returns": "image"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/imagepaste.html",
+        "minimum_version": ""
+    }},
+    "name": "ImagePaste",
+    "description": "Composites one image onto another at specified coordinates. The second image is overlaid on top of the first image, preserving transparency and using high-quality interpolation.",
+    "syntax": "ImagePaste( any image1, any image2, [number x], [number y] )",
+    "returns": "void",
+    "type": "function",
+    "params": [
+        {
+            "name": "image1",
+            "description": "The bottom image.",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "image2",
+            "description": "The image that is pasted on top of image1.",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "x",
+            "description": "The x coordinate where the upper-left corner of image2 is pasted.",
+            "type": "number",
+            "required": false
+        },
+        {
+            "name": "y",
+            "description": "The y coordinate where the upper-left corner of image2 is pasted.",
+            "type": "number",
+            "required": false
+        }
+    ]
+}

@@ -1,0 +1,28 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/tags/chartdata.html",
+        "minimum_version": ""
+    }},
+    "name": "cfchartdata",
+    "description": "Used with the cfchart and cfchartseries tags. This tag defines chart data points. Its data is submitted to the cfchartseries tag.",
+    "syntax": "<cfchartdata item=\"\", value=\"\"/>",
+    "returns": "void",
+    "type": "tag",
+    "params": [
+        {
+            "name": "item",
+            "description": "string; data point name",
+            "default": false,
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "value",
+            "description": "number or expression; data point value",
+            "default": false,
+            "type": "number",
+            "required": true
+        }
+    ],
+    "body": "none"
+}

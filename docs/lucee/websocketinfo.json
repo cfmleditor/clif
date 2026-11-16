@@ -1,0 +1,17 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/websocketinfo.html",
+        "minimum_version": ""
+    }},
+    "name": "WebsocketInfo",
+    "description": "This funcitons give me information about the current websocket server instance.",
+    "syntax": "WebsocketInfo( [boolean addRaw] )",
+    "returns": "struct",
+    "type": "function",
+    "params": [{
+        "name": "addRaw",
+        "description": "in the session array add the raw Session object.",
+        "type": "boolean",
+        "required": false
+    }]
+}

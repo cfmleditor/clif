@@ -1,0 +1,26 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/entitytoquery.html",
+        "minimum_version": "",
+        "notes": "Converts an entity or array of entities into a CFML query object. Useful when you need tabular data for display, export, or passing to functions that expect query objects.\n\nOnly scalar properties are included in the query columns \u2014 relationships and complex types are excluded.\n\nSee [[orm-querying]] for alternatives like HQL projections.\n"
+    }},
+    "name": "EntityToQuery",
+    "description": "Converts the input entity object or the input array of entity objects to a query object.",
+    "syntax": "EntityToQuery( object entity, [string name] )",
+    "returns": "query",
+    "type": "function",
+    "params": [
+        {
+            "name": "entity",
+            "description": "entity or array of entities",
+            "type": "object",
+            "required": true
+        },
+        {
+            "name": "name",
+            "description": "name of the entities",
+            "type": "string",
+            "required": false
+        }
+    ]
+}

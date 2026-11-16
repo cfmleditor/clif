@@ -1,0 +1,27 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/cacheregionexists.html",
+        "minimum_version": "5.0.0.0"
+    }},
+    "name": "CacheRegionExists",
+    "description": "this function exists solely for the purpose of compatibility with other CFML Engines.",
+    "syntax": "CacheRegionExists( string cacheName, [string password] )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [
+        {
+            "name": "cacheName",
+            "description": "the name of the cache connection to check (also known as Region in other CFML engines).",
+            "aliases": "cache,region",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "password",
+            "description": "the password for the web administrator is required to interact with Cache Connections.\nYou can optionally set it for your Application in Application.cfc using the variable [this.webAdminPassword].\n",
+            "aliases": "webAdminPassword",
+            "type": "string",
+            "required": false
+        }
+    ]
+}

@@ -1,0 +1,32 @@
+{
+    "member_details": {
+        "name": "keyExists",
+        "type": "struct",
+        "returns": "struct"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/structkeyexists.html",
+        "minimum_version": "",
+        "notes": "Using this function to check if a session variable exists, will create a session, if it doesn't already exist.\n\nWith Lucee 6.2, we have introduced [[function-sessionexists]] which can be safely used to check if a session has been created"
+    }},
+    "name": "structKeyExists",
+    "description": "Determines whether a specific key is present in a structure.",
+    "syntax": "structKeyExists( struct struct, string key )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [
+        {
+            "name": "struct",
+            "description": "Name of structure to test",
+            "aliases": "structure,object",
+            "type": "struct",
+            "required": true
+        },
+        {
+            "name": "key",
+            "description": "Key to test",
+            "type": "string",
+            "required": true
+        }
+    ]
+}

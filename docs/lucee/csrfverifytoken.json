@@ -1,0 +1,32 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/csrfverifytoken.html",
+        "minimum_version": ""
+    }},
+    "name": "CSRFVerifyToken",
+    "description": "Validates the given token against the same stored in the session for a specific key.",
+    "syntax": "CSRFVerifyToken( string token, [string key], [boolean remove] )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [
+        {
+            "name": "token",
+            "description": "Token that to be validated against the token stored in the session.",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "key",
+            "description": "The key against which the token be searched.",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "remove",
+            "description": "Also remove the token from the session if it exists.",
+            "default": "false",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

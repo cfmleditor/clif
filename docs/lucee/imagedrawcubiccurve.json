@@ -1,0 +1,73 @@
+{
+    "member_details": {
+        "name": "drawCubicCurve",
+        "type": "image",
+        "returns": "image"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/imagedrawcubiccurve.html",
+        "minimum_version": ""
+    }},
+    "name": "ImageDrawCubicCurve",
+    "description": "Draws a cubic curve.",
+    "syntax": "ImageDrawCubicCurve( any image, number x1, number y1, number ctrlx1, number ctrly1, number ctrlx2, number ctrly2, number x2, number y2 )",
+    "returns": "void",
+    "type": "function",
+    "params": [
+        {
+            "name": "image",
+            "description": "The image on which this operation is performed.",
+            "aliases": "name",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "x1",
+            "description": "The x coordinate of the start point of the cubic curve segment.",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "y1",
+            "description": "The y coordinate of the start point of the cubic curve segment.",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "ctrlx1",
+            "description": "The x coordinate of the first control point of the cubic curve segment.",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "ctrly1",
+            "description": "The y coordinate of the first control point of the cubic curve segment.",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "ctrlx2",
+            "description": "The x coordinate of the second control point of the cubic curve segment.",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "ctrly2",
+            "description": "The y coordinate of the second control point of the cubic curve segment.",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "x2",
+            "description": "The x coordinate of the end point of the cubic curve segment.",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "y2",
+            "description": "The y coordinate of the end point of the cubic curve segment.",
+            "type": "number",
+            "required": true
+        }
+    ]
+}

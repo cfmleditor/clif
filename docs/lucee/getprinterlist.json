@@ -1,0 +1,19 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/getprinterlist.html",
+        "minimum_version": ""
+    }},
+    "name": "GetPrinterList",
+    "description": "Gets a string list of available printers.",
+    "syntax": "GetPrinterList( [string delimiters] )",
+    "returns": "string",
+    "type": "function",
+    "params": [{
+        "name": "delimiters",
+        "description": "Characters that separate list elements. The default value is comma.",
+        "default": ",",
+        "aliases": "delimiter",
+        "type": "string",
+        "required": false
+    }]
+}

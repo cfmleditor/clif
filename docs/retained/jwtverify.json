@@ -1,0 +1,51 @@
+{
+    "name": "JwtVerify",
+    "description": "Verifies a signed JWT and returns the claims. Validates signature, expiration, not-before, issuer, and audience.",
+    "syntax": "JwtVerify( string token, any key, [any algorithms], [string issuer], [string audience], [numeric clockSkew], [boolean throwOnError] )",
+    "returns": "any",
+    "type": "function",
+    "params": [
+        {
+            "name": "token",
+            "description": "JWT string to verify.",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "key",
+            "description": "Verification key. For HMAC: string or byte array. For RSA/EC: PEM string or Java PublicKey object.",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "algorithms",
+            "description": "Allowed algorithms. Array or comma-separated string. Security best practice to restrict algorithms.",
+            "type": "any",
+            "required": false
+        },
+        {
+            "name": "issuer",
+            "description": "Required issuer (iss claim). Validation fails if token issuer doesn't match.",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "audience",
+            "description": "Required audience (aud claim). Validation fails if audience is not in token's audience list.",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "clockSkew",
+            "description": "Clock skew tolerance in seconds for exp/nbf validation. Default 0.",
+            "type": "numeric",
+            "required": false
+        },
+        {
+            "name": "throwOnError",
+            "description": "If true (default), throws on invalid token. If false, returns struct with valid, claims, error. Note: defaults to true unlike hash verify functions, since JWT validation failures typically indicate a security issue.",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

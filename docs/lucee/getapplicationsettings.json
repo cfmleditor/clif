@@ -1,0 +1,26 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/getapplicationsettings.html",
+        "minimum_version": ""
+    }},
+    "name": "GetApplicationSettings",
+    "description": "return all data from this scope, when using an application.cfc or all setting defined in tag cfapplication",
+    "syntax": "GetApplicationSettings( [boolean suppressFunction], [boolean onlySupported] )",
+    "returns": "struct",
+    "type": "function",
+    "params": [
+        {
+            "name": "suppressFunction",
+            "description": "If true then only data members from this scope are returned (no functions), default is false.\n\nCalling this function and passing `true` is equivalent to calling `getApplicationMetaData()`\n",
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "onlySupported",
+            "description": "If false (default), all supported Application settings, plus any other values defined in the Application.cfc constructor are returned.\n\n\t\t\tIf true\n\t\t\t- Only Application settings for Lucee Core are returned\n\t\t\t- Any settings for Extensions may not be returned (TBD)\n\t\t\t- Any Application.cfc setting which has no effect on Lucee Core will be not returned\n\n\t\t\tNote\n\t\t\t- When false, settings defined using aliases are also returned under the default setting name (i.e settings may be duplicated)",
+            "minimum_version": "6.0.0.317",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

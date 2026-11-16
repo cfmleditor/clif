@@ -1,0 +1,18 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/getbasetaglist.html",
+        "minimum_version": ""
+    }},
+    "name": "getBaseTagList",
+    "description": "Gets ancestor tag names, starting with the parent tag.",
+    "syntax": "getBaseTagList( [string delimiter] )",
+    "returns": "string",
+    "type": "function",
+    "params": [{
+        "name": "delimiter",
+        "description": "delimiter used for the list",
+        "default": ",",
+        "type": "string",
+        "required": false
+    }]
+}

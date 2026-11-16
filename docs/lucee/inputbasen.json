@@ -1,0 +1,25 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/inputbasen.html",
+        "minimum_version": ""
+    }},
+    "name": "inputBaseN",
+    "description": "Converts string, using the base specified by radix, to an\ninteger. For example: #InputBaseN(\"3ff\",16)#",
+    "syntax": "inputBaseN( string string, number radix )",
+    "returns": "number",
+    "type": "function",
+    "params": [
+        {
+            "name": "string",
+            "description": "String that represents a number, in the base specified by radix.",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "radix",
+            "description": "Base of the number represented by string, in the range 2-36.",
+            "type": "number",
+            "required": true
+        }
+    ]
+}

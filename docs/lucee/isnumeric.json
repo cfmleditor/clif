@@ -1,0 +1,18 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/isnumeric.html",
+        "minimum_version": ""
+    }},
+    "name": "isNumeric",
+    "description": "Determines if the object represents a numeric",
+    "syntax": "isNumeric( any string )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [{
+        "name": "string",
+        "description": "A string or a variable that contains a number.",
+        "aliases": "value",
+        "type": "any",
+        "required": true
+    }]
+}

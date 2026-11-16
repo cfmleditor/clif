@@ -1,0 +1,25 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/filecopy.html",
+        "minimum_version": ""
+    }},
+    "name": "fileCopy",
+    "description": "Copies the specified on-disk or in-memory source file to the specified destination file.",
+    "syntax": "fileCopy( any source, any destination )",
+    "returns": "void",
+    "type": "function",
+    "params": [
+        {
+            "name": "source",
+            "description": "path to copy.",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "destination",
+            "description": "Pathname of the destination file.",
+            "type": "any",
+            "required": true
+        }
+    ]
+}

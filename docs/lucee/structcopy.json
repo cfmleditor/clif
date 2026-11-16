@@ -1,0 +1,23 @@
+{
+    "member_details": {
+        "name": "copy",
+        "type": "struct",
+        "returns": "struct"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/structcopy.html",
+        "minimum_version": ""
+    }},
+    "name": "structCopy",
+    "description": "Copies a structure. Copies top-level keys, values, and arrays\nin the structure by value; copies nested structures by\nreference.",
+    "syntax": "structCopy( struct struct )",
+    "returns": "object",
+    "type": "function",
+    "params": [{
+        "name": "struct",
+        "description": "Structure to copy",
+        "aliases": "structure,object",
+        "type": "struct",
+        "required": true
+    }]
+}

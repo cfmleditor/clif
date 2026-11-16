@@ -11,7 +11,7 @@ For sandbox proxy failures, follow the execution-context retry guidance in
 `AGENTS.md` before diagnosing an outage.
 
 ```bash
-make build          # generate docs + build target/release/clif with CFLint inside, as
+make build          # build target/release/clif from the committed docs, with CFLint inside, as
                     # releases are (scripts/fetch-cflint.sh, cached in internal/cflint/embedded/)
 make check          # everything CI runs on a PR: build, vet (incl. -tags cflint_embed),
                     # gofmt, go test -short -race, lint, vuln
@@ -25,6 +25,8 @@ make link           # build + symlink onto PATH for local editor use (LINK_DIR=<
 make unlink         # remove that symlink
 make link-status    # show the link, the build, and what PATH resolves clif to
 make update-grammar # bump tree-sitter-cfml, regen docs + injections.scm, clear build cache
+make generate       # fetch the pinned cfdocs (docs/sources.lock) and regenerate the docs
+make docs-bump      # move the cfdocs pin and the vendored docs/lucee to upstream's latest; then `make generate`
 make framework-stubs # regenerate internal/frameworkapi/stubs from each pinned framework
                     # source (needs git + network; the stubs are committed)
 make update-d3      # rebuild the code-map viewer's D3 bundle from assets/vendor/entry.js
@@ -62,35 +64,105 @@ go test -v ./internal/formatter/ -run TestFormatOutput
 go test ./internal/parser/ -bench . -run '^$'
 ```
 
-**`make build` requires network access.** `build` depends on `generate` → `docs` →
-`scripts/fetch-docs-cfdocs.sh`, which git-clones the cfdocs repo into the gitignored
-`docs/data/`. The *generated* Go file (`internal/docs/generated_docs.go`) is committed, so plain
-`go build ./cmd/clif`, `go test ./...`, and `make lint` all work offline
-— use those when the fetch step can't run. (`make lint`'s first run needs the network once, to
-fetch and build the pinned linter; after that it is served from the build cache.)
+**Only `make generate` fetches docs.** `make build` compiles the committed
+`internal/docs/generated_docs.go`, as CI and the release workflow do, so it works offline (it does
+fetch CFLint, and builds without it when it can't). `make generate` runs `docs`, which git-clones
+the pinned cfdocs commit into the gitignored `docs/src/` (Lucee's docs are committed), then
+regenerates. Plain `go build ./cmd/clif`, `go test ./...` and `make lint` never fetch docs. (`make
+lint`'s first run needs the network once, to fetch and build the pinned linter; after that it is
+served from the build cache.)
 
-**The docs pipeline has two sources and both must be staged.** `internal/docs/generated_docs.go`
-is generated from `docs/data/*.json`, which is *assembled* from per-source staging directories:
+**The docs pipeline has three sources: cfdocs (fetched), `docs/retained` and Lucee (both
+committed).** `internal/docs/generated_docs.go` is generated from them, each read in place:
 
 ```
-scripts/fetch-docs-cfdocs.sh → docs/src/cfdocs   (cache marker docs/.sha-cfdocs)
-scripts/fetch-docs-lucee.sh  → docs/src/lucee    (cache marker docs/.etag)
-scripts/assemble-docs.sh     → docs/data         (cfdocs first, lucee wins on collision)
+docs/sources.lock              (committed: the cfdocs commit to fetch)
+scripts/fetch-docs-cfdocs.sh → docs/src/cfdocs   (the pinned commit; marker docs/.sha-cfdocs)
+docs/retained                  (committed, not fetched: entries an upstream stopped publishing)
+docs/lucee                     (committed: Lucee's docs, vendored; provenance in docs/lucee/SOURCE)
+scripts/assemble-docs.sh     → docs/data/order (each source, lowest precedence first, and its directory)
 ```
 
-`make docs` runs all three in order; `make docs-cfdocs` / `make docs-lucee` refresh one source
-and re-assemble. Each fetch only ever touches its own staging directory and only replaces it
-after a successful download, so refreshing one source can't destroy the other and a transient
-outage can't destroy the cache.
+**The sources are pinned, so the same commit regenerates the same docs on any machine.**
+`docs/sources.lock` names the cfdocs commit to check out, and the generator refuses unless the
+staged cfdocs (its marker, `docs/.sha-cfdocs`, written only once the staged copy is whole) is
+exactly that commit. Lucee publishes only its latest zip, so a version of it cannot be fetched again
+later; its JSON is vendored in `docs/lucee` instead, and `docs/lucee/SOURCE` records the zip it came
+from and a hash of the vendored JSON, which `TestVendoredLuceeMatchesItsSource` checks, so a hand
+edit there fails CI. Upstream changes arrive only through `make docs-bump`, which stages cfdocs'
+master, checks its commit, refuses a Lucee zip holding a file that does not parse or names no valid
+entry, then replaces `docs/lucee` and writes the lock last, so nothing committed changes unless both
+succeed: follow it with `make generate` and review the lock, `docs/lucee` and `generated_docs.go`
+diffs together. Only `docs-bump` writes the lock; a missing pin is an error.
 
-**If a source can't be fetched, the generated file loses that source's entries.** A blocked
-`docs.lucee.org` (some sandboxes and proxies deny it) means no `docs/src/lucee`, and
-regeneration then drops every Lucee-only entry (`cfdistributedlock`, `cfstatic`,
-`cfauthenticate`, …) — a pure-deletion diff of several hundred lines in
-`internal/docs/generated_docs.go`. `assemble-docs.sh` warns loudly when a source is missing, and
-`make docs` warns again when a fetch fails, but the build still proceeds. **Never commit that
-deletion** — `git checkout -- internal/docs/generated_docs.go`. Only commit a change to that
-file when `make docs` reported both sources staged.
+`make docs` fetches cfdocs at the pinned commit (retrying a failed network step twice) and assembles
+the order; a failed fetch fails it. `make docs-cfdocs` does the same; there is no Lucee fetch
+outside `make docs-bump`. `SOURCES` in `assemble-docs.sh` is the only place the precedence is
+written, and the generator takes each entry from the highest source that documents it, whatever the
+file is called: Lucee outranks `docs/retained`, which outranks cfdocs, and when Lucee documents a
+retained name again the generator says the retained file can go. Every source is read where it is,
+never copied, so a file just added, fixed, broken or pulled always counts. The staged cfdocs, the
+vendored `docs/lucee` and `docs/data` are each built beside themselves and swapped in
+(`scripts/lib/swapdir.sh`), with the old copy restored after a failure or an interrupt, and the
+scripts take a lock (`docs/.lock`) so two docs runs cannot interleave; all of them work from the
+repository root wherever they are run from.
+
+**`scripts/generate_docs.go` refuses to lose an entry.** It compares the new entries, by type and
+name, with `internal/docs/generated_sources.txt` as committed at `HEAD` (`git show HEAD:./…`, so it
+also works with clif inside another repository), never the working copy, so an uncommitted
+regeneration that already lost entries cannot become the baseline. If any are missing it prints a
+banner listing them and writes nothing. It refuses the same way when an entry would come from a
+lower-ranked source than before (Lucee's, or a retained one, replaced by cfdocs' Adobe entry): the
+name survives, so nothing is "missing", but the signature changes. Ranks are judged by the order the
+baseline was generated under (its `# order:` line), so a source missing today still ranks where it
+did. A move to `docs/retained` is never a fallback: copying in an entry Lucee dropped is the fix.
+`generated_sources.txt` records each entry's source; `TestGeneratedSourcesMatchTheDocs` keeps it in
+step with `generated_docs.go`. Both are written to temporary files first and renamed into place only
+once both are written, so a full disk cannot split them; a rename failing between the two can, and
+that test then fails until a regeneration rewrites both. **Commit them together.**
+
+With no baseline to compare with (no `generated_sources.txt` at `HEAD`, a `HEAD` that does not
+resolve, or no usable git to ask: not installed, or a checkout git distrusts) it refuses rather than
+check less; `DOCS_ALLOW_REMOVALS=1` creates the file from nothing, once, deliberately. A committed
+sources file that git cannot read (a shallow clone), is malformed or lists nothing is refused too,
+never taken for "no baseline". A fetched file that does not parse is skipped with a warning (cfdocs
+has shipped `cfcatch.json` and `cfcol.json` with merge-conflict markers in them); if that costs an
+entry, the removal check names it. A committed one (in `docs/retained` or the vendored `docs/lucee`)
+is refused instead: skipped, it would drop its entry for good, and a new entry has no baseline to be
+missed from.
+
+On a refusal `make generate` exits 1 and writes nothing; the banner notes when the generated files
+on disk differ from `HEAD`'s or are not committed (`make build` compiles whatever is on disk).
+Nothing else regenerates: `make build` and releases use the committed docs, so a failed fetch or an
+upstream removal never touches a build. A `docs/retained` file that does not parse or is not a
+function or tag is refused like the rest, and so are two retained files for one name (one would be
+dropped silently, with its signature). `make update-grammar` bumps the grammar first and runs
+`make generate` last, so a docs problem neither blocks the bump nor passes unnoticed.
+
+Two things make entries go missing:
+
+- **A source can't be fetched.** A blocked GitHub means no staged cfdocs, which would drop every
+  cfdocs-only entry; a blocked `docs.lucee.org` (some sandboxes and proxies deny it) now only stops
+  `make docs-bump`, since Lucee's docs are committed. The generator refuses either way. Fix the
+  fetch.
+- **An upstream stops publishing part of itself.** In 2026-11 docs.lucee.org stopped listing about 50
+  of Lucee's crypto extension functions (`JwtSign`, `BCryptVerify`, …), and the unresolved report
+  then flagged every call to them. Hours later it dropped `Argon2CheckHash` and `GenerateArgon2Hash`
+  too, which cfdocs' Adobe entries silently replaced. Those now live in `docs/retained/` (see its
+  README). If the engine still has a function, add its entry there. If it really is gone, rerun
+  `make generate` with `DOCS_ALLOW_REMOVALS="function foo"`: entries by name, comma-separated, so
+  accepting one cannot carry an accidental loss through with it (`1` accepts everything).
+
+**Never use `DOCS_ALLOW_REMOVALS` to get past a failed fetch**, and never commit a
+`generated_docs.go` diff that deletes entries nobody decided to drop: `git checkout --
+internal/docs/generated_docs.go internal/docs/generated_sources.txt`.
+`TestRetainedLuceeEntriesAreDocumented` checks that every retained file reaches the generated docs
+with its own syntax and parameters (or that Lucee now documents it), and
+`TestLuceeOnlyEntriesArePresent` that the Lucee-only entries are there; the release workflow runs
+`go test ./internal/docs/...`, once, ahead of the platform builds, rather than grepping the
+generated file. CI's `docs-reproducible` job runs `make generate` and fails if the committed docs
+change, so `generated_docs.go` is always what the pinned and vendored sources produce: a hand edit,
+or a pin bumped without regenerating, fails it.
 
 Go toolchain is pinned at **1.27.4** (`go.mod`). CGO is required (tree-sitter grammar).
 
@@ -199,6 +271,7 @@ Editor document change
 | `internal/formatter` | tree-sitter CST-walking formatter (elements, cfscript, cfquery/SQL) |
 | `internal/language` | tree-sitter language handles (`CFML`, `CFScript`, `CFQuery`) + injection queries |
 | `internal/docs` | Built-in CFML function/tag signatures and return types (**generated — do not hand-edit**) |
+| `internal/docs/sources` | The docs generator's checks, compiled and tested here rather than in the build-ignored `scripts/generate_docs.go`: parsing `generated_sources.txt` (shared with the `internal/docs` tests, so they agree on a valid line), entry names, removals, fallbacks to a lower source, per-entry precedence (`Pick`), `DOCS_ALLOW_REMOVALS`, and the names in a `generated_docs.go`. Imports nothing from `internal/docs`, so a broken generated file cannot stop the generator |
 | `internal/cflint` | Downloads/runs the CFLint binary, maps JSON output to LSP diagnostics |
 | `internal/cache` | Per-file, per-scope completion item cache with content hashing |
 | `internal/refs` | Shared reference-finding + `Trace` (multi-hop wrapper following) for the `refs` CLI, `clif.findRefs` and `textDocument/references` |

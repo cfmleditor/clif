@@ -1,0 +1,18 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/isimage.html",
+        "minimum_version": ""
+    }},
+    "name": "IsImage",
+    "description": "Determines whether a variable returns a image.",
+    "syntax": "IsImage( any image )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [{
+        "name": "image",
+        "description": "The variable that is checked.",
+        "aliases": "value,object,name",
+        "type": "any",
+        "required": true
+    }]
+}

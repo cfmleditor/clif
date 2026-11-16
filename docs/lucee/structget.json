@@ -1,0 +1,18 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/structget.html",
+        "minimum_version": ""
+    }},
+    "name": "structGet",
+    "description": "Gets a structure(s) from a specified path.",
+    "syntax": "structGet( string PathDesired )",
+    "returns": "any",
+    "type": "function",
+    "params": [{
+        "name": "PathDesired",
+        "description": "Pathname of variable that contains structure or array from which Lucee retrieves structure.",
+        "aliases": "path",
+        "type": "string",
+        "required": true
+    }]
+}

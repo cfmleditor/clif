@@ -1,0 +1,31 @@
+{
+    "member_details": {
+        "name": "findAll",
+        "type": "array",
+        "returns": "array"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/arrayfindall.html",
+        "minimum_version": ""
+    }},
+    "name": "arrayFindAll",
+    "description": "These functions searches the array for the specified object and return the positions of all occurrence of this values.",
+    "syntax": "arrayFindAll( array array, any value_or_closure )",
+    "returns": "array",
+    "type": "function",
+    "params": [
+        {
+            "name": "array",
+            "description": "The array to search in",
+            "type": "array",
+            "required": true
+        },
+        {
+            "name": "value_or_closure",
+            "description": "- The value to find \n- A closure/function that gets every value of the array as input and returns true if the given value is right, with the following signature:\n\n`boolean function(el){}`",
+            "aliases": "object,value,closure,function,udf,callback",
+            "type": "any",
+            "required": true
+        }
+    ]
+}

@@ -82,7 +82,7 @@ func main() {
 		fmt.Println("\n[dry-run] All checks passed. Would:")
 		fmt.Printf("  - Update CHANGELOG.md: move unreleased to [%s]\n", version)
 		fmt.Printf("  - Update VERSION to %s\n", version)
-		fmt.Println("  - Run: make build")
+		fmt.Println("  - Run: make build (from the committed docs the tag ships)")
 		fmt.Println("  - Run: go test ./...")
 		fmt.Println("  - Run: make lint")
 		fmt.Println("  - Run: make vuln")
@@ -109,6 +109,8 @@ func main() {
 
 	// Build
 	fmt.Println("\nBuilding...")
+	// Builds the committed docs, which is what the tag ships (neither `make
+	// build` nor the release workflow regenerates them).
 	run("make", "build")
 
 	// Test

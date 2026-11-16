@@ -1,0 +1,26 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/entityloadbyexample.html",
+        "minimum_version": "",
+        "notes": "Creates a Hibernate query-by-example (QBE) using the provided entity instance. Any non-null property on the example entity is used as a filter criterion.\n\nSet `unique` to `true` if you expect exactly one result \u2014 returns the entity directly instead of an array. Throws if multiple rows match.\n\nProperties set to their default values (e.g. `0` for numeric, `\"\"` for string) may be included in the filter, which can produce unexpected results. Only set the properties you want to filter on.\n"
+    }},
+    "name": "EntityLoadByExample",
+    "description": "Loads and returns an array of objects that match the sample entity.\nentityLoadByExample(sampleEntity,[unique])",
+    "syntax": "EntityLoadByExample( object sampleEntity, [boolean unique] )",
+    "returns": "any",
+    "type": "function",
+    "params": [
+        {
+            "name": "sampleEntity",
+            "description": "Name of the sample entity that is used to match and filter similar entities to load.",
+            "type": "object",
+            "required": true
+        },
+        {
+            "name": "unique",
+            "description": "If unique is set to true, then the entity is returned.\n\nIf you are sure that only one record exists that matches this filtercriteria, then you can specify unique=true, so that a single entity is returned instead of an array.\n\nIf you set unique=true and multiple records are returned, then an exception occurs.",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

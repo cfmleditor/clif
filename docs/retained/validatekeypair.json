@@ -1,0 +1,21 @@
+{
+    "name": "ValidateKeyPair",
+    "description": "Validates that a public and private key form a matching pair.",
+    "syntax": "ValidateKeyPair( string privateKey, string publicKey )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [
+        {
+            "name": "privateKey",
+            "description": "Private key in PEM format",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "publicKey",
+            "description": "Public key in PEM format",
+            "type": "string",
+            "required": true
+        }
+    ]
+}

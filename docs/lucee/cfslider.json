@@ -1,0 +1,203 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/tags/slider.html",
+        "minimum_version": ""
+    }},
+    "name": "cfslider",
+    "description": "Used inside cfform, cfslider lets you place a slider control in a CFML form. A slider\ncontrol is like a sliding volume control. The slider groove is the area over which the slider moves.",
+    "syntax": "<cfslider name=\"\"/>",
+    "returns": "void",
+    "type": "tag",
+    "params": [
+        {
+            "name": "name",
+            "description": "A name for the cfslider control.",
+            "default": false,
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "label",
+            "description": "A label that displays with the slider control.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "refreshLabel",
+            "description": "Yes or No. If Yes, the label is not refreshed when the slider is moved. Default is Yes.",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "range",
+            "description": "The values of the left and right slider range. The slider value displays as the slider is moved.\nSeparate values by a comma.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "scale",
+            "description": "Unsigned integer. Defines the slider scale within the value of range.",
+            "default": false,
+            "type": "number",
+            "required": false
+        },
+        {
+            "name": "value",
+            "description": "The starting slider setting. Must be within the values specified in range. Defaults to the\nminimum value specified in range.",
+            "default": false,
+            "type": "number",
+            "required": false
+        },
+        {
+            "name": "onValidate",
+            "description": "The name of a valid JavaScript function used to validate user input; in this case,\na change to the default slider value.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "message",
+            "description": "Message text to appear if validation fails.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "onError",
+            "description": "The name of a valid JavaScript function to execute in the event of a failed validation.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "height",
+            "description": "Height of the slider control, in pixels.",
+            "default": false,
+            "type": "number",
+            "required": false
+        },
+        {
+            "name": "width",
+            "description": "Width of the slider control, in pixels.",
+            "default": false,
+            "type": "number",
+            "required": false
+        },
+        {
+            "name": "vSpace",
+            "description": "Vertical margin spacing above and below slider control, in pixels.",
+            "default": false,
+            "type": "number",
+            "required": false
+        },
+        {
+            "name": "hSpace",
+            "description": "Horizontal margin spacing to the left and right of slider control, in pixels.",
+            "default": false,
+            "type": "number",
+            "required": false
+        },
+        {
+            "name": "align",
+            "description": "Alignment value.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "tickMarkMajor",
+            "description": "Yes to render major tickmarks in the slider scale.",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "tickMarkMinor",
+            "description": "Yes to render minor tickmarks in the slider scale.",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "tickMarkImages",
+            "description": "image used for tickmarks",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "tickMarkLabels",
+            "description": "label used for tickmarks",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "lookAndFeel",
+            "description": "A stylistic choice for the slider.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "vertical",
+            "description": "Yes renders the slider in the browser vertically. No renders the slider horizontally.\n\nThis is the default.",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "bgColor",
+            "description": "Background color of slider label. See textColor for color options.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "textColor",
+            "description": "Slider label text color. Valid entries are: black, magenta,\ncyan, orange, darkgray, pink, gray, white, lightgray, yellow.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "font",
+            "description": "Font name for label text.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "fontSize",
+            "description": "Font size for label text measured in points.",
+            "default": false,
+            "type": "number",
+            "required": false
+        },
+        {
+            "name": "italic",
+            "description": "Yes for italicized label text, No for normal text. Default is No.",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "bold",
+            "description": "Enter Yes for bold label text, No for medium text. Default is No.",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "notSupported",
+            "description": "The text to display if a page containing a Java applet-based cfform control is opened by a\nbrowser that does not support Java or has Java support disabled.",
+            "default": false,
+            "type": "string",
+            "required": false
+        }
+    ],
+    "body": "none"
+}

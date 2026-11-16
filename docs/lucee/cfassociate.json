@@ -1,0 +1,28 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/tags/associate.html",
+        "minimum_version": ""
+    }},
+    "name": "cfassociate",
+    "description": "Allows subtag data to be saved with the base tag. Applies only to custom tags.",
+    "syntax": "<cfassociate baseTag=\"\"/>",
+    "returns": "void",
+    "type": "tag",
+    "params": [
+        {
+            "name": "baseTag",
+            "description": "The name of the base tag.",
+            "default": false,
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "dataCollection",
+            "description": "The name of the structure in which the base tag stores subtag data.",
+            "default": false,
+            "type": "string",
+            "required": false
+        }
+    ],
+    "body": "none"
+}

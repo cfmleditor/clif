@@ -1,0 +1,301 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/tags/form.html",
+        "minimum_version": ""
+    }},
+    "name": "cfform",
+    "description": "Builds a form with CFML custom control tags that provide more functionality than standard\nHTML form input elements (XML and Flash type not supported).",
+    "syntax": "<cfform/>",
+    "returns": "void",
+    "type": "tag",
+    "params": [
+        {
+            "name": "name",
+            "description": "A name for the form you are creating.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "action",
+            "description": "The name of the page that executed when the form is submitted for processing.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "preserveData",
+            "description": "Optional. \"Yes\" or \"No.\"\n\nSpecifies whether to display the data that was entered into cfform controls in the action page.\n\n\"Yes\" resets the value of the control to the value submitted when the form is submitted to itself. This works as expected for the cftextinput and cfslider controls.\n\nThis attribute can be used only if the form and action are on a single page, or if the action page has a form that contains controls with the same names as the corresponding controls on the form page.\n\n**This has not yet been implemented** <https://luceeserver.atlassian.net/browse/LDEV-1171>",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "enableCAB",
+            "description": "This attribute has been deprecated and is non-functional.",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "target",
+            "description": "The name of the window or window frame to which the form output is sent.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "method",
+            "description": "other than post will ignored",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "encType",
+            "description": "The MIME type used to encode data sent by the POST method.\n\nThe default value is application/x-www-form-urlencoded.\nIt is recommended that you accept the default value. This attribute is included for compatibility with\nthe HTML form tag.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "passThrough",
+            "description": "Used for HTML attributes that are not explicitly supported by cfform. If you specify an\nattribute and value, they are passed to the HTML code that is generated for the cfinput tag.",
+            "default": false,
+            "type": "any",
+            "required": false
+        },
+        {
+            "name": "codeBase",
+            "description": "URL for a downloadable JRE plugin (for Internet explorer only). Default is\n/CFIDE/classes/cf-j2re-win.cab.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "archive",
+            "description": "URL for a downloadable Java classes for controls.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "scriptSrc",
+            "description": "Specifies the URL, relative to the web root, of the\ndirectory that contains the cfform.js file with the\nclient-side JavaScript used by this tag and its child\ntags.\n\nFor XML format forms, this directory is also the default directory for XSLT skins.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "id",
+            "description": "HTML id passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "onError",
+            "description": "The name of a JavaScript function that runs if a form submission fails.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "onReset",
+            "description": "JavaScript to execute when the user clicks a reset button.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "onLoad",
+            "description": "JavaScript to execute when the form loads.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "onSubmit",
+            "description": "JavaScript function to execute after other input validation returns. Use this attribute to\nexecute JavaScript for preprocessing data before the form is submitted",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "style",
+            "description": "Styles to apply to the form. In HTML or XML format,\nLucee passes the style attribute to the browser\nor XML. In Flash format, must be a style specification\nin CSS format (XML and Flash type not supported).",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "class",
+            "description": "passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "format",
+            "description": "passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "skin",
+            "description": "",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "width",
+            "description": "The width of the form. Use a number to specify\npixels, In Flash, you can use a percentage value to\nspecify a percentage of the available width.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "height",
+            "description": "The height of the form. Use a number to specify\npixels. In Flash, you can use a percentage value to\nspecify a percentage of the available width. The\ndisplayed height might be less than the specified size.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "preloader",
+            "description": "Specifies whether to display a progress bar when\nloading the Flash form. Default is: true.",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "timeout",
+            "description": "Integer number of seconds for which to keep the\nform data in the Flash cache on the server. A value of\n0 prevents the data from being cached.",
+            "default": false,
+            "type": "number",
+            "required": false
+        },
+        {
+            "name": "wMode",
+            "description": "Specifies how the Flash form appears relative to\nother displayable content that occupies the same space on an HTML page.\n\n- window: The Flash form is the topmost layer on the page and obscures anything that would share the\nspace, such as drop-down dynamic HTML lists.\n- transparent: The Flash form honors the z-index of DHTML so you can float items above it. If the Flash\nform is above any item, transparent regions in the form show the content that is below it.\n- opaque: The Flash form honors the z-index of DHTML so you can float items above it. If the Flash form\nis above any item, it blocks any content that is below it.\n\nDefault is: window.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "accessible",
+            "description": "Specifies whether to include support screen readers\nin the Flash form. Screen reader support adds\napproximately 80KB to the SWF file sent to the\nclient. Default is: false.",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "accept",
+            "description": "passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "acceptcharset",
+            "description": "passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "title",
+            "description": "passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "dir",
+            "description": "passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "lang",
+            "description": "passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "onclick",
+            "description": "passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "ondblclick",
+            "description": "passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "onmousedown",
+            "description": "passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "onmouseup",
+            "description": "passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "onmouseover",
+            "description": "passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "onmousemove",
+            "description": "passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "onmouseout",
+            "description": "passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "onkeypress",
+            "description": "passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "onkeyup",
+            "description": "passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "onkeydown",
+            "description": "passed through to form tag created, only used for type html.",
+            "default": false,
+            "type": "string",
+            "required": false
+        }
+    ],
+    "body": "required"
+}

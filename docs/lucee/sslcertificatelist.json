@@ -1,0 +1,26 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/sslcertificatelist.html",
+        "minimum_version": ""
+    }},
+    "name": "SSLCertificateList",
+    "description": "Returns a list of SSL certificates. If a host is specified, it lists the certificates available for that specific host. If no host is specified, it lists all certificates stored in the KeyStore.",
+    "syntax": "SSLCertificateList( [string host], [number port] )",
+    "returns": "query",
+    "type": "function",
+    "params": [
+        {
+            "name": "host",
+            "description": "host to get Certificates from",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "port",
+            "description": "port of the host, default is 443",
+            "default": "443",
+            "type": "number",
+            "required": false
+        }
+    ]
+}

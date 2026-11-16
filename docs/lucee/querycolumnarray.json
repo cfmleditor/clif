@@ -1,0 +1,22 @@
+{
+    "member_details": {
+        "name": "columnArray",
+        "type": "query",
+        "returns": "query"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/querycolumnarray.html",
+        "minimum_version": ""
+    }},
+    "name": "queryColumnArray",
+    "description": "return the column names as array",
+    "syntax": "queryColumnArray( query query )",
+    "returns": "array",
+    "type": "function",
+    "params": [{
+        "name": "query",
+        "description": "This is the query object from which you want to extract the column data. It should be a valid query object.\n",
+        "type": "query",
+        "required": true
+    }]
+}

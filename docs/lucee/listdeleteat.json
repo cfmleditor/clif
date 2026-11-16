@@ -1,0 +1,45 @@
+{
+    "member_details": {
+        "name": "listDeleteAt",
+        "type": "string",
+        "returns": "string"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/listdeleteat.html",
+        "minimum_version": ""
+    }},
+    "name": "listDeleteAt",
+    "description": "Deletes an element from a list.\nReturns a copy of the list, without the specified element.",
+    "syntax": "listDeleteAt( string list, number position, [string delimiters], [boolean includeEmptyFields] )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "list",
+            "description": "a string list",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "position",
+            "description": "position of the element to delete",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "delimiters",
+            "description": "Characters that separate list elements. The default value is comma.",
+            "default": ",",
+            "aliases": "delimiter",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "includeEmptyFields",
+            "description": "if set to true, empty values are included as well",
+            "default": "false",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

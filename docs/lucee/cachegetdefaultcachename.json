@@ -1,0 +1,17 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/cachegetdefaultcachename.html",
+        "minimum_version": ""
+    }},
+    "name": "CacheGetDefaultCacheName",
+    "description": "return the default cache name for a specific type",
+    "syntax": "CacheGetDefaultCacheName( string type )",
+    "returns": "string",
+    "type": "function",
+    "params": [{
+        "name": "type",
+        "description": "cache type\n\nvalid values are\n\n- object\n- template\n- query\n- resource\n- function\n- include\n- http\n- file\n-  webservice\n",
+        "type": "string",
+        "required": true
+    }]
+}

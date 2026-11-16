@@ -1,0 +1,32 @@
+{
+    "member_details": {
+        "name": "blur",
+        "type": "image",
+        "returns": "image"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/imageblur.html",
+        "minimum_version": ""
+    }},
+    "name": "ImageBlur",
+    "description": "Applies a box blur filter to smooth an image by averaging pixel values within a square region. Useful for reducing image noise or creating soft focus effects.",
+    "syntax": "ImageBlur( any image, [number blurRadius] )",
+    "returns": "void",
+    "type": "function",
+    "params": [
+        {
+            "name": "image",
+            "description": "The image on which this operation is performed.",
+            "aliases": "name",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "blurRadius",
+            "description": "The size of the blur radius.\nValue must be greater than or equal to 3 and less than or equal to 10. The default value is 3.",
+            "default": "3",
+            "type": "number",
+            "required": false
+        }
+    ]
+}

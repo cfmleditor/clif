@@ -1,0 +1,18 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/entitymerge.html",
+        "minimum_version": "",
+        "notes": "`entityMerge()` copies the state of a **detached** entity onto a persistent instance in the current session and returns that persistent instance. Always use the returned object \u2014 the original detached entity is not modified.\n\nA common use case is reattaching an entity after [[function-ormclearsession]] or across requests.\n\nSee [[orm-session-and-transactions]] for details on entity lifecycle states.\n"
+    }},
+    "name": "EntityMerge",
+    "description": "Attaches the given entity to the current ORM session.",
+    "syntax": "EntityMerge( any entity )",
+    "returns": "any",
+    "type": "function",
+    "params": [{
+        "name": "entity",
+        "description": "The entity that must be attached to the ORM session.",
+        "type": "any",
+        "required": true
+    }]
+}

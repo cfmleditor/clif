@@ -1,0 +1,25 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/csrfgeneratetoken.html",
+        "minimum_version": ""
+    }},
+    "name": "CSRFGenerateToken",
+    "description": "Provides a random token and stores it in the session.",
+    "syntax": "CSRFGenerateToken( [string key], [boolean forceNew] )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "key",
+            "description": "A random token is generated for the key provided.",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "forceNew",
+            "description": "If set to true, a new token is generated every time the function is called.\n\nIf false, in case a token exists for the key, the same key is returned.",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

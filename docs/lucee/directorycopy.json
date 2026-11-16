@@ -1,0 +1,47 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/directorycopy.html",
+        "minimum_version": ""
+    }},
+    "name": "DirectoryCopy",
+    "description": "Copies the contents of a directory to a destination directory.",
+    "syntax": "DirectoryCopy( string source, string destination, [boolean recurse], [any filter], [boolean createPath] )",
+    "returns": "void",
+    "type": "function",
+    "params": [
+        {
+            "name": "source",
+            "description": "Pathname of directory from which you copy content.",
+            "aliases": "directory",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "destination",
+            "description": "Path of the destination directory. If not an absolute path, it is relative to the source directory.",
+            "aliases": "newDirectory",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "recurse",
+            "description": "If true, copies the subdirectories, otherwise only the files in the source directory.",
+            "default": "false",
+            "aliases": "recursive",
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "filter",
+            "description": "Filter to be used to filter the data copied:\n\n- A string that uses \"*\" as a wildcard, for example, \"*.cfm\"\n- An UDF (User defined Function) using the following pattern \"functioname(String path):boolean\", the function is run for every single file, if the function returns true, then the file is will be added to the list otherwise it will be omitted",
+            "type": "any",
+            "required": false
+        },
+        {
+            "name": "createPath",
+            "description": "if set to false, expects all parent directories to exist, true (default) will generate necessary directories",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

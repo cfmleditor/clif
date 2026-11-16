@@ -1,0 +1,17 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/truefalseformat.html",
+        "minimum_version": ""
+    }},
+    "name": "trueFalseFormat",
+    "description": "True, for a non-zero value; False, otherwise.",
+    "syntax": "trueFalseFormat( any value )",
+    "returns": "string",
+    "type": "function",
+    "params": [{
+        "name": "value",
+        "description": "a value that can be casted to a boolean",
+        "type": "any",
+        "required": true
+    }]
+}

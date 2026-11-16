@@ -1,0 +1,26 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/monthshortasstring.html",
+        "minimum_version": ""
+    }},
+    "name": "monthShortAsString",
+    "description": "Returns the string label for the given month in short format",
+    "syntax": "monthShortAsString( number monthNumber, [locale locale] )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "monthNumber",
+            "description": "A number corresponding a given month; 1 (January)- 12 (December)",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "locale",
+            "description": "Locale to use instead of the locale of the page when processing the function",
+            "minimum_version": "5.0.0.0",
+            "type": "locale",
+            "required": false
+        }
+    ]
+}

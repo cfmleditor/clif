@@ -1,0 +1,22 @@
+{
+    "member_details": {
+        "name": "trim",
+        "type": "string",
+        "returns": "string"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/trim.html",
+        "minimum_version": ""
+    }},
+    "name": "trim",
+    "description": "Removes leading and trailing spaces from a string.",
+    "syntax": "trim( string string )",
+    "returns": "string",
+    "type": "function",
+    "params": [{
+        "name": "string",
+        "description": "the string to trim",
+        "type": "string",
+        "required": true
+    }]
+}

@@ -1,0 +1,12 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/getapplicationmetadata.html",
+        "minimum_version": ""
+    }},
+    "name": "GetApplicationMetadata",
+    "description": "return all data from this scope, when using an application.cfc or all setting defined in tag cfapplication",
+    "syntax": "GetApplicationMetadata()",
+    "returns": "struct",
+    "type": "function",
+    "params": []
+}

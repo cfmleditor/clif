@@ -1,0 +1,18 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/isempty.html",
+        "minimum_version": ""
+    }},
+    "name": "IsEmpty",
+    "description": "Returns whether or not a given value is \"empty\".",
+    "syntax": "IsEmpty( any value )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [{
+        "name": "value",
+        "description": "The value to check. Can be either a string, array, struct or query object.",
+        "aliases": "object",
+        "type": "any",
+        "required": true
+    }]
+}

@@ -1,0 +1,36 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/callstackget.html",
+        "minimum_version": ""
+    }},
+    "name": "CallStackGet",
+    "description": "Returns the context (stacktrace) of the current position.",
+    "syntax": "CallStackGet( [string type], [number offset], [number maxFrames] )",
+    "returns": "any",
+    "type": "function",
+    "params": [
+        {
+            "name": "type",
+            "description": "the type of the returned value, possible values are:\n\n- array\n- string\n- html\n- json",
+            "default": "array",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "offset",
+            "description": "the number of frames to skip, default is 0",
+            "minimum_version": "5.3.8.130",
+            "default": "0",
+            "type": "number",
+            "required": false
+        },
+        {
+            "name": "maxFrames",
+            "description": "the maximum number of frames to return, default is 0 which means all",
+            "minimum_version": "5.3.8.130",
+            "default": "0",
+            "type": "number",
+            "required": false
+        }
+    ]
+}

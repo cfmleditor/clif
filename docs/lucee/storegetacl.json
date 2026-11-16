@@ -1,0 +1,17 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/storegetacl.html",
+        "minimum_version": ""
+    }},
+    "name": "StoreGetACL",
+    "description": "Returns an array of structures, with each structure representing an ACL (Access Control List) grant. This function operates identically to \"S3GetACL\", making it deprecated. The updated function offers greater flexibility in defining the endpoint.",
+    "syntax": "StoreGetACL( string url )",
+    "returns": "object",
+    "type": "function",
+    "params": [{
+        "name": "url",
+        "description": "Amazon S3 URL",
+        "type": "string",
+        "required": true
+    }]
+}

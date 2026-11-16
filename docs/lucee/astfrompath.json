@@ -1,0 +1,18 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/astfrompath.html",
+        "minimum_version": "7.0.0.296",
+        "notes": "This function may fail on files which aren't under a mapping."
+    }},
+    "name": "astFromPath",
+    "description": "Parses a CFML file and returns its Abstract Syntax Tree (AST) representation.\nThe AST is a structured tree that represents the syntactic structure of the CFML code, making it useful for:\n- **Code Analysis**: Static analysis, complexity metrics, dependency tracking\n- **IDE Tooling**: Syntax highlighting, autocomplete, refactoring support  \n- **Transformation**: Code generation, minification, transpilation\n- **Documentation**: Automatic API documentation generation\n- **Quality Assurance**: Linting, code style enforcement, security scanning\nThe returned AST uses **neutral, language-agnostic node types** following ESTree conventions such as `BinaryExpression`, `IfStatement`, `FunctionDeclaration`, and literal types. Each node includes **source position information** (line, column, offset) for precise error reporting and IDE integration.",
+    "syntax": "astFromPath( any path )",
+    "returns": "struct",
+    "type": "function",
+    "params": [{
+        "name": "path",
+        "description": "reference to a cfml template, can be a string containing a rel or absolute path, or any other kind of file (java.io.File,lucee.commons.io.res.Resource) or a file stream open with help of the function fileopen",
+        "type": "any",
+        "required": true
+    }]
+}

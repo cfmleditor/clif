@@ -1,0 +1,39 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/guardencode.html",
+        "minimum_version": ""
+    }},
+    "name": "GuardEncode",
+    "description": "Deprecated legacy function. Use context-specific functions (e.g., encodeForHTML) instead.\nEncodes data for a specific output context. This is a vital defense against Cross-Site Scripting (XSS) and injection attacks by ensuring characters are treated as data rather than executable code.",
+    "syntax": "GuardEncode( string encodeFor, string string, [boolean canonicalize], [string dialect] )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "encodeFor",
+            "description": "The target output context. \n\nValid values:\n\n- css: for style sheets\n- dn: for LDAP Distinguished Names\n- html: for HTML body content\n- html_attr: for HTML attributes (e.g., value, title)\n- javascript: for script blocks or event handlers\n- ldap: for LDAP search filters\n- url: for URI components\n- sql: for database query literals\n- vbscript: for legacy VBScript contexts\n- xml: for XML element content\n- xml_attr: for XML attribute values\n- xpath: for XPath query parameters",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "string",
+            "description": "The raw string to be encoded.",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "canonicalize",
+            "description": "If true, simplifies the input (resolving multiple/mixed encoding) before applying the new encoding. This prevents bypass attacks using double-encoding.",
+            "minimum_version": "5.0.0.0",
+            "default": "false",
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "dialect",
+            "description": "Required only if encodeFor is 'sql'. \n\nSpecifies the database syntax:\n\n* db2\n* mysql_ansi\n* mysql\n* oracle",
+            "type": "string",
+            "required": false
+        }
+    ]
+}

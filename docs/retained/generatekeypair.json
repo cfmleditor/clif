@@ -1,0 +1,21 @@
+{
+    "name": "GenerateKeyPair",
+    "description": "Generates a cryptographic key pair (public/private) for the specified algorithm.",
+    "syntax": "GenerateKeyPair( string algorithm, [struct options] )",
+    "returns": "struct",
+    "type": "function",
+    "params": [
+        {
+            "name": "algorithm",
+            "description": "Algorithm string. For RSA, append key size: RSA (default 2048), RSA-4096. For EC, use curve name: EC (default P-256), P-384, P-521. For EdDSA: Ed25519, Ed448. For post-quantum: Kyber768, Dilithium3.",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "options",
+            "description": "Optional struct with: format (PEM|DER|Base64, default PEM)",
+            "type": "struct",
+            "required": false
+        }
+    ]
+}

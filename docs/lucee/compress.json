@@ -1,0 +1,46 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/compress.html",
+        "minimum_version": "",
+        "notes": "Since Lucee 7.1, compress/extract functionality moved from core to the Compress extension. Basic zip and gzip support remains available in core using built-in JRE capabilities. Other formats (bzip, bzip2, tar, tbz, tbz2, tgz) require the Compress extension. It is included in the full jar. ([LDEV-5959](https://luceeserver.atlassian.net/browse/LDEV-5959))"
+    }},
+    "name": "compress",
+    "description": "Compress given source to different formats.",
+    "syntax": "compress( string format, string source, string target, [boolean includeBaseFolder], [string mode] )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [
+        {
+            "name": "format",
+            "description": "Compression Format\n\n- bzip\n- bzip2\n- gzip\n- tar\n- tar.bz\n- tbz (tar bzip)\n- tbz2\n- tgz (tar gzip)\n- tar.gz\n- zip\n",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "source",
+            "description": "source file or directory to compress\n\n**Note:** For gzip & bzip format must use the file path as the source",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "target",
+            "description": "name of the target compressed file",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "includeBaseFolder",
+            "description": "take the folder or only content of folder",
+            "default": "true",
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "mode",
+            "description": "mode of the values",
+            "default": "777",
+            "type": "string",
+            "required": false
+        }
+    ]
+}

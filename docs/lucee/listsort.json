@@ -1,0 +1,53 @@
+{
+    "member_details": {
+        "name": "listSort",
+        "type": "string",
+        "returns": "string"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/listsort.html",
+        "minimum_version": ""
+    }},
+    "name": "listSort",
+    "description": "Sorts list elements according to a sort type and sort order.",
+    "syntax": "listSort( string list, [string sort_type], [string sort_order], [string delimiters], [boolean includeEmptyFields] )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "list",
+            "description": "a string list",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "sort_type",
+            "description": "there are different sort types:\n\n- numeric (sort by number)\n- text (sorts text alphabetically and case sensitive)\n- textnocase (sorts text alphabetically and ignore case sensitivity)",
+            "default": "textNoCase",
+            "aliases": "sortType",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "sort_order",
+            "description": "sort direction:\n\n- asc(default): ascending sort order\n- desc: descending sort order",
+            "default": "asc",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "delimiters",
+            "description": "Characters that separate list elements. The default value is comma.",
+            "default": ",",
+            "aliases": "delimiter",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "includeEmptyFields",
+            "description": "if set to true, empty values are included as well",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

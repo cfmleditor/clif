@@ -1,0 +1,41 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/restinitapplication.html",
+        "minimum_version": "",
+        "notes": "Despite the name, this is a server level configuration"
+    }},
+    "name": "RestInitApplication",
+    "description": "Registers the directory path with the service mapping provided.",
+    "syntax": "RestInitApplication( string dirPath, [string serviceMapping], [boolean default], [string password] )",
+    "returns": "void",
+    "type": "function",
+    "params": [
+        {
+            "name": "dirPath",
+            "description": "Path to the directory to be registered or reset.\n\nThis folder should contain \n\n- one or more REST enabled CFCs, i.e. with `rest=true`\n- An `Application.cfc` (if required)",
+            "aliases": "dir,directory,path",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "serviceMapping",
+            "description": "Alternate string to be used for application name while calling the REST service.",
+            "aliases": "mapping",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "default",
+            "description": "set if the mapping is a default mapping or not",
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "password",
+            "description": "password for the web administrator, this is needed when you update/create a REST mapping.",
+            "aliases": "webAdminPassword",
+            "type": "string",
+            "required": false
+        }
+    ]
+}

@@ -1,0 +1,33 @@
+{
+    "name": "HKDFExpand",
+    "description": "Performs the Expand phase of HKDF to derive key material from a PRK. Use after HKDFExtract.",
+    "syntax": "HKDFExpand( string algorithm, any prk, any info, numeric outputLength )",
+    "returns": "binary",
+    "type": "function",
+    "params": [
+        {
+            "name": "algorithm",
+            "description": "Hash algorithm: SHA256, SHA384, or SHA512",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "prk",
+            "description": "Pseudo-random key from HKDFExtract",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "info",
+            "description": "Context/application info (can be empty string or null)",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "outputLength",
+            "description": "Number of bytes to derive",
+            "type": "numeric",
+            "required": true
+        }
+    ]
+}

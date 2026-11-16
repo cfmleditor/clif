@@ -1,0 +1,36 @@
+{
+    "member_details": {
+        "name": "ucFirst",
+        "type": "string",
+        "returns": "string"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/ucfirst.html",
+        "minimum_version": ""
+    }},
+    "name": "ucFirst",
+    "description": "Capitalizes the first character of the given string.",
+    "syntax": "ucFirst( string string, [boolean doAll], [boolean doLowerIfAllUppercase] )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "string",
+            "description": "the input string",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "doAll",
+            "description": "If true, then every word is capitalized, where a new word is defined as alpha characters that come after whitespace, a dot [.], a dash [-], or (parenthesis).\n\nThis is especially useful to clean up user input of names, e.g. converting a string like \"susi q. sorgolis\" to \"Susi Q. Sorgolis\"",
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "doLowerIfAllUppercase",
+            "description": "If true, then if the input string contains letters and they are all UPPERCASE, then the input string is first lowercased.\n\nWhen combined with the doAll argument, this is especially useful to clean user input of names when they are all UPPERCASE, e.g. converting \"SUSI Q. SORGOLIS\" to \"Susi Q. Sorgolis\" while preserving the CaSe if the input is e.g. \"Ronald McDonald\"",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

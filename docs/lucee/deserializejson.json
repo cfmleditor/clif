@@ -1,0 +1,41 @@
+{
+    "member_details": {
+        "name": "deserializeJSON",
+        "type": "string",
+        "returns": "string"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/deserializejson.html",
+        "minimum_version": "",
+        "notes": "Prior to Lucee 6, attempting to deserialize an empty string wouldn't throw an exception.\n\nThis was changed to be compatible with ACF."
+    }},
+    "name": "DeserializeJSON",
+    "description": "Converts a JSON (JavaScript Object Notation) or JSON5 string data representation into CFML data, such as a struct or array.",
+    "syntax": "DeserializeJSON( string JSONVar, [boolean strictMapping], [string format] )",
+    "returns": "any",
+    "type": "function",
+    "params": [
+        {
+            "name": "JSONVar",
+            "description": "A string that contains a valid JSON construct, or variable that represents one.",
+            "aliases": "json,data",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "strictMapping",
+            "description": "A Boolean value that specifies how to convert the JSON\n\n- TRUE Converts JSON structure strictly to CFML, using only JSON Datatypes\n- FALSE Query formats (like [[function-serializejson]] outputs) are converted back to CFML Queries",
+            "default": "true",
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "format",
+            "description": "The format of the input string. Possible values are:\n\n- **json**: Standard JSON format\n- **json5**: JSON5 format which allows additional features such as comments and unquoted keys",
+            "minimum_version": "6.2.0.14",
+            "default": "json5",
+            "type": "string",
+            "required": false
+        }
+    ]
+}

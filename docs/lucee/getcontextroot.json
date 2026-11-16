@@ -1,0 +1,12 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/getcontextroot.html",
+        "minimum_version": ""
+    }},
+    "name": "getContextRoot",
+    "description": "Returns path to the J2EE server context root for the current request.",
+    "syntax": "getContextRoot()",
+    "returns": "string",
+    "type": "function",
+    "params": []
+}

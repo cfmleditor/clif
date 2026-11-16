@@ -1,0 +1,27 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/createdynamicproxy.html",
+        "minimum_version": ""
+    }},
+    "name": "CreateDynamicProxy",
+    "description": "Wraps the given component with a Java class that implements the specified interfaces.\nIf no interfaces are provided, Lucee will create a proxy based on the component's interface itself.",
+    "syntax": "CreateDynamicProxy( object cfc, [object interfaces] )",
+    "returns": "any",
+    "type": "function",
+    "params": [
+        {
+            "name": "cfc",
+            "description": "component or component name",
+            "aliases": "cfcName, component, componentName",
+            "type": "object",
+            "required": true
+        },
+        {
+            "name": "interfaces",
+            "description": "Array of strings containing interface paths or a string list of interface paths.\n\n`[{\n\tclass:\"lucee.util.List\",\n\tbundlename:\"lucee.ext\",\n\tbundleVersion:\"1.2.3.4\"\n}]`",
+            "aliases": "interface",
+            "type": "object",
+            "required": false
+        }
+    ]
+}

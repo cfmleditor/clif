@@ -1,0 +1,27 @@
+{
+    "name": "VerifyBCryptHash",
+    "description": "Deprecated: renamed to BCryptVerify() for consistency with the {Algorithm}Hash/{Algorithm}Verify naming pattern. Functionally identical.",
+    "syntax": "VerifyBCryptHash( string input, string hash, [boolean throwOnError] )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [
+        {
+            "name": "input",
+            "description": "Password to verify",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "hash",
+            "description": "BCrypt hash to check against",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "throwOnError",
+            "description": "If true, throws an exception on invalid hash format instead of returning false",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

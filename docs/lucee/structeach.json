@@ -1,0 +1,46 @@
+{
+    "member_details": {
+        "name": "each",
+        "type": "struct",
+        "returns": "struct"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/structeach.html",
+        "minimum_version": ""
+    }},
+    "name": "structEach",
+    "description": "call the given UDF/Closure with every entry (key/value) in the struct.",
+    "syntax": "structEach( struct struct, function closure, [boolean parallel], [number maxThreads] )",
+    "returns": "void",
+    "type": "function",
+    "params": [
+        {
+            "name": "struct",
+            "description": "struct to take values from",
+            "aliases": "structure",
+            "type": "struct",
+            "required": true
+        },
+        {
+            "name": "closure",
+            "description": "A closure function (UDF) with the following signature:\n\n`function(key, value, st){}`\n\nWhich is called for each item in the struct.\n",
+            "aliases": "function,callback,udf",
+            "type": "function",
+            "required": true
+        },
+        {
+            "name": "parallel",
+            "description": "execute closures parallel",
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "maxThreads",
+            "description": "maximum number of threads executed, ignored when argument \"parallel\" is set to false",
+            "default": "20",
+            "aliases": "maxThreadCount",
+            "type": "number",
+            "required": false
+        }
+    ]
+}

@@ -1,0 +1,45 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/generatepbkdfkey.html",
+        "minimum_version": "5.0.0.0"
+    }},
+    "name": "GeneratePBKDFKey",
+    "description": "Implementation of Password-Based Key-Derivation Function (PBKDF).",
+    "syntax": "GeneratePBKDFKey( string algorithm, string passphrase, string salt, [numeric iterations], [numeric keySize] )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "algorithm",
+            "description": "Hashing algorithm used for generating key \n\nExample Values:\n\n- PBKDF2WithHmacSHA1\n- PBKDF2WithHmacSHA384\n- PBKDF2WithHmacSHA512/256\n- PBKDF2WithHmacSHA256\n- PBKDF2WithHmacSHA512/224\n- PBKDF2WithHmacSHA224\n- PBKDF2WithHmacSHA512\n",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "passphrase",
+            "description": "Passphrase to be hashed.\n",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "salt",
+            "description": "A random salt. It is recommended that you used something like the `GenerateSecretKey` function to generate a random salt, for example `GenerateSecretKey( 'AES' , '256' )`.\n",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "iterations",
+            "description": "The number of PBKDF iterations to perform. A minimum recommended value is 1000, however a value between 50,000 and 100,000 is recommended. You can also make this a random value, using something like the `randRange()` function, for example `randRange(50000, 100000, 'SHA1PRNG')`.\n",
+            "default": "4096",
+            "type": "numeric",
+            "required": false
+        },
+        {
+            "name": "keySize",
+            "description": "The length in bytes of the key to generate.",
+            "default": "128",
+            "type": "numeric",
+            "required": false
+        }
+    ]
+}

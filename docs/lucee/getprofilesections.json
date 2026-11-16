@@ -1,0 +1,17 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/getprofilesections.html",
+        "minimum_version": ""
+    }},
+    "name": "getProfileSections",
+    "description": "Gets all the sections of an initialization file.\nAn initialization file, as a struct whose format is as follows:\n- Each initialization file section name is a key in the\nstruct\n- Each list of entries in a section of an initialization\nfile is a value in the struct",
+    "syntax": "getProfileSections( string iniFile )",
+    "returns": "struct",
+    "type": "function",
+    "params": [{
+        "name": "iniFile",
+        "description": "path to an ini file.",
+        "type": "string",
+        "required": true
+    }]
+}

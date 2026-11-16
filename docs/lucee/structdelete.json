@@ -1,0 +1,38 @@
+{
+    "member_details": {
+        "name": "delete",
+        "type": "struct",
+        "returns": "struct"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/structdelete.html",
+        "minimum_version": ""
+    }},
+    "name": "structDelete",
+    "description": "Removes an element from a structure.",
+    "syntax": "structDelete( struct struct, string key, [boolean indicateNotExisting] )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [
+        {
+            "name": "struct",
+            "description": "Structure contains element to remove.",
+            "aliases": "structure,object",
+            "type": "struct",
+            "required": true
+        },
+        {
+            "name": "key",
+            "description": "Element to remove",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "indicateNotExisting",
+            "description": "* `true`: if the key existed in the struct, `StructDelete` will return `true`; if the key did not exist in the struct, `StructDelete` will return `false`.\n* `false` (default): irrespective of whether the key existed in the struct, `StructDelete` will return `true`.\n",
+            "aliases": "indicateExists",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

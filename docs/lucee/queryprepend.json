@@ -1,0 +1,30 @@
+{
+    "member_details": {
+        "name": "prepend",
+        "type": "query",
+        "returns": "query"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/queryprepend.html",
+        "minimum_version": "6.0.0.15"
+    }},
+    "name": "QueryPrepend",
+    "description": "Adds all values of one query the begin to another query. Both queries need to have the same columns.",
+    "syntax": "QueryPrepend( query query1, query query2 )",
+    "returns": "query",
+    "type": "function",
+    "params": [
+        {
+            "name": "query1",
+            "description": "query to add data.",
+            "type": "query",
+            "required": true
+        },
+        {
+            "name": "query2",
+            "description": "query to get data from.",
+            "type": "query",
+            "required": true
+        }
+    ]
+}

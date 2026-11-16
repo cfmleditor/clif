@@ -1,0 +1,17 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/getbuiltinfunction.html",
+        "minimum_version": ""
+    }},
+    "name": "GetBuiltInFunction",
+    "description": "return a build in function as an object, matching the given name, throws an exception when the function does not exist.",
+    "syntax": "GetBuiltInFunction( string name )",
+    "returns": "any",
+    "type": "function",
+    "params": [{
+        "name": "name",
+        "description": "name of the build in function, for example \"StructKeyExists\"",
+        "type": "string",
+        "required": true
+    }]
+}

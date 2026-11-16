@@ -1,0 +1,27 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/ormevictqueries.html",
+        "minimum_version": "",
+        "notes": "Evicts cached query results from the second-level query cache. If `cacheName` is provided, only that named cache region is evicted. Otherwise the default query cache is evicted.\n\nOnly relevant when `secondaryCacheEnabled` is `true` and queries are run with `cacheable: true`.\n\nSee [[orm-caching]] for query cache details.\n"
+    }},
+    "name": "ORMEvictQueries",
+    "description": "Evicts all queries from the named query cache. If cacheName is not specified, evicts the default query cache.",
+    "syntax": "ORMEvictQueries( [String cacheName], [string datasource] )",
+    "returns": "void",
+    "type": "function",
+    "params": [
+        {
+            "name": "cacheName",
+            "description": "Name of the cache region that you want to evict",
+            "aliases": "cache,region",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "datasource",
+            "description": "datasource used for the session, if nor defined the datasource defined in application.cfc/cfapplication is used.",
+            "type": "string",
+            "required": false
+        }
+    ]
+}

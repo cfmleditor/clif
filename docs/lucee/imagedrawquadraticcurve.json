@@ -1,0 +1,61 @@
+{
+    "member_details": {
+        "name": "drawQuadraticCurve",
+        "type": "image",
+        "returns": "image"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/imagedrawquadraticcurve.html",
+        "minimum_version": ""
+    }},
+    "name": "ImageDrawQuadraticCurve",
+    "description": "Draws a curved line. The curve is controlled by a single point.",
+    "syntax": "ImageDrawQuadraticCurve( any image, number x1, number y1, number ctrlx, number ctrly, number x2, number y2 )",
+    "returns": "void",
+    "type": "function",
+    "params": [
+        {
+            "name": "image",
+            "description": "The image on which this operation is performed.",
+            "aliases": "name",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "x1",
+            "description": "The x coordinate of the start point of the quadratic curve segment.",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "y1",
+            "description": "The y coordinate of the start point of the quadratic curve segment.",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "ctrlx",
+            "description": "The x coordinate of the first control point of the quadratic curve segment.",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "ctrly",
+            "description": "The y coordinate of the first control point of the quadratic curve segment.",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "x2",
+            "description": "The x coordinate of the end point of the quadratic curve segment.",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "y2",
+            "description": "The y coordinate of the end point of the quadratic curve segment.",
+            "type": "number",
+            "required": true
+        }
+    ]
+}

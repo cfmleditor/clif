@@ -1,0 +1,37 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/setprofilestring.html",
+        "minimum_version": ""
+    }},
+    "name": "setProfileString",
+    "description": "Sets the value of a profile entry in an initialization file.",
+    "syntax": "setProfileString( string iniPath, string section, string entry, string value )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "iniPath",
+            "description": "Absolute path of initialization file",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "section",
+            "description": "Section of the initialization file in which the entry is\nto be set",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "entry",
+            "description": "Name of the entry to set",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "value",
+            "description": "Value to which to set the entry",
+            "type": "string",
+            "required": true
+        }
+    ]
+}

@@ -1,0 +1,39 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/fileopen.html",
+        "minimum_version": ""
+    }},
+    "name": "fileOpen",
+    "description": "Opens an file to read, write, or append.",
+    "syntax": "fileOpen( string file, [string mode], [string charset], [boolean seekable] )",
+    "returns": "any",
+    "type": "function",
+    "params": [
+        {
+            "name": "file",
+            "description": "a file path",
+            "aliases": "path,filepath,source",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "mode",
+            "description": "Action to perform on the file, including the following:\n\n- read\n- readBinary\n- write\n- append\n\nIf you do not specify the mode, Lucee opens the file in read mode.",
+            "default": "read",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "charset",
+            "description": "The character set of the file.",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "seekable",
+            "description": "can be used for function fileseek",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

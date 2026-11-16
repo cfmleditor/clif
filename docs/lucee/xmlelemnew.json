@@ -1,0 +1,39 @@
+{
+    "member_details": {
+        "name": "elemNew",
+        "type": "xml",
+        "returns": "xml"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/xmlelemnew.html",
+        "minimum_version": ""
+    }},
+    "name": "xmlElemNew",
+    "description": "Creates an XML document object element",
+    "syntax": "xmlElemNew( xml xmlObj, [string namespace_or_childName], [string childName] )",
+    "returns": "org.w3c.dom.element",
+    "type": "function",
+    "params": [
+        {
+            "name": "xmlObj",
+            "description": "Name of the XML document object in which you are creating the element",
+            "aliases": "xmlNode,node,element,xml,xmlDoc",
+            "type": "xml",
+            "required": true
+        },
+        {
+            "name": "namespace_or_childName",
+            "description": "URI of the namespace to which this element belongs or the name of the element to create.",
+            "aliases": "namespace",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "childName",
+            "description": "The name of the element to create. This element becomes a child element of xmlObj in the tree.",
+            "aliases": "name",
+            "type": "string",
+            "required": false
+        }
+    ]
+}

@@ -1,0 +1,18 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/entityreload.html",
+        "minimum_version": "",
+        "notes": "Refreshes the entity from the database, discarding any in-memory changes. The entity must be **persistent** (in the current session).\n\nUseful when you suspect the database has been modified by another process or raw SQL and you want the latest state.\n"
+    }},
+    "name": "EntityReload",
+    "description": "Reloads data for an entity that is already loaded.",
+    "syntax": "EntityReload( object entity )",
+    "returns": "void",
+    "type": "function",
+    "params": [{
+        "name": "entity",
+        "description": "name of the entity",
+        "type": "object",
+        "required": true
+    }]
+}

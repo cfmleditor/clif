@@ -1,0 +1,17 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/isfileobject.html",
+        "minimum_version": "6.0.0.208"
+    }},
+    "name": "isFileObject",
+    "description": "Determines whether a value is an file object. True, if the value represents a file object.",
+    "syntax": "isFileObject( any value )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [{
+        "name": "value",
+        "description": "A value, typically the name of a file object variable.",
+        "type": "any",
+        "required": true
+    }]
+}

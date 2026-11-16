@@ -1,0 +1,40 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/entityload.html",
+        "minimum_version": "",
+        "notes": "`entityLoad()` has multiple call signatures:\n\n- `entityLoad( entityName )` \u2014 returns an array of all entities\n- `entityLoad( entityName, id )` \u2014 loads by primary key (same as [[function-entityloadbypk]])\n- `entityLoad( entityName, filterStruct )` \u2014 returns an array filtered by property values (AND logic)\n- `entityLoad( entityName, filterStruct, sortOrder )` \u2014 filtered and sorted\n- `entityLoad( entityName, filterStruct, sortOrder, options )` \u2014 with pagination and caching\n\nThe `options` struct supports: `maxresults`, `offset`, `ignorecase`, `cacheable`, `cachename`, `timeout`.\n\nFilter values are combined with AND. For OR logic or more complex queries, use [[function-ormexecutequery]] with HQL.\n\nSee [[orm-querying]] for full details.\n"
+    }},
+    "name": "entityLoad",
+    "description": "Loads and returns an array of entities of the specified entityName.\nEntityLoad (entityName, filterCriteria [,unique]\nEntityLoad(entityName, filterCriteria, sortOrder [, options])",
+    "syntax": "entityLoad( string name, [any idOrFilter], [any uniqueOrOrder], [any options] )",
+    "returns": "any",
+    "type": "function",
+    "params": [
+        {
+            "name": "name",
+            "description": "Name of the entity to be loaded.",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "idOrFilter",
+            "description": "The primary key value of the entity that must be loaded or Key-value pair (Struct) of property names and values.\n\nIf there are more than one key-value pair, then the AND operator is used.If specified, loads and returns an array of entities of the specified entity name that matches the filtercriteria.",
+            "aliases": "id,filter",
+            "type": "any",
+            "required": false
+        },
+        {
+            "name": "uniqueOrOrder",
+            "description": "when the second argument is an id then this argument defines the boolean \"unique\" otherwise it defines the order.\n\n- unique:\nIf unique is set to true, then the entity is returned.\nIf you are sure that only one record exists that matches this filtercriteria, then you can specify unique=true, so that a single entity is returned instead of an array.\nIf you set unique=true and multiple records are returned, then an exception occurs.\n\n- order:\nString used to specify the sortorder of the entities that are returned.If specified, loads and returns an array of entities that satisfy the filtercriteria sorted as specified by the sortorder.",
+            "aliases": "unique,order",
+            "type": "any",
+            "required": false
+        },
+        {
+            "name": "options",
+            "description": "The following options to customize the output (only used when second argument is \"id\"):\n\n- ignorecase: Ignores the case of sort order when set to true. Use only if you specify the sortorder parameter.\n- offset: Specifies the position from which to retrieve the objects.\n- maxResults: Specifies the maximum number of objects to be retrieved.\n- cacheable: Whether the result has to be cached in the secondary cache. Default is false.\n- cachename: Name of the cache in secondary cache.\n- timeout: Specifies the timeout value (in seconds) for the query.",
+            "type": "any",
+            "required": false
+        }
+    ]
+}

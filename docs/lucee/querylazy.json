@@ -1,0 +1,39 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/querylazy.html",
+        "minimum_version": ""
+    }},
+    "name": "QueryLazy",
+    "description": "Executes a SQL query without loading the data entirely to memory. Instead it calls the given Function with every single row",
+    "syntax": "QueryLazy( string sql, function listener, [any params], [struct options] )",
+    "returns": "void",
+    "type": "function",
+    "params": [
+        {
+            "name": "sql",
+            "description": "SQL to execute",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "listener",
+            "description": "listener function that will be called with the data of every single row. if returns false, execution is stopped.",
+            "type": "function",
+            "required": true
+        },
+        {
+            "name": "params",
+            "description": "Array or Struct of parameter values. \n    \t\t\tWhen passing an array use ? as place holders. \n    \t\t\tWhen passing a struct use :keyName where keyName is the name of the key in the structure corresponding to\n    \t\t\tthe parameter. \n    \t\t\tThe struct or array can be a struct with keys such as the following: cfsqltype, list",
+            "aliases": "param",
+            "type": "any",
+            "required": false
+        },
+        {
+            "name": "options",
+            "description": "Struct containing query options, all cfquery tag attributes are supported except the name attribute.",
+            "aliases": "option,queryOptions",
+            "type": "struct",
+            "required": false
+        }
+    ]
+}

@@ -1,0 +1,38 @@
+{
+    "member_details": {
+        "name": "findKey",
+        "type": "struct",
+        "returns": "struct"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/structfindkey.html",
+        "minimum_version": ""
+    }},
+    "name": "structFindKey",
+    "description": "Searches recursively through a substructure of nested arrays,\nstructures, and other elements, for structures whose values\nmatch the search key in the value parameter.",
+    "syntax": "structFindKey( struct Top, string Key, [string Scope] )",
+    "returns": "array",
+    "type": "function",
+    "params": [
+        {
+            "name": "Top",
+            "description": "object from which to start search. This parameter requires an object, not a name of an object.",
+            "aliases": "struct",
+            "type": "struct",
+            "required": true
+        },
+        {
+            "name": "Key",
+            "description": "Key for which to search.",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "Scope",
+            "description": "- one (default): returns one matching key.\n- all: returns all matching keys",
+            "default": "one",
+            "type": "string",
+            "required": false
+        }
+    ]
+}

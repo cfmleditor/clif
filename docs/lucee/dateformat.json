@@ -1,0 +1,37 @@
+{
+    "member_details": {
+        "name": "dateFormat",
+        "type": "datetime",
+        "returns": "datetime"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/dateformat.html",
+        "minimum_version": ""
+    }},
+    "name": "dateFormat",
+    "description": "Formats a date string to a given output",
+    "syntax": "dateFormat( any date, [string mask], [timezone timezone] )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "date",
+            "description": "date object; for example, [[function-now|now()]]",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "mask",
+            "description": "Date formatting mask:\n\n- d: Day of the month as digits; no leading zero for single-digit days.\n- dd: Day of the month as digits; leading zero for single-digit days.\n- ddd: Day of the week as a three-letter abbreviation.\n- dddd: Day of the week as its full name.\n- m: Month as digits; no leading zero for single-digit months.\n- mm: Month as digits; leading zero for single-digit months.\n- mmm: Month as a three-letter abbreviation.\n- mmmm: Month as its full name.\n- yy: Year as last two digits; leading zero for years less than 10.\n- yyyy: Year represented by four digits.\n- gg: Period/era string. Ignored. Reserved.\n\nThe following masks are options to format the full date and cannot be combined with other masks:\n\n- short: equivalent to m/d/y\n- medium: equivalent to mmm d, yyyy\n- long: equivalent to mmmm d, yyyy\n- full: equivalent to dddd, mmmm d, yyyy",
+            "default": "dd-mmm-yy",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "timezone",
+            "description": "A datetime object is independent of a specific timezone; it is only an offset in milliseconds from `1970-1-1 00.00:00 UTC` (Coordinated Universal Time).\n\nThe timezone only comes into play when you need specific information like hours in a day, minutes in a hour or which day it is as these calculations depend on the timezone.\n\nA timezone must be specified in order to translate the date object to something else. If you do not provide the timezone in the function call, it will default to the timezone specified in the Lucee Administrator (Settings/Regional), or the timezone specified for the current request using the function [[function-setTimezone|setTimezone()]].\n\nYou can find a list of all available timezones in the Lucee administrator (Settings/Regional). Some examples of valid timezones include:\n\n- AGT (for time in Argentina)\n- Europe/Zurich (for time in Zurich/Switzerland)\n- HST (Hawaiian Standard Time in the USA)\n- JVM (JVM / Server Default Timezone)",
+            "type": "timezone",
+            "required": false
+        }
+    ]
+}

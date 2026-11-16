@@ -1,0 +1,36 @@
+{
+    "member_details": {
+        "name": "swap",
+        "type": "array",
+        "returns": "array"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/arrayswap.html",
+        "minimum_version": ""
+    }},
+    "name": "arraySwap",
+    "description": "Swaps array values of an array at specified positions. This\nfunction is more efficient than multiple cfset tags",
+    "syntax": "arraySwap( array array, number position1, number position2 )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [
+        {
+            "name": "array",
+            "description": "Array to Swap",
+            "type": "array",
+            "required": true
+        },
+        {
+            "name": "position1",
+            "description": "Position of first element to swap",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "position2",
+            "description": "Position of second element to swap",
+            "type": "number",
+            "required": true
+        }
+    ]
+}

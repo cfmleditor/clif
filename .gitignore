@@ -34,11 +34,13 @@ go.work.sum
 # Build output
 target/
 
-# Downloaded Lucee docs (fetched at build time)
-/docs/
-/docs/data/
-/docs/.etag
-/docs/.sha-cfdocs
+# Downloaded docs (fetched by `make docs`). Committed: docs/retained/ (the
+# entries upstream stopped publishing), docs/lucee/ (Lucee's docs, vendored)
+# and docs/sources.lock (the cfdocs commit to fetch).
+/docs/*
+!/docs/retained/
+!/docs/lucee/
+!/docs/sources.lock
 /cfparse
 /cfmleditor-lsp
 /clif

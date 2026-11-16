@@ -1,0 +1,18 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/gethttptimestring.html",
+        "minimum_version": ""
+    }},
+    "name": "getHttpTimeString",
+    "description": "Gets the current time, in the Universal Time code (UTC).",
+    "syntax": "getHttpTimeString( [datetime date] )",
+    "returns": "string",
+    "type": "function",
+    "params": [{
+        "name": "date",
+        "description": "A date-time value",
+        "aliases": "datetime,date_time_object",
+        "type": "datetime",
+        "required": false
+    }]
+}

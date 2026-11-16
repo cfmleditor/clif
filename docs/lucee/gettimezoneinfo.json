@@ -1,0 +1,32 @@
+{
+    "member_details": {
+        "name": "info",
+        "type": "timezone",
+        "returns": "timezone"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/gettimezoneinfo.html",
+        "minimum_version": ""
+    }},
+    "name": "getTimeZoneInfo",
+    "description": "Returns a structure representing the current timezone",
+    "syntax": "getTimeZoneInfo( [timezone timezone], [locale locale] )",
+    "returns": "struct",
+    "type": "function",
+    "params": [
+        {
+            "name": "timezone",
+            "description": "the timezone to get the data from.",
+            "minimum_version": "5.0.0.0",
+            "type": "timezone",
+            "required": false
+        },
+        {
+            "name": "locale",
+            "description": "locale used to format the output.",
+            "minimum_version": "5.0.0.0",
+            "type": "locale",
+            "required": false
+        }
+    ]
+}

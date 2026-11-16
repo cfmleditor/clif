@@ -1,0 +1,27 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/cacheidexists.html",
+        "minimum_version": ""
+    }},
+    "name": "CacheIdExists",
+    "description": "Returns true/false whether the cache contains an element with the certain id.",
+    "syntax": "CacheIdExists( string id, [string cacheName] )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [
+        {
+            "name": "id",
+            "description": "key to check",
+            "aliases": "name,key",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "cacheName",
+            "description": "definition of the cache used by name, when not set the \"default Object Cache\" defined in Lucee Administrator is used instead.",
+            "aliases": "cache,region",
+            "type": "string",
+            "required": false
+        }
+    ]
+}

@@ -1,0 +1,23 @@
+{
+    "member_details": {
+        "name": "coderInfo",
+        "type": "image",
+        "returns": "image"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/imagecoderinfo.html",
+        "minimum_version": ""
+    }},
+    "name": "ImageCoderInfo",
+    "description": "Gives detailed information about all coder used by the image extension.",
+    "syntax": "ImageCoderInfo( any image )",
+    "returns": "struct",
+    "type": "function",
+    "params": [{
+        "name": "image",
+        "description": "The image on which this operation is performed.",
+        "aliases": "name",
+        "type": "any",
+        "required": true
+    }]
+}

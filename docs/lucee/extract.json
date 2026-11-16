@@ -1,0 +1,32 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/extract.html",
+        "minimum_version": "",
+        "notes": "Since Lucee 7.1, compress/extract functionality moved from core to the Compress extension. Basic zip and gzip support remains available in core using built-in JRE capabilities. Other formats (bzip, bzip2, tar, tbz, tbz2, tgz) require the Compress extension. It is included in the full jar. ([LDEV-5959](https://luceeserver.atlassian.net/browse/LDEV-5959))"
+    }},
+    "name": "extract",
+    "description": "Extract the data of a compressed file",
+    "syntax": "extract( string format, string source, string target )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [
+        {
+            "name": "format",
+            "description": "Format to extract \n\n- bzip\n- gzip\n- tar\n- tbz (tar bzip)\n- tgz (tar gzip) \n- zip",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "source",
+            "description": "source file or directory with zip files to extract",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "target",
+            "description": "name of the target directory\n\n**Note:** For gzip & bzip format must use the file path as the target",
+            "type": "string",
+            "required": true
+        }
+    ]
+}

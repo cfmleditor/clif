@@ -1,0 +1,22 @@
+{
+    "member_details": {
+        "name": "sin",
+        "type": "numeric",
+        "returns": "numeric"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/sin.html",
+        "minimum_version": ""
+    }},
+    "name": "sin",
+    "description": "Calculates the sine of an angle that is entered in radians.",
+    "syntax": "sin( number number )",
+    "returns": "number",
+    "type": "function",
+    "params": [{
+        "name": "number",
+        "description": "Angle, in radians for which to calculate the sine.",
+        "type": "number",
+        "required": true
+    }]
+}

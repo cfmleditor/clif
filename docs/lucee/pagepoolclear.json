@@ -1,0 +1,19 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/pagepoolclear.html",
+        "minimum_version": "",
+        "notes": "This only clears the cache for the **current** Application, plus all Server and Web Context mappings. \n\nOther per Application mappings are not cleared\n"
+    }},
+    "name": "pagePoolClear",
+    "description": "Clear out all the cfml code (cfm, cfcs) in the cache of compiled code (aka the Page Pool)",
+    "syntax": "pagePoolClear( [boolean force] )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [{
+        "name": "force",
+        "description": "When set to `false` (default in Lucee 6.2.1+), this function behaves like inspectTemplates(), which only reloads changed pages. \n\nWhen set to `true`, it reverts to the original behavior of forcibly clearing all pages from memory pools, causing unnecessary reloading of unchanged pages.",
+        "minimum_version": "6.2.1.118",
+        "type": "boolean",
+        "required": false
+    }]
+}

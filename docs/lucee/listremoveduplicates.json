@@ -1,0 +1,39 @@
+{
+    "member_details": {
+        "name": "listRemoveDuplicates",
+        "type": "string",
+        "returns": "string"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/listremoveduplicates.html",
+        "minimum_version": ""
+    }},
+    "name": "ListRemoveDuplicates",
+    "description": "Removes duplicate values from list.",
+    "syntax": "ListRemoveDuplicates( string list, [string delimiters], [boolean ignoreCase] )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "list",
+            "description": "a string list",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "delimiters",
+            "description": "Characters that separate list elements. The default value is comma.",
+            "default": ",",
+            "aliases": "delimiter",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "ignoreCase",
+            "description": "if set to true, the duplicate value test will not be case sensitive",
+            "default": "false",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

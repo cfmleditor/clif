@@ -1,0 +1,46 @@
+{
+    "member_details": {
+        "name": "every",
+        "type": "query",
+        "returns": "query"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/queryevery.html",
+        "minimum_version": ""
+    }},
+    "name": "queryEvery",
+    "description": "This function calls a given closure/function with every element in a given query and returns true, if all of the closure calls returns true.",
+    "syntax": "queryEvery( query query, function closure, [boolean parallel], [number maxThreads] )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [
+        {
+            "name": "query",
+            "description": "query to iterate",
+            "aliases": "object",
+            "type": "query",
+            "required": true
+        },
+        {
+            "name": "closure",
+            "description": "function/closure that implements the following constructor\n\n`function(struct row [number rownumber, query query]) { returns boolean; ).`",
+            "aliases": "function,callback,udf",
+            "type": "function",
+            "required": true
+        },
+        {
+            "name": "parallel",
+            "description": "execute closures parallel",
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "maxThreads",
+            "description": "maximum number of threads executed,\n\nignored when argument \"parallel\" is set to false",
+            "default": "20",
+            "aliases": "maxThreadCount",
+            "type": "number",
+            "required": false
+        }
+    ]
+}

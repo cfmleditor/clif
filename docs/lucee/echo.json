@@ -1,0 +1,17 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/echo.html",
+        "minimum_version": ""
+    }},
+    "name": "echo",
+    "description": "Writes the given string to the main response buffer regardless of\nconditions established by the cfsetting tag. see also function writeOutput.",
+    "syntax": "echo( string string )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [{
+        "name": "string",
+        "description": "A string to write to the buffer.",
+        "type": "string",
+        "required": true
+    }]
+}

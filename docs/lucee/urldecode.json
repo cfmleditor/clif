@@ -1,0 +1,39 @@
+{
+    "member_details": {
+        "name": "uRLDecode",
+        "type": "string",
+        "returns": "string"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/urldecode.html",
+        "minimum_version": "",
+        "notes": "With Lucee 6.1, the underlying decoder was switched to use Apache Common Codec, which is stricter but more standards compliant.\n\nUse the `strict=false` argument for the older behaviour, which strips out invalid encodings and doesn't throw an exception.\n\nBy default, Lucee attempts to decode all values passed in the `url` and `form` scopes, using strict mode. If an decoding error occurs, Lucee passes the raw value thru.\n"
+    }},
+    "name": "uRLDecode",
+    "description": "Decodes a URL-encoded string, converting encoded characters back to their original form. \nThis function handles URL encoding conventions such as converting plus signs (`+`) to spaces and percent-encoded sequences (`%xx`) to their corresponding characters.\nThe function throws an exception when encountering malformed URL encodings (such as incomplete or invalid percent sequences like `%G`). \nFor optimal results, ensure the input string contains valid URL encoding.",
+    "syntax": "uRLDecode( string string, [string charset], [boolean strict] )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "string",
+            "description": "URL-encoded string.",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "charset",
+            "description": "The character encoding in which the string is encoded.",
+            "default": "utf-8",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "strict",
+            "description": "Default *true*, uses the Apache Commons UrlDecoder which has better overall support for UTF-8 etc, but throws an exception on invalid encodings.\n\nWhen **false**, it will attempt strict mode first, then fall back to the older custom implementation which strips out invalid encodings, if strict fails.",
+            "minimum_version": "6.2.3.22",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

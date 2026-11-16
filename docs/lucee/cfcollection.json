@@ -1,0 +1,87 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/tags/collection.html",
+        "minimum_version": ""
+    }},
+    "name": "cfcollection",
+    "description": "Allows you to create and administer search collections for indexing and searching content. \nThis tag enables full-text search capabilities, including hybrid vector search when used with embedding services. \nCollections can be queried using different search modes: keyword-based (traditional), vector-based (semantic), or hybrid (combining both approaches). \nUse this tag to manage the lifecycle of search collections that can be populated with cfindex and queried with cfsearch.",
+    "syntax": "<cfcollection/>",
+    "returns": "void",
+    "type": "tag",
+    "params": [
+        {
+            "name": "engine",
+            "description": "This attribute only exists for compatibility reasons to other CFML engines, the attribute is completely ignored by Lucee.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "categories",
+            "description": "Boolean. Enables category support for the collection.\nUsed only when `action=\"create\"`.\nWhen enabled, documents indexed with `cfindex` can be assigned categories using the `category` and `categoryTree` attributes, and searches can be filtered by category.",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "action",
+            "description": "Specifies the action to perform.\n\n- **create**: creates a new search collection\n- **delete**: removes an existing collection\n- **repair**: restores a corrupted collection\n- **optimize**: reorganises the internal structure of a collection for better performance\n- **list**: returns information about existing collections into a query variable specified by the `name` attribute\n- **map**: associates an alias with an existing collection\n- **categoryList**: retrieves the categories associated with a collection\n",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "collection",
+            "description": "Specifies a collection name or an alias if action = \"map\"",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "path",
+            "description": "Absolute path to a Lucene collection.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "language",
+            "description": "language the collection is based on:\n\npossible values are: english, german, russian, dutch, french, italian, norwegian, portuguese, spanish, brazilian, chinese, greek, thai, danish, japanese, norwegian, korean",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "name",
+            "description": "Name for the query results returned by the list action.",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "mode",
+            "description": "Specifies the search algorithm to use when querying this collection. \n\nOptions:\n\n- `keyword`: Traditional term-based search using Lucene (default)\n- `vector`: Pure semantic search using vector embeddings\n- `hybrid`: Combines keyword and vector search for optimal results, balancing term matching with semantic understanding\n\nWhen set to `keyword`, the `embedding` attribute is ignored. Vector and hybrid modes require an embedding service to be specified.",
+            "minimum_version": "7.0.0.221",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "embedding",
+            "description": "Specifies the embedding service to use for creating vector representations of documents, enabling semantic search capabilities.\n\nValid options:\n\n- `TF-IDF`: Uses Term Frequency-Inverse Document Frequency statistical method for generating document vectors\n- `word2vec`: Uses pre-trained word vectors to create document embeddings with better semantic understanding\n- */path/to/vectors.txt*: A file path to a GloVe/word2vec format vectors file, loaded using the word2vec service. Any value containing `/` or `\\` is treated as a file path. *(since Lucene Extension 3.0.0.165)*\n- *class-name*: Name of a custom class implementing the `org.lucee.extension.search.lucene.embedding.EmbeddingService` interface",
+            "minimum_version": "7.0.0.218",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "ratio",
+            "description": "When `mode=\"hybrid\"`, this value controls the balance between keyword and vector search components.\n\nValue range is 0.0 to 1.0, where:\n\n- 0.5: Equal weight given to both keyword and vector search (default)\n- Values greater than 0.5: Greater emphasis on vector search (semantic matching)\n- Values less than 0.5: Greater emphasis on keyword search (exact term matching)\n\nFor example, a ratio of 0.7 would give 70% weight to vector search and 30% to keyword search. This attribute is ignored when mode is not \"hybrid\".",
+            "minimum_version": "7.0.0.221",
+            "default": false,
+            "type": "numeric",
+            "required": false
+        }
+    ],
+    "body": "none"
+}

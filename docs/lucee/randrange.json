@@ -1,0 +1,31 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/randrange.html",
+        "minimum_version": ""
+    }},
+    "name": "randRange",
+    "description": "Generates a random integer between two specified numbers.",
+    "syntax": "randRange( number number1, number number2, [string algorithm] )",
+    "returns": "number",
+    "type": "function",
+    "params": [
+        {
+            "name": "number1",
+            "description": "smaller number",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "number2",
+            "description": "bigger number",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "algorithm",
+            "description": "The algorithm to use to generate the random number.\n\n- CFMX_COMPAT (very simple and not very secure algorithm (default)).\n- SHA1PRNG (generates a number using the Sun Java SHA1PRNG algorithm. This algorithm provides greater randomness than the default algorithm)\n- IBMSecureRandom (IBM JVM does not support the SHA1PRNG algorithm)",
+            "type": "string",
+            "required": false
+        }
+    ]
+}

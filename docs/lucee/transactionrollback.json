@@ -1,0 +1,17 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/transactionrollback.html",
+        "minimum_version": ""
+    }},
+    "name": "transactionRollback",
+    "description": "rolls back a pending transaction",
+    "syntax": "transactionRollback( [string savepoint] )",
+    "returns": "void",
+    "type": "function",
+    "params": [{
+        "name": "savepoint",
+        "description": "name of the savepoint to roll back to, if not set, simply roles back to the latest savepoint set without a name and if no savepoint is set, it roles back the complete transaction.\n",
+        "type": "string",
+        "required": false
+    }]
+}

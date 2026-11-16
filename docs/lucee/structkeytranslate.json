@@ -1,0 +1,37 @@
+{
+    "member_details": {
+        "name": "keyTranslate",
+        "type": "struct",
+        "returns": "struct"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/structkeytranslate.html",
+        "minimum_version": ""
+    }},
+    "name": "structKeyTranslate",
+    "description": "Converts any struct keys with dot notation into nested structures",
+    "syntax": "structKeyTranslate( struct struct, [boolean deepTranslation], [boolean leaveOriginalKey] )",
+    "returns": "number",
+    "type": "function",
+    "params": [
+        {
+            "name": "struct",
+            "description": "Structure to translate",
+            "aliases": "structure,object",
+            "type": "struct",
+            "required": true
+        },
+        {
+            "name": "deepTranslation",
+            "description": "also translate keys of child structures",
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "leaveOriginalKey",
+            "description": "leave original key in struct",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

@@ -1,0 +1,12 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/threadinterrupted.html",
+        "minimum_version": "7.0.2.1"
+    }},
+    "name": "ThreadInterrupted",
+    "description": "Checks whether the current thread has been interrupted and clears the interrupted status. The interrupted status of the thread is cleared by this method, unlike IsThreadInterrupted which leaves it unchanged.",
+    "syntax": "ThreadInterrupted()",
+    "returns": "boolean",
+    "type": "function",
+    "params": []
+}

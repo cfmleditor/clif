@@ -1,0 +1,12 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/now.html",
+        "minimum_version": ""
+    }},
+    "name": "now",
+    "description": "Returns the current date and time",
+    "syntax": "now()",
+    "returns": "datetime",
+    "type": "function",
+    "params": []
+}

@@ -1,0 +1,17 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/isxmlnode.html",
+        "minimum_version": ""
+    }},
+    "name": "IsXmlNode",
+    "description": "Determines whether the function parameter is\nan XML document object node.",
+    "syntax": "IsXmlNode( any value )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [{
+        "name": "value",
+        "description": "Name of an XML document object node.",
+        "type": "any",
+        "required": true
+    }]
+}

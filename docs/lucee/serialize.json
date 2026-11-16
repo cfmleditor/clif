@@ -1,0 +1,17 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/serialize.html",
+        "minimum_version": ""
+    }},
+    "name": "serialize",
+    "description": "opposite of evaluate, this function serialize all cfml object and all serializable Java objects. can also serialize Components.",
+    "syntax": "serialize( any object )",
+    "returns": "string",
+    "type": "function",
+    "params": [{
+        "name": "object",
+        "description": "An object to be serialized.",
+        "type": "any",
+        "required": true
+    }]
+}

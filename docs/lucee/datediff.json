@@ -1,0 +1,36 @@
+{
+    "member_details": {
+        "name": "diff",
+        "type": "datetime",
+        "returns": "datetime"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/datediff.html",
+        "minimum_version": ""
+    }},
+    "name": "dateDiff",
+    "description": "Determines the number of given date parts between two different dates",
+    "syntax": "dateDiff( string datePart, datetime date1, datetime date2 )",
+    "returns": "number",
+    "type": "function",
+    "params": [
+        {
+            "name": "datePart",
+            "description": "The specific units in which to count:\n\n- yyyy: Years\n- q: Quarters\n- m: Months\n- y: Day of Year (same as d)\n- d: Days (same as y)\n- w: Weeks (same as ww)\n- ww: Weeks (same as w)\n- wd: Weekdays\n- h: Hours\n- n: Minutes\n- s: Seconds\n- l: MilliSeconds\n",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "date1",
+            "description": "date object; for example, [[function-now|now()]]",
+            "type": "datetime",
+            "required": true
+        },
+        {
+            "name": "date2",
+            "description": "date object; for example, [[function-now|now()]]",
+            "type": "datetime",
+            "required": true
+        }
+    ]
+}

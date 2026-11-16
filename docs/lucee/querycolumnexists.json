@@ -1,0 +1,30 @@
+{
+    "member_details": {
+        "name": "columnExists",
+        "type": "query",
+        "returns": "query"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/querycolumnexists.html",
+        "minimum_version": ""
+    }},
+    "name": "queryColumnExists",
+    "description": "Determines whether a specific column is present in a query.",
+    "syntax": "queryColumnExists( query query, string column )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [
+        {
+            "name": "query",
+            "description": "Query object to check.",
+            "type": "query",
+            "required": true
+        },
+        {
+            "name": "column",
+            "description": "Name of the column.",
+            "type": "string",
+            "required": true
+        }
+    ]
+}

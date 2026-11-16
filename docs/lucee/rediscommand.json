@@ -1,0 +1,40 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/rediscommand.html",
+        "minimum_version": ""
+    }},
+    "name": "RedisCommand",
+    "description": "execute any redis function without any interpretation from Lucee.",
+    "syntax": "RedisCommand( any arguments, [boolean async], [any listener], [string cache] )",
+    "returns": "any",
+    "type": "function",
+    "params": [
+        {
+            "name": "arguments",
+            "description": "arguments you wanna pass, can be a string or a string array.",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "async",
+            "description": "Execute the command in a separate thread, if set to true pass a listener to get the result of the errors.\n",
+            "default": "false",
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "listener",
+            "description": "Listener only used when argument async is set to true. This can be a component or a struct containing functions with the following names.\n\n- onSuccess(result) to get the result of a successful execution.\n- onError(exception) to get the exception in case of an error.",
+            "aliases": "component,cfc",
+            "type": "any",
+            "required": false
+        },
+        {
+            "name": "cache",
+            "description": "name of the cache to use, this must be a redis cache.",
+            "aliases": "cacheName",
+            "type": "string",
+            "required": false
+        }
+    ]
+}

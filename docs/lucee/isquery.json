@@ -1,0 +1,17 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/isquery.html",
+        "minimum_version": ""
+    }},
+    "name": "isQuery",
+    "description": "Determines whether value is a query.",
+    "syntax": "isQuery( any value )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [{
+        "name": "value",
+        "description": "Query variable",
+        "type": "any",
+        "required": true
+    }]
+}

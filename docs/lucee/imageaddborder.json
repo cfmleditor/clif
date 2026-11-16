@@ -1,0 +1,48 @@
+{
+    "member_details": {
+        "name": "addBorder",
+        "type": "image",
+        "returns": "image"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/imageaddborder.html",
+        "minimum_version": ""
+    }},
+    "name": "ImageAddBorder",
+    "description": "Adds a rectangular border around the outside edge of an image. The border can be a solid color or generated using various edge extension methods. The original image remains centered while the border increases the image dimensions.",
+    "syntax": "ImageAddBorder( any image, [number thickness], [string color], [string borderType] )",
+    "returns": "void",
+    "type": "function",
+    "params": [
+        {
+            "name": "image",
+            "description": "The image on which this operation is performed.",
+            "aliases": "name",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "thickness",
+            "description": "Thickness of the border in pixels. The default value is 1. The border is added to the outside edge of the image; the image area is increased accordingly.",
+            "default": "1",
+            "type": "number",
+            "required": false
+        },
+        {
+            "name": "color",
+            "description": "Optional. Border color. The default border color is black. See Usage.\nOnly valid if the borderType is not specified or if borderType = \"constant\".",
+            "default": "black",
+            "aliases": "colour",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "borderType",
+            "description": "The type of border:\n\n- zero: Sets the border color to black.\n- constant: Sets the border to the specified color (default).\n- copy: Sets sample values to copies of the nearest valid pixel. For example, pixels to the left of the valid rectangle assume the value of the valid edge pixel in the same row. Pixels both above and to the left of the valid rectangle assume the value of the upper-left pixel.\n- reflect: Mirrors the edges of the source image. For example, if the left edge of the valid rectangle is located at x = 10, pixel (9, y) is a copy of pixel (10, y) and pixel (6, y) is a copy of pixel (13, y).\n- wrap: Tiles the source image in the plane.",
+            "default": "constant",
+            "aliases": "type,border",
+            "type": "string",
+            "required": false
+        }
+    ]
+}

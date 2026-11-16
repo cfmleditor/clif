@@ -1,0 +1,36 @@
+{
+    "member_details": {
+        "name": "prepend",
+        "type": "array",
+        "returns": "array"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/arrayprepend.html",
+        "minimum_version": ""
+    }},
+    "name": "arrayPrepend",
+    "description": "Inserts an array element at the beginning of an array\nand shifts the positions of the existing elements to\nmake room.",
+    "syntax": "arrayPrepend( array array, any value, [boolean merge] )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [
+        {
+            "name": "array",
+            "description": "Name of an array",
+            "type": "array",
+            "required": true
+        },
+        {
+            "name": "value",
+            "description": "value to prepend",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "merge",
+            "description": "This argument only applies when the value is an array.\n\t\t\tIf set to true prepend array elements individually to the source array.\n\t\t\tIf false (default) the complete array is added as one element at the top, in the source array.",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

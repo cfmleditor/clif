@@ -1,0 +1,17 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/getsoapresponse.html",
+        "minimum_version": ""
+    }},
+    "name": "getSOAPResponse",
+    "description": "Returns an XML object that contains the entire\nSOAP response after invoking a web service.",
+    "syntax": "getSOAPResponse( any webservice )",
+    "returns": "any",
+    "type": "function",
+    "params": [{
+        "name": "webservice",
+        "description": "A webservice object as returned from the cfobject tag or the CreateObject function.",
+        "type": "any",
+        "required": true
+    }]
+}

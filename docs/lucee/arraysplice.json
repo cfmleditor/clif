@@ -1,0 +1,45 @@
+{
+    "member_details": {
+        "name": "splice",
+        "type": "array",
+        "returns": "array"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/arraysplice.html",
+        "minimum_version": "6.0.0.19"
+    }},
+    "name": "ArraySplice",
+    "description": "Modifies an array by removing elements and adding new elements. \nIt starts from the index, removes as many elements as specified by elementCountForRemoval, \nand puts the replacements starting from index position.\nReturn the removed elements.",
+    "syntax": "ArraySplice( array array, numeric index, [numeric length], [array replacements] )",
+    "returns": "array",
+    "type": "function",
+    "params": [
+        {
+            "name": "array",
+            "description": "the array to modify.",
+            "type": "array",
+            "required": true
+        },
+        {
+            "name": "index",
+            "description": "The position at which to start modifying the array. If the index is greater than the length of the array,\n\t\t\t\tthe index is set to the length of the array. \n\t\t\t\tIf the index is less than 1, the index is set to 1.",
+            "aliases": "offset",
+            "type": "numeric",
+            "required": true
+        },
+        {
+            "name": "length",
+            "description": "The number of elements to be removed starting with the start index.\n\t\t\t\tIf length is 0 or smaller than -1, no elements get removed.\n\t\t\t\tif length is -1 or GTE than array length-index, all elements after index get removed.",
+            "aliases": "len,elementCountForRemoval",
+            "type": "numeric",
+            "required": false
+        },
+        {
+            "name": "replacements",
+            "description": "Array to be added to the array starting with index.",
+            "aliases": "replacement",
+            "type": "array",
+            "required": false
+        }
+    ]
+}

@@ -1,0 +1,63 @@
+{
+    "member_details": {
+        "name": "copy",
+        "type": "image",
+        "returns": "image"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/imagecopy.html",
+        "minimum_version": ""
+    }},
+    "name": "ImageCopy",
+    "description": "Creates a new image by copying a rectangular area from the source image. If destination coordinates are provided, the copied area is also drawn at the new location in the resulting image.",
+    "syntax": "ImageCopy( any image, number x, number y, number width, number height, [number dx], [number dy] )",
+    "returns": "any",
+    "type": "function",
+    "params": [
+        {
+            "name": "image",
+            "description": "The image on which this operation is performed.",
+            "aliases": "name",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "x",
+            "description": "The x coordinate of the source rectangle.",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "y",
+            "description": "The y coordinate of the source rectangle.",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "width",
+            "description": "The width of the source rectangle.",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "height",
+            "description": "The height of the source rectangle.",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "dx",
+            "description": "The x coordinate of the destination rectangle.",
+            "default": "-999",
+            "type": "number",
+            "required": false
+        },
+        {
+            "name": "dy",
+            "description": "The y coordinate of the destination rectangle.",
+            "default": "-999",
+            "type": "number",
+            "required": false
+        }
+    ]
+}

@@ -1,0 +1,12 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/isinthread.html",
+        "minimum_version": "5.0.0.0"
+    }},
+    "name": "isInThread",
+    "description": "Determines whether the executing code is inside a cfthread or not.",
+    "syntax": "isInThread()",
+    "returns": "boolean",
+    "type": "function",
+    "params": []
+}

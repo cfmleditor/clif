@@ -1,0 +1,17 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/datasourceflushmetacache.html",
+        "minimum_version": ""
+    }},
+    "name": "datasourceFlushMetaCache",
+    "description": "Flush the meta data stored for a certain datasource used for stored procedures, this is only supported for Oracle datasources",
+    "syntax": "datasourceFlushMetaCache( [string datasourceName] )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [{
+        "name": "datasourceName",
+        "description": "name of the datasource to flush, when not defined all caches are flushed",
+        "type": "string",
+        "required": false
+    }]
+}

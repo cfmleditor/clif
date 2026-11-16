@@ -1,0 +1,67 @@
+{
+    "member_details": {
+        "name": "drawArc",
+        "type": "image",
+        "returns": "image"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/imagedrawarc.html",
+        "minimum_version": ""
+    }},
+    "name": "ImageDrawArc",
+    "description": "Draws a circular or elliptical arc.",
+    "syntax": "ImageDrawArc( any image, number x, number y, number width, number height, number startAngle, number arcAngle, [boolean filled] )",
+    "returns": "void",
+    "type": "function",
+    "params": [
+        {
+            "name": "image",
+            "description": "The image on which this operation is performed.",
+            "aliases": "name",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "x",
+            "description": "The x coordinate of the upper-left corner of the arc.",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "y",
+            "description": "The y coordinate of the upper-left corner of the arc.",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "width",
+            "description": "The width of the arc.",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "height",
+            "description": "The height of the arc.",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "startAngle",
+            "description": "The beginning angle in degrees.",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "arcAngle",
+            "description": "The angular extent of the arc, relative to the start angle.",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "filled",
+            "description": "Specify whether the arc is filled:\n\n- true: The arc is filled with the specified drawing color.\n- false (default): Only the outline of the arc is drawn.",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

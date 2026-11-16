@@ -1,0 +1,17 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/cachegetproperties.html",
+        "minimum_version": ""
+    }},
+    "name": "CacheGetProperties",
+    "description": "Gets the cache properties for the object cache, the page cache, or both.",
+    "syntax": "CacheGetProperties( [string type] )",
+    "returns": "array",
+    "type": "function",
+    "params": [{
+        "name": "type",
+        "description": "define which cache instances information are returned\n\n- \"\" or not set - information to all default caches (object,template,resource,query)\n- \"object\" - information to \"Default Object\" Cache\n- \"template\" - information to \"Default Template\" Cache\n- \"query\" - information to \"Default Query\" Cache\n- \"resource\" - information to \"Default Resource\" Cache\n- {cache name} - information to a specific cache",
+        "type": "string",
+        "required": false
+    }]
+}

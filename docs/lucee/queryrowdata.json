@@ -1,0 +1,39 @@
+{
+    "member_details": {
+        "name": "rowData",
+        "type": "query",
+        "returns": "query"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/queryrowdata.html",
+        "minimum_version": ""
+    }},
+    "name": "queryRowData",
+    "description": "Returns a struct with the data from a query for a given row number",
+    "syntax": "queryRowData( query query, number rowNumber, [string format] )",
+    "returns": "any",
+    "type": "function",
+    "params": [
+        {
+            "name": "query",
+            "description": "query object do get data from",
+            "type": "query",
+            "required": true
+        },
+        {
+            "name": "rowNumber",
+            "description": "position of the row to be returned",
+            "type": "number",
+            "required": true
+        },
+        {
+            "minimum_version": "5.3.8.85",
+            "default": "struct",
+            "aliases": "returnFormat",
+            "name": "format",
+            "description": "struct or array",
+            "type": "string",
+            "required": false
+        }
+    ]
+}

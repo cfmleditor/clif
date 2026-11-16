@@ -1,0 +1,39 @@
+{
+    "member_details": {
+        "name": "sort",
+        "type": "query",
+        "returns": "query"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/querysort.html",
+        "minimum_version": ""
+    }},
+    "name": "querySort",
+    "description": "Sorts the query based on the column specified and the order criteria given. Modifies the original query object",
+    "syntax": "querySort( query query, any columnNameOrSortFunc, [string direction] )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [
+        {
+            "name": "query",
+            "description": "the query to sort",
+            "type": "query",
+            "required": true
+        },
+        {
+            "name": "columnNameOrSortFunc",
+            "description": "- a list of names\n- a single column name\n- or a function used as comparator with the following constructor\n\n`function(struct row1, struct row2){ return true / false;}`.",
+            "aliases": "column_name,columnNames,columnName,name,names,column_names,sort,function,udf,sortFunction,sortFunc",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "direction",
+            "description": "A list of directions or a single direction definition (asc, desc),\n\nThe list must have the same length as the columnName list.\n\nOnly used when the second argument defines a list of column names.",
+            "default": "",
+            "aliases": "directions,dir",
+            "type": "string",
+            "required": false
+        }
+    ]
+}

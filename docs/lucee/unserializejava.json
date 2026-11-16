@@ -1,0 +1,17 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/unserializejava.html",
+        "minimum_version": ""
+    }},
+    "name": "unserializeJava",
+    "description": "literal definition of a serialized Java Object by function serialize",
+    "syntax": "unserializeJava( string string )",
+    "returns": "any",
+    "type": "function",
+    "params": [{
+        "name": "string",
+        "description": "A string or a variable that contains one",
+        "type": "string",
+        "required": true
+    }]
+}

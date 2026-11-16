@@ -1,0 +1,31 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/queryconvertforgrid.html",
+        "minimum_version": ""
+    }},
+    "name": "QueryConvertForGrid",
+    "description": "Use instead the function QuerySlice.",
+    "syntax": "QueryConvertForGrid( query query, number page, number pageSize )",
+    "returns": "struct",
+    "type": "function",
+    "params": [
+        {
+            "name": "query",
+            "description": "Name of the query whose data is returned.",
+            "type": "query",
+            "required": true
+        },
+        {
+            "name": "page",
+            "description": "The specific page of query data to be returned.",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "pageSize",
+            "description": "Number of rows of query data on a page.",
+            "type": "number",
+            "required": true
+        }
+    ]
+}

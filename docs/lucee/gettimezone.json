@@ -1,0 +1,13 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/gettimezone.html",
+        "minimum_version": "",
+        "notes": "Adobe introduced an incompatible version of this function with ACF 2021, which simply duplicates the functionality of [[function-getTimeZoneInfo]]\n"
+    }},
+    "name": "getTimeZone",
+    "description": "returns the timezone defined for the current request.",
+    "syntax": "getTimeZone()",
+    "returns": "timezone",
+    "type": "function",
+    "params": []
+}

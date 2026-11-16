@@ -1,0 +1,12 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/getpagecontext.html",
+        "minimum_version": ""
+    }},
+    "name": "getPageContext",
+    "description": "Gets the current PageContext object that provides access to page attributes and configuration, request and response objects.",
+    "syntax": "getPageContext()",
+    "returns": "any",
+    "type": "function",
+    "params": []
+}

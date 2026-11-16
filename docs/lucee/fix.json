@@ -1,0 +1,22 @@
+{
+    "member_details": {
+        "name": "fix",
+        "type": "numeric",
+        "returns": "numeric"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/fix.html",
+        "minimum_version": ""
+    }},
+    "name": "fix",
+    "description": "Converts a real number to an integer.",
+    "syntax": "fix( number number )",
+    "returns": "number",
+    "type": "function",
+    "params": [{
+        "name": "number",
+        "description": "A number",
+        "type": "number",
+        "required": true
+    }]
+}

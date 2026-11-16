@@ -1,0 +1,12 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/getk2serverdoccount.html",
+        "minimum_version": ""
+    }},
+    "name": "getK2ServerDocCount",
+    "description": "This function is deprecated.",
+    "syntax": "getK2ServerDocCount()",
+    "returns": "number",
+    "type": "function",
+    "params": []
+}

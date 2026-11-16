@@ -1,0 +1,25 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/getlocalhostip.html",
+        "minimum_version": ""
+    }},
+    "name": "GetLocalHostIP",
+    "description": "Returns the localhost IP address, which is 127.0.0.1 for IPv4 and ::1 for IPv6 addresses.",
+    "syntax": "GetLocalHostIP( [boolean all], [boolean refresh] )",
+    "returns": "any",
+    "type": "function",
+    "params": [
+        {
+            "name": "all",
+            "description": "pass true to get an Array with all of the local IP addresses. default [false] will return a String with one value.",
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "refresh",
+            "description": "on some systems getting all of the IP addresses can take some time so the result is cached after the first call, if the system's IP addresses were modified, pass true to refresh that cache.",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

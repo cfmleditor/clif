@@ -1,0 +1,18 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/createuniqueid.html",
+        "minimum_version": ""
+    }},
+    "name": "CreateUniqueId",
+    "description": "Creates a Unique Identifier.",
+    "syntax": "CreateUniqueId( [string type] )",
+    "returns": "string",
+    "type": "function",
+    "params": [{
+        "name": "type",
+        "description": "If the string \"counter\" is passed then it's only unique for this instance in this lifecycle, otherwise the returned value will be a 22 character UUID, encoded as a URL-safe Base64.\n",
+        "default": "",
+        "type": "string",
+        "required": false
+    }]
+}

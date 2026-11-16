@@ -1,0 +1,44 @@
+{
+    "member_details": {
+        "name": "set",
+        "type": "array",
+        "returns": "array"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/arrayset.html",
+        "minimum_version": ""
+    }},
+    "name": "arraySet",
+    "description": "In a one-dimensional array, sets the elements in a specified\nindex range to a value. Useful for initializing an array after\na call to ArrayNew.",
+    "syntax": "arraySet( array array, number start_pos, number end_pos, any value )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [
+        {
+            "name": "array",
+            "description": "Name of an array.",
+            "type": "array",
+            "required": true
+        },
+        {
+            "name": "start_pos",
+            "description": "Starting index position of range to set.",
+            "aliases": "start,startPos",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "end_pos",
+            "description": "Ending index position of range to set. If this value is greater than array length, Lucee adds elements to array.",
+            "aliases": "end,endPos",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "value",
+            "description": "Value to which to set each element in the range.",
+            "type": "any",
+            "required": true
+        }
+    ]
+}

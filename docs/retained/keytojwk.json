@@ -1,0 +1,15 @@
+{
+    "name": "KeyToJwk",
+    "description": "Converts a Java key object, PEM string, or key pair struct to a JWK (JSON Web Key) struct. Supports RSA, EC, Ed25519, and symmetric keys.",
+    "syntax": "KeyToJwk( any key )",
+    "returns": "struct",
+    "type": "function",
+    "params": [
+        {
+            "name": "key",
+            "description": "Key to convert: PublicKey, PrivateKey, SecretKey, PEM string, or key pair struct from GenerateKeyPair()",
+            "type": "any",
+            "required": true
+        }
+    ]
+}

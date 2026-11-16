@@ -1,0 +1,30 @@
+{
+    "member_details": {
+        "name": "bitSHLN",
+        "type": "numeric",
+        "returns": "numeric"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/bitshln.html",
+        "minimum_version": ""
+    }},
+    "name": "bitSHLN",
+    "description": "Performs a bitwise shift-left, no-rotation operation.",
+    "syntax": "bitSHLN( number number, number count )",
+    "returns": "number",
+    "type": "function",
+    "params": [
+        {
+            "name": "number",
+            "description": "an integer",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "count",
+            "description": "Integer, in the range 0-31, inclusive; number of bits to shift the number",
+            "type": "number",
+            "required": true
+        }
+    ]
+}

@@ -1,0 +1,23 @@
+{
+    "member_details": {
+        "name": "readBase64",
+        "type": "image",
+        "returns": "image"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/imagereadbase64.html",
+        "minimum_version": ""
+    }},
+    "name": "ImageReadBase64",
+    "description": "Creates a image from a Base64 string.",
+    "syntax": "ImageReadBase64( string b64str )",
+    "returns": "any",
+    "type": "function",
+    "params": [{
+        "name": "b64str",
+        "description": "a variable or Base64 string.",
+        "aliases": "data",
+        "type": "string",
+        "required": true
+    }]
+}

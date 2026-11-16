@@ -1,0 +1,26 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/fileseek.html",
+        "minimum_version": ""
+    }},
+    "name": "FileSeek",
+    "description": "Shifts the file pointer to the given position. The file must be opened with seekable option",
+    "syntax": "FileSeek( any file, number pos )",
+    "returns": "void",
+    "type": "function",
+    "params": [
+        {
+            "name": "file",
+            "description": "The file object.",
+            "aliases": "source,filepath,fileObj",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "pos",
+            "description": "The position in a file within a stream where the following read and write operation must occur.",
+            "type": "number",
+            "required": true
+        }
+    ]
+}

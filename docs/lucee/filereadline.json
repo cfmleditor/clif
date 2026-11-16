@@ -1,0 +1,18 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/filereadline.html",
+        "minimum_version": ""
+    }},
+    "name": "fileReadLine",
+    "description": "Reads a line from an file.",
+    "syntax": "fileReadLine( any file )",
+    "returns": "string",
+    "type": "function",
+    "params": [{
+        "name": "file",
+        "description": "The file object",
+        "aliases": "source,filepath,fileObj",
+        "type": "any",
+        "required": true
+    }]
+}

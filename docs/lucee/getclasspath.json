@@ -1,0 +1,12 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/getclasspath.html",
+        "minimum_version": ""
+    }},
+    "name": "getClassPath",
+    "description": "returns an array containing the Java classpath of the current environment.",
+    "syntax": "getClassPath()",
+    "returns": "array",
+    "type": "function",
+    "params": []
+}

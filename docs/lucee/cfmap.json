@@ -1,0 +1,168 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/tags/map.html",
+        "minimum_version": ""
+    }},
+    "name": "cfmap",
+    "description": "",
+    "syntax": "<cfmap/>",
+    "returns": "void",
+    "type": "tag",
+    "params": [
+        {
+            "name": "name",
+            "description": "",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "onLoad",
+            "description": "",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "onNotFound",
+            "description": "",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "onError",
+            "description": "",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "centerAddress",
+            "description": "",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "centerLatitude",
+            "description": "",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "centerLongitude",
+            "description": "",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "height",
+            "description": "",
+            "default": false,
+            "type": "numeric",
+            "required": false
+        },
+        {
+            "name": "width",
+            "description": "",
+            "default": false,
+            "type": "numeric",
+            "required": false
+        },
+        {
+            "name": "zoomLevel",
+            "description": "",
+            "default": false,
+            "type": "numeric",
+            "required": false
+        },
+        {
+            "name": "overview",
+            "description": "",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "showScale",
+            "description": "",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "type",
+            "description": "",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "showCenterMarker",
+            "description": "",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "markerWindowContent",
+            "description": "",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "tip",
+            "description": "",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "typeControl",
+            "description": "",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "zoomControl",
+            "description": "",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "continuousZoom",
+            "description": "",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "doubleClickZoom",
+            "description": "",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "markerColor",
+            "description": "",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "markerIcon",
+            "description": "",
+            "default": false,
+            "type": "string",
+            "required": false
+        }
+    ],
+    "body": "optional"
+}

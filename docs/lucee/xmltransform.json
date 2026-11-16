@@ -1,0 +1,39 @@
+{
+    "member_details": {
+        "name": "transform",
+        "type": "xml",
+        "returns": "xml"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/xmltransform.html",
+        "minimum_version": ""
+    }},
+    "name": "xmlTransform",
+    "description": "Applies an Extensible Stylesheet Language Transformation (XSLT)\nto an XML document object that is represented as a string\nvariable. An XSLT converts an XML document to another format\nor representation by applying an Extensible Stylesheet\nLanguage (XSL) stylesheet to it.",
+    "syntax": "xmlTransform( any xml, string xsl, [struct parameters] )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "xml",
+            "description": "An XML document in string format, or an XML document object",
+            "aliases": "xmlNode,xmlObj,xmlDoc,node",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "xsl",
+            "description": "A string containing XSL text",
+            "aliases": "xslString,xslText",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "parameters",
+            "description": "A structure containing XSL template parameter name-value pairs to use in transforming the document.\n\nThe XSL transform defined in the xslString parameter uses these parameter values in processing the XML.",
+            "aliases": "params",
+            "type": "struct",
+            "required": false
+        }
+    ]
+}

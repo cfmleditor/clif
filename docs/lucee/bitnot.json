@@ -1,0 +1,22 @@
+{
+    "member_details": {
+        "name": "bitNot",
+        "type": "numeric",
+        "returns": "numeric"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/bitnot.html",
+        "minimum_version": ""
+    }},
+    "name": "bitNot",
+    "description": "Performs a bitwise logical NOT operation.",
+    "syntax": "bitNot( number number )",
+    "returns": "number",
+    "type": "function",
+    "params": [{
+        "name": "number",
+        "description": "an integer",
+        "type": "number",
+        "required": true
+    }]
+}

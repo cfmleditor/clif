@@ -1,0 +1,12 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/ctcachelist.html",
+        "minimum_version": ""
+    }},
+    "name": "ctCacheList",
+    "description": "list elements in the custom tag path cache",
+    "syntax": "ctCacheList()",
+    "returns": "struct",
+    "type": "function",
+    "params": []
+}

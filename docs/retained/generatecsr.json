@@ -1,0 +1,27 @@
+{
+    "name": "GenerateCSR",
+    "description": "Generates a PKCS#10 Certificate Signing Request (CSR). Returns a PEM-encoded CSR for submission to a Certificate Authority.",
+    "syntax": "GenerateCSR( struct keyPair, string subject, [struct options] )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "keyPair",
+            "description": "Key pair struct from GenerateKeyPair() with 'private' and 'public' keys. The public key is embedded in the CSR, the private key signs it.",
+            "type": "struct",
+            "required": true
+        },
+        {
+            "name": "subject",
+            "description": "X.500 distinguished name (e.g. \"CN=example.com,O=My Org,C=AU\")",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "options",
+            "description": "Optional struct: sans (array of DNS names for Subject Alternative Names), algorithm (signature algorithm, auto-detected from key type if omitted)",
+            "type": "struct",
+            "required": false
+        }
+    ]
+}

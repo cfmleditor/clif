@@ -1,0 +1,55 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/decryptbinary.html",
+        "minimum_version": "",
+        "notes": "The new `precise` argument can be set to false for backwards compatibility [LDEV-4101](https://luceeserver.atlassian.net/browse/LDEV-4101)"
+    }},
+    "name": "decryptBinary",
+    "description": "Decrypts the given binary with the optional parameters",
+    "syntax": "decryptBinary( any binaryData, string key, [string algorithm], [any IVorSalt], [number iterations], [boolean precise] )",
+    "returns": "any",
+    "type": "function",
+    "params": [
+        {
+            "name": "binaryData",
+            "description": "Binary data to decrypt.",
+            "aliases": "input",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "key",
+            "description": "Key or seed used to encrypt the string.\n\n- For the CFMX_COMPAT algorithm, any combination of any number of characters; used as a seed used to generate a 32-bit encryption key.\n- For all other algorithms, a key in the format used by the algorithm. For these algorithms, use the GenerateSecretKey function to generate the key.",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "algorithm",
+            "description": "The algorithm to use to decrypt the string. Must be the same as the algorithm used to encrypt the string.\n\n- CFMX_COMPAT(default): the CFML specific algorithm. This algorithm is the least secure option\n- AES: the Advanced Encryption Standard specified by the National Institute of Standards and Technology (NIST) FIPS-197\n- BLOWFISH: the Blowfish algorithm defined by Bruce Schneier\n- DES: the Data Encryption Standard algorithm defined by NIST FIPS-46-3\n- DESEDE: the \"Triple DES\" algorithm defined by NIST FIPS-46-3",
+            "default": "cfmx_compat",
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "IVorSalt",
+            "description": "Initialization Vector for algorithms with Feedback Mode that is not ECB, or Salt for Password Based Encryption algorithms",
+            "aliases": "IV,Salt,prefix",
+            "type": "any",
+            "required": false
+        },
+        {
+            "name": "iterations",
+            "description": "number of Iterations for Password Based Encryption algorithms (ignored for all other algorithms). NIST recommends a minimum value of 1000.",
+            "type": "number",
+            "required": false
+        },
+        {
+            "name": "precise",
+            "description": "if set to true the input must follow the rule for that encoding a 100%, the decryptor will not try to interpret inputs that are not a 100% correct. This should be used to avoid false positives.",
+            "minimum_version": "6.0.0.227",
+            "default": "true",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

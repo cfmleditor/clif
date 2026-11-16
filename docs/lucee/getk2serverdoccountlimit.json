@@ -1,0 +1,12 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/getk2serverdoccountlimit.html",
+        "minimum_version": ""
+    }},
+    "name": "getK2ServerDocCountLimit",
+    "description": "This function is deprecated.",
+    "syntax": "getK2ServerDocCountLimit()",
+    "returns": "number",
+    "type": "function",
+    "params": []
+}

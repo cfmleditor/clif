@@ -1,0 +1,37 @@
+{
+    "member_details": {
+        "name": "childPos",
+        "type": "xml",
+        "returns": "xml"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/xmlchildpos.html",
+        "minimum_version": ""
+    }},
+    "name": "xmlChildPos",
+    "description": "Gets the position of a child element within an XML document object.",
+    "syntax": "xmlChildPos( xml node, string childName, number index )",
+    "returns": "number",
+    "type": "function",
+    "params": [
+        {
+            "name": "node",
+            "description": "XML element within which to search.",
+            "aliases": "xmlNode,xmlObj,xmlDoc,xml",
+            "type": "xml",
+            "required": true
+        },
+        {
+            "name": "childName",
+            "description": "XML child element for which to search",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "index",
+            "description": "Index of XML child element for which to search",
+            "type": "number",
+            "required": true
+        }
+    ]
+}

@@ -1,0 +1,32 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/entityloadbypk.html",
+        "minimum_version": "",
+        "notes": "Returns `null` if no entity matches the given primary key \u2014 always check with `isNull()` before using the result.\n\nFor composite primary keys, pass a struct with the key property names and values.\n\nThe returned entity is **persistent** \u2014 it is tracked by the ORM session. Any modifications are automatically detected and persisted on flush.\n\nSee [[orm-querying]] for all entity loading options.\n"
+    }},
+    "name": "EntityLoadByPK",
+    "description": "Loads and returns the entity for the given primary key, or null if not found.",
+    "syntax": "EntityLoadByPK( string name, any id, [boolean unique] )",
+    "returns": "any",
+    "type": "function",
+    "params": [
+        {
+            "name": "name",
+            "description": "Name of the entity to be loaded.",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "id",
+            "description": "The primary key value of the entity that must be loaded",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "unique",
+            "description": "If unique is set to true, then the entity is returned.\nIf you are sure that only one record exists that matches this filtercriteria, then you can specify unique=true, so that a single entity is returned instead of an array.\nIf you set unique=true and multiple records are returned, then an exception occurs.",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

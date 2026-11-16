@@ -1,0 +1,25 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/sizeof.html",
+        "minimum_version": ""
+    }},
+    "name": "sizeOf",
+    "description": "this function is experimental, do not use in a production environment. this function returns the size in bytes of a given object.",
+    "syntax": "sizeOf( object obj, [boolean complex] )",
+    "returns": "any",
+    "type": "function",
+    "params": [
+        {
+            "name": "obj",
+            "description": "object to get size for",
+            "type": "object",
+            "required": true
+        },
+        {
+            "name": "complex",
+            "description": "if set to false, the size is returned, if set to true a struct containing the element count and the size is returned",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

@@ -1,0 +1,63 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/tags/argument.html",
+        "minimum_version": ""
+    }},
+    "name": "cfargument",
+    "description": "Allows subtag data to be saved with the base tag. Applies only to custom tags.",
+    "syntax": "<cfargument name=\"\"/>",
+    "returns": "void",
+    "type": "tag",
+    "params": [
+        {
+            "name": "name",
+            "description": "The name of the argument",
+            "default": false,
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "type",
+            "description": "The type of the argument\n\n- any\n- array\n- binary\n- boolean\n- date, datetime, time, timestamp\n- function\n- guid\n- image\n- locale\n- numeric, number\n- query\n- queryColumn\n- object\n- string\n- struct\n- timezone\n- timespan\n- uuid\n- variableName, variable_name\n- variablestring, variable_string\n- xml\n- component\n- componentName\n",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "required",
+            "description": "is argument required or not",
+            "default": false,
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "default",
+            "description": "default value of the argument",
+            "default": false,
+            "type": "any",
+            "required": false
+        },
+        {
+            "name": "displayName",
+            "description": "name to display (only used by components)",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "hint",
+            "description": "hint to the argument (only used by components)",
+            "default": false,
+            "type": "string",
+            "required": false
+        },
+        {
+            "name": "passBy",
+            "description": "should the argument passed as reference (default) or as a value",
+            "default": false,
+            "type": "string",
+            "required": false
+        }
+    ],
+    "body": "none"
+}

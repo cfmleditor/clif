@@ -1,0 +1,37 @@
+{
+    "member_details": {
+        "name": "append",
+        "type": "struct",
+        "returns": "struct"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/structappend.html",
+        "minimum_version": ""
+    }},
+    "name": "structAppend",
+    "description": "Appends all the data from struct2 into struct2, replacing duplicate keys unless specified by the overwrite flag",
+    "syntax": "structAppend( struct Struct1, struct Struct2, [boolean OverwriteFlag] )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [
+        {
+            "name": "Struct1",
+            "description": "Structure to which struct2 is appended.",
+            "type": "struct",
+            "required": true
+        },
+        {
+            "name": "Struct2",
+            "description": "Structure that contains the data to append to struct1",
+            "type": "struct",
+            "required": true
+        },
+        {
+            "name": "OverwriteFlag",
+            "description": "- true (default): values in struct2 overwrite corresponding values in struct1.",
+            "default": "true",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

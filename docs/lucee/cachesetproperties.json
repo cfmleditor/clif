@@ -1,0 +1,18 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/cachesetproperties.html",
+        "minimum_version": ""
+    }},
+    "name": "CacheSetProperties",
+    "description": "This function is not supported by Lucee",
+    "syntax": "CacheSetProperties( struct propsStruct )",
+    "returns": "void",
+    "type": "function",
+    "params": [{
+        "name": "propsStruct",
+        "description": "A structure specifying the cache properties plus identifying information",
+        "aliases": "properties,props",
+        "type": "struct",
+        "required": true
+    }]
+}

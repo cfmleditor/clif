@@ -1,0 +1,12 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/ormreload.html",
+        "minimum_version": ""
+    }},
+    "name": "ORMReload",
+    "description": "Reinitializes ORM for the application. Rebuilds all entity mappings and the Hibernate SessionFactory. Active idle sessions are closed and their connections released; sessions with in-flight transactions are invalidated for cleanup by their owning thread. Intended for development use only.",
+    "syntax": "ORMReload()",
+    "returns": "void",
+    "type": "function",
+    "params": []
+}

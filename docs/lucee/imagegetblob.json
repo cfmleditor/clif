@@ -1,0 +1,23 @@
+{
+    "member_details": {
+        "name": "getBlob",
+        "type": "image",
+        "returns": "image"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/imagegetblob.html",
+        "minimum_version": ""
+    }},
+    "name": "ImageGetBlob",
+    "description": "Retrieves the bytes of the underlying image. The bytes are in the same image format as the source image.",
+    "syntax": "ImageGetBlob( any image )",
+    "returns": "any",
+    "type": "function",
+    "params": [{
+        "name": "image",
+        "description": "The image on which this operation is performed.",
+        "aliases": "source,name",
+        "type": "any",
+        "required": true
+    }]
+}

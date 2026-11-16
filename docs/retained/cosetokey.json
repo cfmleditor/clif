@@ -1,0 +1,15 @@
+{
+    "name": "CoseToKey",
+    "description": "Converts a COSE key (struct with integer keys per RFC 9052, or raw CBOR bytes) to a Java security key. Returns a PublicKey when only public material is present, or a key pair struct (with 'public' and 'private' keys) when both are present. Supports EC (P-256, P-384, P-521) and Ed25519 keys.",
+    "syntax": "CoseToKey( any coseKey )",
+    "returns": "struct",
+    "type": "function",
+    "params": [
+        {
+            "name": "coseKey",
+            "description": "COSE key as a struct (from CborDecode) or raw CBOR-encoded binary",
+            "type": "any",
+            "required": true
+        }
+    ]
+}

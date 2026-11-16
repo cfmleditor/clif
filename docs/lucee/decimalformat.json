@@ -1,0 +1,17 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/decimalformat.html",
+        "minimum_version": ""
+    }},
+    "name": "decimalFormat",
+    "description": "Converts a number to a decimal-formatted string.",
+    "syntax": "decimalFormat( any number )",
+    "returns": "string",
+    "type": "function",
+    "params": [{
+        "name": "number",
+        "description": "Number to format",
+        "type": "any",
+        "required": true
+    }]
+}

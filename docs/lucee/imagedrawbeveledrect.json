@@ -1,0 +1,61 @@
+{
+    "member_details": {
+        "name": "drawBeveledRect",
+        "type": "image",
+        "returns": "image"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/imagedrawbeveledrect.html",
+        "minimum_version": ""
+    }},
+    "name": "ImageDrawBeveledRect",
+    "description": "Draws a rectangle with beveled edges.",
+    "syntax": "ImageDrawBeveledRect( any image, number x, number y, number width, number height, [boolean raised], [boolean filled] )",
+    "returns": "void",
+    "type": "function",
+    "params": [
+        {
+            "name": "image",
+            "description": "The image on which this operation is performed.",
+            "aliases": "name",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "x",
+            "description": "The x coordinate of the rectangle.",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "y",
+            "description": "The y coordinate of the rectangle.",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "width",
+            "description": "The width of the rectangle.",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "height",
+            "description": "The height of the rectangle.",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "raised",
+            "description": "Specify whether the rectangle appears raised above the surface or sunk into the surface:\n\n- true: The rectangle is raised.\n- false (default): The rectangle is sunk.",
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "filled",
+            "description": "Specify whether the rectangle is filled:\n\n- true: The rectangle is filled with the specified drawing color.\n- false (default): Only the outline of the rectangle is drawn.",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

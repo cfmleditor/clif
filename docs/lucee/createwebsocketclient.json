@@ -1,0 +1,27 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/createwebsocketclient.html",
+        "minimum_version": ""
+    }},
+    "name": "CreateWebSocketClient",
+    "description": "Creates a websocket client.",
+    "syntax": "CreateWebSocketClient( string endpoint, component component )",
+    "returns": "any",
+    "type": "function",
+    "params": [
+        {
+            "name": "endpoint",
+            "description": "Endpoint to the websocket (Example: ws://localhost:8080/whatever/)",
+            "aliases": "url",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "component",
+            "description": "Component with the callback listener functions.\n\n| Callback | Arguments | Description |\n|----------|-----------|-------------|\n| `onMessage` | `message` | Text message received |\n| `onBinaryMessage` | `binary` | Binary data received |\n| `onClose` | (none) | Connection closed |\n| `onError` | `type, cause, [data]` | Error occurred |\n| `onPing` | (none) | Ping frame received |\n| `onPong` | (none) | Pong frame received |",
+            "aliases": "cfc,listener",
+            "type": "component",
+            "required": true
+        }
+    ]
+}

@@ -1,0 +1,41 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/xmlparse.html",
+        "minimum_version": "",
+        "notes": "Since Lucee 5.4.2 and 6.0, XML parsing is secure by default \u2014 DOCTYPE declarations and external entities are blocked to prevent XXE attacks.\n\nYou can pass a struct of `xmlFeatures` as the `validator` argument to override the security settings for a single parse call, or set `this.xmlFeatures` in `Application.cfc` for application-wide configuration.\n\nSee the [[xml-security-xmlfeatures]] recipe for full details and examples.\n"
+    }},
+    "name": "xmlParse",
+    "description": "Converts an XML document that is represented as a string\nvariable into an XML document object.",
+    "syntax": "xmlParse( string xmlString, [boolean caseSensitive], [any validator], [boolean lenient] )",
+    "returns": "xml",
+    "type": "function",
+    "params": [
+        {
+            "name": "xmlString",
+            "description": "Any of the following:",
+            "aliases": "xmlStr,xmlText,xml",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "caseSensitive",
+            "description": "Maintains the case of document elements and attributes.\nDefault: false",
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "validator",
+            "description": "Any of the following:\n\n- A string containing a DTD or Schema\n- The name of a DTD or Schema file\n- The URL of a DTD or Schema file; valid protocol identifiers include http, https, ftp, and file\n- A struct of `xmlFeatures` directives (since 5.4.2.20) \u2014 overrides the application-level XML security settings for this single parse call. See the usage notes below for available keys.\n",
+            "type": "any",
+            "required": false
+        },
+        {
+            "name": "lenient",
+            "description": "if set to true, the parser is more lenient and forgives invalid XML and does the best to interpret it.",
+            "minimum_version": "5.3.8.135",
+            "default": "false",
+            "type": "boolean",
+            "required": false
+        }
+    ]
+}

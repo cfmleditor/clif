@@ -1,0 +1,12 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/iswithinormtransaction.html",
+        "minimum_version": ""
+    }},
+    "name": "IsWithinORMTransaction",
+    "description": "Returns true if a Hibernate ORM transaction is currently active on any ORM datasource. Safe to call when ORM is not configured \u2014 returns false.",
+    "syntax": "IsWithinORMTransaction()",
+    "returns": "boolean",
+    "type": "function",
+    "params": []
+}

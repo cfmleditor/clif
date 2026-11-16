@@ -1,0 +1,33 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/iif.html",
+        "minimum_version": ""
+    }},
+    "name": "iIf",
+    "description": "Evaluates a Boolean conditional dynamic expression. Depending\non whether the expression is true or false, dynamically\nevaluates one of two string expressions and returns the result.",
+    "syntax": "iIf( boolean condition, string string_expression1, string string_expression2 )",
+    "returns": "any",
+    "type": "function",
+    "params": [
+        {
+            "name": "condition",
+            "description": "An expression that can be evaluated as a Boolean.",
+            "type": "boolean",
+            "required": true
+        },
+        {
+            "name": "string_expression1",
+            "description": "Expression to evaluate and return if condition is true.",
+            "aliases": "expression1",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "string_expression2",
+            "description": "Expression to evaluate and return if condition is false.",
+            "aliases": "expression2",
+            "type": "string",
+            "required": true
+        }
+    ]
+}

@@ -1,0 +1,18 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/isimagefile.html",
+        "minimum_version": ""
+    }},
+    "name": "IsImageFile",
+    "description": "Verifies whether an image file is valid.",
+    "syntax": "IsImageFile( string path )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [{
+        "name": "path",
+        "description": "The pathname of the file to be checked.\n\nThe pathname can be absolute or relative to the CFM page and must be enclosed in quotation marks.",
+        "aliases": "value,file",
+        "type": "string",
+        "required": true
+    }]
+}

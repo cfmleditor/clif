@@ -1,0 +1,33 @@
+{
+    "name": "VerifySignature",
+    "description": "Verifies a digital signature using a public key.",
+    "syntax": "VerifySignature( any data, string signature, any publicKey, [string algorithm] )",
+    "returns": "boolean",
+    "type": "function",
+    "params": [
+        {
+            "name": "data",
+            "description": "Original data that was signed",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "signature",
+            "description": "Base64-encoded signature to verify",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "publicKey",
+            "description": "Public key (PEM string or Java object)",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "algorithm",
+            "description": "Signature algorithm. Auto-detected if omitted.",
+            "type": "string",
+            "required": false
+        }
+    ]
+}

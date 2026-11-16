@@ -1,0 +1,25 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/sendgatewaymessage.html",
+        "minimum_version": ""
+    }},
+    "name": "SendGatewayMessage",
+    "description": "Sends an outgoing message through an event gateway.",
+    "syntax": "SendGatewayMessage( string gatewayID, struct data )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "gatewayID",
+            "description": "Identifier of the gateway to send the message.",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "data",
+            "description": "A structure.",
+            "type": "struct",
+            "required": true
+        }
+    ]
+}

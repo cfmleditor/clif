@@ -1,0 +1,30 @@
+{
+    "member_details": {
+        "name": "findAllNoCase",
+        "type": "array",
+        "returns": "array"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/arrayfindallnocase.html",
+        "minimum_version": ""
+    }},
+    "name": "arrayFindAllNoCase",
+    "description": "These functions searches the array for the specified object and return the positions of all occurrence of this values.",
+    "syntax": "arrayFindAllNoCase( array array, any value )",
+    "returns": "array",
+    "type": "function",
+    "params": [
+        {
+            "name": "array",
+            "description": "The array to search in",
+            "type": "array",
+            "required": true
+        },
+        {
+            "name": "value",
+            "description": "The value to find",
+            "type": "any",
+            "required": true
+        }
+    ]
+}

@@ -1,0 +1,12 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/isuserloggedin.html",
+        "minimum_version": ""
+    }},
+    "name": "IsUserLoggedIn",
+    "description": "Determines whether a user is logged in.",
+    "syntax": "IsUserLoggedIn()",
+    "returns": "boolean",
+    "type": "function",
+    "params": []
+}

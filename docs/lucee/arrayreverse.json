@@ -1,0 +1,22 @@
+{
+    "member_details": {
+        "name": "reverse",
+        "type": "array",
+        "returns": "array"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/arrayreverse.html",
+        "minimum_version": ""
+    }},
+    "name": "arrayReverse",
+    "description": "Returns a new array, with all the elements reversed",
+    "syntax": "arrayReverse( array array )",
+    "returns": "array",
+    "type": "function",
+    "params": [{
+        "name": "array",
+        "description": "the array to reverse",
+        "type": "array",
+        "required": true
+    }]
+}

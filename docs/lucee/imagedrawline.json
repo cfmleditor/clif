@@ -1,0 +1,49 @@
+{
+    "member_details": {
+        "name": "drawLine",
+        "type": "image",
+        "returns": "image"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/imagedrawline.html",
+        "minimum_version": ""
+    }},
+    "name": "ImageDrawLine",
+    "description": "Draws a single line defined by two sets of x and y coordinates on a image.",
+    "syntax": "ImageDrawLine( any image, number x1, number y1, number x2, number y2 )",
+    "returns": "void",
+    "type": "function",
+    "params": [
+        {
+            "name": "image",
+            "description": "The image on which this operation is performed.",
+            "aliases": "name",
+            "type": "any",
+            "required": true
+        },
+        {
+            "name": "x1",
+            "description": "The x coordinate for the start point of the line.",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "y1",
+            "description": "The y coordinate for the start point of the line.",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "x2",
+            "description": "The x coordinate for the end point of the line.",
+            "type": "number",
+            "required": true
+        },
+        {
+            "name": "y2",
+            "description": "The y coordinate for the end point of the line.",
+            "type": "number",
+            "required": true
+        }
+    ]
+}

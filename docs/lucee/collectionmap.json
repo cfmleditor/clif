@@ -1,0 +1,41 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/collectionmap.html",
+        "minimum_version": ""
+    }},
+    "name": "collectionMap",
+    "description": "Calls the given closure with every element in the given collection.\nthe function returns an array or struct (depending on the input) that contains all values returned by the closure.",
+    "syntax": "collectionMap( object collection, function closure, [boolean parallel], [number maxThreads] )",
+    "returns": "object",
+    "type": "function",
+    "params": [
+        {
+            "name": "collection",
+            "description": "collection to iterate",
+            "aliases": "object",
+            "type": "object",
+            "required": true
+        },
+        {
+            "name": "closure",
+            "description": "UDF/Closure that is called with every value in the collection",
+            "aliases": "function,callback,udf",
+            "type": "function",
+            "required": true
+        },
+        {
+            "name": "parallel",
+            "description": "execute closures parallel",
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "maxThreads",
+            "description": "maximum number of threads executed, ignored when argument \"parallel\" is set to false",
+            "default": "20",
+            "aliases": "maxThreadCount",
+            "type": "number",
+            "required": false
+        }
+    ]
+}

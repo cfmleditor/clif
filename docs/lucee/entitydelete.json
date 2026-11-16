@@ -1,0 +1,18 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/entitydelete.html",
+        "minimum_version": "",
+        "notes": "The entity must be **persistent** (loaded from the database or previously saved). Deleting a transient entity has no effect.\n\nThe actual DELETE SQL executes on session flush, not immediately. Use a `transaction` block for rollback safety.\n\nSee [[orm-session-and-transactions]] for details on flush timing.\n"
+    }},
+    "name": "EntityDelete",
+    "description": "Deletes the record from the database for the specified entity.\nEntityDelete(entity)",
+    "syntax": "EntityDelete( object name )",
+    "returns": "void",
+    "type": "function",
+    "params": [{
+        "name": "name",
+        "description": "Name of the entity being deleted.",
+        "type": "object",
+        "required": true
+    }]
+}

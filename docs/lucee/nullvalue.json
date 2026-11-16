@@ -1,0 +1,12 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/nullvalue.html",
+        "minimum_version": ""
+    }},
+    "name": "nullValue",
+    "description": "returns null",
+    "syntax": "nullValue()",
+    "returns": "any",
+    "type": "function",
+    "params": []
+}

@@ -1,0 +1,44 @@
+{
+    "member_details": {
+        "name": "filter",
+        "type": "struct",
+        "returns": "struct"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/structfilter.html",
+        "minimum_version": ""
+    }},
+    "name": "structFilter",
+    "description": "This function creates a new Struct that returns all entries from an struct that match the given filter.",
+    "syntax": "structFilter( struct struct, function filter, [boolean parallel], [number maxThreads] )",
+    "returns": "struct",
+    "type": "function",
+    "params": [
+        {
+            "name": "struct",
+            "description": "struct to filter entries from",
+            "type": "struct",
+            "required": true
+        },
+        {
+            "name": "filter",
+            "description": "A function/closure that implements the following constructor\n\n`function(any key, any value) { return true/false; }`",
+            "type": "function",
+            "required": true
+        },
+        {
+            "name": "parallel",
+            "description": "execute closures parallel",
+            "type": "boolean",
+            "required": false
+        },
+        {
+            "name": "maxThreads",
+            "description": "maximum number of threads executed, ignored when argument \"parallel\" is set to false",
+            "default": "20",
+            "aliases": "maxThreadCount",
+            "type": "number",
+            "required": false
+        }
+    ]
+}

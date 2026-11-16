@@ -1,0 +1,24 @@
+{
+    "member_details": {
+        "name": "keyArray",
+        "type": "struct",
+        "returns": "struct"
+    },
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/structkeyarray.html",
+        "minimum_version": "",
+        "notes": "For unsorted structs, Adobe returns a text sorted Array of keys, for performance reasons, Lucee simply returns the raw sort order"
+    }},
+    "name": "structKeyArray",
+    "description": "Returns an array of the keys from a structure",
+    "syntax": "structKeyArray( struct struct )",
+    "returns": "array",
+    "type": "function",
+    "params": [{
+        "name": "struct",
+        "description": "Structure from which to extract a list of keys",
+        "aliases": "structure,object",
+        "type": "struct",
+        "required": true
+    }]
+}

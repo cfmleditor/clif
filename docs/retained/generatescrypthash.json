@@ -1,0 +1,33 @@
+{
+    "name": "GenerateSCryptHash",
+    "description": "Deprecated: renamed to SCryptHash() for consistency with the {Algorithm}Hash/{Algorithm}Verify naming pattern. Same defaults (N=16384, r=8, p=1), functionally identical.",
+    "syntax": "GenerateSCryptHash( string input, [numeric costParameter], [numeric blockSize], [numeric parallelization] )",
+    "returns": "string",
+    "type": "function",
+    "params": [
+        {
+            "name": "input",
+            "description": "Password to hash",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "costParameter",
+            "description": "CPU/memory cost (N) - must be power of 2",
+            "type": "numeric",
+            "required": false
+        },
+        {
+            "name": "blockSize",
+            "description": "Block size (r)",
+            "type": "numeric",
+            "required": false
+        },
+        {
+            "name": "parallelization",
+            "description": "Parallelization factor (p)",
+            "type": "numeric",
+            "required": false
+        }
+    ]
+}

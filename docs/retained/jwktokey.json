@@ -1,0 +1,15 @@
+{
+    "name": "JwkToKey",
+    "description": "Converts a JWK (JSON Web Key) struct or JSON string to a Java key object. Returns PublicKey, PrivateKey, or SecretKey depending on the JWK contents.",
+    "syntax": "JwkToKey( any jwk )",
+    "returns": "any",
+    "type": "function",
+    "params": [
+        {
+            "name": "jwk",
+            "description": "JWK as a struct or JSON string",
+            "type": "any",
+            "required": true
+        }
+    ]
+}

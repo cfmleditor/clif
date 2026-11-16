@@ -1,0 +1,26 @@
+{
+    "engines": {"lucee": {
+        "docs": "https://docs.lucee.org/reference/functions/entitynew.html",
+        "minimum_version": "",
+        "notes": "The entity must be a persistent CFC with `persistent=\"true\"`. The `entityName` argument is the entity name (defaults to the CFC name unless `entityname` is set on the component).\n\nIf you pass a `properties` struct, the values are set via setter methods \u2014 `accessors=\"true\"` must be set on the CFC.\n\n`entityNew()` creates a **transient** entity \u2014 it is not tracked by the ORM session until you call [[function-entitysave]].\n\nSee [[orm-getting-started]] for a complete walkthrough.\n"
+    }},
+    "name": "EntityNew",
+    "description": "Creates a new instance of the persistent CFC with the entity name that you provide.",
+    "syntax": "EntityNew( string entityName, [struct properties] )",
+    "returns": "any",
+    "type": "function",
+    "params": [
+        {
+            "name": "entityName",
+            "description": "Name of the instance being created.",
+            "type": "string",
+            "required": true
+        },
+        {
+            "name": "properties",
+            "description": "a struct containing data to populate the entity properties.",
+            "type": "struct",
+            "required": false
+        }
+    ]
+}
