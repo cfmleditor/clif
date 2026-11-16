@@ -20,53 +20,50 @@ set -euo pipefail
 # from (clif may be a subdirectory of another repository).
 cd "$(dirname "$0")/.."
 
-DEST="docs/data"
+ORDER="docs/data/order"
 SOURCES="docs/src/cfdocs docs/retained docs/lucee"
 
 # shellcheck source=lib/swapdir.sh
 . scripts/lib/swapdir.sh
 
+# The lock keeps a fetch or bump from swapping a source in while this checks
+# for it (and from having its set-aside copy moved back mid-swap below).
 docs_lock
-BUILD="$DEST.building"
 cleanup() {
-    swap_recover "$DEST"
-    rm -rf "$BUILD"
+    rm -f "$ORDER.tmp"
     docs_unlock
 }
 trap cleanup EXIT
 
-# An interrupted fetch, bump or assemble may have left a copy aside: put each
-# back before checking for it.
+# An interrupted fetch or bump may have left a copy aside: put each back
+# before checking for it.
 swap_recover docs/src/cfdocs
 swap_recover docs/lucee
-swap_recover "$DEST"
 
-# Every source must be here: a missing one is an error, never left out of the
-# order. cfdocs is the one fetched (staged under docs/src/); docs/retained and
-# docs/lucee are committed (Lucee's docs are vendored: it publishes only its
-# latest zip, so a version cannot be fetched again).
+# cfdocs and Lucee must be here: a missing one is an error, never left out of
+# the order. cfdocs is the one fetched (staged under docs/src/); docs/lucee is
+# committed (Lucee's docs are vendored: it publishes only its latest zip, so a
+# version cannot be fetched again). docs/retained may hold no JSON at all: the
+# generator says a retained file can be deleted once Lucee documents its name
+# again, and deleting the last one must not break anything.
 if [ ! -d docs/src/cfdocs ] || [ ! -f docs/.sha-cfdocs ]; then
     echo "error: cfdocs is not staged; run \`make docs\` to fetch it" >&2
     exit 1
 fi
-for src in docs/lucee docs/retained; do
-    if ! ls "$src"/*.json >/dev/null 2>&1; then
-        echo "error: no docs in $src; restore them (git checkout -- $src)" >&2
-        exit 1
-    fi
-done
+if ! ls docs/lucee/*.json >/dev/null 2>&1; then
+    echo "error: no vendored Lucee docs in docs/lucee; restore them (git checkout -- docs/lucee)" >&2
+    exit 1
+fi
+mkdir -p docs/retained
 
-rm -rf "$BUILD"
-mkdir -p "$BUILD"
-: > "$BUILD/order"
+# One small file, written beside itself and renamed into place: a rename is
+# atomic, so a failure or interrupt leaves the previous order whole.
+mkdir -p "$(dirname "$ORDER")"
+: > "$ORDER.tmp"
 for src in $SOURCES; do
-    echo "${src##*/} $src" >> "$BUILD/order"
+    echo "${src##*/} $src" >> "$ORDER.tmp"
     echo "  $src → $(find "$src" -maxdepth 1 -name '*.json' | wc -l | tr -d ' ') JSON files, read in place"
 done
+mv "$ORDER.tmp" "$ORDER"
 
-# Swapped in with the old copy moved aside first: a failure or interrupt
-# between the two moves leaves it aside, and cleanup (or the next run's start)
-# puts it back, so never neither copy.
-swap_in "$BUILD" "$DEST"
-
-echo "Assembled $DEST/order"
+echo "Assembled $ORDER"

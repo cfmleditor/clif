@@ -101,11 +101,13 @@ outside `make docs-bump`. `SOURCES` in `assemble-docs.sh` is the only place the 
 written, and the generator takes each entry from the highest source that documents it, whatever the
 file is called: Lucee outranks `docs/retained`, which outranks cfdocs, and when Lucee documents a
 retained name again the generator says the retained file can go. Every source is read where it is,
-never copied, so a file just added, fixed, broken or pulled always counts. The staged cfdocs, the
-vendored `docs/lucee` and `docs/data` are each built beside themselves and swapped in
-(`scripts/lib/swapdir.sh`), with the old copy restored after a failure or an interrupt, and the
-scripts take a lock (`docs/.lock`) so two docs runs cannot interleave; all of them work from the
-repository root wherever they are run from.
+never copied, so a file just added, fixed, broken or pulled always counts. The staged cfdocs and
+the vendored `docs/lucee` are each built beside themselves and swapped in (`scripts/lib/swapdir.sh`),
+with the old copy restored after a failure or an interrupt, and `docs/data/order` is written to a
+temporary file and renamed into place. The scripts take a lock (`docs/.lock`, an atomic symlink
+naming its owner's PID and start time, so a dead run's lock is taken over) so two docs runs cannot
+interleave, retry a failed network step twice (`scripts/lib/retry.sh`), and work from the repository
+root wherever they are run from.
 
 **`scripts/generate_docs.go` refuses to lose an entry.** It compares the new entries, by type and
 name, with `internal/docs/generated_sources.txt` as committed at `HEAD` (`git show HEAD:./…`, so it
@@ -125,11 +127,12 @@ With no baseline to compare with (no `generated_sources.txt` at `HEAD`, a `HEAD`
 resolve, or no usable git to ask: not installed, or a checkout git distrusts) it refuses rather than
 check less; `DOCS_ALLOW_REMOVALS=1` creates the file from nothing, once, deliberately. A committed
 sources file that git cannot read (a shallow clone), is malformed or lists nothing is refused too,
-never taken for "no baseline". A fetched file that does not parse is skipped with a warning (cfdocs
-has shipped `cfcatch.json` and `cfcol.json` with merge-conflict markers in them); if that costs an
-entry, the removal check names it. A committed one (in `docs/retained` or the vendored `docs/lucee`)
-is refused instead: skipped, it would drop its entry for good, and a new entry has no baseline to be
-missed from.
+never taken for "no baseline". An upstream file (in the fetched cfdocs or the vendored `docs/lucee`)
+that does not parse is skipped with a warning, as upstream's to fix (cfdocs has shipped
+`cfcatch.json` and `cfcol.json` with merge-conflict markers in them); if that costs an entry, the
+removal check names it. `make docs-bump` refuses to vendor such a Lucee file in the first place. A
+`docs/retained` file that does not parse is refused: it is written by hand here. A source directory
+with no JSON at all is refused too, except `docs/retained`, which may become empty.
 
 On a refusal `make generate` exits 1 and writes nothing; the banner notes when the generated files
 on disk differ from `HEAD`'s or are not committed (`make build` compiles whatever is on disk).

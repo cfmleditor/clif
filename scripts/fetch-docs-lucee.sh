@@ -23,6 +23,8 @@ NEW="$DIR.new"
 . scripts/lib/sha256.sh
 # shellcheck source=lib/swapdir.sh
 . scripts/lib/swapdir.sh
+# shellcheck source=lib/retry.sh
+. scripts/lib/retry.sh
 
 docs_lock
 TMP=""
@@ -49,7 +51,7 @@ TMP=$(mktemp -d)
 rm -rf "$NEW"
 
 echo "Downloading lucee-docs.zip..."
-if ! curl -fsSL --connect-timeout 10 --max-time 600 -D "$TMP/headers" "$URL" -o "$TMP/lucee-docs.zip"; then
+if ! retry curl -fsSL --connect-timeout 10 --max-time 600 -D "$TMP/headers" "$URL" -o "$TMP/lucee-docs.zip"; then
     echo "error: could not download $URL; $DIR left as it was" >&2
     exit 1
 fi
@@ -65,13 +67,6 @@ if [ "$count" -eq 0 ]; then
     exit 1
 fi
 
-# A file that does not parse, or names no valid entry, is refused here,
-# before it can be committed: vendored, it would sit in docs/lucee for good
-# (make generate only skips it, with a warning, as upstream's to fix).
-if ! go run scripts/check_vendored.go check "$TMP/staged"; then
-    echo "error: Lucee's zip holds the broken files above; $DIR left as it was. Report them upstream and bump later." >&2
-    exit 1
-fi
 
 # The ETag of the response that delivered this zip, not of a separate request
 # that may have seen another version. curl -L dumps every response's headers
@@ -83,6 +78,15 @@ etag=$(awk '/^HTTP\// { e = "" } tolower($1) == "etag:" { e = $2 } END { print e
 # leaves docs/lucee as it was, and one during it is undone by cleanup.
 mkdir -p "$NEW"
 cp "$TMP/staged/"*.json "$NEW/"
+
+# One pass over the copy: a file that does not parse, or names no valid
+# entry, is refused here, before it can be committed (vendored, it would sit
+# in docs/lucee for good; make generate only skips it, as upstream's to fix),
+# and otherwise the hash of the JSON is what SOURCE records.
+if ! json_hash=$(go run scripts/check_vendored.go checkhash "$NEW"); then
+    echo "error: Lucee's zip holds the broken files above; $DIR left as it was. Report them upstream and bump later." >&2
+    exit 1
+fi
 {
     if [ -f "$SOURCE" ]; then
         sed -n '/^#/p' "$SOURCE"
@@ -94,7 +98,7 @@ cp "$TMP/staged/"*.json "$NEW/"
         echo "# \`make docs-bump\` replaces them with the latest and rewrites this file."
     fi
     echo "zip-sha256 $(sha256 "$TMP/lucee-docs.zip")"
-    echo "json-sha256 $(go run scripts/check_vendored.go hash "$NEW")"
+    echo "json-sha256 $json_hash"
     if [ -n "$etag" ]; then
         echo "etag $etag"
     fi

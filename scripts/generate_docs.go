@@ -267,10 +267,9 @@ func main() {
 		refuse(fmt.Sprintf("No %s: run `make docs` first (fetches cfdocs and assembles the order).", orderFile))
 	}
 	checkPins()
-	// Each line names a source and the directory its files are read from:
-	// docs/data/<source> for a fetched one, the committed directory itself
-	// (docs/retained, docs/lucee) for the others, so a commit's files are
-	// what is read, never a copy that went stale when assembling failed.
+	// Each line names a source and the directory its files are read from, in
+	// place: docs/src/cfdocs (the staged fetch), docs/retained and docs/lucee
+	// (committed). Nothing is copied, so no copy can go stale.
 	var order []string
 	dirs := map[string]string{}
 	for i, l := range docsources.Lines(ob) {
@@ -294,7 +293,19 @@ func main() {
 	var all []sourced
 	var broken, brokenOurs []string
 	for _, src := range order {
-		files, _ := filepath.Glob(filepath.Join(dirs[src], "*.json"))
+		files, err := filepath.Glob(filepath.Join(dirs[src], "*.json"))
+		if err != nil {
+			refuse(fmt.Sprintf("Cannot list %s: %v", dirs[src], err))
+		}
+		// A source with no files at all (its directory moved, deleted, or
+		// emptied after the order was written) would otherwise pass for one
+		// that documents nothing, and with DOCS_ALLOW_REMOVALS=1 take all its
+		// entries out unnoticed. docs/retained alone may be empty: its last
+		// file goes once Lucee documents that name again.
+		if len(files) == 0 && src != retainedSource {
+			refuse(fmt.Sprintf("%s (the %s docs) holds no JSON files.", dirs[src], src),
+				"Run `make docs` (cfdocs), or restore docs/lucee from git.")
+		}
 		for _, f := range files {
 			// docs/retained is written by hand here: a file there that does
 			// not parse, or names no valid entry, is a mistake to fix, and

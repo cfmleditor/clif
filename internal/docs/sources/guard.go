@@ -177,7 +177,7 @@ func Pick(cands []Candidate) (keep []int, twice []Twice, shadowedRetained []stri
 	return keep, twice, shadowedRetained
 }
 
-// ReadPairs reads "<name> <value>" lines (docs/sources.lock, docs/data/staged),
+// ReadPairs reads "<name> <value>" lines (docs/sources.lock),
 // blank lines and # comments aside, strictly: a malformed line or a name given
 // twice is an error. label names the file in errors.
 func ReadPairs(label string, b []byte) (map[string]string, error) {

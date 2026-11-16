@@ -21,6 +21,8 @@ NEW="$SRC.new"
 
 # shellcheck source=lib/swapdir.sh
 . scripts/lib/swapdir.sh
+# shellcheck source=lib/retry.sh
+. scripts/lib/retry.sh
 
 docs_lock
 TMP=$(mktemp -d)
@@ -34,19 +36,6 @@ trap cleanup EXIT
 # An interrupted earlier fetch may have left the previous copy aside (and no
 # marker, so it is never mistaken for the pin): put it back.
 swap_recover "$SRC"
-
-# retry CMD...: run a network command up to three times, waiting between, so
-# a passing blip (a CI runner's, say) does not fail the run.
-retry() {
-    local attempt
-    for attempt in 1 2 3; do
-        if "$@"; then
-            return 0
-        fi
-        [ "$attempt" -lt 3 ] && sleep $((attempt * 5))
-    done
-    return 1
-}
 
 if [ "${DOCS_BUMP:-}" = "1" ]; then
     if ! remote=$(retry git ls-remote "$REPO" refs/heads/master); then
