@@ -22,6 +22,7 @@ import (
 	"syscall"
 
 	docsources "github.com/cfmleditor/clif/internal/docs/sources"
+	"github.com/cfmleditor/clif/internal/flock"
 )
 
 const (
@@ -227,32 +228,34 @@ func requireLock() {
 	}
 }
 
-// holdsLock reports whether this process was started under docs/.lock: the
-// inherited descriptor DOCS_LOCK_FD names is that file. Windows passes no
-// descriptors to a child, so there DOCS_LOCK_HELD alone says so.
+// lockFD is the inherited descriptor holding docs/.lock, kept for the whole
+// run: an *os.File nothing refers to is closed by its finalizer at the next
+// garbage collection, and with it this process's hold on the lock.
+var lockFD *os.File
+
+// holdsLock reports whether this process holds docs/.lock: the inherited
+// descriptor DOCS_LOCK_FD names is that file, as it is now on disk (so a
+// lock file deleted and created again since is not taken for it). Windows
+// passes no descriptor to a child, so there it checks that some process
+// holds the lock (this one's docslock, as DOCS_LOCK_HELD says), by failing
+// to take it.
 func holdsLock() bool {
 	if os.Getenv("DOCS_LOCK_HELD") != "1" {
 		return false
 	}
 
-	fdText := os.Getenv("DOCS_LOCK_FD")
-	if fdText == "" {
-		return runtime.GOOS == "windows"
+	if runtime.GOOS != "windows" && lockFD == nil {
+		fd, err := strconv.Atoi(os.Getenv("DOCS_LOCK_FD"))
+		if err != nil || fd < 3 {
+			return false
+		}
+		lockFD = os.NewFile(uintptr(fd), docsLock)
+		// Nothing this runs (git) inherits it, so nothing can keep the lock
+		// after this process ends.
+		flock.CloseOnExec(lockFD)
 	}
 
-	fd, err := strconv.Atoi(fdText)
-	if err != nil || fd < 3 {
-		return false
-	}
-
-	inherited, err := os.NewFile(uintptr(fd), docsLock).Stat()
-	if err != nil {
-		return false
-	}
-
-	lockFile, err := os.Stat(docsLock)
-
-	return err == nil && os.SameFile(inherited, lockFile)
+	return flock.Holds(lockFD, docsLock)
 }
 
 var (
@@ -570,6 +573,7 @@ func main() {
 	var accept docsources.Acceptance
 	var leftOver []string
 	var baseLines map[string]string
+	baseBroken := false
 	if allowedFile != "" {
 		acceptFrom = allowedFile
 		if os.Getenv("DOCS_ALLOW_REMOVALS") != "" {
@@ -594,7 +598,7 @@ func main() {
 		baseLines, err = docsources.ParseAllowedRemovals(ref+":"+allowedFile, baseRaw)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "warning: the base's %s does not parse (%v); treating every line here as added\n", allowedFile, err)
-			baseLines = nil
+			baseLines, baseBroken = nil, true
 		}
 		var added map[string]bool
 		added, leftOver = docsources.AddedLines(lines, baseLines)
@@ -690,11 +694,13 @@ func main() {
 	// An entry new to the file that accepts nothing is a mistake (a typo, or
 	// a removal since undone): refused, so it is not merged to sit there. One
 	// the base's copy already lists, with only its line changed (a comment
-	// tidied, say), is no new claim: it only warns. Under DOCS_ALLOW_REMOVALS
-	// everything here only warns.
+	// tidied, say), is no new claim: it only warns. With the base's copy
+	// unreadable there is no telling a new entry from an old one, so each
+	// only warns, rather than block the pull request that fixes that copy.
+	// Under DOCS_ALLOW_REMOVALS everything here only warns.
 	var staleNew []string
 	for _, k := range stale {
-		if _, listed := baseLines[k]; allowedFile != "" && !listed {
+		if _, listed := baseLines[k]; allowedFile != "" && !baseBroken && !listed {
 			staleNew = append(staleNew, k)
 
 			continue
@@ -824,6 +830,14 @@ func main() {
 	for _, k := range keys {
 		sb.WriteString(k + "\t" + sources[k] + "\n")
 	}
+	// Checked again just before writing: docs/.lock deleted and created
+	// again meanwhile would let another docs run take the new one and swap a
+	// source under this one.
+	if !holdsLock() {
+		refuse(docsLock+" was deleted or replaced during this run, so another docs run may have changed a source meanwhile:",
+			"nothing was written. Run `make generate` again.")
+	}
+
 	// A signal from here until both renames are done is held, then acted on.
 	sigMu.Lock()
 	writing = true

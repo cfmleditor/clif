@@ -31,5 +31,6 @@ bash scripts/fetch-docs-lucee.sh
 bash scripts/assemble-docs.sh
 
 mkdir -p target/docs-gen
-go build -o target/docs-gen/generate_docs scripts/generate_docs.go
-target/docs-gen/generate_docs
+gen="target/docs-gen/generate_docs$(go env GOEXE)"
+go build -o "$gen" scripts/generate_docs.go
+"$gen"

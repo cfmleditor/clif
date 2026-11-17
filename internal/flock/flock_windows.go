@@ -23,3 +23,29 @@ func TryLock(f *os.File) (bool, error) {
 
 	return err == nil, err
 }
+
+// CloseOnExec does nothing on Windows, which passes a child no handle it was
+// not given.
+func CloseOnExec(*os.File) {}
+
+// ProcessGone reports whether no process has pid, as far as Windows will
+// say: a process it refuses to open (another user's) counts as alive.
+func ProcessGone(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+
+	h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
+	if err != nil {
+		return errors.Is(err, windows.ERROR_INVALID_PARAMETER)
+	}
+
+	defer func() { _ = windows.CloseHandle(h) }()
+
+	var code uint32
+	if windows.GetExitCodeProcess(h, &code) != nil {
+		return false
+	}
+
+	return code != 259 // STILL_ACTIVE
+}
