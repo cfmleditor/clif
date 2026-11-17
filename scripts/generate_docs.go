@@ -13,10 +13,8 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -215,48 +213,21 @@ type Entry struct {
 // docsLock is held by scripts/docslock.go (the OS's own file lock) for the
 // whole of `make generate`: the fetch, the assemble and this generator, so no
 // fetch or bump can swap a source while it is read. The generator takes no
-// lock of its own: it inherits the lock's descriptor (DOCS_LOCK_FD, fd 3) and
-// checks it is docs/.lock itself. Holding it, this process keeps the lock for
-// as long as it runs, even if the scripts that started it are killed.
-const docsLock = "docs/.lock"
+// lock of its own: docslock gave the run a token (DOCS_LOCK_TOKEN), recorded
+// in docs/.flock, and flock.Verify checks it is still the holder's, the same
+// check `docslock --held` makes for the scripts.
+const docsLock = "docs/.flock"
 
 func requireLock() {
 	if !holdsLock() {
-		fmt.Fprintln(os.Stderr, "error: run the generator through `make generate` (scripts/generate.sh), which holds docs/.lock")
+		fmt.Fprintln(os.Stderr, "error: run the generator through `make generate` (scripts/generate.sh), which holds the docs lock")
 		fmt.Fprintln(os.Stderr, "       across the fetch and the generation, so no other docs run can swap a source meanwhile.")
 		os.Exit(1)
 	}
 }
 
-// lockFD is the inherited descriptor holding docs/.lock, kept for the whole
-// run: an *os.File nothing refers to is closed by its finalizer at the next
-// garbage collection, and with it this process's hold on the lock.
-var lockFD *os.File
-
-// holdsLock reports whether this process holds docs/.lock: the inherited
-// descriptor DOCS_LOCK_FD names is that file, as it is now on disk (so a
-// lock file deleted and created again since is not taken for it). Windows
-// passes no descriptor to a child, so there it checks that some process
-// holds the lock (this one's docslock, as DOCS_LOCK_HELD says), by failing
-// to take it.
-func holdsLock() bool {
-	if os.Getenv("DOCS_LOCK_HELD") != "1" {
-		return false
-	}
-
-	if runtime.GOOS != "windows" && lockFD == nil {
-		fd, err := strconv.Atoi(os.Getenv("DOCS_LOCK_FD"))
-		if err != nil || fd < 3 {
-			return false
-		}
-		lockFD = os.NewFile(uintptr(fd), docsLock)
-		// Nothing this runs (git) inherits it, so nothing can keep the lock
-		// after this process ends.
-		flock.CloseOnExec(lockFD)
-	}
-
-	return flock.Holds(lockFD, docsLock)
-}
+// holdsLock reports whether this run holds the docs lock.
+func holdsLock() bool { return flock.Verify(docsLock, os.Getenv("DOCS_LOCK_TOKEN")) }
 
 var (
 	// sigMu guards writing and pending. A signal while the two generated
@@ -282,7 +253,7 @@ func stoppedBy(sig os.Signal, what string) {
 
 // stopOnSignal exits on Ctrl-C, a kill or a hang-up with the shell's code for
 // that signal, at once, or, during the write, as soon as both files are in
-// place. docs/.lock is the OS's: it goes when this process does.
+// place.
 func stopOnSignal() {
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
@@ -298,9 +269,10 @@ func stopOnSignal() {
 
 				continue
 			}
-			done := written
-			sigMu.Unlock()
-			if done {
+			// Exiting with sigMu still held: released first, main could
+			// start the write in the gap and be cut off between the two
+			// renames, the split this is here to prevent.
+			if written {
 				stoppedBy(sig, "both generated files had already been written")
 			}
 			stoppedBy(sig, "nothing was written")
@@ -836,12 +808,12 @@ func main() {
 	for _, k := range keys {
 		sb.WriteString(k + "\t" + sources[k] + "\n")
 	}
-	// Checked again just before writing: docs/.lock deleted and created
-	// again meanwhile would let another docs run take the new one and swap a
-	// source under this one.
+	// Checked again just before writing: the lock released meanwhile (its
+	// docslock killed) or its file deleted and created again would let
+	// another docs run take it and swap a source under this one.
 	if !holdsLock() {
-		refuse(docsLock+" was deleted or replaced during this run, so another docs run may have changed a source meanwhile:",
-			"nothing was written. Run `make generate` again.")
+		refuse("This run no longer holds the docs lock ("+docsLock+"): its docslock was stopped, or the file was",
+			"deleted, so another docs run may have changed a source meanwhile. Run `make generate` again.")
 	}
 
 	// A signal from here until both renames are done is held, then acted on.

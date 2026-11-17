@@ -1,28 +1,34 @@
 //go:build ignore
 // +build ignore
 
-// Runs a command holding docs/.lock, so no two docs runs (a fetch, a bump, a
-// generation) interleave:
+// Runs a command holding the docs lock, so no two docs runs (a fetch, a bump,
+// a generation) interleave:
 //
 //	go build -o target/docs-gen/docslock scripts/docslock.go
 //	target/docs-gen/docslock <command> [args...]
 //
 // It is built and run, never `go run`, which turns every failing exit of its
-// child into exit 1, and a stop by a signal with it (lib/underlock.sh).
+// child into exit 1, a stop by a signal with it (lib/underlock.sh does this).
 //
-// The lock is the operating system's (internal/flock), so it is released
-// however its holders end, kill -9 and a power cut included: there is no
-// owner to record, and no stale lock to judge or take over. The command, and
-// everything it runs, inherits the lock's file descriptor as fd 3 (Unix), so
-// the lock lasts while any of them is alive, and DOCS_LOCK_HELD=1 tells a
-// nested docs script not to take it again. scripts/generate_docs.go checks
-// fd 3 is the lock before it reads or writes anything.
+// The lock is the operating system's (internal/flock) on docs/.flock, so it
+// is released however this process ends, kill -9 and a power cut included:
+// there is no stale lock to judge or take over. It is held by this process
+// alone. The command is given a fresh token (DOCS_LOCK_TOKEN), recorded in
+// docs/.flock beside this PID, and a process proves it runs under the lock by
+// `docslock --held`: the record holds its token and the lock is held
+// (flock.Verify). No descriptor is passed down, so nothing the command leaves
+// behind (git's background gc, the go command's telemetry) can keep the lock.
+// So this waits for the command, and passes it every signal that stops a run.
 //
-// Every docs script runs itself through this when started directly, from the
-// repository root; signals reach the command, and this exits as it did.
+// docs/.lock is the previous version's lock, a symlink naming its owner as
+// "<pid>@<start time>". This keeps one there naming itself while it runs, so a
+// run of that version (another checkout, a branch not yet rebased) finds a
+// live owner and refuses, instead of taking the lock as stale.
 package main
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -36,95 +42,98 @@ import (
 	"github.com/cfmleditor/clif/internal/flock"
 )
 
-const lockPath = "docs/.lock"
+const (
+	lockPath   = "docs/.flock"
+	markerPath = "docs/.lock"
+)
+
+// marker is the docs/.lock symlink this run made, removed on the way out.
+var marker string
+
+func exit(code int) {
+	if marker != "" {
+		if got, err := os.Readlink(markerPath); err == nil && got == marker {
+			_ = os.Remove(markerPath)
+		}
+	}
+
+	os.Exit(code)
+}
+
+func fail(format string, a ...any) {
+	fmt.Fprintf(os.Stderr, "error: "+format+"\n", a...)
+	exit(1)
+}
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: docslock <command> [args...]")
+		fmt.Fprintln(os.Stderr, "usage: docslock <command> [args...]  |  docslock --held")
 		os.Exit(2)
 	}
 
-	// docslock --held: exit 0 if this process was started under docs/.lock
-	// (lib/underlock.sh asks, so a script started under the lock carries on,
-	// and one that only inherited the DOCS_LOCK_HELD flag takes it). It is
-	// the check the generator makes: fd 3 is docs/.lock as it is on disk.
+	// docslock --held: exit 0 if the caller runs under the lock (its
+	// DOCS_LOCK_TOKEN is the holder's). lib/underlock.sh asks, so a script
+	// started under the lock carries on and any other takes it.
 	if os.Args[1] == "--held" {
-		if os.Getenv("DOCS_LOCK_HELD") != "1" {
-			os.Exit(1)
+		if flock.Verify(lockPath, os.Getenv("DOCS_LOCK_TOKEN")) {
+			os.Exit(0)
 		}
-		var fd3 *os.File
-		if runtime.GOOS != "windows" {
-			if os.Getenv("DOCS_LOCK_FD") != "3" {
-				os.Exit(1)
-			}
-			fd3 = os.NewFile(3, lockPath)
-		}
-		if !flock.Holds(fd3, lockPath) {
-			os.Exit(1)
-		}
-		os.Exit(0)
+		os.Exit(1)
 	}
 
 	if err := os.MkdirAll("docs", 0o755); err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(1)
+		fail("%v", err)
 	}
-
-	replaceOldLock()
 
 	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o644)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: cannot open %s: %v\n", lockPath, err)
-		os.Exit(1)
+		fail("cannot open %s: %v", lockPath, err)
 	}
 
 	ok, err := flock.TryLock(f)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: cannot lock %s: %v\n", lockPath, err)
-		os.Exit(1)
+		fail("cannot lock %s: %v", lockPath, err)
 	}
 
 	if !ok {
-		b, _ := os.ReadFile(lockPath)
-		holder := strings.TrimSpace(string(b))
-		if holder == "" {
-			holder = "?"
+		pid, _ := flock.Holder(lockPath)
+		if pid == "" {
+			pid = "?"
 		}
-		fmt.Fprintf(os.Stderr, "error: another docs run (PID %s) holds %s; wait for it to finish\n", holder, lockPath)
-		os.Exit(1)
+		fail("another docs run (PID %s) holds %s; wait for it to finish", pid, lockPath)
 	}
 
-	// For the message above, in a run that finds the lock taken. Nothing
-	// decides anything by it: the lock itself is the OS's.
-	_ = f.Truncate(0)
-	_, _ = f.WriteAt([]byte(strconv.Itoa(os.Getpid())+"\n"), 0)
+	takeMarker()
+
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		fail("%v", err)
+	}
+	token := hex.EncodeToString(b)
+
+	if err := flock.Record(f, token); err != nil {
+		fail("cannot write %s: %v", lockPath, err)
+	}
 
 	cmd := exec.Command(os.Args[1], os.Args[2:]...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
-	cmd.Env = append(os.Environ(), "DOCS_LOCK_HELD=1")
-	if runtime.GOOS != "windows" {
-		// fd 3 in the command and all it runs: the lock outlives this
-		// process, should it be killed, until they are done too.
-		cmd.ExtraFiles = []*os.File{f}
-		cmd.Env = append(cmd.Env, "DOCS_LOCK_FD=3")
-	}
+	cmd.Env = append(os.Environ(), "DOCS_LOCK_TOKEN="+token)
 
-	// The command leads a process group of its own (flock.NewGroup), and
-	// every signal that stops a run is passed to that whole group, once: to
-	// bash and to what it is running alike (the generator, git, curl), so
-	// nothing carries on behind a run reported stopped. A terminal's Ctrl-C
-	// or hang-up reaches only this process's group, never the command's, so
-	// it arrives there once, not twice (a second could cut a script's
-	// cleanup short). The docs scripts trap these signals (lib/underlock.sh),
-	// so bash waits for what it is running to stop before it cleans up.
-	// Either way this exits as the command did.
-	flock.NewGroup(cmd)
+	// The command leads a process group of its own, in the terminal's
+	// foreground if this was (flock.NewGroup), so a Ctrl-C there reaches its
+	// processes once. A signal sent to this process (a kill, a CI runner's
+	// stop, a hang-up) is passed to that whole group: to bash and to what it
+	// is running alike, so nothing carries on behind a run reported stopped.
+	// The docs scripts trap these (lib/underlock.sh), so bash waits for what
+	// it is running to stop before it cleans up. This exits as the command
+	// did.
+	group := flock.NewGroup(cmd)
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 
 	if err := cmd.Start(); err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(1)
+		group.Restore()
+		fail("%v", err)
 	}
 
 	go func() {
@@ -134,56 +143,77 @@ func main() {
 	}()
 
 	err = cmd.Wait()
+	group.Restore()
 
 	var exitErr *exec.ExitError
 	switch {
 	case err == nil:
-		os.Exit(0)
+		exit(0)
 	case errors.As(err, &exitErr):
 		if ws, ok := exitErr.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
-			os.Exit(128 + int(ws.Signal()))
+			exit(128 + int(ws.Signal()))
 		}
-		os.Exit(exitErr.ExitCode())
+		exit(exitErr.ExitCode())
 	default:
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(1)
+		fail("%v", err)
 	}
 }
 
-// replaceOldLock: the previous version of these scripts left docs/.lock as a
-// symlink naming its owner, "<pid>@<start time>". It is no lock the OS holds,
-// and opening it would follow the link. It is replaced once no process has
-// its PID; otherwise a run of that version may still be going (another
-// checkout, a branch not yet rebased), and this refuses. Anything else that
-// is not a regular file is refused too: nothing here made it.
-func replaceOldLock() {
-	info, err := os.Lstat(lockPath)
-	if err != nil || info.Mode().IsRegular() {
+// takeMarker puts a symlink at docs/.lock naming this process as the
+// previous version's scripts name an owner, "<pid>@<start time>" (the start
+// time as `ps -o lstart=` gives it, spaces as underscores), so a run of that
+// version finds a live owner and refuses. One already there is that
+// version's, or a docslock's killed before it could remove its own: it is
+// replaced once its owner is gone (no process has its PID with its start
+// time), and refused while it lives. Anything else there that is not a
+// symlink (an earlier commit's lock file) is replaced. Windows, where those
+// scripts' PIDs are MSYS's, is left alone.
+func takeMarker() {
+	if runtime.GOOS == "windows" {
 		return
 	}
 
-	owner := "?"
-	gone := false
-	if info.Mode()&os.ModeSymlink != 0 {
-		owner, _ = os.Readlink(lockPath)
-		pid, err := strconv.Atoi(strings.SplitN(owner, "@", 2)[0])
-		gone = err == nil && flock.ProcessGone(pid)
+	self := owner(os.Getpid())
+	if self == "" {
+		return // no ps: a run of that version could not have named an owner either
 	}
 
-	if !gone {
-		if owner == "?" {
-			fmt.Fprintf(os.Stderr, "error: %s is not a lock file.\n", lockPath)
-		} else {
-			fmt.Fprintf(os.Stderr, "error: %s is an earlier version's lock, held by %q, which may still be running.\n", lockPath, owner)
+	for range 2 {
+		if err := os.Symlink(self, markerPath); err == nil {
+			marker = self
+
+			return
 		}
-		fmt.Fprintf(os.Stderr, "       If no docs run is going, delete it: rm -rf %s\n", lockPath)
-		os.Exit(1)
+
+		info, err := os.Lstat(markerPath)
+		if err != nil {
+			continue // gone meanwhile: try again
+		}
+
+		if info.Mode()&os.ModeSymlink != 0 {
+			held, _ := os.Readlink(markerPath)
+			pid, err := strconv.Atoi(strings.SplitN(held, "@", 2)[0])
+			if err == nil && owner(pid) == held {
+				fail("a docs run of the previous version of these scripts (PID %d) holds %s; wait for it to finish", pid, markerPath)
+			}
+		}
+
+		if err := os.RemoveAll(markerPath); err != nil {
+			fail("cannot replace a stale %s: %v", markerPath, err)
+		}
 	}
 
-	if err := os.Remove(lockPath); err != nil {
-		fmt.Fprintf(os.Stderr, "error: cannot replace an earlier version's %s: %v\n", lockPath, err)
-		os.Exit(1)
+	fail("cannot create %s", markerPath)
+}
+
+// owner is pid's owner string, "<pid>@<start time>", or "" if no process has
+// it (or ps cannot say).
+func owner(pid int) string {
+	out, err := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "lstart=").Output()
+	start := strings.Join(strings.Fields(string(out)), "_")
+	if err != nil || start == "" {
+		return ""
 	}
 
-	fmt.Fprintf(os.Stderr, "note: replaced an earlier version's %s (its owner, %s, is gone)\n", lockPath, owner)
+	return strconv.Itoa(pid) + "@" + start
 }

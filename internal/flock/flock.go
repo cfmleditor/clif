@@ -1,42 +1,75 @@
 // Package flock takes an exclusive, non-blocking lock on an open file: the
 // operating system's own (flock on Unix, LockFileEx on Windows), so it is
 // released however the holder ends, kill -9 and a power cut included, with no
-// owner to record or guess at. scripts/docslock.go holds docs/.lock with it.
+// owner to guess at. It also has the process-group helpers the holder needs.
+// scripts/docslock.go holds docs/.flock with it.
 package flock
 
 import (
 	"errors"
+	"fmt"
 	"os"
+	"strings"
 )
 
 // ErrUnsupported is returned where the platform has no file lock (wasm).
 var ErrUnsupported = errors.ErrUnsupported
 
-// Holds reports whether f is an open of the file at path as it is now on
-// disk, so a lock taken on f still guards that file: false once the file has
-// been deleted, or deleted and created again, since f was opened. Where a
-// child is passed no descriptor (Windows, f nil) it reports whether some
-// process holds the lock on path, by failing to take it.
-func Holds(f *os.File, path string) bool {
-	if f == nil {
-		g, err := os.OpenFile(path, os.O_RDWR, 0) //nolint:gosec // the lock file the caller names, opened only to test its lock
-		if err != nil {
-			return false
-		}
-
-		defer func() { _ = g.Close() }()
-
-		free, err := TryLock(g)
-
-		return err == nil && !free
+// Record writes the holder's record into f, which this process has locked:
+// its PID, for a refused run to name, and token, which the processes it
+// starts are given to prove they run under it (Verify). Nothing else is
+// passed to them, no descriptor included, so nothing they leave behind can
+// keep the lock.
+func Record(f *os.File, token string) error {
+	if err := f.Truncate(0); err != nil {
+		return err
 	}
 
-	held, err := f.Stat()
+	_, err := f.WriteAt([]byte(fmt.Sprintf("%d %s\n", os.Getpid(), token)), 0)
+
+	return err
+}
+
+// Holder reads the record at path: the holder's PID and token, or "" for
+// each when there is none.
+func Holder(path string) (pid, token string) {
+	b, err := os.ReadFile(path) //nolint:gosec // the lock file the caller names
+	if err != nil {
+		return "", ""
+	}
+
+	f := strings.Fields(string(b))
+	if len(f) != 2 {
+		return "", ""
+	}
+
+	return f[0], f[1]
+}
+
+// Verify reports whether token names the run holding the lock on path: the
+// record there holds token, and some process holds the lock, which this
+// tells by failing to take it. A file deleted and created again since the
+// holder locked it holds no record, and a token leaked from a run that has
+// ended matches none. When the lock is free the probe takes it for a moment,
+// and a run starting just then is refused; that happens only to a caller
+// that holds no lock to begin with.
+func Verify(path, token string) bool {
+	if token == "" {
+		return false
+	}
+
+	if _, got := Holder(path); got != token {
+		return false
+	}
+
+	f, err := os.OpenFile(path, os.O_RDWR, 0) //nolint:gosec // the lock file the caller names, opened only to test its lock
 	if err != nil {
 		return false
 	}
 
-	onDisk, err := os.Stat(path)
+	defer func() { _ = f.Close() }()
 
-	return err == nil && os.SameFile(held, onDisk)
+	free, err := TryLock(f)
+
+	return err == nil && !free
 }

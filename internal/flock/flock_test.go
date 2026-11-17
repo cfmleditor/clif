@@ -3,7 +3,7 @@ package flock
 import (
 	"os"
 	"path/filepath"
-	"runtime"
+	"strconv"
 	"testing"
 )
 
@@ -54,7 +54,7 @@ func TestProcessGone(t *testing.T) {
 	}
 }
 
-func TestHolds(t *testing.T) {
+func TestVerify(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "lock")
 
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
@@ -68,34 +68,30 @@ func TestHolds(t *testing.T) {
 		t.Fatalf("TryLock = %v, %v", ok, err)
 	}
 
-	if !Holds(f, path) {
-		t.Error("Holds = false for the locked file itself")
-	}
-
-	if !Holds(nil, path) {
-		t.Error("Holds(nil) = false while the file is locked")
-	}
-
-	// Deleted and created again: f locks a file no longer at path. Windows
-	// will not delete a file a process has open.
-	if runtime.GOOS == "windows" {
-		return
-	}
-
-	// Deleted and created again: f locks a file no longer at path.
-	if err := os.Remove(path); err != nil {
+	if err := Record(f, "tok1"); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := os.WriteFile(path, nil, 0o600); err != nil {
+	if pid, tok := Holder(path); pid != strconv.Itoa(os.Getpid()) || tok != "tok1" {
+		t.Errorf("Holder = %q, %q", pid, tok)
+	}
+
+	if !Verify(path, "tok1") {
+		t.Error("Verify(the holder's token) = false")
+	}
+
+	for _, tok := range []string{"", "tok2"} {
+		if Verify(path, tok) {
+			t.Errorf("Verify(%q) = true", tok)
+		}
+	}
+
+	// Released: the record is still there, but nobody holds the lock.
+	if err := f.Close(); err != nil {
 		t.Fatal(err)
 	}
 
-	if Holds(f, path) {
-		t.Error("Holds = true after the file was replaced")
-	}
-
-	if Holds(nil, path) {
-		t.Error("Holds(nil) = true for a replacement nobody locks")
+	if Verify(path, "tok1") {
+		t.Error("Verify = true with the lock released")
 	}
 }

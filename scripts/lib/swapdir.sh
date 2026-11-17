@@ -1,7 +1,7 @@
 # shellcheck shell=bash
 # Shared by the docs scripts (fetch-docs-cfdocs.sh, fetch-docs-lucee.sh,
 # assemble-docs.sh), so they replace directories one way. (They exclude each
-# other through docs/.lock, held by scripts/docslock.go: see lib/underlock.sh.)
+# other through the docs lock, held by scripts/docslock.go: see lib/underlock.sh.)
 #
 # Replacing a directory without ever leaving it missing or half-written: a
 # caller builds the new copy beside DIR (in DIR.new, say), then swap_in moves

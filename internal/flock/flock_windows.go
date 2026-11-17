@@ -28,7 +28,3 @@ func TryLock(f *os.File) (bool, error) {
 
 	return err == nil, err
 }
-
-// CloseOnExec does nothing on Windows, which passes a child no handle it was
-// not given.
-func CloseOnExec(*os.File) {}

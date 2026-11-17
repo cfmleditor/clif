@@ -84,13 +84,10 @@ $(GOLANGCI_BIN):
 # generator that would refuse the stale copy screens later. `make docs-bump`
 # moves the pin and the vendored copy.
 docs:
-	@./scripts/fetch-docs-cfdocs.sh
-	@./scripts/fetch-docs-lucee.sh
-	@./scripts/assemble-docs.sh
+	@bash scripts/docs.sh
 
 docs-cfdocs:
-	@./scripts/fetch-docs-cfdocs.sh
-	@./scripts/assemble-docs.sh
+	@bash scripts/docs.sh --cfdocs
 
 docs-assemble:
 	@./scripts/assemble-docs.sh
@@ -98,7 +95,7 @@ docs-assemble:
 # Moves the cfdocs pin in docs/sources.lock and the vendored docs/lucee to
 # upstream's latest, and stages them. Follow with `make generate`, and review
 # its diff with the lock's and docs/lucee's. scripts/docs-bump.sh holds
-# docs/.lock across every step, and orders them so nothing committed changes
+# the docs lock across every step, and orders them so nothing committed changes
 # unless both sources stage.
 docs-bump:
 	@bash scripts/docs-bump.sh

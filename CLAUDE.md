@@ -104,32 +104,32 @@ retained name again the generator says the retained file can go. Every source is
 never copied, so a file just added, fixed, broken or pulled always counts. The staged cfdocs and the
 vendored `docs/lucee` are each built beside themselves and swapped in (`scripts/lib/swapdir.sh`),
 with the old copy restored after a failure or an interrupt, and `docs/data/order` is written to a
-temporary file and renamed into place. A lock (`docs/.lock`) keeps two docs runs from interleaving:
-the operating system's own file lock (`internal/flock`: `flock` on Unix, `LockFileEx` on Windows),
-held by `scripts/docslock.go`, so it is released however its holder ends, `kill -9` and a power cut
-included, and there is no owner to record and no stale lock to judge or take over. Every docs script
-runs itself under it (`scripts/lib/underlock.sh`): started by one that holds it, it carries on;
-otherwise it re-runs through docslock from the repository root. Holding it is checked, not taken
-from the `DOCS_LOCK_HELD` flag, which leaks to anything started under a run: `docslock --held`
-(`flock.Holds`) finds the inherited fd 3 is `docs/.lock` as it is on disk. docslock is built and run
+temporary file and renamed into place. A lock keeps two docs runs from interleaving: the operating
+system's own file lock on `docs/.flock` (`internal/flock`: `flock` on Unix, `LockFileEx` on
+Windows), held by `scripts/docslock.go` alone, so it is released however that process ends, `kill
+-9` and a power cut included, with no stale lock to judge. docslock gives the command it runs a
+fresh token (`DOCS_LOCK_TOKEN`), recorded in `docs/.flock` with its PID; a process proves it runs
+under the lock by that token matching while the lock is held (`flock.Verify`). No descriptor is
+passed down, so nothing a run leaves behind (git's background gc, the go command's telemetry) can
+keep the lock, and a token leaked from a finished run matches nothing. Every docs script runs itself
+under it (`scripts/lib/underlock.sh`): if `docslock --held` agrees it carries on, otherwise it
+re-runs through docslock from the repository root. docslock is built and run
 (`target/docs-gen/docslock`, rebuilt only when older than its source), never `go run`, which turns
-every failing exit into 1. The lock's descriptor is inherited as fd 3 by everything the holder runs,
-so it lasts while any of them is alive; `go` and `git` run without it (wrappers in `underlock.sh`),
-with git's background gc and maintenance off, so no process they leave behind keeps the lock after a
-run. The command docslock runs leads a process group of its own, and docslock sends every stopping
-signal (Ctrl-C, SIGTERM, a hang-up) to that whole group once, so nothing carries on behind a run
-reported stopped; the scripts trap those signals, so bash waits for what it is running to stop
-before its cleanup, which ignores any further signal. The previous version's lock (a symlink naming
-its owner, `<pid>@<start time>`) is replaced only once no process has that PID; anything else at
-`docs/.lock` that is not a regular file is refused. `make generate` (`scripts/generate.sh`) holds it
-across the fetch, the assemble and the generator, which runs as a built binary so it inherits fd 3
-too, and refuses to run unless that descriptor is `docs/.lock` (on Windows, which passes no
-descriptors, that the lock is held), checking again just before it writes, in case the lock file was
-deleted meanwhile; so run it through `make generate`. `make docs-bump` (`scripts/docs-bump.sh`)
-holds it across all its steps. The generator holds a signal that arrives while it writes the two
-generated files until both are in place, then exits 128 + the signal's number. The scripts retry a
-failed network step twice (`scripts/lib/retry.sh`), and work from the repository root wherever they
-are run from.
+every failing exit into 1. `make docs` and `make docs-cfdocs` (`scripts/docs.sh`), `make generate`
+(`scripts/generate.sh`, which runs `docs.sh` then the generator) and `make docs-bump` each hold it
+across all their steps. The generator, built and run as a binary so its exit code comes through,
+refuses unless it runs under the lock, and checks again just before it writes (docslock killed, or
+the file deleted, meanwhile); so run it through `make generate`. The command docslock runs leads a
+process group of its own, put in the terminal's foreground when docslock was there (so it can
+prompt, and write under `stty tostop`), and Ctrl-Z is ignored, since a run stopped holding the lock
+could not be resumed. A Ctrl-C reaches that group once; a signal sent to docslock is passed to the
+whole group; the scripts trap these, so bash waits for what it is running to stop before its
+cleanup, which ignores any further signal. The generator holds a signal that arrives while it writes
+the two generated files until both are in place, then exits 128 + the signal's number. While it
+runs, docslock keeps the previous version's lock, a `docs/.lock` symlink naming `<pid>@<start
+time>`, pointing at itself, so a run of that version finds a live owner and refuses; one left behind
+is replaced once its owner is gone. The scripts retry a failed network step twice
+(`scripts/lib/retry.sh`), and work from the repository root wherever they are run from.
 
 **`scripts/generate_docs.go` refuses to lose an entry.** It compares the new entries, by type and
 name, with `internal/docs/generated_sources.txt` as committed at `HEAD`, or at `DOCS_BASELINE_REF`
@@ -189,23 +189,25 @@ with its own syntax and parameters (or that Lucee now documents it), and
 generated file. CI's `docs-reproducible` job runs `make generate` once and fails if the committed
 docs change, so `generated_docs.go` is always what the pinned and vendored sources produce: a hand
 edit, or a pin bumped without regenerating, fails it. On a pull request that run compares with the
-PR's base (`DOCS_BASELINE_REF`) rather than `HEAD`, the PR's own commit, which would hold nothing to
-miss if the PR itself committed a lossy regeneration (a base from before `generated_sources.txt`
-existed has nothing to compare, and only notes so; that exception needs both `DOCS_BASELINE_REF` and
-`DOCS_ALLOWED_REMOVALS_FILE`, as CI sets them, and any other run without a baseline is refused).
-Only the losses `docs/allowed-removals` lists pass there, and only the lines the PR adds to that
-file (those the base's copy lacks) accept anything, so dropping an entry on purpose takes a reviewed
-change to it. A line left over from an earlier pull request (unchanged from the base's copy) accepts
-nothing, so it can neither wave a later loss through by accident nor fail anyone; it only warns
-until cleared. To remove such an entry again on purpose, change its line (a new `# reason`): a
-changed line counts as added. A changed line that removes nothing (a comment tidied) only warns;
-only an entry new to the file that removes nothing is refused. If the base's copy itself no longer
-parses, every line counts as added, with a warning, and a line that removes nothing only warns, so
-it cannot block the pull request that fixes it. The generator reads the file itself
-(`DOCS_ALLOWED_REMOVALS_FILE`, through `sources.ParseAllowedRemovals`), strictly: a line it cannot
-read, `1` (which would switch the comparison off), or an added line that accepts nothing (a typo, a
-removal since undone) fails the step. `DOCS_BASELINE_REF` must name a commit; a value starting with
-`-` is refused, as git would read it as an option.
+base the merge commit was built on (`HEAD^1`, as `DOCS_BASELINE_REF`; not the event's base SHA,
+stale on a re-run after main moves) rather than `HEAD`, the PR's own commit, which would hold
+nothing to miss if the PR itself committed a lossy regeneration (a base from before
+`generated_sources.txt` existed has nothing to compare, and only notes so; that exception needs both
+`DOCS_BASELINE_REF` and `DOCS_ALLOWED_REMOVALS_FILE`, as CI sets them, and any other run without a
+baseline is refused). Only the losses `docs/allowed-removals` lists pass there, and only the lines
+the PR adds to that file (those the base's copy lacks) accept anything, so dropping an entry on
+purpose takes a reviewed change to it. A line left over from an earlier pull request (unchanged from
+the base's copy) accepts nothing, so it can neither wave a later loss through by accident nor fail
+anyone; it only warns until cleared. To remove such an entry again on purpose, change its line (a
+new `# reason`): a changed line counts as added; a change of spacing alone does not. A changed line
+that removes nothing (a comment tidied) only warns; only an entry new to the file that removes
+nothing is refused. If the base's copy itself no longer parses, every line counts as added, with a
+warning, and a line that removes nothing only warns, so it cannot block the pull request that fixes
+it. The generator reads the file itself (`DOCS_ALLOWED_REMOVALS_FILE`, through
+`sources.ParseAllowedRemovals`), strictly: a line it cannot read, `1` (which would switch the
+comparison off), or an added line that accepts nothing (a typo, a removal since undone) fails the
+step. `DOCS_BASELINE_REF` must name a commit; a value starting with `-` is refused, as git would
+read it as an option.
 
 Go toolchain is pinned at **1.27.4** (`go.mod`). CGO is required (tree-sitter grammar).
 
@@ -315,7 +317,7 @@ Editor document change
 | `internal/language` | tree-sitter language handles (`CFML`, `CFScript`, `CFQuery`) + injection queries |
 | `internal/docs` | Built-in CFML function/tag signatures and return types (**generated — do not hand-edit**) |
 | `internal/docs/sources` | The docs generator's checks, compiled and tested here rather than in the build-ignored `scripts/generate_docs.go`: parsing `generated_sources.txt` (shared with the `internal/docs` tests, so they agree on a valid line), entry names, removals, fallbacks to a lower source, per-entry precedence (`Pick`), `DOCS_ALLOW_REMOVALS`, and the names in a `generated_docs.go`. Imports nothing from `internal/docs`, so a broken generated file cannot stop the generator |
-| `internal/flock` | An exclusive, non-blocking OS file lock (`flock` on Unix, `LockFileEx` on Windows), released however its holder ends; `scripts/docslock.go` holds `docs/.lock` with it |
+| `internal/flock` | An exclusive, non-blocking OS file lock (`flock` on Unix, `LockFileEx` on Windows), released however its holder ends, with the holder's record (`Record`, `Holder`, `Verify`) and the process-group helpers its holder needs; `scripts/docslock.go` holds `docs/.flock` with it |
 | `internal/cflint` | Downloads/runs the CFLint binary, maps JSON output to LSP diagnostics |
 | `internal/cache` | Per-file, per-scope completion item cache with content hashing |
 | `internal/refs` | Shared reference-finding + `Trace` (multi-hop wrapper following) for the `refs` CLI, `clif.findRefs` and `textDocument/references` |

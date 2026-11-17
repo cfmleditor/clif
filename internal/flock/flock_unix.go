@@ -21,7 +21,3 @@ func TryLock(f *os.File) (bool, error) {
 
 	return err == nil, err
 }
-
-// CloseOnExec stops f's descriptor reaching any program this process starts,
-// so nothing it runs (a daemonizing git, say) can keep the lock past it.
-func CloseOnExec(f *os.File) { unix.CloseOnExec(int(f.Fd())) }

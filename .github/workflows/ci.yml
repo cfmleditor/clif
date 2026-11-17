@@ -254,9 +254,12 @@ jobs:
     name: Docs regenerate as committed
     runs-on: ubuntu-latest
     steps:
+      # Depth 2: on a pull request the checkout is GitHub's merge commit, and
+      # its first parent is the base it was merged onto, the baseline below.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 2
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -273,18 +276,20 @@ jobs:
             docs/.sha-cfdocs
           key: docs-cfdocs-v1-${{ hashFiles('docs/sources.lock') }}
 
-      # One generator run. On a pull request it compares with the PR's base,
-      # not HEAD (the PR's own commit, which holds nothing to miss if the PR
-      # itself committed a lossy regeneration), accepting only the losses the
-      # lines it adds to docs/allowed-removals list; the generator reads that
-      # file itself, strictly. On a push it compares with HEAD.
+      # One generator run. On a pull request it compares with the base the
+      # merge commit was built on (HEAD^1), not HEAD (which holds nothing to
+      # miss if the PR itself committed a lossy regeneration), nor the event's
+      # base SHA (stale when main has moved and the job is re-run), accepting
+      # only the losses the lines the PR adds to docs/allowed-removals list;
+      # the generator reads that file itself, strictly. On a push it compares
+      # with HEAD.
       - name: Regenerate the docs
         env:
-          BASE: ${{ github.event.pull_request.base.sha }}
+          EVENT: ${{ github.event_name }}
         run: |
-          if [ -n "$BASE" ]; then
-            git fetch --no-tags --depth=1 origin "$BASE"
-            export DOCS_BASELINE_REF="$BASE" DOCS_ALLOWED_REMOVALS_FILE=docs/allowed-removals
+          if [ "$EVENT" = pull_request ]; then
+            base=$(git rev-parse --verify HEAD^1)
+            export DOCS_BASELINE_REF="$base" DOCS_ALLOWED_REMOVALS_FILE=docs/allowed-removals
           fi
           make generate
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Under docs/.lock (scripts/docslock.go), like every docs script: see
+# Under the docs lock (scripts/docslock.go), like every docs script: see
 # lib/underlock.sh.
 # shellcheck source=lib/underlock.sh
 . "$(dirname "$0")/lib/underlock.sh"
@@ -10,7 +10,7 @@ set -euo pipefail
 # docs/lucee to upstream's latest, and stages them. Follow with
 # `make generate`, and review its diff with the lock's and docs/lucee's.
 #
-# It holds docs/.lock across every step (each inherits it), so a `make docs`
+# It holds the docs lock across every step (each runs under it), so a `make docs`
 # or `make generate` started meanwhile cannot slip in between, restage the old
 # pin, and have it written as the new one.
 #

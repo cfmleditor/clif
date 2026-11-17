@@ -161,7 +161,7 @@ func TestParseAllowedRemovals(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(lines) != 2 || lines["function jwtsign"] != "function JwtSign   # dropped by the engine" || lines["tag cfstatic"] != "Tag\tcfstatic" {
+	if len(lines) != 2 || lines["function jwtsign"] != "function JwtSign # dropped by the engine" || lines["tag cfstatic"] != "Tag cfstatic" {
 		t.Errorf("lines = %q", lines)
 	}
 
@@ -214,8 +214,36 @@ func TestAddedLines(t *testing.T) {
 	}
 }
 
-// TestHashDirRefusesASymlink: os.DirFS follows a symlink out of the folder;
-// a vendored file must be the bytes downloaded, not a link elsewhere.
+// TestAllowedRemovalsSpacingIsNoChange: a whitespace-only edit (tabs, a
+// formatter's tidy) must leave a left-over line left over, not make it
+// accept a loss again.
+func TestAllowedRemovalsSpacingIsNoChange(t *testing.T) {
+	base, err := ParseAllowedRemovals("base", []byte("function JwtSign   # reason\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	now, err := ParseAllowedRemovals("now", []byte("\tfunction\tJwtSign # reason \n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if added, left := AddedLines(now, base); len(added) != 0 || len(left) != 1 {
+		t.Errorf("added = %v, leftOver = %v; want nothing added", added, left)
+	}
+
+	reworded, err := ParseAllowedRemovals("now", []byte("function JwtSign # a new reason\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if added, _ := AddedLines(reworded, base); len(added) != 1 {
+		t.Errorf("a reworded line: added = %v, want it counted as added", added)
+	}
+}
+
+// TestHashDirRefusesASymlink: a vendored file must be the bytes downloaded,
+// not a link elsewhere.
 func TestHashDirRefusesASymlink(t *testing.T) {
 	dir := t.TempDir()
 	outside := filepath.Join(t.TempDir(), "elsewhere.json")

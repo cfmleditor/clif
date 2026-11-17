@@ -324,11 +324,13 @@ func ParseKey(s string) (key string, ok bool) {
 
 // ParseAllowedRemovals reads docs/allowed-removals: one "function <name>" or
 // "tag <name>" per line (ParseKey), with an optional trailing "# reason";
-// blank lines and whole-line comments aside. It maps each key to its line as
-// written, whitespace trimmed, comment included: CI tells a line a pull
-// request added or changed from one left over from an earlier pull request
-// by comparing lines, so re-listing an entry (a deliberate re-removal) means
-// changing its line, a new reason, say.
+// blank lines and whole-line comments aside. It maps each key to its line,
+// comment included, with each run of whitespace made one space: CI tells a
+// line a pull request added or changed from one left over from an earlier
+// pull request by comparing lines, so re-listing an entry (a deliberate
+// re-removal) means changing its words, a new reason, say. Spacing alone (an
+// editor's tabs, a formatter's tidy) changes nothing, so cannot quietly make
+// a left-over line accept a loss again.
 //
 // It is strict, because CI's comparison with a pull request's base accepts
 // exactly these losses: a line it cannot read is an error naming it, never a
@@ -359,7 +361,7 @@ func ParseAllowedRemovals(label string, b []byte) (map[string]string, error) {
 			return nil, fmt.Errorf("%s:%d: %q listed twice", label, i+1, k)
 		}
 
-		lines[k] = line
+		lines[k] = strings.Join(strings.Fields(line), " ")
 	}
 
 	return lines, nil

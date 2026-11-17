@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Under docs/.lock (scripts/docslock.go), like every docs script: see
+# Under the docs lock (scripts/docslock.go), like every docs script: see
 # lib/underlock.sh.
 # shellcheck source=lib/underlock.sh
 . "$(dirname "$0")/lib/underlock.sh"
