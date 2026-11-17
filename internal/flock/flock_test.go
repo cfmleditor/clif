@@ -144,3 +144,44 @@ func TestSignalOf(t *testing.T) {
 		t.Error("Stopping: want SIGHUP, not SIGQUIT")
 	}
 }
+
+// TestInheritedTakesOnlyTheLock: a descriptor for another file, or for the
+// lock with another run's token, is not taken.
+func TestInheritedTakesOnlyTheLock(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no inherited descriptors here")
+	}
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "lock")
+
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer func() { _ = f.Close() }()
+
+	if err := Record(f, "tok"); err != nil {
+		t.Fatal(err)
+	}
+
+	other, err := os.Create(filepath.Join(dir, "other"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer func() { _ = other.Close() }()
+
+	if Inherited(int(other.Fd()), path, "tok") != nil {
+		t.Error("Inherited took a descriptor for another file")
+	}
+
+	if Inherited(int(f.Fd()), path, "another") != nil {
+		t.Error("Inherited took the lock's descriptor under another token")
+	}
+
+	if Inherited(int(f.Fd()), path, "tok") == nil {
+		t.Error("Inherited refused the lock's own descriptor")
+	}
+}

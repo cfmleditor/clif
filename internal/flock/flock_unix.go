@@ -22,11 +22,38 @@ func TryLock(f *os.File) (bool, error) {
 	return err == nil, err
 }
 
-// CloseOnExec stops f's descriptor reaching any program this process starts.
-func CloseOnExec(f *os.File) { unix.CloseOnExec(int(f.Fd())) }
-
 // alive reports whether a process has pid: "no such process" alone counts as
 // gone, never "not permitted" (a live process of another user).
 func alive(pid int) bool {
 	return pid > 0 && !errors.Is(unix.Kill(pid, 0), unix.ESRCH)
+}
+
+// Inherited returns the descriptor fd as a file, marked close-on-exec, if it
+// is an open of path as path is now on disk and the record there holds token:
+// the lock's descriptor, passed to this process by its holder. Anything else
+// at fd (a leaked DOCS_LOCK_FD, an unrelated descriptor) is not touched, and
+// it returns nil. It looks with fstat, not through an *os.File, whose
+// finalizer would close a descriptor that is not its to close.
+func Inherited(fd int, path, token string) *os.File {
+	if fd < 3 {
+		return nil
+	}
+
+	var st unix.Stat_t
+	if unix.Fstat(fd, &st) != nil {
+		return nil
+	}
+
+	var onDisk unix.Stat_t
+	if unix.Stat(path, &onDisk) != nil || st.Dev != onDisk.Dev || st.Ino != onDisk.Ino {
+		return nil
+	}
+
+	if _, got := Holder(path); token == "" || got != token {
+		return nil
+	}
+
+	unix.CloseOnExec(fd)
+
+	return os.NewFile(uintptr(fd), path)
 }

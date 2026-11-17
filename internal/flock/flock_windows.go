@@ -29,10 +29,6 @@ func TryLock(f *os.File) (bool, error) {
 	return err == nil, err
 }
 
-// CloseOnExec does nothing on Windows, which passes a child no handle it was
-// not given.
-func CloseOnExec(*os.File) {}
-
 // alive reports whether a process has pid, as far as Windows says: one it
 // will not open (another user's) counts as alive.
 func alive(pid int) bool {
@@ -54,3 +50,7 @@ func alive(pid int) bool {
 
 	return code == 259 // STILL_ACTIVE
 }
+
+// Inherited returns nil on Windows, which passes a child no descriptor: the
+// caller checks the lock by its token instead.
+func Inherited(int, string, string) *os.File { return nil }

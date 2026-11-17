@@ -10,26 +10,33 @@
 . "$(dirname "${BASH_SOURCE[0]}")/sha256.sh"
 
 # docs_built_path MAIN.go NAME: print the path MAIN.go builds to, named NAME
-# and the hash of what `go list -deps` says it is built from: this module's
-# own packages by their sources (not their tests), a dependency's by its
-# directory in the module cache, which names its version, and go.mod for the
-# toolchain. Nothing else forces a rebuild, and nothing it comes to import
+# and the hash of what it is built from and how: go.mod and go.sum; the
+# toolchain and the build settings (go version, GOFLAGS, GOTOOLCHAIN,
+# CGO_ENABLED, GOOS, GOARCH, GOEXPERIMENT); and each package `go list -deps`
+# names, a dependency in the module cache by its directory, which names its
+# version, any other (this module's, a local `replace`) by its files (not
+# its tests). Nothing else forces a rebuild, and nothing it comes to import
 # is missed.
 docs_built_path() {
-    local main=$1 name=$2 root deps hash
+    local main=$1 name=$2 root deps cache hash
     root=$(pwd) || return 1
     deps=$(go list -deps -f '{{if not .Standard}}{{.Dir}}{{end}}' "$main") || return 1
+    cache=$(go env GOMODCACHE) || return 1
     hash=$({
         cat "$main" go.mod
+        cat go.sum 2>/dev/null
+        go version
+        go env GOFLAGS GOTOOLCHAIN CGO_ENABLED GOOS GOARCH GOEXPERIMENT
         printf '%s\n' "$deps" | while IFS= read -r d; do
             case "$d" in
             "$root"/scripts) ;; # MAIN.go itself, above; not its neighbours
-            "$root"/*)
-                for f in "$d"/*.go; do
-                    case "$f" in *_test.go) ;; *) cat "$f" ;; esac
+            "$cache"/*) echo "$d" ;;
+            *)
+                echo "$d"
+                for f in "$d"/*; do
+                    case "$f" in *_test.go) ;; *) if [ -f "$f" ]; then cat "$f"; fi ;; esac
                 done
                 ;;
-            *) echo "$d" ;;
             esac
         done
     } | sha256 /dev/stdin | cut -c1-16) || return 1

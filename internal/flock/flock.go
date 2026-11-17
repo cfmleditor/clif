@@ -92,10 +92,15 @@ func holderAlive(pid int, start string) bool {
 // record there holds token, and some process holds the lock, which this
 // tells by failing to take it. A file deleted and created again since the
 // holder locked it holds no record, and a token leaked from a run that has
-// ended matches none. The token is compared first, and a holder clears its
-// record as it exits (scripts/docslock.go), so the probe, which takes a free
-// lock for a moment (refusing a run that starts just then), runs only on a
-// record a killed holder left behind.
+// ended matches none (a holder clears its record as it exits:
+// scripts/docslock.go). The checks run cheapest and most telling first: the
+// token, then that the record's holder is alive (by PID, and by start time
+// where the platform gives one, so a reused PID is not taken for it), and
+// last the probe of the lock itself. The probe runs only for a record naming
+// a live holder, so it nearly always finds the lock held; it can find it
+// free only where no start time is kept (Windows, the BSDs) and a dead
+// holder's PID has been reused, and then it takes the free lock for an
+// instant, so a run starting at that instant is refused once.
 func Verify(path, token string) bool {
 	if token == "" {
 		return false

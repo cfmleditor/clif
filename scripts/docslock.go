@@ -226,6 +226,13 @@ func main() {
 	program := ""
 	if thenFile != "" {
 		program = thenProgram(thenFile)
+		// Succeeded without naming the program it was to hand on: the
+		// handoff was lost, and the run did not do its last step. Never
+		// a quiet success (CI's docs check would pass without the
+		// generator having run).
+		if code == 0 && program == "" {
+			fail("--then: %s named no program to run (its file %s was not written, or not readable)", args[0], thenFile)
+		}
 	}
 
 	if code == 0 && program != "" {

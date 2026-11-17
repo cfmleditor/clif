@@ -8,8 +8,8 @@ import "os"
 // lock would do, but nothing has needed one there).
 func TryLock(*os.File) (bool, error) { return false, ErrUnsupported }
 
-// CloseOnExec does nothing here.
-func CloseOnExec(*os.File) {}
-
 // alive cannot tell here, so takes any PID for a live one.
 func alive(pid int) bool { return pid > 0 }
+
+// Inherited returns nil here.
+func Inherited(int, string, string) *os.File { return nil }

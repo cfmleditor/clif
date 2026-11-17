@@ -101,17 +101,17 @@ func repoRelative(path string) string {
 }
 
 // git runs git with args and returns what it printed. A git that a stopping
-// signal ended (SIGINT, SIGTERM, SIGHUP) is no answer to report (a missing
-// commit, an unreadable baseline): a Ctrl-C at the terminal reaches it and
-// this process alike, and this run stops by that signal, as its own handler,
-// which normally gets there first, would have it. Any other (an OOM kill, a
-// crash) is a failure like any, reported as one.
+// signal ended (SIGINT, SIGTERM, SIGHUP) may be no answer to report (a
+// missing commit, an unreadable baseline): a Ctrl-C at the terminal reaches
+// it and this process alike, and then this process's own handler stops the
+// run by it. So that is waited for, a moment, before the failure is
+// returned; one sent to git alone (a timeout, a pkill) reaches no handler
+// here, and is reported as the failure it is.
 func git(args ...string) ([]byte, error) {
 	out, err := exec.Command("git", args...).Output()
 
 	if sig, ok := flock.SignalOf(err); ok && flock.Stopping(sig) {
 		time.Sleep(time.Second)
-		stoppedBy(sig, "nothing was written")
 	}
 
 	return out, err
@@ -298,10 +298,13 @@ var lockFD *os.File
 func holdsLock() bool {
 	token := os.Getenv("DOCS_LOCK_TOKEN")
 
+	// Taken (and marked close-on-exec) only once it proves to be the lock's
+	// descriptor for this run: a DOCS_LOCK_FD from elsewhere (a leaked
+	// variable, an IDE's own fd 3) is left alone, and the token checked as
+	// for any process under the lock.
 	if lockFD == nil {
-		if fd, err := strconv.Atoi(os.Getenv("DOCS_LOCK_FD")); err == nil && fd >= 3 {
-			lockFD = os.NewFile(uintptr(fd), docsLock)
-			flock.CloseOnExec(lockFD)
+		if fd, err := strconv.Atoi(os.Getenv("DOCS_LOCK_FD")); err == nil {
+			lockFD = flock.Inherited(fd, docsLock, token)
 		}
 	}
 
