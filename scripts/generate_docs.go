@@ -139,7 +139,7 @@ func git(args ...string) ([]byte, error) {
 		select {
 		case <-stopSeen:
 			time.Sleep(3 * time.Second) // the handler is ending this run
-		case <-time.After(3 * time.Second):
+		case <-time.After(500 * time.Millisecond): // it would have seen one by now
 		}
 	}
 
@@ -667,6 +667,12 @@ func main() {
 	// cleared.
 	ref := baselineRef()
 	allowedFile := repoRelative(os.Getenv("DOCS_ALLOWED_REMOVALS_FILE"))
+	// A symlink would be read here through the link, but `git show` at the
+	// base gives the link's own text, a path, which then cannot parse: every
+	// left-over line would count as added and accept a loss again.
+	if info, err := os.Lstat(allowedFile); allowedFile != "" && err == nil && info.Mode()&os.ModeSymlink != 0 {
+		refuse(fmt.Sprintf("%s is a symlink: it must be the file itself, as git compares it with the base's copy.", allowedFile))
+	}
 	acceptFrom := "DOCS_ALLOW_REMOVALS"
 	var accept docsources.Acceptance
 	var leftOver []string

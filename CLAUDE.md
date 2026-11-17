@@ -121,11 +121,12 @@ run`, which turns every failing exit into 1, each to a path named for a hash of 
 from and how (the packages `go list -deps` names, `go.mod`, `go.sum`, the toolchain and the build
 settings) (`target/docs-gen/docslock-<hash>`, `generate_docs-<hash>`: `scripts/lib/hashbuild.sh`),
 so a changed source builds a new one and a copy a run is executing is never replaced (older builds
-of either, and the handoff files of killed runs, are removed only by docslock holding the lock, a
-build once it is ten minutes old, so one a starting run has just built is never pulled from under
-it); a run's scripts ask the copy of docslock it runs as (`DOCS_LOCK_BIN`). `make docs` and `make
-docs-cfdocs` (`scripts/docs.sh`), `make generate` (`scripts/generate.sh`) and `make docs-bump` each
-hold it across all their steps.
+of either, and the handoff files of killed runs, are removed only by docslock, holding the lock, as
+its run ends, a build once it has gone ten minutes unused: a run touches each build it uses, so the
+cache holds and one a starting run has just built or found is never pulled from under it); a run's
+scripts ask the copy of docslock it runs as (`DOCS_LOCK_BIN`). `make docs` and `make docs-cfdocs`
+(`scripts/docs.sh`), `make generate` (`scripts/generate.sh`) and `make docs-bump` each hold it
+across all their steps.
 
 **The generator holds the lock itself.** `make generate` has docslock run it once `generate.sh` has
 succeeded (`docslock --then`, which `underlock.sh` gives `generate.sh` by name: the script builds it
@@ -244,9 +245,9 @@ refused. If the base's copy itself no longer parses, every line counts as added,
 a line that removes nothing only warns, so it cannot block the pull request that fixes it. The
 generator reads the file itself (`DOCS_ALLOWED_REMOVALS_FILE`, through
 `sources.ParseAllowedRemovals`), strictly: a line it cannot read, `1` (which would switch the
-comparison off), or an added line that accepts nothing (a typo, a removal since undone) fails the
-step. `DOCS_BASELINE_REF` must name a commit; a value starting with `-` is refused, as git would
-read it as an option.
+comparison off), a symlink (git would give the base's link text, not its contents), or an added line
+that accepts nothing (a typo, a removal since undone) fails the step. `DOCS_BASELINE_REF` must name
+a commit; a value starting with `-` is refused, as git would read it as an option.
 
 Go toolchain is pinned at **1.27.4** (`go.mod`). CGO is required (tree-sitter grammar).
 

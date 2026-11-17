@@ -59,7 +59,12 @@ docs_built_path() {
 # are removed by docslock, holding the lock (pruneBuilds), not here.
 docs_build() {
     local main=$1 path=$2
-    [ -x "$path" ] && return 0
+    # Reused: its time stamp refreshed, as docslock prunes a build by how
+    # long it has gone unused (pruneBuilds).
+    if [ -x "$path" ]; then
+        touch "$path" 2>/dev/null || true
+        return 0
+    fi
     mkdir -p "$(dirname "$path")" || return 1
     go build -o "$path.$$.tmp" "$main" || return 1
     mv -n "$path.$$.tmp" "$path" 2>/dev/null || true

@@ -120,6 +120,12 @@ func Verify(path, token string) bool {
 		return false
 	}
 
+	return lockedByAnyone(path)
+}
+
+// lockedByAnyone reports whether some process holds the lock on path, by
+// failing to take it on an open of its own.
+func lockedByAnyone(path string) bool {
 	f, err := os.OpenFile(path, os.O_RDWR, 0) //nolint:gosec // the lock file the caller names, opened only to test its lock
 	if err != nil {
 		return false
@@ -151,7 +157,9 @@ func Holds(f *os.File, path, token string) bool {
 
 	_, got := Holder(path)
 
-	return token != "" && got == token
+	// And the lock is held: an open of the file with the right record is not
+	// proof by itself that the lock taken on it still is.
+	return token != "" && got == token && lockedByAnyone(path)
 }
 
 // Exit ends this process by sig (Raise), so what ran it sees an interrupted

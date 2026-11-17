@@ -12,3 +12,6 @@ func Breakaway(*exec.Cmd) bool { return false }
 
 // NoBreakaway does nothing here.
 func NoBreakaway(*exec.Cmd) {}
+
+// BreakawayRefused is false here, where nothing breaks away.
+func BreakawayRefused(error) bool { return false }

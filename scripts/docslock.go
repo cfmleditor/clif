@@ -197,8 +197,6 @@ func main() {
 	}
 	env = append(env, "DOCS_LOCK_BIN="+self)
 
-	pruneBuilds(self)
-
 	// On Windows, everything the run starts is in a job that ends with this
 	// process (flock.JoinJob); on Linux the command dies with it
 	// (flock.DieWithParent). Elsewhere the scripts' own lock checks stop them.
@@ -252,6 +250,9 @@ func main() {
 	}
 
 	signal.Stop(sigs)
+	// At the end, still holding the lock, when every build this run used has
+	// just been touched (lib/hashbuild.sh's docs_build): so its own are kept.
+	pruneBuilds(self)
 	cleanup()
 
 	// Ended by a signal, this ends by it too; and by one sent to this
@@ -288,7 +289,7 @@ func run(cmd *exec.Cmd, retry func(*exec.Cmd)) (int, os.Signal) {
 	}
 
 	err := cmd.Start()
-	if err != nil && retry != nil {
+	if err != nil && retry != nil && flock.BreakawayRefused(err) {
 		// A Cmd cannot be started twice: a fresh one, alike.
 		again := exec.Command(cmd.Path, cmd.Args[1:]...)
 		again.Env, again.ExtraFiles, again.SysProcAttr = cmd.Env, cmd.ExtraFiles, cmd.SysProcAttr
@@ -371,9 +372,11 @@ var buildDir = filepath.Join("target", "docs-gen")
 // --then files of runs killed before they could remove theirs. The one place
 // they are removed, and only here, holding the lock, so no other run is
 // using them; lib/underlock.sh builds before trying the lock, and a run it
-// would refuse must not delete anything. A build is removed only once it is
-// ten minutes old: a run starting now may have just built one it is about
-// to execute, and be refused only once it does. This process's own binary,
+// would refuse must not delete anything. It runs as the run ends, and a
+// build goes only once it is ten minutes old by its time stamp, which
+// docs_build refreshes whenever a run uses it: so this run's builds are kept
+// (the cache holds), and so is one a run starting now has just built or
+// found, and is about to execute. This process's own binary,
 // a build in progress (*.tmp) and anything else there are left. Best-effort:
 // Windows refuses to delete a program still executing (a killed run's).
 func pruneBuilds(self string) {

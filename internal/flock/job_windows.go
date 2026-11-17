@@ -3,6 +3,7 @@
 package flock
 
 import (
+	"errors"
 	"os/exec"
 	"syscall"
 	"unsafe"
@@ -72,3 +73,8 @@ func NoBreakaway(cmd *exec.Cmd) {
 		cmd.SysProcAttr.CreationFlags &^= windows.CREATE_BREAKAWAY_FROM_JOB
 	}
 }
+
+// BreakawayRefused reports whether err, from starting a command Breakaway
+// marked, is Windows refusing the breakaway (a job around this process that
+// forbids it), the one failure worth starting it again without.
+func BreakawayRefused(err error) bool { return errors.Is(err, windows.ERROR_ACCESS_DENIED) }
