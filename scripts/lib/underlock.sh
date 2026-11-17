@@ -33,18 +33,26 @@ esac
 # shellcheck source=hashbuild.sh
 . "$docs_root/scripts/lib/hashbuild.sh"
 
+# docs_lock_bin: make sure DOCS_LOCK_BIN, the copy of docslock the run runs
+# as, is there to ask. Should it be gone (target/ deleted meanwhile, by a
+# `make clean` elsewhere), it is built again from the sources: a missing
+# helper is not a lost lock, and a check must not report it as one.
+docs_lock_bin() {
+    if [ -n "${DOCS_LOCK_BIN:-}" ] && [ -x "$DOCS_LOCK_BIN" ]; then
+        return 0
+    fi
+    DOCS_LOCK_BIN=$(cd "$docs_root" && docs_built_path scripts/docslock.go docslock) &&
+        (cd "$docs_root" && docs_build scripts/docslock.go "$DOCS_LOCK_BIN") || return 1
+    DOCS_LOCK_BIN="$docs_root/$DOCS_LOCK_BIN"
+    export DOCS_LOCK_BIN
+}
+
 docs_held=""
 if [ -n "${DOCS_LOCK_TOKEN:-}" ]; then
     # Inside a run, or a token leaked from one: asked of the copy of docslock
-    # the run runs as. Should that be gone (target/ deleted meanwhile), it is
-    # built again from the sources, so a run that lost it carries on, and a
-    # token leaked from a run that has ended still matches nothing.
-    if [ -z "${DOCS_LOCK_BIN:-}" ] || [ ! -x "$DOCS_LOCK_BIN" ]; then
-        DOCS_LOCK_BIN=$(cd "$docs_root" && docs_built_path scripts/docslock.go docslock) &&
-            (cd "$docs_root" && docs_build scripts/docslock.go "$DOCS_LOCK_BIN") || exit 1
-        DOCS_LOCK_BIN="$docs_root/$DOCS_LOCK_BIN"
-        export DOCS_LOCK_BIN
-    fi
+    # the run runs as (rebuilt if gone, so a run that lost it carries on; a
+    # token leaked from a run that has ended still matches nothing).
+    docs_lock_bin || exit 1
     if (cd "$docs_root" && "$DOCS_LOCK_BIN" --held); then
         docs_held=1
     fi
@@ -70,7 +78,7 @@ unset docs_held
 # have been killed, which frees the lock at once, another run may have taken
 # it, and every path the two share (DIR.new, DIR.old, the order's temporary
 # file, the cfdocs marker) is then that run's to change, not this one's.
-docs_holds_lock() { (cd "$docs_root" && "$DOCS_LOCK_BIN" --held); }
+docs_holds_lock() { docs_lock_bin && (cd "$docs_root" && "$DOCS_LOCK_BIN" --held); }
 
 # docs_still_locked: exit 1 unless this run still holds the lock. Called just
 # before every change a docs script makes to a shared path (lib/swapdir.sh's

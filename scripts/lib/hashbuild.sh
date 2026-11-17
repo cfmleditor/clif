@@ -22,6 +22,12 @@ docs_built_path() {
     root=$(pwd) || return 1
     deps=$(go list -deps -f '{{if not .Standard}}{{.Dir}}{{end}}' "$main") || return 1
     cache=$(go env GOMODCACHE) || return 1
+    # On Windows go prints C:\... paths and bash's pwd /c/...: the same form
+    # for both, or nothing below would match.
+    if command -v cygpath >/dev/null 2>&1; then
+        deps=$(printf '%s\n' "$deps" | while IFS= read -r d; do cygpath -u "$d"; done) || return 1
+        cache=$(cygpath -u "$cache") || return 1
+    fi
     hash=$({
         cat "$main" go.mod
         cat go.sum 2>/dev/null

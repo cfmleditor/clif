@@ -104,6 +104,9 @@ cp "$TMP/cfdocs/data/en/"*.json "$NEW/"
 docs_still_locked
 rm -f "$SHA_FILE"
 swap_in "$NEW" "$SRC"
+# The marker says the staged copy is the pin: written only by a run that
+# still holds the lock, so never over a copy another run is replacing.
+docs_still_locked
 echo "$target" > "$SHA_FILE"
 
 echo "Copied $count JSON files to $SRC/"

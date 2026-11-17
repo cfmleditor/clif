@@ -100,18 +100,30 @@ func repoRelative(path string) string {
 	return filepath.ToSlash(rel)
 }
 
+// stopSeen is closed once this process has received a stopping signal; its
+// handler then ends the run by it (stopOnSignal).
+var (
+	stopSeen = make(chan struct{})
+	stopOnce sync.Once
+)
+
 // git runs git with args and returns what it printed. A git that a stopping
 // signal ended (SIGINT, SIGTERM, SIGHUP) may be no answer to report (a
 // missing commit, an unreadable baseline): a Ctrl-C at the terminal reaches
 // it and this process alike, and then this process's own handler stops the
-// run by it. So that is waited for, a moment, before the failure is
-// returned; one sent to git alone (a timeout, a pkill) reaches no handler
-// here, and is reported as the failure it is.
+// run by it. So that is waited for, and nothing more is done meanwhile:
+// should this process have got the signal too, the handler ends it. One
+// sent to git alone (a timeout, a pkill) reaches no handler here, and after
+// a while is reported as the failure it is.
 func git(args ...string) ([]byte, error) {
 	out, err := exec.Command("git", args...).Output()
 
 	if sig, ok := flock.SignalOf(err); ok && flock.Stopping(sig) {
-		time.Sleep(time.Second)
+		select {
+		case <-stopSeen:
+			select {} // the handler is ending this run
+		case <-time.After(3 * time.Second):
+		}
 	}
 
 	return out, err
@@ -359,6 +371,8 @@ func stopOnSignal() {
 
 	go func() {
 		for sig := range c {
+			stopOnce.Do(func() { close(stopSeen) })
+
 			sigMu.Lock()
 			if writing {
 				if pending == nil {

@@ -72,7 +72,7 @@ var current struct {
 	sync.Mutex
 	p       *os.Process
 	got     os.Signal
-	pending os.Signal // one to pass on that came while no command ran
+	pending os.Signal // one that came while no command ran, for the next
 }
 
 func main() {
@@ -147,12 +147,14 @@ func main() {
 			if current.got == nil {
 				current.got = s
 			}
-			if pass {
-				if current.p != nil {
-					_ = current.p.Signal(s)
-				} else {
-					current.pending = s // sent on as the next command starts
-				}
+			switch {
+			case current.p == nil:
+				// No command running, so none got it, from the terminal
+				// or otherwise: sent on as the next one starts, should it
+				// start (stopIfSignalled stops the run first if it can).
+				current.pending = s
+			case pass:
+				_ = current.p.Signal(s)
 			}
 			current.Unlock()
 		}
