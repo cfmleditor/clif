@@ -1,21 +1,37 @@
-//go:build !unix
+//go:build !(darwin || dragonfly || freebsd || linux || netbsd || openbsd) && !windows
 
 package flock
 
 import (
 	"os"
 	"os/exec"
+	"syscall"
 )
 
-// Group is a command's process group; nothing here.
-type Group struct{}
+// Group is a command started as is (AIX, Solaris, wasm): no process group or
+// terminal handover here.
+type Group struct{ p *os.Process }
 
-// NewGroup does nothing here: a console's Ctrl-C reaches every process
-// attached to it.
+// NewGroup does nothing to cmd here.
 func NewGroup(*exec.Cmd) *Group { return &Group{} }
 
-// Restore does nothing here.
-func (*Group) Restore() {}
+// Started records the command's process.
+func (g *Group) Started(p *os.Process) { g.p = p }
 
-// SignalGroup signals p alone, as far as the platform can.
+// Wait waits for the command and returns its exit code, 128 + the signal's
+// number if a signal ended it.
+func (g *Group) Wait() (int, error) {
+	st, err := g.p.Wait()
+	if err != nil {
+		return 1, err
+	}
+
+	if ws, ok := st.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
+		return 128 + int(ws.Signal()), nil
+	}
+
+	return st.ExitCode(), nil
+}
+
+// SignalGroup signals p alone here.
 func SignalGroup(p *os.Process, sig os.Signal) error { return p.Signal(sig) }

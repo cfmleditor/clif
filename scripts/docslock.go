@@ -29,7 +29,6 @@ package main
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -38,6 +37,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/cfmleditor/clif/internal/flock"
 )
@@ -99,7 +99,16 @@ func main() {
 		fail("cannot open %s: %v", lockPath, err)
 	}
 
-	ok, err := flock.TryLock(f)
+	// Retried for a moment before refusing: flock.Verify, testing a record
+	// a killed holder left, takes a free lock for an instant, and a run
+	// starting just then must not be turned away for it.
+	var ok bool
+	for try := 0; try < 10; try++ {
+		if ok, err = flock.TryLock(f); ok || err != nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 	if err != nil {
 		fail("cannot lock %s: %v", lockPath, err)
 	}
@@ -112,8 +121,10 @@ func main() {
 		fail("another docs run (PID %s) holds %s; wait for it to finish", pid, lockPath)
 	}
 
+	// The record first, before anything else: until it is written the
+	// file still holds the previous holder's, and a run whose docslock was
+	// killed would pass flock.Verify with that token against this lock.
 	held = f
-	takeMarker()
 
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
@@ -125,6 +136,8 @@ func main() {
 		fail("cannot write %s: %v", lockPath, err)
 	}
 
+	takeMarker()
+
 	cmd := exec.Command(os.Args[1], os.Args[2:]...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	cmd.Env = append(os.Environ(), "DOCS_LOCK_TOKEN="+token)
@@ -134,22 +147,24 @@ func main() {
 		cmd.Env = append(cmd.Env, "DOCS_LOCK_BIN="+self)
 	}
 
-	// The command leads a process group of its own, in the terminal's
-	// foreground if this was (flock.NewGroup), so a Ctrl-C there reaches its
-	// processes once. A signal sent to this process (a kill, a CI runner's
-	// stop, a hang-up) is passed to that whole group: to bash and to what it
-	// is running alike, so nothing carries on behind a run reported stopped.
-	// The docs scripts trap these (lib/underlock.sh), so bash waits for what
-	// it is running to stop before it cleans up. This exits as the command
-	// did.
+	// The command runs as a job of its own (flock.Group): a process group,
+	// given the terminal while it runs if this process has it, so a Ctrl-C
+	// there reaches its processes once, and a Ctrl-Z stops it and this
+	// process's job together, for the shell to resume. A signal sent to this
+	// process (a kill, a CI runner's stop, a hang-up) is passed to that whole
+	// group: to bash and to what it is running alike, so nothing carries on
+	// behind a run reported stopped. The docs scripts trap these
+	// (lib/underlock.sh), so bash waits for what it is running to stop before
+	// it cleans up. On Windows the job ends with this process, however it
+	// ends. This exits as the command did.
 	group := flock.NewGroup(cmd)
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 
 	if err := cmd.Start(); err != nil {
-		group.Restore()
 		fail("%v", err)
 	}
+	group.Started(cmd.Process)
 
 	go func() {
 		for s := range sigs {
@@ -157,21 +172,11 @@ func main() {
 		}
 	}()
 
-	err = cmd.Wait()
-	group.Restore()
-
-	var exitErr *exec.ExitError
-	switch {
-	case err == nil:
-		exit(0)
-	case errors.As(err, &exitErr):
-		if ws, ok := exitErr.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
-			exit(128 + int(ws.Signal()))
-		}
-		exit(exitErr.ExitCode())
-	default:
+	code, err := group.Wait()
+	if err != nil {
 		fail("%v", err)
 	}
+	exit(code)
 }
 
 // takeMarker puts a symlink at docs/.lock naming this process as the

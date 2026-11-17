@@ -32,9 +32,14 @@ NEW="$SRC.new"
 TMP=$(mktemp -d)
 cleanup() {
     docs_cleanup_begin
-    # The previous copy back first: nothing that fails after can keep it aside.
-    swap_recover "$SRC" || true
-    rm -rf "$TMP" "$NEW" || true
+    rm -rf "$TMP" || true # this run's own
+    # The shared paths only while this run still holds the lock (another run
+    # may have them otherwise); the previous copy back first, so nothing that
+    # fails after can keep it aside.
+    if docs_holds_lock; then
+        swap_recover "$SRC" || true
+        rm -rf "$NEW" || true
+    fi
 }
 trap cleanup EXIT
 
@@ -90,10 +95,12 @@ fi
 # first and written only once the new copy is in place: a copy that fails or
 # is interrupted part way can never leave a partial directory that the marker
 # still calls the pinned commit.
+docs_still_locked
 rm -rf "$NEW"
 mkdir -p "$NEW"
 cp "$TMP/cfdocs/data/en/"*.json "$NEW/"
 
+docs_still_locked
 rm -f "$SHA_FILE"
 swap_in "$NEW" "$SRC"
 echo "$target" > "$SHA_FILE"

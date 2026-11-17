@@ -591,12 +591,6 @@ func main() {
 
 	switch {
 	case status == baselinePresent:
-	case status == baselineAbsent && allowedFile != "" && os.Getenv("DOCS_BASELINE_REF") != "":
-		// CI's comparison with a pull request's base (both variables set, as
-		// only CI sets them), a base from before generated_sources.txt
-		// existed: there is nothing to compare with, which is no fault of the
-		// pull request. Anywhere else no baseline is refused, as below.
-		fmt.Fprintf(os.Stderr, "note: %s has no %s yet: nothing to compare with\n", ref, sourcesFile)
 	case status == baselineUnreadable:
 		// The ref has the file but git could not read it: never "no
 		// baseline", which DOCS_ALLOW_REMOVALS=1 would wave through.
@@ -674,13 +668,11 @@ func main() {
 	// the base's copy already lists, with only its line changed (a comment
 	// tidied, say), is no new claim: it only warns. With the base's copy
 	// unreadable there is no telling a new entry from an old one, so each
-	// only warns, rather than block the pull request that fixes that copy;
-	// and with no baseline at all (a base from before generated_sources.txt)
-	// nothing can be removed, so nothing listed is a mistake of this one.
+	// only warns, rather than block the pull request that fixes that copy.
 	// Under DOCS_ALLOW_REMOVALS everything here only warns.
 	var staleNew []string
 	for _, k := range stale {
-		if _, listed := baseLines[k]; allowedFile != "" && !baseBroken && status != baselineAbsent && !listed {
+		if _, listed := baseLines[k]; allowedFile != "" && !baseBroken && !listed {
 			staleNew = append(staleNew, k)
 
 			continue

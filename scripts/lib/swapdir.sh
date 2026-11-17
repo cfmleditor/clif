@@ -12,6 +12,7 @@
 
 # swap_recover DIR: put DIR's previous copy back if a swap was interrupted.
 swap_recover() {
+    docs_still_locked
     if [ ! -d "$1" ] && [ -d "$1.old" ]; then
         mv "$1.old" "$1"
     fi

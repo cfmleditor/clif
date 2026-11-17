@@ -34,12 +34,16 @@ NEW="$DIR.new"
 TMP=""
 cleanup() {
     docs_cleanup_begin
-    # The previous copy back first: nothing that fails after can keep it aside.
-    swap_recover "$DIR" || true
     if [ -n "$TMP" ]; then
-        rm -rf "$TMP" || true
+        rm -rf "$TMP" || true # this run's own
     fi
-    rm -rf "$NEW" || true
+    # The shared paths only while this run still holds the lock (another run
+    # may have them otherwise); the previous copy back first, so nothing that
+    # fails after can keep it aside.
+    if docs_holds_lock; then
+        swap_recover "$DIR" || true
+        rm -rf "$NEW" || true
+    fi
 }
 trap cleanup EXIT
 
@@ -55,6 +59,7 @@ if [ "${DOCS_BUMP:-}" != "1" ]; then
 fi
 
 TMP=$(mktemp -d)
+docs_still_locked
 rm -rf "$NEW"
 
 echo "Downloading lucee-docs.zip..."

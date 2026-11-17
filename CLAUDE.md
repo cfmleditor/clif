@@ -113,30 +113,34 @@ under the lock by that token matching while the lock is held (`flock.Verify`). N
 passed down, so nothing a run leaves behind (git's background gc, the go command's telemetry) can
 keep the lock, and docslock clears its record as it exits, so a token leaked from a finished run
 matches nothing. The cost: a docslock killed outright frees the lock while its scripts run on, so
-each script checks it still holds the lock just before every change it makes (`docs_still_locked`:
-each swap, the order and pin renames), and stops if not. Every docs script that changes anything
-runs itself under it (`scripts/lib/underlock.sh`; `docs-lock.sh get` and `check` only read, and take
-no lock): if `docslock --held` agrees it carries on, otherwise it re-runs through docslock from the
-repository root; one inside a run whose helper has gone (`target/` deleted) fails with a message
-rather than lock against its own run. docslock is built and run, never `go run`, which turns every
-failing exit into 1; the binary is named for a hash of its sources
+each script checks it still holds the lock just before every change it makes to a path runs share
+(`docs_still_locked`: each swap and recovery, each delete, the order and pin renames), and stops if
+not; its EXIT trap leaves those paths alone unless it still holds the lock. On Windows the command
+runs in a job object that ends with docslock, however docslock ends. Every docs script that changes
+anything runs itself under it (`scripts/lib/underlock.sh`; `docs-lock.sh get` and `check` only read,
+and take no lock): if `docslock --held` agrees it carries on, otherwise it re-runs through docslock
+from the repository root; one inside a run whose helper has gone (`target/` deleted) fails with a
+message rather than lock against its own run. docslock is built and run, never `go run`, which turns
+every failing exit into 1; the binary is named for a hash of its sources
 (`target/docs-gen/docslock-<hash>`), so a changed source builds a new one and a copy a run is
 executing is never replaced, and a run's scripts ask the copy it runs as (`DOCS_LOCK_BIN`). `make
 docs` and `make docs-cfdocs` (`scripts/docs.sh`), `make generate` (`scripts/generate.sh`, which runs
 `docs.sh` then the generator) and `make docs-bump` each hold it across all their steps. The
 generator, built and run as a binary so its exit code comes through, refuses unless it runs under
 the lock, and checks again just before it writes (docslock killed, or the file deleted, meanwhile);
-so run it through `make generate`. The command docslock runs leads a process group of its own, put
-in the terminal's foreground when docslock was there (so it can prompt, and write under `stty
-tostop`), and Ctrl-Z is ignored, since a run stopped holding the lock could not be resumed. A Ctrl-C
-reaches that group once; a signal sent to docslock is passed to the whole group; the scripts trap
-these, so bash waits for what it is running to stop before its cleanup, which ignores any further
-signal. The generator holds a signal that arrives while it writes the two generated files until both
-are in place, then exits 128 + the signal's number. While it runs, docslock keeps the previous
-version's lock, a `docs/.lock` symlink naming `<pid>@<start time>`, pointing at itself, so a run of
-that version finds a live owner and refuses; one left behind is replaced once its owner is gone. The
-scripts retry a failed network step twice (`scripts/lib/retry.sh`), and work from the repository
-root wherever they are run from.
+so run it through `make generate`. The command docslock runs is a job of its own, as a shell runs
+one (`flock.Group`): a process group, given the terminal while it runs if docslock has it (so it can
+prompt, and write under `stty tostop`), with nothing it starts inheriting an ignored signal. A
+Ctrl-Z stops it and docslock's own job together, so the shell reports the job stopped and `fg`
+resumes the whole run; one stopped only for want of a terminal docslock has is handed it and
+resumed. A Ctrl-C reaches that group once; a signal sent to docslock is passed to the whole group;
+the scripts trap these, so bash waits for what it is running to stop before its cleanup, which
+ignores any further signal. The generator holds a signal that arrives while it writes the two
+generated files until both are in place, then exits 128 + the signal's number. While it runs,
+docslock keeps the previous version's lock, a `docs/.lock` symlink naming `<pid>@<start time>`,
+pointing at itself, so a run of that version finds a live owner and refuses; one left behind is
+replaced once its owner is gone. The scripts retry a failed network step twice
+(`scripts/lib/retry.sh`), and work from the repository root wherever they are run from.
 
 **`scripts/generate_docs.go` refuses to lose an entry.** It compares the new entries, by type and
 name, with `internal/docs/generated_sources.txt` as committed at `HEAD`, or at `DOCS_BASELINE_REF`
@@ -198,24 +202,21 @@ docs change, so `generated_docs.go` is always what the pinned and vendored sourc
 edit, or a pin bumped without regenerating, fails it. On a pull request that run compares with the
 base the merge commit was built on (`HEAD^1`, as `DOCS_BASELINE_REF`; not the event's base SHA,
 stale on a re-run after main moves) rather than `HEAD`, the PR's own commit, which would hold
-nothing to miss if the PR itself committed a lossy regeneration (a base from before
-`generated_sources.txt` existed has nothing to compare, and only notes so, and the lines the PR adds
-to `docs/allowed-removals` then only warn; that exception needs both `DOCS_BASELINE_REF` and
-`DOCS_ALLOWED_REMOVALS_FILE`, as CI sets them, and any other run without a baseline is refused).
-Only the losses `docs/allowed-removals` lists pass there, and only the lines the PR adds to that
-file (those the base's copy lacks) accept anything, so dropping an entry on purpose takes a reviewed
-change to it. A line left over from an earlier pull request (unchanged from the base's copy) accepts
-nothing, so it can neither wave a later loss through by accident nor fail anyone; it only warns
-until cleared. To remove such an entry again on purpose, change its line (a new `# reason`): a
-changed line counts as added; a change of spacing alone does not. A changed line that removes
-nothing (a comment tidied) only warns; only an entry new to the file that removes nothing is
-refused. If the base's copy itself no longer parses, every line counts as added, with a warning, and
-a line that removes nothing only warns, so it cannot block the pull request that fixes it. The
-generator reads the file itself (`DOCS_ALLOWED_REMOVALS_FILE`, through
-`sources.ParseAllowedRemovals`), strictly: a line it cannot read, `1` (which would switch the
-comparison off), or an added line that accepts nothing (a typo, a removal since undone) fails the
-step. `DOCS_BASELINE_REF` must name a commit; a value starting with `-` is refused, as git would
-read it as an option.
+nothing to miss if the PR itself committed a lossy regeneration (a base with no
+`generated_sources.txt` is refused like any missing baseline). Only the losses
+`docs/allowed-removals` lists pass there, and only the lines the PR adds to that file (those the
+base's copy lacks) accept anything, so dropping an entry on purpose takes a reviewed change to it. A
+line left over from an earlier pull request (unchanged from the base's copy) accepts nothing, so it
+can neither wave a later loss through by accident nor fail anyone; it only warns until cleared. To
+remove such an entry again on purpose, change its line (a new `# reason`): a changed line counts as
+added; a change of spacing alone does not. A changed line that removes nothing (a comment tidied)
+only warns; only an entry new to the file that removes nothing is refused. If the base's copy itself
+no longer parses, every line counts as added, with a warning, and a line that removes nothing only
+warns, so it cannot block the pull request that fixes it. The generator reads the file itself
+(`DOCS_ALLOWED_REMOVALS_FILE`, through `sources.ParseAllowedRemovals`), strictly: a line it cannot
+read, `1` (which would switch the comparison off), or an added line that accepts nothing (a typo, a
+removal since undone) fails the step. `DOCS_BASELINE_REF` must name a commit; a value starting with
+`-` is refused, as git would read it as an option.
 
 Go toolchain is pinned at **1.27.4** (`go.mod`). CGO is required (tree-sitter grammar).
 

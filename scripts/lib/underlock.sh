@@ -48,21 +48,25 @@ if [ -z "$docs_held" ]; then
         mkdir -p target/docs-gen
         go build -o "$docslock.$$.tmp" scripts/docslock.go || exit 1
         mv -f "$docslock.$$.tmp" "$docslock" || exit 1
-        # Builds of older sources, unused for a day (one a run is executing
-        # is never that old by its own clock, and Windows refuses anyway).
-        find target/docs-gen -name 'docslock-*' ! -name "${docslock##*/}" -mtime +1 -exec rm -f {} + 2>/dev/null || true
+        # Builds of older sources are left: one may be what a run is
+        # executing. They are small; `make clean` removes them.
     fi
     exec "$docslock" bash "scripts/${0##*/}" "$@"
 fi
 unset docs_held
 
+# docs_holds_lock: whether this run still holds the lock. Should its docslock
+# have been killed, which frees the lock at once, another run may have taken
+# it, and every path the two share (DIR.new, DIR.old, the order's temporary
+# file, the cfdocs marker) is then that run's to change, not this one's.
+docs_holds_lock() { (cd "$docs_root" && "$DOCS_LOCK_BIN" --held); }
+
 # docs_still_locked: exit 1 unless this run still holds the lock. Called just
-# before each change a docs script makes (lib/swapdir.sh's swap_in, the order
-# and pin renames): should this run's docslock have been killed, which frees
-# the lock at once, another run may have taken it, and the two would
-# interleave on the same paths.
+# before every change a docs script makes to a shared path (lib/swapdir.sh's
+# swap_in and swap_recover, each rm of one, the order and pin renames); an
+# EXIT trap tests docs_holds_lock instead, and leaves those paths alone.
 docs_still_locked() {
-    if ! (cd "$docs_root" && "$DOCS_LOCK_BIN" --held); then
+    if ! docs_holds_lock; then
         echo "error: this run no longer holds the docs lock (its docslock was stopped?): stopping before changing anything" >&2
         exit 1
     fi
