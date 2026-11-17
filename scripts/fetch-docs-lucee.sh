@@ -94,6 +94,10 @@ etag=$(tr -d '\r' < "$TMP/headers" | awk '
 
 # Build the new copy beside the old one, then swap: a failure before the swap
 # leaves docs/lucee as it was, and one during it is undone by cleanup.
+# The download can take minutes: checked again before anything is written to
+# the shared DIR.new, so a run whose docslock was killed meanwhile cannot mix
+# its files into another run's copy.
+docs_still_locked
 mkdir -p "$NEW"
 cp "$TMP/staged/"*.json "$NEW/"
 

@@ -45,6 +45,7 @@ import (
 	"syscall"
 
 	"github.com/cfmleditor/clif/internal/flock"
+	"github.com/cfmleditor/clif/internal/vfs"
 )
 
 const lockPath = "docs/.flock"
@@ -195,6 +196,8 @@ func main() {
 	}
 	env = append(env, "DOCS_LOCK_BIN="+self)
 
+	pruneOtherBuilds(self)
+
 	// On Windows, everything the run starts is in a job that ends with this
 	// process (flock.JoinJob); on Linux the command dies with it
 	// (flock.DieWithParent). Elsewhere the scripts' own lock checks stop them.
@@ -211,7 +214,11 @@ func main() {
 	code, by := run(cmd, nil)
 
 	program := ""
-	if thenFile != "" {
+	if thenFile != "" && (code != 0 || by != nil) {
+		// Failed or stopped: its own end is the run's, whatever the file
+		// says, and the file is not read.
+		_ = os.Remove(thenFile)
+	} else if thenFile != "" {
 		program = thenProgram(thenFile)
 		// Succeeded without naming the program it was to hand on: the
 		// handoff was lost, and the run did not do its last step. Never
@@ -341,7 +348,7 @@ func stopBy(sig os.Signal) {
 // the docs scripts build theirs, is taken: the descriptor is passed to
 // nothing else.
 func thenProgram(file string) string {
-	b, err := os.ReadFile(file) //nolint:gosec // this run's own file, named for its token
+	b, err := vfs.ReadRegular(file) // never a FIFO, a device: this run holds the lock
 	_ = os.Remove(file)
 	if err != nil {
 		return ""
@@ -353,6 +360,23 @@ func thenProgram(file string) string {
 	}
 
 	return p
+}
+
+// pruneOtherBuilds removes the builds of docslock from older sources beside
+// self, as each is several MB: here, holding the lock, so no other run is
+// using one (lib/underlock.sh builds before trying the lock, and a run it
+// would refuse must not delete the live run's copy). Best-effort: Windows
+// refuses to delete one still executing (a killed run's). A build in
+// progress (*.tmp) is left.
+func pruneOtherBuilds(self string) {
+	dir, name := filepath.Dir(self), filepath.Base(self)
+
+	others, _ := filepath.Glob(filepath.Join(dir, "docslock*"))
+	for _, o := range others {
+		if b := filepath.Base(o); b != name && !strings.HasSuffix(b, ".tmp") {
+			_ = os.Remove(o)
+		}
+	}
 }
 
 func usage() {

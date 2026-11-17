@@ -121,9 +121,10 @@ run`, which turns every failing exit into 1, each to a path named for a hash of 
 from and how (the packages `go list -deps` names, `go.mod`, `go.sum`, the toolchain and the build
 settings) (`target/docs-gen/docslock-<hash>`, `generate_docs-<hash>`: `scripts/lib/hashbuild.sh`),
 so a changed source builds a new one and a copy a run is executing is never replaced (other versions
-are removed after a build, best-effort); a run's scripts ask the copy of docslock it runs as
-(`DOCS_LOCK_BIN`). `make docs` and `make docs-cfdocs` (`scripts/docs.sh`), `make generate`
-(`scripts/generate.sh`) and `make docs-bump` each hold it across all their steps.
+are removed, best-effort, only by a run holding the lock: docslock prunes its own, `generate.sh` the
+generator's); a run's scripts ask the copy of docslock it runs as (`DOCS_LOCK_BIN`). `make docs` and
+`make docs-cfdocs` (`scripts/docs.sh`), `make generate` (`scripts/generate.sh`) and `make docs-bump`
+each hold it across all their steps.
 
 **The generator holds the lock itself.** `make generate` has docslock run it once `generate.sh` has
 succeeded (`docslock --then`, which `underlock.sh` gives `generate.sh` by name: the script builds it
@@ -144,7 +145,10 @@ still holds it. On Linux the kernel also sends the script SIGTERM when docslock 
 so its traps run, from a goroutine locked to its thread, as Linux sends it when that thread exits);
 on Windows docslock puts itself in a kill-on-close job before starting anything, so everything the
 run starts ends with it. What is left: on macOS and the BSDs, a script killed between a check and
-its change, and on Windows, a generator killed between its check and its renames.
+its change, and on Windows, a generator killed between its check and its renames. Windows also
+cannot send a process SIGTERM, so docslock forwards nothing there: a console's Ctrl-C or close
+reaches every process attached to it, and a SIGTERM-like stop aimed at docslock alone does not reach
+the command.
 
 **Signals.** The command runs in docslock's own process group, so a terminal's Ctrl-C, Ctrl-Z and
 hang-up reach it, and everything it runs, directly and once, and job control is the shell's as for

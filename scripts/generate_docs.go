@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cfmleditor/clif/internal/confine"
 	docsources "github.com/cfmleditor/clif/internal/docs/sources"
 	"github.com/cfmleditor/clif/internal/flock"
 	"github.com/cfmleditor/clif/internal/vfs"
@@ -89,13 +90,21 @@ func repoRelative(path string) string {
 		abs = filepath.Join(wd, abs)
 	}
 
-	// Relative or absolute alike: "../x" is as far outside as "/x", and "."
-	// (the repository itself) names no file. Both with symlinks resolved, so
-	// a path into the repository through another spelling of it (/tmp and
-	// /private/tmp on macOS) is inside.
-	wd, abs = resolved(wd), resolved(abs)
-	rel, err := filepath.Rel(wd, abs)
-	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+	// Relative or absolute alike: "../x" is as far outside as "/x", and the
+	// repository itself names no file. The directory is compared with its
+	// symlinks resolved (confine.Resolve, through any part not there yet),
+	// so another spelling of the repository's path (/tmp and /private/tmp
+	// on macOS) is inside; the final name is kept as given, so git reads
+	// the file the variable names, not what a link there points to.
+	roots := confine.Roots(wd)
+	dir, err := confine.Resolve(filepath.Dir(abs))
+	if err != nil || len(roots) == 0 {
+		refuse(fmt.Sprintf("Cannot resolve DOCS_ALLOWED_REMOVALS_FILE=%q: %v", path, err))
+	}
+
+	full := filepath.Join(dir, filepath.Base(abs))
+	rel, err := filepath.Rel(roots[0], full)
+	if err != nil || !confine.Within(full, roots) || rel == "." {
 		refuse(fmt.Sprintf("DOCS_ALLOWED_REMOVALS_FILE=%q is outside the repository, so has no copy at a base to compare with.", path))
 	}
 
@@ -103,12 +112,12 @@ func repoRelative(path string) string {
 }
 
 // stopSeen is closed once this process has received a stopping signal; its
-// handler then ends the run by it (stopOnSignal). catching: there is a
-// handler, some stopping signal not having been ignored at the start.
+// handler then ends the run by it (stopOnSignal). caught: the stopping
+// signals it handles, those not ignored at the start.
 var (
 	stopSeen = make(chan struct{})
 	stopOnce sync.Once
-	catching bool
+	caught   []os.Signal
 )
 
 // git runs git with args and returns what it printed. A git that a stopping
@@ -124,7 +133,9 @@ func git(args ...string) ([]byte, error) {
 
 	// Both waits are bounded: should the handler not end the run (its
 	// signal held for a write, say), the failure is returned as any.
-	if sig, ok := flock.SignalOf(err); ok && flock.Stopping(sig) && catching {
+	// Only for a signal this process handles: one it ignores (a SIGINT it
+	// was started with ignored) reaches no handler here, whoever sent it.
+	if sig, ok := flock.SignalOf(err); ok && slices.Contains(caught, sig) {
 		select {
 		case <-stopSeen:
 			time.Sleep(3 * time.Second) // the handler is ending this run
@@ -140,20 +151,6 @@ func gitOK(args ...string) bool {
 	_, err := git(args...)
 
 	return err == nil
-}
-
-// resolved is path with its symlinks resolved, as far as it exists: a file not
-// there yet resolves through its directory.
-func resolved(path string) string {
-	if r, err := filepath.EvalSymlinks(path); err == nil {
-		return r
-	}
-
-	if dir, err := filepath.EvalSymlinks(filepath.Dir(path)); err == nil {
-		return filepath.Join(dir, filepath.Base(path))
-	}
-
-	return path
 }
 
 // resolves reports whether ref names a commit. HEAD's answer comes from
@@ -376,7 +373,7 @@ func stoppedBy(sig os.Signal, what string) {
 // signals relays every one).
 func stopOnSignal() {
 	c := make(chan os.Signal, 1)
-	if catching = flock.NotifyStops(c); !catching {
+	if caught = flock.NotifyStops(c); len(caught) == 0 {
 		return
 	}
 
