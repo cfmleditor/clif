@@ -91,8 +91,12 @@ docs_have_lock() { [ -n "${DOCS_LOCK_HAVE:-}" ]; }
 # docs_lock: take the lock (or inherit it), or exit 1 if a live run holds it.
 docs_lock() {
     mkdir -p docs
-    if [ -n "${DOCS_LOCK_OWNER:-}" ] && [ "$(readlink "$DOCS_LOCK" 2>/dev/null || true)" = "$DOCS_LOCK_OWNER" ]; then
-        DOCS_LOCK_HAVE=1 # held by the run that started this one, which releases it
+    # Held by the run that started this one, which releases it: inherited, if
+    # that run is still alive (a stale DOCS_LOCK_OWNER whose owner died, its
+    # PID since reused, must not pass for it).
+    if [ -n "${DOCS_LOCK_OWNER:-}" ] && [ "$(readlink "$DOCS_LOCK" 2>/dev/null || true)" = "$DOCS_LOCK_OWNER" ] &&
+        ! docs_pid_gone "${DOCS_LOCK_OWNER%%@*}"; then
+        DOCS_LOCK_HAVE=1
         return 0
     fi
 
@@ -118,6 +122,7 @@ docs_lock() {
         if ln -s "$me" "$DOCS_LOCK" 2>/dev/null; then
             DOCS_LOCKED=1
             DOCS_LOCK_HAVE=1
+            DOCS_LOCK_MINE="$me"
             export DOCS_LOCK_OWNER="$me"
             return 0
         fi
@@ -127,6 +132,14 @@ docs_lock() {
             break
         fi
     done
+    # ln failed with no lock there at all: not a held lock but a docs/ this
+    # cannot write, or a filesystem without symlinks (Git Bash on Windows
+    # without them enabled). Say so, rather than blame a run that is not there.
+    if [ -z "$held" ] && [ ! -e "$DOCS_LOCK" ] && [ ! -L "$DOCS_LOCK" ]; then
+        echo "error: cannot create docs/.lock: docs/ is not writable here, or this filesystem has no symlinks" >&2
+        echo "       (on Windows, enable Developer Mode or git's core.symlinks)." >&2
+        exit 1
+    fi
     [ -n "$held" ] || held="?"
 
     if docs_owner_gone "$held"; then
@@ -141,6 +154,7 @@ docs_lock() {
             if ln -s "$me" "$DOCS_LOCK" 2>/dev/null; then
                 DOCS_LOCKED=1
                 DOCS_LOCK_HAVE=1
+                DOCS_LOCK_MINE="$me"
                 export DOCS_LOCK_OWNER="$me"
                 rmdir "$DOCS_LOCK.takeover" 2>/dev/null || true
                 echo "note: took over docs/.lock from $held, which is no longer running" >&2
@@ -157,8 +171,11 @@ docs_lock() {
 }
 
 # docs_unlock: release it, if this run took it (not if it inherited it).
+# Compared with the owner string this run wrote, never a recomputed one: the
+# host name can change mid-run (macOS follows the network), and a lock left
+# behind then would name a "different host" no run could take over.
 docs_unlock() {
-    if [ -n "${DOCS_LOCKED:-}" ] && [ "$(readlink "$DOCS_LOCK" 2>/dev/null || true)" = "$(docs_lock_self)" ]; then
+    if [ -n "${DOCS_LOCKED:-}" ] && [ "$(readlink "$DOCS_LOCK" 2>/dev/null || true)" = "${DOCS_LOCK_MINE:-}" ]; then
         rm -f "$DOCS_LOCK"
     fi
     DOCS_LOCKED=""

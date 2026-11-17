@@ -217,13 +217,20 @@ type Entry struct {
 const docsLock = "docs/.lock"
 
 func requireLock() {
-	owner := os.Getenv("DOCS_LOCK_OWNER")
-	held, err := os.Readlink(docsLock)
-	if owner == "" || err != nil || held != owner {
+	if !holdsLock() {
 		fmt.Fprintln(os.Stderr, "error: run the generator through `make generate` (scripts/generate.sh), which holds docs/.lock")
 		fmt.Fprintln(os.Stderr, "       across the fetch and the generation, so no other docs run can swap a source meanwhile.")
 		os.Exit(1)
 	}
+}
+
+// holdsLock reports whether docs/.lock still names the run that started this
+// one (DOCS_LOCK_OWNER).
+func holdsLock() bool {
+	owner := os.Getenv("DOCS_LOCK_OWNER")
+	held, err := os.Readlink(docsLock)
+
+	return owner != "" && err == nil && held == owner
 }
 
 var (
@@ -255,11 +262,6 @@ func stopOnSignal() {
 		}
 		os.Exit(code)
 	}()
-}
-
-// exit is how main leaves: one place, should leaving ever need more.
-func exit(code int) {
-	os.Exit(code)
 }
 
 // refuse stops without writing anything, and exits 1.
@@ -301,7 +303,7 @@ func refuse(reason ...string) {
 	}
 
 	fmt.Fprintln(os.Stderr, bar)
-	exit(1)
+	os.Exit(1)
 }
 
 // checkPins refuses unless every source docs/sources.lock pins was staged at
@@ -349,9 +351,8 @@ func checkPins() {
 }
 
 func main() {
-	// The handler first, then the lock: a signal arriving the moment the lock
-	// is taken must still release it. (Before the lock is held, unlock is a
-	// no-op.)
+	// The handler first, so a signal at any point is handled the one way:
+	// any write in progress finishes both renames, then the run exits.
 	stopOnSignal()
 	requireLock()
 	ob, err := os.ReadFile(orderFile)
@@ -541,7 +542,7 @@ func main() {
 		if err != nil && !errors.Is(err, fs.ErrNotExist) {
 			refuse("Cannot read " + allowedFile + ": " + err.Error())
 		}
-		keys, err := docsources.ParseAllowedRemovals(allowedFile, b)
+		lines, err := docsources.ParseAllowedRemovals(allowedFile, b)
 		if err != nil {
 			refuse(err.Error())
 		}
@@ -549,19 +550,17 @@ func main() {
 		if baseStatus == baselineUnreadable {
 			refuse(fmt.Sprintf("Could not read %s at %s: %v", allowedFile, ref, baseErr))
 		}
-		baseKeys, err := docsources.ParseAllowedRemovals(ref+":"+allowedFile, baseRaw)
+		// The base's copy only says which lines are left over. One that no
+		// longer parses (a rule since tightened, a bad push to main) must not
+		// fail every pull request, the one that fixes the file included: it
+		// is warned about, and every line here counts as added.
+		baseLines, err := docsources.ParseAllowedRemovals(ref+":"+allowedFile, baseRaw)
 		if err != nil {
-			refuse(err.Error())
+			fmt.Fprintf(os.Stderr, "warning: the base's %s does not parse (%v); treating every line here as added\n", allowedFile, err)
+			baseLines = nil
 		}
-		added := map[string]bool{}
-		for k := range keys {
-			if baseKeys[k] {
-				leftOver = append(leftOver, k)
-			} else {
-				added[k] = true
-			}
-		}
-		sort.Strings(leftOver)
+		var added map[string]bool
+		added, leftOver = docsources.AddedLines(lines, baseLines)
 		accept = docsources.Acceptance{Keys: added}
 	} else {
 		var ignored []string
@@ -616,13 +615,16 @@ func main() {
 			refusedRemoved = append(refusedRemoved, k)
 		}
 	}
+	var refusedLostKeys []string
 	for k, move := range lostByKey {
 		if accept.Accepts(k) {
 			accepted = append(accepted, move)
 		} else {
 			refusedLost = append(refusedLost, move)
+			refusedLostKeys = append(refusedLostKeys, k)
 		}
 	}
+	sort.Strings(refusedLostKeys)
 	sort.Strings(accepted)
 	sort.Strings(refusedLost)
 
@@ -668,6 +670,12 @@ func main() {
 			"So this build has none of the sources' other updates either. If a source failed to fetch,",
 			"fix that. If upstream stopped publishing them, copy each entry into docs/retained/ (see its",
 			"README).")
+		for _, k := range append(append([]string{}, refusedRemoved...), refusedLostKeys...) {
+			if slices.Contains(leftOver, k) {
+				reason = append(reason, fmt.Sprintf("%s is listed in %s, but its line is left over from an earlier pull request,", k, allowedFile),
+					"and a leftover line accepts nothing. To remove it again on purpose, change that line (a new # reason).")
+			}
+		}
 		if allowedFile != "" {
 			// CI's comparison with the pull request's base: the banner's
 			// HEAD notes below are about the checkout, not this baseline.
@@ -689,7 +697,7 @@ func main() {
 
 	if err := os.MkdirAll("internal/docs", 0o755); err != nil {
 		fmt.Fprintln(os.Stderr, err)
-		exit(1)
+		os.Exit(1)
 	}
 
 	// Both files are built in memory and written to temporary files first,
@@ -766,6 +774,14 @@ func main() {
 	for _, k := range keys {
 		sb.WriteString(k + "\t" + sources[k] + "\n")
 	}
+	// Still the lock's owner? If the run that started this one died (kill -9)
+	// and another took the lock over, writing now could interleave with its
+	// write: refuse instead.
+	if !holdsLock() {
+		refuse(fmt.Sprintf("%s no longer names the run that started this one (%s): it died and", docsLock, os.Getenv("DOCS_LOCK_OWNER")),
+			"another docs run took the lock over. Nothing was written; rerun `make generate` once that run is done.")
+	}
+
 	// Under writeMu: a signal arriving now waits until both renames are done.
 	writeMu.Lock()
 	err = writeAll([]generated{{outFile, out.Bytes()}, {sourcesFile, []byte(sb.String())}})
@@ -773,7 +789,7 @@ func main() {
 	writeMu.Unlock()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
-		exit(1)
+		os.Exit(1)
 	}
 
 	fmt.Fprintf(os.Stderr, "generated %s with %d entries, and %s\n", outFile, len(entries), sourcesFile)

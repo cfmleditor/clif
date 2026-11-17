@@ -110,10 +110,12 @@ which holds it across the fetch, the assemble and the generator, and `make docs-
 `scripts/docs-bump.sh`, which holds it across all its steps; each step inherits it through
 `DOCS_LOCK_OWNER`. The generator takes no lock: it refuses to run unless started under one, so run
 it through `make generate`. The lock is a symlink naming its owner, `<pid>@<host>`, created
-atomically; every exit releases it (each script installs its trap before taking it), and the
-generator's signal handler waits for an in-progress write to finish both renames and exits 128 + the
-signal's number. A lock is taken over only when it names this host and its PID no longer exists (a
-run killed with `kill -9`): `kill -0` decides, with no `ps` and nothing locale- or
+atomically; every exit releases it (each script installs its trap before taking it, and compares
+with the owner string it wrote, so a host name that changes mid-run cannot strand it), an inherited
+lock needs its owner alive, and the generator checks it still holds the lock just before writing,
+and the generator's signal handler waits for an in-progress write to finish both renames and exits
+128 + the signal's number. A lock is taken over only when it names this host and its PID no longer
+exists (a run killed with `kill -9`): `kill -0` decides, with no `ps` and nothing locale- or
 time-zone-dependent, under `docs/.lock.takeover`, an atomic `mkdir` (stale after a minute). A lock
 from another host or a container is never taken over, and a PID since reused still looks alive: the
 run stops and says to `rm docs/.lock`. Locks from earlier versions (a start-time owner, or a lock
@@ -182,8 +184,11 @@ PR's base (`DOCS_BASELINE_REF`), since `HEAD` is the PR's own commit and would h
 if the PR itself committed a lossy regeneration. Only the losses `docs/allowed-removals` lists pass
 there, and only the lines the PR adds to that file (those the base's copy lacks) accept anything, so
 dropping an entry on purpose takes a reviewed change to it. A line left over from an earlier pull
-request accepts nothing, so it can neither wave a later loss through by accident nor fail anyone; it
-only warns until cleared. The generator reads the file itself (`DOCS_ALLOWED_REMOVALS_FILE`, through
+request (unchanged from the base's copy) accepts nothing, so it can neither wave a later loss
+through by accident nor fail anyone; it only warns until cleared. To remove such an entry again on
+purpose, change its line (a new `# reason`): a changed line counts as added. If the base's copy
+itself no longer parses, every line counts as added, with a warning, so it cannot block the pull
+request that fixes it. The generator reads the file itself (`DOCS_ALLOWED_REMOVALS_FILE`, through
 `sources.ParseAllowedRemovals`), strictly: a line it cannot read, `1` (which would switch the
 comparison off), or an added line that accepts nothing (a typo, a removal since undone) fails the
 step. `DOCS_BASELINE_REF` must name a commit; a value starting with `-` is refused, as git would

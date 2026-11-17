@@ -97,17 +97,14 @@ func ParseAcceptance(v string) (a Acceptance, ignored []string) {
 			continue
 		}
 
-		typ, name, ok := strings.Cut(k, " ")
-		typ = strings.ToLower(typ)
-		name = strings.TrimSpace(name)
-
-		if !ok || !ValidName(name) || (typ != "function" && typ != "tag") {
+		key, ok := ParseKey(k)
+		if !ok {
 			ignored = append(ignored, k)
 
 			continue
 		}
 
-		a.Keys[Key(typ, name)] = true
+		a.Keys[key] = true
 	}
 
 	return a, ignored
@@ -300,45 +297,82 @@ func HashDir(dir string) (hash string, broken []string, err error) {
 	return ManifestHash(files), broken, nil
 }
 
-// ParseAllowedRemovals reads docs/allowed-removals: one "function <name>" or
-// "tag <name>" per line, blank lines and # comments (whole-line or trailing)
-// aside. It is strict, because CI's comparison with a pull request's base
-// accepts exactly these losses: a line it cannot read is an error naming it,
-// never a warning that lets the loss through, or refuses it, unnoticed. "1",
-// which DOCS_ALLOW_REMOVALS takes for "accept everything", is refused here: a
-// pull request cannot switch the comparison off by adding one line. label
-// names the file in errors.
-func ParseAllowedRemovals(label string, b []byte) (map[string]bool, error) {
-	keys := map[string]bool{}
+// ParseKey reads "function <name>" or "tag <name>" (the type in any case,
+// any whitespace between) into an entry key: the one spelling rule for both
+// DOCS_ALLOW_REMOVALS and docs/allowed-removals, so the two cannot accept
+// different spellings of the same entry.
+func ParseKey(s string) (key string, ok bool) {
+	f := strings.Fields(s)
+	if len(f) != 2 {
+		return "", false
+	}
 
-	for i, line := range Lines(b) {
-		if c := strings.IndexByte(line, '#'); c >= 0 {
-			line = line[:c]
+	typ := strings.ToLower(f[0])
+	if (typ != "function" && typ != "tag") || !ValidName(f[1]) {
+		return "", false
+	}
+
+	return Key(typ, f[1]), true
+}
+
+// ParseAllowedRemovals reads docs/allowed-removals: one "function <name>" or
+// "tag <name>" per line (ParseKey), with an optional trailing "# reason";
+// blank lines and whole-line comments aside. It maps each key to its line as
+// written, whitespace trimmed, comment included: CI tells a line a pull
+// request added or changed from one left over from an earlier pull request
+// by comparing lines, so re-listing an entry (a deliberate re-removal) means
+// changing its line, a new reason, say.
+//
+// It is strict, because CI's comparison with a pull request's base accepts
+// exactly these losses: a line it cannot read is an error naming it, never a
+// warning. "1", which DOCS_ALLOW_REMOVALS takes for "accept everything", is
+// refused here: a pull request cannot switch the comparison off by adding one
+// line. label names the file in errors.
+func ParseAllowedRemovals(label string, b []byte) (map[string]string, error) {
+	lines := map[string]string{}
+
+	for i, raw := range Lines(b) {
+		line := strings.TrimSpace(raw)
+
+		entry := line
+		if c := strings.IndexByte(entry, '#'); c >= 0 {
+			entry = strings.TrimSpace(entry[:c])
 		}
 
-		line = strings.TrimSpace(line)
-		if line == "" {
+		if entry == "" {
 			continue
 		}
 
-		f := strings.Fields(line)
-		typ := ""
-
-		if len(f) == 2 {
-			typ = strings.ToLower(f[0])
+		k, ok := ParseKey(entry)
+		if !ok {
+			return nil, fmt.Errorf("%s:%d: want \"function <name>\" or \"tag <name>\", have %q", label, i+1, entry)
 		}
 
-		if len(f) != 2 || (typ != "function" && typ != "tag") || !ValidName(f[1]) {
-			return nil, fmt.Errorf("%s:%d: want \"function <name>\" or \"tag <name>\", have %q", label, i+1, line)
-		}
-
-		k := Key(typ, f[1])
-		if keys[k] {
+		if _, dup := lines[k]; dup {
 			return nil, fmt.Errorf("%s:%d: %q listed twice", label, i+1, k)
 		}
 
-		keys[k] = true
+		lines[k] = line
 	}
 
-	return keys, nil
+	return lines, nil
+}
+
+// AddedLines lists the keys whose line in now is not in base exactly (a new
+// entry, or a re-listed one whose line was changed), and, apart, those whose
+// line is unchanged from base: left over from an earlier pull request.
+func AddedLines(now, base map[string]string) (added map[string]bool, leftOver []string) {
+	added = map[string]bool{}
+
+	for k, line := range now {
+		if base[k] == line {
+			leftOver = append(leftOver, k)
+		} else {
+			added[k] = true
+		}
+	}
+
+	sort.Strings(leftOver)
+
+	return added, leftOver
 }

@@ -156,13 +156,13 @@ func TestManifestHash(t *testing.T) {
 }
 
 func TestParseAllowedRemovals(t *testing.T) {
-	keys, err := ParseAllowedRemovals("f", []byte("# header\r\n\nfunction JwtSign   # dropped by the engine\r\nTag cfstatic\n  # indented comment\n"))
+	lines, err := ParseAllowedRemovals("f", []byte("# header\r\n\nfunction JwtSign   # dropped by the engine\r\nTag\tcfstatic\n  # indented comment\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if len(keys) != 2 || !keys["function jwtsign"] || !keys["tag cfstatic"] {
-		t.Errorf("keys = %v, want function jwtsign and tag cfstatic", keys)
+	if len(lines) != 2 || lines["function jwtsign"] != "function JwtSign   # dropped by the engine" || lines["tag cfstatic"] != "Tag\tcfstatic" {
+		t.Errorf("lines = %q", lines)
 	}
 
 	// Each would otherwise accept a loss nobody listed, or refuse one that
@@ -179,8 +179,38 @@ func TestParseAllowedRemovals(t *testing.T) {
 		}
 	}
 
-	if keys, err := ParseAllowedRemovals("f", nil); err != nil || len(keys) != 0 {
-		t.Errorf("an empty file = %v, %v; want no keys and no error", keys, err)
+	if lines, err := ParseAllowedRemovals("f", nil); err != nil || len(lines) != 0 {
+		t.Errorf("an empty file = %v, %v; want no lines and no error", lines, err)
+	}
+}
+
+// TestParseKeyIsTheOneSpellingRule: both DOCS_ALLOW_REMOVALS and the file
+// take the same spellings, tabs and doubled spaces included.
+func TestParseKeyIsTheOneSpellingRule(t *testing.T) {
+	for _, s := range []string{"function foo", "Function  foo", "function\tfoo", " FUNCTION Foo "} {
+		if k, ok := ParseKey(s); !ok || k != "function foo" {
+			t.Errorf("ParseKey(%q) = %q, %v", s, k, ok)
+		}
+	}
+
+	if a, _ := ParseAcceptance("function\tfoo,tag  bar"); !a.Accepts("function foo") || !a.Accepts("tag bar") {
+		t.Errorf("ParseAcceptance does not follow ParseKey: %v", a.Keys)
+	}
+}
+
+// TestAddedLines: an unchanged line is left over and accepts nothing; a new
+// or changed one (a re-listing with a new reason) is added.
+func TestAddedLines(t *testing.T) {
+	base := map[string]string{"function a": "function a", "function b": "function b # 2025"}
+	now := map[string]string{"function a": "function a", "function b": "function b # again, 2026", "tag c": "tag c"}
+
+	added, left := AddedLines(now, base)
+	if len(added) != 2 || !added["function b"] || !added["tag c"] {
+		t.Errorf("added = %v, want function b (re-listed) and tag c (new)", added)
+	}
+
+	if !slices.Equal(left, []string{"function a"}) {
+		t.Errorf("leftOver = %v, want [function a]", left)
 	}
 }
 
