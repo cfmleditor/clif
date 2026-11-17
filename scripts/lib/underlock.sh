@@ -21,6 +21,16 @@
 # Sourced as: . "$(dirname "$0")/lib/underlock.sh"  (before anything else)
 docs_root=$(cd "$(dirname "$0")/.." && pwd) || exit 1
 
+# docslock reports its own path as the OS gives it, which on Windows is
+# C:\...: as an MSYS or Cygwin path, for [ -x ] and to run it.
+case "$(uname -s 2>/dev/null)" in
+MINGW* | MSYS* | CYGWIN*)
+    if [ -n "${DOCS_LOCK_BIN:-}" ] && command -v cygpath >/dev/null 2>&1; then
+        DOCS_LOCK_BIN=$(cygpath -u "$DOCS_LOCK_BIN")
+    fi
+    ;;
+esac
+
 docs_held=""
 if [ -n "${DOCS_LOCK_TOKEN:-}" ]; then
     # Inside a run, or a token leaked from one. Inside a run whose helper has
@@ -52,7 +62,7 @@ if [ -z "$docs_held" ]; then
         for f in internal/flock/*.go internal/vfs/*.go; do
             case "$f" in *_test.go) ;; *) cat "$f" ;; esac
         done
-        grep '^golang.org/x/sys ' go.sum
+        grep '^golang.org/x/sys ' go.sum || true # its lines may move; never fatal
     } | sha256 /dev/stdin | cut -c1-16) || exit 1
     case "$(uname -s 2>/dev/null)" in
     MINGW* | MSYS* | CYGWIN*) docslock="target/docs-gen/docslock-$docs_hash.exe" ;;
@@ -72,7 +82,10 @@ if [ -z "$docs_held" ]; then
         # Builds of older sources are left: one may be what a run is
         # executing. They are small; `make clean` removes them.
     fi
-    exec "$docslock" bash "scripts/${0##*/}" "$@"
+    # DOCS_LOCK_THEN (set by a script before sourcing this, not exported):
+    # a program docslock runs once the script has succeeded, passing it the
+    # lock's descriptor (scripts/generate.sh's generator).
+    exec "$docslock" ${DOCS_LOCK_THEN:+--then "$DOCS_LOCK_THEN"} bash "scripts/${0##*/}" "$@"
 fi
 unset docs_held
 

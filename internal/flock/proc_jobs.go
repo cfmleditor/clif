@@ -34,11 +34,18 @@ type Group struct {
 // started it exits, not the process (golang/go#27505), and a thread a
 // goroutine is locked to cannot exit while the goroutine lives. So call it,
 // Start the command and Wait from the main goroutine.
-func NewGroup(cmd *exec.Cmd) *Group {
+//
+// withParent has the command killed should this process die (Linux only:
+// dieWithParent). Not for a command that holds the lock itself, through a
+// descriptor passed to it: killing it then could cut it off mid-write, when
+// it could have finished holding the lock.
+func NewGroup(cmd *exec.Cmd, withParent bool) *Group {
 	runtime.LockOSThread()
 
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	dieWithParent(cmd.SysProcAttr)
+	if withParent {
+		dieWithParent(cmd.SysProcAttr)
+	}
 
 	return &Group{}
 }
@@ -97,23 +104,37 @@ func (g *Group) Wait() (int, error) {
 
 			return 128 + int(ws.Signal()), nil
 		case ws.Stopped():
-			g.stopped()
+			g.stopped(ws.StopSignal())
 		}
 	}
 }
 
-func (g *Group) stopped() {
-	if g.tty == nil {
+func (g *Group) stopped(by syscall.Signal) {
+	switch by {
+	case unix.SIGSTOP:
+		// Stopped on purpose (kill -STOP, a debugger): left so, for whoever
+		// stopped it to resume.
 		return
-	}
-
-	switch g.foreground() {
-	case g.pid: // a Ctrl-Z: stop with it
+	case unix.SIGTSTP:
+		// A Ctrl-Z (or a SIGTSTP sent to it). With the terminal to give back
+		// and a shell to resume this job, it stops with it; otherwise (no
+		// terminal, or one that has gone) nothing could resume it, and it
+		// is resumed at once.
 		g.takeBack()
-		stopSelf()
-	case unix.Getpgrp(): // it wanted the terminal, which is this group's to give
-	default: // the terminal is another job's: stop until resumed
-		stopSelf()
+
+		if g.tty != nil && g.foreground() == unix.Getpgrp() {
+			stopSelf()
+		}
+	default:
+		// SIGTTIN or SIGTTOU: it wanted the terminal. This group's to give,
+		// it is handed over; another job's, this job stops until resumed
+		// (in the foreground, by `fg`); gone (or none), it is resumed, to
+		// get an error from the terminal rather than wait for good.
+		if g.tty != nil {
+			if fg := g.foreground(); fg != -1 && fg != unix.Getpgrp() {
+				stopSelf()
+			}
+		}
 	}
 
 	g.handOver()
@@ -142,15 +163,20 @@ func (g *Group) handOver() {
 	}
 }
 
-// Reraise ends this process the way the command ended, if a signal ended
-// it; call it once the command has ended and the caller has cleaned up. Then
+// Reraise ends this process the way the command ended, if SIGINT, SIGTERM or
+// SIGHUP ended it; call it once the command has ended and the caller has cleaned up. Then
 // whatever ran this one sees an interrupted run rather than an exit code (a
 // shell loop breaks on it, `make -k` stops). A Ctrl-C reached only the command,
 // which had the terminal: it is sent on to this process's whole job, the
-// make that ran it included, as the terminal would have. Any other signal
-// ends this process alone. It returns only if no signal ended the command.
+// make that ran it included, as the terminal would have; SIGTERM or SIGHUP
+// ends this process alone. Otherwise it returns, for the caller to exit with
+// the code.
 func (g *Group) Reraise() {
-	if g.ended == 0 {
+	// Only the signals that stop a run: one that dumps a Go process's stacks
+	// (SIGQUIT, SIGABRT) would print them and exit 2, not end by it.
+	switch g.ended {
+	case unix.SIGINT, unix.SIGTERM, unix.SIGHUP:
+	default:
 		return
 	}
 
@@ -162,7 +188,9 @@ func (g *Group) Reraise() {
 		_ = unix.Kill(os.Getpid(), g.ended)
 	}
 
-	time.Sleep(time.Second) // the signal's delivery is not immediate
+	// Delivery ends this process within moments; this is only a bound, should
+	// it somehow not, after which the caller exits with the code.
+	time.Sleep(200 * time.Millisecond)
 }
 
 // takeBack returns the terminal to this group, if the command's has it.

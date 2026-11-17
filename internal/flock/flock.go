@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/vfs"
@@ -61,7 +62,16 @@ func Verify(path, token string) bool {
 		return false
 	}
 
-	if _, got := Holder(path); got != token {
+	// The record's holder must be alive too: a new holder that has taken the
+	// lock but not yet written its record (an instant) leaves a killed
+	// holder's record in place, and that record's token would otherwise
+	// pass, against the new holder's lock, for the killed run's scripts.
+	pidText, got := Holder(path)
+	if got != token {
+		return false
+	}
+
+	if pid, err := strconv.Atoi(pidText); err != nil || !alive(pid) {
 		return false
 	}
 
@@ -75,4 +85,26 @@ func Verify(path, token string) bool {
 	free, err := TryLock(f)
 
 	return err == nil && !free
+}
+
+// Holds reports whether f, a descriptor for the lock inherited from its
+// holder, is an open of the file at path as it is now on disk, and the record
+// there holds token: so the lock taken on f still guards that file, and the
+// run is the one that took it. A file deleted and created again since is not
+// it. scripts/generate_docs.go checks the descriptor docslock passed it this
+// way; holding it, it keeps the lock even should docslock be killed.
+func Holds(f *os.File, path, token string) bool {
+	held, err := f.Stat()
+	if err != nil {
+		return false
+	}
+
+	onDisk, err := os.Stat(path)
+	if err != nil || !os.SameFile(held, onDisk) {
+		return false
+	}
+
+	_, got := Holder(path)
+
+	return token != "" && got == token
 }

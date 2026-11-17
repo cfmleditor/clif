@@ -4,7 +4,7 @@
 // Runs a command holding the docs lock, so no two docs runs (a fetch, a bump,
 // a generation) interleave:
 //
-//	target/docs-gen/docslock-<hash> <command> [args...]
+//	target/docs-gen/docslock-<hash> [--then <program>] <command> [args...]
 //
 // lib/underlock.sh builds it, named for a hash of its sources, and runs it;
 // never `go run`, which turns every failing exit of its child into exit 1, a
@@ -12,13 +12,14 @@
 //
 // The lock is the operating system's (internal/flock) on docs/.flock, so it
 // is released however this process ends, kill -9 and a power cut included:
-// there is no stale lock to judge or take over. It is held by this process
-// alone. The command is given a fresh token (DOCS_LOCK_TOKEN), recorded in
-// docs/.flock beside this PID, and a process proves it runs under the lock by
-// `docslock --held`: the record holds its token and the lock is held
-// (flock.Verify). No descriptor is passed down, so nothing the command leaves
-// behind (git's background gc, the go command's telemetry) can keep the lock.
-// So this waits for the command, and passes it every signal that stops a run.
+// there is no stale lock to judge or take over. The command is given a fresh
+// token (DOCS_LOCK_TOKEN), recorded in docs/.flock beside this PID, and a
+// process proves it runs under the lock by `docslock --held`: the record
+// holds its token, its holder is alive and the lock is held (flock.Verify).
+// The command is passed no descriptor, so nothing it leaves behind (git's
+// background gc, the go command's telemetry) can keep the lock; only a
+// program named by --then is, and it passes it to nothing it runs. So this
+// waits for the command, and passes it every signal that stops a run.
 //
 // docs/.lock is the previous version's lock, a symlink naming its owner as
 // "<pid>@<start time>". This keeps one there naming itself while it runs, so a
@@ -36,6 +37,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -80,8 +82,7 @@ func fail(format string, a ...any) {
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: docslock <command> [args...]  |  docslock --held")
-		os.Exit(2)
+		usage()
 	}
 
 	// docslock --held: exit 0 if the caller runs under the lock (its
@@ -92,6 +93,22 @@ func main() {
 			os.Exit(0)
 		}
 		os.Exit(1)
+	}
+
+	// --then <program>: once the command has succeeded, run program too,
+	// still under the lock, and pass it the lock's descriptor (fd 3), so it
+	// holds the lock itself: should this process be killed while it runs, the
+	// lock stays held until it ends. `make generate` runs the generator so
+	// (scripts/generate.sh), the one step that must not lose the lock part
+	// way through its write. Only that program gets the descriptor, and it
+	// passes it to nothing it runs.
+	args := os.Args[1:]
+	then := ""
+	if args[0] == "--then" {
+		if len(args) < 3 {
+			usage()
+		}
+		then, args = args[1], args[2:]
 	}
 
 	if err := os.MkdirAll("docs", 0o755); err != nil {
@@ -142,51 +159,99 @@ func main() {
 
 	takeMarker()
 
-	cmd := exec.Command(os.Args[1], os.Args[2:]...)
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
-	cmd.Env = append(os.Environ(), "DOCS_LOCK_TOKEN="+token)
+	env := append(os.Environ(), "DOCS_LOCK_TOKEN="+token)
 	// The copy the run's scripts ask (docslock --held), whatever is checked
 	// out or built meanwhile.
 	if self, err := os.Executable(); err == nil {
-		cmd.Env = append(cmd.Env, "DOCS_LOCK_BIN="+self)
+		env = append(env, "DOCS_LOCK_BIN="+self)
 	}
 
-	// The command runs as a job of its own (flock.Group): a process group,
-	// given the terminal while it runs if this process has it, so a Ctrl-C
-	// there reaches its processes once, and a Ctrl-Z stops it and this
-	// process's job together, for the shell to resume. A signal sent to this
-	// process (a kill, a CI runner's stop, a hang-up) is passed to that whole
-	// group: to bash and to what it is running alike, so nothing carries on
-	// behind a run reported stopped. The docs scripts trap these
-	// (lib/underlock.sh), so bash waits for what it is running to stop before
-	// it cleans up. On Windows the job ends with this process, however it
-	// ends. This exits as the command did.
-	group := flock.NewGroup(cmd)
+	// A signal sent to this process (a kill, a CI runner's stop, a hang-up)
+	// is passed to the whole of the command running, its job (flock.Group).
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+	go func() {
+		for s := range sigs {
+			current.Lock()
+			if current.p != nil {
+				_ = flock.SignalGroup(current.p, s)
+			}
+			current.Unlock()
+		}
+	}()
 
+	cmd := exec.Command(args[0], args[1:]...)
+	cmd.Env = env
+	if then != "" {
+		// Tells scripts/generate.sh that the program comes next, run here.
+		cmd.Env = append(cmd.Env, "DOCS_LOCK_THEN_SET="+token)
+	}
+	code, group := run(cmd, true)
+
+	if code == 0 && then != "" {
+		cmd = exec.Command(then)
+		cmd.Env = env
+		if runtime.GOOS != "windows" { // which passes a child no descriptor
+			cmd.ExtraFiles = []*os.File{f}
+			cmd.Env = append(cmd.Env, "DOCS_LOCK_FD=3")
+		}
+		// Not killed with this process: it holds the lock itself, and is
+		// better left to finish its write than cut off part way.
+		code, group = run(cmd, false)
+	}
+
+	// Ended by a signal, the command's end is passed on as one (a Ctrl-C to
+	// the make that ran this too), after the cleanup, so a shell loop or
+	// `make -k` sees an interrupted run, not just an exit code.
+	signal.Stop(sigs)
+	cleanup()
+	group.Reraise()
+	os.Exit(code)
+}
+
+// current is the command running, for the signal forwarder.
+var current struct {
+	sync.Mutex
+	p *os.Process
+}
+
+// run runs cmd as a job of its own (flock.Group): a process group, given the
+// terminal while it runs if this process has it, so a Ctrl-C there reaches
+// its processes once, and a Ctrl-Z stops it and this process's job together,
+// for the shell to resume. The docs scripts trap the stopping signals
+// (lib/underlock.sh), so bash waits for what it is running to stop before it
+// cleans up. withParent: killed should this process die (Linux), as nothing
+// it runs holds the lock but through this process. On Windows the whole run
+// is in a job that ends with this process.
+func run(cmd *exec.Cmd, withParent bool) (int, *flock.Group) {
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+
+	group := flock.NewGroup(cmd, withParent)
 	if err := cmd.Start(); err != nil {
 		fail("%v", err)
 	}
-	group.Started(cmd.Process)
 
-	go func() {
-		for s := range sigs {
-			_ = flock.SignalGroup(cmd.Process, s)
-		}
-	}()
+	current.Lock()
+	current.p = cmd.Process
+	current.Unlock()
+
+	group.Started(cmd.Process)
 
 	code, err := group.Wait()
 	if err != nil {
 		fail("%v", err)
 	}
 
-	// Ended by a signal, the command's end is passed on as one (a Ctrl-C to
-	// the make that ran this too), after the cleanup, so a shell loop or
-	// `make -k` sees an interrupted run, not just an exit code.
-	cleanup()
-	group.Reraise()
-	os.Exit(code)
+	current.Lock()
+	current.p = nil
+	current.Unlock()
+
+	return code, group
+}
+
+func usage() {
+	fmt.Fprintln(os.Stderr, "usage: docslock [--then <program>] <command> [args...]  |  docslock --held")
+	os.Exit(2)
 }
 
 // takeMarker puts a symlink at docs/.lock naming this process as the

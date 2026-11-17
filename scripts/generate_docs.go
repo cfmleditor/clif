@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -256,8 +257,34 @@ func requireLock() {
 	}
 }
 
-// holdsLock reports whether this run holds the docs lock.
-func holdsLock() bool { return flock.Verify(docsLock, os.Getenv("DOCS_LOCK_TOKEN")) }
+// lockFD is the lock's descriptor, when docslock passed it (`docslock --then`,
+// as `make generate` runs this): kept for the whole run, as an *os.File
+// nothing refers to is closed by its finalizer, and with it the hold.
+var lockFD *os.File
+
+// holdsLock reports whether this run holds the docs lock. Given the lock's
+// descriptor (DOCS_LOCK_FD), this process holds it itself, and keeps it should
+// docslock be killed: it checks the descriptor is docs/.flock as on disk and
+// the record holds its token, and marks it close-on-exec, so the git it runs
+// cannot keep the lock past it. Otherwise (Windows, which passes no
+// descriptor, or run some other way under the lock) the token must be the
+// live holder's (flock.Verify).
+func holdsLock() bool {
+	token := os.Getenv("DOCS_LOCK_TOKEN")
+
+	if lockFD == nil {
+		if fd, err := strconv.Atoi(os.Getenv("DOCS_LOCK_FD")); err == nil && fd >= 3 {
+			lockFD = os.NewFile(uintptr(fd), docsLock)
+			flock.CloseOnExec(lockFD)
+		}
+	}
+
+	if lockFD != nil {
+		return flock.Holds(lockFD, docsLock, token)
+	}
+
+	return flock.Verify(docsLock, token)
+}
 
 var (
 	// sigMu guards writing and pending. A signal while the two generated
@@ -832,9 +859,10 @@ func main() {
 	for _, k := range keys {
 		sb.WriteString(k + "\t" + sources[k] + "\n")
 	}
-	// Checked again just before writing: the lock released meanwhile (its
-	// docslock killed) or its file deleted and created again would let
-	// another docs run take it and swap a source under this one.
+	// Checked again just before writing: the file deleted and created again
+	// meanwhile, or, without the descriptor, the lock released (its docslock
+	// killed), would let another docs run take it and swap a source under
+	// this one.
 	if !holdsLock() {
 		refuse("This run no longer holds the docs lock ("+docsLock+"): its docslock was stopped, or the file was",
 			"deleted, so another docs run may have changed a source meanwhile. Run `make generate` again.")
@@ -845,33 +873,13 @@ func main() {
 	writing = true
 	sigMu.Unlock()
 
-	// The files as they were, to put back should the lock turn out to have
-	// been lost during the write (below).
-	before := snapshot(outFile, sourcesFile)
-
 	err = writeAll([]generated{{path: outFile, data: out.Bytes()}, {path: sourcesFile, data: []byte(sb.String())}})
 
-	// Checked once more, after the renames: the check above and the write
-	// are not one step, and a docslock killed between them (macOS and the
-	// BSDs have no Pdeathsig to stop this process with it) lets another run
-	// swap a source this one has already read. Then what was written may
-	// mix the two, so the previous files go back.
-	lost := err == nil && !holdsLock()
-	if lost {
-		if rerr := writeAll(before); rerr != nil {
-			err = fmt.Errorf("lost the docs lock during the write, and could not put the previous files back: %w", rerr)
-		}
-	}
-
 	sigMu.Lock()
-	writing, written = false, err == nil && !lost
+	writing, written = false, err == nil
 	sig := pending
 	sigMu.Unlock()
 
-	if lost && err == nil {
-		refuse("This run lost the docs lock ("+docsLock+") while writing, so another docs run may have changed a",
-			"source meanwhile: the previous generated files are back in place. Run `make generate` again.")
-	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		if sig != nil {
@@ -888,25 +896,10 @@ func main() {
 	fmt.Fprintf(os.Stderr, "generated %s with %d entries, and %s\n", outFile, len(entries), sourcesFile)
 }
 
-// snapshot reads the files as they are, for writeAll to put back. A file
-// that does not exist, or cannot be read, comes back with no content and
-// gone set: writeAll removes it rather than leave this run's copy.
-func snapshot(paths ...string) []generated {
-	var files []generated
-
-	for _, p := range paths {
-		b, err := vfs.ReadRegular(p)
-		files = append(files, generated{path: p, data: b, gone: err != nil})
-	}
-
-	return files
-}
-
 // generated is one file writeAll writes.
 type generated struct {
 	path string
 	data []byte
-	gone bool // the file should not exist: writeAll removes it
 }
 
 // writeAll writes every file to a temporary beside it, and renames them into
@@ -927,24 +920,12 @@ func writeAll(files []generated) error {
 	for _, f := range files {
 		tmp := f.path + ".tmp"
 		tmps = append(tmps, tmp) // before writing: a partial write is cleaned up too
-		if f.gone {
-			continue
-		}
 		if err := os.WriteFile(tmp, f.data, 0o644); err != nil {
 			return err
 		}
 	}
 
 	for i, f := range files {
-		if f.gone {
-			if err := os.Remove(f.path); err != nil && !errors.Is(err, fs.ErrNotExist) {
-				tmps = tmps[i:]
-
-				return err
-			}
-
-			continue
-		}
 		if err := os.Rename(tmps[i], f.path); err != nil {
 			tmps = tmps[i:]
 

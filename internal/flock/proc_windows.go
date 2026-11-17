@@ -5,6 +5,7 @@ package flock
 import (
 	"os"
 	"os/exec"
+	"sync"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -15,8 +16,7 @@ import (
 // so the command cannot carry on unlocked after the lock's holder is gone.
 // A console's Ctrl-C reaches every process attached to it already.
 type Group struct {
-	p   *os.Process
-	job windows.Handle
+	p *os.Process
 }
 
 // NewGroup puts this process in a kill-on-close job before cmd starts, so
@@ -24,33 +24,41 @@ type Group struct {
 // instant (a process joins its creator's job): nothing can start outside it
 // in a gap before it is assigned. If the job cannot be made, the command
 // runs without one.
-func NewGroup(*exec.Cmd) *Group {
-	g := &Group{}
+func NewGroup(*exec.Cmd, bool) *Group {
+	jobOnce.Do(joinJob)
 
-	job, err := windows.CreateJobObject(nil, nil)
+	return &Group{}
+}
+
+// jobOnce makes the job once, however many commands this process runs.
+var jobOnce sync.Once
+
+// job is held open, never closed, until this process ends.
+var job windows.Handle
+
+func joinJob() {
+	j, err := windows.CreateJobObject(nil, nil)
 	if err != nil {
-		return g
+		return
 	}
 
 	info := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{}
 	info.BasicLimitInformation.LimitFlags = windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
 
-	if _, err := windows.SetInformationJobObject(job, windows.JobObjectExtendedLimitInformation,
+	if _, err := windows.SetInformationJobObject(j, windows.JobObjectExtendedLimitInformation,
 		uintptr(unsafe.Pointer(&info)), uint32(unsafe.Sizeof(info))); err != nil {
-		_ = windows.CloseHandle(job)
+		_ = windows.CloseHandle(j)
 
-		return g
+		return
 	}
 
-	if windows.AssignProcessToJobObject(job, windows.CurrentProcess()) != nil {
-		_ = windows.CloseHandle(job)
+	if windows.AssignProcessToJobObject(j, windows.CurrentProcess()) != nil {
+		_ = windows.CloseHandle(j)
 
-		return g
+		return
 	}
 
-	g.job = job // held open, never closed, until this process ends
-
-	return g
+	job = j
 }
 
 // Started records the command's process.

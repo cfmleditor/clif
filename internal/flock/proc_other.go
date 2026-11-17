@@ -13,7 +13,7 @@ import (
 type Group struct{ p *os.Process }
 
 // NewGroup does nothing to cmd here.
-func NewGroup(*exec.Cmd) *Group { return &Group{} }
+func NewGroup(*exec.Cmd, bool) *Group { return &Group{} }
 
 // Started records the command's process.
 func (g *Group) Started(p *os.Process) { g.p = p }
