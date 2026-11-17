@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"slices"
 	"strconv"
 	"strings"
@@ -170,6 +171,30 @@ func Exit(sig os.Signal) {
 // kill, a hang-up. The one list docslock catches, Raise re-raises and the
 // generator treats as an interrupt.
 var StopSignals = []os.Signal{os.Interrupt, syscall.SIGTERM, syscall.SIGHUP}
+
+// NotifyStops relays to c those of StopSignals this process was not started
+// with ignored, and reports whether there were any. One that was ignored
+// (nohup's SIGHUP, a background job's SIGINT) is left so: caught, it would
+// end the process, and what it runs would no longer inherit it ignored. With
+// none left, nothing is relayed: signal.Notify with no signals relays every
+// one, the Go runtime's own included.
+func NotifyStops(c chan<- os.Signal) bool {
+	var caught []os.Signal
+
+	for _, s := range StopSignals {
+		if !signal.Ignored(s) {
+			caught = append(caught, s)
+		}
+	}
+
+	if len(caught) == 0 {
+		return false
+	}
+
+	signal.Notify(c, caught...)
+
+	return true
+}
 
 // Stopping reports whether sig is one of StopSignals.
 func Stopping(sig os.Signal) bool { return slices.Contains(StopSignals, sig) }

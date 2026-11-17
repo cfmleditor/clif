@@ -55,9 +55,7 @@ docs_built_path() {
 # docs_build MAIN.go PATH: build MAIN.go to PATH (docs_built_path), unless it
 # is there. Built to a temporary file and moved into place only if PATH is
 # still free: another run starting at once may have built the same binary
-# first, and be executing it, and it is not moved over (mv -n). Builds of
-# older sources are left: one may be what a run is executing; they are
-# small, and `make clean` removes them.
+# first, and be executing it, and it is not moved over (mv -n).
 docs_build() {
     local main=$1 path=$2
     [ -x "$path" ] && return 0
@@ -65,5 +63,18 @@ docs_build() {
     go build -o "$path.$$.tmp" "$main" || return 1
     mv -n "$path.$$.tmp" "$path" 2>/dev/null || true
     rm -f "$path.$$.tmp"
-    [ -x "$path" ]
+    [ -x "$path" ] || return 1
+
+    # Other versions of the same program, built from older sources, go: each
+    # is several MB. Best-effort: Windows refuses to delete one a run is
+    # executing, and on Unix that run keeps its copy until it ends (a docs
+    # script that then finds its docslock gone builds the current one,
+    # docs_lock_bin). A build in progress (*.tmp) is another run's, and left.
+    local base=${path##*/} old
+    for old in "$(dirname "$path")/${base%-*}" "$(dirname "$path")/${base%-*}"-*; do
+        case "$old" in
+        "$path" | *.tmp) ;;
+        *) rm -f "$old" 2>/dev/null || true ;;
+        esac
+    done
 }

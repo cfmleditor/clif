@@ -11,7 +11,6 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
-	"os/signal"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -91,7 +90,10 @@ func repoRelative(path string) string {
 	}
 
 	// Relative or absolute alike: "../x" is as far outside as "/x", and "."
-	// (the repository itself) names no file.
+	// (the repository itself) names no file. Both with symlinks resolved, so
+	// a path into the repository through another spelling of it (/tmp and
+	// /private/tmp on macOS) is inside.
+	wd, abs = resolved(wd), resolved(abs)
 	rel, err := filepath.Rel(wd, abs)
 	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		refuse(fmt.Sprintf("DOCS_ALLOWED_REMOVALS_FILE=%q is outside the repository, so has no copy at a base to compare with.", path))
@@ -101,10 +103,12 @@ func repoRelative(path string) string {
 }
 
 // stopSeen is closed once this process has received a stopping signal; its
-// handler then ends the run by it (stopOnSignal).
+// handler then ends the run by it (stopOnSignal). catching: there is a
+// handler, some stopping signal not having been ignored at the start.
 var (
 	stopSeen = make(chan struct{})
 	stopOnce sync.Once
+	catching bool
 )
 
 // git runs git with args and returns what it printed. A git that a stopping
@@ -118,10 +122,12 @@ var (
 func git(args ...string) ([]byte, error) {
 	out, err := exec.Command("git", args...).Output()
 
-	if sig, ok := flock.SignalOf(err); ok && flock.Stopping(sig) {
+	// Both waits are bounded: should the handler not end the run (its
+	// signal held for a write, say), the failure is returned as any.
+	if sig, ok := flock.SignalOf(err); ok && flock.Stopping(sig) && catching {
 		select {
 		case <-stopSeen:
-			select {} // the handler is ending this run
+			time.Sleep(3 * time.Second) // the handler is ending this run
 		case <-time.After(3 * time.Second):
 		}
 	}
@@ -134,6 +140,20 @@ func gitOK(args ...string) bool {
 	_, err := git(args...)
 
 	return err == nil
+}
+
+// resolved is path with its symlinks resolved, as far as it exists: a file not
+// there yet resolves through its directory.
+func resolved(path string) string {
+	if r, err := filepath.EvalSymlinks(path); err == nil {
+		return r
+	}
+
+	if dir, err := filepath.EvalSymlinks(filepath.Dir(path)); err == nil {
+		return filepath.Join(dir, filepath.Base(path))
+	}
+
+	return path
 }
 
 // resolves reports whether ref names a commit. HEAD's answer comes from
@@ -355,19 +375,10 @@ func stoppedBy(sig os.Signal, what string) {
 // left so; with none left to catch, nothing is (signal.Notify with no
 // signals relays every one).
 func stopOnSignal() {
-	var caught []os.Signal
-	for _, s := range flock.StopSignals {
-		if !signal.Ignored(s) {
-			caught = append(caught, s)
-		}
-	}
-
-	if len(caught) == 0 {
+	c := make(chan os.Signal, 1)
+	if catching = flock.NotifyStops(c); !catching {
 		return
 	}
-
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, caught...)
 
 	go func() {
 		for sig := range c {

@@ -70,10 +70,12 @@ func fail(format string, a ...any) {
 // stopping signal sent to this process.
 var current struct {
 	sync.Mutex
-	p       *os.Process
-	got     os.Signal
-	pending os.Signal // one that came while no command ran, for the next
+	p   *os.Process
+	got os.Signal
 }
+
+// sigs relays the stopping signals sent to this process.
+var sigs = make(chan os.Signal, 1)
 
 func main() {
 	if len(os.Args) < 2 {
@@ -115,7 +117,9 @@ func main() {
 	// process not in its foreground: flock.InForeground). One that did has
 	// reached the command already, and a second copy could cut its cleanup
 	// short. One that comes while no command runs stops the run before the
-	// next would start, and any that came ends this process by it.
+	// next would start (run checks for one and starts the command under
+	// current's lock, so none falls between the two), and any that came
+	// ends this process by it.
 	//
 	// A signal this process was started with ignored (nohup's SIGHUP, a
 	// background job's SIGINT) is left so: caught, it would be passed on, and
@@ -125,18 +129,7 @@ func main() {
 	// then would take a hang-up the terminal sent the whole group for one
 	// sent here alone, and deliver it to the command a second time.
 	fgAtStart := flock.InForeground()
-	var caught []os.Signal
-	for _, s := range flock.StopSignals {
-		if !signal.Ignored(s) {
-			caught = append(caught, s)
-		}
-	}
-	sigs := make(chan os.Signal, 1)
-	// Never with none: signal.Notify with no signals relays every one, the
-	// Go runtime's own included, each of which would read as a stop.
-	if len(caught) > 0 {
-		signal.Notify(sigs, caught...)
-	}
+	flock.NotifyStops(sigs)
 	go func() {
 		for s := range sigs {
 			pass := s == syscall.SIGTERM ||
@@ -147,13 +140,7 @@ func main() {
 			if current.got == nil {
 				current.got = s
 			}
-			switch {
-			case current.p == nil:
-				// No command running, so none got it, from the terminal
-				// or otherwise: sent on as the next one starts, should it
-				// start (stopIfSignalled stops the run first if it can).
-				current.pending = s
-			case pass:
+			if pass && current.p != nil {
 				_ = current.p.Signal(s)
 			}
 			current.Unlock()
@@ -213,8 +200,6 @@ func main() {
 	// (flock.DieWithParent). Elsewhere the scripts' own lock checks stop them.
 	flock.JoinJob()
 
-	stopIfSignalled(sigs)
-
 	cmd := exec.Command(args[0], args[1:]...)
 	cmd.Env = env
 	thenFile := ""
@@ -238,11 +223,6 @@ func main() {
 	}
 
 	if code == 0 && program != "" {
-		// A stopping signal that came while no command was running (between
-		// the two, as the first ended) reached nothing: the run stops here,
-		// by it, rather than start the program anyway.
-		stopIfSignalled(sigs)
-
 		cmd = exec.Command(program)
 		cmd.Env = env
 		if runtime.GOOS != "windows" { // which passes a child no descriptor
@@ -282,40 +262,43 @@ func main() {
 
 // run runs cmd with this process's stdio and waits for it: its exit code, and
 // the signal that ended it, if one did (128 + its number then, as a shell
-// reports it). A signal to pass on that came meanwhile is passed on as it is
-// recorded.
-// retry, if given, adjusts a copy of cmd to start again should the first
-// start be refused.
+// reports it). retry, if given, adjusts a copy of cmd to start again should
+// the first start be refused.
+//
+// A stopping signal that came while no command ran (before this one, or
+// between two) reached nothing: the run stops by it instead of starting cmd.
+// That check, the start and the recording of the process are one step under
+// current's lock, so the forwarder sees either no process (and the check
+// sees its signal) or this one: none falls between, unseen or sent twice.
 func run(cmd *exec.Cmd, retry func(*exec.Cmd)) (int, os.Signal) {
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 
-	if err := cmd.Start(); err != nil {
-		if retry == nil {
-			fail("%v", err)
-		}
+	current.Lock()
+	if got := current.got; got != nil {
+		current.Unlock()
+		stopBy(got)
+	}
 
+	err := cmd.Start()
+	if err != nil && retry != nil {
 		// A Cmd cannot be started twice: a fresh one, alike.
 		again := exec.Command(cmd.Path, cmd.Args[1:]...)
 		again.Env, again.ExtraFiles, again.SysProcAttr = cmd.Env, cmd.ExtraFiles, cmd.SysProcAttr
 		again.Stdin, again.Stdout, again.Stderr = cmd.Stdin, cmd.Stdout, cmd.Stderr
 		retry(again)
 
-		if err := again.Start(); err != nil {
-			fail("%v", err)
-		}
-
-		cmd = again
+		cmd, err = again, again.Start()
 	}
 
-	current.Lock()
+	if err != nil {
+		current.Unlock()
+		fail("%v", err)
+	}
+
 	current.p = cmd.Process
-	if current.pending != nil {
-		_ = current.p.Signal(current.pending)
-		current.pending = nil
-	}
 	current.Unlock()
 
-	err := cmd.Wait()
+	err = cmd.Wait()
 
 	current.Lock()
 	current.p = nil
@@ -344,21 +327,13 @@ func run(cmd *exec.Cmd, retry func(*exec.Cmd)) (int, os.Signal) {
 	}
 }
 
-// stopIfSignalled ends the run by the stopping signal sent to this process,
-// if one came, before another command starts: cleaned up, then by the
-// signal itself where it can (flock.Raise), else with the shell's code for it.
-func stopIfSignalled(sigs chan os.Signal) {
-	current.Lock()
-	got := current.got
-	current.Unlock()
-
-	if got == nil {
-		return
-	}
-
+// stopBy ends the run by sig, a stopping signal sent to this process before
+// a command could start: cleaned up, then by the signal itself where it can,
+// else with the shell's code for it (flock.Exit).
+func stopBy(sig os.Signal) {
 	signal.Stop(sigs)
 	cleanup()
-	flock.Exit(got)
+	flock.Exit(sig)
 }
 
 // thenProgram reads and removes the --then file: the program the command

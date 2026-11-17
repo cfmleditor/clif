@@ -120,22 +120,22 @@ it, rather than lock against its own run. docslock and the generator are built a
 run`, which turns every failing exit into 1, each to a path named for a hash of what it is built
 from and how (the packages `go list -deps` names, `go.mod`, `go.sum`, the toolchain and the build
 settings) (`target/docs-gen/docslock-<hash>`, `generate_docs-<hash>`: `scripts/lib/hashbuild.sh`),
-so a changed source builds a new one and a copy a run is executing is never replaced; a run's
-scripts ask the copy of docslock it runs as (`DOCS_LOCK_BIN`). `make docs` and `make docs-cfdocs`
-(`scripts/docs.sh`), `make generate` (`scripts/generate.sh`) and `make docs-bump` each hold it
-across all their steps.
+so a changed source builds a new one and a copy a run is executing is never replaced (other versions
+are removed after a build, best-effort); a run's scripts ask the copy of docslock it runs as
+(`DOCS_LOCK_BIN`). `make docs` and `make docs-cfdocs` (`scripts/docs.sh`), `make generate`
+(`scripts/generate.sh`) and `make docs-bump` each hold it across all their steps.
 
 **The generator holds the lock itself.** `make generate` has docslock run it once `generate.sh` has
-succeeded (`docslock --then`: the script builds it under the lock and writes its path to a file
-whose name holds the run's token, `DOCS_LOCK_THEN_FILE`, and docslock takes only a program under
-`target/docs-gen`, and fails the run should the script succeed without naming one), and pass it the
-lock's descriptor (fd 3), the only process given one: so a docslock killed during its write cannot
-free the lock under it. It marks the descriptor close-on-exec, so the git it runs cannot keep it,
-and refuses unless it runs under the lock, checking again just before it writes; so run it through
-`make generate`. Windows passes no descriptor: there the generator breaks away from docslock's job
-(below), so it is not killed between its two renames (only from docslock's own job, and started in
-it after all if a job around docslock forbids breaking away), and its check before writing is what
-stops it should docslock be gone.
+succeeded (`docslock --then`, which `underlock.sh` gives `generate.sh` by name: the script builds it
+under the lock and writes its path to a file whose name holds the run's token,
+`DOCS_LOCK_THEN_FILE`, and docslock takes only a program under `target/docs-gen`, and fails the run
+should the script succeed without naming one), and pass it the lock's descriptor (fd 3), the only
+process given one: so a docslock killed during its write cannot free the lock under it. It marks the
+descriptor close-on-exec, so the git it runs cannot keep it, and refuses unless it runs under the
+lock, checking again just before it writes; so run it through `make generate`. Windows passes no
+descriptor: there the generator breaks away from docslock's job (below), so it is not killed between
+its two renames (only from docslock's own job, and started in it after all if a job around docslock
+forbids breaking away), and its check before writing is what stops it should docslock be gone.
 
 **A killed docslock.** Its scripts may run on unlocked, so each checks it still holds the lock just
 before every change to a path runs share (`docs_still_locked`: each swap and recovery, each delete,

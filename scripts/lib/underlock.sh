@@ -62,13 +62,13 @@ if [ -z "$docs_held" ]; then
     cd "$docs_root" || exit 1
     docslock=$(docs_built_path scripts/docslock.go docslock) || exit 1
     docs_build scripts/docslock.go "$docslock" || exit 1
-    # docs_want_then (a plain variable a script sets before sourcing this;
-    # one exported to it from outside is ignored): docslock runs the program
-    # the script names once it has succeeded, passing it the lock's
-    # descriptor (scripts/generate.sh's generator).
+    # generate.sh, alone, is run with --then: docslock runs the program it
+    # names once it has succeeded, the generator, passing it the lock's
+    # descriptor. Chosen by the script's name, not by anything in the
+    # environment, which a value left there could switch on or off.
     docs_then=""
-    case "$(declare -p docs_want_then 2>/dev/null)" in
-    "declare -- docs_want_then=\"1\"") docs_then=--then ;;
+    case "${0##*/}" in
+    generate.sh) docs_then=--then ;;
     esac
     exec "$docslock" $docs_then bash "scripts/${0##*/}" "$@"
 fi

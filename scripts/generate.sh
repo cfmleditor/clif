@@ -2,10 +2,9 @@
 set -euo pipefail
 
 # The generator, built below, is run by docslock once this script has
-# succeeded (docslock --then: see lib/underlock.sh), which passes it the
-# lock's descriptor, so it holds the lock itself for its write. A plain shell
-# variable, not exported: underlock.sh ignores an exported one.
-docs_want_then=1
+# succeeded (docslock --then, which lib/underlock.sh gives this script by
+# name), which passes it the lock's descriptor, so it holds the lock itself
+# for its write.
 
 # Under the docs lock (scripts/docslock.go), like every docs script: see
 # lib/underlock.sh.
