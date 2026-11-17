@@ -41,13 +41,11 @@ unset DOCS_LOCK_THEN_FILE
 bash scripts/docs.sh
 
 # Built under the lock, checked just before, to a path named for a hash of
-# its sources as they are now (lib/hashbuild.sh), unless that version is built
-# already; never over a copy that may be executing.
+# the binary (lib/hashbuild.sh); never over a copy that may be executing.
 # shellcheck source=lib/hashbuild.sh
 . scripts/lib/hashbuild.sh
 docs_still_locked
-gen=$(docs_built_path scripts/generate_docs.go generate_docs)
-docs_build scripts/generate_docs.go "$gen"
+gen=$(docs_build scripts/generate_docs.go generate_docs)
 
 # Started by docslock --then: the generator is named to it, to run next with
 # the lock's descriptor. The file is this run's (its name holds the run's

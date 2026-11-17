@@ -22,7 +22,8 @@ cd "$(dirname "$0")/.."
 DIR="docs/lucee"
 SOURCE="$DIR/SOURCE"
 URL="https://docs.lucee.org/lucee-docs.zip"
-NEW="$DIR.new"
+# This run's own copy, built beside the vendored one (docs_scratch).
+NEW=$(docs_scratch "$DIR.new")
 
 # shellcheck source=lib/sha256.sh
 . scripts/lib/sha256.sh
@@ -37,12 +38,11 @@ cleanup() {
     if [ -n "$TMP" ]; then
         rm -rf "$TMP" || true # this run's own
     fi
-    # The shared paths only while this run still holds the lock (another run
-    # may have them otherwise); the previous copy back first, so nothing that
-    # fails after can keep it aside.
+    rm -rf "$NEW" || true # this run's own
+    # The vendored copy only while this run still holds the lock (another
+    # run may have it otherwise).
     if docs_holds_lock; then
         swap_recover "$DIR" || true
-        rm -rf "$NEW" || true
     fi
 }
 trap cleanup EXIT
@@ -51,6 +51,7 @@ trap cleanup EXIT
 # committed copy aside in docs/lucee.old.
 docs_still_locked
 swap_recover "$DIR"
+docs_clear_scratch "$DIR.new"
 
 # A plain run only reports; scripts/assemble-docs.sh is the one place that
 # requires the vendored copy to be there.
@@ -60,8 +61,6 @@ if [ "${DOCS_BUMP:-}" != "1" ]; then
 fi
 
 TMP=$(mktemp -d)
-docs_still_locked
-rm -rf "$NEW"
 
 echo "Downloading lucee-docs.zip..."
 if ! retry curl -fsSL --connect-timeout 10 --max-time 600 -D "$TMP/headers" "$URL" -o "$TMP/lucee-docs.zip"; then
@@ -94,10 +93,6 @@ etag=$(tr -d '\r' < "$TMP/headers" | awk '
 
 # Build the new copy beside the old one, then swap: a failure before the swap
 # leaves docs/lucee as it was, and one during it is undone by cleanup.
-# The download can take minutes: checked again before anything is written to
-# the shared DIR.new, so a run whose docslock was killed meanwhile cannot mix
-# its files into another run's copy.
-docs_still_locked
 mkdir -p "$NEW"
 cp "$TMP/staged/"*.json "$NEW/"
 

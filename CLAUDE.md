@@ -117,16 +117,16 @@ anything runs itself under it (`scripts/lib/underlock.sh`; `docs-lock.sh get` an
 read): if `docslock --held` agrees it carries on, otherwise it re-runs through docslock from the
 repository root; one inside a run whose helper has gone (`target/` deleted) builds it again and asks
 it, rather than lock against its own run. docslock and the generator are built and run, never `go
-run`, which turns every failing exit into 1, each to a path named for a hash of what it is built
-from and how (the packages `go list -deps` names, `go.mod`, `go.sum`, the toolchain and the build
-settings) (`target/docs-gen/docslock-<hash>`, `generate_docs-<hash>`: `scripts/lib/hashbuild.sh`),
-so a changed source builds a new one and a copy a run is executing is never replaced (older builds
-of either, and the handoff files of killed runs, are removed only by docslock, holding the lock, as
-its run ends, a build once it has gone ten minutes unused: a run touches each build it uses, so the
-cache holds and one a starting run has just built or found is never pulled from under it); a run's
-scripts ask the copy of docslock it runs as (`DOCS_LOCK_BIN`). `make docs` and `make docs-cfdocs`
-(`scripts/docs.sh`), `make generate` (`scripts/generate.sh`) and `make docs-bump` each hold it
-across all their steps.
+run`, which turns every failing exit into 1, built every time (go's cache makes that a fraction of a
+second) and kept at a path named for a hash of the binary itself, complete by construction
+(`-buildvcs=false`, so the repository's state is not in it) (`target/docs-gen/docslock-<hash>`,
+`generate_docs-<hash>`: `scripts/lib/hashbuild.sh`), so a changed source builds a new one and a copy
+a run is executing is never replaced (older builds of either, and the handoff files of killed runs,
+are removed only by docslock, holding the lock, as its run ends, a build once it has gone ten
+minutes unused: a run touches each build it uses, so the cache holds and one a starting run has just
+built or found is never pulled from under it); a run's scripts ask the copy of docslock it runs as
+(`DOCS_LOCK_BIN`). `make docs` and `make docs-cfdocs` (`scripts/docs.sh`), `make generate`
+(`scripts/generate.sh`) and `make docs-bump` each hold it across all their steps.
 
 **The generator holds the lock itself.** `make generate` has docslock run it once `generate.sh` has
 succeeded (`docslock --then`, which `underlock.sh` gives `generate.sh` by name: the script builds it
@@ -140,17 +140,21 @@ descriptor: there the generator breaks away from docslock's job (below), so it i
 its two renames (only from docslock's own job, and started in it after all if a job around docslock
 forbids breaking away), and its check before writing is what stops it should docslock be gone.
 
-**A killed docslock.** Its scripts may run on unlocked, so each checks it still holds the lock just
-before every change to a path runs share (`docs_still_locked`: each swap and recovery, each delete,
-the order and pin renames) and stops if not, and its EXIT trap leaves those paths alone unless it
-still holds it. On Linux the kernel also sends the script SIGTERM when docslock dies (`Pdeathsig`,
-so its traps run, from a goroutine locked to its thread, as Linux sends it when that thread exits);
-on Windows docslock puts itself in a kill-on-close job before starting anything, so everything the
-run starts ends with it. What is left: on macOS and the BSDs, a script killed between a check and
-its change, and on Windows, a generator killed between its check and its renames. Windows also
-cannot send a process SIGTERM, so docslock forwards nothing there: a console's Ctrl-C or close
-reaches every process attached to it, and a SIGTERM-like stop aimed at docslock alone does not reach
-the command.
+**A killed docslock.** Its scripts may run on unlocked. Each run builds what it swaps or renames
+into place under scratch names of its own (`docs_scratch`: `DIR.new.<token>`, `order.tmp.<token>`,
+`sources.lock.tmp.<token>`), so an orphaned run can only ever touch its own; it checks it still
+holds the lock (`docs_still_locked`) just before the step that changes what other runs read (each
+swap and recovery, the order and pin renames, the cfdocs marker, clearing killed runs' scratch) and
+stops if not, and its EXIT trap leaves those alone unless it still holds it. On a stop by a signal,
+the trap runs the script's EXIT cleanup itself before ending it by the signal (a bash killed by a
+signal runs none). On Linux the kernel also sends the script SIGTERM when docslock dies
+(`Pdeathsig`, so its traps run, from a goroutine locked to its thread, as Linux sends it when that
+thread exits); on Windows docslock puts itself in a kill-on-close job before starting anything, so
+everything the run starts ends with it. What is left: on macOS and the BSDs, a script killed between
+a check and its change, and on Windows, a generator killed between its check and its renames.
+Windows also cannot send a process SIGTERM, so docslock forwards nothing there: a console's Ctrl-C
+or close reaches every process attached to it, and a SIGTERM-like stop aimed at docslock alone does
+not reach the command.
 
 **Signals.** The command runs in docslock's own process group, so a terminal's Ctrl-C, Ctrl-Z and
 hang-up reach it, and everything it runs, directly and once, and job control is the shell's as for

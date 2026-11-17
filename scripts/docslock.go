@@ -376,9 +376,10 @@ var buildDir = filepath.Join("target", "docs-gen")
 // build goes only once it is ten minutes old by its time stamp, which
 // docs_build refreshes whenever a run uses it: so this run's builds are kept
 // (the cache holds), and so is one a run starting now has just built or
-// found, and is about to execute. This process's own binary,
-// a build in progress (*.tmp) and anything else there are left. Best-effort:
-// Windows refuses to delete a program still executing (a killed run's).
+// found, and is about to execute. A temporary build (*.tmp) a killed build
+// left goes by the same rule; one in progress is newer. This process's own
+// binary and anything else there are left. Best-effort: Windows refuses to
+// delete a program still executing (a killed run's).
 func pruneBuilds(self string) {
 	entries, err := os.ReadDir(buildDir)
 	if err != nil {
@@ -389,11 +390,13 @@ func pruneBuilds(self string) {
 		name := e.Name()
 
 		switch {
-		case name == filepath.Base(self) || strings.HasSuffix(name, ".tmp"):
+		case name == filepath.Base(self):
 			continue
 		case strings.HasPrefix(name, "then-"):
 			// This run's is not written until its command runs.
 		case isBuild(name, "docslock") || isBuild(name, "generate_docs"):
+			// A build, or a temporary one (*.tmp) a killed build left; one
+			// in progress now is newer than the age below.
 			info, err := e.Info()
 			if err != nil || time.Since(info.ModTime()) < 10*time.Minute {
 				continue

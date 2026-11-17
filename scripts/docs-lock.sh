@@ -64,11 +64,12 @@ set)
         echo "error: will not pin $src at \"$value\": not a 40-character commit" >&2
         exit 1
     fi
-    tmp="$LOCK.tmp"
-    # A path runs share: written only under the lock, and removed if this
-    # stops before renaming it into place.
+    # This run's own (docs_scratch), renamed into place under the lock, and
+    # removed if this stops first.
     docs_still_locked
-    trap 'docs_cleanup_begin; if docs_holds_lock; then rm -f "$tmp"; fi' EXIT
+    docs_clear_scratch "$LOCK.tmp"
+    tmp=$(docs_scratch "$LOCK.tmp")
+    trap 'docs_cleanup_begin; rm -f "$tmp"' EXIT
     {
         if [ -f "$LOCK" ]; then
             awk -v s="$src" '$1 != s' "$LOCK"

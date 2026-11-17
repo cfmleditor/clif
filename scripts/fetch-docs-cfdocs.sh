@@ -22,7 +22,8 @@ cd "$(dirname "$0")/.."
 SRC="docs/src/cfdocs"
 REPO="https://github.com/cfmleditor/cfdocs.git"
 SHA_FILE="docs/.sha-cfdocs"
-NEW="$SRC.new"
+# This run's own copy, built beside the staged one (docs_scratch).
+NEW=$(docs_scratch "$SRC.new")
 
 # shellcheck source=lib/swapdir.sh
 . scripts/lib/swapdir.sh
@@ -32,13 +33,11 @@ NEW="$SRC.new"
 TMP=$(mktemp -d)
 cleanup() {
     docs_cleanup_begin
-    rm -rf "$TMP" || true # this run's own
-    # The shared paths only while this run still holds the lock (another run
-    # may have them otherwise); the previous copy back first, so nothing that
-    # fails after can keep it aside.
+    rm -rf "$TMP" "$NEW" || true # this run's own
+    # The staged copy only while this run still holds the lock (another run
+    # may have it otherwise).
     if docs_holds_lock; then
         swap_recover "$SRC" || true
-        rm -rf "$NEW" || true
     fi
 }
 trap cleanup EXIT
@@ -47,6 +46,7 @@ trap cleanup EXIT
 # marker, so it is never mistaken for the pin): put it back.
 docs_still_locked
 swap_recover "$SRC"
+docs_clear_scratch "$SRC.new"
 
 if [ "${DOCS_BUMP:-}" = "1" ]; then
     if ! remote=$(retry git ls-remote "$REPO" refs/heads/master); then
@@ -96,8 +96,6 @@ fi
 # first and written only once the new copy is in place: a copy that fails or
 # is interrupted part way can never leave a partial directory that the marker
 # still calls the pinned commit.
-docs_still_locked
-rm -rf "$NEW"
 mkdir -p "$NEW"
 cp "$TMP/cfdocs/data/en/"*.json "$NEW/"
 

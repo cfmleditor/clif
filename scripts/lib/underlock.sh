@@ -13,7 +13,7 @@
 #
 # docslock is built and run, not `go run`: that turns a failing exit, a stop
 # by a signal included, into exit 1, losing the code the script exits with.
-# It is built to a path named for a hash of its sources (lib/hashbuild.sh),
+# It is kept at a path named for a hash of the binary (lib/hashbuild.sh),
 # and a run's scripts ask the copy it runs as (DOCS_LOCK_BIN), whatever is
 # checked out or built meanwhile.
 #
@@ -41,8 +41,7 @@ docs_lock_bin() {
     if [ -n "${DOCS_LOCK_BIN:-}" ] && [ -x "$DOCS_LOCK_BIN" ]; then
         return 0
     fi
-    DOCS_LOCK_BIN=$(cd "$docs_root" && docs_built_path scripts/docslock.go docslock) &&
-        (cd "$docs_root" && docs_build scripts/docslock.go "$DOCS_LOCK_BIN") || return 1
+    DOCS_LOCK_BIN=$(cd "$docs_root" && docs_build scripts/docslock.go docslock) || return 1
     DOCS_LOCK_BIN="$docs_root/$DOCS_LOCK_BIN"
     export DOCS_LOCK_BIN
 }
@@ -60,8 +59,7 @@ fi
 
 if [ -z "$docs_held" ]; then
     cd "$docs_root" || exit 1
-    docslock=$(docs_built_path scripts/docslock.go docslock) || exit 1
-    docs_build scripts/docslock.go "$docslock" || exit 1
+    docslock=$(docs_build scripts/docslock.go docslock) || exit 1
     # generate.sh, alone, is run with --then: docslock runs the program it
     # names once it has succeeded, the generator, passing it the lock's
     # descriptor. Chosen by the script's name, not by anything in the
@@ -74,6 +72,21 @@ if [ -z "$docs_held" ]; then
 fi
 unset docs_held
 
+# Scratch: each run builds what it then swaps or renames into place under
+# names of its own, BASE.<its token> (docs_scratch), never a name another run
+# could be writing. So a run whose docslock was killed can only ever touch
+# its own scratch, and only the final swap, rename or marker write, the step
+# that changes what other runs read, needs docs_still_locked just before it.
+# docs_clear_scratch removes what killed runs left (BASE, as earlier versions
+# named it, and BASE.*): call it holding the lock, before writing this run's.
+docs_scratch() { printf '%s.%s\n' "$1" "${DOCS_LOCK_TOKEN:0:16}"; }
+docs_clear_scratch() {
+    local s
+    for s in "$1" "$1".*; do
+        rm -rf "$s"
+    done
+}
+
 # docs_holds_lock: whether this run still holds the lock. Should its docslock
 # have been killed, which frees the lock at once, another run may have taken
 # it, and every path the two share (DIR.new, DIR.old, the order's temporary
@@ -81,9 +94,10 @@ unset docs_held
 docs_holds_lock() { docs_lock_bin && (cd "$docs_root" && "$DOCS_LOCK_BIN" --held); }
 
 # docs_still_locked: exit 1 unless this run still holds the lock. Called just
-# before every change a docs script makes to a shared path (lib/swapdir.sh's
-# swap_in and swap_recover, each rm of one, the order and pin renames); an
-# EXIT trap tests docs_holds_lock instead, and leaves those paths alone.
+# before every change a docs script makes to what other runs read (a swap or
+# a recovery, the order and pin renames, the cfdocs marker, clearing others'
+# scratch); an EXIT trap tests docs_holds_lock instead, and leaves those
+# alone. A run's own scratch (docs_scratch) needs no check.
 docs_still_locked() {
     if ! docs_holds_lock; then
         echo "error: this run no longer holds the docs lock (its docslock was stopped?): stopping before changing anything" >&2
@@ -110,6 +124,9 @@ docs_still_locked() {
 # EXIT trap of its own, so the cleanup would never happen.
 docs_die() {
     trap '' INT TERM HUP
+    # The cleanup runs whatever fails in it: under the script's set -e, a
+    # failing line would end the script there, by its code, not the signal.
+    set +e
     local on_exit
     on_exit=$(trap -p EXIT)
     trap - EXIT

@@ -31,13 +31,16 @@ SOURCES="docs/src/cfdocs docs/retained docs/lucee"
 # shellcheck source=lib/swapdir.sh
 . scripts/lib/swapdir.sh
 
-trap 'docs_cleanup_begin; if docs_holds_lock; then rm -f "$ORDER.tmp"; fi' EXIT
+# This run's own, renamed into place at the end (docs_scratch).
+ORDER_TMP=$(docs_scratch "$ORDER.tmp")
+trap 'docs_cleanup_begin; rm -f "$ORDER_TMP"' EXIT
 
 # An interrupted fetch or bump may have left a copy aside: put each back
 # before checking for it.
 docs_still_locked
 swap_recover docs/src/cfdocs
 swap_recover docs/lucee
+docs_clear_scratch "$ORDER.tmp"
 
 # cfdocs and Lucee must be here: a missing one is an error, never left out of
 # the order. cfdocs is the one fetched (staged under docs/src/); docs/lucee is
@@ -58,12 +61,12 @@ mkdir -p docs/retained
 # One small file, written beside itself and renamed into place: a rename is
 # atomic, so a failure or interrupt leaves the previous order whole.
 mkdir -p "$(dirname "$ORDER")"
-: > "$ORDER.tmp"
+: > "$ORDER_TMP"
 for src in $SOURCES; do
-    echo "${src##*/} $src" >> "$ORDER.tmp"
+    echo "${src##*/} $src" >> "$ORDER_TMP"
     echo "  $src → $(find "$src" -maxdepth 1 -name '*.json' | wc -l | tr -d ' ') JSON files, read in place"
 done
 docs_still_locked
-mv "$ORDER.tmp" "$ORDER"
+mv "$ORDER_TMP" "$ORDER"
 
 echo "Assembled $ORDER"
