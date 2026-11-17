@@ -90,7 +90,7 @@ docs-cfdocs:
 	@bash scripts/docs.sh --cfdocs
 
 docs-assemble:
-	@./scripts/assemble-docs.sh
+	@bash scripts/assemble-docs.sh
 
 # Moves the cfdocs pin in docs/sources.lock and the vendored docs/lucee to
 # upstream's latest, and stages them. Follow with `make generate`, and review

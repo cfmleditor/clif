@@ -249,11 +249,9 @@ func main() {
 		}
 	}
 
-	// At the end, still holding the lock, when every build this run used has
-	// just been touched (lib/hashbuild.sh's docs_build): so its own are kept.
-	// Signals are still caught meanwhile, so none ends this process before
-	// its record is cleared.
-	pruneBuilds(self)
+	// At the end, still holding the lock. Signals are still caught
+	// meanwhile, so none ends this process before its record is cleared.
+	clearLeftovers()
 	cleanup()
 	signal.Stop(sigs)
 
@@ -369,20 +367,15 @@ func thenProgram(file string) string {
 // buildDir is where lib/hashbuild.sh builds the docs programs.
 var buildDir = filepath.Join("target", "docs-gen")
 
-// pruneBuilds clears target/docs-gen of what older runs left: builds of
-// docslock and the generator from older sources (each several MB), and the
-// --then files of runs killed before they could remove theirs. The one place
-// they are removed, and only here, holding the lock, so no other run is
-// using them; lib/underlock.sh builds before trying the lock, and a run it
-// would refuse must not delete anything. It runs as the run ends, and a
-// build goes only once it is ten minutes old by its time stamp, which
-// docs_build refreshes whenever a run uses it: so this run's builds are kept
-// (the cache holds), and so is one a run starting now has just built or
-// found, and is about to execute. A temporary build (*.tmp) a killed build
-// left goes by the same rule; one in progress is newer. This process's own
-// binary and anything else there are left. Best-effort: Windows refuses to
-// delete a program still executing (a killed run's).
-func pruneBuilds(self string) {
+// clearLeftovers removes from target/docs-gen what killed runs left that
+// nothing ever executes: --then files (then-*) and temporary builds (*.tmp),
+// once ten minutes old, so a build in progress now is not one of them. Here,
+// holding the lock, as a run ends. Builds themselves (docslock-<hash>,
+// generate_docs-<hash>, check_vendored-<hash>) are never removed: any run may
+// be about to execute one, and deleting it is a race with that run's start;
+// each is a few MB, a new one appears only when its program's code changes,
+// and `make clean` removes them.
+func clearLeftovers() {
 	entries, err := os.ReadDir(buildDir)
 	if err != nil {
 		return
@@ -390,52 +383,14 @@ func pruneBuilds(self string) {
 
 	for _, e := range entries {
 		name := e.Name()
-
-		switch {
-		case name == filepath.Base(self):
-			continue
-		case strings.HasPrefix(name, "then-"):
-			// This run's is not written until its command runs.
-		case isBuild(name, "docslock") || isBuild(name, "generate_docs") || isBuild(name, "check_vendored"):
-			// A build, or a temporary one (*.tmp) a killed build left; one
-			// in progress now is newer than the age below.
-			info, err := e.Info()
-			if err != nil || time.Since(info.ModTime()) < 10*time.Minute {
-				continue
-			}
-		default:
+		if !strings.HasPrefix(name, "then-") && !strings.HasSuffix(name, ".tmp") {
 			continue
 		}
 
-		removeIfStale(filepath.Join(buildDir, name))
+		if info, err := e.Info(); err == nil && time.Since(info.ModTime()) >= 10*time.Minute {
+			_ = os.Remove(filepath.Join(buildDir, name))
+		}
 	}
-}
-
-// removeIfStale removes path unless it was touched (used) in the last ten
-// minutes: moved aside first, its age checked again there, and put back if
-// a run touched it between the first look and the move (docs_build's
-// touch -c of a missing path does nothing, so after the move none can).
-func removeIfStale(path string) {
-	aside := fmt.Sprintf("%s.prune.%d", path, os.Getpid())
-	if os.Rename(path, aside) != nil {
-		return
-	}
-
-	if info, err := os.Stat(aside); err == nil && time.Since(info.ModTime()) < 10*time.Minute {
-		_ = os.Rename(aside, path)
-
-		return
-	}
-
-	_ = os.Remove(aside)
-}
-
-// isBuild reports whether name is a build of program: hashed
-// (program-<hash>, lib/hashbuild.sh), temporary (program.<pid>.tmp, which a
-// killed build leaves), or from before builds were hashed (program,
-// program.exe).
-func isBuild(name, program string) bool {
-	return name == program || strings.HasPrefix(name, program+"-") || strings.HasPrefix(name, program+".")
 }
 
 func usage() {

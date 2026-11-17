@@ -967,14 +967,26 @@ func main() {
 	fmt.Fprintf(os.Stderr, "generated %s with %d entries, and %s\n", outFile, len(entries), sourcesFile)
 }
 
+// runTag names this run's scratch: the first 16 characters of its token, as
+// lib/underlock.sh's docs_scratch does, or its PID when run with none.
+func runTag() string {
+	if t := os.Getenv("DOCS_LOCK_TOKEN"); len(t) >= 16 {
+		return t[:16]
+	}
+
+	return strconv.Itoa(os.Getpid())
+}
+
 // clearStaleTemps removes the temporary files killed generators left beside
-// paths (PATH.<pid>.tmp, and PATH.tmp from before they were named per run),
-// which git would otherwise show as new files. Called holding the lock,
-// before this run writes its own.
+// paths (PATH.tmp.<run>, and PATH.tmp and PATH.<pid>.tmp as earlier versions
+// named them), which git would otherwise show as new files, as
+// docs_clear_scratch does for the scripts. Called holding the lock, before
+// this run writes its own.
 func clearStaleTemps(paths ...string) {
 	for _, p := range paths {
-		stale, _ := filepath.Glob(p + ".*.tmp")
-		for _, s := range append(stale, p+".tmp") {
+		a, _ := filepath.Glob(p + ".tmp.*")
+		b, _ := filepath.Glob(p + ".*.tmp")
+		for _, s := range append(append(a, b...), p+".tmp") {
 			_ = os.Remove(s)
 		}
 	}
@@ -1002,11 +1014,12 @@ func writeAll(files []generated) error {
 	}()
 
 	for _, f := range files {
-		// This run's own name (PATH.<pid>.tmp), never one another
-		// generator could be writing: on Windows, where the generator holds
-		// no descriptor, one left running after its docslock was killed
-		// might be.
-		tmp := fmt.Sprintf("%s.%d.tmp", f.path, os.Getpid())
+		// This run's own name, PATH.tmp.<run> as the scripts name theirs
+		// (lib/underlock.sh's docs_scratch), never one another generator
+		// could be writing: on Windows, where the generator holds no
+		// descriptor, one left running after its docslock was killed might
+		// be.
+		tmp := f.path + ".tmp." + runTag()
 		tmps = append(tmps, tmp) // before writing: a partial write is cleaned up too
 		if err := os.WriteFile(tmp, f.data, 0o644); err != nil {
 			return err

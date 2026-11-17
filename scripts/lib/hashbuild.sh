@@ -15,10 +15,10 @@
 # depth, embedded files, cgo and compiler settings, the toolchain) is in the
 # binary. -buildvcs=false keeps the repository's state out of it, so the same
 # sources give the same binary. Built to a temporary file of this process's
-# own; kept where it is if that binary is there already (its time stamp
-# refreshed, as docslock prunes builds by how long they go unused), moved
-# into place otherwise, never over one (mv -n: another run starting at once
-# may have put the same binary there first, and be executing it).
+# own; kept where it is if that binary is there already, moved into place
+# otherwise, never over one (mv -n: another run starting at once may have put
+# the same binary there first, and be executing it). Builds are never
+# removed but by `make clean`: a run may be about to execute any of them.
 docs_build() {
     local main=$1 name=$2 ext="" tmp hash path
     case "$(uname -s 2>/dev/null)" in
@@ -31,11 +31,7 @@ docs_build() {
     path="target/docs-gen/$name-$hash$ext"
     if [ -x "$path" ]; then
         rm -f "$tmp"
-        touch -c "$path" 2>/dev/null || true
     else
-        # Not executable: a stub left by an interrupted move. Never a binary
-        # a run is executing, which would be executable.
-        [ -e "$path" ] && rm -f "$path"
         mv -n "$tmp" "$path" 2>/dev/null || true
         rm -f "$tmp"
     fi

@@ -254,8 +254,8 @@ jobs:
     name: Docs regenerate as committed
     runs-on: ubuntu-latest
     steps:
-      # Depth 2: on a pull request the checkout is GitHub's merge commit, and
-      # its first parent is the base it was merged onto, the baseline below.
+      # Depth 2: the first parent is the baseline below (on a pull request
+      # the checkout is GitHub's merge commit, merged onto its base).
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -290,8 +290,11 @@ jobs:
         env:
           EVENT: ${{ github.event_name }}
         run: |
-          if [ "$EVENT" = pull_request ]; then
-            base=$(git rev-parse --verify HEAD^1)
+          # A pull request's merge commit, and a push's commit, are each
+          # compared with their first parent: what main held before. On a
+          # push, HEAD itself already holds whatever it regenerated, lossy or
+          # not, so comparing with it would see nothing missing.
+          if base=$(git rev-parse --verify --quiet HEAD^1); then
             export DOCS_BASELINE_REF="$base" DOCS_ALLOWED_REMOVALS_FILE=docs/allowed-removals
           fi
           make generate
