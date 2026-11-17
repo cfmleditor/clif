@@ -11,6 +11,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/cfmleditor/clif/internal/vfs"
 )
@@ -143,4 +144,17 @@ func Holds(f *os.File, path, token string) bool {
 	_, got := Holder(path)
 
 	return token != "" && got == token
+}
+
+// Exit ends this process by sig (Raise), so what ran it sees an interrupted
+// run, or, should it not end by it, with the shell's code for it: 128 + its
+// number.
+func Exit(sig os.Signal) {
+	Raise(sig)
+
+	if n, ok := sig.(syscall.Signal); ok {
+		os.Exit(128 + int(n))
+	}
+
+	os.Exit(1)
 }

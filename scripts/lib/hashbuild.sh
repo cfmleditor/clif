@@ -1,0 +1,56 @@
+# shellcheck shell=bash
+# The docs pipeline's Go programs (scripts/docslock.go, scripts/generate_docs.go),
+# built once per version of their sources, each to a path named for a hash of
+# them: a changed source builds a new binary beside the old, so a copy some
+# run is executing is never replaced (Windows refuses that outright), and an
+# unchanged one is not built again. Sourced by lib/underlock.sh and
+# scripts/generate.sh; every path is relative to the repository root.
+
+# shellcheck source=sha256.sh
+. "$(dirname "${BASH_SOURCE[0]}")/sha256.sh"
+
+# docs_built_path MAIN.go NAME: print the path MAIN.go builds to, named NAME
+# and the hash of what `go list -deps` says it is built from: this module's
+# own packages by their sources (not their tests), a dependency's by its
+# directory in the module cache, which names its version, and go.mod for the
+# toolchain. Nothing else forces a rebuild, and nothing it comes to import
+# is missed.
+docs_built_path() {
+    local main=$1 name=$2 root deps hash
+    root=$(pwd) || return 1
+    deps=$(go list -deps -f '{{if not .Standard}}{{.Dir}}{{end}}' "$main") || return 1
+    hash=$({
+        cat "$main" go.mod
+        printf '%s\n' "$deps" | while IFS= read -r d; do
+            case "$d" in
+            "$root"/scripts) ;; # MAIN.go itself, above; not its neighbours
+            "$root"/*)
+                for f in "$d"/*.go; do
+                    case "$f" in *_test.go) ;; *) cat "$f" ;; esac
+                done
+                ;;
+            *) echo "$d" ;;
+            esac
+        done
+    } | sha256 /dev/stdin | cut -c1-16) || return 1
+    case "$(uname -s 2>/dev/null)" in
+    MINGW* | MSYS* | CYGWIN*) echo "target/docs-gen/$name-$hash.exe" ;;
+    *) echo "target/docs-gen/$name-$hash" ;;
+    esac
+}
+
+# docs_build MAIN.go PATH: build MAIN.go to PATH (docs_built_path), unless it
+# is there. Built to a temporary file and moved into place only if PATH is
+# still free: another run starting at once may have built the same binary
+# first, and be executing it, and it is not moved over (mv -n). Builds of
+# older sources are left: one may be what a run is executing; they are
+# small, and `make clean` removes them.
+docs_build() {
+    local main=$1 path=$2
+    [ -x "$path" ] && return 0
+    mkdir -p "$(dirname "$path")" || return 1
+    go build -o "$path.$$.tmp" "$main" || return 1
+    mv -n "$path.$$.tmp" "$path" 2>/dev/null || true
+    rm -f "$path.$$.tmp"
+    [ -x "$path" ]
+}

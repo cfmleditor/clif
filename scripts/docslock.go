@@ -69,8 +69,9 @@ func fail(format string, a ...any) {
 // stopping signal sent to this process.
 var current struct {
 	sync.Mutex
-	p   *os.Process
-	got os.Signal
+	p       *os.Process
+	got     os.Signal
+	pending os.Signal // one to pass on that came while no command ran
 }
 
 func main() {
@@ -110,18 +111,39 @@ func main() {
 	// reached the command already, and a second copy could cut its cleanup
 	// short. One that comes while no command runs stops the run before the
 	// next would start, and any that came ends this process by it.
+	//
+	// A signal this process was started with ignored (nohup's SIGHUP, a
+	// background job's SIGINT) is left so: caught, it would be passed on, and
+	// the command, which inherits it ignored otherwise, would die of it. A
+	// hang-up is judged by whether this process had the terminal at the
+	// start: by the time it arrives the terminal is often gone, and asking
+	// then would take a hang-up the terminal sent the whole group for one
+	// sent here alone, and deliver it to the command a second time.
+	fgAtStart := flock.InForeground()
+	var caught []os.Signal
+	for _, s := range []os.Signal{os.Interrupt, syscall.SIGTERM, syscall.SIGHUP} {
+		if !signal.Ignored(s) {
+			caught = append(caught, s)
+		}
+	}
 	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+	signal.Notify(sigs, caught...)
 	go func() {
 		for s := range sigs {
-			pass := s == syscall.SIGTERM || !flock.InForeground()
+			pass := s == syscall.SIGTERM ||
+				(s == os.Interrupt && !flock.InForeground()) ||
+				(s == syscall.SIGHUP && !fgAtStart)
 
 			current.Lock()
 			if current.got == nil {
 				current.got = s
 			}
-			if pass && current.p != nil {
-				_ = current.p.Signal(s)
+			if pass {
+				if current.p != nil {
+					_ = current.p.Signal(s)
+				} else {
+					current.pending = s // sent on as the next command starts
+				}
 			}
 			current.Unlock()
 		}
@@ -229,17 +251,15 @@ func main() {
 		current.Unlock()
 	}
 	if by != nil {
-		flock.Raise(by)
-		if n, ok := by.(syscall.Signal); ok && code == 0 {
-			code = 128 + int(n)
-		}
+		flock.Exit(by)
 	}
 	os.Exit(code)
 }
 
 // run runs cmd with this process's stdio and waits for it: its exit code, and
 // the signal that ended it, if one did (128 + its number then, as a shell
-// reports it). A SIGTERM that came meanwhile is passed on as it is recorded.
+// reports it). A signal to pass on that came meanwhile is passed on as it is
+// recorded.
 // retry, if given, adjusts a copy of cmd to start again should the first
 // start be refused.
 func run(cmd *exec.Cmd, retry func(*exec.Cmd)) (int, os.Signal) {
@@ -265,8 +285,9 @@ func run(cmd *exec.Cmd, retry func(*exec.Cmd)) (int, os.Signal) {
 
 	current.Lock()
 	current.p = cmd.Process
-	if current.got == syscall.SIGTERM {
-		_ = current.p.Signal(syscall.SIGTERM)
+	if current.pending != nil {
+		_ = current.p.Signal(current.pending)
+		current.pending = nil
 	}
 	current.Unlock()
 
@@ -311,13 +332,7 @@ func stopIfSignalled(sigs chan os.Signal) {
 
 	signal.Stop(sigs)
 	cleanup()
-	flock.Raise(got)
-
-	if n, ok := got.(syscall.Signal); ok {
-		os.Exit(128 + int(n))
-	}
-
-	os.Exit(1)
+	flock.Exit(got)
 }
 
 func usage() {
