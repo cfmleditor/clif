@@ -65,6 +65,10 @@ set)
         exit 1
     fi
     tmp="$LOCK.tmp"
+    # A path runs share: written only under the lock, and removed if this
+    # stops before renaming it into place.
+    docs_still_locked
+    trap 'docs_cleanup_begin; if docs_holds_lock; then rm -f "$tmp"; fi' EXIT
     {
         if [ -f "$LOCK" ]; then
             awk -v s="$src" '$1 != s' "$LOCK"

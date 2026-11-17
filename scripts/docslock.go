@@ -56,6 +56,12 @@ var marker string
 var held *os.File
 
 func exit(code int) {
+	cleanup()
+	os.Exit(code)
+}
+
+// cleanup clears the record and removes the marker, on every way out.
+func cleanup() {
 	if held != nil {
 		_ = held.Truncate(0)
 	}
@@ -65,8 +71,6 @@ func exit(code int) {
 			_ = os.Remove(markerPath)
 		}
 	}
-
-	os.Exit(code)
 }
 
 func fail(format string, a ...any) {
@@ -176,7 +180,13 @@ func main() {
 	if err != nil {
 		fail("%v", err)
 	}
-	exit(code)
+
+	// Ended by a signal, the command's end is passed on as one (a Ctrl-C to
+	// the make that ran this too), after the cleanup, so a shell loop or
+	// `make -k` sees an interrupted run, not just an exit code.
+	cleanup()
+	group.Reraise()
+	os.Exit(code)
 }
 
 // takeMarker puts a symlink at docs/.lock naming this process as the
@@ -198,7 +208,7 @@ func takeMarker() {
 		return // no ps: a run of that version could not have named an owner either
 	}
 
-	for range 2 {
+	for range 3 {
 		if err := os.Symlink(self, markerPath); err == nil {
 			marker = self
 
@@ -210,16 +220,34 @@ func takeMarker() {
 			continue // gone meanwhile: try again
 		}
 
+		var stale string // the link's content, judged stale
 		if info.Mode()&os.ModeSymlink != 0 {
-			held, _ := os.Readlink(markerPath)
-			pid, err := strconv.Atoi(strings.SplitN(held, "@", 2)[0])
-			if err == nil && owner(pid) == held {
+			stale, _ = os.Readlink(markerPath)
+			pid, err := strconv.Atoi(strings.SplitN(stale, "@", 2)[0])
+			if err == nil && owner(pid) == stale {
 				fail("a docs run of the previous version of these scripts (PID %d) holds %s; wait for it to finish", pid, markerPath)
 			}
 		}
 
-		if err := os.RemoveAll(markerPath); err != nil {
-			fail("cannot replace a stale %s: %v", markerPath, err)
+		// Moved aside, then checked to be the one judged stale, before it
+		// is deleted: a run of the previous version may have replaced it
+		// with its own, live, in between (it removes a stale lock and makes
+		// its own the same way). One that has changed is put back, and the
+		// next try finds it live.
+		aside := fmt.Sprintf("%s.stale.%d", markerPath, os.Getpid())
+		if err := os.Rename(markerPath, aside); err != nil {
+			continue // gone meanwhile: look again
+		}
+
+		if now, err := os.Readlink(aside); err == nil && now != stale {
+			_ = os.Symlink(now, markerPath) // put back; fails only if another is there already
+			_ = os.Remove(aside)
+
+			continue
+		}
+
+		if err := os.RemoveAll(aside); err != nil {
+			fail("cannot remove a stale %s: %v", markerPath, err)
 		}
 	}
 

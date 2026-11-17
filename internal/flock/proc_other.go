@@ -35,3 +35,6 @@ func (g *Group) Wait() (int, error) {
 
 // SignalGroup signals p alone here.
 func SignalGroup(p *os.Process, sig os.Signal) error { return p.Signal(sig) }
+
+// Reraise does nothing here: the caller exits with the command's code.
+func (*Group) Reraise() {}

@@ -45,14 +45,15 @@ if [ -z "$docs_held" ]; then
     # Hashed: what docslock is built from (its own source, the non-test
     # sources of the packages it imports from this module, go.mod and the one
     # dependency's go.sum lines), so nothing else forces a rebuild.
+    # shellcheck source=sha256.sh
+    . scripts/lib/sha256.sh
     docs_hash=$({
         cat scripts/docslock.go go.mod
         for f in internal/flock/*.go internal/vfs/*.go; do
             case "$f" in *_test.go) ;; *) cat "$f" ;; esac
         done
         grep '^golang.org/x/sys ' go.sum
-    } |
-        { if command -v sha256sum >/dev/null 2>&1; then sha256sum; else shasum -a 256; fi; } | cut -c1-16) || exit 1
+    } | sha256 /dev/stdin | cut -c1-16) || exit 1
     case "$(uname -s 2>/dev/null)" in
     MINGW* | MSYS* | CYGWIN*) docslock="target/docs-gen/docslock-$docs_hash.exe" ;;
     *) docslock="target/docs-gen/docslock-$docs_hash" ;;
@@ -95,10 +96,12 @@ docs_still_locked() {
 # docslock passes a signal that stops the run to the whole of it, this script
 # and what it is running at once. bash acts on a trapped signal only once the
 # command it is waiting on has finished, so these let that command stop (the
-# generator finish writing, say) before the EXIT trap cleans up after it.
-trap 'exit 130' INT
-trap 'exit 143' TERM
-trap 'exit 129' HUP
+# generator finish writing, say) before the EXIT trap cleans up after it. Each
+# then ends this script by the same signal, not just its exit code, so what
+# ran it sees an interrupted run (docslock passes that on: flock.Reraise).
+trap 'trap - INT; kill -INT $$' INT
+trap 'trap - TERM; kill -TERM $$' TERM
+trap 'trap - HUP; kill -HUP $$' HUP
 
 # docs_cleanup_begin: the first line of a script's EXIT trap. A second signal
 # there would cut the cleanup short; none is acted on from then on.

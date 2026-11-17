@@ -71,3 +71,6 @@ func (g *Group) Wait() (int, error) {
 // to it, the command's included, and the job ends them all should this one be
 // killed outright.
 func SignalGroup(*os.Process, os.Signal) error { return nil }
+
+// Reraise does nothing here: the caller exits with the command's code.
+func (*Group) Reraise() {}

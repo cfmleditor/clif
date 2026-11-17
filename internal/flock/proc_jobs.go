@@ -7,7 +7,9 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"runtime"
 	"syscall"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -18,13 +20,23 @@ import (
 // terminal as any job does (a git prompt, `stty tostop`) and a Ctrl-C there
 // reaches its processes once. Nothing it starts inherits an ignored signal.
 type Group struct {
-	tty *os.File // the controlling terminal, if this process has one
-	pid int      // the command's process, and its group
+	tty    *os.File       // the controlling terminal, if this process has one
+	pid    int            // the command's process, and its group
+	handed bool           // the terminal was given to the command at some point
+	ended  syscall.Signal // the signal that ended the command, if one did
 }
 
 // NewGroup makes cmd start as the leader of a process group of its own.
 // Call Started once it has, then Wait.
+//
+// It locks the calling goroutine to its OS thread, for good: Linux sends the
+// command its parent-death signal (dieWithParent) when the thread that
+// started it exits, not the process (golang/go#27505), and a thread a
+// goroutine is locked to cannot exit while the goroutine lives. So call it,
+// Start the command and Wait from the main goroutine.
 func NewGroup(cmd *exec.Cmd) *Group {
+	runtime.LockOSThread()
+
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	dieWithParent(cmd.SysProcAttr)
 
@@ -81,6 +93,7 @@ func (g *Group) Wait() (int, error) {
 			return ws.ExitStatus(), nil
 		case ws.Signaled():
 			g.takeBack()
+			g.ended = ws.Signal()
 
 			return 128 + int(ws.Signal()), nil
 		case ws.Stopped():
@@ -125,7 +138,31 @@ func (g *Group) foreground() int {
 func (g *Group) handOver() {
 	if g.tty != nil && g.foreground() == unix.Getpgrp() {
 		setForeground(g.tty, g.pid)
+		g.handed = true
 	}
+}
+
+// Reraise ends this process the way the command ended, if a signal ended
+// it; call it once the command has ended and the caller has cleaned up. Then
+// whatever ran this one sees an interrupted run rather than an exit code (a
+// shell loop breaks on it, `make -k` stops). A Ctrl-C reached only the command,
+// which had the terminal: it is sent on to this process's whole job, the
+// make that ran it included, as the terminal would have. Any other signal
+// ends this process alone. It returns only if no signal ended the command.
+func (g *Group) Reraise() {
+	if g.ended == 0 {
+		return
+	}
+
+	signal.Reset(g.ended)
+
+	if g.ended == unix.SIGINT && g.handed {
+		_ = unix.Kill(-unix.Getpgrp(), unix.SIGINT)
+	} else {
+		_ = unix.Kill(os.Getpid(), g.ended)
+	}
+
+	time.Sleep(time.Second) // the signal's delivery is not immediate
 }
 
 // takeBack returns the terminal to this group, if the command's has it.
