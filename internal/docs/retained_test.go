@@ -250,15 +250,18 @@ func TestVendoredLuceeMatchesItsSource(t *testing.T) {
 		t.Fatal("docs/lucee/SOURCE records no json-sha256: rerun `make docs-bump`")
 	}
 
-	got, broken, err := sources.HashDir(dir)
+	got, unhashed, _, err := sources.HashDir(dir)
 	if err != nil {
 		t.Fatalf("%v: check docs/lucee was added to git", err)
 	}
 
-	// A broken file (unreadable, a symlink, bad JSON) is left out of the hash,
-	// so name it plainly rather than let it surface only as a hash mismatch.
-	for _, b := range broken {
-		t.Errorf("broken vendored file: %s", b)
+	// A file that could not be hashed (unreadable, a symlink) is left out of
+	// the hash, so name it plainly rather than let it surface only as a hash
+	// mismatch. Whether a hashed file's content passes CheckEntryFile is not
+	// this test's to judge: `make docs-bump` refused any that did not when it
+	// vendored them, and the rule may tighten since.
+	for _, u := range unhashed {
+		t.Errorf("vendored file not hashed: %s", u)
 	}
 
 	if got != want {

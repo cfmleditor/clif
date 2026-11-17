@@ -23,7 +23,8 @@ func main() {
 		os.Exit(2)
 	}
 
-	hash, broken, err := docsources.HashDir(os.Args[2])
+	hash, unhashed, invalid, err := docsources.HashDir(os.Args[2])
+	broken := append(unhashed, invalid...)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

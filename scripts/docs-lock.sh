@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Under docs/.lock (scripts/docslock.go), like every docs script: see
+# lib/underlock.sh.
+# shellcheck source=lib/underlock.sh
+. "$(dirname "$0")/lib/underlock.sh"
+
 # Reads and writes docs/sources.lock, which pins each fetched doc source:
 #
 #   cfdocs <commit>    the cfdocs commit fetch-docs-cfdocs.sh checks out
@@ -50,12 +55,6 @@ check)
     ;;
 set)
     [ $# -eq 3 ] || usage
-    # Writing the lock file takes the docs lock (inherited inside make
-    # docs-bump), so no generation reads it half-written.
-    # shellcheck source=lib/swapdir.sh
-    . scripts/lib/swapdir.sh
-    trap docs_unlock EXIT
-    docs_lock
     src=$2
     value=$3
     if ! valid_commit "$value"; then

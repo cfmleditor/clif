@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Under docs/.lock (scripts/docslock.go), like every docs script: see
+# lib/underlock.sh.
+# shellcheck source=lib/underlock.sh
+. "$(dirname "$0")/lib/underlock.sh"
+
 # Lucee's docs are vendored in docs/lucee (committed): Lucee publishes only
 # its latest lucee-docs.zip, so a version cannot be pinned and fetched again
 # later, only kept. A plain run uses the committed copy and touches no
@@ -26,21 +31,15 @@ NEW="$DIR.new"
 # shellcheck source=lib/retry.sh
 . scripts/lib/retry.sh
 
-# The trap before the lock: an exit the moment the lock is taken still
-# releases it. Until then this run touches nothing shared.
 TMP=""
 cleanup() {
     if [ -n "$TMP" ]; then
         rm -rf "$TMP"
     fi
-    if docs_have_lock; then
-        swap_recover "$DIR"
-        rm -rf "$NEW"
-    fi
-    docs_unlock
+    rm -rf "$NEW"
+    swap_recover "$DIR"
 }
 trap cleanup EXIT
-docs_lock
 
 # On every run, not just a bump: an interrupted bump may have left the
 # committed copy aside in docs/lucee.old.

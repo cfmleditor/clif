@@ -232,12 +232,12 @@ func TestHashDirRefusesASymlink(t *testing.T) {
 		t.Skip("symlinks unavailable:", err)
 	}
 
-	_, broken, err := HashDir(dir)
+	_, unhashed, _, err := HashDir(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if len(broken) != 1 || !strings.HasPrefix(broken[0], "b.json") {
-		t.Errorf("broken = %v, want b.json refused as a symlink", broken)
+	if len(unhashed) != 1 || !strings.HasPrefix(unhashed[0], "b.json") {
+		t.Errorf("unhashed = %v, want b.json refused as a symlink", unhashed)
 	}
 }

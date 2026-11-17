@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Under docs/.lock (scripts/docslock.go), like every docs script: see
+# lib/underlock.sh.
+# shellcheck source=lib/underlock.sh
+. "$(dirname "$0")/lib/underlock.sh"
+
 # Stages cfdocs JSON in docs/src/cfdocs, which scripts/generate_docs.go reads
 # in place (docs/data/order points it there).
 #
@@ -24,19 +29,12 @@ NEW="$SRC.new"
 # shellcheck source=lib/retry.sh
 . scripts/lib/retry.sh
 
-# The trap before the lock: an exit the moment the lock is taken still
-# releases it. Until then this run touches nothing shared.
 TMP=$(mktemp -d)
 cleanup() {
-    rm -rf "$TMP"
-    if docs_have_lock; then
-        swap_recover "$SRC"
-        rm -rf "$NEW"
-    fi
-    docs_unlock
+    rm -rf "$TMP" "$NEW"
+    swap_recover "$SRC"
 }
 trap cleanup EXIT
-docs_lock
 
 # An interrupted earlier fetch may have left the previous copy aside (and no
 # marker, so it is never mistaken for the pin): put it back.

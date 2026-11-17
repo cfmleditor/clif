@@ -244,12 +244,16 @@ func ManifestHash(files map[string][]byte) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// HashDir reads every *.json in dir, checks each (CheckEntryFile), and returns
-// their ManifestHash and the problems found, one line per broken file. It is
-// what `make docs-bump` records in docs/lucee/SOURCE (through
-// scripts/check_vendored.go) and what TestVendoredLuceeMatchesItsSource
-// compares with it, so the two cannot read or hash the files differently.
-func HashDir(dir string) (hash string, broken []string, err error) {
+// HashDir reads every *.json in dir and returns their ManifestHash, the files
+// it could not hash (unhashed: unreadable, or not a regular file), and those
+// it hashed that fail CheckEntryFile (invalid: bad JSON, an invalid name). It
+// is what `make docs-bump` records in docs/lucee/SOURCE (through
+// scripts/check_vendored.go, which refuses both kinds) and what
+// TestVendoredLuceeMatchesItsSource compares with it (which fails on unhashed
+// ones only: whether a file's content passes the checks is the bump's
+// business, and the checks may tighten after it was vendored), so the two
+// cannot read or hash the files differently.
+func HashDir(dir string) (hash string, unhashed, invalid []string, err error) {
 	// os.DirFS keeps every name inside dir, but follows a symlink wherever it
 	// points; so a symlinked file is refused, not read, below. Vendored files
 	// are kept byte for byte as downloaded, and a zip extracts none.
@@ -257,11 +261,11 @@ func HashDir(dir string) (hash string, broken []string, err error) {
 
 	names, err := fs.Glob(fsys, "*.json")
 	if err != nil {
-		return "", nil, err
+		return "", nil, nil, err
 	}
 
 	if len(names) == 0 {
-		return "", nil, fmt.Errorf("no *.json in %s", dir)
+		return "", nil, nil, fmt.Errorf("no *.json in %s", dir)
 	}
 
 	files := make(map[string][]byte, len(names))
@@ -269,32 +273,32 @@ func HashDir(dir string) (hash string, broken []string, err error) {
 	for _, n := range names {
 		info, err := fs.Lstat(fsys, n)
 		if err != nil {
-			broken = append(broken, fmt.Sprintf("%s: %v", n, err))
+			unhashed = append(unhashed, fmt.Sprintf("%s: %v", n, err))
 
 			continue
 		}
 
 		if !info.Mode().IsRegular() {
-			broken = append(broken, fmt.Sprintf("%s: not a regular file (%s)", n, info.Mode().Type()))
+			unhashed = append(unhashed, fmt.Sprintf("%s: not a regular file (%s)", n, info.Mode().Type()))
 
 			continue
 		}
 
 		b, err := fs.ReadFile(fsys, n)
 		if err != nil {
-			broken = append(broken, fmt.Sprintf("%s: %v", n, err))
+			unhashed = append(unhashed, fmt.Sprintf("%s: %v", n, err))
 
 			continue
 		}
 
-		files[n] = b
+		files[n] = b // hashed whatever its content: CheckEntryFile is separate
 
 		if err := CheckEntryFile(b); err != nil {
-			broken = append(broken, fmt.Sprintf("%s: %v", n, err))
+			invalid = append(invalid, fmt.Sprintf("%s: %v", n, err))
 		}
 	}
 
-	return ManifestHash(files), broken, nil
+	return ManifestHash(files), unhashed, invalid, nil
 }
 
 // ParseKey reads "function <name>" or "tag <name>" (the type in any case,

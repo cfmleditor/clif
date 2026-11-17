@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Under docs/.lock (scripts/docslock.go), like every docs script: see
+# lib/underlock.sh.
+# shellcheck source=lib/underlock.sh
+. "$(dirname "$0")/lib/underlock.sh"
+
 # Writes docs/data/order, which tells scripts/generate_docs.go which doc
 # sources to read, from lowest precedence to highest (a later one wins, per
 # entry), and the directory each is read from. Every source is read in place,
@@ -26,18 +31,7 @@ SOURCES="docs/src/cfdocs docs/retained docs/lucee"
 # shellcheck source=lib/swapdir.sh
 . scripts/lib/swapdir.sh
 
-# The lock keeps a fetch or bump from swapping a source in while this checks
-# for it (and from having its set-aside copy moved back mid-swap below).
-# The trap before the lock: an exit the moment the lock is taken still
-# releases it.
-cleanup() {
-    if docs_have_lock; then
-        rm -f "$ORDER.tmp"
-    fi
-    docs_unlock
-}
-trap cleanup EXIT
-docs_lock
+trap 'rm -f "$ORDER.tmp"' EXIT
 
 # An interrupted fetch or bump may have left a copy aside: put each back
 # before checking for it.

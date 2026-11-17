@@ -8,4 +8,5 @@
 # one left from an earlier pull request, unchanged, accepts nothing and only
 # warns, so clear it when convenient. To remove such an entry again on purpose,
 # change its line (a new "# reason"): a changed line counts as added. CI fails
-# on a line it cannot read, on "1", and on an added line that accepts nothing.
+# on a line it cannot read, on "1", and on an entry new to this file that
+# accepts nothing; a changed line that accepts nothing (a tidied comment) warns.

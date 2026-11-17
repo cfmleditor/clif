@@ -104,22 +104,19 @@ retained name again the generator says the retained file can go. Every source is
 never copied, so a file just added, fixed, broken or pulled always counts. The staged cfdocs and the
 vendored `docs/lucee` are each built beside themselves and swapped in (`scripts/lib/swapdir.sh`),
 with the old copy restored after a failure or an interrupt, and `docs/data/order` is written to a
-temporary file and renamed into place. A lock (`docs/.lock`) keeps two docs runs from interleaving.
-It is implemented once, in `scripts/lib/swapdir.sh`: `make generate` runs `scripts/generate.sh`,
-which holds it across the fetch, the assemble and the generator, and `make docs-bump` runs
-`scripts/docs-bump.sh`, which holds it across all its steps; each step inherits it through
-`DOCS_LOCK_OWNER`. The generator takes no lock: it refuses to run unless started under one, so run
-it through `make generate`. The lock is a symlink naming its owner, `<pid>@<host>`, created
-atomically; every exit releases it (each script installs its trap before taking it, and compares
-with the owner string it wrote, so a host name that changes mid-run cannot strand it), an inherited
-lock needs its owner alive, and the generator checks it still holds the lock just before writing,
-and the generator's signal handler waits for an in-progress write to finish both renames and exits
-128 + the signal's number. A lock is taken over only when it names this host and its PID no longer
-exists (a run killed with `kill -9`): `kill -0` decides, with no `ps` and nothing locale- or
-time-zone-dependent, under `docs/.lock.takeover`, an atomic `mkdir` (stale after a minute). A lock
-from another host or a container is never taken over, and a PID since reused still looks alive: the
-run stops and says to `rm docs/.lock`. Locks from earlier versions (a start-time owner, or a lock
-directory) are recognised and taken over the same way. The scripts retry a failed network step twice
+temporary file and renamed into place. A lock (`docs/.lock`) keeps two docs runs from interleaving:
+the operating system's own file lock (`internal/flock`: `flock` on Unix, `LockFileEx` on Windows),
+held by `scripts/docslock.go`, so it is released however its holder ends, `kill -9` and a power cut
+included, and there is no owner to record and no stale lock to judge or take over. Every docs script
+runs itself under it (`scripts/lib/underlock.sh`: started directly, it re-runs through docslock.go
+from the repository root; started by one that holds it, `DOCS_LOCK_HELD`, it carries on). The lock's
+descriptor is inherited as fd 3 by everything the holder runs, so it lasts while any of them is
+alive. `make generate` (`scripts/generate.sh`) holds it across the fetch, the assemble and the
+generator, which runs as a built binary so it inherits fd 3 too, and refuses to run unless that
+descriptor is `docs/.lock` (on Windows, which passes no descriptors, `DOCS_LOCK_HELD`); so run it
+through `make generate`. `make docs-bump` (`scripts/docs-bump.sh`) holds it across all its steps.
+The generator holds a signal that arrives while it writes the two generated files until both are in
+place, then exits 128 + the signal's number. The scripts retry a failed network step twice
 (`scripts/lib/retry.sh`), and work from the repository root wherever they are run from.
 
 **`scripts/generate_docs.go` refuses to lose an entry.** It compares the new entries, by type and
@@ -177,22 +174,24 @@ internal/docs/generated_docs.go internal/docs/generated_sources.txt`.
 with its own syntax and parameters (or that Lucee now documents it), and
 `TestLuceeOnlyEntriesArePresent` that the Lucee-only entries are there; the release workflow runs
 `go test ./internal/docs/...`, once, ahead of the platform builds, rather than grepping the
-generated file. CI's `docs-reproducible` job runs `make generate` and fails if the committed docs
-change, so `generated_docs.go` is always what the pinned and vendored sources produce: a hand edit,
-or a pin bumped without regenerating, fails it. On a pull request it also regenerates against the
-PR's base (`DOCS_BASELINE_REF`), since `HEAD` is the PR's own commit and would hold nothing to miss
-if the PR itself committed a lossy regeneration. Only the losses `docs/allowed-removals` lists pass
-there, and only the lines the PR adds to that file (those the base's copy lacks) accept anything, so
-dropping an entry on purpose takes a reviewed change to it. A line left over from an earlier pull
-request (unchanged from the base's copy) accepts nothing, so it can neither wave a later loss
-through by accident nor fail anyone; it only warns until cleared. To remove such an entry again on
-purpose, change its line (a new `# reason`): a changed line counts as added. If the base's copy
-itself no longer parses, every line counts as added, with a warning, so it cannot block the pull
-request that fixes it. The generator reads the file itself (`DOCS_ALLOWED_REMOVALS_FILE`, through
-`sources.ParseAllowedRemovals`), strictly: a line it cannot read, `1` (which would switch the
-comparison off), or an added line that accepts nothing (a typo, a removal since undone) fails the
-step. `DOCS_BASELINE_REF` must name a commit; a value starting with `-` is refused, as git would
-read it as an option.
+generated file. CI's `docs-reproducible` job runs `make generate` once and fails if the committed
+docs change, so `generated_docs.go` is always what the pinned and vendored sources produce: a hand
+edit, or a pin bumped without regenerating, fails it. On a pull request that run compares with the
+PR's base (`DOCS_BASELINE_REF`) rather than `HEAD`, the PR's own commit, which would hold nothing to
+miss if the PR itself committed a lossy regeneration (a base from before `generated_sources.txt`
+existed has nothing to compare, and only notes so). Only the losses `docs/allowed-removals` lists
+pass there, and only the lines the PR adds to that file (those the base's copy lacks) accept
+anything, so dropping an entry on purpose takes a reviewed change to it. A line left over from an
+earlier pull request (unchanged from the base's copy) accepts nothing, so it can neither wave a
+later loss through by accident nor fail anyone; it only warns until cleared. To remove such an entry
+again on purpose, change its line (a new `# reason`): a changed line counts as added. A changed line
+that removes nothing (a comment tidied) only warns; only an entry new to the file that removes
+nothing is refused. If the base's copy itself no longer parses, every line counts as added, with a
+warning, so it cannot block the pull request that fixes it. The generator reads the file itself
+(`DOCS_ALLOWED_REMOVALS_FILE`, through `sources.ParseAllowedRemovals`), strictly: a line it cannot
+read, `1` (which would switch the comparison off), or an added line that accepts nothing (a typo, a
+removal since undone) fails the step. `DOCS_BASELINE_REF` must name a commit; a value starting with
+`-` is refused, as git would read it as an option.
 
 Go toolchain is pinned at **1.27.4** (`go.mod`). CGO is required (tree-sitter grammar).
 
@@ -302,6 +301,7 @@ Editor document change
 | `internal/language` | tree-sitter language handles (`CFML`, `CFScript`, `CFQuery`) + injection queries |
 | `internal/docs` | Built-in CFML function/tag signatures and return types (**generated — do not hand-edit**) |
 | `internal/docs/sources` | The docs generator's checks, compiled and tested here rather than in the build-ignored `scripts/generate_docs.go`: parsing `generated_sources.txt` (shared with the `internal/docs` tests, so they agree on a valid line), entry names, removals, fallbacks to a lower source, per-entry precedence (`Pick`), `DOCS_ALLOW_REMOVALS`, and the names in a `generated_docs.go`. Imports nothing from `internal/docs`, so a broken generated file cannot stop the generator |
+| `internal/flock` | An exclusive, non-blocking OS file lock (`flock` on Unix, `LockFileEx` on Windows), released however its holder ends; `scripts/docslock.go` holds `docs/.lock` with it |
 | `internal/cflint` | Downloads/runs the CFLint binary, maps JSON output to LSP diagnostics |
 | `internal/cache` | Per-file, per-scope completion item cache with content hashing |
 | `internal/refs` | Shared reference-finding + `Trace` (multi-hop wrapper following) for the `refs` CLI, `clif.findRefs` and `textDocument/references` |

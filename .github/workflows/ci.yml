@@ -273,34 +273,20 @@ jobs:
             docs/.sha-cfdocs
           key: docs-cfdocs-v1-${{ hashFiles('docs/sources.lock') }}
 
+      # One generator run. On a pull request it compares with the PR's base,
+      # not HEAD (the PR's own commit, which holds nothing to miss if the PR
+      # itself committed a lossy regeneration), accepting only the losses the
+      # lines it adds to docs/allowed-removals list; the generator reads that
+      # file itself, strictly. On a push it compares with HEAD.
       - name: Regenerate the docs
-        run: make generate
-
-      # `make generate` compares with HEAD, the PR's own commit: if that
-      # already holds a lossy regeneration (made with DOCS_ALLOW_REMOVALS, or
-      # by hand), HEAD has nothing to miss. So a pull request is also compared
-      # with its base, accepting only the losses docs/allowed-removals lists,
-      # a file the PR has to change, in review, to drop an entry on purpose.
-      - name: Compare with the pull request's base
-        if: github.event_name == 'pull_request'
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
         run: |
-          git fetch --no-tags --depth=1 origin "$BASE"
-          # A base without the file (before #385) has nothing to compare with;
-          # git failing to say (a missing object) is an error, not that.
-          if ! listed=$(git ls-tree --name-only "$BASE" -- internal/docs/generated_sources.txt); then
-            echo "::error::could not read the base commit $BASE"
-            exit 1
+          if [ -n "$BASE" ]; then
+            git fetch --no-tags --depth=1 origin "$BASE"
+            export DOCS_BASELINE_REF="$BASE" DOCS_ALLOWED_REMOVALS_FILE=docs/allowed-removals
           fi
-          if [ -z "$listed" ]; then
-            echo "The base has no generated_sources.txt yet: nothing to compare with."
-            exit 0
-          fi
-          # The generator reads docs/allowed-removals itself, strictly: a line
-          # it cannot read, "1" (which would accept every loss), or an entry
-          # this PR does not actually remove (a stale one) fails the step.
-          DOCS_BASELINE_REF="$BASE" DOCS_ALLOWED_REMOVALS_FILE=docs/allowed-removals bash scripts/generate.sh --generate-only
+          make generate
 
       - name: Check nothing changed
         run: |
