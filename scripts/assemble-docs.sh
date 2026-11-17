@@ -62,6 +62,7 @@ for src in $SOURCES; do
     echo "${src##*/} $src" >> "$ORDER.tmp"
     echo "  $src → $(find "$src" -maxdepth 1 -name '*.json' | wc -l | tr -d ' ') JSON files, read in place"
 done
+docs_still_locked
 mv "$ORDER.tmp" "$ORDER"
 
 echo "Assembled $ORDER"

@@ -50,9 +50,10 @@ func Holder(path string) (pid, token string) {
 // record there holds token, and some process holds the lock, which this
 // tells by failing to take it. A file deleted and created again since the
 // holder locked it holds no record, and a token leaked from a run that has
-// ended matches none. When the lock is free the probe takes it for a moment,
-// and a run starting just then is refused; that happens only to a caller
-// that holds no lock to begin with.
+// ended matches none. The token is compared first, and a holder clears its
+// record as it exits (scripts/docslock.go), so the probe, which takes a free
+// lock for a moment (refusing a run that starts just then), runs only on a
+// record a killed holder left behind.
 func Verify(path, token string) bool {
 	if token == "" {
 		return false

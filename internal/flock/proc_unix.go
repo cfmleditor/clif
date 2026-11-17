@@ -3,7 +3,6 @@
 package flock
 
 import (
-	"errors"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -62,10 +61,4 @@ func SignalGroup(p *os.Process, sig os.Signal) error {
 	}
 
 	return unix.Kill(-p.Pid, s)
-}
-
-// ProcessGone reports whether no process has pid: only "no such process"
-// counts, never "not permitted" (a live process of another user).
-func ProcessGone(pid int) bool {
-	return pid > 0 && errors.Is(unix.Kill(pid, 0), unix.ESRCH)
 }

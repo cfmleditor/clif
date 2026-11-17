@@ -20,6 +20,7 @@ swap_recover() {
 # swap_in NEW DIR: replace DIR (which may not exist) with NEW.
 swap_in() {
     local new=$1 dir=$2
+    docs_still_locked
     # Before anything is deleted: an interrupted earlier swap's DIR.old may
     # be the only copy left.
     swap_recover "$dir"

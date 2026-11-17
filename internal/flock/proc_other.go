@@ -19,7 +19,3 @@ func (*Group) Restore() {}
 
 // SignalGroup signals p alone, as far as the platform can.
 func SignalGroup(p *os.Process, sig os.Signal) error { return p.Signal(sig) }
-
-// ProcessGone cannot tell here (a PID an MSYS shell recorded is not a Windows
-// one), so it never says so.
-func ProcessGone(int) bool { return false }

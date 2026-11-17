@@ -44,16 +44,6 @@ func TestTryLockExcludesASecondOpen(t *testing.T) {
 	}
 }
 
-func TestProcessGone(t *testing.T) {
-	if ProcessGone(os.Getpid()) {
-		t.Error("ProcessGone(this process) = true")
-	}
-
-	if ProcessGone(0) || ProcessGone(-1) {
-		t.Error("ProcessGone of a non-PID = true")
-	}
-}
-
 func TestVerify(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "lock")
 

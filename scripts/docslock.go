@@ -4,11 +4,11 @@
 // Runs a command holding the docs lock, so no two docs runs (a fetch, a bump,
 // a generation) interleave:
 //
-//	go build -o target/docs-gen/docslock scripts/docslock.go
-//	target/docs-gen/docslock <command> [args...]
+//	target/docs-gen/docslock-<hash> <command> [args...]
 //
-// It is built and run, never `go run`, which turns every failing exit of its
-// child into exit 1, a stop by a signal with it (lib/underlock.sh does this).
+// lib/underlock.sh builds it, named for a hash of its sources, and runs it;
+// never `go run`, which turns every failing exit of its child into exit 1, a
+// stop by a signal with it.
 //
 // The lock is the operating system's (internal/flock) on docs/.flock, so it
 // is released however this process ends, kill -9 and a power cut included:
@@ -50,7 +50,16 @@ const (
 // marker is the docs/.lock symlink this run made, removed on the way out.
 var marker string
 
+// held is docs/.flock while this holds its lock; its record is cleared on the
+// way out, so the run's token matches nothing once the run is over, and
+// flock.Verify never has to probe a free lock for a token leaked from it.
+var held *os.File
+
 func exit(code int) {
+	if held != nil {
+		_ = held.Truncate(0)
+	}
+
 	if marker != "" {
 		if got, err := os.Readlink(markerPath); err == nil && got == marker {
 			_ = os.Remove(markerPath)
@@ -103,6 +112,7 @@ func main() {
 		fail("another docs run (PID %s) holds %s; wait for it to finish", pid, lockPath)
 	}
 
+	held = f
 	takeMarker()
 
 	b := make([]byte, 16)
@@ -118,6 +128,11 @@ func main() {
 	cmd := exec.Command(os.Args[1], os.Args[2:]...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	cmd.Env = append(os.Environ(), "DOCS_LOCK_TOKEN="+token)
+	// The copy the run's scripts ask (docslock --held), whatever is checked
+	// out or built meanwhile.
+	if self, err := os.Executable(); err == nil {
+		cmd.Env = append(cmd.Env, "DOCS_LOCK_BIN="+self)
+	}
 
 	// The command leads a process group of its own, in the terminal's
 	// foreground if this was (flock.NewGroup), so a Ctrl-C there reaches its

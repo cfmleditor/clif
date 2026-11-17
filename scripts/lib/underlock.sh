@@ -1,40 +1,72 @@
 # shellcheck shell=bash
-# Sourced first by every docs script: runs the script under the docs lock,
-# held by scripts/docslock.go (the operating system's own file lock on
-# docs/.flock, so it is released however its holder ends, and no stale lock is
-# ever left to judge).
+# Sourced first by every docs script that changes anything: runs the script
+# under the docs lock, held by scripts/docslock.go (the operating system's own
+# file lock on docs/.flock, so it is released however its holder ends, and no
+# stale lock is ever left to judge).
 #
 # A script started under the lock carries on; any other re-runs itself through
 # docslock, from the repository root. Under the lock means `docslock --held`
 # agrees: the DOCS_LOCK_TOKEN docslock gave the run is the one recorded in
-# docs/.flock, and the lock is held. A token leaked from a run that has ended
-# (a shell opened from one) matches nothing, so such a script takes the lock.
+# docs/.flock, and the lock is held. docslock clears its record as it exits,
+# so a token leaked from a run that has ended (a shell opened from one)
+# matches nothing, and such a script takes the lock itself.
 #
 # docslock is built and run, not `go run`: that turns a failing exit, a stop
 # by a signal included, into exit 1, losing the code the script exits with.
+# Its binary is named for a hash of its sources, so a changed source builds a
+# new one beside it and a copy a run is executing is never replaced (Windows
+# refuses that outright); a run's scripts ask the copy it runs as
+# (DOCS_LOCK_BIN), whatever is checked out meanwhile.
 #
 # Sourced as: . "$(dirname "$0")/lib/underlock.sh"  (before anything else)
 docs_root=$(cd "$(dirname "$0")/.." && pwd) || exit 1
-case "$(uname -s 2>/dev/null)" in
-MINGW* | MSYS* | CYGWIN*) docslock="$docs_root/target/docs-gen/docslock.exe" ;;
-*) docslock="$docs_root/target/docs-gen/docslock" ;;
-esac
 
-if [ -z "${DOCS_LOCK_TOKEN:-}" ] || [ ! -x "$docslock" ] ||
-    ! (cd "$docs_root" && "$docslock" --held); then
+docs_held=""
+if [ -n "${DOCS_LOCK_TOKEN:-}" ]; then
+    # Inside a run, or a token leaked from one. Inside a run whose helper has
+    # gone (target/ deleted meanwhile), taking the lock again would only find
+    # this run's own docslock holding it: say what happened instead.
+    if [ -z "${DOCS_LOCK_BIN:-}" ] || [ ! -x "$DOCS_LOCK_BIN" ]; then
+        echo "error: DOCS_LOCK_TOKEN is set, but the docs lock's helper (${DOCS_LOCK_BIN:-not named}) is missing:" >&2
+        echo "       was target/ deleted during a docs run? Outside one, unset DOCS_LOCK_TOKEN and run this again." >&2
+        exit 1
+    fi
+    if (cd "$docs_root" && "$DOCS_LOCK_BIN" --held); then
+        docs_held=1
+    fi
+fi
+
+if [ -z "$docs_held" ]; then
     cd "$docs_root" || exit 1
-    # Built only when missing or older than its source: never over a copy
-    # another run is executing (which Windows refuses outright), and through
-    # a temporary file renamed into place, so no run starts a half-written one.
-    if [ ! -x "$docslock" ] || [ -n "$(find scripts/docslock.go internal/flock go.mod go.sum \
-        \( -name '*.go' -o -name 'go.mod' -o -name 'go.sum' \) -newer "$docslock" 2>/dev/null | head -n 1)" ]; then
+    docs_hash=$(cat scripts/docslock.go internal/flock/*.go go.mod go.sum |
+        { if command -v sha256sum >/dev/null 2>&1; then sha256sum; else shasum -a 256; fi; } | cut -c1-16) || exit 1
+    case "$(uname -s 2>/dev/null)" in
+    MINGW* | MSYS* | CYGWIN*) docslock="target/docs-gen/docslock-$docs_hash.exe" ;;
+    *) docslock="target/docs-gen/docslock-$docs_hash" ;;
+    esac
+    if [ ! -x "$docslock" ]; then
         mkdir -p target/docs-gen
         go build -o "$docslock.$$.tmp" scripts/docslock.go || exit 1
         mv -f "$docslock.$$.tmp" "$docslock" || exit 1
+        # Builds of older sources, unused for a day (one a run is executing
+        # is never that old by its own clock, and Windows refuses anyway).
+        find target/docs-gen -name 'docslock-*' ! -name "${docslock##*/}" -mtime +1 -exec rm -f {} + 2>/dev/null || true
     fi
     exec "$docslock" bash "scripts/${0##*/}" "$@"
 fi
-unset docs_root docslock
+unset docs_held
+
+# docs_still_locked: exit 1 unless this run still holds the lock. Called just
+# before each change a docs script makes (lib/swapdir.sh's swap_in, the order
+# and pin renames): should this run's docslock have been killed, which frees
+# the lock at once, another run may have taken it, and the two would
+# interleave on the same paths.
+docs_still_locked() {
+    if ! (cd "$docs_root" && "$DOCS_LOCK_BIN" --held); then
+        echo "error: this run no longer holds the docs lock (its docslock was stopped?): stopping before changing anything" >&2
+        exit 1
+    fi
+}
 
 # docslock passes a signal that stops the run to the whole of it, this script
 # and what it is running at once. bash acts on a trapped signal only once the

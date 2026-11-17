@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Under the docs lock (scripts/docslock.go), like every docs script: see
-# lib/underlock.sh.
-# shellcheck source=lib/underlock.sh
-. "$(dirname "$0")/lib/underlock.sh"
+# set runs under the docs lock (scripts/docslock.go), like every docs script
+# that changes anything: see lib/underlock.sh. get and check only read, so
+# they take no lock and print nothing but their answer.
+if [ "${1:-}" = set ]; then
+    # shellcheck source=lib/underlock.sh
+    . "$(dirname "$0")/lib/underlock.sh"
+fi
 
 # Reads and writes docs/sources.lock, which pins each fetched doc source:
 #
@@ -73,6 +76,7 @@ set)
         fi
         echo "$src $value"
     } > "$tmp"
+    docs_still_locked
     mv "$tmp" "$LOCK"
     echo "Pinned $src at $value in $LOCK"
     ;;

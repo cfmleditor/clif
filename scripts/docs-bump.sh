@@ -24,7 +24,6 @@ set -euo pipefail
 # from.
 cd "$(dirname "$0")/.."
 
-
 DOCS_BUMP=1 bash scripts/fetch-docs-cfdocs.sh
 commit=$(cat docs/.sha-cfdocs)
 bash scripts/docs-lock.sh check "$commit"

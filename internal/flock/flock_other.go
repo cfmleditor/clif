@@ -4,6 +4,6 @@ package flock
 
 import "os"
 
-// TryLock is unsupported here (wasm; AIX, which has no flock: an fcntl lock
-// would not pass to a child, which is the point of this one).
+// TryLock is unsupported here: wasm, and AIX, which has no flock (an fcntl
+// lock would do, but nothing has needed one there).
 func TryLock(*os.File) (bool, error) { return false, ErrUnsupported }
