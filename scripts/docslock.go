@@ -109,16 +109,18 @@ func main() {
 		cmd.Env = append(cmd.Env, "DOCS_LOCK_FD=3")
 	}
 
-	// A Ctrl-C, or a hang-up when the terminal closes, reaches the whole
-	// process group, the command included: passing it on would deliver it a
-	// second time, which can cut short the command's own cleanup (bash
-	// leaves a trap at a second SIGINT). So those are only caught, to wait
-	// for the command. A SIGTERM is sent to one process (a kill, a CI
-	// runner's stop), so it is passed on. Either way this exits as the
-	// command did.
-	signal.Notify(make(chan os.Signal, 1), os.Interrupt, syscall.SIGHUP)
+	// The command leads a process group of its own (flock.NewGroup), and
+	// every signal that stops a run is passed to that whole group, once: to
+	// bash and to what it is running alike (the generator, git, curl), so
+	// nothing carries on behind a run reported stopped. A terminal's Ctrl-C
+	// or hang-up reaches only this process's group, never the command's, so
+	// it arrives there once, not twice (a second could cut a script's
+	// cleanup short). The docs scripts trap these signals (lib/underlock.sh),
+	// so bash waits for what it is running to stop before it cleans up.
+	// Either way this exits as the command did.
+	flock.NewGroup(cmd)
 	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, syscall.SIGTERM)
+	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 
 	if err := cmd.Start(); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
@@ -127,7 +129,7 @@ func main() {
 
 	go func() {
 		for s := range sigs {
-			_ = cmd.Process.Signal(s)
+			_ = flock.SignalGroup(cmd.Process, s)
 		}
 	}()
 
@@ -148,56 +150,40 @@ func main() {
 	}
 }
 
-// replaceOldLock: an earlier version of these scripts left docs/.lock as a
-// symlink naming its owner ("<pid>@<host>", or "<pid>@<start time>" before
-// that), or as a directory holding a "pid" file. Neither is a lock the OS
-// holds, and opening one would follow the link or fail on the directory. It
-// is replaced only once its owner is known to be gone: this host's, and no
-// process with its PID. Otherwise an earlier version's run may still be going
-// (another checkout, a branch not yet rebased), and this refuses.
+// replaceOldLock: the previous version of these scripts left docs/.lock as a
+// symlink naming its owner, "<pid>@<start time>". It is no lock the OS holds,
+// and opening it would follow the link. It is replaced once no process has
+// its PID; otherwise a run of that version may still be going (another
+// checkout, a branch not yet rebased), and this refuses. Anything else that
+// is not a regular file is refused too: nothing here made it.
 func replaceOldLock() {
 	info, err := os.Lstat(lockPath)
 	if err != nil || info.Mode().IsRegular() {
 		return
 	}
 
-	var owner string
-	switch {
-	case info.Mode()&os.ModeSymlink != 0:
+	owner := "?"
+	gone := false
+	if info.Mode()&os.ModeSymlink != 0 {
 		owner, _ = os.Readlink(lockPath)
-	case info.IsDir():
-		b, _ := os.ReadFile(lockPath + "/pid")
-		owner = strings.TrimSpace(string(b))
+		pid, err := strconv.Atoi(strings.SplitN(owner, "@", 2)[0])
+		gone = err == nil && flock.ProcessGone(pid)
 	}
 
-	if !oldOwnerGone(owner) {
-		fmt.Fprintf(os.Stderr, "error: %s is an earlier version's lock, held by %q, which may still be running.\n", lockPath, owner)
-		fmt.Fprintf(os.Stderr, "       Wait for it to finish; if no docs run is going, delete %s.\n", lockPath)
+	if !gone {
+		if owner == "?" {
+			fmt.Fprintf(os.Stderr, "error: %s is not a lock file.\n", lockPath)
+		} else {
+			fmt.Fprintf(os.Stderr, "error: %s is an earlier version's lock, held by %q, which may still be running.\n", lockPath, owner)
+		}
+		fmt.Fprintf(os.Stderr, "       If no docs run is going, delete it: rm -rf %s\n", lockPath)
 		os.Exit(1)
 	}
 
-	if err := os.RemoveAll(lockPath); err != nil {
+	if err := os.Remove(lockPath); err != nil {
 		fmt.Fprintf(os.Stderr, "error: cannot replace an earlier version's %s: %v\n", lockPath, err)
 		os.Exit(1)
 	}
 
-	_ = os.RemoveAll(lockPath + ".takeover") // that version's, if left
 	fmt.Fprintf(os.Stderr, "note: replaced an earlier version's %s (its owner, %s, is gone)\n", lockPath, owner)
-}
-
-// oldOwnerGone: owner is "<pid>", "<pid>@<this host>" or "<pid>@<start
-// time>" (holding a colon, which no host name does, so taken as this
-// host's), and no process has that PID.
-func oldOwnerGone(owner string) bool {
-	pidText, host, qualified := strings.Cut(owner, "@")
-	if qualified && !strings.Contains(host, ":") {
-		me, err := os.Hostname()
-		if err != nil || !strings.EqualFold(host, me) {
-			return false
-		}
-	}
-
-	pid, err := strconv.Atoi(pidText)
-
-	return err == nil && flock.ProcessGone(pid)
 }

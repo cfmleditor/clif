@@ -265,6 +265,7 @@ var (
 	// are in place. At any other time the handler exits at once.
 	sigMu   sync.Mutex
 	writing bool
+	written bool // both generated files are in place
 	pending os.Signal
 )
 
@@ -297,7 +298,11 @@ func stopOnSignal() {
 
 				continue
 			}
+			done := written
 			sigMu.Unlock()
+			if done {
+				stoppedBy(sig, "both generated files had already been written")
+			}
 			stoppedBy(sig, "nothing was written")
 		}
 	}()
@@ -614,10 +619,11 @@ func main() {
 
 	switch {
 	case status == baselinePresent:
-	case status == baselineAbsent && allowedFile != "":
-		// CI's comparison with a pull request's base, a base from before
-		// generated_sources.txt existed: there is nothing to compare with,
-		// which is no fault of the pull request.
+	case status == baselineAbsent && allowedFile != "" && os.Getenv("DOCS_BASELINE_REF") != "":
+		// CI's comparison with a pull request's base (both variables set, as
+		// only CI sets them), a base from before generated_sources.txt
+		// existed: there is nothing to compare with, which is no fault of the
+		// pull request. Anywhere else no baseline is refused, as below.
 		fmt.Fprintf(os.Stderr, "note: %s has no %s yet: nothing to compare with\n", ref, sourcesFile)
 	case status == baselineUnreadable:
 		// The ref has the file but git could not read it: never "no
@@ -846,7 +852,7 @@ func main() {
 	err = writeAll([]generated{{outFile, out.Bytes()}, {sourcesFile, []byte(sb.String())}})
 
 	sigMu.Lock()
-	writing = false
+	writing, written = false, err == nil
 	sig := pending
 	sigMu.Unlock()
 

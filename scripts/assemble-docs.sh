@@ -31,7 +31,7 @@ SOURCES="docs/src/cfdocs docs/retained docs/lucee"
 # shellcheck source=lib/swapdir.sh
 . scripts/lib/swapdir.sh
 
-trap 'rm -f "$ORDER.tmp"' EXIT
+trap 'docs_cleanup_begin; rm -f "$ORDER.tmp"' EXIT
 
 # An interrupted fetch or bump may have left a copy aside: put each back
 # before checking for it.

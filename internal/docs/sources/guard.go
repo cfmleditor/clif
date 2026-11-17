@@ -5,10 +5,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io/fs"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/cfmleditor/clif/internal/vfs"
 )
 
 // The checks scripts/generate_docs.go makes before it writes the docs. They
@@ -254,37 +256,34 @@ func ManifestHash(files map[string][]byte) string {
 // business, and the checks may tighten after it was vendored), so the two
 // cannot read or hash the files differently.
 func HashDir(dir string) (hash string, unhashed, invalid []string, err error) {
-	// os.DirFS keeps every name inside dir, but follows a symlink wherever it
-	// points; so a symlinked file is refused, not read, below. Vendored files
-	// are kept byte for byte as downloaded, and a zip extracts none.
-	fsys := os.DirFS(dir)
-
-	names, err := fs.Glob(fsys, "*.json")
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return "", nil, nil, err
 	}
 
-	if len(names) == 0 {
-		return "", nil, nil, fmt.Errorf("no *.json in %s", dir)
-	}
+	files := map[string][]byte{}
+	listed := 0
 
-	files := make(map[string][]byte, len(names))
+	for _, e := range entries {
+		n := e.Name()
+		if !strings.HasSuffix(n, ".json") {
+			continue
+		}
 
-	for _, n := range names {
-		info, err := fs.Lstat(fsys, n)
-		if err != nil {
-			unhashed = append(unhashed, fmt.Sprintf("%s: %v", n, err))
+		listed++
+
+		// The entry's own type, not what a symlink points to: vendored files
+		// are kept byte for byte as downloaded, and a zip extracts no link.
+		// The read itself goes through vfs.ReadRegular, which checks the
+		// opened file, so nothing swapped in after this check (a FIFO, a
+		// device) can hang it or read without limit.
+		if !e.Type().IsRegular() {
+			unhashed = append(unhashed, fmt.Sprintf("%s: not a regular file (%s)", n, e.Type()))
 
 			continue
 		}
 
-		if !info.Mode().IsRegular() {
-			unhashed = append(unhashed, fmt.Sprintf("%s: not a regular file (%s)", n, info.Mode().Type()))
-
-			continue
-		}
-
-		b, err := fs.ReadFile(fsys, n)
+		b, err := vfs.ReadRegular(filepath.Join(dir, n))
 		if err != nil {
 			unhashed = append(unhashed, fmt.Sprintf("%s: %v", n, err))
 
@@ -296,6 +295,10 @@ func HashDir(dir string) (hash string, unhashed, invalid []string, err error) {
 		if err := CheckEntryFile(b); err != nil {
 			invalid = append(invalid, fmt.Sprintf("%s: %v", n, err))
 		}
+	}
+
+	if listed == 0 {
+		return "", nil, nil, fmt.Errorf("no *.json in %s", dir)
 	}
 
 	return ManifestHash(files), unhashed, invalid, nil

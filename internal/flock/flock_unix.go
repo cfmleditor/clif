@@ -25,9 +25,3 @@ func TryLock(f *os.File) (bool, error) {
 // CloseOnExec stops f's descriptor reaching any program this process starts,
 // so nothing it runs (a daemonizing git, say) can keep the lock past it.
 func CloseOnExec(f *os.File) { unix.CloseOnExec(int(f.Fd())) }
-
-// ProcessGone reports whether no process has pid: only "no such process"
-// counts, never "not permitted" (a live process of another user).
-func ProcessGone(pid int) bool {
-	return pid > 0 && errors.Is(unix.Kill(pid, 0), unix.ESRCH)
-}

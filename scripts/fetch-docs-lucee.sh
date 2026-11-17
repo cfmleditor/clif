@@ -33,11 +33,13 @@ NEW="$DIR.new"
 
 TMP=""
 cleanup() {
+    docs_cleanup_begin
+    # The previous copy back first: nothing that fails after can keep it aside.
+    swap_recover "$DIR" || true
     if [ -n "$TMP" ]; then
-        rm -rf "$TMP"
+        rm -rf "$TMP" || true
     fi
-    rm -rf "$NEW"
-    swap_recover "$DIR"
+    rm -rf "$NEW" || true
 }
 trap cleanup EXIT
 

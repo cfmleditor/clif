@@ -3,6 +3,7 @@ package flock
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -73,6 +74,12 @@ func TestHolds(t *testing.T) {
 
 	if !Holds(nil, path) {
 		t.Error("Holds(nil) = false while the file is locked")
+	}
+
+	// Deleted and created again: f locks a file no longer at path. Windows
+	// will not delete a file a process has open.
+	if runtime.GOOS == "windows" {
+		return
 	}
 
 	// Deleted and created again: f locks a file no longer at path.

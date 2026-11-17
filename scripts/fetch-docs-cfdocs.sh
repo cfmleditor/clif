@@ -29,15 +29,12 @@ NEW="$SRC.new"
 # shellcheck source=lib/retry.sh
 . scripts/lib/retry.sh
 
-# git without fd 3, docs/.lock's descriptor: git can leave a detached gc or
-# maintenance process behind, which would hold the lock after this run ends.
-# Those are switched off here too; the clone is a throwaway.
-git() { command git -c gc.auto=0 -c maintenance.auto=false "$@" 3>&-; }
-
 TMP=$(mktemp -d)
 cleanup() {
-    rm -rf "$TMP" "$NEW"
-    swap_recover "$SRC"
+    docs_cleanup_begin
+    # The previous copy back first: nothing that fails after can keep it aside.
+    swap_recover "$SRC" || true
+    rm -rf "$TMP" "$NEW" || true
 }
 trap cleanup EXIT
 

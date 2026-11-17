@@ -112,20 +112,24 @@ runs itself under it (`scripts/lib/underlock.sh`): started by one that holds it,
 otherwise it re-runs through docslock from the repository root. Holding it is checked, not taken
 from the `DOCS_LOCK_HELD` flag, which leaks to anything started under a run: `docslock --held`
 (`flock.Holds`) finds the inherited fd 3 is `docs/.lock` as it is on disk. docslock is built and run
-(`target/docs-gen/docslock`), never `go run`, which turns every failing exit into 1. The lock's
-descriptor is inherited as fd 3 by everything the holder runs, so it lasts while any of them is
-alive; git runs without it, and with its background gc and maintenance off, so no detached process
-keeps the lock after a run. docslock passes on a SIGTERM; a Ctrl-C or hang-up already reaches the
-whole process group, and a second copy could cut a script's cleanup short. An earlier version's lock
-(a symlink or a directory naming its owner) is replaced only once that owner is gone. `make
-generate` (`scripts/generate.sh`) holds it across the fetch, the assemble and the generator, which
-runs as a built binary so it inherits fd 3 too, and refuses to run unless that descriptor is
-`docs/.lock` (on Windows, which passes no descriptors, that the lock is held), checking again just
-before it writes, in case the lock file was deleted meanwhile; so run it through `make generate`.
-`make docs-bump` (`scripts/docs-bump.sh`) holds it across all its steps. The generator holds a
-signal that arrives while it writes the two generated files until both are in place, then exits 128
-+ the signal's number. The scripts retry a failed network step twice (`scripts/lib/retry.sh`), and
-work from the repository root wherever they are run from.
+(`target/docs-gen/docslock`, rebuilt only when older than its source), never `go run`, which turns
+every failing exit into 1. The lock's descriptor is inherited as fd 3 by everything the holder runs,
+so it lasts while any of them is alive; `go` and `git` run without it (wrappers in `underlock.sh`),
+with git's background gc and maintenance off, so no process they leave behind keeps the lock after a
+run. The command docslock runs leads a process group of its own, and docslock sends every stopping
+signal (Ctrl-C, SIGTERM, a hang-up) to that whole group once, so nothing carries on behind a run
+reported stopped; the scripts trap those signals, so bash waits for what it is running to stop
+before its cleanup, which ignores any further signal. The previous version's lock (a symlink naming
+its owner, `<pid>@<start time>`) is replaced only once no process has that PID; anything else at
+`docs/.lock` that is not a regular file is refused. `make generate` (`scripts/generate.sh`) holds it
+across the fetch, the assemble and the generator, which runs as a built binary so it inherits fd 3
+too, and refuses to run unless that descriptor is `docs/.lock` (on Windows, which passes no
+descriptors, that the lock is held), checking again just before it writes, in case the lock file was
+deleted meanwhile; so run it through `make generate`. `make docs-bump` (`scripts/docs-bump.sh`)
+holds it across all its steps. The generator holds a signal that arrives while it writes the two
+generated files until both are in place, then exits 128 + the signal's number. The scripts retry a
+failed network step twice (`scripts/lib/retry.sh`), and work from the repository root wherever they
+are run from.
 
 **`scripts/generate_docs.go` refuses to lose an entry.** It compares the new entries, by type and
 name, with `internal/docs/generated_sources.txt` as committed at `HEAD`, or at `DOCS_BASELINE_REF`
@@ -187,20 +191,21 @@ docs change, so `generated_docs.go` is always what the pinned and vendored sourc
 edit, or a pin bumped without regenerating, fails it. On a pull request that run compares with the
 PR's base (`DOCS_BASELINE_REF`) rather than `HEAD`, the PR's own commit, which would hold nothing to
 miss if the PR itself committed a lossy regeneration (a base from before `generated_sources.txt`
-existed has nothing to compare, and only notes so). Only the losses `docs/allowed-removals` lists
-pass there, and only the lines the PR adds to that file (those the base's copy lacks) accept
-anything, so dropping an entry on purpose takes a reviewed change to it. A line left over from an
-earlier pull request (unchanged from the base's copy) accepts nothing, so it can neither wave a
-later loss through by accident nor fail anyone; it only warns until cleared. To remove such an entry
-again on purpose, change its line (a new `# reason`): a changed line counts as added. A changed line
-that removes nothing (a comment tidied) only warns; only an entry new to the file that removes
-nothing is refused. If the base's copy itself no longer parses, every line counts as added, with a
-warning, and a line that removes nothing only warns, so it cannot block the pull request that fixes
-it. The generator reads the file itself (`DOCS_ALLOWED_REMOVALS_FILE`, through
-`sources.ParseAllowedRemovals`), strictly: a line it cannot read, `1` (which would switch the
-comparison off), or an added line that accepts nothing (a typo, a removal since undone) fails the
-step. `DOCS_BASELINE_REF` must name a commit; a value starting with `-` is refused, as git would
-read it as an option.
+existed has nothing to compare, and only notes so; that exception needs both `DOCS_BASELINE_REF` and
+`DOCS_ALLOWED_REMOVALS_FILE`, as CI sets them, and any other run without a baseline is refused).
+Only the losses `docs/allowed-removals` lists pass there, and only the lines the PR adds to that
+file (those the base's copy lacks) accept anything, so dropping an entry on purpose takes a reviewed
+change to it. A line left over from an earlier pull request (unchanged from the base's copy) accepts
+nothing, so it can neither wave a later loss through by accident nor fail anyone; it only warns
+until cleared. To remove such an entry again on purpose, change its line (a new `# reason`): a
+changed line counts as added. A changed line that removes nothing (a comment tidied) only warns;
+only an entry new to the file that removes nothing is refused. If the base's copy itself no longer
+parses, every line counts as added, with a warning, and a line that removes nothing only warns, so
+it cannot block the pull request that fixes it. The generator reads the file itself
+(`DOCS_ALLOWED_REMOVALS_FILE`, through `sources.ParseAllowedRemovals`), strictly: a line it cannot
+read, `1` (which would switch the comparison off), or an added line that accepts nothing (a typo, a
+removal since undone) fails the step. `DOCS_BASELINE_REF` must name a commit; a value starting with
+`-` is refused, as git would read it as an option.
 
 Go toolchain is pinned at **1.27.4** (`go.mod`). CGO is required (tree-sitter grammar).
 

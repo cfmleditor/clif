@@ -10,6 +10,3 @@ func TryLock(*os.File) (bool, error) { return false, ErrUnsupported }
 
 // CloseOnExec does nothing here.
 func CloseOnExec(*os.File) {}
-
-// ProcessGone cannot tell here, so it never says so.
-func ProcessGone(int) bool { return false }

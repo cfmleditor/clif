@@ -15,6 +15,11 @@ import (
 func TryLock(f *os.File) (bool, error) {
 	var ol windows.Overlapped
 
+	// A byte far past the end, not the file's first: a lock on Windows
+	// also bars every other handle from reading what it covers, and the
+	// holder's PID is written at the start for a refused run to name.
+	ol.OffsetHigh = 1 << 30
+
 	err := windows.LockFileEx(windows.Handle(f.Fd()),
 		windows.LOCKFILE_EXCLUSIVE_LOCK|windows.LOCKFILE_FAIL_IMMEDIATELY, 0, 1, 0, &ol)
 	if errors.Is(err, windows.ERROR_LOCK_VIOLATION) {
@@ -27,25 +32,3 @@ func TryLock(f *os.File) (bool, error) {
 // CloseOnExec does nothing on Windows, which passes a child no handle it was
 // not given.
 func CloseOnExec(*os.File) {}
-
-// ProcessGone reports whether no process has pid, as far as Windows will
-// say: a process it refuses to open (another user's) counts as alive.
-func ProcessGone(pid int) bool {
-	if pid <= 0 {
-		return false
-	}
-
-	h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
-	if err != nil {
-		return errors.Is(err, windows.ERROR_INVALID_PARAMETER)
-	}
-
-	defer func() { _ = windows.CloseHandle(h) }()
-
-	var code uint32
-	if windows.GetExitCodeProcess(h, &code) != nil {
-		return false
-	}
-
-	return code != 259 // STILL_ACTIVE
-}
