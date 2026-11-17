@@ -104,9 +104,26 @@ docs_still_locked() {
 # sent to docslock's whole process group reaches this script directly, and
 # again through docslock, which cannot tell it from one sent to it alone)
 # then does nothing, rather than cut the cleanup short.
-trap 'trap "" INT TERM HUP; trap - INT; kill -INT $$' INT
-trap 'trap "" INT TERM HUP; trap - TERM; kill -TERM $$' TERM
-trap 'trap "" INT TERM HUP; trap - HUP; kill -HUP $$' HUP
+#
+# The script's EXIT trap is run here, before the re-raise, and then cleared:
+# a bash that a signal kills (its default restored, to end by it) runs no
+# EXIT trap of its own, so the cleanup would never happen.
+docs_die() {
+    trap '' INT TERM HUP
+    local on_exit
+    on_exit=$(trap -p EXIT)
+    trap - EXIT
+    on_exit=${on_exit#trap -- \'}
+    on_exit=${on_exit%\' EXIT}
+    if [ -n "$on_exit" ]; then
+        eval "$on_exit"
+    fi
+    trap - "$1"
+    kill -"$1" $$
+}
+trap 'docs_die INT' INT
+trap 'docs_die TERM' TERM
+trap 'docs_die HUP' HUP
 
 # docs_cleanup_begin: the first line of a script's EXIT trap. A second signal
 # there would cut the cleanup short; none is acted on from then on.
