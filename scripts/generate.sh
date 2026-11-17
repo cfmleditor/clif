@@ -47,7 +47,7 @@ bash scripts/docs.sh
 . scripts/lib/hashbuild.sh
 docs_still_locked
 gen=$(docs_built_path scripts/generate_docs.go generate_docs)
-docs_build scripts/generate_docs.go "$gen" prune
+docs_build scripts/generate_docs.go "$gen"
 
 # Started by docslock --then: the generator is named to it, to run next with
 # the lock's descriptor. The file is this run's (its name holds the run's

@@ -120,11 +120,12 @@ it, rather than lock against its own run. docslock and the generator are built a
 run`, which turns every failing exit into 1, each to a path named for a hash of what it is built
 from and how (the packages `go list -deps` names, `go.mod`, `go.sum`, the toolchain and the build
 settings) (`target/docs-gen/docslock-<hash>`, `generate_docs-<hash>`: `scripts/lib/hashbuild.sh`),
-so a changed source builds a new one and a copy a run is executing is never replaced (other versions
-are removed, best-effort, only by a run holding the lock: docslock prunes its own, `generate.sh` the
-generator's); a run's scripts ask the copy of docslock it runs as (`DOCS_LOCK_BIN`). `make docs` and
-`make docs-cfdocs` (`scripts/docs.sh`), `make generate` (`scripts/generate.sh`) and `make docs-bump`
-each hold it across all their steps.
+so a changed source builds a new one and a copy a run is executing is never replaced (older builds
+of either, and the handoff files of killed runs, are removed only by docslock holding the lock, a
+build once it is ten minutes old, so one a starting run has just built is never pulled from under
+it); a run's scripts ask the copy of docslock it runs as (`DOCS_LOCK_BIN`). `make docs` and `make
+docs-cfdocs` (`scripts/docs.sh`), `make generate` (`scripts/generate.sh`) and `make docs-bump` each
+hold it across all their steps.
 
 **The generator holds the lock itself.** `make generate` has docslock run it once `generate.sh` has
 succeeded (`docslock --then`, which `underlock.sh` gives `generate.sh` by name: the script builds it

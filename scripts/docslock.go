@@ -43,6 +43,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/cfmleditor/clif/internal/flock"
 	"github.com/cfmleditor/clif/internal/vfs"
@@ -196,7 +197,7 @@ func main() {
 	}
 	env = append(env, "DOCS_LOCK_BIN="+self)
 
-	pruneOtherBuilds(self)
+	pruneBuilds(self)
 
 	// On Windows, everything the run starts is in a job that ends with this
 	// process (flock.JoinJob); on Linux the command dies with it
@@ -207,7 +208,7 @@ func main() {
 	cmd.Env = env
 	thenFile := ""
 	if then {
-		thenFile = filepath.Join("target", "docs-gen", "then-"+token)
+		thenFile = filepath.Join(buildDir, "then-"+token)
 		cmd.Env = append(cmd.Env, "DOCS_LOCK_THEN_FILE="+thenFile)
 	}
 	flock.DieWithParent(cmd)
@@ -355,28 +356,57 @@ func thenProgram(file string) string {
 	}
 
 	p := filepath.Clean(strings.TrimSpace(string(b)))
-	if p == "." || filepath.IsAbs(p) || filepath.Dir(p) != filepath.Join("target", "docs-gen") {
+	if p == "." || filepath.IsAbs(p) || filepath.Dir(p) != buildDir {
 		fail("--then: %q is not a program the docs scripts built (under target/docs-gen)", p)
 	}
 
 	return p
 }
 
-// pruneOtherBuilds removes the builds of docslock from older sources beside
-// self, as each is several MB: here, holding the lock, so no other run is
-// using one (lib/underlock.sh builds before trying the lock, and a run it
-// would refuse must not delete the live run's copy). Best-effort: Windows
-// refuses to delete one still executing (a killed run's). A build in
-// progress (*.tmp) is left.
-func pruneOtherBuilds(self string) {
-	dir, name := filepath.Dir(self), filepath.Base(self)
+// buildDir is where lib/hashbuild.sh builds the docs programs.
+var buildDir = filepath.Join("target", "docs-gen")
 
-	others, _ := filepath.Glob(filepath.Join(dir, "docslock*"))
-	for _, o := range others {
-		if b := filepath.Base(o); b != name && !strings.HasSuffix(b, ".tmp") {
-			_ = os.Remove(o)
-		}
+// pruneBuilds clears target/docs-gen of what older runs left: builds of
+// docslock and the generator from older sources (each several MB), and the
+// --then files of runs killed before they could remove theirs. The one place
+// they are removed, and only here, holding the lock, so no other run is
+// using them; lib/underlock.sh builds before trying the lock, and a run it
+// would refuse must not delete anything. A build is removed only once it is
+// ten minutes old: a run starting now may have just built one it is about
+// to execute, and be refused only once it does. This process's own binary,
+// a build in progress (*.tmp) and anything else there are left. Best-effort:
+// Windows refuses to delete a program still executing (a killed run's).
+func pruneBuilds(self string) {
+	entries, err := os.ReadDir(buildDir)
+	if err != nil {
+		return
 	}
+
+	for _, e := range entries {
+		name := e.Name()
+
+		switch {
+		case name == filepath.Base(self) || strings.HasSuffix(name, ".tmp"):
+			continue
+		case strings.HasPrefix(name, "then-"):
+			// This run's is not written until its command runs.
+		case isBuild(name, "docslock") || isBuild(name, "generate_docs"):
+			info, err := e.Info()
+			if err != nil || time.Since(info.ModTime()) < 10*time.Minute {
+				continue
+			}
+		default:
+			continue
+		}
+
+		_ = os.Remove(filepath.Join(buildDir, name))
+	}
+}
+
+// isBuild reports whether name is a build of program: hashed
+// (program-<hash>, lib/hashbuild.sh) or from before builds were hashed.
+func isBuild(name, program string) bool {
+	return name == program || name == program+".exe" || strings.HasPrefix(name, program+"-")
 }
 
 func usage() {

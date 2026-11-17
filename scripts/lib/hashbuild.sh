@@ -52,10 +52,11 @@ docs_built_path() {
     esac
 }
 
-# docs_build MAIN.go PATH [prune]: build MAIN.go to PATH (docs_built_path), unless it
+# docs_build MAIN.go PATH: build MAIN.go to PATH (docs_built_path), unless it
 # is there. Built to a temporary file and moved into place only if PATH is
 # still free: another run starting at once may have built the same binary
-# first, and be executing it, and it is not moved over (mv -n).
+# first, and be executing it, and it is not moved over (mv -n). Older builds
+# are removed by docslock, holding the lock (pruneBuilds), not here.
 docs_build() {
     local main=$1 path=$2
     [ -x "$path" ] && return 0
@@ -63,18 +64,5 @@ docs_build() {
     go build -o "$path.$$.tmp" "$main" || return 1
     mv -n "$path.$$.tmp" "$path" 2>/dev/null || true
     rm -f "$path.$$.tmp"
-    [ -x "$path" ] || return 1
-
-    # With prune, and only under the lock (no other run can be using one):
-    # other versions of the same program, built from older sources, go, as
-    # each is several MB. Best-effort: Windows refuses to delete one still
-    # executing (a killed run's). A build in progress (*.tmp) is left.
-    [ "${3:-}" = prune ] || return 0
-    local base=${path##*/} old
-    for old in "$(dirname "$path")/${base%-*}" "$(dirname "$path")/${base%-*}"-*; do
-        case "$old" in
-        "$path" | *.tmp) ;;
-        *) rm -f "$old" 2>/dev/null || true ;;
-        esac
-    done
+    [ -x "$path" ]
 }
