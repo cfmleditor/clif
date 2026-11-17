@@ -127,13 +127,13 @@ docs_die() {
     # The cleanup runs whatever fails in it: under the script's set -e, a
     # failing line would end the script there, by its code, not the signal.
     set +e
-    local on_exit
-    on_exit=$(trap -p EXIT)
+    # trap -p prints the EXIT trap as a command, `trap -- '<it>' EXIT`,
+    # quoted as bash reads it: bash itself parses it back, quotes and all.
+    local -a on_exit=()
+    eval "on_exit=($(trap -p EXIT))"
     trap - EXIT
-    on_exit=${on_exit#trap -- \'}
-    on_exit=${on_exit%\' EXIT}
-    if [ -n "$on_exit" ]; then
-        eval "$on_exit"
+    if [ -n "${on_exit[2]:-}" ]; then
+        eval "${on_exit[2]}"
     fi
     trap - "$1"
     kill -"$1" $$

@@ -362,9 +362,11 @@ func ParseAllowedRemovals(label string, b []byte) (map[string]string, error) {
 			return nil, fmt.Errorf("%s:%d: %q listed twice", label, i+1, k)
 		}
 
+		// The comment as "# <its words, one space apart>": "#reason" and
+		// "#  reason" are the same reason as "# reason".
 		normal := k
-		if c := strings.IndexByte(line, '#'); c >= 0 {
-			normal += " " + strings.Join(strings.Fields(line[c:]), " ")
+		if _, comment, ok := strings.Cut(line, "#"); ok {
+			normal += " # " + strings.Join(strings.Fields(comment), " ")
 		}
 
 		lines[k] = normal

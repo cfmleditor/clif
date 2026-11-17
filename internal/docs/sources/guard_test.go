@@ -232,6 +232,15 @@ func TestAllowedRemovalsSpacingIsNoChange(t *testing.T) {
 		t.Errorf("added = %v, leftOver = %v; want nothing added", added, left)
 	}
 
+	respaced, err := ParseAllowedRemovals("now", []byte("function JwtSign #reason\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if added, _ := AddedLines(respaced, base); len(added) != 0 {
+		t.Errorf("no space after the #: added = %v, want nothing", added)
+	}
+
 	recased, err := ParseAllowedRemovals("now", []byte("Function JWTSIGN # reason\n"))
 	if err != nil {
 		t.Fatal(err)

@@ -41,9 +41,8 @@ unset DOCS_LOCK_THEN_FILE
 bash scripts/docs.sh
 
 # Built under the lock, checked just before, to a path named for a hash of
-# the binary (lib/hashbuild.sh); never over a copy that may be executing.
-# shellcheck source=lib/hashbuild.sh
-. scripts/lib/hashbuild.sh
+# the binary (lib/hashbuild.sh, sourced by lib/underlock.sh); never over a copy
+# that may be executing.
 docs_still_locked
 gen=$(docs_build scripts/generate_docs.go generate_docs)
 

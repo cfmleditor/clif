@@ -24,9 +24,10 @@ var ErrUnsupported = errors.ErrUnsupported
 
 // Record writes the holder's record into f, which this process has locked:
 // its PID, for a refused run to name, and token, which the processes it
-// starts are given to prove they run under it (Verify). Nothing else is
-// passed to them, no descriptor included, so nothing they leave behind can
-// keep the lock.
+// starts are given to prove they run under it (Verify). The scripts are
+// passed no descriptor, so nothing they leave behind can keep the lock; the
+// one program docslock --then passes the lock's descriptor (the generator,
+// which then holds the lock itself) checks it with Inherited and Holds.
 func Record(f *os.File, token string) error {
 	if err := f.Truncate(0); err != nil {
 		return err

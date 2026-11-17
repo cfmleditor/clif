@@ -410,9 +410,11 @@ func pruneBuilds(self string) {
 }
 
 // isBuild reports whether name is a build of program: hashed
-// (program-<hash>, lib/hashbuild.sh) or from before builds were hashed.
+// (program-<hash>, lib/hashbuild.sh), temporary (program.<pid>.tmp, which a
+// killed build leaves), or from before builds were hashed (program,
+// program.exe).
 func isBuild(name, program string) bool {
-	return name == program || name == program+".exe" || strings.HasPrefix(name, program+"-")
+	return name == program || strings.HasPrefix(name, program+"-") || strings.HasPrefix(name, program+".")
 }
 
 func usage() {
