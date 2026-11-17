@@ -52,17 +52,27 @@ fi
 
 if [ -z "$docs_held" ]; then
     cd "$docs_root" || exit 1
-    # Hashed: what docslock is built from (its own source, the non-test
-    # sources of the packages it imports from this module, go.mod and the one
-    # dependency's go.sum lines), so nothing else forces a rebuild.
+    # Hashed: what docslock is built from, as `go list -deps` finds it, so
+    # nothing else forces a rebuild and nothing it comes to import is missed.
+    # This module's own packages by their sources (not their tests), a
+    # dependency's by its directory in the module cache, which names its
+    # version; go.mod for the toolchain.
     # shellcheck source=sha256.sh
     . scripts/lib/sha256.sh
+    docs_deps=$(go list -deps -f '{{if not .Standard}}{{.Dir}}{{end}}' scripts/docslock.go) || exit 1
     docs_hash=$({
         cat scripts/docslock.go go.mod
-        for f in internal/flock/*.go internal/vfs/*.go; do
-            case "$f" in *_test.go) ;; *) cat "$f" ;; esac
+        printf '%s\n' "$docs_deps" | while IFS= read -r d; do
+            case "$d" in
+            "$docs_root"/scripts) ;; # docslock.go itself, above; not its neighbours
+            "$docs_root"/*)
+                for f in "$d"/*.go; do
+                    case "$f" in *_test.go) ;; *) cat "$f" ;; esac
+                done
+                ;;
+            *) echo "$d" ;;
+            esac
         done
-        grep '^golang.org/x/sys ' go.sum || true # its lines may move; never fatal
     } | sha256 /dev/stdin | cut -c1-16) || exit 1
     case "$(uname -s 2>/dev/null)" in
     MINGW* | MSYS* | CYGWIN*) docslock="target/docs-gen/docslock-$docs_hash.exe" ;;

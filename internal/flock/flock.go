@@ -1,7 +1,7 @@
 // Package flock takes an exclusive, non-blocking lock on an open file: the
 // operating system's own (flock on Unix, LockFileEx on Windows), so it is
 // released however the holder ends, kill -9 and a power cut included, with no
-// owner to guess at. It also has the process-group helpers the holder needs.
+// owner to guess at. It also has the few process helpers its holder needs.
 // scripts/docslock.go holds docs/.flock with it.
 package flock
 

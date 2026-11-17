@@ -278,11 +278,14 @@ jobs:
 
       # One generator run. On a pull request it compares with the base the
       # merge commit was built on (HEAD^1), not HEAD (which holds nothing to
-      # miss if the PR itself committed a lossy regeneration), nor the event's
-      # base SHA (stale when main has moved and the job is re-run), accepting
-      # only the losses the lines the PR adds to docs/allowed-removals list;
-      # the generator reads that file itself, strictly. On a push it compares
-      # with HEAD.
+      # miss if the PR itself committed a lossy regeneration), so it checks
+      # exactly the base this merge commit merges onto, already in the
+      # checkout (fetch-depth 2), with no further fetch. A re-run reuses the
+      # same merge commit, so it compares with the same base; a newer main
+      # is checked once the PR is updated, or on the push after merging.
+      # Only the losses the lines the PR adds to docs/allowed-removals list
+      # are accepted; the generator reads that file itself, strictly. On a
+      # push it compares with HEAD.
       - name: Regenerate the docs
         env:
           EVENT: ${{ github.event_name }}

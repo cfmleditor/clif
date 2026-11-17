@@ -19,6 +19,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	docsources "github.com/cfmleditor/clif/internal/docs/sources"
 	"github.com/cfmleditor/clif/internal/flock"
@@ -100,6 +101,32 @@ func repoRelative(path string) string {
 	return filepath.ToSlash(rel)
 }
 
+// git runs git with args and returns what it printed. A git that a signal
+// ended is no answer to report (a missing commit, an unreadable baseline): a
+// Ctrl-C at the terminal reaches it and this process alike, and this run
+// stops by that signal, as its own handler, which normally gets there
+// first, would have it.
+func git(args ...string) ([]byte, error) {
+	out, err := exec.Command("git", args...).Output()
+
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		if ws, ok := exitErr.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
+			time.Sleep(time.Second)
+			stoppedBy(ws.Signal(), "nothing was written")
+		}
+	}
+
+	return out, err
+}
+
+// gitOK reports whether git with args succeeds.
+func gitOK(args ...string) bool {
+	_, err := git(args...)
+
+	return err == nil
+}
+
 // resolves reports whether ref names a commit. HEAD's answer comes from
 // gitInfo, the one the banner's notes use, so the baseline read and the
 // banner cannot disagree about it within one run.
@@ -108,7 +135,9 @@ func resolves(ref string) bool {
 		return gitInfo().head
 	}
 
-	return exec.Command("git", "rev-parse", "--verify", "--quiet", ref+"^{commit}").Run() == nil
+	_, err := git("rev-parse", "--verify", "--quiet", ref+"^{commit}")
+
+	return err == nil
 }
 
 // baselineStatus says what reading a committed file found. Each case is its
@@ -151,7 +180,7 @@ func committed(ref, path string) (status baselineStatus, data []byte, err error)
 		return baselineAbsent, nil, nil
 	}
 
-	b, err := exec.Command("git", "show", ref+":./"+path).Output()
+	b, err := git("show", ref+":./"+path)
 	if err != nil {
 		return baselineUnreadable, nil, fmt.Errorf("git show %s:./%s: %w", ref, path, err)
 	}
@@ -167,7 +196,7 @@ func committed(ref, path string) (status baselineStatus, data []byte, err error)
 // ls-tree lists the path when ref has it and nothing when it does not; it
 // fails only when git does.
 func atRef(ref, path string) (bool, error) {
-	listed, err := exec.Command("git", "ls-tree", "--name-only", ref, "--", path).Output()
+	listed, err := git("ls-tree", "--name-only", ref, "--", path)
 	if err != nil {
 		return false, fmt.Errorf("git ls-tree %s -- %s: %w", ref, path, err)
 	}
@@ -190,9 +219,9 @@ type gitState struct {
 
 var gitInfo = sync.OnceValue(func() gitState {
 	g := gitState{
-		available: exec.Command("git", "ls-files", "--error-unmatch", "--", "scripts/generate_docs.go").Run() == nil,
+		available: gitOK("ls-files", "--error-unmatch", "--", "scripts/generate_docs.go"),
 	}
-	g.head = g.available && exec.Command("git", "rev-parse", "--verify", "--quiet", "HEAD").Run() == nil
+	g.head = g.available && gitOK("rev-parse", "--verify", "--quiet", "HEAD")
 
 	return g
 })
@@ -369,7 +398,7 @@ func refuse(reason ...string) {
 		case !at:
 			note = "is not committed" // at HEAD; staged is not committed
 		default:
-			err := exec.Command("git", "diff", "--quiet", "HEAD", "--", f).Run()
+			_, err := git("diff", "--quiet", "HEAD", "--", f)
 			var exitErr *exec.ExitError
 			if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
 				note = "differs from HEAD's"
