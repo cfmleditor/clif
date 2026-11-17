@@ -35,6 +35,7 @@ trap 'docs_cleanup_begin; if docs_holds_lock; then rm -f "$ORDER.tmp"; fi' EXIT
 
 # An interrupted fetch or bump may have left a copy aside: put each back
 # before checking for it.
+docs_still_locked
 swap_recover docs/src/cfdocs
 swap_recover docs/lucee
 

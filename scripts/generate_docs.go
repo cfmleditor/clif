@@ -69,6 +69,28 @@ func baselineRef() string {
 	return r
 }
 
+// repoRelative gives path relative to the working directory, the
+// repository's root (the generator runs from there), for `git show REF:./…`,
+// which reads an absolute path as one inside the commit and finds nothing. A
+// path outside the repository is refused: there is no copy of it at a base.
+func repoRelative(path string) string {
+	if path == "" || !filepath.IsAbs(path) {
+		return path
+	}
+
+	wd, err := os.Getwd()
+	if err != nil {
+		refuse("Cannot find the working directory: " + err.Error())
+	}
+
+	rel, err := filepath.Rel(wd, path)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		refuse(fmt.Sprintf("DOCS_ALLOWED_REMOVALS_FILE=%q is outside the repository, so has no copy at a base to compare with.", path))
+	}
+
+	return filepath.ToSlash(rel)
+}
+
 // resolves reports whether ref names a commit. HEAD's answer comes from
 // gitInfo, the one the banner's notes use, so the baseline read and the
 // banner cannot disagree about it within one run.
@@ -545,7 +567,7 @@ func main() {
 	// a later loss through by accident nor fail anyone, and only warns until
 	// cleared.
 	ref := baselineRef()
-	allowedFile := os.Getenv("DOCS_ALLOWED_REMOVALS_FILE")
+	allowedFile := repoRelative(os.Getenv("DOCS_ALLOWED_REMOVALS_FILE"))
 	acceptFrom := "DOCS_ALLOW_REMOVALS"
 	var accept docsources.Acceptance
 	var leftOver []string

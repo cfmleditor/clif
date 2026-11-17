@@ -26,6 +26,7 @@ type Group struct {
 // Call Started once it has, then Wait.
 func NewGroup(cmd *exec.Cmd) *Group {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	dieWithParent(cmd.SysProcAttr)
 
 	return &Group{}
 }

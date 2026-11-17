@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/cfmleditor/clif/internal/vfs"
 )
 
 // ErrUnsupported is returned where the platform has no file lock (wasm).
@@ -33,7 +35,7 @@ func Record(f *os.File, token string) error {
 // Holder reads the record at path: the holder's PID and token, or "" for
 // each when there is none.
 func Holder(path string) (pid, token string) {
-	b, err := os.ReadFile(path) //nolint:gosec // the lock file the caller names
+	b, err := vfs.ReadRegular(path)
 	if err != nil {
 		return "", ""
 	}

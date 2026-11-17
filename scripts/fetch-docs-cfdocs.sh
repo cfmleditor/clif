@@ -45,6 +45,7 @@ trap cleanup EXIT
 
 # An interrupted earlier fetch may have left the previous copy aside (and no
 # marker, so it is never mistaken for the pin): put it back.
+docs_still_locked
 swap_recover "$SRC"
 
 if [ "${DOCS_BUMP:-}" = "1" ]; then

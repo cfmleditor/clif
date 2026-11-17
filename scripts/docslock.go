@@ -99,6 +99,16 @@ func main() {
 		fail("cannot open %s: %v", lockPath, err)
 	}
 
+	// The token is made before the lock is taken, so that once it is, the
+	// record is the very next thing written: until then the file holds the
+	// previous holder's, which a run whose docslock was killed could pass
+	// flock.Verify with against this lock.
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		fail("%v", err)
+	}
+	token := hex.EncodeToString(b)
+
 	// Retried for a moment before refusing: flock.Verify, testing a record
 	// a killed holder left, takes a free lock for an instant, and a run
 	// starting just then must not be turned away for it.
@@ -121,17 +131,7 @@ func main() {
 		fail("another docs run (PID %s) holds %s; wait for it to finish", pid, lockPath)
 	}
 
-	// The record first, before anything else: until it is written the
-	// file still holds the previous holder's, and a run whose docslock was
-	// killed would pass flock.Verify with that token against this lock.
 	held = f
-
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		fail("%v", err)
-	}
-	token := hex.EncodeToString(b)
-
 	if err := flock.Record(f, token); err != nil {
 		fail("cannot write %s: %v", lockPath, err)
 	}

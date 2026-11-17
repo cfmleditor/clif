@@ -26,19 +26,32 @@ if [ -n "${DOCS_LOCK_TOKEN:-}" ]; then
     # Inside a run, or a token leaked from one. Inside a run whose helper has
     # gone (target/ deleted meanwhile), taking the lock again would only find
     # this run's own docslock holding it: say what happened instead.
-    if [ -z "${DOCS_LOCK_BIN:-}" ] || [ ! -x "$DOCS_LOCK_BIN" ]; then
-        echo "error: DOCS_LOCK_TOKEN is set, but the docs lock's helper (${DOCS_LOCK_BIN:-not named}) is missing:" >&2
-        echo "       was target/ deleted during a docs run? Outside one, unset DOCS_LOCK_TOKEN and run this again." >&2
+    if [ -n "${DOCS_LOCK_BIN:-}" ] && [ -x "$DOCS_LOCK_BIN" ]; then
+        if (cd "$docs_root" && "$DOCS_LOCK_BIN" --held); then
+            docs_held=1
+        fi
+    elif [ "$(awk '{ print $2 }' "$docs_root/docs/.flock" 2>/dev/null)" = "$DOCS_LOCK_TOKEN" ]; then
+        # The record names this token, so this is inside a live run whose
+        # helper has gone; a token that matches nothing was leaked from a
+        # run that has ended, and the lock is taken as usual below.
+        echo "error: the docs lock's helper (${DOCS_LOCK_BIN:-not named}) is gone during this docs run:" >&2
+        echo "       was target/ deleted meanwhile? Let the run finish, then run this again." >&2
         exit 1
-    fi
-    if (cd "$docs_root" && "$DOCS_LOCK_BIN" --held); then
-        docs_held=1
     fi
 fi
 
 if [ -z "$docs_held" ]; then
     cd "$docs_root" || exit 1
-    docs_hash=$(cat scripts/docslock.go internal/flock/*.go go.mod go.sum |
+    # Hashed: what docslock is built from (its own source, the non-test
+    # sources of the packages it imports from this module, go.mod and the one
+    # dependency's go.sum lines), so nothing else forces a rebuild.
+    docs_hash=$({
+        cat scripts/docslock.go go.mod
+        for f in internal/flock/*.go internal/vfs/*.go; do
+            case "$f" in *_test.go) ;; *) cat "$f" ;; esac
+        done
+        grep '^golang.org/x/sys ' go.sum
+    } |
         { if command -v sha256sum >/dev/null 2>&1; then sha256sum; else shasum -a 256; fi; } | cut -c1-16) || exit 1
     case "$(uname -s 2>/dev/null)" in
     MINGW* | MSYS* | CYGWIN*) docslock="target/docs-gen/docslock-$docs_hash.exe" ;;
@@ -47,7 +60,14 @@ if [ -z "$docs_held" ]; then
     if [ ! -x "$docslock" ]; then
         mkdir -p target/docs-gen
         go build -o "$docslock.$$.tmp" scripts/docslock.go || exit 1
-        mv -f "$docslock.$$.tmp" "$docslock" || exit 1
+        # Another run starting at once may have built the same one first, and
+        # be executing it: then this build is not needed, and is not moved
+        # over it (Windows would refuse).
+        if [ -e "$docslock" ]; then
+            rm -f "$docslock.$$.tmp"
+        else
+            mv "$docslock.$$.tmp" "$docslock" || exit 1
+        fi
         # Builds of older sources are left: one may be what a run is
         # executing. They are small; `make clean` removes them.
     fi

@@ -19,17 +19,17 @@ type Group struct {
 	job windows.Handle
 }
 
-// NewGroup does nothing to cmd: the job is made once it has started.
-func NewGroup(*exec.Cmd) *Group { return &Group{} }
-
-// Started puts the command in a kill-on-close job. What it starts from then
-// on joins the job too. If the job cannot be made, the command runs without.
-func (g *Group) Started(p *os.Process) {
-	g.p = p
+// NewGroup puts this process in a kill-on-close job before cmd starts, so
+// the command, and everything it starts, is in the job from its first
+// instant (a process joins its creator's job): nothing can start outside it
+// in a gap before it is assigned. If the job cannot be made, the command
+// runs without one.
+func NewGroup(*exec.Cmd) *Group {
+	g := &Group{}
 
 	job, err := windows.CreateJobObject(nil, nil)
 	if err != nil {
-		return
+		return g
 	}
 
 	info := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{}
@@ -39,26 +39,22 @@ func (g *Group) Started(p *os.Process) {
 		uintptr(unsafe.Pointer(&info)), uint32(unsafe.Sizeof(info))); err != nil {
 		_ = windows.CloseHandle(job)
 
-		return
+		return g
 	}
 
-	h, err := windows.OpenProcess(windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE, false, uint32(p.Pid))
-	if err != nil {
+	if windows.AssignProcessToJobObject(job, windows.CurrentProcess()) != nil {
 		_ = windows.CloseHandle(job)
 
-		return
-	}
-
-	defer func() { _ = windows.CloseHandle(h) }()
-
-	if windows.AssignProcessToJobObject(job, h) != nil {
-		_ = windows.CloseHandle(job)
-
-		return
+		return g
 	}
 
 	g.job = job // held open, never closed, until this process ends
+
+	return g
 }
+
+// Started records the command's process.
+func (g *Group) Started(p *os.Process) { g.p = p }
 
 // Wait waits for the command and returns its exit code.
 func (g *Group) Wait() (int, error) {

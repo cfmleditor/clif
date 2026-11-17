@@ -11,8 +11,10 @@
 # it on every exit (trap), so the previous copy always returns.
 
 # swap_recover DIR: put DIR's previous copy back if a swap was interrupted.
+#
+# Neither checks the lock itself: a caller calls docs_still_locked (or, in an
+# EXIT trap, tests docs_holds_lock) once, just before.
 swap_recover() {
-    docs_still_locked
     if [ ! -d "$1" ] && [ -d "$1.old" ]; then
         mv "$1.old" "$1"
     fi
@@ -21,7 +23,6 @@ swap_recover() {
 # swap_in NEW DIR: replace DIR (which may not exist) with NEW.
 swap_in() {
     local new=$1 dir=$2
-    docs_still_locked
     # Before anything is deleted: an interrupted earlier swap's DIR.old may
     # be the only copy left.
     swap_recover "$dir"

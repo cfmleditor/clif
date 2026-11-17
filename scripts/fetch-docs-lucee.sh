@@ -49,6 +49,7 @@ trap cleanup EXIT
 
 # On every run, not just a bump: an interrupted bump may have left the
 # committed copy aside in docs/lucee.old.
+docs_still_locked
 swap_recover "$DIR"
 
 # A plain run only reports; scripts/assemble-docs.sh is the one place that
@@ -116,6 +117,12 @@ fi
     fi
     echo "zip-sha256 $(sha256 "$TMP/lucee-docs.zip")"
     echo "json-sha256 $json_hash"
+    # SOURCE is "<name> <value>" lines, read strictly: an ETag holding
+    # whitespace (a weak validator may) is left out rather than make the
+    # file unreadable. It is a note on where the zip came from, nothing more.
+    case "$etag" in
+    *[[:space:]]*) etag="" ;;
+    esac
     if [ -n "$etag" ]; then
         echo "etag $etag"
     fi
@@ -130,6 +137,7 @@ fi
 
 # docs/lucee may be missing (deleted, or never checked out): swap_in then
 # just puts the new copy in place.
+docs_still_locked
 swap_in "$NEW" "$DIR"
 
 echo "Vendored $count Lucee JSON files in $DIR; review and commit the diff"
