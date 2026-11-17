@@ -28,7 +28,15 @@ func Record(f *os.File, token string) error {
 		return err
 	}
 
-	_, err := f.WriteAt([]byte(fmt.Sprintf("%d %s\n", os.Getpid(), token)), 0)
+	// With this process's start time, where the platform tells it
+	// (startTime), so a PID reused after this process has gone is not taken
+	// for it (Verify).
+	line := fmt.Sprintf("%d %s", os.Getpid(), token)
+	if st, ok := startTime(os.Getpid()); ok {
+		line += " " + st
+	}
+
+	_, err := f.WriteAt([]byte(line+"\n"), 0)
 
 	return err
 }
@@ -36,17 +44,45 @@ func Record(f *os.File, token string) error {
 // Holder reads the record at path: the holder's PID and token, or "" for
 // each when there is none.
 func Holder(path string) (pid, token string) {
+	pid, token, _ = record(path)
+
+	return pid, token
+}
+
+// record reads the record at path: PID, token and, where it was known, the
+// holder's start time.
+func record(path string) (pid, token, start string) {
 	b, err := vfs.ReadRegular(path)
 	if err != nil {
-		return "", ""
+		return "", "", ""
 	}
 
 	f := strings.Fields(string(b))
-	if len(f) != 2 {
-		return "", ""
+	switch len(f) {
+	case 2:
+		return f[0], f[1], ""
+	case 3:
+		return f[0], f[1], f[2]
 	}
 
-	return f[0], f[1]
+	return "", "", ""
+}
+
+// holderAlive: a process has pid, and, where the record and the platform
+// both give a start time, it is the one that wrote the record, not a later
+// process given the same PID.
+func holderAlive(pid int, start string) bool {
+	if !alive(pid) {
+		return false
+	}
+
+	if start == "" {
+		return true
+	}
+
+	now, ok := startTime(pid)
+
+	return !ok || now == start
 }
 
 // Verify reports whether token names the run holding the lock on path: the
@@ -66,12 +102,12 @@ func Verify(path, token string) bool {
 	// lock but not yet written its record (an instant) leaves a killed
 	// holder's record in place, and that record's token would otherwise
 	// pass, against the new holder's lock, for the killed run's scripts.
-	pidText, got := Holder(path)
+	pidText, got, start := record(path)
 	if got != token {
 		return false
 	}
 
-	if pid, err := strconv.Atoi(pidText); err != nil || !alive(pid) {
+	if pid, err := strconv.Atoi(pidText); err != nil || !holderAlive(pid, start) {
 		return false
 	}
 

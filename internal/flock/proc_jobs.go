@@ -51,13 +51,9 @@ func NewGroup(cmd *exec.Cmd, withParent bool) *Group {
 }
 
 // Started hands the terminal to the command's group if this process's group
-// has it. From here on this process may be in the background, where taking
-// the terminal back would raise SIGTTOU: that is ignored here, after the
-// command has started, so the command does not inherit it.
+// has it.
 func (g *Group) Started(p *os.Process) {
 	g.pid = p.Pid
-
-	signal.Ignore(syscall.SIGTTOU)
 
 	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
 	if err != nil {
@@ -168,10 +164,11 @@ func (g *Group) handOver() {
 // whatever ran this one sees an interrupted run rather than an exit code (a
 // shell loop breaks on it, `make -k` stops). A Ctrl-C reached only the command,
 // which had the terminal: it is sent on to this process's whole job, the
-// make that ran it included, as the terminal would have; SIGTERM or SIGHUP
-// ends this process alone. Otherwise it returns, for the caller to exit with
+// make that ran it included, as the terminal would have, unless it was sent
+// to this process (sentHere); SIGTERM, SIGHUP or a SIGINT sent here ends this
+// process alone. Otherwise it returns, for the caller to exit with
 // the code.
-func (g *Group) Reraise() {
+func (g *Group) Reraise(sentHere bool) {
 	// Only the signals that stop a run: one that dumps a Go process's stacks
 	// (SIGQUIT, SIGABRT) would print them and exit 2, not end by it.
 	switch g.ended {
@@ -180,17 +177,34 @@ func (g *Group) Reraise() {
 		return
 	}
 
-	signal.Reset(g.ended)
-
-	if g.ended == unix.SIGINT && g.handed {
+	// A Ctrl-C at the terminal, which reached the command alone: on to this
+	// process's whole job too, as the terminal would have sent it. One sent
+	// to this process (sentHere: kill -INT) was for it, not for its job.
+	if g.ended == unix.SIGINT && g.handed && !sentHere {
+		signal.Reset(unix.SIGINT)
 		_ = unix.Kill(-unix.Getpgrp(), unix.SIGINT)
-	} else {
-		_ = unix.Kill(os.Getpid(), g.ended)
+
+		time.Sleep(200 * time.Millisecond) // a bound; delivery ends this process within moments
+
+		return
 	}
 
-	// Delivery ends this process within moments; this is only a bound, should
-	// it somehow not, after which the caller exits with the code.
-	time.Sleep(200 * time.Millisecond)
+	Raise(g.ended)
+}
+
+// Raise ends this process by sig (SIGINT, SIGTERM or SIGHUP), as a process
+// that had not caught it would end; it returns only if that somehow fails,
+// for the caller to exit with a code.
+func Raise(sig os.Signal) {
+	s, ok := sig.(syscall.Signal)
+	if !ok {
+		return
+	}
+
+	signal.Reset(s)
+	_ = unix.Kill(os.Getpid(), s)
+
+	time.Sleep(200 * time.Millisecond) // a bound; delivery ends this process within moments
 }
 
 // takeBack returns the terminal to this group, if the command's has it.
@@ -210,7 +224,21 @@ func SignalGroup(p *os.Process, sig os.Signal) error {
 	return unix.Kill(-p.Pid, s)
 }
 
-// setForeground makes pgid the terminal's foreground process group.
+// setForeground makes pgid the terminal's foreground process group. This
+// process may be in the background by then, where doing so raises SIGTTOU
+// unless it is ignored: it is, for the call alone. Afterwards it is caught
+// (and dropped), not merely reset: signal.Reset does not undo
+// signal.Ignore, and an ignored signal stays ignored across exec, so every
+// command started later would inherit it so; a caught one reverts to the
+// default in the command.
 func setForeground(tty *os.File, pgid int) {
+	signal.Ignore(syscall.SIGTTOU)
+
 	_ = unix.IoctlSetPointerInt(int(tty.Fd()), unix.TIOCSPGRP, pgid)
+
+	signal.Notify(ttouSink, syscall.SIGTTOU)
 }
+
+// ttouSink catches SIGTTOU between handovers; nothing reads it, and a full
+// channel drops the signal.
+var ttouSink = make(chan os.Signal, 1)

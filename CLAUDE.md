@@ -109,7 +109,8 @@ system's own file lock on `docs/.flock` (`internal/flock`: `flock` on Unix, `Loc
 Windows), held by `scripts/docslock.go` alone, so it is released however that process ends, `kill
 -9` and a power cut included, with no stale lock to judge. docslock gives the command it runs a
 fresh token (`DOCS_LOCK_TOKEN`), recorded in `docs/.flock` with its PID; a process proves it runs
-under the lock by that token matching, its holder alive, while the lock is held (`flock.Verify`). No
+under the lock by that token matching, its holder alive (the PID, and on Linux and macOS its start
+time too, so a reused PID is not taken for it), while the lock is held (`flock.Verify`). No
 descriptor is passed to the scripts, so nothing a run leaves behind (git's background gc, the go
 command's telemetry) can keep the lock, and docslock clears its record as it exits, so a token
 leaked from a finished run matches nothing. The cost: a docslock killed outright frees the lock
@@ -133,25 +134,29 @@ docs` and `make docs-cfdocs` (`scripts/docs.sh`), `make generate` (`scripts/gene
 generator, built and run as a binary so its exit code comes through, is run by docslock itself once
 `generate.sh` has succeeded (`docslock --then`), and is the one process passed the lock's descriptor
 (fd 3; not on Windows, which passes none): it holds the lock itself, so a docslock killed during its
-write cannot free the lock under it, and it marks the descriptor close-on-exec, so the git it runs
-cannot keep it. It refuses unless it runs under the lock, and checks again just before it writes
-(the file deleted meanwhile); so run it through `make generate`. The command docslock runs is a job
-of its own, as a shell runs one (`flock.Group`): a process group, given the terminal while it runs
-if docslock has it (so it can prompt, and write under `stty tostop`), with nothing it starts
-inheriting an ignored signal. A Ctrl-Z stops it and docslock's own job together, so the shell
-reports the job stopped and `fg` resumes the whole run (resumed at once where there is no terminal
-to give back); one stopped for want of a terminal docslock has is handed it and resumed; one stopped
-by SIGSTOP is left for whoever stopped it. A Ctrl-C reaches that group once; a signal sent to
-docslock is passed to the whole group; the scripts trap these, so bash waits for what it is running
-to stop before its cleanup, which ignores any further signal, and then ends by the same signal;
-docslock, once it has cleaned up, ends by it too if it was SIGINT, SIGTERM or SIGHUP
-(`flock.Group.Reraise`; a Ctrl-C is passed on to the make that ran it), so a shell loop or `make -k`
-sees an interrupted run rather than an exit code. The generator holds a signal that arrives while it
-writes the two generated files until both are in place, then exits 128 + the signal's number. While
-it runs, docslock keeps the previous version's lock, a `docs/.lock` symlink naming `<pid>@<start
-time>`, pointing at itself, so a run of that version finds a live owner and refuses; one left behind
-is replaced once its owner is gone. The scripts retry a failed network step twice
-(`scripts/lib/retry.sh`), and work from the repository root wherever they are run from.
+write cannot free the lock under it (on Windows the job kills it with docslock, and a kill between
+its two renames can leave them out of step until a regeneration), and it marks the descriptor
+close-on-exec, so the git it runs cannot keep it. It refuses unless it runs under the lock, and
+checks again just before it writes (the file deleted meanwhile); so run it through `make generate`.
+The command docslock runs is a job of its own, as a shell runs one (`flock.Group`): a process group,
+given the terminal while it runs if docslock has it (so it can prompt, and write under `stty
+tostop`), with nothing it starts inheriting an ignored signal (docslock ignores SIGTTOU only for the
+handover itself, and catches it otherwise, since `signal.Reset` does not undo `signal.Ignore`). A
+stopping signal that reaches docslock between the script and the generator stops the run there. A
+Ctrl-Z stops it and docslock's own job together, so the shell reports the job stopped and `fg`
+resumes the whole run (resumed at once where there is no terminal to give back); one stopped for
+want of a terminal docslock has is handed it and resumed; one stopped by SIGSTOP is left for whoever
+stopped it. A Ctrl-C reaches that group once; a signal sent to docslock is passed to the whole
+group; the scripts trap these, so bash waits for what it is running to stop before its cleanup,
+which ignores any further signal, and then ends by the same signal; docslock, once it has cleaned
+up, ends by it too if it was SIGINT, SIGTERM or SIGHUP (`flock.Group.Reraise`; a Ctrl-C at the
+terminal is passed on to the make that ran it, an interrupt sent to docslock itself is not), so a
+shell loop or `make -k` sees an interrupted run rather than an exit code. The generator holds a
+signal that arrives while it writes the two generated files until both are in place, then exits 128
++ the signal's number. While it runs, docslock keeps the previous version's lock, a `docs/.lock`
+symlink naming `<pid>@<start time>`, pointing at itself, so a run of that version finds a live owner
+and refuses; one left behind is replaced once its owner is gone. The scripts retry a failed network
+step twice (`scripts/lib/retry.sh`), and work from the repository root wherever they are run from.
 
 **`scripts/generate_docs.go` refuses to lose an entry.** It compares the new entries, by type and
 name, with `internal/docs/generated_sources.txt` as committed at `HEAD`, or at `DOCS_BASELINE_REF`
@@ -220,14 +225,15 @@ base's copy lacks) accept anything, so dropping an entry on purpose takes a revi
 line left over from an earlier pull request (unchanged from the base's copy) accepts nothing, so it
 can neither wave a later loss through by accident nor fail anyone; it only warns until cleared. To
 remove such an entry again on purpose, change its line (a new `# reason`): a changed line counts as
-added; a change of spacing alone does not. A changed line that removes nothing (a comment tidied)
-only warns; only an entry new to the file that removes nothing is refused. If the base's copy itself
-no longer parses, every line counts as added, with a warning, and a line that removes nothing only
-warns, so it cannot block the pull request that fixes it. The generator reads the file itself
-(`DOCS_ALLOWED_REMOVALS_FILE`, through `sources.ParseAllowedRemovals`), strictly: a line it cannot
-read, `1` (which would switch the comparison off), or an added line that accepts nothing (a typo, a
-removal since undone) fails the step. `DOCS_BASELINE_REF` must name a commit; a value starting with
-`-` is refused, as git would read it as an option.
+added; a change of spacing, or of the entry's letter case, alone does not. A changed line that
+removes nothing (a comment tidied) only warns; only an entry new to the file that removes nothing is
+refused. If the base's copy itself no longer parses, every line counts as added, with a warning, and
+a line that removes nothing only warns, so it cannot block the pull request that fixes it. The
+generator reads the file itself (`DOCS_ALLOWED_REMOVALS_FILE`, through
+`sources.ParseAllowedRemovals`), strictly: a line it cannot read, `1` (which would switch the
+comparison off), or an added line that accepts nothing (a typo, a removal since undone) fails the
+step. `DOCS_BASELINE_REF` must name a commit; a value starting with `-` is refused, as git would
+read it as an option.
 
 Go toolchain is pinned at **1.27.4** (`go.mod`). CGO is required (tree-sitter grammar).
 

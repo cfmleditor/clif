@@ -37,8 +37,13 @@ cd "$(dirname "$0")/.."
 
 bash scripts/docs.sh
 
+# Built under the lock, checked just before (a run whose docslock was killed
+# must not replace the binary another run is about to execute), and renamed
+# into place, so nothing ever starts a half-written one.
 mkdir -p target/docs-gen
-go build -o "$DOCS_LOCK_THEN" scripts/generate_docs.go
+docs_still_locked
+go build -o "$DOCS_LOCK_THEN.$$.tmp" scripts/generate_docs.go
+mv -f "$DOCS_LOCK_THEN.$$.tmp" "$DOCS_LOCK_THEN"
 
 # Started by docslock --then, which runs the generator next; started inside
 # another docs run, which holds no descriptor to pass it, it runs here and

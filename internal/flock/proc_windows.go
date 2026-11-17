@@ -81,4 +81,7 @@ func (g *Group) Wait() (int, error) {
 func SignalGroup(*os.Process, os.Signal) error { return nil }
 
 // Reraise does nothing here: the caller exits with the command's code.
-func (*Group) Reraise() {}
+func (*Group) Reraise(bool) {}
+
+// Raise does nothing here: the caller exits with a code.
+func Raise(os.Signal) {}

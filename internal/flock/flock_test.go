@@ -85,3 +85,40 @@ func TestVerify(t *testing.T) {
 		t.Error("Verify = true with the lock released")
 	}
 }
+
+// TestVerifyRefusesAReusedPID: a record naming a live PID with another start
+// time is a dead holder's, its PID given to a later process.
+func TestVerifyRefusesAReusedPID(t *testing.T) {
+	if _, ok := startTime(os.Getpid()); !ok {
+		t.Skip("no process start time here")
+	}
+
+	path := filepath.Join(t.TempDir(), "lock")
+
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer func() { _ = f.Close() }()
+
+	if ok, err := TryLock(f); !ok || err != nil {
+		t.Fatalf("TryLock = %v, %v", ok, err)
+	}
+
+	if _, err := f.WriteAt([]byte(strconv.Itoa(os.Getpid())+" tok 1.0\n"), 0); err != nil {
+		t.Fatal(err)
+	}
+
+	if Verify(path, "tok") {
+		t.Error("Verify = true for a record whose start time is not its PID's")
+	}
+
+	if err := Record(f, "tok"); err != nil {
+		t.Fatal(err)
+	}
+
+	if !Verify(path, "tok") {
+		t.Error("Verify = false for this process's own record")
+	}
+}

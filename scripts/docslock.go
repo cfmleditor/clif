@@ -173,6 +173,9 @@ func main() {
 	go func() {
 		for s := range sigs {
 			current.Lock()
+			if current.got == nil {
+				current.got = s
+			}
 			if current.p != nil {
 				_ = flock.SignalGroup(current.p, s)
 			}
@@ -188,6 +191,24 @@ func main() {
 	}
 	code, group := run(cmd, true)
 
+	// A stopping signal that came while no command was running (between
+	// the two, as the first ended) reached nothing: the run stops here, by
+	// it, rather than start the program anyway.
+	if code == 0 && then != "" {
+		current.Lock()
+		got := current.got
+		current.Unlock()
+		if got != nil {
+			signal.Stop(sigs)
+			cleanup()
+			flock.Raise(got)
+			if n, ok := got.(syscall.Signal); ok {
+				os.Exit(128 + int(n))
+			}
+			os.Exit(1)
+		}
+	}
+
 	if code == 0 && then != "" {
 		cmd = exec.Command(then)
 		cmd.Env = env
@@ -195,8 +216,12 @@ func main() {
 			cmd.ExtraFiles = []*os.File{f}
 			cmd.Env = append(cmd.Env, "DOCS_LOCK_FD=3")
 		}
-		// Not killed with this process: it holds the lock itself, and is
-		// better left to finish its write than cut off part way.
+		// Not killed with this process (Linux's Pdeathsig): it holds the
+		// lock itself, and is better left to finish its write than cut off
+		// part way. On Windows it is in this process's job, so it is killed
+		// with it, and a kill between its two renames can leave the
+		// generated files out of step (TestGeneratedSourcesMatchTheDocs
+		// then fails until a regeneration).
 		code, group = run(cmd, false)
 	}
 
@@ -204,15 +229,19 @@ func main() {
 	// the make that ran this too), after the cleanup, so a shell loop or
 	// `make -k` sees an interrupted run, not just an exit code.
 	signal.Stop(sigs)
+	current.Lock()
+	sentHere := current.got != nil
+	current.Unlock()
 	cleanup()
-	group.Reraise()
+	group.Reraise(sentHere)
 	os.Exit(code)
 }
 
 // current is the command running, for the signal forwarder.
 var current struct {
 	sync.Mutex
-	p *os.Process
+	p   *os.Process
+	got os.Signal // the first stopping signal sent to this process, if any
 }
 
 // run runs cmd as a job of its own (flock.Group): a process group, given the

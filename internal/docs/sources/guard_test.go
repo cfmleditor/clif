@@ -161,7 +161,7 @@ func TestParseAllowedRemovals(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(lines) != 2 || lines["function jwtsign"] != "function JwtSign # dropped by the engine" || lines["tag cfstatic"] != "Tag cfstatic" {
+	if len(lines) != 2 || lines["function jwtsign"] != "function jwtsign # dropped by the engine" || lines["tag cfstatic"] != "tag cfstatic" {
 		t.Errorf("lines = %q", lines)
 	}
 
@@ -230,6 +230,15 @@ func TestAllowedRemovalsSpacingIsNoChange(t *testing.T) {
 
 	if added, left := AddedLines(now, base); len(added) != 0 || len(left) != 1 {
 		t.Errorf("added = %v, leftOver = %v; want nothing added", added, left)
+	}
+
+	recased, err := ParseAllowedRemovals("now", []byte("Function JWTSIGN # reason\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if added, _ := AddedLines(recased, base); len(added) != 0 {
+		t.Errorf("a change of letter case alone: added = %v, want nothing", added)
 	}
 
 	reworded, err := ParseAllowedRemovals("now", []byte("function JwtSign # a new reason\n"))
