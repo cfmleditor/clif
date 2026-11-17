@@ -1,15 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# The generator, built below to a path named for a hash of its sources
-# (lib/hashbuild.sh), so a copy a run is executing is never replaced.
-# docslock runs it once this script has succeeded (DOCS_LOCK_THEN: see
-# lib/underlock.sh), and passes it the lock's descriptor, so it holds the lock
-# itself for its write.
-docs_gen_root=$(cd "$(dirname "$0")/.." && pwd) || exit 1
-# shellcheck source=lib/hashbuild.sh
-. "$docs_gen_root/scripts/lib/hashbuild.sh"
-DOCS_LOCK_THEN=$(cd "$docs_gen_root" && docs_built_path scripts/generate_docs.go generate_docs) || exit 1
+# The generator, built below, is run by docslock once this script has
+# succeeded (docslock --then: see lib/underlock.sh), which passes it the
+# lock's descriptor, so it holds the lock itself for its write. A plain shell
+# variable, not exported: underlock.sh ignores an exported one.
+docs_want_then=1
 
 # Under the docs lock (scripts/docslock.go), like every docs script: see
 # lib/underlock.sh.
@@ -37,22 +33,33 @@ fi
 # from.
 cd "$(dirname "$0")/.."
 
-# docslock --then sets this for the command it starts, this script: read and
-# unset at once, so nothing this runs (a nested generate.sh, say) takes it
-# for its own and skips the generator.
-then_set=${DOCS_LOCK_THEN_SET:-}
-unset DOCS_LOCK_THEN_SET
+# docslock --then names a file for this script, the command it starts, to
+# write the generator's path to (DOCS_LOCK_THEN_FILE): read and unset at once,
+# so nothing this runs (a nested generate.sh, say) takes it for its own.
+then_file=${DOCS_LOCK_THEN_FILE:-}
+unset DOCS_LOCK_THEN_FILE
 
 bash scripts/docs.sh
 
-# Built under the lock, checked just before, unless this version of it is
-# built already; never over a copy that may be executing (lib/hashbuild.sh).
+# Built under the lock, checked just before, to a path named for a hash of
+# its sources as they are now (lib/hashbuild.sh), unless that version is built
+# already; never over a copy that may be executing.
+# shellcheck source=lib/hashbuild.sh
+. scripts/lib/hashbuild.sh
 docs_still_locked
-docs_build scripts/generate_docs.go "$DOCS_LOCK_THEN"
+gen=$(docs_built_path scripts/generate_docs.go generate_docs)
+docs_build scripts/generate_docs.go "$gen"
 
-# Started by docslock --then, which runs the generator next; started inside
-# another docs run, which holds no descriptor to pass it, it runs here and
-# checks the lock by its token.
-if [ "$then_set" != "${DOCS_LOCK_TOKEN:-}" ] || [ -z "${DOCS_LOCK_TOKEN:-}" ]; then
-    "$DOCS_LOCK_THEN"
-fi
+# Started by docslock --then: the generator is named to it, to run next with
+# the lock's descriptor. The file is this run's (its name holds the run's
+# token); one leaked from elsewhere names nothing, and the generator runs
+# here. Started inside another docs run, which holds no descriptor to pass
+# it, it runs here too, and checks the lock by its token.
+case "$then_file" in
+?*"-${DOCS_LOCK_TOKEN:-none}")
+    printf '%s\n' "$gen" > "$then_file"
+    ;;
+*)
+    "$gen"
+    ;;
+esac

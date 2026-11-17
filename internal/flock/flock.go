@@ -9,6 +9,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -157,4 +159,28 @@ func Exit(sig os.Signal) {
 	}
 
 	os.Exit(1)
+}
+
+// StopSignals are the signals that stop a docs run on purpose: a Ctrl-C, a
+// kill, a hang-up. The one list docslock catches, Raise re-raises and the
+// generator treats as an interrupt.
+var StopSignals = []os.Signal{os.Interrupt, syscall.SIGTERM, syscall.SIGHUP}
+
+// Stopping reports whether sig is one of StopSignals.
+func Stopping(sig os.Signal) bool { return slices.Contains(StopSignals, sig) }
+
+// SignalOf reports the signal that ended the process err (from a Cmd's Run,
+// Output or Wait) is about, if a signal ended it.
+func SignalOf(err error) (os.Signal, bool) {
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) {
+		return nil, false
+	}
+
+	ws, ok := exitErr.Sys().(syscall.WaitStatus)
+	if !ok || !ws.Signaled() {
+		return nil, false
+	}
+
+	return ws.Signal(), true
 }

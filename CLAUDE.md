@@ -125,8 +125,10 @@ and `make docs-cfdocs` (`scripts/docs.sh`), `make generate` (`scripts/generate.s
 docs-bump` each hold it across all their steps.
 
 **The generator holds the lock itself.** `make generate` has docslock run it once `generate.sh` has
-succeeded (`docslock --then`), and pass it the lock's descriptor (fd 3), the only process given one:
-so a docslock killed during its write cannot free the lock under it. It marks the descriptor
+succeeded (`docslock --then`: the script builds it under the lock and writes its path to a file
+whose name holds the run's token, `DOCS_LOCK_THEN_FILE`, and docslock takes only a program under
+`target/docs-gen`), and pass it the lock's descriptor (fd 3), the only process given one: so a
+docslock killed during its write cannot free the lock under it. It marks the descriptor
 close-on-exec, so the git it runs cannot keep it, and refuses unless it runs under the lock,
 checking again just before it writes; so run it through `make generate`. Windows passes no
 descriptor: there the generator breaks away from docslock's job (below), so it is not killed between
@@ -145,20 +147,22 @@ its change, and on Windows, a generator killed between its check and its renames
 **Signals.** The command runs in docslock's own process group, so a terminal's Ctrl-C, Ctrl-Z and
 hang-up reach it, and everything it runs, directly and once, and job control is the shell's as for
 any command. docslock only catches those, to wait, and leaves alone one it was started with ignored
-(`nohup`'s SIGHUP), which the command then inherits ignored. It passes to its child a SIGTERM, and a
-SIGINT or SIGHUP that cannot have come from the terminal (docslock not in its foreground:
-`flock.InForeground`, asked at the start for a hang-up, when the terminal may be gone by the time it
-arrives), since those were sent to docslock alone, and is passed on as the next command starts if
-none is running; one that comes while no command runs stops the run before the next would start, and
-any that came ends docslock by it at the end, so a run told to stop never reads as done. The scripts
-trap these (`underlock.sh`), so bash waits for what it is running to stop (a SIGTERM lets the
-current step finish) before its cleanup, which ignores any further signal, and then ends by the same
-signal; the generator holds a signal that arrives while it writes the two generated files until both
-are in place, then ends by it, and a git it runs that SIGINT, SIGTERM or SIGHUP ends stops it the
-same way (any other signal, an OOM kill say, is a failure like any). docslock then ends by its
-child's signal too (`flock.Raise`; SIGINT, SIGTERM and SIGHUP only), so a shell loop or `make -k`
-sees an interrupted run rather than an exit code. The scripts retry a failed network step twice
-(`scripts/lib/retry.sh`), and work from the repository root wherever they are run from.
+(`nohup`'s SIGHUP), which the command then inherits ignored; the generator does the same. It passes
+to its child a SIGTERM, and a SIGINT or SIGHUP that cannot have come from the terminal (docslock not
+in its foreground: `flock.InForeground`, asked at the start for a hang-up, when the terminal may be
+gone by the time it arrives), since those were sent to docslock alone, and is passed on as the next
+command starts if none is running; one that comes while no command runs stops the run before the
+next would start, and any that came ends docslock by it at the end, so a run told to stop never
+reads as done. The scripts trap these (`underlock.sh`), and the first such signal ignores any more
+(a copy docslock passes on, of one the whole group already got, then does nothing), so bash waits
+for what it is running to stop (a SIGTERM lets the current step finish) before its cleanup, which
+ignores any further signal, and then ends by the same signal; the generator holds a signal that
+arrives while it writes the two generated files until both are in place, then ends by it, and a git
+it runs that SIGINT, SIGTERM or SIGHUP ends stops it the same way (any other signal, an OOM kill
+say, is a failure like any). docslock then ends by its child's signal too (`flock.Raise`; SIGINT,
+SIGTERM and SIGHUP only), so a shell loop or `make -k` sees an interrupted run rather than an exit
+code. The scripts retry a failed network step twice (`scripts/lib/retry.sh`), and work from the
+repository root wherever they are run from.
 
 **`scripts/generate_docs.go` refuses to lose an entry.** It compares the new entries, by type and
 name, with `internal/docs/generated_sources.txt` as committed at `HEAD`, or at `DOCS_BASELINE_REF`

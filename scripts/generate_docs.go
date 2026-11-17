@@ -18,7 +18,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	docsources "github.com/cfmleditor/clif/internal/docs/sources"
@@ -110,20 +109,12 @@ func repoRelative(path string) string {
 func git(args ...string) ([]byte, error) {
 	out, err := exec.Command("git", args...).Output()
 
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) {
-		if ws, ok := exitErr.Sys().(syscall.WaitStatus); ok && ws.Signaled() && stopping(ws.Signal()) {
-			time.Sleep(time.Second)
-			stoppedBy(ws.Signal(), "nothing was written")
-		}
+	if sig, ok := flock.SignalOf(err); ok && flock.Stopping(sig) {
+		time.Sleep(time.Second)
+		stoppedBy(sig, "nothing was written")
 	}
 
 	return out, err
-}
-
-// stopping reports whether sig is one that stops a run on purpose.
-func stopping(sig syscall.Signal) bool {
-	return sig == syscall.SIGINT || sig == syscall.SIGTERM || sig == syscall.SIGHUP
 }
 
 // gitOK reports whether git with args succeeds.
@@ -345,10 +336,23 @@ func stoppedBy(sig os.Signal, what string) {
 
 // stopOnSignal exits on Ctrl-C, a kill or a hang-up with the shell's code for
 // that signal, at once, or, during the write, as soon as both files are in
-// place.
+// place. A signal this process was started with ignored (nohup's SIGHUP) is
+// left so; with none left to catch, nothing is (signal.Notify with no
+// signals relays every one).
 func stopOnSignal() {
+	var caught []os.Signal
+	for _, s := range flock.StopSignals {
+		if !signal.Ignored(s) {
+			caught = append(caught, s)
+		}
+	}
+
+	if len(caught) == 0 {
+		return
+	}
+
 	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+	signal.Notify(c, caught...)
 
 	go func() {
 		for sig := range c {

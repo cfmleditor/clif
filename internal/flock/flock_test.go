@@ -2,8 +2,11 @@ package flock
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
+	"syscall"
 	"testing"
 )
 
@@ -120,5 +123,24 @@ func TestVerifyRefusesAReusedPID(t *testing.T) {
 
 	if !Verify(path, "tok") {
 		t.Error("Verify = false for this process's own record")
+	}
+}
+
+func TestSignalOf(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no signals here")
+	}
+
+	err := exec.CommandContext(t.Context(), "sh", "-c", "kill -TERM $$").Run()
+	if sig, ok := SignalOf(err); !ok || sig != syscall.SIGTERM {
+		t.Errorf("SignalOf(a shell killed by SIGTERM) = %v, %v", sig, ok)
+	}
+
+	if _, ok := SignalOf(exec.CommandContext(t.Context(), "sh", "-c", "exit 3").Run()); ok {
+		t.Error("SignalOf(an exit code) = true")
+	}
+
+	if !Stopping(syscall.SIGHUP) || Stopping(syscall.SIGQUIT) {
+		t.Error("Stopping: want SIGHUP, not SIGQUIT")
 	}
 }

@@ -54,10 +54,15 @@ if [ -z "$docs_held" ]; then
     cd "$docs_root" || exit 1
     docslock=$(docs_built_path scripts/docslock.go docslock) || exit 1
     docs_build scripts/docslock.go "$docslock" || exit 1
-    # DOCS_LOCK_THEN (set by a script before sourcing this, not exported):
-    # a program docslock runs once the script has succeeded, passing it the
-    # lock's descriptor (scripts/generate.sh's generator).
-    exec "$docslock" ${DOCS_LOCK_THEN:+--then "$DOCS_LOCK_THEN"} bash "scripts/${0##*/}" "$@"
+    # docs_want_then (a plain variable a script sets before sourcing this;
+    # one exported to it from outside is ignored): docslock runs the program
+    # the script names once it has succeeded, passing it the lock's
+    # descriptor (scripts/generate.sh's generator).
+    docs_then=""
+    case "$(declare -p docs_want_then 2>/dev/null)" in
+    "declare -- docs_want_then=\"1\"") docs_then=--then ;;
+    esac
+    exec "$docslock" $docs_then bash "scripts/${0##*/}" "$@"
 fi
 unset docs_held
 
@@ -86,9 +91,14 @@ docs_still_locked() {
 # alone, finish) before the EXIT trap cleans up after it. Each then ends this
 # script by the same signal, not just its exit code, so what ran it sees an
 # interrupted run; docslock ends by it in turn (flock.Raise).
-trap 'trap - INT; kill -INT $$' INT
-trap 'trap - TERM; kill -TERM $$' TERM
-trap 'trap - HUP; kill -HUP $$' HUP
+#
+# The first of them ignores every one from then on: a second copy (a signal
+# sent to docslock's whole process group reaches this script directly, and
+# again through docslock, which cannot tell it from one sent to it alone)
+# then does nothing, rather than cut the cleanup short.
+trap 'trap "" INT TERM HUP; trap - INT; kill -INT $$' INT
+trap 'trap "" INT TERM HUP; trap - TERM; kill -TERM $$' TERM
+trap 'trap "" INT TERM HUP; trap - HUP; kill -HUP $$' HUP
 
 # docs_cleanup_begin: the first line of a script's EXIT trap. A second signal
 # there would cut the cleanup short; none is acted on from then on.

@@ -4,7 +4,7 @@
 // Runs a command holding the docs lock, so no two docs runs (a fetch, a bump,
 // a generation) interleave:
 //
-//	target/docs-gen/docslock-<hash> [--then <program>] <command> [args...]
+//	target/docs-gen/docslock-<hash> [--then] <command> [args...]
 //
 // lib/underlock.sh builds it, named for a hash of its sources, and runs it;
 // never `go run`, which turns every failing exit of its child into exit 1, a
@@ -18,7 +18,7 @@
 // holds its token, its holder is alive and the lock is held (flock.Verify).
 // The command is passed no descriptor, so nothing it leaves behind (git's
 // background gc, the go command's telemetry) can keep the lock; only a
-// program named by --then is, and it passes it to nothing it runs.
+// program run by --then is, and it passes it to nothing it runs.
 //
 // Signals: the command runs in this process's own process group, so a
 // terminal's Ctrl-C, Ctrl-Z or hang-up reaches it, and everything it runs,
@@ -40,6 +40,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"syscall"
 
@@ -89,19 +90,23 @@ func main() {
 		os.Exit(1)
 	}
 
-	// --then <program>: once the command has succeeded, run program too,
+	// --then: once the command has succeeded, run the program it names,
 	// still under the lock, and pass it the lock's descriptor (fd 3), so it
 	// holds the lock itself: should this process be killed while it runs, the
 	// lock stays held until it ends. `make generate` runs the generator so
 	// (scripts/generate.sh), the one step that must not lose the lock part
-	// way through its write.
+	// way through its write. The command names it by writing its path to the
+	// file DOCS_LOCK_THEN_FILE gives, once it has built it, under the lock:
+	// so the path is the one it built, whatever its sources were when the
+	// run began, and the file's name holds this run's token, so a value
+	// leaked to another run names nothing there.
 	args := os.Args[1:]
-	then := ""
+	then := false
 	if args[0] == "--then" {
-		if len(args) < 3 {
+		if len(args) < 2 {
 			usage()
 		}
-		then, args = args[1], args[2:]
+		then, args = true, args[1:]
 	}
 
 	// Caught from the start, so none ends this process between taking the
@@ -121,13 +126,17 @@ func main() {
 	// sent here alone, and deliver it to the command a second time.
 	fgAtStart := flock.InForeground()
 	var caught []os.Signal
-	for _, s := range []os.Signal{os.Interrupt, syscall.SIGTERM, syscall.SIGHUP} {
+	for _, s := range flock.StopSignals {
 		if !signal.Ignored(s) {
 			caught = append(caught, s)
 		}
 	}
 	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, caught...)
+	// Never with none: signal.Notify with no signals relays every one, the
+	// Go runtime's own included, each of which would read as a stop.
+	if len(caught) > 0 {
+		signal.Notify(sigs, caught...)
+	}
 	go func() {
 		for s := range sigs {
 			pass := s == syscall.SIGTERM ||
@@ -206,20 +215,26 @@ func main() {
 
 	cmd := exec.Command(args[0], args[1:]...)
 	cmd.Env = env
-	if then != "" {
-		// Tells scripts/generate.sh that the program comes next, run here.
-		cmd.Env = append(cmd.Env, "DOCS_LOCK_THEN_SET="+token)
+	thenFile := ""
+	if then {
+		thenFile = filepath.Join("target", "docs-gen", "then-"+token)
+		cmd.Env = append(cmd.Env, "DOCS_LOCK_THEN_FILE="+thenFile)
 	}
 	flock.DieWithParent(cmd)
 	code, by := run(cmd, nil)
 
-	if code == 0 && then != "" {
+	program := ""
+	if thenFile != "" {
+		program = thenProgram(thenFile)
+	}
+
+	if code == 0 && program != "" {
 		// A stopping signal that came while no command was running (between
 		// the two, as the first ended) reached nothing: the run stops here,
 		// by it, rather than start the program anyway.
 		stopIfSignalled(sigs)
 
-		cmd = exec.Command(then)
+		cmd = exec.Command(program)
 		cmd.Env = env
 		if runtime.GOOS != "windows" { // which passes a child no descriptor
 			cmd.ExtraFiles = []*os.File{f}
@@ -302,8 +317,10 @@ func run(cmd *exec.Cmd, retry func(*exec.Cmd)) (int, os.Signal) {
 	case err == nil:
 		return 0, nil
 	case errors.As(err, &exitErr):
-		if ws, ok := exitErr.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
-			return 128 + int(ws.Signal()), ws.Signal()
+		if sig, ok := flock.SignalOf(err); ok {
+			if n, ok := sig.(syscall.Signal); ok {
+				return 128 + int(n), sig
+			}
 		}
 
 		return exitErr.ExitCode(), nil
@@ -335,7 +352,26 @@ func stopIfSignalled(sigs chan os.Signal) {
 	flock.Exit(got)
 }
 
+// thenProgram reads and removes the --then file: the program the command
+// named, or "" if it named none. Only a program under target/docs-gen, where
+// the docs scripts build theirs, is taken: the descriptor is passed to
+// nothing else.
+func thenProgram(file string) string {
+	b, err := os.ReadFile(file) //nolint:gosec // this run's own file, named for its token
+	_ = os.Remove(file)
+	if err != nil {
+		return ""
+	}
+
+	p := filepath.Clean(strings.TrimSpace(string(b)))
+	if p == "." || filepath.IsAbs(p) || filepath.Dir(p) != filepath.Join("target", "docs-gen") {
+		fail("--then: %q is not a program the docs scripts built (under target/docs-gen)", p)
+	}
+
+	return p
+}
+
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: docslock [--then <program>] <command> [args...]  |  docslock --held")
+	fmt.Fprintln(os.Stderr, "usage: docslock [--then] <command> [args...]  |  docslock --held")
 	os.Exit(2)
 }
