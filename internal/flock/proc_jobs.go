@@ -21,6 +21,7 @@ import (
 // reaches its processes once. Nothing it starts inherits an ignored signal.
 type Group struct {
 	tty    *os.File       // the controlling terminal, if this process has one
+	p      *os.Process    // the command's process, released once reaped
 	pid    int            // the command's process, and its group
 	handed bool           // the terminal was given to the command at some point
 	ended  syscall.Signal // the signal that ended the command, if one did
@@ -53,7 +54,7 @@ func NewGroup(cmd *exec.Cmd, withParent bool) *Group {
 // Started hands the terminal to the command's group if this process's group
 // has it.
 func (g *Group) Started(p *os.Process) {
-	g.pid = p.Pid
+	g.p, g.pid = p, p.Pid
 
 	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
 	if err != nil {
@@ -91,11 +92,11 @@ func (g *Group) Wait() (int, error) {
 
 		switch {
 		case ws.Exited():
-			g.takeBack()
+			g.done()
 
 			return ws.ExitStatus(), nil
 		case ws.Signaled():
-			g.takeBack()
+			g.done()
 			g.ended = ws.Signal()
 
 			return 128 + int(ws.Signal()), nil
@@ -205,6 +206,20 @@ func Raise(sig os.Signal) {
 	_ = unix.Kill(os.Getpid(), s)
 
 	time.Sleep(200 * time.Millisecond) // a bound; delivery ends this process within moments
+}
+
+// done, once the command has been reaped: the terminal back to this group,
+// and the terminal's descriptor and the process's handle (a pidfd on Linux)
+// released, as Wait4 reaped it behind os/exec's back.
+func (g *Group) done() {
+	g.takeBack()
+
+	if g.tty != nil {
+		_ = g.tty.Close()
+		g.tty = nil
+	}
+
+	_ = g.p.Release()
 }
 
 // takeBack returns the terminal to this group, if the command's has it.

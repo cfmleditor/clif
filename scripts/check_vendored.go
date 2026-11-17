@@ -13,6 +13,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"slices"
 
 	docsources "github.com/cfmleditor/clif/internal/docs/sources"
 )
@@ -24,11 +25,12 @@ func main() {
 	}
 
 	hash, unhashed, invalid, err := docsources.HashDir(os.Args[2])
-	broken := append(unhashed, invalid...)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+
+	broken := slices.Concat(unhashed, invalid)
 
 	if len(broken) > 0 {
 		for _, b := range broken {

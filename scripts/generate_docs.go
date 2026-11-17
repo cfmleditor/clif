@@ -299,12 +299,17 @@ var (
 
 // stoppedBy prints why the run stopped and exits with the shell's code for
 // sig (128 + its number).
+//
+// It ends by sig itself where it can (flock.Raise), not merely with its
+// code, so what ran it sees an interrupted run: docslock passes a Ctrl-C on
+// to the make that ran it only for a command that died of one.
 func stoppedBy(sig os.Signal, what string) {
 	fmt.Fprintf(os.Stderr, "\n%v: stopped; %s\n", sig, what)
 	code := 130
 	if n, ok := sig.(syscall.Signal); ok {
 		code = 128 + int(n)
 	}
+	flock.Raise(sig)
 	os.Exit(code)
 }
 

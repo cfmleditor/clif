@@ -34,6 +34,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -111,6 +112,28 @@ func main() {
 		then, args = args[1], args[2:]
 	}
 
+	// A signal sent to this process (a kill, a CI runner's stop, a hang-up)
+	// is passed to the whole of the command running, its job (flock.Group);
+	// one that comes while none is running is kept, and the run stops by it
+	// before the next would start (stopIfSignalled). Caught from before the
+	// lock is taken, so none can end this process between taking it and
+	// starting a command, before the cleanup could clear the record and the
+	// marker.
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+	go func() {
+		for s := range sigs {
+			current.Lock()
+			if current.got == nil {
+				current.got = s
+			}
+			if current.p != nil {
+				_ = flock.SignalGroup(current.p, s)
+			}
+			current.Unlock()
+		}
+	}()
+
 	if err := os.MkdirAll("docs", 0o755); err != nil {
 		fail("%v", err)
 	}
@@ -161,27 +184,18 @@ func main() {
 
 	env := append(os.Environ(), "DOCS_LOCK_TOKEN="+token)
 	// The copy the run's scripts ask (docslock --held), whatever is checked
-	// out or built meanwhile.
-	if self, err := os.Executable(); err == nil {
-		env = append(env, "DOCS_LOCK_BIN="+self)
-	}
-
-	// A signal sent to this process (a kill, a CI runner's stop, a hang-up)
-	// is passed to the whole of the command running, its job (flock.Group).
-	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
-	go func() {
-		for s := range sigs {
-			current.Lock()
-			if current.got == nil {
-				current.got = s
-			}
-			if current.p != nil {
-				_ = flock.SignalGroup(current.p, s)
-			}
-			current.Unlock()
+	// out or built meanwhile: always set, as every docs script under the
+	// lock needs it. Where the OS cannot say (no /proc), the path this was
+	// started by, made absolute.
+	self, err := os.Executable()
+	if err != nil {
+		if self, err = filepath.Abs(os.Args[0]); err != nil {
+			fail("cannot find this program's own path: %v", err)
 		}
-	}()
+	}
+	env = append(env, "DOCS_LOCK_BIN="+self)
+
+	stopIfSignalled(sigs)
 
 	cmd := exec.Command(args[0], args[1:]...)
 	cmd.Env = env
@@ -191,25 +205,12 @@ func main() {
 	}
 	code, group := run(cmd, true)
 
-	// A stopping signal that came while no command was running (between
-	// the two, as the first ended) reached nothing: the run stops here, by
-	// it, rather than start the program anyway.
 	if code == 0 && then != "" {
-		current.Lock()
-		got := current.got
-		current.Unlock()
-		if got != nil {
-			signal.Stop(sigs)
-			cleanup()
-			flock.Raise(got)
-			if n, ok := got.(syscall.Signal); ok {
-				os.Exit(128 + int(n))
-			}
-			os.Exit(1)
-		}
-	}
+		// A stopping signal that came while no command was running (between
+		// the two, as the first ended) reached nothing: the run stops here,
+		// by it, rather than start the program anyway.
+		stopIfSignalled(sigs)
 
-	if code == 0 && then != "" {
 		cmd = exec.Command(then)
 		cmd.Env = env
 		if runtime.GOOS != "windows" { // which passes a child no descriptor
@@ -260,8 +261,13 @@ func run(cmd *exec.Cmd, withParent bool) (int, *flock.Group) {
 		fail("%v", err)
 	}
 
+	// Recorded for the forwarder, and any signal it kept meanwhile (one that
+	// came between the start and now, which reached nothing) sent on at once.
 	current.Lock()
 	current.p = cmd.Process
+	if current.got != nil {
+		_ = flock.SignalGroup(current.p, current.got)
+	}
 	current.Unlock()
 
 	group.Started(cmd.Process)
@@ -276,6 +282,29 @@ func run(cmd *exec.Cmd, withParent bool) (int, *flock.Group) {
 	current.Unlock()
 
 	return code, group
+}
+
+// stopIfSignalled ends the run by the stopping signal sent to this process,
+// if one came, before another command starts: cleaned up, then by the
+// signal itself where it can (flock.Raise), else with the shell's code for it.
+func stopIfSignalled(sigs chan os.Signal) {
+	current.Lock()
+	got := current.got
+	current.Unlock()
+
+	if got == nil {
+		return
+	}
+
+	signal.Stop(sigs)
+	cleanup()
+	flock.Raise(got)
+
+	if n, ok := got.(syscall.Signal); ok {
+		os.Exit(128 + int(n))
+	}
+
+	os.Exit(1)
 }
 
 func usage() {

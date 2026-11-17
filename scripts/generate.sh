@@ -35,6 +35,12 @@ fi
 # from.
 cd "$(dirname "$0")/.."
 
+# docslock --then sets this for the command it starts, this script: read and
+# unset at once, so nothing this runs (a nested generate.sh, say) takes it
+# for its own and skips the generator.
+then_set=${DOCS_LOCK_THEN_SET:-}
+unset DOCS_LOCK_THEN_SET
+
 bash scripts/docs.sh
 
 # Built under the lock, checked just before (a run whose docslock was killed
@@ -48,6 +54,6 @@ mv -f "$DOCS_LOCK_THEN.$$.tmp" "$DOCS_LOCK_THEN"
 # Started by docslock --then, which runs the generator next; started inside
 # another docs run, which holds no descriptor to pass it, it runs here and
 # checks the lock by its token.
-if [ "${DOCS_LOCK_THEN_SET:-}" != "${DOCS_LOCK_TOKEN:-}" ] || [ -z "${DOCS_LOCK_TOKEN:-}" ]; then
+if [ "$then_set" != "${DOCS_LOCK_TOKEN:-}" ] || [ -z "${DOCS_LOCK_TOKEN:-}" ]; then
     "$DOCS_LOCK_THEN"
 fi

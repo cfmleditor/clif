@@ -3,15 +3,17 @@
 package flock
 
 import (
-	"os"
 	"strconv"
 	"strings"
+
+	"github.com/cfmleditor/clif/internal/vfs"
 )
 
 // startTime is when pid started, in clock ticks since boot (/proc/<pid>/stat,
 // field 22): enough to tell a process from a later one given its PID.
 func startTime(pid int) (string, bool) {
-	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat") //nolint:gosec // a /proc path built from a PID
+	// vfs.ReadRegular reads to the end, whatever size /proc reports (0).
+	b, err := vfs.ReadRegular("/proc/" + strconv.Itoa(pid) + "/stat")
 	if err != nil {
 		return "", false
 	}
