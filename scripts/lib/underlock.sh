@@ -40,10 +40,13 @@ if [ -n "${DOCS_LOCK_TOKEN:-}" ]; then
         if (cd "$docs_root" && "$DOCS_LOCK_BIN" --held); then
             docs_held=1
         fi
-    elif [ "$(awk '{ print $2 }' "$docs_root/docs/.flock" 2>/dev/null)" = "$DOCS_LOCK_TOKEN" ]; then
-        # The record names this token, so this is inside a live run whose
-        # helper has gone; a token that matches nothing was leaked from a
-        # run that has ended, and the lock is taken as usual below.
+    elif docs_record=$(awk '{ print $1, $2 }' "$docs_root/docs/.flock" 2>/dev/null) &&
+        [ "${docs_record#* }" = "$DOCS_LOCK_TOKEN" ] && ps -p "${docs_record%% *}" >/dev/null 2>&1; then
+        # The record names this token, and its holder lives, so this is
+        # inside a live run whose helper has gone. A token that matches
+        # nothing, or only the record of a holder that has died (killed
+        # before it could clear it), was leaked from a run that has ended,
+        # and the lock is taken as usual below.
         echo "error: the docs lock's helper (${DOCS_LOCK_BIN:-not named}) is gone during this docs run:" >&2
         echo "       was target/ deleted meanwhile? Let the run finish, then run this again." >&2
         exit 1
@@ -116,12 +119,14 @@ docs_still_locked() {
     fi
 }
 
-# docslock passes a signal that stops the run to the whole of it, this script
-# and what it is running at once. bash acts on a trapped signal only once the
-# command it is waiting on has finished, so these let that command stop (the
-# generator finish writing, say) before the EXIT trap cleans up after it. Each
-# then ends this script by the same signal, not just its exit code, so what
-# ran it sees an interrupted run (docslock passes that on: flock.Reraise).
+# A terminal's Ctrl-C or hang-up reaches this script and what it is running
+# at once (they share docslock's process group); a SIGTERM, or a signal sent
+# to docslock alone, docslock passes to the script it started. bash acts on a
+# trapped signal only once the command it is waiting on has finished, so
+# these let that command stop (or, for a signal that reached this script
+# alone, finish) before the EXIT trap cleans up after it. Each then ends this
+# script by the same signal, not just its exit code, so what ran it sees an
+# interrupted run; docslock ends by it in turn (flock.Raise).
 trap 'trap - INT; kill -INT $$' INT
 trap 'trap - TERM; kill -TERM $$' TERM
 trap 'trap - HUP; kill -HUP $$' HUP

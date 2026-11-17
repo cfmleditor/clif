@@ -104,19 +104,23 @@ func main() {
 	}
 
 	// Caught from the start, so none ends this process between taking the
-	// lock and clearing its record. Only SIGTERM is passed on: a Ctrl-C or a
-	// hang-up has reached the command already, from the terminal, and a
-	// second copy could cut its cleanup short. One that comes while no
-	// command runs stops the run before the next would start.
+	// lock and clearing its record. Passed on to the command: a SIGTERM, and
+	// a Ctrl-C or hang-up that cannot have come from the terminal (this
+	// process not in its foreground: flock.InForeground). One that did has
+	// reached the command already, and a second copy could cut its cleanup
+	// short. One that comes while no command runs stops the run before the
+	// next would start, and any that came ends this process by it.
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	go func() {
 		for s := range sigs {
+			pass := s == syscall.SIGTERM || !flock.InForeground()
+
 			current.Lock()
 			if current.got == nil {
 				current.got = s
 			}
-			if s == syscall.SIGTERM && current.p != nil {
+			if pass && current.p != nil {
 				_ = current.p.Signal(s)
 			}
 			current.Unlock()
@@ -185,7 +189,7 @@ func main() {
 		cmd.Env = append(cmd.Env, "DOCS_LOCK_THEN_SET="+token)
 	}
 	flock.DieWithParent(cmd)
-	code, by := run(cmd)
+	code, by := run(cmd, nil)
 
 	if code == 0 && then != "" {
 		// A stopping signal that came while no command was running (between
@@ -203,15 +207,32 @@ func main() {
 		// is better left to finish its write than cut off between its two
 		// renames. On Windows it breaks away from the job for the same
 		// reason; holding no descriptor there, its own check of the lock
-		// before writing is what stops it should this process be gone.
-		flock.Breakaway(cmd)
-		code, by = run(cmd)
+		// before writing is what stops it should this process be gone. A
+		// job around this process that forbids breaking away refuses the
+		// start: then it starts again in the job, as everything else.
+		if flock.Breakaway(cmd) {
+			code, by = run(cmd, func(c *exec.Cmd) { flock.NoBreakaway(c) })
+		} else {
+			code, by = run(cmd, nil)
+		}
 	}
 
 	signal.Stop(sigs)
 	cleanup()
+
+	// Ended by a signal, this ends by it too; and by one sent to this
+	// process that the command took and survived (or one that came as it
+	// ended), so the run still reads as stopped, not as done.
+	if by == nil {
+		current.Lock()
+		by = current.got
+		current.Unlock()
+	}
 	if by != nil {
 		flock.Raise(by)
+		if n, ok := by.(syscall.Signal); ok && code == 0 {
+			code = 128 + int(n)
+		}
 	}
 	os.Exit(code)
 }
@@ -219,11 +240,27 @@ func main() {
 // run runs cmd with this process's stdio and waits for it: its exit code, and
 // the signal that ended it, if one did (128 + its number then, as a shell
 // reports it). A SIGTERM that came meanwhile is passed on as it is recorded.
-func run(cmd *exec.Cmd) (int, os.Signal) {
+// retry, if given, adjusts a copy of cmd to start again should the first
+// start be refused.
+func run(cmd *exec.Cmd, retry func(*exec.Cmd)) (int, os.Signal) {
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 
 	if err := cmd.Start(); err != nil {
-		fail("%v", err)
+		if retry == nil {
+			fail("%v", err)
+		}
+
+		// A Cmd cannot be started twice: a fresh one, alike.
+		again := exec.Command(cmd.Path, cmd.Args[1:]...)
+		again.Env, again.ExtraFiles, again.SysProcAttr = cmd.Env, cmd.ExtraFiles, cmd.SysProcAttr
+		again.Stdin, again.Stdout, again.Stderr = cmd.Stdin, cmd.Stdout, cmd.Stderr
+		retry(again)
+
+		if err := again.Start(); err != nil {
+			fail("%v", err)
+		}
+
+		cmd = again
 	}
 
 	current.Lock()

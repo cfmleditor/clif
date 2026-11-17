@@ -101,23 +101,29 @@ func repoRelative(path string) string {
 	return filepath.ToSlash(rel)
 }
 
-// git runs git with args and returns what it printed. A git that a signal
-// ended is no answer to report (a missing commit, an unreadable baseline): a
-// Ctrl-C at the terminal reaches it and this process alike, and this run
-// stops by that signal, as its own handler, which normally gets there
-// first, would have it.
+// git runs git with args and returns what it printed. A git that a stopping
+// signal ended (SIGINT, SIGTERM, SIGHUP) is no answer to report (a missing
+// commit, an unreadable baseline): a Ctrl-C at the terminal reaches it and
+// this process alike, and this run stops by that signal, as its own handler,
+// which normally gets there first, would have it. Any other (an OOM kill, a
+// crash) is a failure like any, reported as one.
 func git(args ...string) ([]byte, error) {
 	out, err := exec.Command("git", args...).Output()
 
 	var exitErr *exec.ExitError
 	if errors.As(err, &exitErr) {
-		if ws, ok := exitErr.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
+		if ws, ok := exitErr.Sys().(syscall.WaitStatus); ok && ws.Signaled() && stopping(ws.Signal()) {
 			time.Sleep(time.Second)
 			stoppedBy(ws.Signal(), "nothing was written")
 		}
 	}
 
 	return out, err
+}
+
+// stopping reports whether sig is one that stops a run on purpose.
+func stopping(sig syscall.Signal) bool {
+	return sig == syscall.SIGINT || sig == syscall.SIGTERM || sig == syscall.SIGHUP
 }
 
 // gitOK reports whether git with args succeeds.

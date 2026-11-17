@@ -47,11 +47,28 @@ func JoinJob() {
 // Breakaway starts cmd outside the job, so it is not killed with this
 // process: for the generator, better left to finish its write (both renames)
 // than cut off between them, which would leave the generated files out of
-// step.
-func Breakaway(cmd *exec.Cmd) {
+// step. Only from the job JoinJob made: with none, there is nothing to break
+// away from, and a job around this process that forbids breakaway (an IDE's,
+// a CI agent's) would refuse to start cmd at all. It reports whether it asked
+// for breakaway, so a caller whose start is refused anyway (a job around this
+// one that forbids it) can start cmd again without (NoBreakaway).
+func Breakaway(cmd *exec.Cmd) bool {
+	if job == 0 {
+		return false
+	}
+
 	if cmd.SysProcAttr == nil {
 		cmd.SysProcAttr = &syscall.SysProcAttr{}
 	}
 
 	cmd.SysProcAttr.CreationFlags |= windows.CREATE_BREAKAWAY_FROM_JOB
+
+	return true
+}
+
+// NoBreakaway undoes Breakaway on a command not yet started.
+func NoBreakaway(cmd *exec.Cmd) {
+	if cmd.SysProcAttr != nil {
+		cmd.SysProcAttr.CreationFlags &^= windows.CREATE_BREAKAWAY_FROM_JOB
+	}
 }
