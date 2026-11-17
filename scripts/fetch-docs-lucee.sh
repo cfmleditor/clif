@@ -100,7 +100,10 @@ cp "$TMP/staged/"*.json "$NEW/"
 # entry, is refused here, before it can be committed (vendored, it would sit
 # in docs/lucee for good; make generate only skips it, as upstream's to fix),
 # and otherwise the hash of the JSON is what SOURCE records.
-if ! json_hash=$(go run scripts/check_vendored.go checkhash "$NEW"); then
+# Built and run, never `go run`, which turns every failing exit, a stop by a
+# signal included, into 1: an interrupted bump must not read as broken files.
+checker=$(docs_build scripts/check_vendored.go check_vendored)
+if ! json_hash=$("$checker" checkhash "$NEW"); then
     echo "error: Lucee's zip holds the broken files above; $DIR left as it was. Report them upstream and bump later." >&2
     exit 1
 fi

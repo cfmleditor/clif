@@ -249,11 +249,13 @@ func main() {
 		}
 	}
 
-	signal.Stop(sigs)
 	// At the end, still holding the lock, when every build this run used has
 	// just been touched (lib/hashbuild.sh's docs_build): so its own are kept.
+	// Signals are still caught meanwhile, so none ends this process before
+	// its record is cleared.
 	pruneBuilds(self)
 	cleanup()
+	signal.Stop(sigs)
 
 	// Ended by a signal, this ends by it too; and by one sent to this
 	// process that the command took and survived (or one that came as it
@@ -340,8 +342,8 @@ func run(cmd *exec.Cmd, retry func(*exec.Cmd)) (int, os.Signal) {
 // a command could start: cleaned up, then by the signal itself where it can,
 // else with the shell's code for it (flock.Exit).
 func stopBy(sig os.Signal) {
-	signal.Stop(sigs)
 	cleanup()
+	signal.Stop(sigs)
 	flock.Exit(sig)
 }
 
@@ -394,7 +396,7 @@ func pruneBuilds(self string) {
 			continue
 		case strings.HasPrefix(name, "then-"):
 			// This run's is not written until its command runs.
-		case isBuild(name, "docslock") || isBuild(name, "generate_docs"):
+		case isBuild(name, "docslock") || isBuild(name, "generate_docs") || isBuild(name, "check_vendored"):
 			// A build, or a temporary one (*.tmp) a killed build left; one
 			// in progress now is newer than the age below.
 			info, err := e.Info()
@@ -405,8 +407,27 @@ func pruneBuilds(self string) {
 			continue
 		}
 
-		_ = os.Remove(filepath.Join(buildDir, name))
+		removeIfStale(filepath.Join(buildDir, name))
 	}
+}
+
+// removeIfStale removes path unless it was touched (used) in the last ten
+// minutes: moved aside first, its age checked again there, and put back if
+// a run touched it between the first look and the move (docs_build's
+// touch -c of a missing path does nothing, so after the move none can).
+func removeIfStale(path string) {
+	aside := fmt.Sprintf("%s.prune.%d", path, os.Getpid())
+	if os.Rename(path, aside) != nil {
+		return
+	}
+
+	if info, err := os.Stat(aside); err == nil && time.Since(info.ModTime()) < 10*time.Minute {
+		_ = os.Rename(aside, path)
+
+		return
+	}
+
+	_ = os.Remove(aside)
 }
 
 // isBuild reports whether name is a build of program: hashed

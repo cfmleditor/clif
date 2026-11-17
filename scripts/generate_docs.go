@@ -943,6 +943,7 @@ func main() {
 	writing = true
 	sigMu.Unlock()
 
+	clearStaleTemps(outFile, sourcesFile)
 	err = writeAll([]generated{{path: outFile, data: out.Bytes()}, {path: sourcesFile, data: []byte(sb.String())}})
 
 	sigMu.Lock()
@@ -964,6 +965,19 @@ func main() {
 	}
 
 	fmt.Fprintf(os.Stderr, "generated %s with %d entries, and %s\n", outFile, len(entries), sourcesFile)
+}
+
+// clearStaleTemps removes the temporary files killed generators left beside
+// paths (PATH.<pid>.tmp, and PATH.tmp from before they were named per run),
+// which git would otherwise show as new files. Called holding the lock,
+// before this run writes its own.
+func clearStaleTemps(paths ...string) {
+	for _, p := range paths {
+		stale, _ := filepath.Glob(p + ".*.tmp")
+		for _, s := range append(stale, p+".tmp") {
+			_ = os.Remove(s)
+		}
+	}
 }
 
 // generated is one file writeAll writes.
@@ -988,7 +1002,11 @@ func writeAll(files []generated) error {
 	}()
 
 	for _, f := range files {
-		tmp := f.path + ".tmp"
+		// This run's own name (PATH.<pid>.tmp), never one another
+		// generator could be writing: on Windows, where the generator holds
+		// no descriptor, one left running after its docslock was killed
+		// might be.
+		tmp := fmt.Sprintf("%s.%d.tmp", f.path, os.Getpid())
 		tmps = append(tmps, tmp) // before writing: a partial write is cleaned up too
 		if err := os.WriteFile(tmp, f.data, 0o644); err != nil {
 			return err

@@ -116,17 +116,18 @@ background gc, the go command's telemetry) can keep the lock. Every docs script 
 anything runs itself under it (`scripts/lib/underlock.sh`; `docs-lock.sh get` and `check` only
 read): if `docslock --held` agrees it carries on, otherwise it re-runs through docslock from the
 repository root; one inside a run whose helper has gone (`target/` deleted) builds it again and asks
-it, rather than lock against its own run. docslock and the generator are built and run, never `go
-run`, which turns every failing exit into 1, built every time (go's cache makes that a fraction of a
-second) and kept at a path named for a hash of the binary itself, complete by construction
-(`-buildvcs=false`, so the repository's state is not in it) (`target/docs-gen/docslock-<hash>`,
-`generate_docs-<hash>`: `scripts/lib/hashbuild.sh`), so a changed source builds a new one and a copy
-a run is executing is never replaced (older builds of either, and the handoff files of killed runs,
-are removed only by docslock, holding the lock, as its run ends, a build once it has gone ten
-minutes unused: a run touches each build it uses, so the cache holds and one a starting run has just
-built or found is never pulled from under it); a run's scripts ask the copy of docslock it runs as
-(`DOCS_LOCK_BIN`). `make docs` and `make docs-cfdocs` (`scripts/docs.sh`), `make generate`
-(`scripts/generate.sh`) and `make docs-bump` each hold it across all their steps.
+it, rather than lock against its own run. docslock, the generator and `check_vendored.go` are built
+and run, never `go run`, which turns every failing exit into 1, built every time (go's cache makes
+that a fraction of a second) and kept at a path named for a hash of the binary itself, complete by
+construction (`-buildvcs=false`, so the repository's state is not in it)
+(`target/docs-gen/docslock-<hash>`, `generate_docs-<hash>`: `scripts/lib/hashbuild.sh`), so a
+changed source builds a new one and a copy a run is executing is never replaced (older builds of
+either, and the handoff files of killed runs, are removed only by docslock, holding the lock, as its
+run ends, a build once it has gone ten minutes unused: a run touches each build it uses, so the
+cache holds and one a starting run has just built or found is never pulled from under it); a run's
+scripts ask the copy of docslock it runs as (`DOCS_LOCK_BIN`). `make docs` and `make docs-cfdocs`
+(`scripts/docs.sh`), `make generate` (`scripts/generate.sh`) and `make docs-bump` each hold it
+across all their steps.
 
 **The generator holds the lock itself.** `make generate` has docslock run it once `generate.sh` has
 succeeded (`docslock --then`, which `underlock.sh` gives `generate.sh` by name: the script builds it
@@ -187,9 +188,10 @@ signature changes. Ranks are judged by the order the baseline was generated unde
 line), so a source missing today still ranks where it did. A move to `docs/retained` is never a
 fallback: copying in an entry Lucee dropped is the fix. `generated_sources.txt` records each entry's
 source; `TestGeneratedSourcesMatchTheDocs` keeps it in step with `generated_docs.go`. Both are
-written to temporary files first and renamed into place only once both are written, so a full disk
-cannot split them; a rename failing between the two can, and that test then fails until a
-regeneration rewrites both. **Commit them together.**
+written to temporary files of the run's own first (`PATH.<pid>.tmp`; a killed run's are cleared
+under the lock) and renamed into place only once both are written, so a full disk cannot split them;
+a rename failing between the two can, and that test then fails until a regeneration rewrites both.
+**Commit them together.**
 
 With no baseline to compare with (no `generated_sources.txt` at `HEAD`, a `HEAD` that does not
 resolve, or no usable git to ask: not installed, or a checkout git distrusts) it refuses rather than
