@@ -2,6 +2,7 @@ package main
 
 import (
 	"cmp"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -188,6 +189,11 @@ func cmdUnresolved(args []string) {
 	}
 
 	rep, cfg, searchDir := scanUnresolved(args, &fl)
+	if rep.Err != nil {
+		fmt.Fprintf(os.Stderr, "unresolved scan incomplete: %v\n", rep.Err)
+		os.Exit(exitCheckError)
+	}
+
 	if (fl.assumeOpenWorld || fl.speculativeMethods) && fl.json && !fl.write {
 		if err := writeOpenWorldJSON(os.Stdout, &rep); err != nil {
 			fmt.Fprintf(os.Stderr, "writing JSON: %v\n", err)
@@ -290,13 +296,16 @@ func scanUnresolved(args []string, fl *unresolvedFlags) (unresolved.Report, *dae
 		scanRoots = opt.WorkspaceFolders
 	}
 
-	files := cfpath.CollectCFML(fsys, scanRoots)
+	files, walkErr := cfpath.CollectWithErrors(fsys, scanRoots, cfpath.IsCFMLFile)
 
-	scanFiles := scanTargets(fsys, args, configuredRoots)
+	scanFiles, targetErr := scanTargets(fsys, args, configuredRoots)
 
 	fmt.Fprintf(os.Stderr, "Indexing %d files, then scanning for unresolved calls...\n", len(files))
 
-	return unresolved.Scan(fsys, files, scanFiles, opt), cfg, searchDir
+	rep := unresolved.Scan(fsys, files, scanFiles, opt)
+	rep.Err = errors.Join(walkErr, targetErr, rep.Err)
+
+	return rep, cfg, searchDir
 }
 
 // unresolvedOptions builds the scan's options from the config, or from the
@@ -488,7 +497,7 @@ func absolutePaths(args []string) []string {
 // arguments: the index must stay whole, since resolving a call reads every
 // other component, but the report should hold what was asked for. Without
 // workspace folders the arguments are the whole index and nothing is narrowed.
-func scanTargets(fsys vfs.FS, args []string, indexWiderThanArgs bool) []string {
+func scanTargets(fsys vfs.FS, args []string, indexWiderThanArgs bool) ([]string, error) {
 	abs := make([]string, 0, len(args))
 
 	for _, a := range args {
@@ -501,18 +510,28 @@ func scanTargets(fsys vfs.FS, args []string, indexWiderThanArgs bool) []string {
 	}
 
 	if indexWiderThanArgs {
-		return cfpath.CollectCFML(fsys, abs)
+		return cfpath.CollectWithErrors(fsys, abs, cfpath.IsCFMLFile)
 	}
 
-	var files []string
+	var (
+		files      []string
+		statErrors []error
+	)
 
 	for _, p := range abs {
-		if info, err := os.Stat(p); err == nil && !info.IsDir() {
+		info, err := fsys.Stat(p)
+		if err != nil {
+			statErrors = append(statErrors, err)
+
+			continue
+		}
+
+		if !info.IsDir() {
 			files = append(files, p)
 		}
 	}
 
-	return files
+	return files, errors.Join(statErrors...)
 }
 
 func nativeEngineFlag(value string) string {

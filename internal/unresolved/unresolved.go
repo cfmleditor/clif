@@ -6,6 +6,7 @@ package unresolved
 
 import (
 	"cmp"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -106,6 +107,11 @@ func (o *Options) resolverFor(base *resolve.Resolver, file string) *resolve.Reso
 
 // Report is a scan's result.
 type Report struct {
+	// Err describes incomplete coverage, independently of findings or their
+	// baselines. Skipped counts targets that could not be scanned.
+	Err     error `json:"-"`
+	Skipped int
+
 	SpeculativeMethodConnections []SpeculativeMethodConnection
 	AssumedCalls                 []AssumedCall
 	SpeculativeConnections       []SpeculativeConnection
@@ -176,9 +182,10 @@ func Scan(fsys vfs.FS, files, targets []string, opt *Options) Report {
 	started = time.Now()
 
 	var (
-		mu      sync.Mutex
-		wg      sync.WaitGroup
-		pending []pendingCall
+		mu         sync.Mutex
+		wg         sync.WaitGroup
+		pending    []pendingCall
+		readErrors []error
 	)
 
 	sem := make(chan struct{}, runtime.GOMAXPROCS(0))
@@ -192,12 +199,17 @@ func Scan(fsys vfs.FS, files, targets []string, opt *Options) Report {
 			defer wg.Done()
 			defer func() { <-sem }()
 
-			calls, resolved, open := scanFileRecovered(fsys, opt.resolverFor(resolver, file), file, opt)
+			calls, resolved, open, err := scanFileRecovered(fsys, opt.resolverFor(resolver, file), file, opt)
 
 			mu.Lock()
 
 			rep.Calls = append(rep.Calls, calls...)
 			rep.Resolved += resolved
+
+			if err != nil {
+				readErrors = append(readErrors, err)
+				rep.Skipped++
+			}
 
 			pending = append(pending, open...)
 			mu.Unlock()
@@ -205,6 +217,9 @@ func Scan(fsys vfs.FS, files, targets []string, opt *Options) Report {
 	}
 
 	wg.Wait()
+
+	slices.SortFunc(readErrors, func(a, b error) int { return strings.Compare(a.Error(), b.Error()) })
+	rep.Err = errors.Join(readErrors...)
 
 	settlePending(&rep, pending, opt)
 
@@ -241,7 +256,7 @@ func Scan(fsys vfs.FS, files, targets []string, opt *Options) Report {
 // which the caller's own recovery does not cover: the editor's export runs a
 // scan inside the language server, and one bad file ended it. A file left
 // out silently would read as one with nothing unresolved in it.
-func scanFileRecovered(fsys vfs.FS, resolver *resolve.Resolver, file string, opt *Options) (out []Call, resolved int, open []pendingCall) {
+func scanFileRecovered(fsys vfs.FS, resolver *resolve.Resolver, file string, opt *Options) (out []Call, resolved int, open []pendingCall, err error) {
 	defer func() {
 		if rec := recover(); rec != nil {
 			cflog.Recovered(nil, "unresolved scan panic", rec, cflog.String("file", file))
@@ -249,6 +264,7 @@ func scanFileRecovered(fsys vfs.FS, resolver *resolve.Resolver, file string, opt
 			out = []Call{{File: file, Line: 1, Reason: fmt.Sprintf("%s: %v", ScanFailedReason, rec)}}
 			resolved = 0
 			open = nil
+			err = fmt.Errorf("scanning %s: %s: %v", file, ScanFailedReason, rec)
 		}
 	}()
 
@@ -320,15 +336,15 @@ func NewResolver(fsys vfs.FS, files []string, opt *Options) *resolve.Resolver {
 	return resolver
 }
 
-func scanFile(fsys vfs.FS, resolver *resolve.Resolver, file string, opt *Options) (out []Call, resolved int, open []pendingCall) {
+func scanFile(fsys vfs.FS, resolver *resolve.Resolver, file string, opt *Options) (out []Call, resolved int, open []pendingCall, readErr error) {
 	content, err := vfs.ReadString(fsys, file)
 	if err != nil {
-		return nil, 0, nil
+		return nil, 0, nil, fmt.Errorf("reading %s: %w", file, err)
 	}
 
 	content, isText := cfpath.AsTextString(content)
 	if !isText {
-		return nil, 0, nil
+		return nil, 0, nil, nil
 	}
 
 	baseDir := filepath.Dir(file)
@@ -429,7 +445,7 @@ func scanFile(fsys vfs.FS, resolver *resolve.Resolver, file string, opt *Options
 		}
 	}
 
-	return out, resolved, open
+	return out, resolved, open, nil
 }
 
 // baseGroup is the calls in one file left unchecked by one missing base, and

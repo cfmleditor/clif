@@ -1,11 +1,35 @@
 package server
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/cfmleditor/clif/internal/vfs"
 )
+
+func TestUnresolvedExportRefusesUnreadableTargets(t *testing.T) {
+	root := t.TempDir()
+
+	path := filepath.Join(root, "large.cfm")
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.Truncate(path, vfs.MaxFileSize+1); err != nil {
+		t.Fatal(err)
+	}
+
+	s := newTestServer()
+	s.WorkspaceFolders = []string{root}
+
+	reports, _, err := s.unresolvedReports([]string{path}, []string{filepath.Join(root, "report.md")})
+	if !errors.Is(err, vfs.ErrTooLarge) || len(reports) != 0 {
+		t.Errorf("reports = %v, error = %v; want no reports and the target's read failure", reports, err)
+	}
+}
 
 func TestAssumedFrameworkExportMatchesEditor(t *testing.T) {
 	root := t.TempDir()
@@ -29,7 +53,11 @@ func TestAssumedFrameworkExportMatchesEditor(t *testing.T) {
 	s := newTestServer()
 	s.WorkspaceFolders = []string{root}
 
-	reports, _ := s.unresolvedReports(paths, []string{filepath.Join(root, "report.md")})
+	reports, _, err := s.unresolvedReports(paths, []string{filepath.Join(root, "report.md")})
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	if len(reports) != 1 {
 		t.Fatalf("expected one report: %v", reports)
 	}
@@ -76,7 +104,11 @@ function run(){ use( new models.Item() ); }
 	s := newTestServer()
 	s.WorkspaceFolders = []string{root}
 
-	reports, _ := s.unresolvedReports(paths, []string{filepath.Join(root, "report.md")})
+	reports, _, err := s.unresolvedReports(paths, []string{filepath.Join(root, "report.md")})
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	if len(reports) != 1 {
 		t.Fatalf("expected one report: %v", reports)
 	}

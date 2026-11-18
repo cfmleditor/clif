@@ -2,6 +2,13 @@
 
 _`internal/codemap`, and the batch pipeline `unresolved`, `explain`, `deps`, the MCP tools and the map share. Moved out of CLAUDE.md unchanged._
 
+An unresolved scan records incomplete coverage in `Report.Err`, separately from call findings;
+`Skipped` counts unreadable or failed targets. The check command must not baseline or waive these
+errors through a finding threshold. The CLI, MCP task and editor report export also refuse an
+incomplete result, so it cannot replace a known-issues report with a partial scan. File collection
+uses `path.CollectWithErrors` where the CLI needs traversal failures; readable entries are still
+checked, and the normal ignored-directory rules still apply.
+
 ## Code map (`internal/codemap`)
 
 **It is not `deps` run once per file, and the difference is node identity.**
