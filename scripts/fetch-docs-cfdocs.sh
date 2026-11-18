@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Under the docs lock (scripts/docslock.go), like every docs script: see
+# lib/underlock.sh.
+# shellcheck source=lib/underlock.sh
+. "$(dirname "$0")/lib/underlock.sh"
+
 # Stages cfdocs JSON in docs/src/cfdocs, which scripts/generate_docs.go reads
 # in place (docs/data/order points it there).
 #
@@ -17,25 +22,31 @@ cd "$(dirname "$0")/.."
 SRC="docs/src/cfdocs"
 REPO="https://github.com/cfmleditor/cfdocs.git"
 SHA_FILE="docs/.sha-cfdocs"
-NEW="$SRC.new"
+# This run's own copy, built beside the staged one (docs_scratch).
+NEW=$(docs_scratch "$SRC.new")
 
 # shellcheck source=lib/swapdir.sh
 . scripts/lib/swapdir.sh
 # shellcheck source=lib/retry.sh
 . scripts/lib/retry.sh
 
-docs_lock
 TMP=$(mktemp -d)
 cleanup() {
-    swap_recover "$SRC"
-    rm -rf "$TMP" "$NEW"
-    docs_unlock
+    docs_cleanup_begin
+    rm -rf "$TMP" "$NEW" || true # this run's own
+    # The staged copy only while this run still holds the lock (another run
+    # may have it otherwise).
+    if docs_holds_lock; then
+        swap_recover "$SRC" || true
+    fi
 }
 trap cleanup EXIT
 
 # An interrupted earlier fetch may have left the previous copy aside (and no
 # marker, so it is never mistaken for the pin): put it back.
+docs_still_locked
 swap_recover "$SRC"
+docs_clear_scratch "$SRC.new"
 
 if [ "${DOCS_BUMP:-}" = "1" ]; then
     if ! remote=$(retry git ls-remote "$REPO" refs/heads/master); then
@@ -85,12 +96,15 @@ fi
 # first and written only once the new copy is in place: a copy that fails or
 # is interrupted part way can never leave a partial directory that the marker
 # still calls the pinned commit.
-rm -rf "$NEW"
 mkdir -p "$NEW"
 cp "$TMP/cfdocs/data/en/"*.json "$NEW/"
 
+docs_still_locked
 rm -f "$SHA_FILE"
 swap_in "$NEW" "$SRC"
+# The marker says the staged copy is the pin: written only by a run that
+# still holds the lock, so never over a copy another run is replacing.
+docs_still_locked
 echo "$target" > "$SHA_FILE"
 
 echo "Copied $count JSON files to $SRC/"

@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Under the docs lock (scripts/docslock.go), like every docs script: see
+# lib/underlock.sh.
+# shellcheck source=lib/underlock.sh
+. "$(dirname "$0")/lib/underlock.sh"
+
 # Lucee's docs are vendored in docs/lucee (committed): Lucee publishes only
 # its latest lucee-docs.zip, so a version cannot be pinned and fetched again
 # later, only kept. A plain run uses the committed copy and touches no
@@ -17,7 +22,8 @@ cd "$(dirname "$0")/.."
 DIR="docs/lucee"
 SOURCE="$DIR/SOURCE"
 URL="https://docs.lucee.org/lucee-docs.zip"
-NEW="$DIR.new"
+# This run's own copy, built beside the vendored one (docs_scratch).
+NEW=$(docs_scratch "$DIR.new")
 
 # shellcheck source=lib/sha256.sh
 . scripts/lib/sha256.sh
@@ -26,19 +32,26 @@ NEW="$DIR.new"
 # shellcheck source=lib/retry.sh
 . scripts/lib/retry.sh
 
-docs_lock
 TMP=""
 cleanup() {
-    swap_recover "$DIR"
-    rm -rf "$NEW"
-    [ -n "$TMP" ] && rm -rf "$TMP"
-    docs_unlock
+    docs_cleanup_begin
+    if [ -n "$TMP" ]; then
+        rm -rf "$TMP" || true # this run's own
+    fi
+    rm -rf "$NEW" || true # this run's own
+    # The vendored copy only while this run still holds the lock (another
+    # run may have it otherwise).
+    if docs_holds_lock; then
+        swap_recover "$DIR" || true
+    fi
 }
 trap cleanup EXIT
 
 # On every run, not just a bump: an interrupted bump may have left the
 # committed copy aside in docs/lucee.old.
+docs_still_locked
 swap_recover "$DIR"
+docs_clear_scratch "$DIR.new"
 
 # A plain run only reports; scripts/assemble-docs.sh is the one place that
 # requires the vendored copy to be there.
@@ -48,7 +61,6 @@ if [ "${DOCS_BUMP:-}" != "1" ]; then
 fi
 
 TMP=$(mktemp -d)
-rm -rf "$NEW"
 
 echo "Downloading lucee-docs.zip..."
 if ! retry curl -fsSL --connect-timeout 10 --max-time 600 -D "$TMP/headers" "$URL" -o "$TMP/lucee-docs.zip"; then
@@ -72,7 +84,12 @@ fi
 # that may have seen another version. curl -L dumps every response's headers
 # in turn; each status line starts a new one, so only the final response's
 # ETag survives, and none (rather than a redirect's) when it sends none.
-etag=$(awk '/^HTTP\// { e = "" } tolower($1) == "etag:" { e = $2 } END { print e }' "$TMP/headers" | tr -d '\r')
+# The header name is matched on its own, so `ETag:"x"` (no space after the
+# colon, as valid HTTP allows) is read as well as `ETag: "x"`.
+etag=$(tr -d '\r' < "$TMP/headers" | awk '
+    /^HTTP\// { e = "" }
+    tolower(substr($0, 1, 5)) == "etag:" { v = substr($0, 6); gsub(/^[ \t]+|[ \t]+$/, "", v); e = v }
+    END { print e }')
 
 # Build the new copy beside the old one, then swap: a failure before the swap
 # leaves docs/lucee as it was, and one during it is undone by cleanup.
@@ -83,7 +100,10 @@ cp "$TMP/staged/"*.json "$NEW/"
 # entry, is refused here, before it can be committed (vendored, it would sit
 # in docs/lucee for good; make generate only skips it, as upstream's to fix),
 # and otherwise the hash of the JSON is what SOURCE records.
-if ! json_hash=$(go run scripts/check_vendored.go checkhash "$NEW"); then
+# Built and run, never `go run`, which turns every failing exit, a stop by a
+# signal included, into 1: an interrupted bump must not read as broken files.
+checker=$(docs_build scripts/check_vendored.go check_vendored)
+if ! json_hash=$("$checker" checkhash "$NEW"); then
     echo "error: Lucee's zip holds the broken files above; $DIR left as it was. Report them upstream and bump later." >&2
     exit 1
 fi
@@ -99,6 +119,12 @@ fi
     fi
     echo "zip-sha256 $(sha256 "$TMP/lucee-docs.zip")"
     echo "json-sha256 $json_hash"
+    # SOURCE is "<name> <value>" lines, read strictly: an ETag holding
+    # whitespace (a weak validator may) is left out rather than make the
+    # file unreadable. It is a note on where the zip came from, nothing more.
+    case "$etag" in
+    *[[:space:]]*) etag="" ;;
+    esac
     if [ -n "$etag" ]; then
         echo "etag $etag"
     fi
@@ -113,6 +139,7 @@ fi
 
 # docs/lucee may be missing (deleted, or never checked out): swap_in then
 # just puts the new copy in place.
+docs_still_locked
 swap_in "$NEW" "$DIR"
 
 echo "Vendored $count Lucee JSON files in $DIR; review and commit the diff"

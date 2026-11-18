@@ -1,0 +1,12 @@
+# Doc entries a pull request removes on purpose, one per line: "function <name>"
+# or "tag <name>". CI compares a pull request's regenerated docs with its base
+# (.github/workflows/ci.yml, docs-reproducible) and refuses every entry lost, or
+# fallen back to a lower source, that is not listed here. List an entry only
+# when the engine no longer has it; an upstream that merely stopped publishing
+# one belongs in docs/retained instead. A trailing "# reason" is fine. Only the
+# lines a pull request adds here (its base's copy lacks them) accept anything:
+# one left from an earlier pull request, unchanged, accepts nothing and only
+# warns, so clear it when convenient. To remove such an entry again on purpose,
+# change its line (a new "# reason"): a changed line counts as added. CI fails
+# on a line it cannot read, on "1", and on an entry new to this file that
+# accepts nothing; a changed line that accepts nothing (a tidied comment) warns.

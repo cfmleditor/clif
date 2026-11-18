@@ -1,7 +1,10 @@
 package sources
 
 import (
+	"os"
+	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -149,5 +152,152 @@ func TestManifestHash(t *testing.T) {
 		if ManifestHash(files) == h {
 			t.Errorf("%s: same hash", name)
 		}
+	}
+}
+
+func TestParseAllowedRemovals(t *testing.T) {
+	lines, err := ParseAllowedRemovals("f", []byte("# header\r\n\nfunction JwtSign   # dropped by the engine\r\nTag\tcfstatic\n  # indented comment\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(lines) != 2 || lines["function jwtsign"] != "function jwtsign # dropped by the engine" || lines["tag cfstatic"] != "tag cfstatic" {
+		t.Errorf("lines = %q", lines)
+	}
+
+	// Each would otherwise accept a loss nobody listed, or refuse one that
+	// was, with nothing louder than a warning.
+	for name, text := range map[string]string{
+		"accept everything": "1\n",
+		"no type":           "jwtsign\n",
+		"bad type":          "funktion jwtsign\n",
+		"three words":       "function jwt sign\n",
+		"twice":             "function a\nfunction A\n",
+	} {
+		if _, err := ParseAllowedRemovals("f", []byte(text)); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+
+	if lines, err := ParseAllowedRemovals("f", nil); err != nil || len(lines) != 0 {
+		t.Errorf("an empty file = %v, %v; want no lines and no error", lines, err)
+	}
+}
+
+// TestParseKeyIsTheOneSpellingRule: both DOCS_ALLOW_REMOVALS and the file
+// take the same spellings, tabs and doubled spaces included.
+func TestParseKeyIsTheOneSpellingRule(t *testing.T) {
+	for _, s := range []string{"function foo", "Function  foo", "function\tfoo", " FUNCTION Foo "} {
+		if k, ok := ParseKey(s); !ok || k != "function foo" {
+			t.Errorf("ParseKey(%q) = %q, %v", s, k, ok)
+		}
+	}
+
+	if a, _ := ParseAcceptance("function\tfoo,tag  bar"); !a.Accepts("function foo") || !a.Accepts("tag bar") {
+		t.Errorf("ParseAcceptance does not follow ParseKey: %v", a.Keys)
+	}
+}
+
+// TestAddedLines: an unchanged line is left over and accepts nothing; a new
+// or changed one (a re-listing with a new reason) is added.
+func TestAddedLines(t *testing.T) {
+	base := map[string]string{"function a": "function a", "function b": "function b # 2025"}
+	now := map[string]string{"function a": "function a", "function b": "function b # again, 2026", "tag c": "tag c"}
+
+	added, left := AddedLines(now, base)
+	if len(added) != 2 || !added["function b"] || !added["tag c"] {
+		t.Errorf("added = %v, want function b (re-listed) and tag c (new)", added)
+	}
+
+	if !slices.Equal(left, []string{"function a"}) {
+		t.Errorf("leftOver = %v, want [function a]", left)
+	}
+}
+
+// TestAllowedRemovalsSpacingIsNoChange: a whitespace-only edit (tabs, a
+// formatter's tidy) must leave a left-over line left over, not make it
+// accept a loss again.
+func TestAllowedRemovalsSpacingIsNoChange(t *testing.T) {
+	base, err := ParseAllowedRemovals("base", []byte("function JwtSign   # reason\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	now, err := ParseAllowedRemovals("now", []byte("\tfunction\tJwtSign # reason \n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if added, left := AddedLines(now, base); len(added) != 0 || len(left) != 1 {
+		t.Errorf("added = %v, leftOver = %v; want nothing added", added, left)
+	}
+
+	bare, err := ParseAllowedRemovals("base", []byte("function Foo\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	hashed, err := ParseAllowedRemovals("now", []byte("function Foo  #\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if added, _ := AddedLines(hashed, bare); len(added) != 0 {
+		t.Errorf("a bare # added: added = %v, want nothing", added)
+	}
+
+	respaced, err := ParseAllowedRemovals("now", []byte("function JwtSign #reason\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if added, _ := AddedLines(respaced, base); len(added) != 0 {
+		t.Errorf("no space after the #: added = %v, want nothing", added)
+	}
+
+	recased, err := ParseAllowedRemovals("now", []byte("Function JWTSIGN # reason\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if added, _ := AddedLines(recased, base); len(added) != 0 {
+		t.Errorf("a change of letter case alone: added = %v, want nothing", added)
+	}
+
+	reworded, err := ParseAllowedRemovals("now", []byte("function JwtSign # a new reason\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if added, _ := AddedLines(reworded, base); len(added) != 1 {
+		t.Errorf("a reworded line: added = %v, want it counted as added", added)
+	}
+}
+
+// TestHashDirRefusesASymlink: a vendored file must be the bytes downloaded,
+// not a link elsewhere.
+func TestHashDirRefusesASymlink(t *testing.T) {
+	dir := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "elsewhere.json")
+
+	if err := os.WriteFile(filepath.Join(dir, "a.json"), []byte(`{"name": "a", "type": "function"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(outside, []byte(`{"name": "b", "type": "function"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.Symlink(outside, filepath.Join(dir, "b.json")); err != nil {
+		t.Skip("symlinks unavailable:", err)
+	}
+
+	_, unhashed, _, err := HashDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(unhashed) != 1 || !strings.HasPrefix(unhashed[0], "b.json") {
+		t.Errorf("unhashed = %v, want b.json refused as a symlink", unhashed)
 	}
 }

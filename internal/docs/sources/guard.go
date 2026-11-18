@@ -5,8 +5,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/cfmleditor/clif/internal/vfs"
 )
 
 // The checks scripts/generate_docs.go makes before it writes the docs. They
@@ -95,17 +99,14 @@ func ParseAcceptance(v string) (a Acceptance, ignored []string) {
 			continue
 		}
 
-		typ, name, ok := strings.Cut(k, " ")
-		typ = strings.ToLower(typ)
-		name = strings.TrimSpace(name)
-
-		if !ok || !ValidName(name) || (typ != "function" && typ != "tag") {
+		key, ok := ParseKey(k)
+		if !ok {
 			ignored = append(ignored, k)
 
 			continue
 		}
 
-		a.Keys[Key(typ, name)] = true
+		a.Keys[key] = true
 	}
 
 	return a, ignored
@@ -243,4 +244,155 @@ func ManifestHash(files map[string][]byte) string {
 	}
 
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+// HashDir reads every *.json in dir and returns their ManifestHash, the files
+// it could not hash (unhashed: unreadable, or not a regular file), and those
+// it hashed that fail CheckEntryFile (invalid: bad JSON, an invalid name). It
+// is what `make docs-bump` records in docs/lucee/SOURCE (through
+// scripts/check_vendored.go, which refuses both kinds) and what
+// TestVendoredLuceeMatchesItsSource compares with it (which fails on unhashed
+// ones only: whether a file's content passes the checks is the bump's
+// business, and the checks may tighten after it was vendored), so the two
+// cannot read or hash the files differently.
+func HashDir(dir string) (hash string, unhashed, invalid []string, err error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return "", nil, nil, err
+	}
+
+	files := map[string][]byte{}
+	listed := 0
+
+	for _, e := range entries {
+		n := e.Name()
+		if !strings.HasSuffix(n, ".json") {
+			continue
+		}
+
+		listed++
+
+		// The entry's own type, not what a symlink points to: vendored files
+		// are kept byte for byte as downloaded, and a zip extracts no link.
+		// The read itself goes through vfs.ReadRegular, which checks the
+		// opened file, so nothing swapped in after this check (a FIFO, a
+		// device) can hang it or read without limit.
+		if !e.Type().IsRegular() {
+			unhashed = append(unhashed, fmt.Sprintf("%s: not a regular file (%s)", n, e.Type()))
+
+			continue
+		}
+
+		b, err := vfs.ReadRegular(filepath.Join(dir, n))
+		if err != nil {
+			unhashed = append(unhashed, fmt.Sprintf("%s: %v", n, err))
+
+			continue
+		}
+
+		files[n] = b // hashed whatever its content: CheckEntryFile is separate
+
+		if err := CheckEntryFile(b); err != nil {
+			invalid = append(invalid, fmt.Sprintf("%s: %v", n, err))
+		}
+	}
+
+	if listed == 0 {
+		return "", nil, nil, fmt.Errorf("no *.json in %s", dir)
+	}
+
+	return ManifestHash(files), unhashed, invalid, nil
+}
+
+// ParseKey reads "function <name>" or "tag <name>" (the type in any case,
+// any whitespace between) into an entry key: the one spelling rule for both
+// DOCS_ALLOW_REMOVALS and docs/allowed-removals, so the two cannot accept
+// different spellings of the same entry.
+func ParseKey(s string) (key string, ok bool) {
+	f := strings.Fields(s)
+	if len(f) != 2 {
+		return "", false
+	}
+
+	typ := strings.ToLower(f[0])
+	if (typ != "function" && typ != "tag") || !ValidName(f[1]) {
+		return "", false
+	}
+
+	return Key(typ, f[1]), true
+}
+
+// ParseAllowedRemovals reads docs/allowed-removals: one "function <name>" or
+// "tag <name>" per line (ParseKey), with an optional trailing "# reason";
+// blank lines and whole-line comments aside. It maps each key to its line in
+// a normal form: the entry as its key (type and name lowercased, as CFML
+// reads them) and the comment with each run of whitespace made one space. CI
+// tells a line a pull request added or changed from one left over from an
+// earlier pull request by comparing these, so re-listing an entry (a
+// deliberate re-removal) means changing its reason. Spacing or the entry's
+// letter case alone (an editor's tabs, a formatter's tidy) changes nothing,
+// so cannot quietly make a left-over line accept a loss again.
+//
+// It is strict, because CI's comparison with a pull request's base accepts
+// exactly these losses: a line it cannot read is an error naming it, never a
+// warning. "1", which DOCS_ALLOW_REMOVALS takes for "accept everything", is
+// refused here: a pull request cannot switch the comparison off by adding one
+// line. label names the file in errors.
+func ParseAllowedRemovals(label string, b []byte) (map[string]string, error) {
+	lines := map[string]string{}
+
+	for i, raw := range Lines(b) {
+		line := strings.TrimSpace(raw)
+
+		entry := line
+		if c := strings.IndexByte(entry, '#'); c >= 0 {
+			entry = strings.TrimSpace(entry[:c])
+		}
+
+		if entry == "" {
+			continue
+		}
+
+		k, ok := ParseKey(entry)
+		if !ok {
+			return nil, fmt.Errorf("%s:%d: want \"function <name>\" or \"tag <name>\", have %q", label, i+1, entry)
+		}
+
+		if _, dup := lines[k]; dup {
+			return nil, fmt.Errorf("%s:%d: %q listed twice", label, i+1, k)
+		}
+
+		// The comment as "# <its words, one space apart>": "#reason" and
+		// "#  reason" are the same reason as "# reason".
+		normal := k
+		// A bare "#" is no reason: the same line as none.
+		if _, comment, ok := strings.Cut(line, "#"); ok {
+			if words := strings.Fields(comment); len(words) > 0 {
+				normal += " # " + strings.Join(words, " ")
+			}
+		}
+
+		lines[k] = normal
+	}
+
+	return lines, nil
+}
+
+// AddedLines lists the keys whose line in now is not in base exactly (a new
+// entry, or a re-listed one whose line was changed), and, apart, those whose
+// line is unchanged from base: left over from an earlier pull request.
+func AddedLines(now, base map[string]string) (added map[string]bool, leftOver []string) {
+	added = map[string]bool{}
+
+	for k, line := range now {
+		if base[k] == line {
+			leftOver = append(leftOver, k)
+		} else {
+			added[k] = true
+		}
+	}
+
+	sort.Strings(leftOver)
+
+	return added, leftOver
 }

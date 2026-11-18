@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"testing"
 
 	"github.com/cfmleditor/clif/internal/docs/sources"
@@ -241,34 +240,31 @@ func TestVendoredLuceeMatchesItsSource(t *testing.T) {
 		t.Fatalf("%v: check docs/lucee was added to git", err)
 	}
 
-	want := ""
-
-	for _, line := range sources.Lines(src) {
-		if k, v, ok := strings.Cut(line, " "); ok && k == "json-sha256" {
-			want = v
-		}
+	fields, err := sources.ReadPairs("docs/lucee/SOURCE", src)
+	if err != nil {
+		t.Fatal(err)
 	}
 
+	want := fields["json-sha256"]
 	if want == "" {
 		t.Fatal("docs/lucee/SOURCE records no json-sha256: rerun `make docs-bump`")
 	}
 
-	paths, err := filepath.Glob(filepath.Join(dir, "*.json"))
-	if err != nil || len(paths) == 0 {
-		t.Fatalf("no docs/lucee/*.json (%v): check docs/lucee was added to git", err)
+	got, unhashed, _, err := sources.HashDir(dir)
+	if err != nil {
+		t.Fatalf("%v: check docs/lucee was added to git", err)
 	}
 
-	files := make(map[string][]byte, len(paths))
-	for _, p := range paths {
-		b, err := os.ReadFile(p)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		files[filepath.Base(p)] = b
+	// A file that could not be hashed (unreadable, a symlink) is left out of
+	// the hash, so name it plainly rather than let it surface only as a hash
+	// mismatch. Whether a hashed file's content passes CheckEntryFile is not
+	// this test's to judge: `make docs-bump` refused any that did not when it
+	// vendored them, and the rule may tighten since.
+	for _, u := range unhashed {
+		t.Errorf("vendored file not hashed: %s", u)
 	}
 
-	if got := sources.ManifestHash(files); got != want {
+	if got != want {
 		t.Errorf("docs/lucee's JSON hashes to %s, but SOURCE records %s: a vendored file was edited by hand, "+
 			"or added or removed; restore it (git checkout -- docs/lucee), or take Lucee's latest with `make docs-bump`", got, want)
 	}

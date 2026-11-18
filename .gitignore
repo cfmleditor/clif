@@ -41,6 +41,7 @@ target/
 !/docs/retained/
 !/docs/lucee/
 !/docs/sources.lock
+!/docs/allowed-removals
 /cfparse
 /cfmleditor-lsp
 /clif

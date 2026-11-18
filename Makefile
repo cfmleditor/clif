@@ -84,40 +84,29 @@ $(GOLANGCI_BIN):
 # generator that would refuse the stale copy screens later. `make docs-bump`
 # moves the pin and the vendored copy.
 docs:
-	@./scripts/fetch-docs-cfdocs.sh
-	@./scripts/fetch-docs-lucee.sh
-	@./scripts/assemble-docs.sh
+	@bash scripts/docs.sh
 
 docs-cfdocs:
-	@./scripts/fetch-docs-cfdocs.sh
-	@./scripts/assemble-docs.sh
+	@bash scripts/docs.sh --cfdocs
 
 docs-assemble:
-	@./scripts/assemble-docs.sh
+	@bash scripts/assemble-docs.sh
 
 # Moves the cfdocs pin in docs/sources.lock and the vendored docs/lucee to
 # upstream's latest, and stages them. Follow with `make generate`, and review
-# its diff with the lock's and docs/lucee's.
-#
-# cfdocs is staged and its commit checked before anything committed changes;
-# only then is docs/lucee replaced, and the lock written last, by a step that
-# can no longer fail on its input. A failure before the Lucee swap leaves
-# every committed file as it was (the staged cfdocs is then simply not the
-# pinned one, which the generator refuses), so the two are bumped together.
+# its diff with the lock's and docs/lucee's. scripts/docs-bump.sh holds
+# the docs lock across every step, and orders them so nothing committed changes
+# unless both sources stage.
 docs-bump:
-	@DOCS_BUMP=1 ./scripts/fetch-docs-cfdocs.sh
-	@bash scripts/docs-lock.sh check "$$(cat docs/.sha-cfdocs)"
-	@DOCS_BUMP=1 ./scripts/fetch-docs-lucee.sh
-	@bash scripts/docs-lock.sh set cfdocs "$$(cat docs/.sha-cfdocs)"
-	@./scripts/assemble-docs.sh
+	@bash scripts/docs-bump.sh
 
 # Fetches every source and regenerates internal/docs/generated_docs.go (and
 # generated_sources.txt). Refuses (exit 1) to write a file that lost entries
 # the committed one has: see docs/retained/README.md. `build` does not run it:
 # a build compiles the committed docs, as CI and the release workflow do, and
 # regenerating is a deliberate step whose diff gets reviewed.
-generate: docs
-	go run scripts/generate_docs.go
+generate:
+	@bash scripts/generate.sh
 
 # Bumps the grammar first and regenerates the docs strictly last: a docs
 # problem (an upstream removal, a failed fetch) cannot stop the bump, and is

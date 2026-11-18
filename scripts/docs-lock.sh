@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# set runs under the docs lock (scripts/docslock.go), like every docs script
+# that changes anything: see lib/underlock.sh. get and check only read, so
+# they take no lock and print nothing but their answer.
+if [ "${1:-}" = set ]; then
+    # shellcheck source=lib/underlock.sh
+    . "$(dirname "$0")/lib/underlock.sh"
+fi
+
 # Reads and writes docs/sources.lock, which pins each fetched doc source:
 #
 #   cfdocs <commit>    the cfdocs commit fetch-docs-cfdocs.sh checks out
@@ -56,7 +64,12 @@ set)
         echo "error: will not pin $src at \"$value\": not a 40-character commit" >&2
         exit 1
     fi
-    tmp="$LOCK.tmp"
+    # This run's own (docs_scratch), renamed into place under the lock, and
+    # removed if this stops first.
+    docs_still_locked
+    docs_clear_scratch "$LOCK.tmp"
+    tmp=$(docs_scratch "$LOCK.tmp")
+    trap 'docs_cleanup_begin; rm -f "$tmp"' EXIT
     {
         if [ -f "$LOCK" ]; then
             awk -v s="$src" '$1 != s' "$LOCK"
@@ -68,6 +81,7 @@ set)
         fi
         echo "$src $value"
     } > "$tmp"
+    docs_still_locked
     mv "$tmp" "$LOCK"
     echo "Pinned $src at $value in $LOCK"
     ;;

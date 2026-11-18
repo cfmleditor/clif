@@ -3,62 +3,43 @@
 
 // Checks and hashes a directory of doc source JSON, for scripts/fetch-docs-lucee.sh:
 //
-//	go run scripts/check_vendored.go check <dir>      exit 1, listing them, if any *.json is broken
-//	go run scripts/check_vendored.go hash <dir>       print the manifest hash of its *.json
-//	go run scripts/check_vendored.go checkhash <dir>  both, in one pass: the hash only if none is broken
+//	"$(docs_build scripts/check_vendored.go check_vendored)" checkhash <dir>
 //
-// The rules live in internal/docs/sources (CheckEntryFile, ManifestHash), where
-// they are tested; this only applies them to files on disk.
+// (built and run through lib/hashbuild.sh, never `go run`, which turns every
+// failing exit into 1, so an interrupted run would read as broken files)
+// prints the manifest hash of its *.json, or lists the broken ones and exits 1.
+// The rules live in internal/docs/sources (HashDir), where they are tested and
+// shared with TestVendoredLuceeMatchesItsSource.
 package main
 
 import (
 	"fmt"
 	"os"
-	"path/filepath"
+	"slices"
 
 	docsources "github.com/cfmleditor/clif/internal/docs/sources"
 )
 
 func main() {
-	mode := ""
-	if len(os.Args) == 3 {
-		mode = os.Args[1]
-	}
-	if mode != "check" && mode != "hash" && mode != "checkhash" {
-		fmt.Fprintln(os.Stderr, "usage: check_vendored.go check|hash|checkhash <dir>")
+	if len(os.Args) != 3 || os.Args[1] != "checkhash" {
+		fmt.Fprintln(os.Stderr, "usage: check_vendored.go checkhash <dir>")
 		os.Exit(2)
 	}
 
-	paths, err := filepath.Glob(filepath.Join(os.Args[2], "*.json"))
-	if err != nil || len(paths) == 0 {
-		fmt.Fprintf(os.Stderr, "no *.json in %s\n", os.Args[2])
+	hash, unhashed, invalid, err := docsources.HashDir(os.Args[2])
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 
-	files := make(map[string][]byte, len(paths))
-	var broken []string
-	for _, p := range paths {
-		b, err := os.ReadFile(p)
-		if err != nil {
-			broken = append(broken, err.Error())
+	broken := slices.Concat(unhashed, invalid)
 
-			continue
-		}
-		files[filepath.Base(p)] = b
-		if err := docsources.CheckEntryFile(b); err != nil {
-			broken = append(broken, fmt.Sprintf("%s: %v", filepath.Base(p), err))
-		}
-	}
-
-	if mode != "hash" {
+	if len(broken) > 0 {
 		for _, b := range broken {
 			fmt.Fprintln(os.Stderr, "  "+b)
 		}
-		if len(broken) > 0 {
-			os.Exit(1)
-		}
+		os.Exit(1)
 	}
-	if mode != "check" {
-		fmt.Println(docsources.ManifestHash(files))
-	}
+
+	fmt.Println(hash)
 }

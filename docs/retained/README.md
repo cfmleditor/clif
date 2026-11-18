@@ -43,7 +43,8 @@ at `HEAD`, or in which an entry that was Lucee's (or retained) would come from c
    zip, or rebuilt from the committed generated file) and put it here.
 3. If the function really is gone, rerun `make generate` with
    `DOCS_ALLOW_REMOVALS="function foo"` (entry keys, comma-separated; `1` accepts
-   every loss in the run, which can hide one nobody meant).
+   every loss in the run, which can hide one nobody meant), and list it in
+   `docs/allowed-removals`, which CI's comparison with the pull request's base reads.
 
 `TestRetainedLuceeEntriesAreDocumented` (`internal/docs/retained_test.go`) fails when
 an entry here does not reach the generated docs with its own syntax and parameters.
