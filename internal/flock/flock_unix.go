@@ -57,3 +57,8 @@ func Inherited(fd int, path, token string) *os.File {
 
 	return os.NewFile(uintptr(fd), path)
 }
+
+// Unlock releases a lock TryLock took on f. Closing f releases it too, but
+// at once only on Unix: called explicitly, so the release never waits on the
+// close.
+func Unlock(f *os.File) { _ = unix.Flock(int(f.Fd()), unix.LOCK_UN) }

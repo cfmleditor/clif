@@ -55,10 +55,13 @@ const lockPath = "docs/.flock"
 // way out, so the run's token matches nothing once the run is over.
 var held *os.File
 
-// cleanup clears the record, on every way out.
+// cleanup clears the record and releases the lock, on every way out (by now
+// nothing this ran is still running, the generator included). Released
+// explicitly: Windows releases one held at exit only after a delay.
 func cleanup() {
 	if held != nil {
 		_ = held.Truncate(0)
+		flock.Unlock(held)
 	}
 }
 
@@ -72,8 +75,9 @@ func fail(format string, a ...any) {
 // stopping signal sent to this process.
 var current struct {
 	sync.Mutex
-	p   *os.Process
-	got os.Signal
+	p       *os.Process
+	got     os.Signal
+	started time.Time // when p was about to be started
 }
 
 // sigs relays the stopping signals sent to this process.
@@ -134,6 +138,7 @@ func main() {
 	flock.NotifyStops(sigs)
 	go func() {
 		for s := range sigs {
+			at := time.Now() // as it arrived: the wait for the lock below may outlast a start
 			pass := s == syscall.SIGTERM ||
 				(s == os.Interrupt && !flock.InForeground()) ||
 				(s == syscall.SIGHUP && !fgAtStart)
@@ -142,7 +147,9 @@ func main() {
 			if current.got == nil {
 				current.got = s
 			}
-			if pass && current.p != nil {
+			// One that arrived before the running command was started never
+			// reached it from the terminal either: it is passed on as well.
+			if current.p != nil && (pass || at.Before(current.started)) {
 				_ = current.p.Signal(s)
 			}
 			current.Unlock()
@@ -210,7 +217,10 @@ func main() {
 	cmd.Env = env
 	thenFile := ""
 	if then {
-		thenFile = filepath.Join(buildDir, "then-"+token)
+		// With forward slashes, which Windows accepts too: the script that
+		// writes it may run under MSYS bash, which might take backslashes
+		// in a relative name literally.
+		thenFile = "target/docs-gen/then-" + token
 		cmd.Env = append(cmd.Env, "DOCS_LOCK_THEN_FILE="+thenFile)
 	}
 	flock.DieWithParent(cmd)
@@ -292,6 +302,7 @@ func run(cmd *exec.Cmd, retry func(*exec.Cmd)) (int, os.Signal) {
 		stopBy(got)
 	}
 
+	current.started = time.Now()
 	err := cmd.Start()
 	if err != nil && retry != nil && flock.BreakawayRefused(err) {
 		// A Cmd cannot be started twice: a fresh one, alike.

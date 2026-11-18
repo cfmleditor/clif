@@ -54,3 +54,13 @@ func alive(pid int) bool {
 // Inherited returns nil on Windows, which passes a child no descriptor: the
 // caller checks the lock by its token instead.
 func Inherited(int, string, string) *os.File { return nil }
+
+// Unlock releases a lock TryLock took on f, explicitly: Windows releases one
+// still held when its handle closes only after an unspecified delay, during
+// which a run starting would be refused.
+func Unlock(f *os.File) {
+	var ol windows.Overlapped
+	ol.OffsetHigh = 1 << 30 // the byte TryLock locks
+
+	_ = windows.UnlockFileEx(windows.Handle(f.Fd()), 0, 1, 0, &ol)
+}

@@ -13,3 +13,6 @@ func alive(pid int) bool { return pid > 0 }
 
 // Inherited returns nil here.
 func Inherited(int, string, string) *os.File { return nil }
+
+// Unlock does nothing here.
+func Unlock(*os.File) {}

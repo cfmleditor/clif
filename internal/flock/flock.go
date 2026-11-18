@@ -147,6 +147,9 @@ func lockedByAnyone(path string) bool {
 	defer func() { _ = f.Close() }()
 
 	free, err := TryLock(f)
+	if err == nil && free {
+		Unlock(f) // released at once, not on the close (Windows delays that)
+	}
 
 	return err == nil && !free
 }

@@ -131,15 +131,15 @@ var (
 func git(args ...string) ([]byte, error) {
 	out, err := exec.Command("git", args...).Output()
 
-	// Both waits are bounded: should the handler not end the run (its
-	// signal held for a write, say), the failure is returned as any.
 	// Only for a signal this process handles: one it ignores (a SIGINT it
 	// was started with ignored) reaches no handler here, whoever sent it.
+	// git is never run during the write, so a stop seen here ends the run at
+	// once; one not seen within a moment was sent to git alone.
 	if sig, ok := flock.SignalOf(err); ok && slices.Contains(caught, sig) {
 		select {
 		case <-stopSeen:
-			time.Sleep(3 * time.Second) // the handler is ending this run
-		case <-time.After(500 * time.Millisecond): // it would have seen one by now
+			stoppedBy(sig, "nothing was written")
+		case <-time.After(500 * time.Millisecond):
 		}
 	}
 
