@@ -243,18 +243,20 @@ edit, or a pin bumped without regenerating, fails it. That run compares with wha
 the event's base SHA, stale on a re-run after main moves), on a push the commit main pointed to
 before it (the event's `before`, fetched; not `HEAD^1`, which after a rebase or fast-forward merge
 is the pull request's own earlier commit), rather than `HEAD`, which already holds what it
-regenerated, which would hold nothing to miss if the PR itself committed a lossy regeneration (a
-base with no `generated_sources.txt` is refused like any missing baseline). Only the losses
-`docs/allowed-removals` lists pass there, and only the lines the PR adds to that file (those the
-base's copy lacks) accept anything, so dropping an entry on purpose takes a reviewed change to it. A
-line left over from an earlier pull request (unchanged from the base's copy) accepts nothing, so it
-can neither wave a later loss through by accident nor fail anyone; it only warns until cleared. To
-remove such an entry again on purpose, change its line (a new `# reason`): a changed line counts as
-added; a change of spacing, or of the entry's letter case, alone does not. A changed line that
-removes nothing (a comment tidied) only warns; only an entry new to the file that removes nothing is
-refused. If the base's copy itself no longer parses, every line counts as added, with a warning, and
-a line that removes nothing only warns, so it cannot block the pull request that fixes it. The
-generator reads the file itself (`DOCS_ALLOWED_REMOVALS_FILE`, through
+regenerated (a push to main is never cancelled by a later one, so every pushed commit is compared; a
+base with no `generated_sources.txt`, an old release branch say, is refused, as CI cannot set
+`DOCS_ALLOW_REMOVALS`), which would hold nothing to miss if the PR itself committed a lossy
+regeneration (a base with no `generated_sources.txt` is refused like any missing baseline). Only the
+losses `docs/allowed-removals` lists pass there, and only the lines the PR adds to that file (those
+the base's copy lacks) accept anything, so dropping an entry on purpose takes a reviewed change to
+it. A line left over from an earlier pull request (unchanged from the base's copy) accepts nothing,
+so it can neither wave a later loss through by accident nor fail anyone; it only warns until
+cleared. To remove such an entry again on purpose, change its line (a new `# reason`): a changed
+line counts as added; a change of spacing, or of the entry's letter case, alone does not. A changed
+line that removes nothing (a comment tidied) only warns; only an entry new to the file that removes
+nothing is refused. If the base's copy itself no longer parses, every line counts as added, with a
+warning, and a line that removes nothing only warns, so it cannot block the pull request that fixes
+it. The generator reads the file itself (`DOCS_ALLOWED_REMOVALS_FILE`, through
 `sources.ParseAllowedRemovals`), strictly: a line it cannot read, `1` (which would switch the
 comparison off), a symlink (git would give the base's link text, not its contents), or an added line
 that accepts nothing (a typo, a removal since undone) fails the step. `DOCS_BASELINE_REF` must name

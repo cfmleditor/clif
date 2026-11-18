@@ -8,9 +8,15 @@ on:
 permissions:
   contents: read
 
+# A pull request's newer push cancels its older run. A push to main never
+# cancels or is cancelled: each is the only check its commit gets (the docs
+# job compares it with main's commit before it, so a skipped run would let
+# its losses through unseen), hence a group per commit, as GitHub cancels a
+# pending run in a group whenever a newer one queues, cancel-in-progress or
+# not.
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build-test:
@@ -296,8 +302,14 @@ jobs:
           if [ "$EVENT" = pull_request ]; then
             base=$(git rev-parse --verify HEAD^1)
           elif [ -n "$BEFORE" ] && [ "$BEFORE" != 0000000000000000000000000000000000000000 ]; then
-            git fetch --no-tags --depth=1 origin "$BEFORE"
-            base=$BEFORE
+            if git fetch --no-tags --depth=1 origin "$BEFORE"; then
+              base=$BEFORE
+            else
+              # Gone (main force-pushed, the old tip pruned): the parent is
+              # the best baseline left, and better than none.
+              echo "::warning::could not fetch $BEFORE, main's commit before this push; comparing with HEAD^1"
+              base=$(git rev-parse --verify --quiet HEAD^1 || true)
+            fi
           fi
           if [ -n "$base" ]; then
             export DOCS_BASELINE_REF="$base" DOCS_ALLOWED_REMOVALS_FILE=docs/allowed-removals

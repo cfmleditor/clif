@@ -365,8 +365,11 @@ func ParseAllowedRemovals(label string, b []byte) (map[string]string, error) {
 		// The comment as "# <its words, one space apart>": "#reason" and
 		// "#  reason" are the same reason as "# reason".
 		normal := k
+		// A bare "#" is no reason: the same line as none.
 		if _, comment, ok := strings.Cut(line, "#"); ok {
-			normal += " # " + strings.Join(strings.Fields(comment), " ")
+			if words := strings.Fields(comment); len(words) > 0 {
+				normal += " # " + strings.Join(words, " ")
+			}
 		}
 
 		lines[k] = normal
