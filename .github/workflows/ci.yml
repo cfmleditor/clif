@@ -312,7 +312,9 @@ jobs:
                 base=$BEFORE
                 break
               fi
-              sleep $((try * 5))
+              if [ "$try" -lt 3 ]; then
+                sleep $((try * 5))
+              fi
             done
             if [ -z "$base" ]; then
               echo "::error::could not fetch $BEFORE, main's commit before this push, to compare the docs with; rerun the job, or check main was not force-pushed"

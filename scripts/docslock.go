@@ -411,6 +411,9 @@ func thenProgram(file string) string {
 	return p
 }
 
+// oldLockPath is the earlier scripts' lock, retired (clearLeftovers).
+const oldLockPath = "docs/.lock"
+
 // buildDir is where lib/hashbuild.sh builds the docs programs.
 var buildDir = filepath.Join("target", "docs-gen")
 
@@ -423,6 +426,12 @@ var buildDir = filepath.Join("target", "docs-gen")
 // each is a few MB, a new one appears only when its program's code changes,
 // and `make clean` removes them.
 func clearLeftovers() {
+	// docs/.lock, the earlier scripts' lock: a symlink naming its owner, which
+	// nothing reads any more. Only a symlink, the one form it ever took.
+	if info, err := os.Lstat(oldLockPath); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		_ = os.Remove(oldLockPath)
+	}
+
 	entries, err := os.ReadDir(buildDir)
 	if err != nil {
 		return
