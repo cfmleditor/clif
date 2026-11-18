@@ -20,13 +20,12 @@ func startTime(pid int) (string, bool) {
 
 	// The command name, field 2, is in parentheses and may hold spaces: the
 	// fields are counted from after its closing one.
-	s := string(b)
-	i := strings.LastIndexByte(s, ')')
-	if i < 0 {
+	_, rest, ok := strings.CutLast(string(b), ")")
+	if !ok {
 		return "", false
 	}
 
-	f := strings.Fields(s[i+1:])
+	f := strings.Fields(rest)
 	if len(f) < 20 { // field 22 is the 20th after the name
 		return "", false
 	}
