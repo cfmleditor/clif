@@ -302,13 +302,21 @@ jobs:
           if [ "$EVENT" = pull_request ]; then
             base=$(git rev-parse --verify HEAD^1)
           elif [ -n "$BEFORE" ] && [ "$BEFORE" != 0000000000000000000000000000000000000000 ]; then
-            if git fetch --no-tags --depth=1 origin "$BEFORE"; then
-              base=$BEFORE
-            else
-              # Gone (main force-pushed, the old tip pruned): the parent is
-              # the best baseline left, and better than none.
-              echo "::warning::could not fetch $BEFORE, main's commit before this push; comparing with HEAD^1"
-              base=$(git rev-parse --verify --quiet HEAD^1 || true)
+            # Retried, as a fetch can fail for a moment. Never replaced by
+            # HEAD^1, which after a rebase or fast-forward merge is a known
+            # wrong baseline (it would refuse a removal the merged pull
+            # request listed): if main's commit before the push cannot be
+            # had (force-pushed, pruned), the job says so and fails.
+            for try in 1 2 3; do
+              if git fetch --no-tags --depth=1 origin "$BEFORE"; then
+                base=$BEFORE
+                break
+              fi
+              sleep $((try * 5))
+            done
+            if [ -z "$base" ]; then
+              echo "::error::could not fetch $BEFORE, main's commit before this push, to compare the docs with; rerun the job, or check main was not force-pushed"
+              exit 1
             fi
           fi
           if [ -n "$base" ]; then

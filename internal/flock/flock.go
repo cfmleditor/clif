@@ -73,6 +73,25 @@ func record(path string) (pid, token, start string) {
 	return "", "", ""
 }
 
+// Orphaned reports whether token is the run whose holder has ended: the
+// record still holds it (a holder clears its record as it exits, so it was
+// killed) and no process is that holder. A process with that token belongs
+// to a run nothing holds the lock for, and must stop, not take the lock
+// afresh and carry on. A token leaked from a run that ended normally matches
+// no record, so is not this.
+//
+// Gone is told two ways: no process is that holder, or the lock is free (a
+// live holder always holds it). The second covers a holder killed but not
+// yet reaped, whose PID still looks alive while its lock is already gone.
+func Orphaned(path, token string) bool {
+	_, got, _ := record(path)
+	if token == "" || got != token {
+		return false
+	}
+
+	return HolderGone(path) || !lockedByAnyone(path)
+}
+
 // HolderGone reports whether the record at path names a holder that has
 // ended (killed before it could clear it): while the lock is held all the
 // same, some process it started (the generator, passed the descriptor)

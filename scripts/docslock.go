@@ -55,11 +55,13 @@ const lockPath = "docs/.flock"
 // way out, so the run's token matches nothing once the run is over.
 var held *os.File
 
-// cleanup clears the record and releases the lock, on every way out (by now
+// cleanup, holding the lock, clears what killed runs left (clearLeftovers),
+// then the record, and releases the lock, on every way out (by now
 // nothing this ran is still running, the generator included). Released
 // explicitly: Windows releases one held at exit only after a delay.
 func cleanup() {
 	if held != nil {
+		clearLeftovers()
 		_ = held.Truncate(0)
 		flock.Unlock(held)
 	}
@@ -89,11 +91,18 @@ func main() {
 	}
 
 	// docslock --held: exit 0 if the caller runs under the lock (its
-	// DOCS_LOCK_TOKEN is the holder's). lib/underlock.sh asks, so a script
-	// started under the lock carries on and any other takes it.
+	// DOCS_LOCK_TOKEN is the holder's), 3 if its run's docslock has ended
+	// (flock.Orphaned: killed), 1 otherwise. lib/underlock.sh asks: a script
+	// under the lock carries on, one whose run has ended stops, and any
+	// other (a token leaked from a run that ended normally, or none) takes
+	// the lock.
 	if os.Args[1] == "--held" {
-		if flock.Verify(lockPath, os.Getenv("DOCS_LOCK_TOKEN")) {
+		token := os.Getenv("DOCS_LOCK_TOKEN")
+		switch {
+		case flock.Verify(lockPath, token):
 			os.Exit(0)
+		case flock.Orphaned(lockPath, token):
+			os.Exit(3)
 		}
 		os.Exit(1)
 	}
@@ -181,8 +190,11 @@ func main() {
 	// An empty record with the lock held is a run in its last instant: it
 	// clears its record just before it releases the lock. Tried again for a
 	// moment, rather than refuse a run that would start a breath later.
+	// So is a record naming a holder that has ended, with the lock held:
+	// a new holder may be in its first instant, not yet having written its
+	// own (or a killed run's generator holds it; then the retries run out).
 	for try := 0; !ok && try < 10; try++ {
-		if pid, _ := flock.Holder(lockPath); pid != "" {
+		if pid, _ := flock.Holder(lockPath); pid != "" && !flock.HolderGone(lockPath) {
 			break
 		}
 		time.Sleep(20 * time.Millisecond)
@@ -276,9 +288,9 @@ func main() {
 		}
 	}
 
-	// At the end, still holding the lock. Signals are still caught
-	// meanwhile, so none ends this process before its record is cleared.
-	clearLeftovers()
+	// At the end, still holding the lock (cleanup clears what killed runs
+	// left, then the record). Signals are still caught meanwhile, so none
+	// ends this process before its record is cleared.
 	cleanup()
 	signal.Stop(sigs)
 

@@ -51,10 +51,23 @@ if [ -n "${DOCS_LOCK_TOKEN:-}" ]; then
     # Inside a run, or a token leaked from one: asked of the copy of docslock
     # the run runs as (rebuilt if gone, so a run that lost it carries on; a
     # token leaked from a run that has ended still matches nothing).
+    #
+    # A run whose docslock has ended (killed, its record left naming this
+    # token) stops here: taking the lock afresh would let this script, and
+    # each step after it, run under short locks of their own, with other runs
+    # free to slip in between them.
     docs_lock_bin || exit 1
-    if (cd "$docs_root" && "$DOCS_LOCK_BIN" --held); then
-        docs_held=1
-    fi
+    docs_status=0
+    (cd "$docs_root" && "$DOCS_LOCK_BIN" --held) || docs_status=$?
+    case "$docs_status" in
+    0) docs_held=1 ;;
+    3)
+        echo "error: this docs run's docslock has ended (killed?), so nothing holds the lock for it any more:" >&2
+        echo "       stopping. Start the run again." >&2
+        exit 1
+        ;;
+    esac
+    unset docs_status
 fi
 
 if [ -z "$docs_held" ]; then
