@@ -89,6 +89,64 @@ func TestVerify(t *testing.T) {
 	}
 }
 
+// A continuation must not acquire a fresh lock after another run has replaced
+// or cleared its holder's record. The inherited token still identifies it as
+// part of the old run, even though the shared file no longer does.
+func TestOrphanedAfterRecordReplacement(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "lock")
+
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer func() { _ = f.Close() }()
+
+	if ok, err := TryLock(f); !ok || err != nil {
+		t.Fatalf("TryLock = %v, %v", ok, err)
+	}
+
+	if err := Record(f, "original"); err != nil {
+		t.Fatal(err)
+	}
+
+	if Orphaned(path, "original") {
+		t.Fatal("current holder's token is orphaned")
+	}
+
+	Unlock(f)
+
+	if !Orphaned(path, "original") {
+		t.Error("old token is not orphaned after its lock was released")
+	}
+
+	if ok, err := TryLock(f); !ok || err != nil {
+		t.Fatalf("replacement TryLock = %v, %v", ok, err)
+	}
+
+	if err := Record(f, "replacement"); err != nil {
+		t.Fatal(err)
+	}
+
+	if !Orphaned(path, "original") {
+		t.Error("old token is not orphaned after another run replaced the record")
+	}
+
+	if err := f.Truncate(0); err != nil {
+		t.Fatal(err)
+	}
+
+	Unlock(f)
+
+	if !Orphaned(path, "original") {
+		t.Error("old token is not orphaned after the replacement cleared the record")
+	}
+
+	if Orphaned(path, "") {
+		t.Error("a new invocation with no inherited token is orphaned")
+	}
+}
+
 // TestVerifyRefusesAReusedPID: a record naming a live PID with another start
 // time is a dead holder's, its PID given to a later process.
 func TestVerifyRefusesAReusedPID(t *testing.T) {

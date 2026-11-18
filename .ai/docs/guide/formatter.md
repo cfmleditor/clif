@@ -48,6 +48,9 @@ formats byte-identically with all three in place.
 The `-w` write path (`writeFileInPlace`) writes a sibling temp file, fsyncs, restores the
 replaced file's permission bits, re-checks that the file on disk still matches what was read,
 and renames over the target — following a symlink to its target rather than replacing the link.
+If that re-read fails, it refuses the overwrite too: it cannot establish that the original is
+still current. `TestWriteFileInPlaceRefusesFailedReread` covers a file that grew past the read
+limit after the original read.
 It follows a link only to a file in the link's own directory or beneath it, or beneath `--root`
 (`symlinkRule`), unless `--follow-symlinks` is given: following every link let a cloned
 repository commit `x.cfm` as a link to `~/.zshrc` and have formatting the tree rewrite it.

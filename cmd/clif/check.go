@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -66,8 +67,8 @@ Exit status:
   0  every check passed
   1  a check found more than it allows
   2  a check could not run (CFLint unavailable, a .cflintrc CFLint cannot
-     parse, a baseline that does not exist), a path that does not exist, or a
-     usage error
+     parse, a baseline that does not exist, a scan input that cannot be read),
+     a path that does not exist, or a usage error
 `
 
 // clif check's exit statuses, as clif cflint's: 1 is the code's findings, 2 a
@@ -294,7 +295,7 @@ func (env *checkEnv) run(name string) checkResult {
 	case config.CheckUnresolved:
 		err = env.runUnresolved(&res, &rule)
 	case config.CheckScan:
-		env.runScan(&res)
+		err = env.runScan(&res)
 	case config.CheckFormat:
 		env.runFormat(&res)
 	}
@@ -321,11 +322,13 @@ func (env *checkEnv) files() []string {
 	return cfpath.CollectCFML(vfs.OS{}, env.roots)
 }
 
-func (env *checkEnv) runScan(res *checkResult) {
+func (env *checkEnv) runScan(res *checkResult) error {
 	files := env.files()
 	res.Files = len(files)
 
 	env.logf("scan: parsing %d files...\n", len(files))
+
+	var readErrors []error
 
 	for _, f := range files {
 		content, err := vfs.ReadRegular(f)
@@ -333,6 +336,8 @@ func (env *checkEnv) runScan(res *checkResult) {
 			env.logf("  skip %s: %v\n", f, err)
 
 			res.Skipped++
+
+			readErrors = append(readErrors, err)
 
 			continue
 		}
@@ -347,6 +352,8 @@ func (env *checkEnv) runScan(res *checkResult) {
 			})
 		}
 	}
+
+	return errors.Join(readErrors...)
 }
 
 func (env *checkEnv) runFormat(res *checkResult) {

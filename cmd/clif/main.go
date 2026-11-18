@@ -568,7 +568,12 @@ func writeFileInPlace(path string, original, out []byte, links symlinkRule) erro
 
 	// Re-read rather than trusting the content from before Format ran: a write
 	// landing on top of an edit made in the meantime would discard it silently.
-	if current, err := vfs.ReadRegular(target); err == nil && !bytes.Equal(current, original) {
+	current, err := vfs.ReadRegular(target)
+	if err != nil {
+		return fmt.Errorf("re-reading file before overwrite: %w", err)
+	}
+
+	if !bytes.Equal(current, original) {
 		return errors.New("file changed on disk while formatting, not overwriting")
 	}
 

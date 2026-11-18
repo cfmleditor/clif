@@ -111,14 +111,16 @@ power cut included, with no stale lock to judge. docslock gives the command it r
 (`DOCS_LOCK_TOKEN`), recorded in `docs/.flock` with its PID and, on Linux and macOS, its start time;
 a process proves it runs under the lock by that token matching a live holder (not a reused PID)
 while the lock is held (`flock.Verify`), and docslock clears the record as it exits, so a leaked
-token matches nothing. A script whose run's docslock was killed (the record still names its token,
-its holder gone: `flock.Orphaned`, `docslock --held` exit 3) stops, rather than take the lock afresh
-and let each step after it run under a short lock of its own; a token from a run that ended normally
-takes the lock as usual. The scripts are passed no descriptor, so nothing a run leaves behind (git's
+token matches nothing. A script whose inherited token no longer verifies
+(`flock.Orphaned`, `docslock --held` exit 3) stops, even if another run has replaced or cleared
+the record, rather than take the lock afresh and let each remaining step run under a lock of its
+own. A shell carrying a completed run's token must clear `DOCS_LOCK_TOKEN` before starting a
+fresh run. The scripts are passed no descriptor, so nothing a run leaves behind (git's
 background gc, the go command's telemetry) can keep the lock. Every docs script that changes
 anything runs itself under it (`scripts/lib/underlock.sh`; `docs-lock.sh get` and `check` only
-read): if `docslock --held` agrees it carries on, otherwise it re-runs through docslock from the
-repository root; one inside a run whose helper has gone (`target/` deleted) builds it again and asks
+read): if `docslock --held` agrees it carries on, an invalid inherited token stops it, and without
+a token it re-runs through docslock from the repository root; one inside a run whose helper has
+gone (`target/` deleted) builds it again and asks
 it, rather than lock against its own run. docslock, the generator and `check_vendored.go` are built
 and run, never `go run`, which turns every failing exit into 1, built every time (go's cache makes
 that a fraction of a second) and kept at a path named for a hash of the binary itself, complete by
