@@ -178,6 +178,19 @@ func main() {
 		fail("cannot lock %s: %v", lockPath, err)
 	}
 
+	// An empty record with the lock held is a run in its last instant: it
+	// clears its record just before it releases the lock. Tried again for a
+	// moment, rather than refuse a run that would start a breath later.
+	for try := 0; !ok && try < 10; try++ {
+		if pid, _ := flock.Holder(lockPath); pid != "" {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+		if ok, err = flock.TryLock(f); err != nil {
+			fail("cannot lock %s: %v", lockPath, err)
+		}
+	}
+
 	if !ok {
 		pid, _ := flock.Holder(lockPath)
 		if pid == "" {
@@ -238,7 +251,7 @@ func main() {
 		// a quiet success (CI's docs check would pass without the
 		// generator having run).
 		if code == 0 && program == "" {
-			fail("--then: %s named no program to run (its file %s was not written, or not readable)", args[0], thenFile)
+			fail("--then: %s named no program to run (its file %s was not written, was empty, or could not be read)", args[0], thenFile)
 		}
 	}
 
@@ -371,8 +384,15 @@ func thenProgram(file string) string {
 		return ""
 	}
 
-	p := filepath.Clean(strings.TrimSpace(string(b)))
-	if p == "." || filepath.IsAbs(p) || filepath.Dir(p) != buildDir {
+	// Empty (the script truncated it but wrote nothing): it named none, which
+	// the caller reports as such.
+	raw := strings.TrimSpace(string(b))
+	if raw == "" {
+		return ""
+	}
+
+	p := filepath.Clean(raw)
+	if filepath.IsAbs(p) || filepath.Dir(p) != buildDir {
 		fail("--then: %q is not a program the docs scripts built (under target/docs-gen)", p)
 	}
 
