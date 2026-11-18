@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/cfmleditor/clif/internal/formatter"
 	"github.com/cfmleditor/clif/internal/language"
+	"github.com/cfmleditor/clif/internal/vfs"
 	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
@@ -273,6 +275,40 @@ func TestWriteFileInPlaceRefusesStaleWrite(t *testing.T) {
 	after, _ := os.ReadFile(path)
 	if string(after) != onDisk {
 		t.Errorf("the concurrent edit was overwritten: %q", after)
+	}
+}
+
+// A file that grows beyond the read limit after formatting began cannot be
+// compared with the original. Refuse the write rather than replace that edit.
+func TestWriteFileInPlaceRefusesFailedReread(t *testing.T) {
+	original := "<CFSET x=1>\n"
+
+	path := writeTemp(t, "grown.cfm", original)
+	if err := os.Truncate(path, vfs.MaxFileSize+1); err != nil {
+		t.Fatal(err)
+	}
+
+	err := writeFileInPlace(path, []byte(original), []byte("<cfset x = 1 />\n"), symlinkRule{})
+	if !errors.Is(err, vfs.ErrTooLarge) {
+		t.Errorf("writeFileInPlace = %v, want the reread's size error", err)
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if info.Size() != vfs.MaxFileSize+1 {
+		t.Errorf("changed file was overwritten: size %d, want %d", info.Size(), vfs.MaxFileSize+1)
+	}
+
+	left, err := filepath.Glob(filepath.Join(filepath.Dir(path), ".grown.cfm.fmt-*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(left) != 0 {
+		t.Errorf("temporary output left behind: %v", left)
 	}
 }
 

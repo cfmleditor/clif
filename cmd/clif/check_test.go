@@ -9,6 +9,7 @@ import (
 
 	"github.com/cfmleditor/clif/internal/knownissues"
 	"github.com/cfmleditor/clif/internal/unresolved"
+	"github.com/cfmleditor/clif/internal/vfs"
 )
 
 // checkProject writes a project with one page and, when cfg is not empty, a
@@ -133,6 +134,103 @@ func TestCheckThresholds(t *testing.T) {
 	dir, _ = checkProject(t, `{"workspaceName": "w"}`, cleanPage)
 	if out, code := runClif(t, dir, "check", "--checks", "format", dir); code != 0 {
 		t.Errorf("a formatted file: exit %d, want 0; output:\n%s", code, out)
+	}
+}
+
+// Read failures make a scan untrustworthy, even when its findings fit the
+// threshold. Keep inspecting other files so their findings are still reported.
+func TestCheckScanReadFailureIsAnError(t *testing.T) {
+	dir, _ := checkProject(t, `{"check":{"scan":{"maxFindings":100}}}`, "<cfif x>\n<cfset y = >\n")
+	large := filepath.Join(dir, "a-large.cfm")
+
+	f, err := os.Create(large)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := f.Truncate(vfs.MaxFileSize + 1); err != nil {
+		_ = f.Close()
+
+		t.Fatal(err)
+	}
+
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	out, code := runClif(t, dir, "check", "-q", "--checks", "scan", "--format", "json", dir)
+	if code != exitCheckError {
+		t.Errorf("scan exit %d, want %d; output:\n%s", code, exitCheckError, out)
+	}
+
+	var report struct {
+		Checks []checkResult `json:"checks"`
+		Passed bool          `json:"passed"`
+	}
+
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		t.Fatalf("%v; output:\n%s", err, out)
+	}
+
+	if report.Passed || len(report.Checks) != 1 {
+		t.Fatalf("report = %+v, want one unsuccessful check", report)
+	}
+
+	res := &report.Checks[0]
+	if res.Status != checkError || res.Skipped != 1 || res.Files != 2 || len(res.Findings) == 0 {
+		t.Errorf("scan = %+v, want error, one skipped file, and the other file's findings", res)
+	}
+
+	if !strings.Contains(res.Error, large) || !strings.Contains(res.Error, vfs.ErrTooLarge.Error()) {
+		t.Errorf("scan error %q does not identify the file and read failure", res.Error)
+	}
+}
+
+// A directory the scan cannot enumerate must not disappear from coverage and
+// leave a passing result, even when the files it can read are clean.
+func TestCheckScanWalkFailureIsAnError(t *testing.T) {
+	dir, _ := checkProject(t, "", cleanPage)
+
+	blocked := filepath.Join(dir, "blocked")
+	if err := os.Mkdir(blocked, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filepath.Join(blocked, "broken.cfm"), []byte("<cfif x>\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() { _ = os.Chmod(blocked, 0o700) })
+
+	if err := os.Chmod(blocked, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := os.ReadDir(blocked); err == nil {
+		t.Skip("this account can read directories without permission")
+	}
+
+	out, code := runClif(t, dir, "check", "-q", "--checks", "scan", "--format", "json", dir)
+	if code != exitCheckError {
+		t.Errorf("scan exit %d, want %d; output:\n%s", code, exitCheckError, out)
+	}
+
+	var report struct {
+		Checks []checkResult `json:"checks"`
+		Passed bool          `json:"passed"`
+	}
+
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		t.Fatalf("%v; output:\n%s", err, out)
+	}
+
+	if report.Passed || len(report.Checks) != 1 {
+		t.Fatalf("report = %+v, want one unsuccessful check", report)
+	}
+
+	res := &report.Checks[0]
+	if res.Status != checkError || res.Files != 1 || !strings.Contains(res.Error, blocked) {
+		t.Errorf("scan = %+v, want error naming the unreadable directory and one readable file", res)
 	}
 }
 

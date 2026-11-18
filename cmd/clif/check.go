@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -32,8 +33,9 @@ Checks (run in the order named):
               default floor (the default check)
   unresolved  calls clif cannot resolve, as clif unresolved reports them
   scan        files the grammar cannot parse, as clif scan reports them
-  format      files clif format would change. A file the formatter refuses
-              is listed on stderr and not counted; scan is the check for it
+  format      files clif format would change. A grammar or safety refusal
+              is listed on stderr and not counted; scan is the check for it.
+              File-read and traversal failures are errors in every check.
 
 Configuration ("check" in .clif.json, every key optional):
   "check": {
@@ -66,8 +68,8 @@ Exit status:
   0  every check passed
   1  a check found more than it allows
   2  a check could not run (CFLint unavailable, a .cflintrc CFLint cannot
-     parse, a baseline that does not exist), a path that does not exist, or a
-     usage error
+     parse, a baseline that does not exist, inputs or directories that
+     cannot be read), a path that does not exist, or a usage error
 `
 
 // clif check's exit statuses, as clif cflint's: 1 is the code's findings, 2 a
@@ -294,9 +296,9 @@ func (env *checkEnv) run(name string) checkResult {
 	case config.CheckUnresolved:
 		err = env.runUnresolved(&res, &rule)
 	case config.CheckScan:
-		env.runScan(&res)
+		err = env.runScan(&res)
 	case config.CheckFormat:
-		env.runFormat(&res)
+		err = env.runFormat(&res)
 	}
 
 	switch {
@@ -317,15 +319,17 @@ func (env *checkEnv) run(name string) checkResult {
 }
 
 // files is every CFML file under the paths given.
-func (env *checkEnv) files() []string {
-	return cfpath.CollectCFML(vfs.OS{}, env.roots)
+func (env *checkEnv) files() ([]string, error) {
+	return cfpath.CollectWithErrors(vfs.OS{}, env.roots, cfpath.IsCFMLFile)
 }
 
-func (env *checkEnv) runScan(res *checkResult) {
-	files := env.files()
+func (env *checkEnv) runScan(res *checkResult) error {
+	files, walkErr := env.files()
 	res.Files = len(files)
 
 	env.logf("scan: parsing %d files...\n", len(files))
+
+	var readErrors []error
 
 	for _, f := range files {
 		content, err := vfs.ReadRegular(f)
@@ -333,6 +337,8 @@ func (env *checkEnv) runScan(res *checkResult) {
 			env.logf("  skip %s: %v\n", f, err)
 
 			res.Skipped++
+
+			readErrors = append(readErrors, err)
 
 			continue
 		}
@@ -347,14 +353,18 @@ func (env *checkEnv) runScan(res *checkResult) {
 			})
 		}
 	}
+
+	return errors.Join(walkErr, errors.Join(readErrors...))
 }
 
-func (env *checkEnv) runFormat(res *checkResult) {
-	files := env.files()
+func (env *checkEnv) runFormat(res *checkResult) error {
+	files, walkErr := env.files()
 	res.Files = len(files)
 	optionsFor := formatOptionsFor("", false)
 
 	env.logf("format: checking %d files...\n", len(files))
+
+	var readErrors []error
 
 	for _, f := range files {
 		content, out, err := formatFile(f, new(optionsFor(f)))
@@ -362,6 +372,10 @@ func (env *checkEnv) runFormat(res *checkResult) {
 			env.logf("  format refused %s: %v\n", f, err)
 
 			res.Skipped++
+
+			if _, ok := errors.AsType[*os.PathError](err); ok {
+				readErrors = append(readErrors, err)
+			}
 
 			continue
 		}
@@ -374,6 +388,8 @@ func (env *checkEnv) runFormat(res *checkResult) {
 			})
 		}
 	}
+
+	return errors.Join(walkErr, errors.Join(readErrors...))
 }
 
 // firstDifferentLine is the 1-based line where a and b first differ.
@@ -414,8 +430,12 @@ func (env *checkEnv) runCFLint(res *checkResult, rule *config.ResolvedCheckRule)
 		minSeverity = rule.MinSeverity
 	}
 
-	files := cfpath.CollectCFML(vfs.OS{}, scanRoots)
+	files, walkErr := cfpath.CollectWithErrors(vfs.OS{}, scanRoots, cfpath.IsCFMLFile)
 	res.Files = len(files)
+
+	if walkErr != nil && len(files) == 0 {
+		return walkErr
+	}
 
 	baseline, err := env.baseline(rule, config.GenerateCFLint)
 	if err != nil {
@@ -435,7 +455,7 @@ func (env *checkEnv) runCFLint(res *checkResult, rule *config.ResolvedCheckRule)
 
 	run, err := runner.Lint(context.Background(), files)
 	if err != nil {
-		return err
+		return errors.Join(walkErr, err)
 	}
 
 	if baseline != nil {
@@ -456,7 +476,7 @@ func (env *checkEnv) runCFLint(res *checkResult, rule *config.ResolvedCheckRule)
 		})
 	}
 
-	return nil
+	return walkErr
 }
 
 // firstLocation is where a CFLint issue is reported.
@@ -476,6 +496,7 @@ func (env *checkEnv) runUnresolved(res *checkResult, rule *config.ResolvedCheckR
 
 	rep, _, _ := scanUnresolved(env.roots, &unresolvedFlags{})
 	res.Files = rep.Scanned
+	res.Skipped = rep.Skipped
 
 	calls := rep.Calls
 	if baseline != nil {
@@ -492,7 +513,7 @@ func (env *checkEnv) runUnresolved(res *checkResult, rule *config.ResolvedCheckR
 		})
 	}
 
-	return nil
+	return rep.Err
 }
 
 // unresolvedEntryText is the message a known-issues report holds for a call,

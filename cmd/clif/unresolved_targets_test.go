@@ -23,12 +23,12 @@ func TestScanTargetsNarrowsToADirectoryUnderAWiderIndex(t *testing.T) {
 		}
 	}
 
-	got := scanTargets(vfs.OS{}, []string{filepath.Join(root, "a")}, true)
-	if len(got) != 1 || got[0] != inside {
+	got, err := scanTargets(vfs.OS{}, []string{filepath.Join(root, "a")}, true)
+	if err != nil || len(got) != 1 || got[0] != inside {
 		t.Errorf("directory under a wider index: got %v, want only %s", got, inside)
 	}
 
-	if got := scanTargets(vfs.OS{}, []string{filepath.Join(root, "a")}, false); len(got) != 0 {
+	if got, err := scanTargets(vfs.OS{}, []string{filepath.Join(root, "a")}, false); err != nil || len(got) != 0 {
 		t.Errorf("no wider index: a directory must not narrow, got %v", got)
 	}
 }

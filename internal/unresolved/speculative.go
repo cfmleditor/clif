@@ -36,7 +36,11 @@ func scanSpeculative(fsys vfs.FS, files, targets []string, opt *Options) Report 
 	strict.SpeculativeReceivers = nil
 	strict.Candidates = true
 	strict.Verbose = nil
+
 	baseline := Scan(fsys, files, targets, &strict)
+	if baseline.Err != nil {
+		return baseline
+	}
 
 	groups := map[resolve.SpeculativeReceiver]*speculativeGroup{}
 	parsed := map[string][]parser.CallSite{}

@@ -9,7 +9,8 @@
 # agrees: the DOCS_LOCK_TOKEN docslock gave the run is the one recorded in
 # docs/.flock, and the lock is held. docslock clears its record as it exits,
 # so a token leaked from a run that has ended (a shell opened from one)
-# matches nothing, and such a script takes the lock itself.
+# no longer verifies. That script stops too: clear DOCS_LOCK_TOKEN before
+# starting a fresh run from such a shell.
 #
 # docslock is built and run, not `go run`: that turns a failing exit, a stop
 # by a signal included, into exit 1, losing the code the script exits with.
@@ -50,20 +51,20 @@ docs_held=""
 if [ -n "${DOCS_LOCK_TOKEN:-}" ]; then
     # Inside a run, or a token leaked from one: asked of the copy of docslock
     # the run runs as (rebuilt if gone, so a run that lost it carries on; a
-    # token leaked from a run that has ended still matches nothing).
+    # token leaked from a run that has ended is refused too).
     #
-    # A run whose docslock has ended (killed, its record left naming this
-    # token) stops here: taking the lock afresh would let this script, and
-    # each step after it, run under short locks of their own, with other runs
-    # free to slip in between them.
+    # A run whose docslock has ended, even if another run has replaced or
+    # cleared its record, stops here: taking the lock afresh would let this
+    # script, and each step after it, run under short locks of their own,
+    # with other runs free to slip in between them.
     docs_lock_bin || exit 1
     docs_status=0
     (cd "$docs_root" && "$DOCS_LOCK_BIN" --held) || docs_status=$?
     case "$docs_status" in
     0) docs_held=1 ;;
     3)
-        echo "error: this docs run's docslock has ended (killed?), so nothing holds the lock for it any more:" >&2
-        echo "       stopping. Start the run again." >&2
+        echo "error: this docs run's inherited token no longer verifies against the docs lock:" >&2
+        echo "       stopping. Start the run again; clear a stale DOCS_LOCK_TOKEN in the calling shell." >&2
         exit 1
         ;;
     esac

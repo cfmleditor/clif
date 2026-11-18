@@ -92,9 +92,9 @@ func main() {
 
 	// docslock --held: exit 0 if the caller runs under the lock (its
 	// DOCS_LOCK_TOKEN is the holder's), 3 if its run's docslock has ended
-	// (flock.Orphaned: killed), 1 otherwise. lib/underlock.sh asks: a script
-	// under the lock carries on, one whose run has ended stops, and any
-	// other (a token leaked from a run that ended normally, or none) takes
+	// or its record no longer matches (flock.Orphaned), 1 without a token.
+	// lib/underlock.sh asks: a script under the lock carries on, one whose
+	// inherited token no longer verifies stops, and a fresh invocation takes
 	// the lock.
 	if os.Args[1] == "--held" {
 		token := os.Getenv("DOCS_LOCK_TOKEN")

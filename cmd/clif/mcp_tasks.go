@@ -103,6 +103,9 @@ func mcpUnresolved(root string, paths []string, globalDefs bool, limit int) (any
 	}
 
 	rep, cfg, searchDir := scanUnresolved(abs, &unresolvedFlags{globalDefs: globalDefs})
+	if rep.Err != nil {
+		return nil, rep.Err
+	}
 
 	calls := make([]unresolvedCall, 0, len(rep.Calls))
 

@@ -66,7 +66,7 @@ func (s *Server) handleExport(kind string) (any, error) {
 		case config.GenerateCFLint:
 			reports, left, err = s.cflintReports(ctx, files, targets)
 		default:
-			reports, left = s.unresolvedReports(files, targets)
+			reports, left, err = s.unresolvedReports(files, targets)
 		}
 
 		if err != nil {
@@ -188,7 +188,7 @@ func checkTargets(targets, writeRoots []string) error {
 
 // unresolvedReports runs the unresolved scan the CLI runs, with this
 // session's settings, and splits it across targets.
-func (s *Server) unresolvedReports(files, targets []string) ([]report, int) {
+func (s *Server) unresolvedReports(files, targets []string) ([]report, int, error) {
 	// The scan resolves with the session's own settings, read back from its
 	// resolver rather than copied field by field, and infers an untyped
 	// argument from its callers as the CLI's default does: without that the
@@ -199,6 +199,10 @@ func (s *Server) unresolvedReports(files, targets []string) ([]report, int) {
 	opt.WorkspaceFolders = s.WorkspaceFolders
 
 	rep := unresolved.Scan(s.FS, files, nil, &opt)
+	if rep.Err != nil {
+		return nil, 0, rep.Err
+	}
+
 	byTarget, rest := unresolved.SplitByTarget(rep.Calls, targets)
 
 	out := make([]report, 0, len(targets))
@@ -210,7 +214,7 @@ func (s *Server) unresolvedReports(files, targets []string) ([]report, int) {
 		out = append(out, report{path: t, content: b.String(), entries: len(byTarget[t]) - skipped})
 	}
 
-	return out, len(rest)
+	return out, len(rest), nil
 }
 
 // cflintReports runs CFLint over files and splits its findings across
