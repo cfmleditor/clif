@@ -13,8 +13,9 @@
 # cache makes that a fraction of a second when nothing changed, and it is
 # complete by construction, as whatever the binary depends on (sources at any
 # depth, embedded files, cgo and compiler settings, the toolchain) is in the
-# binary. -buildvcs=false keeps the repository's state out of it, so the same
-# sources give the same binary. Built to a temporary file of this process's
+# binary. -buildvcs=false keeps the repository's state out of it and -trimpath
+# its absolute paths, so the same sources give the same binary in any
+# checkout. Built to a temporary file of this process's
 # own; kept where it is if that binary is there already, moved into place
 # otherwise, never over one (mv -n: another run starting at once may have put
 # the same binary there first, and be executing it). Builds are never
@@ -26,7 +27,7 @@ docs_build() {
     esac
     mkdir -p target/docs-gen || return 1
     tmp="target/docs-gen/$name.$$.tmp"
-    go build -buildvcs=false -o "$tmp" "$main" || { rm -f "$tmp"; return 1; }
+    go build -trimpath -buildvcs=false -o "$tmp" "$main" || { rm -f "$tmp"; return 1; }
     hash=$(sha256 "$tmp" | cut -c1-16) || { rm -f "$tmp"; return 1; }
     path="target/docs-gen/$name-$hash$ext"
     if [ -x "$path" ]; then

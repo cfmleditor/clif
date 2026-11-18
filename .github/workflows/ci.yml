@@ -276,25 +276,30 @@ jobs:
             docs/.sha-cfdocs
           key: docs-cfdocs-v1-${{ hashFiles('docs/sources.lock') }}
 
-      # One generator run. On a pull request it compares with the base the
-      # merge commit was built on (HEAD^1), not HEAD (which holds nothing to
-      # miss if the PR itself committed a lossy regeneration), so it checks
-      # exactly the base this merge commit merges onto, already in the
-      # checkout (fetch-depth 2), with no further fetch. A re-run reuses the
-      # same merge commit, so it compares with the same base; a newer main
-      # is checked once the PR is updated, or on the push after merging.
-      # Only the losses the lines the PR adds to docs/allowed-removals list
-      # are accepted; the generator reads that file itself, strictly. On a
-      # push it compares with HEAD.
+      # One generator run, compared with what main held before, never with
+      # HEAD, which already holds whatever it regenerated, lossy or not. On a
+      # pull request that is the base its merge commit was built on (HEAD^1,
+      # in the checkout at fetch-depth 2; a re-run reuses the same merge
+      # commit, so the same base). On a push it is the commit main pointed to
+      # before the push (the event's "before", fetched): not HEAD^1, which
+      # after a rebase or fast-forward merge is the pull request's own
+      # earlier commit, where a line it added to docs/allowed-removals is
+      # already there and would accept nothing. Only the losses the lines
+      # added since that commit list are accepted; the generator reads the
+      # file itself, strictly.
       - name: Regenerate the docs
         env:
           EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
         run: |
-          # A pull request's merge commit, and a push's commit, are each
-          # compared with their first parent: what main held before. On a
-          # push, HEAD itself already holds whatever it regenerated, lossy or
-          # not, so comparing with it would see nothing missing.
-          if base=$(git rev-parse --verify --quiet HEAD^1); then
+          base=""
+          if [ "$EVENT" = pull_request ]; then
+            base=$(git rev-parse --verify HEAD^1)
+          elif [ -n "$BEFORE" ] && [ "$BEFORE" != 0000000000000000000000000000000000000000 ]; then
+            git fetch --no-tags --depth=1 origin "$BEFORE"
+            base=$BEFORE
+          fi
+          if [ -n "$base" ]; then
             export DOCS_BASELINE_REF="$base" DOCS_ALLOWED_REMOVALS_FILE=docs/allowed-removals
           fi
           make generate

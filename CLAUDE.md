@@ -121,12 +121,13 @@ and run, never `go run`, which turns every failing exit into 1, built every time
 that a fraction of a second) and kept at a path named for a hash of the binary itself, complete by
 construction (`-buildvcs=false`, so the repository's state is not in it)
 (`target/docs-gen/docslock-<hash>`, `generate_docs-<hash>`: `scripts/lib/hashbuild.sh`), so a
-changed source builds a new one and a copy a run is executing is never replaced (builds are never
-removed but by `make clean`, as any run may be about to execute one; docslock, holding the lock as
-its run ends, clears only what nothing executes, the handoff and temporary files killed runs left);
-a run's scripts ask the copy of docslock it runs as (`DOCS_LOCK_BIN`). `make docs` and `make
-docs-cfdocs` (`scripts/docs.sh`), `make generate` (`scripts/generate.sh`) and `make docs-bump` each
-hold it across all their steps.
+changed source builds a new one and a copy a run is executing is never replaced (builds, `-trimpath`
+so every checkout makes the same, are never removed but by `make clean`, as any run may be about to
+execute one, so they accumulate as the programs' code changes; docslock, holding the lock as its run
+ends, clears only what nothing executes, the handoff and temporary files killed runs left); a run's
+scripts ask the copy of docslock it runs as (`DOCS_LOCK_BIN`). `make docs` and `make docs-cfdocs`
+(`scripts/docs.sh`), `make generate` (`scripts/generate.sh`) and `make docs-bump` each hold it
+across all their steps.
 
 **The generator holds the lock itself.** `make generate` has docslock run it once `generate.sh` has
 succeeded (`docslock --then`, which `underlock.sh` gives `generate.sh` by name: the script builds it
@@ -151,10 +152,13 @@ signal runs none). On Linux the kernel also sends the script SIGTERM when docslo
 (`Pdeathsig`, so its traps run, from a goroutine locked to its thread, as Linux sends it when that
 thread exits); on Windows docslock puts itself in a kill-on-close job before starting anything, so
 everything the run starts ends with it. What is left: on macOS and the BSDs, a script killed between
-a check and its change, and on Windows, a generator killed between its check and its renames.
-Windows also cannot send a process SIGTERM, so docslock forwards nothing there: a console's Ctrl-C
-or close reaches every process attached to it, and a SIGTERM-like stop aimed at docslock alone does
-not reach the command.
+a check and its change, and on Windows, a generator killed between its check and its renames. On
+Linux with the repository on NFS, `flock` is emulated with per-process locks a child does not
+inherit, so the generator does not hold the lock itself there either, and is covered only by its
+check before writing. A `make clean` together with a branch switch during a run rebuilds the helper
+from other sources, which may not recognise the run's record. Windows also cannot send a process
+SIGTERM, so docslock forwards nothing there: a console's Ctrl-C or close reaches every process
+attached to it, and a SIGTERM-like stop aimed at docslock alone does not reach the command.
 
 **Signals.** The command runs in docslock's own process group, so a terminal's Ctrl-C, Ctrl-Z and
 hang-up reach it, and everything it runs, directly and once, and job control is the shell's as for
@@ -234,25 +238,27 @@ with its own syntax and parameters (or that Lucee now documents it), and
 `go test ./internal/docs/...`, once, ahead of the platform builds, rather than grepping the
 generated file. CI's `docs-reproducible` job runs `make generate` once and fails if the committed
 docs change, so `generated_docs.go` is always what the pinned and vendored sources produce: a hand
-edit, or a pin bumped without regenerating, fails it. That run compares with the first parent
-(`HEAD^1`, as `DOCS_BASELINE_REF`): on a pull request the base its merge commit was built on (not
-the event's base SHA, stale on a re-run after main moves), on a push what main held before it,
-rather than `HEAD`, which already holds what it regenerated, which would hold nothing to miss if the
-PR itself committed a lossy regeneration (a base with no `generated_sources.txt` is refused like any
-missing baseline). Only the losses `docs/allowed-removals` lists pass there, and only the lines the
-PR adds to that file (those the base's copy lacks) accept anything, so dropping an entry on purpose
-takes a reviewed change to it. A line left over from an earlier pull request (unchanged from the
-base's copy) accepts nothing, so it can neither wave a later loss through by accident nor fail
-anyone; it only warns until cleared. To remove such an entry again on purpose, change its line (a
-new `# reason`): a changed line counts as added; a change of spacing, or of the entry's letter case,
-alone does not. A changed line that removes nothing (a comment tidied) only warns; only an entry new
-to the file that removes nothing is refused. If the base's copy itself no longer parses, every line
-counts as added, with a warning, and a line that removes nothing only warns, so it cannot block the
-pull request that fixes it. The generator reads the file itself (`DOCS_ALLOWED_REMOVALS_FILE`,
-through `sources.ParseAllowedRemovals`), strictly: a line it cannot read, `1` (which would switch
-the comparison off), a symlink (git would give the base's link text, not its contents), or an added
-line that accepts nothing (a typo, a removal since undone) fails the step. `DOCS_BASELINE_REF` must
-name a commit; a value starting with `-` is refused, as git would read it as an option.
+edit, or a pin bumped without regenerating, fails it. That run compares with what main held before
+(as `DOCS_BASELINE_REF`): on a pull request the base its merge commit was built on (`HEAD^1`; not
+the event's base SHA, stale on a re-run after main moves), on a push the commit main pointed to
+before it (the event's `before`, fetched; not `HEAD^1`, which after a rebase or fast-forward merge
+is the pull request's own earlier commit), rather than `HEAD`, which already holds what it
+regenerated, which would hold nothing to miss if the PR itself committed a lossy regeneration (a
+base with no `generated_sources.txt` is refused like any missing baseline). Only the losses
+`docs/allowed-removals` lists pass there, and only the lines the PR adds to that file (those the
+base's copy lacks) accept anything, so dropping an entry on purpose takes a reviewed change to it. A
+line left over from an earlier pull request (unchanged from the base's copy) accepts nothing, so it
+can neither wave a later loss through by accident nor fail anyone; it only warns until cleared. To
+remove such an entry again on purpose, change its line (a new `# reason`): a changed line counts as
+added; a change of spacing, or of the entry's letter case, alone does not. A changed line that
+removes nothing (a comment tidied) only warns; only an entry new to the file that removes nothing is
+refused. If the base's copy itself no longer parses, every line counts as added, with a warning, and
+a line that removes nothing only warns, so it cannot block the pull request that fixes it. The
+generator reads the file itself (`DOCS_ALLOWED_REMOVALS_FILE`, through
+`sources.ParseAllowedRemovals`), strictly: a line it cannot read, `1` (which would switch the
+comparison off), a symlink (git would give the base's link text, not its contents), or an added line
+that accepts nothing (a typo, a removal since undone) fails the step. `DOCS_BASELINE_REF` must name
+a commit; a value starting with `-` is refused, as git would read it as an option.
 
 Go toolchain is pinned at **1.27.4** (`go.mod`). CGO is required (tree-sitter grammar).
 

@@ -73,6 +73,18 @@ func record(path string) (pid, token, start string) {
 	return "", "", ""
 }
 
+// HolderGone reports whether the record at path names a holder that has
+// ended (killed before it could clear it): while the lock is held all the
+// same, some process it started (the generator, passed the descriptor)
+// holds it now.
+func HolderGone(path string) bool {
+	pidText, _, start := record(path)
+
+	pid, err := strconv.Atoi(pidText)
+
+	return err == nil && !holderAlive(pid, start)
+}
+
 // holderAlive: a process has pid, and, where the record and the platform
 // both give a start time, it is the one that wrote the record, not a later
 // process given the same PID.

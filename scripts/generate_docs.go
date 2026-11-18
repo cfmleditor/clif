@@ -54,7 +54,7 @@ const (
 var stagedMarkers = map[string]string{"cfdocs": "docs/.sha-cfdocs"}
 
 // baselineRef is the commit whose committed files are the baseline: HEAD,
-// unless DOCS_BASELINE_REF names another. CI names the pull request's base, so
+// unless DOCS_BASELINE_REF names another. CI names what main held before, so
 // a PR whose own commit already holds a lossy regeneration (its HEAD then has
 // nothing to miss) is still compared with what it would change.
 func baselineRef() string {
@@ -832,10 +832,11 @@ func main() {
 			}
 		}
 		if allowedFile != "" {
-			// CI's comparison with the pull request's base: the banner's
-			// HEAD notes below are about the checkout, not this baseline.
+			// CI's comparison with what main held before (a pull request's
+			// base, or the commit a push moved main from): the banner's HEAD
+			// notes below are about the checkout, not this baseline.
 			reason = append(reason,
-				fmt.Sprintf("This compared with %s, the pull request's base, not HEAD: a local `make generate`", ref),
+				fmt.Sprintf("This compared with %s, what main held before this change, not HEAD: a local `make generate`", ref),
 				"can pass while this fails. To drop an entry on purpose, list it in "+allowedFile+".")
 		} else {
 			reason = append(reason,
@@ -982,12 +983,18 @@ func runTag() string {
 // named them), which git would otherwise show as new files, as
 // docs_clear_scratch does for the scripts. Called holding the lock, before
 // this run writes its own.
+//
+// Only once ten minutes old: on Windows a generator left running after its
+// docslock was killed may still be writing its own (it breaks away from the
+// job, and holds no descriptor), and removing them would split its pair.
 func clearStaleTemps(paths ...string) {
 	for _, p := range paths {
 		a, _ := filepath.Glob(p + ".tmp.*")
 		b, _ := filepath.Glob(p + ".*.tmp")
 		for _, s := range append(append(a, b...), p+".tmp") {
-			_ = os.Remove(s)
+			if info, err := os.Stat(s); err == nil && time.Since(info.ModTime()) >= 10*time.Minute {
+				_ = os.Remove(s)
+			}
 		}
 	}
 }

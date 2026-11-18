@@ -176,6 +176,10 @@ func main() {
 		if pid == "" {
 			pid = "?"
 		}
+		if flock.HolderGone(lockPath) {
+			fail("another docs run holds %s: its docslock (PID %s) has ended, but a program it started (the generator)\n"+
+				"       still holds the lock until its write is done; wait for it to finish", lockPath, pid)
+		}
 		fail("another docs run (PID %s) holds %s; wait for it to finish", pid, lockPath)
 	}
 

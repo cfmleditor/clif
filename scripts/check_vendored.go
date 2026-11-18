@@ -3,8 +3,10 @@
 
 // Checks and hashes a directory of doc source JSON, for scripts/fetch-docs-lucee.sh:
 //
-//	go run scripts/check_vendored.go checkhash <dir>
+//	"$(docs_build scripts/check_vendored.go check_vendored)" checkhash <dir>
 //
+// (built and run through lib/hashbuild.sh, never `go run`, which turns every
+// failing exit into 1, so an interrupted run would read as broken files)
 // prints the manifest hash of its *.json, or lists the broken ones and exits 1.
 // The rules live in internal/docs/sources (HashDir), where they are tested and
 // shared with TestVendoredLuceeMatchesItsSource.
