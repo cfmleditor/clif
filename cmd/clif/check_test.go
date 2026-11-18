@@ -186,6 +186,54 @@ func TestCheckScanReadFailureIsAnError(t *testing.T) {
 	}
 }
 
+// A directory the scan cannot enumerate must not disappear from coverage and
+// leave a passing result, even when the files it can read are clean.
+func TestCheckScanWalkFailureIsAnError(t *testing.T) {
+	dir, _ := checkProject(t, "", cleanPage)
+
+	blocked := filepath.Join(dir, "blocked")
+	if err := os.Mkdir(blocked, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filepath.Join(blocked, "broken.cfm"), []byte("<cfif x>\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() { _ = os.Chmod(blocked, 0o700) })
+
+	if err := os.Chmod(blocked, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := os.ReadDir(blocked); err == nil {
+		t.Skip("this account can read directories without permission")
+	}
+
+	out, code := runClif(t, dir, "check", "-q", "--checks", "scan", "--format", "json", dir)
+	if code != exitCheckError {
+		t.Errorf("scan exit %d, want %d; output:\n%s", code, exitCheckError, out)
+	}
+
+	var report struct {
+		Checks []checkResult `json:"checks"`
+		Passed bool          `json:"passed"`
+	}
+
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		t.Fatalf("%v; output:\n%s", err, out)
+	}
+
+	if report.Passed || len(report.Checks) != 1 {
+		t.Fatalf("report = %+v, want one unsuccessful check", report)
+	}
+
+	res := &report.Checks[0]
+	if res.Status != checkError || res.Files != 1 || !strings.Contains(res.Error, blocked) {
+		t.Errorf("scan = %+v, want error naming the unreadable directory and one readable file", res)
+	}
+}
+
 // TestCheckCFLintBaseline: a finding the generated CFLint report lists is not
 // counted; --no-baseline and "baseline": "none" count it; a named baseline
 // that does not exist is an error.

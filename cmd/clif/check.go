@@ -67,8 +67,8 @@ Exit status:
   0  every check passed
   1  a check found more than it allows
   2  a check could not run (CFLint unavailable, a .cflintrc CFLint cannot
-     parse, a baseline that does not exist, a scan input that cannot be read),
-     a path that does not exist, or a usage error
+     parse, a baseline that does not exist, scan inputs or directories that
+     cannot be read), a path that does not exist, or a usage error
 `
 
 // clif check's exit statuses, as clif cflint's: 1 is the code's findings, 2 a
@@ -323,7 +323,7 @@ func (env *checkEnv) files() []string {
 }
 
 func (env *checkEnv) runScan(res *checkResult) error {
-	files := env.files()
+	files, walkErr := cfpath.CollectWithErrors(vfs.OS{}, env.roots, cfpath.IsCFMLFile)
 	res.Files = len(files)
 
 	env.logf("scan: parsing %d files...\n", len(files))
@@ -353,7 +353,7 @@ func (env *checkEnv) runScan(res *checkResult) error {
 		}
 	}
 
-	return errors.Join(readErrors...)
+	return errors.Join(walkErr, errors.Join(readErrors...))
 }
 
 func (env *checkEnv) runFormat(res *checkResult) {

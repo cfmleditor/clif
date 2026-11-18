@@ -1,6 +1,7 @@
 package path
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"sort"
@@ -109,5 +110,63 @@ func TestCollectCFCKeepsComponentsOnly(t *testing.T) {
 
 	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
 		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+// Inject walk failures so these checks run on Windows and privileged accounts
+// too, where chmod cannot reliably make a directory unreadable.
+type failingCollectFS struct {
+	vfs.OS
+	denied, failedRoot string
+}
+
+func (f failingCollectFS) Walk(root string, fn filepath.WalkFunc) error {
+	if root == f.failedRoot {
+		return &os.PathError{Op: "walk", Path: root, Err: os.ErrNotExist}
+	}
+
+	return f.OS.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if path != f.denied {
+			return fn(path, info, err)
+		}
+
+		if err := fn(path, info, &os.PathError{Op: "readdir", Path: path, Err: os.ErrPermission}); err != nil {
+			return err
+		}
+
+		return filepath.SkipDir
+	})
+}
+
+func TestCollectWithErrorsKeepsReadableFiles(t *testing.T) {
+	root := t.TempDir()
+	writeTree(t, root, "a-denied/hidden.cfm", "z-readable.cfc")
+	failing := failingCollectFS{denied: filepath.Join(root, "a-denied"), failedRoot: filepath.Join(root, "missing")}
+
+	files, err := CollectWithErrors(failing, []string{failing.failedRoot, root}, IsCFMLFile)
+	if !errors.Is(err, os.ErrNotExist) || !errors.Is(err, os.ErrPermission) {
+		t.Errorf("collection error = %v, want both root and entry failures", err)
+	}
+
+	if got := names(root, files); len(got) != 1 || got[0] != "z-readable.cfc" {
+		t.Errorf("files = %v, want the readable file after the failed entry", got)
+	}
+}
+
+func TestCollectWithErrorsExcludesIgnoredDirectories(t *testing.T) {
+	root := t.TempDir()
+	writeTree(t, root, "vendor/hidden.cfm", "a.cfc")
+	failing := failingCollectFS{denied: filepath.Join(root, "vendor")}
+
+	files, err := CollectWithErrors(failing, []string{root}, IsCFMLFile)
+	if err != nil || len(files) != 1 || filepath.Base(files[0]) != "a.cfc" {
+		t.Errorf("files = %v, error = %v; want only a.cfc without errors", files, err)
+	}
+
+	// An explicitly requested root is inspected even when its name is one
+	// normally excluded from a workspace scan.
+	_, err = CollectWithErrors(failing, []string{failing.denied}, IsCFMLFile)
+	if !errors.Is(err, os.ErrPermission) {
+		t.Errorf("explicit unreadable root: error = %v, want permission failure", err)
 	}
 }

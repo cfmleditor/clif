@@ -3,6 +3,7 @@ package path
 
 import (
 	"bytes"
+	"errors"
 	"maps"
 	"net/url"
 	"os"
@@ -793,8 +794,8 @@ func SkipScanDir(name string) bool {
 // third walker that skipped nothing.
 //
 // An unreadable entry is skipped, not fatal: aborting a walk on one permission
-// error would silently scan a fraction of the workspace and report it as the
-// whole thing.
+// error would omit the readable files after it too. Call CollectWithErrors
+// with IsCFMLFile when the caller must report incomplete coverage.
 func CollectCFML(fsys vfs.FS, roots []string) []string {
 	return Collect(fsys, roots, IsCFMLFile)
 }
@@ -808,27 +809,47 @@ func CollectCFC(fsys vfs.FS, roots []string) []string {
 // Collect is the walk behind both: the files under roots that keep accepts,
 // outside the directories [SkipScanDir] names.
 func Collect(fsys vfs.FS, roots []string, keep func(path string) bool) []string {
-	var files []string
+	files, _ := CollectWithErrors(fsys, roots, keep)
+
+	return files
+}
+
+// CollectWithErrors is Collect with traversal failures returned alongside the
+// readable files. It continues after a failed entry or root, so callers can
+// inspect what is accessible while reporting that their coverage is incomplete.
+// Directories SkipScanDir excludes are deliberately outside that coverage.
+func CollectWithErrors(fsys vfs.FS, roots []string, keep func(path string) bool) ([]string, error) {
+	var (
+		files      []string
+		walkErrors []error
+	)
 
 	for _, root := range roots {
-		_ = fsys.Walk(root, func(path string, info os.FileInfo, err error) error {
-			// An entry that could not be read, or a root that cannot be stat'ed
-			// (reported with a nil FileInfo), is neither descended into nor
-			// collected.
-			readable := err == nil && info != nil
-
-			switch {
-			case readable && info.IsDir() && path != root && SkipScanDir(info.Name()):
+		err := fsys.Walk(root, func(path string, info os.FileInfo, err error) error {
+			// Walk may report a directory's read error with its FileInfo.
+			// An intentionally excluded directory still needs no inspection.
+			if info != nil && info.IsDir() && path != root && SkipScanDir(info.Name()) {
 				return filepath.SkipDir
-			case readable && !info.IsDir() && keep(path):
+			}
+
+			if err != nil {
+				walkErrors = append(walkErrors, err)
+
+				return nil
+			}
+
+			if info != nil && !info.IsDir() && keep(path) {
 				files = append(files, path)
 			}
 
 			return nil
 		})
+		if err != nil {
+			walkErrors = append(walkErrors, err)
+		}
 	}
 
-	return files
+	return files, errors.Join(walkErrors...)
 }
 
 // IsCFCFile returns true if the path/URI refers to a CFC file.
