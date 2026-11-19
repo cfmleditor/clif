@@ -61,3 +61,52 @@ python3 .ai/docs/resolution-candidates/assignment-observer/run-probes.py benchma
 For the full seven-project result, pass ColdBox, Wheels, ContentBox, TestBox,
 FW/1, Mura, and Lucee. Pass the Wheels checkout root so the walk includes its
 vendored framework.
+
+## Recording only on a predicted miss
+
+The selective overlay checks the shared cache before recording a script region
+of at least 8 KiB. On a miss it asks the existing member-binding predicate once
+per file, using only the text and the lookups available before the region walk.
+A positive answer predicts that member inference will ask for every script
+region's tokens. A negative answer leaves tokenization to the existing reader.
+Collection-return candidates and some typed member references only become known
+during the parse. The normal inference pass still decides independently whether
+to read tokens. Only a consumer publishes a complete captured stream to the
+shared cache. Shallow and partial-body parses skip capture.
+
+Each corpus run started with an empty shared cache and visited the same 8,251
+files and 6,904 script regions. The lookup variant supplied a function lookup
+that always returned the empty string, exercising the parser's lookup-enabled
+path without a project resolver. Every consumed capture was compared token for
+token with standalone tokenization of the original text.
+
+| Parse options | Recording attempts | Exact streams reused | Incomplete recordings | Complete recordings unused | Large misses served by standalone tokenization |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| ExtractCalls | 11 | 9 | 2 | 0 | 412 |
+| ExtractCalls with function lookup | 372 | 346 | 26 | 0 | 187 |
+
+Incomplete recordings fall back and are included in standalone misses when
+requested. The prototype avoided 2.1% and 64.9% of large-region tokenizations
+on demand respectively. Both runs had zero token mismatches. Disabling capture
+made both ColdBox runs fail the positive-coverage assertion.
+
+Three 350 ms samples per case on the same ColdBox controller gave the following
+medians. The baseline disables recording in the instrumented build. The warm
+pair is preloaded, the 32 variants exercise eviction, and the no-demand case is
+a synthetic script over 8 KiB with a single local assignment.
+
+| Workload | Baseline time | Selective time | Baseline bytes/op | Selective bytes/op | Recording attempts/op |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Warm pair | 1.308 ms | 1.424 ms | 776,106 | 770,764 | 0 |
+| 32 variants | 1.536 ms | 1.556 ms | 1,343,506 | 1,342,895 | 0.98–1.00 |
+| No demand | 18.4 µs | 17.6 µs | 4,840 | 4,840 | 0 |
+
+Warm parses allocated 3,952 times in both modes. The earlier 609 KB warm
+recording penalty disappeared. Avoiding the second tokenization on a cold
+controller parse did not deliver a consistent timing improvement in these
+samples. The cost of checking the cache and predicting demand falls on the
+parse; real lookup-enabled editor workloads would need measuring before
+adopting this in production.
+
+Run the same two commands above with `selective` in place of `tokens` and
+`selective-benchmark` in place of `benchmark`.

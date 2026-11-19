@@ -1,0 +1,316 @@
+diff --git a/internal/parser/collection_returns.go b/internal/parser/collection_returns.go
+index b7b69e2..a99da86 100644
+--- a/internal/parser/collection_returns.go
++++ b/internal/parser/collection_returns.go
+@@ -762,7 +762,23 @@ func (m *writesMemo) release() {
+ // once for every parse of its text (scriptTokensOf): that list is not the
+ // memo's to release, nor anyone's to change.
+ func (pr *ParseResult) scriptTokens(r *Region) *[]Token {
++	if tokens := pr.captured[r.Offset]; tokens != nil {
++		delete(pr.captured, r.Offset)
++		tapeReuseHits++
++		if probeVerify && !slices.Equal(tokens, tokenize(r.Text)) {
++			probeMismatch++
++		}
++		return publishTokens(r.Text, tokens)
++	}
++
+ 	if len(r.Text) >= sharedTokenMin {
++		if probeVerify {
++			sharedTokens.mu.Lock()
++			if sharedTokens.find(r.Text) == nil {
++				probeMissedDemand++
++			}
++			sharedTokens.mu.Unlock()
++		}
+ 		return scriptTokensOf(r.Text)
+ 	}
+
+diff --git a/internal/parser/result.go b/internal/parser/result.go
+index 69bdcf1..7cb283c 100644
+--- a/internal/parser/result.go
++++ b/internal/parser/result.go
+@@ -22,7 +22,9 @@ type Logger = log.Logger
+ // ParseResult caches a single parse of a file. It extracts function signatures
+ // and component refs eagerly, but defers function body parsing until requested.
+ type ParseResult struct {
+-	imports map[string]string // from the file's `import`, for a function body parsed later
++	probeDemandChecked, probeDemand bool
++	captured                        map[int][]Token
++	imports                         map[string]string // from the file's `import`, for a function body parsed later
+
+ 	URI                 uri.URI
+ 	Content             string
+@@ -817,8 +819,28 @@ func (pr *ParseResult) mergeScriptRegion(r *Region, tagScopes []FuncScope, open
+ 	refsFrom := pr.refsMark()
+ 	watch := pr.watchScript(sp.sc, r)
+
++	var tape *checkedTape
++	if probeEnabled && !pr.shallow && !pr.scopesOnly && pr.bodies.only == nil && len(r.Text) >= sharedTokenMin && sp.sc.src == r.Text && pr.shouldCapture(r.Text) {
++		tape = &checkedTape{}
++		probeAttempts++
++		if sp.sc.aux == nil {
++			sp.sc.aux = &scannerAux{}
++		}
++		sp.sc.aux.tapeProbe = tape
++	}
++
+ 	sp.parse()
+ 	finishScript(sp.sc, watch)
++	if tape != nil {
++		if tokens := tape.complete(); tokens != nil {
++			if pr.captured == nil {
++				pr.captured = make(map[int][]Token)
++			}
++			pr.captured[r.Offset] = tokens
++		} else {
++			probeIncomplete++
++		}
++	}
+
+ 	if pr.extractLinks {
+ 		sp.fileLinks(linksOf(pr.refsSince(refsFrom), r.Text, r.Offset, r.StartLine, nil))
+diff --git a/internal/parser/scanner.go b/internal/parser/scanner.go
+index 53cd944..750320a 100644
+--- a/internal/parser/scanner.go
++++ b/internal/parser/scanner.go
+@@ -121,7 +121,8 @@ type scannerAux struct {
+ 	// refs, set on a parse's scanner of a script region, records the file
+ 	// references in the tokens the walk reads (file_refs.go): each one is
+ 	// handed over as it is first produced, past any comment.
+-	refs *scriptRefs
++	refs      *scriptRefs
++	tapeProbe *checkedTape
+ }
+
+ // watch has s hand each token it produces to w (nil to stop).
+@@ -536,6 +537,7 @@ func (s *Scanner) NextSkipComments() Token {
+ 		return s.peekTok
+ 	}
+
++	before, line := s.pos, s.line
+ 	for {
+ 		tok := s.next()
+ 		switch tok.Kind {
+@@ -547,6 +549,10 @@ func (s *Scanner) NextSkipComments() Token {
+ 		case TokCFComment, TokLineComment, TokNewline:
+ 			continue
+ 		default:
++			if s.aux != nil && s.aux.tapeProbe != nil {
++				s.aux.tapeProbe.record(s, before, line, tok)
++			}
++
+ 			if s.aux != nil && s.aux.refs != nil {
+ 				s.aux.refs.see(tok)
+ 			}
+diff --git a/internal/parser/shared_tokens.go b/internal/parser/shared_tokens.go
+index ba7a9d1..593223f 100644
+--- a/internal/parser/shared_tokens.go
++++ b/internal/parser/shared_tokens.go
+@@ -125,7 +125,11 @@ func scriptTokensOf(text string) *[]Token {
+ 		return toks
+ 	}
+
+-	made := slices.Clip(tokenize(text))
++	return publishTokens(text, tokenize(text))
++}
++
++func publishTokens(text string, tokens []Token) *[]Token {
++	made := slices.Clip(tokens)
+
+ 	n := len(made) * int(unsafe.Sizeof(Token{}))
+
+diff --git a/internal/parser/tape_probe.go b/internal/parser/tape_probe.go
+new file mode 100644
+index 0000000..38d553d
+--- /dev/null
++++ b/internal/parser/tape_probe.go
+@@ -0,0 +1,55 @@
++package parser
++
++// Instrumentation for the single-threaded corpus and benchmark probes.
++var probeEnabled, probeVerify bool
++var probeAttempts, probeIncomplete, probeMismatch, probeCacheHits, probeMissedDemand int
++
++func (pr *ParseResult) shouldCapture(text string) bool {
++	sharedTokens.mu.Lock()
++	hit := sharedTokens.find(text) != nil
++	sharedTokens.mu.Unlock()
++	if hit {
++		probeCacheHits++
++		return false
++	}
++	if !pr.probeDemandChecked {
++		// Only use evidence available before parsing, excluding refs yet to be collected.
++		early := ParseResult{FuncLookup: pr.FuncLookup, Resolvers: pr.Resolvers}
++		pr.probeDemand = early.hasMemberBinding(pr.Content)
++		pr.probeDemandChecked = true
++	}
++	return pr.probeDemand
++}
++
++type checkedTape struct {
++	tokens     []Token
++	end        int
++	line       int32
++	incomplete bool
++	done       bool
++}
++
++func (t *checkedTape) record(sc *Scanner, from int, line int32, tok Token) {
++	if t.done || t.incomplete {
++		return
++	}
++	if sc.pos <= t.end && tok.Kind != TokEOF {
++		return
++	}
++	if from != t.end || line != t.line || !sc.interpStrings || len(sc.aux.scriptSpans) != 0 {
++		t.incomplete = true
++		return
++	}
++	t.tokens = append(t.tokens, tok)
++	t.end, t.line = sc.pos, sc.line
++	t.done = tok.Kind == TokEOF
++}
++
++func (t *checkedTape) complete() []Token {
++	if t.done && !t.incomplete {
++		return t.tokens
++	}
++	return nil
++}
++
++var tapeReuseHits int
+diff --git a/internal/parser/tape_probe_test.go b/internal/parser/tape_probe_test.go
+new file mode 100644
+index 0000000..df08e60
+--- /dev/null
++++ b/internal/parser/tape_probe_test.go
+@@ -0,0 +1,127 @@
++package parser
++
++import (
++	"io/fs"
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++
++	"go.lsp.dev/uri"
++)
++
++func TestMainParseTokenTapeProbe(t *testing.T) {
++	for _, withLookup := range []bool{false, true} {
++		name := "calls"
++		opts := &ParseOptions{ExtractCalls: true}
++		if withLookup {
++			name = "calls-with-lookup"
++			opts.FuncLookup = func(string, string) string { return "" }
++		}
++		t.Run(name, func(t *testing.T) { probeCorpus(t, opts) })
++	}
++}
++func probeCorpus(t *testing.T, opts *ParseOptions) {
++	previous := SetSharedTokenLimit(0)
++	SetSharedTokenLimit(previous)
++	probeEnabled, probeVerify = true, true
++	defer func() { probeEnabled, probeVerify = false, false }()
++	probeMissedDemand = 0
++	var files, total, unused int
++	probeAttempts, probeIncomplete, probeMismatch, probeCacheHits, tapeReuseHits = 0, 0, 0, 0, 0
++	for _, root := range filepath.SplitList(os.Getenv("CLIF_ASSIGN_PROBE_ROOTS")) {
++
++		err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
++			if err != nil {
++				return err
++			}
++			if entry.IsDir() {
++				if entry.Name() == ".git" || entry.Name() == "node_modules" {
++					return filepath.SkipDir
++				}
++				return nil
++			}
++			ext := strings.ToLower(filepath.Ext(path))
++			if ext != ".cfc" && ext != ".cfm" {
++				return nil
++			}
++			data, err := os.ReadFile(path)
++			if err != nil {
++				return err
++			}
++			if len(data) > 2<<20 {
++				return nil
++			}
++
++			files++
++			pr := ParseWithOptions(uri.File(path), string(data), opts)
++			for _, r := range pr.Regions {
++				if r.Kind != RegionScript {
++					continue
++				}
++				total++
++			}
++			unused += len(pr.captured)
++			return nil
++		})
++		if err != nil {
++			t.Fatal(err)
++		}
++	}
++	t.Logf("files=%d regions=%d cache-hits=%d attempts=%d exact-reused=%d incomplete=%d unused=%d mismatches=%d standalone-large-misses=%d", files, total, probeCacheHits, probeAttempts, tapeReuseHits, probeIncomplete, unused, probeMismatch, probeMissedDemand)
++	if tapeReuseHits == 0 || probeMismatch != 0 || unused != 0 || probeAttempts != tapeReuseHits+probeIncomplete {
++		t.Fatal("selective capture failed")
++	}
++}
++
++func BenchmarkCollectionTokenReuseProbe(b *testing.B) {
++	file := os.Getenv("CLIF_ASSIGN_PROBE_CONTROLLER")
++	data, err := os.ReadFile(file)
++	if err != nil {
++		b.Fatal(err)
++	}
++	u := uri.File(file)
++	original := string(data)
++	edited := strings.Replace(original, "\n\t// BoxLang Detection", "\n \t// BoxLang Detection", 1)
++	if edited == original {
++		b.Fatal("fixture edit did not apply")
++	}
++	for _, cache := range []struct {
++		name  string
++		texts []string
++	}{
++		{"warm", []string{original, edited}},
++		{"cold", make([]string, 32)},
++		{"unused", []string{"component { function f(){ var n = 1; } }" + strings.Repeat(" ", sharedTokenMin)}},
++	} {
++		if cache.name == "cold" {
++			for i := range cache.texts {
++				cache.texts[i] = strings.Replace(original, "\n\t// BoxLang Detection", "\n"+strings.Repeat(" ", i+1)+"\t// BoxLang Detection", 1)
++			}
++		}
++		for _, mode := range []string{"baseline", "checked_tape"} {
++			b.Run(cache.name+"/"+mode, func(b *testing.B) {
++				probeEnabled = mode == "checked_tape"
++				defer func() { probeEnabled = false }()
++				if cache.name == "warm" {
++					for _, text := range cache.texts {
++						ParseWithOptions(u, text, &ParseOptions{ExtractCalls: true})
++					}
++				}
++				tapeReuseHits, probeAttempts = 0, 0
++				b.ReportAllocs()
++				i := 0
++				for b.Loop() {
++					ParseWithOptions(u, cache.texts[i], &ParseOptions{ExtractCalls: true})
++
++					i = (i + 1) % len(cache.texts)
++				}
++				b.ReportMetric(float64(tapeReuseHits)/float64(b.N), "tape-reads/op")
++				b.ReportMetric(float64(probeAttempts)/float64(b.N), "attempts/op")
++				if mode == "checked_tape" && ((cache.name == "cold" && tapeReuseHits == 0) || (cache.name != "cold" && probeAttempts != 0)) {
++					b.Fatal("checked tape was unused")
++				}
++			})
++		}
++	}
++}
