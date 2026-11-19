@@ -51,8 +51,11 @@ def main():
     else:
         env["CLIF_ASSIGN_PROBE_ROOTS"] = os.pathsep.join(map(str, paths))
         test = "TestAssignmentObserverCorpusProbe" if args.probe == "assignments" else "TestMainParseTokenTapeProbe"
-        if buffered and args.probe == "selective":
-            test = "(TestMainParseTokenTapeProbe|TestBufferedCaptureOwnsPublishedTokens)"
+        if args.probe == "selective":
+            tests = [test, "TestCaptureDemandAfterFullReplace"]
+            if buffered:
+                tests.append("TestBufferedCaptureOwnsPublishedTokens")
+            test = "(" + "|".join(tests) + ")"
         flags = ["-run", f"^{test}$", "-count=1", "-v"]
 
     with tempfile.TemporaryDirectory(prefix="clif-assignment-probe-") as directory:

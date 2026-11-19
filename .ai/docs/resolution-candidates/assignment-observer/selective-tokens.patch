@@ -27,7 +27,7 @@ index b7b69e2..a99da86 100644
  	}
 
 diff --git a/internal/parser/result.go b/internal/parser/result.go
-index 69bdcf1..7cb283c 100644
+index 69bdcf1..ff120a3 100644
 --- a/internal/parser/result.go
 +++ b/internal/parser/result.go
 @@ -22,7 +22,9 @@ type Logger = log.Logger
@@ -41,7 +41,16 @@ index 69bdcf1..7cb283c 100644
 
  	URI                 uri.URI
  	Content             string
-@@ -817,8 +819,28 @@ func (pr *ParseResult) mergeScriptRegion(r *Region, tagScopes []FuncScope, open
+@@ -579,6 +581,8 @@ func (pr *ParseResult) extractSignatures() {
+ 		}
+ 	}()
+
++	// A full document replacement can reuse this ParseResult.
++	pr.probeDemandChecked = false
+ 	pr.startRefs()
+
+ 	if pr.fileRefsOnly {
+@@ -817,8 +821,28 @@ func (pr *ParseResult) mergeScriptRegion(r *Region, tagScopes []FuncScope, open
  	refsFrom := pr.refsMark()
  	watch := pr.watchScript(sp.sc, r)
 
@@ -183,10 +192,10 @@ index 0000000..38d553d
 +var tapeReuseHits int
 diff --git a/internal/parser/tape_probe_test.go b/internal/parser/tape_probe_test.go
 new file mode 100644
-index 0000000..df08e60
+index 0000000..ed8a1f6
 --- /dev/null
 +++ b/internal/parser/tape_probe_test.go
-@@ -0,0 +1,127 @@
+@@ -0,0 +1,153 @@
 +package parser
 +
 +import (
@@ -260,6 +269,32 @@ index 0000000..df08e60
 +	t.Logf("files=%d regions=%d cache-hits=%d attempts=%d exact-reused=%d incomplete=%d unused=%d mismatches=%d standalone-large-misses=%d", files, total, probeCacheHits, probeAttempts, tapeReuseHits, probeIncomplete, unused, probeMismatch, probeMissedDemand)
 +	if tapeReuseHits == 0 || probeMismatch != 0 || unused != 0 || probeAttempts != tapeReuseHits+probeIncomplete {
 +		t.Fatal("selective capture failed")
++	}
++}
++
++func TestCaptureDemandAfterFullReplace(t *testing.T) {
++	probeEnabled = true
++	defer func() { probeEnabled = false }()
++	pad := strings.Repeat(" ", sharedTokenMin)
++	without := "component { function f(){ var n = 1; } }" + pad
++	with := "component { function f(){ services.foo = new a.B(); } }" + pad
++	previous := SetSharedTokenLimit(0)
++	defer SetSharedTokenLimit(previous)
++	for _, tc := range []struct {
++		name, before, after string
++		want                int
++	}{
++		{"add binding", without, with, 1},
++		{"remove binding", with, without, 0},
++	} {
++		t.Run(tc.name, func(t *testing.T) {
++			pr := ParseWithOptions(uri.File("/review.cfc"), tc.before, &ParseOptions{ExtractCalls: true})
++			probeAttempts, tapeReuseHits = 0, 0
++			pr.ApplyFullReplace(tc.after)
++			if probeAttempts != tc.want || tapeReuseHits != tc.want {
++				t.Fatalf("after replacement: %d attempts, %d streams reused; want %d each", probeAttempts, tapeReuseHits, tc.want)
++			}
++		})
 +	}
 +}
 +

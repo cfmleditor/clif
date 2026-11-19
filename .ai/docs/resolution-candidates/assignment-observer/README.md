@@ -223,3 +223,11 @@ lowered empty-cache p95 in each editor trial. Reopen timings moved despite
 zero captures on reopens, so the size of any user-visible latency gain is
 uncertain. The demand-only variant gives a smaller production candidate if
 allocation traffic is the objective. [Trial timings](buffered-open-timings.tsv)
+
+A document replacement recomputes the selective recorder's demand decision.
+The selective corpus probes exercise both adding and removing the member
+binding that triggers recording. The buffered benchmark reports
+`pooled-misses/op` from the ordinary tokenizer's cache-miss path. It empties
+the shared cache before the cold rotation and requires positive pooled
+activity there, and zero on warm or unused input.
+[Review and verification](pass-review.md)

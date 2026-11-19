@@ -1,16 +1,25 @@
 diff --git a/internal/parser/editor_probe.go b/internal/parser/editor_probe.go
-index 4029a83..0cef133 100644
+index 4029a83..9f086c7 100644
 --- a/internal/parser/editor_probe.go
 +++ b/internal/parser/editor_probe.go
-@@ -4,6 +4,7 @@ import "reflect"
+@@ -4,11 +4,16 @@ import "reflect"
 
  // Used only between synchronous parses or after the editor probe's workers join.
  func EditorProbeMode(enabled, verify bool) {
++	pooledScanMisses.Store(0)
 +	probePooledScan = false
  	probeEnabled, probeVerify = enabled, verify
  	probeAttempts, tapeReuseHits, probeIncomplete, probeMismatch, probeMissedDemand = 0, 0, 0, 0, 0
  }
-@@ -26,3 +27,8 @@ func EditorProbeDifference(a, b *ParseResult) string {
+
+ func EditorProbeCounts() (attempts, reused, incomplete, mismatches, standalone int) {
++	if probePooledScan {
++		return 0, int(pooledScanMisses.Load()), 0, probeMismatch, probeMissedDemand
++	}
+ 	return probeAttempts, tapeReuseHits, probeIncomplete, probeMismatch, probeMissedDemand
+ }
+
+@@ -26,3 +31,8 @@ func EditorProbeDifference(a, b *ParseResult) string {
  	}
  	return ""
  }
@@ -20,11 +29,11 @@ index 4029a83..0cef133 100644
 +	probePooledScan = enabled
 +}
 diff --git a/internal/parser/shared_tokens.go b/internal/parser/shared_tokens.go
-index 594f351..681138a 100644
+index 40fb66e..89792a5 100644
 --- a/internal/parser/shared_tokens.go
 +++ b/internal/parser/shared_tokens.go
-@@ -128,7 +128,13 @@ func scriptTokensOf(text string) *[]Token {
- 	if probePooledScan {
+@@ -129,7 +129,11 @@ func scriptTokensOf(text string) *[]Token {
+ 		pooledScanMisses.Add(1)
  		scratch := captureScratch.Get().(*checkedTape)
  		scratch.tokens = tokenizeInto(scratch.tokens, text)
 -		return publishTokens(text, scratch.takeTokens())
@@ -32,8 +41,6 @@ index 594f351..681138a 100644
 +		if probeVerify && !slices.Equal(tokens, tokenize(text)) {
 +			probeMismatch++
 +		}
-+		// Count cache misses served by the ordinary tokenizer with pooled scratch.
-+		tapeReuseHits++
 +		return publishTokens(text, tokens)
  	}
  	return publishTokens(text, tokenize(text))

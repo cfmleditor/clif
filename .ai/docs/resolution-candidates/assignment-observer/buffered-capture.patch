@@ -14,7 +14,7 @@ index a99da86..0ddcd77 100644
  		if probeVerify && !slices.Equal(tokens, tokenize(r.Text)) {
  			probeMismatch++
 diff --git a/internal/parser/result.go b/internal/parser/result.go
-index 7cb283c..cc96a59 100644
+index ff120a3..fbaa3b3 100644
 --- a/internal/parser/result.go
 +++ b/internal/parser/result.go
 @@ -23,7 +23,7 @@ type Logger = log.Logger
@@ -38,7 +38,7 @@ index 7cb283c..cc96a59 100644
  		if r := recover(); r != nil {
  			log.Recovered(pr.log, "parse panic in extractSignatures", r, "uri", string(pr.URI))
  		}
-@@ -821,7 +826,7 @@ func (pr *ParseResult) mergeScriptRegion(r *Region, tagScopes []FuncScope, open
+@@ -823,7 +828,7 @@ func (pr *ParseResult) mergeScriptRegion(r *Region, tagScopes []FuncScope, open
 
  	var tape *checkedTape
  	if probeEnabled && !pr.shallow && !pr.scopesOnly && pr.bodies.only == nil && len(r.Text) >= sharedTokenMin && sp.sc.src == r.Text && pr.shouldCapture(r.Text) {
@@ -47,7 +47,7 @@ index 7cb283c..cc96a59 100644
  		probeAttempts++
  		if sp.sc.aux == nil {
  			sp.sc.aux = &scannerAux{}
-@@ -832,12 +837,13 @@ func (pr *ParseResult) mergeScriptRegion(r *Region, tagScopes []FuncScope, open
+@@ -834,12 +839,13 @@ func (pr *ParseResult) mergeScriptRegion(r *Region, tagScopes []FuncScope, open
  	sp.parse()
  	finishScript(sp.sc, watch)
  	if tape != nil {
@@ -65,14 +65,15 @@ index 7cb283c..cc96a59 100644
  		}
  	}
 diff --git a/internal/parser/shared_tokens.go b/internal/parser/shared_tokens.go
-index 593223f..594f351 100644
+index 593223f..40fb66e 100644
 --- a/internal/parser/shared_tokens.go
 +++ b/internal/parser/shared_tokens.go
-@@ -125,6 +125,11 @@ func scriptTokensOf(text string) *[]Token {
+@@ -125,6 +125,12 @@ func scriptTokensOf(text string) *[]Token {
  		return toks
  	}
 
 +	if probePooledScan {
++		pooledScanMisses.Add(1)
 +		scratch := captureScratch.Get().(*checkedTape)
 +		scratch.tokens = tokenizeInto(scratch.tokens, text)
 +		return publishTokens(text, scratch.takeTokens())
@@ -81,18 +82,21 @@ index 593223f..594f351 100644
  }
 
 diff --git a/internal/parser/tape_probe.go b/internal/parser/tape_probe.go
-index 38d553d..2d29a53 100644
+index 38d553d..669482b 100644
 --- a/internal/parser/tape_probe.go
 +++ b/internal/parser/tape_probe.go
-@@ -1,5 +1,7 @@
+@@ -1,5 +1,10 @@
  package parser
 
-+import "sync"
++import (
++	"sync"
++	"sync/atomic"
++)
 +
  // Instrumentation for the single-threaded corpus and benchmark probes.
  var probeEnabled, probeVerify bool
  var probeAttempts, probeIncomplete, probeMismatch, probeCacheHits, probeMissedDemand int
-@@ -53,3 +55,26 @@ func (t *checkedTape) complete() []Token {
+@@ -53,3 +58,27 @@ func (t *checkedTape) complete() []Token {
  }
 
  var tapeReuseHits int
@@ -119,8 +123,9 @@ index 38d553d..2d29a53 100644
 +
 +// Compare pooling alone with recording during the parser walk.
 +var probePooledScan bool
++var pooledScanMisses atomic.Uint64
 diff --git a/internal/parser/tape_probe_test.go b/internal/parser/tape_probe_test.go
-index df08e60..c8fcc4c 100644
+index ed8a1f6..644d347 100644
 --- a/internal/parser/tape_probe_test.go
 +++ b/internal/parser/tape_probe_test.go
 @@ -4,6 +4,7 @@ import (
@@ -131,7 +136,7 @@ index df08e60..c8fcc4c 100644
  	"strings"
  	"testing"
 
-@@ -99,10 +100,11 @@ func BenchmarkCollectionTokenReuseProbe(b *testing.B) {
+@@ -125,15 +126,21 @@ func BenchmarkCollectionTokenReuseProbe(b *testing.B) {
  				cache.texts[i] = strings.Replace(original, "\n\t// BoxLang Detection", "\n"+strings.Repeat(" ", i+1)+"\t// BoxLang Detection", 1)
  			}
  		}
@@ -142,10 +147,33 @@ index df08e60..c8fcc4c 100644
 -				defer func() { probeEnabled = false }()
 +				probePooledScan = mode == "pooled_scan"
 +				defer func() { probeEnabled, probePooledScan = false, false }()
++				if cache.name == "cold" {
++					limit := SetSharedTokenLimit(0)
++					SetSharedTokenLimit(limit)
++				}
  				if cache.name == "warm" {
  					for _, text := range cache.texts {
  						ParseWithOptions(u, text, &ParseOptions{ExtractCalls: true})
-@@ -125,3 +127,19 @@ func BenchmarkCollectionTokenReuseProbe(b *testing.B) {
+ 					}
+ 				}
++				pooledScanMisses.Store(0)
+ 				tapeReuseHits, probeAttempts = 0, 0
+ 				b.ReportAllocs()
+ 				i := 0
+@@ -142,6 +149,12 @@ func BenchmarkCollectionTokenReuseProbe(b *testing.B) {
+
+ 					i = (i + 1) % len(cache.texts)
+ 				}
++				misses := pooledScanMisses.Load()
++				b.ReportMetric(float64(misses)/float64(b.N), "pooled-misses/op")
++				wantMisses := mode == "pooled_scan" && cache.name == "cold"
++				if (misses > 0) != wantMisses {
++					b.Fatalf("%s/%s: %d pooled misses, want activity=%t", cache.name, mode, misses, wantMisses)
++				}
+ 				b.ReportMetric(float64(tapeReuseHits)/float64(b.N), "tape-reads/op")
+ 				b.ReportMetric(float64(probeAttempts)/float64(b.N), "attempts/op")
+ 				if mode == "checked_tape" && ((cache.name == "cold" && tapeReuseHits == 0) || (cache.name != "cold" && probeAttempts != 0)) {
+@@ -151,3 +164,19 @@ func BenchmarkCollectionTokenReuseProbe(b *testing.B) {
  		}
  	}
  }
