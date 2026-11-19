@@ -34,7 +34,7 @@ def main():
     patch = here / ("assignment-offsets.patch" if args.probe == "assignments" else "checked-tokens.patch")
     if args.probe.startswith("selective") or args.probe == "editor":
         patch = here / "selective-tokens.patch"
-    patches = [patch]
+    patches = [here / "corpus-reader.patch", patch]
     if buffered:
         patches.append(here / "buffered-capture.patch")
     if args.probe == "editor":

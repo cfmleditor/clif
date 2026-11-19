@@ -34,10 +34,10 @@ index 0000000..4029a83
 +}
 diff --git a/internal/server/editor_probe_test.go b/internal/server/editor_probe_test.go
 new file mode 100644
-index 0000000..981e84b
+index 0000000..cb7671c
 --- /dev/null
 +++ b/internal/server/editor_probe_test.go
-@@ -0,0 +1,173 @@
+@@ -0,0 +1,174 @@
 +package server
 +
 +import (
@@ -55,6 +55,7 @@ index 0000000..981e84b
 +	"github.com/cfmleditor/clif/internal/parser"
 +	"github.com/cfmleditor/clif/internal/resolve"
 +	"go.lsp.dev/protocol"
++	"github.com/cfmleditor/clif/internal/vfs"
 +	"go.lsp.dev/uri"
 +)
 +
@@ -92,12 +93,12 @@ index 0000000..981e84b
 +				if ext != ".cfc" && ext != ".cfm" {
 +					return nil
 +				}
-+				data, err := os.ReadFile(path)
++				data, err := vfs.ReadCorpusFile(path)
++				if vfs.SkipCorpusFile(err) {
++					return nil
++				}
 +				if err != nil {
 +					return err
-+				}
-+				if len(data) > 2<<20 {
-+					return nil
 +				}
 +				text := lex.NormalizeLineBreaks(string(data))
 +				u := uri.File(path)
@@ -151,7 +152,7 @@ index 0000000..981e84b
 +			var timings [2][2][]time.Duration
 +			var hitsByCondition [2]int
 +			for i, path := range paths {
-+				data, err := os.ReadFile(path)
++				data, err := vfs.ReadCorpusFile(path)
 +				if err != nil {
 +					t.Fatal(err)
 +				}

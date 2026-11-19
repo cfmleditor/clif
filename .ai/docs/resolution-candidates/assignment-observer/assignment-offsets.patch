@@ -10,7 +10,7 @@ diff --git a/internal/parser/assignment_observer_probe_test.go b/internal/parser
 new file mode 100644
 --- /dev/null
 +++ b/internal/parser/assignment_observer_probe_test.go
-@@ -0,0 +1,154 @@
+@@ -0,0 +1,155 @@
 +package parser
 +
 +import (
@@ -22,6 +22,7 @@ new file mode 100644
 +	"testing"
 +
 +	"github.com/cfmleditor/clif/internal/lex"
++	"github.com/cfmleditor/clif/internal/vfs"
 +	"go.lsp.dev/uri"
 +)
 +
@@ -84,12 +85,12 @@ new file mode 100644
 +			if ext != ".cfc" && ext != ".cfm" {
 +				return nil
 +			}
-+			data, err := os.ReadFile(path)
++			data, err := vfs.ReadCorpusFile(path)
++			if vfs.SkipCorpusFile(err) {
++				return nil
++			}
 +			if err != nil {
 +				return err
-+			}
-+			if len(data) > 2<<20 {
-+				return nil
 +			}
 +			c.files++
 +			probeAssignmentSites = make(map[int][]int)

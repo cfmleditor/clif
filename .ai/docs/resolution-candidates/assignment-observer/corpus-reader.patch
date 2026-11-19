@@ -1,0 +1,48 @@
+diff --git a/internal/vfs/regular.go b/internal/vfs/regular.go
+--- a/internal/vfs/regular.go
++++ b/internal/vfs/regular.go
+@@ -30,6 +30,20 @@
+ // from the opened file, so nothing can be swapped in between the check and the
+ // read.
+ func ReadRegular(path string) ([]byte, error) {
++	return readRegular(path, MaxFileSize)
++}
++
++// ReadCorpusFile applies the corpus probes' smaller per-file limit.
++func ReadCorpusFile(path string) ([]byte, error) {
++	return readRegular(path, 2<<20)
++}
++
++// SkipCorpusFile reports the exclusions allowed during corpus discovery.
++func SkipCorpusFile(err error) bool {
++	return errors.Is(err, ErrNotRegular) || errors.Is(err, ErrTooLarge)
++}
++
++func readRegular(path string, limit int64) ([]byte, error) {
+ 	f, err := os.OpenFile(path, os.O_RDONLY|openFlags, 0) //nolint:gosec // the read every file goes through; callers choose the path
+ 	if err != nil {
+ 		return nil, err
+@@ -46,19 +60,19 @@
+ 		return nil, &os.PathError{Op: "read", Path: path, Err: ErrNotRegular}
+ 	}
+
+-	if info.Size() > MaxFileSize {
+-		return nil, &os.PathError{Op: "read", Path: path, Err: fmt.Errorf("%w: %d bytes, the limit is %d", ErrTooLarge, info.Size(), MaxFileSize)}
++	if info.Size() > limit {
++		return nil, &os.PathError{Op: "read", Path: path, Err: fmt.Errorf("%w: %d bytes, the limit is %d", ErrTooLarge, info.Size(), limit)}
+ 	}
+
+ 	// The size is a hint, and the limit holds whatever the file does after
+ 	// the Stat: one byte past it says it grew.
+ 	data := make([]byte, 0, info.Size()+1)
+
+-	data, err = readAllInto(data, io.LimitReader(f, MaxFileSize+1))
++	data, err = readAllInto(data, io.LimitReader(f, limit+1))
+ 	if err != nil {
+ 		return nil, err
+ 	}
+
+-	if len(data) > MaxFileSize {
++	if int64(len(data)) > limit {
+ 		return nil, &os.PathError{Op: "read", Path: path, Err: ErrTooLarge}
+ 	}

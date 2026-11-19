@@ -113,7 +113,7 @@ diff --git a/internal/parser/tape_probe_test.go b/internal/parser/tape_probe_tes
 new file mode 100644
 --- /dev/null
 +++ b/internal/parser/tape_probe_test.go
-@@ -0,0 +1,120 @@
+@@ -0,0 +1,125 @@
 +package parser
 +
 +import (
@@ -124,6 +124,7 @@ new file mode 100644
 +	"strings"
 +	"testing"
 +
++	"github.com/cfmleditor/clif/internal/vfs"
 +	"go.lsp.dev/uri"
 +)
 +
@@ -145,12 +146,12 @@ new file mode 100644
 +			if ext != ".cfc" && ext != ".cfm" {
 +				return nil
 +			}
-+			data, err := os.ReadFile(path)
++			data, err := vfs.ReadCorpusFile(path)
++			if vfs.SkipCorpusFile(err) {
++				return nil
++			}
 +			if err != nil {
 +				return err
-+			}
-+			if len(data) > 2<<20 {
-+				return nil
 +			}
 +			probeTapes = make(map[int][]Token)
 +			pr := ParseWithOptions(uri.File(path), string(data), &ParseOptions{ExtractCalls: true})
@@ -161,7 +162,7 @@ new file mode 100644
 +				total++
 +				captured := probeTapes[r.Offset]
 +				full := tokenize(r.Text)
-+				if len(captured) == 0 {
++				if captured == nil {
 +					fellBack++
 +					continue
 +				}
@@ -170,7 +171,11 @@ new file mode 100644
 +					for i < len(full) && i < len(captured) && full[i] == captured[i] {
 +						i++
 +					}
-+					t.Errorf("accepted stream differs: %s region %d after %q, expected %+v, got %+v", path, r.Offset, full[max(0, i-1)].Value, full[i], captured[i])
++					if i == len(full) || i == len(captured) {
++						t.Errorf("%s region %d: streams match through %d tokens; expected %d tokens, got %d", path, r.Offset, i, len(full), len(captured))
++					} else {
++						t.Errorf("%s region %d token %d: expected %+v, got %+v", path, r.Offset, i, full[i], captured[i])
++					}
 +					continue
 +				}
 +				exact++
@@ -191,7 +196,7 @@ new file mode 100644
 +
 +func BenchmarkCollectionTokenReuseProbe(b *testing.B) {
 +	file := os.Getenv("CLIF_ASSIGN_PROBE_CONTROLLER")
-+	data, err := os.ReadFile(file)
++	data, err := vfs.ReadCorpusFile(file)
 +	if err != nil {
 +		b.Fatal(err)
 +	}

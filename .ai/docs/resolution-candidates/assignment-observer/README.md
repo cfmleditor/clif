@@ -49,7 +49,9 @@ in files that never run collection inference.
 ## Reproduce
 
 The archived patches target `b99c6b6`. The runner applies the selected
-patch in a temporary directory and passes an overlay to `go test`.
+patches in a temporary directory and passes an overlay to `go test`.
+The corpus walkers skip non-regular files and files larger than 2 MiB. The
+limit is checked on the open file and enforced while reading.
 Run from the repository root with the project checkout paths as arguments.
 
 ```sh
