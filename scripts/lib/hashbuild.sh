@@ -1,14 +1,13 @@
 # shellcheck shell=bash
-# The docs pipeline's Go programs (scripts/docslock.go, scripts/generate_docs.go),
-# each kept at a path named for a hash of the binary itself: a new build that
-# differs lands beside the old, so a copy some run is executing is never
-# replaced (Windows refuses that outright). Sourced by lib/underlock.sh and
-# scripts/generate.sh; every path is relative to the repository root.
+# Build the Go docs driver before it takes the lock. A binary hash keeps an
+# executing copy intact, including on Windows; concurrent builds use their own
+# scratch names and never overwrite a complete binary. Only make clean removes
+# these binaries, since a caller may be about to execute one.
 
 # shellcheck source=sha256.sh
 . "$(dirname "${BASH_SOURCE[0]}")/sha256.sh"
 
-# docs_build MAIN.go NAME: build MAIN.go and print the path it is kept at,
+# docs_build PACKAGE NAME: build PACKAGE and print the path it is kept at,
 # target/docs-gen/NAME-<hash of the binary>. Built every time: go's build
 # cache makes that a fraction of a second when nothing changed, and it is
 # complete by construction, as whatever the binary depends on (sources at any

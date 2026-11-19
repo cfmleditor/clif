@@ -1,5 +1,5 @@
 // Package sources reads internal/docs/generated_sources.txt, the record of
-// which doc source each generated entry came from. scripts/generate_docs.go
+// which doc source each generated entry came from. cmd/docpipe/generate.go
 // compares a regeneration with the committed copy, and the internal/docs
 // tests check the file against the generated entries; both parse it here, so
 // the two cannot disagree about what a valid line is.

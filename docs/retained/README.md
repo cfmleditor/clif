@@ -6,7 +6,7 @@ regeneration does not drop them. This directory is committed, as are `docs/lucee
 of `docs/` (the fetched cfdocs, the assembled `docs/data/`) is git-ignored.
 
 `scripts/assemble-docs.sh` lists the sources in precedence order (cfdocs, then this
-directory, then Lucee), and `scripts/generate_docs.go` takes each entry from the highest
+directory, then Lucee), and `cmd/docpipe/generate.go` takes each entry from the highest
 source that documents it:
 
 - **A retained entry outranks cfdocs.** When Lucee drops a function that cfdocs also
