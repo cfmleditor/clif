@@ -791,7 +791,7 @@ func (s *Server) reindexFromParseResult(docURI uri.URI, pr *parser.ParseResult) 
 		return
 	}
 
-	s.index.IndexFileFromResult(docURI, pr.Funcs, pr.ComponentRefs)
+	s.index.IndexBufferFromResult(docURI, pr.Funcs, pr.ComponentRefs)
 	s.index.SetThisVars(docURI, pr.ThisVars())
 	s.index.SetIncludes(docURI, pr.Includes())
 	// The re-index above forgets the file's extends and delegates, and the

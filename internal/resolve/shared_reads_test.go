@@ -11,8 +11,8 @@ func TestASourceReadTwiceAtOnceKeepsOneDerivation(t *testing.T) {
 	r := &Resolver{}
 	content := "component { function a() {} }"
 
-	first := r.adoptSourceInfo("/w/A.cfc", sourceInfo{content: content, derived: &sourceDerived{path: "/w/A.cfc"}})
-	second := r.adoptSourceInfo("/w/A.cfc", sourceInfo{content: string([]byte(content)), derived: &sourceDerived{path: "/w/A.cfc"}, size: 9})
+	first := r.adoptSourceInfo("/w/A.cfc", sourceInfo{content: content, derived: &sourceDerived{path: "/w/A.cfc"}}, 0)
+	second := r.adoptSourceInfo("/w/A.cfc", sourceInfo{content: string([]byte(content)), derived: &sourceDerived{path: "/w/A.cfc"}, size: 9}, 0)
 
 	if second.derived != first.derived {
 		t.Fatal("a second read of the same text replaced the first's derivations")
@@ -22,7 +22,7 @@ func TestASourceReadTwiceAtOnceKeepsOneDerivation(t *testing.T) {
 		t.Errorf("the kept source has size %d, want the newer stamp's 9", second.size)
 	}
 
-	changed := r.adoptSourceInfo("/w/A.cfc", sourceInfo{content: content + " ", derived: &sourceDerived{path: "/w/A.cfc"}})
+	changed := r.adoptSourceInfo("/w/A.cfc", sourceInfo{content: content + " ", derived: &sourceDerived{path: "/w/A.cfc"}}, 0)
 	if changed.derived == first.derived {
 		t.Error("changed text kept the old derivations")
 	}
