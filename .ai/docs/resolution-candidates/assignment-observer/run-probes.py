@@ -67,8 +67,15 @@ def main():
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(source, destination)
 
+        # Git hooks can export the caller's repository even when cwd changes.
+        git_env = os.environ.copy()
+        local_vars = subprocess.check_output(["git", "rev-parse", "--local-env-vars"], text=True)
+        for name in local_vars.splitlines():
+            git_env.pop(name, None)
+        # TMPDIR may be inside another checkout. Anchor patch paths at scratch.
+        subprocess.run(["git", "init", "--quiet"], cwd=scratch, env=git_env, check=True)
         for source in patches:
-            subprocess.run(["git", "apply", str(source)], cwd=scratch, check=True)
+            subprocess.run(["git", "apply", str(source)], cwd=scratch, env=git_env, check=True)
         replacements = {str(repo / path): str(scratch / path) for path in files}
         package = "./internal/parser"
         if args.probe == "editor":

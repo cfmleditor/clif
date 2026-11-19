@@ -1,7 +1,7 @@
 diff --git a/internal/vfs/regular.go b/internal/vfs/regular.go
 --- a/internal/vfs/regular.go
 +++ b/internal/vfs/regular.go
-@@ -30,6 +30,20 @@
+@@ -30,6 +30,29 @@
  // from the opened file, so nothing can be swapped in between the check and the
  // read.
  func ReadRegular(path string) ([]byte, error) {
@@ -10,7 +10,16 @@ diff --git a/internal/vfs/regular.go b/internal/vfs/regular.go
 +
 +// ReadCorpusFile applies the corpus probes' smaller per-file limit.
 +func ReadCorpusFile(path string) ([]byte, error) {
-+	return readRegular(path, 2<<20)
++	data, err := readRegular(path, 2<<20)
++	var openErr *os.PathError
++	if errors.As(err, &openErr) && openErr.Op == "open" {
++		// Some special files, including Unix sockets, reject open before f.Stat.
++		// Classify that failure only when the target is demonstrably non-regular.
++		if info, statErr := os.Stat(path); statErr == nil && !info.Mode().IsRegular() {
++			return nil, &os.PathError{Op: "read", Path: path, Err: ErrNotRegular}
++		}
++	}
++	return data, err
 +}
 +
 +// SkipCorpusFile reports the exclusions allowed during corpus discovery.
@@ -22,7 +31,7 @@ diff --git a/internal/vfs/regular.go b/internal/vfs/regular.go
  	f, err := os.OpenFile(path, os.O_RDONLY|openFlags, 0) //nolint:gosec // the read every file goes through; callers choose the path
  	if err != nil {
  		return nil, err
-@@ -46,19 +60,19 @@
+@@ -46,19 +69,19 @@
  		return nil, &os.PathError{Op: "read", Path: path, Err: ErrNotRegular}
  	}
 
