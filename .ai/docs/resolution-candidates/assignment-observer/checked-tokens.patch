@@ -1,0 +1,241 @@
+diff --git a/internal/parser/collection_returns.go b/internal/parser/collection_returns.go
+--- a/internal/parser/collection_returns.go
++++ b/internal/parser/collection_returns.go
+@@ -762,6 +762,11 @@
+ // once for every parse of its text (scriptTokensOf): that list is not the
+ // memo's to release, nor anyone's to change.
+ func (pr *ParseResult) scriptTokens(r *Region) *[]Token {
++	if tokens := probeTapes[r.Offset]; tokens != nil {
++		tapeReuseHits++
++		return &tokens
++	}
++
+ 	if len(r.Text) >= sharedTokenMin {
+ 		return scriptTokensOf(r.Text)
+ 	}
+diff --git a/internal/parser/result.go b/internal/parser/result.go
+--- a/internal/parser/result.go
++++ b/internal/parser/result.go
+@@ -817,8 +817,19 @@
+ 	refsFrom := pr.refsMark()
+ 	watch := pr.watchScript(sp.sc, r)
+
++	var tape checkedTape
++	if probeTapes != nil && sp.sc.src == r.Text {
++		if sp.sc.aux == nil {
++			sp.sc.aux = &scannerAux{}
++		}
++		sp.sc.aux.tapeProbe = &tape
++	}
++
+ 	sp.parse()
+ 	finishScript(sp.sc, watch)
++	if probeTapes != nil {
++		probeTapes[r.Offset] = tape.complete()
++	}
+
+ 	if pr.extractLinks {
+ 		sp.fileLinks(linksOf(pr.refsSince(refsFrom), r.Text, r.Offset, r.StartLine, nil))
+diff --git a/internal/parser/scanner.go b/internal/parser/scanner.go
+--- a/internal/parser/scanner.go
++++ b/internal/parser/scanner.go
+@@ -121,7 +121,8 @@
+ 	// refs, set on a parse's scanner of a script region, records the file
+ 	// references in the tokens the walk reads (file_refs.go): each one is
+ 	// handed over as it is first produced, past any comment.
+-	refs *scriptRefs
++	refs      *scriptRefs
++	tapeProbe *checkedTape
+ }
+
+ // watch has s hand each token it produces to w (nil to stop).
+@@ -536,6 +537,7 @@
+ 		return s.peekTok
+ 	}
+
++	before, line := s.pos, s.line
+ 	for {
+ 		tok := s.next()
+ 		switch tok.Kind {
+@@ -547,6 +549,10 @@
+ 		case TokCFComment, TokLineComment, TokNewline:
+ 			continue
+ 		default:
++			if s.aux != nil && s.aux.tapeProbe != nil {
++				s.aux.tapeProbe.record(s, before, line, tok)
++			}
++
+ 			if s.aux != nil && s.aux.refs != nil {
+ 				s.aux.refs.see(tok)
+ 			}
+diff --git a/internal/parser/tape_probe.go b/internal/parser/tape_probe.go
+new file mode 100644
+--- /dev/null
++++ b/internal/parser/tape_probe.go
+@@ -0,0 +1,36 @@
++package parser
++
++var probeTapes map[int][]Token
++
++type checkedTape struct {
++	tokens     []Token
++	end        int
++	line       int32
++	incomplete bool
++	done       bool
++}
++
++func (t *checkedTape) record(sc *Scanner, from int, line int32, tok Token) {
++	if t.done || t.incomplete {
++		return
++	}
++	if sc.pos <= t.end && tok.Kind != TokEOF {
++		return
++	}
++	if from != t.end || line != t.line || !sc.interpStrings || len(sc.aux.scriptSpans) != 0 {
++		t.incomplete = true
++		return
++	}
++	t.tokens = append(t.tokens, tok)
++	t.end, t.line = sc.pos, sc.line
++	t.done = tok.Kind == TokEOF
++}
++
++func (t *checkedTape) complete() []Token {
++	if t.done && !t.incomplete {
++		return t.tokens
++	}
++	return nil
++}
++
++var tapeReuseHits int
+diff --git a/internal/parser/tape_probe_test.go b/internal/parser/tape_probe_test.go
+new file mode 100644
+--- /dev/null
++++ b/internal/parser/tape_probe_test.go
+@@ -0,0 +1,125 @@
++package parser
++
++import (
++	"io/fs"
++	"os"
++	"path/filepath"
++	"slices"
++	"strings"
++	"testing"
++
++	"github.com/cfmleditor/clif/internal/vfs"
++	"go.lsp.dev/uri"
++)
++
++func TestMainParseTokenTapeProbe(t *testing.T) {
++	var total, exact, fellBack int
++	for _, root := range filepath.SplitList(os.Getenv("CLIF_ASSIGN_PROBE_ROOTS")) {
++
++		err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
++			if err != nil {
++				return err
++			}
++			if entry.IsDir() {
++				if entry.Name() == ".git" || entry.Name() == "node_modules" {
++					return filepath.SkipDir
++				}
++				return nil
++			}
++			ext := strings.ToLower(filepath.Ext(path))
++			if ext != ".cfc" && ext != ".cfm" {
++				return nil
++			}
++			data, err := vfs.ReadCorpusFile(path)
++			if vfs.SkipCorpusFile(err) {
++				return nil
++			}
++			if err != nil {
++				return err
++			}
++			probeTapes = make(map[int][]Token)
++			pr := ParseWithOptions(uri.File(path), string(data), &ParseOptions{ExtractCalls: true})
++			for _, r := range pr.Regions {
++				if r.Kind != RegionScript {
++					continue
++				}
++				total++
++				captured := probeTapes[r.Offset]
++				full := tokenize(r.Text)
++				if captured == nil {
++					fellBack++
++					continue
++				}
++				if !slices.Equal(captured, full) {
++					i := 0
++					for i < len(full) && i < len(captured) && full[i] == captured[i] {
++						i++
++					}
++					if i == len(full) || i == len(captured) {
++						t.Errorf("%s region %d: streams match through %d tokens; expected %d tokens, got %d", path, r.Offset, i, len(full), len(captured))
++					} else {
++						t.Errorf("%s region %d token %d: expected %+v, got %+v", path, r.Offset, i, full[i], captured[i])
++					}
++					continue
++				}
++				exact++
++
++			}
++			probeTapes = nil
++			return nil
++		})
++		if err != nil {
++			t.Fatal(err)
++		}
++	}
++	if exact == 0 {
++		t.Fatalf("no exact token streams compared across %d script regions (%d fallbacks)", total, fellBack)
++	}
++	t.Logf("script regions=%d accepted-exact=%d fallback=%d", total, exact, fellBack)
++}
++
++func BenchmarkCollectionTokenReuseProbe(b *testing.B) {
++	file := os.Getenv("CLIF_ASSIGN_PROBE_CONTROLLER")
++	data, err := vfs.ReadCorpusFile(file)
++	if err != nil {
++		b.Fatal(err)
++	}
++	u := uri.File(file)
++	original := string(data)
++	edited := strings.Replace(original, "\n\t// BoxLang Detection", "\n \t// BoxLang Detection", 1)
++	if edited == original {
++		b.Fatal("fixture edit did not apply")
++	}
++	for _, cache := range []struct {
++		name  string
++		texts []string
++	}{
++		{"warm", []string{original, edited}},
++		{"cold", make([]string, 32)},
++	} {
++		if cache.name == "cold" {
++			for i := range cache.texts {
++				cache.texts[i] = strings.Replace(original, "\n\t// BoxLang Detection", "\n"+strings.Repeat(" ", i+1)+"\t// BoxLang Detection", 1)
++			}
++		}
++		for _, mode := range []string{"baseline", "checked_tape"} {
++			b.Run(cache.name+"/"+mode, func(b *testing.B) {
++				tapeReuseHits = 0
++				b.ReportAllocs()
++				i := 0
++				for b.Loop() {
++					if mode == "checked_tape" {
++						probeTapes = make(map[int][]Token)
++					}
++					ParseWithOptions(u, cache.texts[i], &ParseOptions{ExtractCalls: true})
++					probeTapes = nil
++					i = (i + 1) % len(cache.texts)
++				}
++				b.ReportMetric(float64(tapeReuseHits)/float64(b.N), "tape-reads/op")
++				if mode == "checked_tape" && tapeReuseHits == 0 {
++					b.Fatal("checked tape was unused")
++				}
++			})
++		}
++	}
++}

@@ -1,0 +1,239 @@
+diff --git a/internal/parser/editor_probe.go b/internal/parser/editor_probe.go
+new file mode 100644
+index 0000000..4029a83
+--- /dev/null
++++ b/internal/parser/editor_probe.go
+@@ -0,0 +1,28 @@
++package parser
++
++import "reflect"
++
++// Used only between synchronous parses or after the editor probe's workers join.
++func EditorProbeMode(enabled, verify bool) {
++	probeEnabled, probeVerify = enabled, verify
++	probeAttempts, tapeReuseHits, probeIncomplete, probeMismatch, probeMissedDemand = 0, 0, 0, 0, 0
++}
++
++func EditorProbeCounts() (attempts, reused, incomplete, mismatches, standalone int) {
++	return probeAttempts, tapeReuseHits, probeIncomplete, probeMismatch, probeMissedDemand
++}
++
++func EditorProbeDifference(a, b *ParseResult) string {
++	for _, field := range []struct {
++		name string
++		a, b any
++	}{
++		{"functions", a.Funcs, b.Funcs}, {"file references", a.ComponentRefs, b.ComponentRefs},
++		{"function references", a.funcRefsMap, b.funcRefsMap}, {"scopes", a.Scopes, b.Scopes},
++	} {
++		if !reflect.DeepEqual(field.a, field.b) {
++			return field.name
++		}
++	}
++	return ""
++}
+diff --git a/internal/server/editor_probe_test.go b/internal/server/editor_probe_test.go
+new file mode 100644
+index 0000000..cb7671c
+--- /dev/null
++++ b/internal/server/editor_probe_test.go
+@@ -0,0 +1,174 @@
++package server
++
++import (
++	"context"
++
++	"io/fs"
++	"os"
++	"path/filepath"
++	"slices"
++	"strings"
++	"testing"
++	"time"
++
++	"github.com/cfmleditor/clif/internal/lex"
++	"github.com/cfmleditor/clif/internal/parser"
++	"github.com/cfmleditor/clif/internal/resolve"
++	"go.lsp.dev/protocol"
++	"github.com/cfmleditor/clif/internal/vfs"
++	"go.lsp.dev/uri"
++)
++
++func clearEditorProbeTokens() {
++	limit := parser.SetSharedTokenLimit(0)
++	parser.SetSharedTokenLimit(limit)
++}
++
++func TestCorpusEditorTokenReuse(t *testing.T) {
++	restore := resolve.LimitTextCaches(16 << 20) // editor process budget
++	defer restore()
++	var combined [2][2][]time.Duration
++	totalReads := 0
++	for _, root := range filepath.SplitList(os.Getenv("CLIF_ASSIGN_PROBE_ROOTS")) {
++		t.Run(filepath.Base(root), func(t *testing.T) {
++			s := newTestServer()
++			s.WorkspaceFolders = []string{root}
++			s.configureSession(nil)
++			s.Features.StructureDiagnostics = false
++			s.indexWorkspace()
++			defer parser.EditorProbeMode(false, false)
++			var files, reused, incomplete, standalone, diffs int
++			var sample [3][]string
++			err := filepath.WalkDir(root, func(path string, e fs.DirEntry, err error) error {
++				if err != nil {
++					return err
++				}
++				if e.IsDir() {
++					if e.Name() == ".git" || e.Name() == "node_modules" {
++						return filepath.SkipDir
++					}
++					return nil
++				}
++				ext := strings.ToLower(filepath.Ext(path))
++				if ext != ".cfc" && ext != ".cfm" {
++					return nil
++				}
++				data, err := vfs.ReadCorpusFile(path)
++				if vfs.SkipCorpusFile(err) {
++					return nil
++				}
++				if err != nil {
++					return err
++				}
++				text := lex.NormalizeLineBreaks(string(data))
++				u := uri.File(path)
++				parser.EditorProbeMode(false, false)
++				// Prime resolver state independently of the token cache.
++				s.parseContent(u, text)
++				clearEditorProbeTokens()
++				baseline := s.parseContent(u, text)
++				clearEditorProbeTokens()
++				parser.EditorProbeMode(true, true)
++				candidate := s.parseContent(u, text)
++				attempts, hits, partial, bad, misses := parser.EditorProbeCounts()
++				if bad != 0 || attempts != partial+hits {
++					t.Errorf("%s: %d mismatches, %d attempts, %d incomplete, %d consumed", path, bad, attempts, partial, hits)
++				}
++				if field := parser.EditorProbeDifference(baseline, candidate); field != "" {
++					diffs++
++					if diffs <= 5 {
++						t.Errorf("%s: changed %s", path, field)
++					}
++				}
++				files++
++				reused += hits
++				incomplete += partial
++				standalone += misses
++				group := 2
++				if hits > 0 {
++					group = 0
++				} else if len(data) >= 8192 {
++					group = 1
++				}
++				sample[group] = append(sample[group], path)
++				parser.EditorProbeMode(false, false)
++				return nil
++			})
++			if err != nil {
++				t.Fatal(err)
++			}
++			if files == 0 {
++				t.Fatal("empty corpus root")
++			}
++			totalReads += reused
++			t.Logf("files=%d reused=%d incomplete=%d standalone=%d differences=%d", files, reused, incomplete, standalone, diffs)
++			var paths []string
++			for _, group := range sample {
++				n := min(12, len(group))
++				for i := range n {
++					paths = append(paths, group[i*len(group)/n])
++				}
++			}
++			var timings [2][2][]time.Duration
++			var hitsByCondition [2]int
++			for i, path := range paths {
++				data, err := vfs.ReadCorpusFile(path)
++				if err != nil {
++					t.Fatal(err)
++				}
++				doc := protocol.TextDocumentIdentifier{URI: uri.File(path)}
++				open := makeCall(t, "", protocol.DidOpenTextDocumentParams{TextDocument: protocol.TextDocumentItem{URI: doc.URI, Text: string(data), Version: 1, LanguageID: "cfml"}})
++				closeReq := makeCall(t, "", protocol.DidCloseTextDocumentParams{TextDocument: doc})
++				cycle := func() (time.Duration, int) {
++					start := time.Now()
++					_, err := s.handleDidOpen(context.Background(), open)
++					elapsed := time.Since(start)
++					if err != nil {
++						t.Fatal(err)
++					}
++					editorProbeWorkers.Wait()
++					_, hits, _, _, _ := parser.EditorProbeCounts()
++					if _, err := s.handleDidClose(context.Background(), closeReq); err != nil {
++						t.Fatal(err)
++					}
++					return elapsed, hits
++				}
++				for round := range 3 {
++					for step := range 2 {
++						mode := (i + round + step) % 2
++						parser.EditorProbeMode(false, false)
++						cycle() // same document indexed and resolver primed in either arm
++						clearEditorProbeTokens()
++						for cache := range 2 {
++							parser.EditorProbeMode(mode == 1, false)
++							elapsed, hits := cycle()
++							timings[cache][mode] = append(timings[cache][mode], elapsed)
++							hitsByCondition[cache] += hits
++						}
++					}
++				}
++			}
++			for cache, pair := range timings {
++				for mode, v := range pair {
++					combined[cache][mode] = append(combined[cache][mode], v...)
++					reportOpenLatency(t, cache, mode, v)
++				}
++			}
++			t.Logf("sample capture reads cold=%d reopen=%d", hitsByCondition[0], hitsByCondition[1])
++		})
++	}
++	if totalReads == 0 {
++		t.Fatal("no captured tokens consumed across the corpus")
++	}
++	for cache, pair := range combined {
++		for mode, v := range pair {
++			reportOpenLatency(t, cache, mode, v)
++		}
++	}
++}
++
++func reportOpenLatency(t *testing.T, cache, mode int, v []time.Duration) {
++	t.Helper()
++	slices.Sort(v)
++	t.Logf("cache=%d mode=%d n=%d p50_us=%d p95_us=%d", cache, mode, len(v), v[(len(v)-1)/2].Microseconds(), v[(95*len(v)+99)/100-1].Microseconds())
++}
+diff --git a/internal/server/handler.go b/internal/server/handler.go
+index 6072dd1..45487fb 100644
+--- a/internal/server/handler.go
++++ b/internal/server/handler.go
+@@ -6,6 +6,7 @@ import (
+ 	"fmt"
+ 	"path/filepath"
+ 	"strings"
++	"sync"
+ 	"time"
+
+ 	"github.com/cfmleditor/clif/internal/lex"
+@@ -873,8 +874,12 @@ func (s *Server) handleDidChangeWorkspaceFolders(_ context.Context, rawParams []
+ }
+
++var editorProbeWorkers sync.WaitGroup
++
+ // safeGo runs fn in a goroutine with panic recovery.
+ func (s *Server) safeGo(label string, fn func()) {
++	editorProbeWorkers.Add(1)
+ 	go func() {
++		defer editorProbeWorkers.Done()
+ 		defer func() {
+ 			if r := recover(); r != nil {
+ 				cflog.Recovered(s.log, "goroutine panic", r, cflog.String("label", label))
