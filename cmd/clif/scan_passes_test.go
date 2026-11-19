@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/cfmleditor/clif/internal/parser"
+	cfpath "github.com/cfmleditor/clif/internal/path"
 )
 
 // A batch scan reads its files many times over: the parse, the index, the
@@ -34,12 +35,24 @@ func TestABatchScanReadsEachFileFewTimes(t *testing.T) {
 
 	for _, c := range []struct {
 		dir                string
+		addConfig          bool
 		maxPasses, maxEach float64
 	}{
-		{"../../testdata", 4.9, 2.5},
-		{"../../internal/frameworkapi/stubs", 2.5, 2.3},
+		{"../../testdata", false, 4.9, 2.5},
+		{"../../internal/frameworkapi/stubs", true, 2.5, 2.3},
 	} {
-		passes, each := scanPasses(t, c.dir)
+		// Keep project discovery inside the copied fixture so files and
+		// configuration elsewhere in the checkout cannot affect the budget.
+		root := filepath.Join(t.TempDir(), filepath.Base(c.dir))
+		if err := os.CopyFS(root, os.DirFS(c.dir)); err != nil {
+			t.Fatal(err)
+		}
+
+		if c.addConfig {
+			writeTestFile(t, filepath.Join(root, ".clif.json"), `{"workspacePaths":["."]}`)
+		}
+
+		passes, each := scanPasses(t, root, true)
 		t.Logf("%s: %.2f passes, %.2f parses per file", c.dir, passes, each)
 
 		if passes > c.maxPasses {
@@ -53,7 +66,7 @@ func TestABatchScanReadsEachFileFewTimes(t *testing.T) {
 
 	for dir := range strings.SplitSeq(os.Getenv("CLIF_PASSES_CORPUS"), string(os.PathListSeparator)) {
 		if dir != "" {
-			passes, each := scanPasses(t, dir)
+			passes, each := scanPasses(t, dir, false)
 			t.Logf("%s: %.2f passes, %.2f parses per file", dir, passes, each)
 		}
 	}
@@ -61,7 +74,7 @@ func TestABatchScanReadsEachFileFewTimes(t *testing.T) {
 
 // scanPasses is the tokens an unresolved scan of dir produced over those of
 // one plain scan of its CFML files, and the parses it ran per file.
-func scanPasses(t *testing.T, dir string) (passes, parsesPerFile float64) {
+func scanPasses(t *testing.T, dir string, checkCoverage bool) (passes, parsesPerFile float64) {
 	t.Helper()
 
 	abs, err := filepath.Abs(dir)
@@ -76,9 +89,7 @@ func scanPasses(t *testing.T, dir string) (passes, parsesPerFile float64) {
 			return err
 		}
 
-		switch strings.ToLower(filepath.Ext(path)) {
-		case ".cfc", ".cfm", ".cfml":
-		default:
+		if !cfpath.IsCFMLFile(path) {
 			return nil
 		}
 
@@ -107,9 +118,17 @@ func scanPasses(t *testing.T, dir string) (passes, parsesPerFile float64) {
 	}
 
 	parser.ResetScanCounts()
-	scanUnresolved([]string{abs}, &unresolvedFlags{})
+	report, _, _ := scanUnresolved([]string{abs}, &unresolvedFlags{})
 
 	tokens, parses := parser.ScanCounts()
+
+	if checkCoverage && report.Err != nil {
+		t.Fatal(report.Err)
+	}
+
+	if checkCoverage && (int64(report.Indexed) != files || int64(report.Scanned) != files || report.Skipped != 0) {
+		t.Fatalf("%s: indexed %d, scanned %d, skipped %d, want all %d fixture files", dir, report.Indexed, report.Scanned, report.Skipped, files)
+	}
 
 	return float64(tokens) / float64(plain), float64(parses) / float64(files)
 }
