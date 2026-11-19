@@ -107,7 +107,7 @@ func gitStagedContent(repo, path string) ([]byte, error) {
 // 1-based line: staged ones, or those since ref's merge base with HEAD. A
 // finding outside them was already there before the change.
 func gitAddedLines(repo string, staged bool, ref string) (map[string]map[int]bool, error) {
-	args := []string{"diff", "--no-color", "--no-ext-diff", "-U0", "--diff-filter=ACMR"}
+	args := []string{"diff", "--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/", "-U0", "--diff-filter=ACMR"}
 	if staged {
 		args = append(args, "--cached")
 	} else {
@@ -136,8 +136,12 @@ func parseAddedLines(repo, diff string) map[string]map[int]bool {
 
 	for line := range strings.SplitSeq(diff, "\n") {
 		switch {
-		case strings.HasPrefix(line, "+++ "):
-			name := strings.TrimPrefix(line, "+++ ")
+		case strings.HasPrefix(line, "diff --git "):
+			file = ""
+		case file == "" && strings.HasPrefix(line, "+++ "):
+			// Git terminates unquoted names containing spaces with a tab.
+			// A literal tab in the name is escaped inside a quoted header.
+			name := strings.TrimSuffix(strings.TrimPrefix(line, "+++ "), "\t")
 			if name == "/dev/null" {
 				file = ""
 
