@@ -1,0 +1,1032 @@
+[
+  {
+    "candidateCount": 1,
+    "candidates": [
+      {
+        "basis": [
+          "declares mapper"
+        ],
+        "confidence": "medium",
+        "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/vendor/wheels/Global.cfc",
+        "line": 2000
+      }
+    ],
+    "category": "method",
+    "definitions": 1,
+    "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/cli/lucli/templates/app/config/routes.cfm",
+    "function": "mapper",
+    "line": 6,
+    "methodEvidence": {
+      "function": "mapper",
+      "indexedDeclarations": 1,
+      "nameStatus": "unique-source-declaration",
+      "ownership": "unproven",
+      "relationship": "binding-unproven",
+      "sourceDeclarations": 1
+    },
+    "reason": "no qualifier, not in file",
+    "text": ""
+  },
+  {
+    "category": "object",
+    "definitions": 13,
+    "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/cli/lucli/templates/app/config/routes.cfm",
+    "function": "get",
+    "line": 12,
+    "methodEvidence": {
+      "function": "get",
+      "indexedDeclarations": 13,
+      "nameStatus": "ambiguous-source-declarations",
+      "ownership": "unproven",
+      "relationship": "source-or-context-missing",
+      "sourceDeclarations": 13
+    },
+    "reason": "chained on 'mapper', which is not found (calling 'get')",
+    "text": ""
+  },
+  {
+    "category": "object",
+    "definitions": 2,
+    "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/cli/lucli/templates/app/config/routes.cfm",
+    "function": "wildcard",
+    "line": 16,
+    "methodEvidence": {
+      "function": "wildcard",
+      "indexedDeclarations": 2,
+      "nameStatus": "ambiguous-source-declarations",
+      "ownership": "unproven",
+      "relationship": "source-or-context-missing",
+      "sourceDeclarations": 2
+    },
+    "reason": "chained on 'mapper', which is not found (calling 'wildcard')",
+    "text": ""
+  },
+  {
+    "category": "object",
+    "definitions": 4,
+    "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/cli/lucli/templates/app/config/routes.cfm",
+    "function": "root",
+    "line": 19,
+    "methodEvidence": {
+      "function": "root",
+      "indexedDeclarations": 4,
+      "nameStatus": "ambiguous-source-declarations",
+      "ownership": "unproven",
+      "relationship": "source-or-context-missing",
+      "sourceDeclarations": 4
+    },
+    "reason": "chained on 'mapper', which is not found (calling 'root')",
+    "text": ""
+  },
+  {
+    "category": "object",
+    "definitions": 4,
+    "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/cli/lucli/templates/app/config/routes.cfm",
+    "function": "end",
+    "line": 20,
+    "methodEvidence": {
+      "function": "end",
+      "indexedDeclarations": 4,
+      "nameStatus": "ambiguous-source-declarations",
+      "ownership": "unproven",
+      "relationship": "source-or-context-missing",
+      "sourceDeclarations": 3
+    },
+    "reason": "chained on 'mapper', which is not found (calling 'end')",
+    "text": ""
+  },
+  {
+    "candidateCount": 1,
+    "candidates": [
+      {
+        "basis": [
+          "declares mapper"
+        ],
+        "confidence": "medium",
+        "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/vendor/wheels/Global.cfc",
+        "line": 2000
+      }
+    ],
+    "category": "method",
+    "definitions": 1,
+    "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/examples/starter-app/config/routes.cfm",
+    "function": "mapper",
+    "line": 6,
+    "methodEvidence": {
+      "function": "mapper",
+      "indexedDeclarations": 1,
+      "nameStatus": "unique-source-declaration",
+      "ownership": "unproven",
+      "relationship": "binding-unproven",
+      "sourceDeclarations": 1
+    },
+    "reason": "no qualifier, not in file",
+    "text": ""
+  },
+  {
+    "category": "object",
+    "definitions": 13,
+    "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/examples/starter-app/config/routes.cfm",
+    "function": "get",
+    "line": 16,
+    "methodEvidence": {
+      "function": "get",
+      "indexedDeclarations": 13,
+      "nameStatus": "ambiguous-source-declarations",
+      "ownership": "unproven",
+      "relationship": "source-or-context-missing",
+      "sourceDeclarations": 13
+    },
+    "reason": "chained on 'mapper', which is not found (calling 'get')",
+    "text": ""
+  },
+  {
+    "category": "object",
+    "definitions": 13,
+    "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/examples/starter-app/config/routes.cfm",
+    "function": "get",
+    "line": 17,
+    "methodEvidence": {
+      "function": "get",
+      "indexedDeclarations": 13,
+      "nameStatus": "ambiguous-source-declarations",
+      "ownership": "unproven",
+      "relationship": "source-or-context-missing",
+      "sourceDeclarations": 13
+    },
+    "reason": "chained on 'mapper', which is not found (calling 'get')",
+    "text": ""
+  },
+  {
+    "category": "object",
+    "definitions": 3,
+    "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/examples/starter-app/config/routes.cfm",
+    "function": "post",
+    "line": 18,
+    "methodEvidence": {
+      "function": "post",
+      "indexedDeclarations": 3,
+      "nameStatus": "ambiguous-source-declarations",
+      "ownership": "unproven",
+      "relationship": "source-or-context-missing",
+      "sourceDeclarations": 3
+    },
+    "reason": "chained on 'mapper', which is not found (calling 'post')",
+    "text": ""
+  },
+  {
+    "category": "object",
+    "definitions": 13,
+    "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/examples/starter-app/config/routes.cfm",
+    "function": "get",
+    "line": 19,
+    "methodEvidence": {
+      "function": "get",
+      "indexedDeclarations": 13,
+      "nameStatus": "ambiguous-source-declarations",
+      "ownership": "unproven",
+      "relationship": "source-or-context-missing",
+      "sourceDeclarations": 13
+    },
+    "reason": "chained on 'mapper', which is not found (calling 'get')",
+    "text": ""
+  },
+  {
+    "category": "object",
+    "definitions": 13,
+    "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/examples/starter-app/config/routes.cfm",
+    "function": "get",
+    "line": 23,
+    "methodEvidence": {
+      "function": "get",
+      "indexedDeclarations": 13,
+      "nameStatus": "ambiguous-source-declarations",
+      "ownership": "unproven",
+      "relationship": "source-or-context-missing",
+      "sourceDeclarations": 13
+    },
+    "reason": "chained on 'mapper', which is not found (calling 'get')",
+    "text": ""
+  },
+  {
+    "category": "object",
+    "definitions": 3,
+    "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/examples/starter-app/config/routes.cfm",
+    "function": "post",
+    "line": 24,
+    "methodEvidence": {
+      "function": "post",
+      "indexedDeclarations": 3,
+      "nameStatus": "ambiguous-source-declarations",
+      "ownership": "unproven",
+      "relationship": "source-or-context-missing",
+      "sourceDeclarations": 3
+    },
+    "reason": "chained on 'mapper', which is not found (calling 'post')",
+    "text": ""
+  },
+  {
+    "category": "object",
+    "definitions": 13,
+    "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/examples/starter-app/config/routes.cfm",
+    "function": "get",
+    "line": 25,
+    "methodEvidence": {
+      "function": "get",
+      "indexedDeclarations": 13,
+      "nameStatus": "ambiguous-source-declarations",
+      "ownership": "unproven",
+      "relationship": "source-or-context-missing",
+      "sourceDeclarations": 13
+    },
+    "reason": "chained on 'mapper', which is not found (calling 'get')",
+    "text": ""
+  },
+  {
+    "category": "object",
+    "definitions": 6,
+    "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/examples/starter-app/config/routes.cfm",
+    "function": "scope",
+    "line": 29,
+    "methodEvidence": {
+      "function": "scope",
+      "indexedDeclarations": 6,
+      "nameStatus": "ambiguous-source-declarations",
+      "ownership": "unproven",
+      "relationship": "source-or-context-missing",
+      "sourceDeclarations": 6
+    },
+    "reason": "chained on 'mapper', which is not found (calling 'scope')",
+    "text": ""
+  },
+  {
+    "category": "object",
+    "definitions": 13,
+    "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/examples/starter-app/config/routes.cfm",
+    "function": "get",
+    "line": 30,
+    "methodEvidence": {
+      "function": "get",
+      "indexedDeclarations": 13,
+      "nameStatus": "ambiguous-source-declarations",
+      "ownership": "unproven",
+      "relationship": "source-or-context-missing",
+      "sourceDeclarations": 13
+    },
+    "reason": "chained on 'mapper', which is not found (calling 'get')",
+    "text": ""
+  },
+  {
+    "category": "object",
+    "definitions": 3,
+    "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/examples/starter-app/config/routes.cfm",
+    "function": "post",
+    "line": 31,
+    "methodEvidence": {
+      "function": "post",
+      "indexedDeclarations": 3,
+      "nameStatus": "ambiguous-source-declarations",
+      "ownership": "unproven",
+      "relationship": "source-or-context-missing",
+      "sourceDeclarations": 3
+    },
+    "reason": "chained on 'mapper', which is not found (calling 'post')",
+    "text": ""
+  },
+  {
+    "category": "object",
+    "definitions": 13,
+    "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/examples/starter-app/config/routes.cfm",
+    "function": "get",
+    "line": 32,
+    "methodEvidence": {
+      "function": "get",
+      "indexedDeclarations": 13,
+      "nameStatus": "ambiguous-source-declarations",
+      "ownership": "unproven",
+      "relationship": "source-or-context-missing",
+      "sourceDeclarations": 13
+    },
+    "reason": "chained on 'mapper', which is not found (calling 'get')",
+    "text": ""
+  },
+  {
+    "category": "object",
+    "definitions": 6,
+    "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/examples/starter-app/config/routes.cfm",
+    "function": "put",
+    "line": 33,
+    "methodEvidence": {
+      "function": "put",
+      "indexedDeclarations": 6,
+      "nameStatus": "ambiguous-source-declarations",
+      "ownership": "unproven",
+      "relationship": "source-or-context-missing",
+      "sourceDeclarations": 6
+    },
+    "reason": "chained on 'mapper', which is not found (calling 'put')",
+    "text": ""
+  },
+  {
+    "category": "object",
+    "definitions": 4,
+    "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/examples/starter-app/config/routes.cfm",
+    "function": "end",
+    "line": 34,
+    "methodEvidence": {
+      "function": "end",
+      "indexedDeclarations": 4,
+      "nameStatus": "ambiguous-source-declarations",
+      "ownership": "unproven",
+      "relationship": "source-or-context-missing",
+      "sourceDeclarations": 3
+    },
+    "reason": "chained on 'mapper', which is not found (calling 'end')",
+    "text": ""
+  },
+  {
+    "category": "object",
+    "definitions": 2,
+    "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/examples/starter-app/config/routes.cfm",
+    "function": "resource",
+    "line": 39,
+    "methodEvidence": {
+      "function": "resource",
+      "indexedDeclarations": 2,
+      "nameStatus": "ambiguous-source-declarations",
+      "ownership": "unproven",
+      "relationship": "source-or-context-missing",
+      "sourceDeclarations": 2
+    },
+    "reason": "chained on 'mapper', which is not found (calling 'resource')",
+    "text": ""
+  },
+  {
+    "category": "object",
+    "definitions": 13,
+    "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/examples/starter-app/config/routes.cfm",
+    "function": "get",
+    "line": 41,
+    "methodEvidence": {
+      "function": "get",
+      "indexedDeclarations": 13,
+      "nameStatus": "ambiguous-source-declarations",
+      "ownership": "unproven",
+      "relationship": "source-or-context-missing",
+      "sourceDeclarations": 13
+    },
+    "reason": "chained on 'mapper', which is not found (calling 'get')",
+    "text": ""
+  },
+  {
+    "category": "object",
+    "definitions": 6,
+    "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/examples/starter-app/config/routes.cfm",
+    "function": "put",
+    "line": 42,
+    "methodEvidence": {
+      "function": "put",
+      "indexedDeclarations": 6,
+      "nameStatus": "ambiguous-source-declarations",
+      "ownership": "unproven",
+      "relationship": "source-or-context-missing",
+      "sourceDeclarations": 6
+    },
+    "reason": "chained on 'mapper', which is not found (calling 'put')",
+    "text": ""
+  },
+  {
+    "category": "object",
+    "definitions": 6,
+    "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/examples/starter-app/config/routes.cfm",
+    "function": "scope",
+    "line": 46,
+    "methodEvidence": {
+      "function": "scope",
+      "indexedDeclarations": 6,
+      "nameStatus": "ambiguous-source-declarations",
+      "ownership": "unproven",
+      "relationship": "source-or-context-missing",
+      "sourceDeclarations": 6
+    },
+    "reason": "chained on 'mapper', which is not found (calling 'scope')",
+    "text": ""
+  },
+  {
+    "category": "object",
+    "definitions": 2,
+    "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/examples/starter-app/config/routes.cfm",
+    "function": "resources",
+    "line": 47,
+    "methodEvidence": {
+      "function": "resources",
+      "indexedDeclarations": 2,
+      "nameStatus": "ambiguous-source-declarations",
+      "ownership": "unproven",
+      "relationship": "source-or-context-missing",
+      "sourceDeclarations": 2
+    },
+    "reason": "chained on 'mapper', which is not found (calling 'resources')",
+    "text": ""
+  },
+  {
+    "category": "object",
+    "definitions": 2,
+    "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/examples/starter-app/config/routes.cfm",
+    "function": "resources",
+    "line": 49,
+    "methodEvidence": {
+      "function": "resources",
+      "indexedDeclarations": 2,
+      "nameStatus": "ambiguous-source-declarations",
+      "ownership": "unproven",
+      "relationship": "source-or-context-missing",
+      "sourceDeclarations": 2
+    },
+    "reason": "chained on 'mapper', which is not found (calling 'resources')",
+    "text": ""
+  },
+  {
+    "category": "object",
+    "definitions": 2,
+    "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/examples/starter-app/config/routes.cfm",
+    "function": "member",
+    "line": 51,
+    "methodEvidence": {
+      "function": "member",
+      "indexedDeclarations": 2,
+      "nameStatus": "ambiguous-source-declarations",
+      "ownership": "unproven",
+      "relationship": "source-or-context-missing",
+      "sourceDeclarations": 2
+    },
+    "reason": "chained on 'mapper', which is not found (calling 'member')",
+    "text": ""
+  },
+  {
+    "category": "object",
+    "definitions": 3,
+    "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/examples/starter-app/config/routes.cfm",
+    "function": "post",
+    "line": 53,
+    "methodEvidence": {
+      "function": "post",
+      "indexedDeclarations": 3,
+      "nameStatus": "ambiguous-source-declarations",
+      "ownership": "unproven",
+      "relationship": "source-or-context-missing",
+      "sourceDeclarations": 3
+    },
+    "reason": "chained on 'mapper', which is not found (calling 'post')",
+    "text": ""
+  },
+  {
+    "category": "object",
+    "definitions": 6,
+    "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/examples/starter-app/config/routes.cfm",
+    "function": "put",
+    "line": 54,
+    "methodEvidence": {
+      "function": "put",
+      "indexedDeclarations": 6,
+      "nameStatus": "ambiguous-source-declarations",
+      "ownership": "unproven",
+      "relationship": "source-or-context-missing",
+      "sourceDeclarations": 6
+    },
+    "reason": "chained on 'mapper', which is not found (calling 'put')",
+    "text": ""
+  },
+  {
+    "category": "object",
+    "definitions": 6,
+    "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/examples/starter-app/config/routes.cfm",
+    "function": "put",
+    "line": 55,
+    "methodEvidence": {
+      "function": "put",
+      "indexedDeclarations": 6,
+      "nameStatus": "ambiguous-source-declarations",
+      "ownership": "unproven",
+      "relationship": "source-or-context-missing",
+      "sourceDeclarations": 6
+    },
+    "reason": "chained on 'mapper', which is not found (calling 'put')",
+    "text": ""
+  },
+  {
+    "category": "object",
+    "definitions": 19,
+    "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/examples/starter-app/config/routes.cfm",
+    "function": "delete",
+    "line": 56,
+    "methodEvidence": {
+      "function": "delete",
+      "indexedDeclarations": 19,
+      "nameStatus": "ambiguous-source-declarations",
+      "ownership": "unproven",
+      "relationship": "source-or-context-missing",
+      "sourceDeclarations": 19
+    },
+    "reason": "chained on 'mapper', which is not found (calling 'delete')",
+    "text": ""
+  },
+  {
+    "category": "object",
+    "definitions": 4,
+    "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/examples/starter-app/config/routes.cfm",
+    "function": "end",
+    "line": 57,
+    "methodEvidence": {
+      "function": "end",
+      "indexedDeclarations": 4,
+      "nameStatus": "ambiguous-source-declarations",
+      "ownership": "unproven",
+      "relationship": "source-or-context-missing",
+      "sourceDeclarations": 3
+    },
+    "reason": "chained on 'mapper', which is not found (calling 'end')",
+    "text": ""
+  },
+  {
+    "category": "object",
+    "definitions": 4,
+    "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/examples/starter-app/config/routes.cfm",
+    "function": "end",
+    "line": 58,
+    "methodEvidence": {
+      "function": "end",
+      "indexedDeclarations": 4,
+      "nameStatus": "ambiguous-source-declarations",
+      "ownership": "unproven",
+      "relationship": "source-or-context-missing",
+      "sourceDeclarations": 3
+    },
+    "reason": "chained on 'mapper', which is not found (calling 'end')",
+    "text": ""
+  },
+  {
+    "category": "object",
+    "definitions": 2,
+    "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/examples/starter-app/config/routes.cfm",
+    "function": "resources",
+    "line": 59,
+    "methodEvidence": {
+      "function": "resources",
+      "indexedDeclarations": 2,
+      "nameStatus": "ambiguous-source-declarations",
+      "ownership": "unproven",
+      "relationship": "source-or-context-missing",
+      "sourceDeclarations": 2
+    },
+    "reason": "chained on 'mapper', which is not found (calling 'resources')",
+    "text": ""
+  },
+  {
+    "category": "object",
+    "definitions": 2,
+    "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/examples/starter-app/config/routes.cfm",
+    "function": "resources",
+    "line": 60,
+    "methodEvidence": {
+      "function": "resources",
+      "indexedDeclarations": 2,
+      "nameStatus": "ambiguous-source-declarations",
+      "ownership": "unproven",
+      "relationship": "source-or-context-missing",
+      "sourceDeclarations": 2
+    },
+    "reason": "chained on 'mapper', which is not found (calling 'resources')",
+    "text": ""
+  },
+  {
+    "category": "object",
+    "definitions": 2,
+    "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/examples/starter-app/config/routes.cfm",
+    "function": "resources",
+    "line": 61,
+    "methodEvidence": {
+      "function": "resources",
+      "indexedDeclarations": 2,
+      "nameStatus": "ambiguous-source-declarations",
+      "ownership": "unproven",
+      "relationship": "source-or-context-missing",
+      "sourceDeclarations": 2
+    },
+    "reason": "chained on 'mapper', which is not found (calling 'resources')",
+    "text": ""
+  },
+  {
+    "category": "object",
+    "definitions": 2,
+    "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/examples/starter-app/config/routes.cfm",
+    "function": "resources",
+    "line": 62,
+    "methodEvidence": {
+      "function": "resources",
+      "indexedDeclarations": 2,
+      "nameStatus": "ambiguous-source-declarations",
+      "ownership": "unproven",
+      "relationship": "source-or-context-missing",
+      "sourceDeclarations": 2
+    },
+    "reason": "chained on 'mapper', which is not found (calling 'resources')",
+    "text": ""
+  },
+  {
+    "category": "object",
+    "definitions": 4,
+    "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/examples/starter-app/config/routes.cfm",
+    "function": "end",
+    "line": 63,
+    "methodEvidence": {
+      "function": "end",
+      "indexedDeclarations": 4,
+      "nameStatus": "ambiguous-source-declarations",
+      "ownership": "unproven",
+      "relationship": "source-or-context-missing",
+      "sourceDeclarations": 3
+    },
+    "reason": "chained on 'mapper', which is not found (calling 'end')",
+    "text": ""
+  },
+  {
+    "category": "object",
+    "definitions": 4,
+    "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/examples/starter-app/config/routes.cfm",
+    "function": "root",
+    "line": 66,
+    "methodEvidence": {
+      "function": "root",
+      "indexedDeclarations": 4,
+      "nameStatus": "ambiguous-source-declarations",
+      "ownership": "unproven",
+      "relationship": "source-or-context-missing",
+      "sourceDeclarations": 4
+    },
+    "reason": "chained on 'mapper', which is not found (calling 'root')",
+    "text": ""
+  },
+  {
+    "category": "object",
+    "definitions": 4,
+    "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/examples/starter-app/config/routes.cfm",
+    "function": "root",
+    "line": 67,
+    "methodEvidence": {
+      "function": "root",
+      "indexedDeclarations": 4,
+      "nameStatus": "ambiguous-source-declarations",
+      "ownership": "unproven",
+      "relationship": "source-or-context-missing",
+      "sourceDeclarations": 4
+    },
+    "reason": "chained on 'mapper', which is not found (calling 'root')",
+    "text": ""
+  },
+  {
+    "category": "object",
+    "definitions": 4,
+    "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/examples/starter-app/config/routes.cfm",
+    "function": "end",
+    "line": 68,
+    "methodEvidence": {
+      "function": "end",
+      "indexedDeclarations": 4,
+      "nameStatus": "ambiguous-source-declarations",
+      "ownership": "unproven",
+      "relationship": "source-or-context-missing",
+      "sourceDeclarations": 3
+    },
+    "reason": "chained on 'mapper', which is not found (calling 'end')",
+    "text": ""
+  },
+  {
+    "candidateCount": 1,
+    "candidates": [
+      {
+        "basis": [
+          "declares mapper"
+        ],
+        "confidence": "medium",
+        "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/vendor/wheels/Global.cfc",
+        "line": 2000
+      }
+    ],
+    "category": "method",
+    "definitions": 1,
+    "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/examples/tweet/config/routes.cfm",
+    "function": "mapper",
+    "line": 6,
+    "methodEvidence": {
+      "function": "mapper",
+      "indexedDeclarations": 1,
+      "nameStatus": "unique-source-declaration",
+      "ownership": "unproven",
+      "relationship": "binding-unproven",
+      "sourceDeclarations": 1
+    },
+    "reason": "no qualifier, not in file",
+    "text": ""
+  },
+  {
+    "category": "object",
+    "definitions": 13,
+    "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/examples/tweet/config/routes.cfm",
+    "function": "get",
+    "line": 8,
+    "methodEvidence": {
+      "function": "get",
+      "indexedDeclarations": 13,
+      "nameStatus": "ambiguous-source-declarations",
+      "ownership": "unproven",
+      "relationship": "source-or-context-missing",
+      "sourceDeclarations": 13
+    },
+    "reason": "chained on 'mapper', which is not found (calling 'get')",
+    "text": ""
+  },
+  {
+    "category": "object",
+    "definitions": 3,
+    "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/examples/tweet/config/routes.cfm",
+    "function": "post",
+    "line": 9,
+    "methodEvidence": {
+      "function": "post",
+      "indexedDeclarations": 3,
+      "nameStatus": "ambiguous-source-declarations",
+      "ownership": "unproven",
+      "relationship": "source-or-context-missing",
+      "sourceDeclarations": 3
+    },
+    "reason": "chained on 'mapper', which is not found (calling 'post')",
+    "text": ""
+  },
+  {
+    "category": "object",
+    "definitions": 13,
+    "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/examples/tweet/config/routes.cfm",
+    "function": "get",
+    "line": 10,
+    "methodEvidence": {
+      "function": "get",
+      "indexedDeclarations": 13,
+      "nameStatus": "ambiguous-source-declarations",
+      "ownership": "unproven",
+      "relationship": "source-or-context-missing",
+      "sourceDeclarations": 13
+    },
+    "reason": "chained on 'mapper', which is not found (calling 'get')",
+    "text": ""
+  },
+  {
+    "category": "object",
+    "definitions": 13,
+    "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/examples/tweet/config/routes.cfm",
+    "function": "get",
+    "line": 11,
+    "methodEvidence": {
+      "function": "get",
+      "indexedDeclarations": 13,
+      "nameStatus": "ambiguous-source-declarations",
+      "ownership": "unproven",
+      "relationship": "source-or-context-missing",
+      "sourceDeclarations": 13
+    },
+    "reason": "chained on 'mapper', which is not found (calling 'get')",
+    "text": ""
+  },
+  {
+    "category": "object",
+    "definitions": 2,
+    "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/examples/tweet/config/routes.cfm",
+    "function": "resources",
+    "line": 14,
+    "methodEvidence": {
+      "function": "resources",
+      "indexedDeclarations": 2,
+      "nameStatus": "ambiguous-source-declarations",
+      "ownership": "unproven",
+      "relationship": "source-or-context-missing",
+      "sourceDeclarations": 2
+    },
+    "reason": "chained on 'mapper', which is not found (calling 'resources')",
+    "text": ""
+  },
+  {
+    "category": "object",
+    "definitions": 2,
+    "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/examples/tweet/config/routes.cfm",
+    "function": "resources",
+    "line": 15,
+    "methodEvidence": {
+      "function": "resources",
+      "indexedDeclarations": 2,
+      "nameStatus": "ambiguous-source-declarations",
+      "ownership": "unproven",
+      "relationship": "source-or-context-missing",
+      "sourceDeclarations": 2
+    },
+    "reason": "chained on 'mapper', which is not found (calling 'resources')",
+    "text": ""
+  },
+  {
+    "category": "object",
+    "definitions": 3,
+    "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/examples/tweet/config/routes.cfm",
+    "function": "post",
+    "line": 18,
+    "methodEvidence": {
+      "function": "post",
+      "indexedDeclarations": 3,
+      "nameStatus": "ambiguous-source-declarations",
+      "ownership": "unproven",
+      "relationship": "source-or-context-missing",
+      "sourceDeclarations": 3
+    },
+    "reason": "chained on 'mapper', which is not found (calling 'post')",
+    "text": ""
+  },
+  {
+    "category": "object",
+    "definitions": 13,
+    "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/examples/tweet/config/routes.cfm",
+    "function": "get",
+    "line": 19,
+    "methodEvidence": {
+      "function": "get",
+      "indexedDeclarations": 13,
+      "nameStatus": "ambiguous-source-declarations",
+      "ownership": "unproven",
+      "relationship": "source-or-context-missing",
+      "sourceDeclarations": 13
+    },
+    "reason": "chained on 'mapper', which is not found (calling 'get')",
+    "text": ""
+  },
+  {
+    "category": "object",
+    "definitions": 3,
+    "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/examples/tweet/config/routes.cfm",
+    "function": "post",
+    "line": 22,
+    "methodEvidence": {
+      "function": "post",
+      "indexedDeclarations": 3,
+      "nameStatus": "ambiguous-source-declarations",
+      "ownership": "unproven",
+      "relationship": "source-or-context-missing",
+      "sourceDeclarations": 3
+    },
+    "reason": "chained on 'mapper', which is not found (calling 'post')",
+    "text": ""
+  },
+  {
+    "category": "object",
+    "definitions": 13,
+    "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/examples/tweet/config/routes.cfm",
+    "function": "get",
+    "line": 23,
+    "methodEvidence": {
+      "function": "get",
+      "indexedDeclarations": 13,
+      "nameStatus": "ambiguous-source-declarations",
+      "ownership": "unproven",
+      "relationship": "source-or-context-missing",
+      "sourceDeclarations": 13
+    },
+    "reason": "chained on 'mapper', which is not found (calling 'get')",
+    "text": ""
+  },
+  {
+    "category": "object",
+    "definitions": 2,
+    "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/examples/tweet/config/routes.cfm",
+    "function": "wildcard",
+    "line": 29,
+    "methodEvidence": {
+      "function": "wildcard",
+      "indexedDeclarations": 2,
+      "nameStatus": "ambiguous-source-declarations",
+      "ownership": "unproven",
+      "relationship": "source-or-context-missing",
+      "sourceDeclarations": 2
+    },
+    "reason": "chained on 'mapper', which is not found (calling 'wildcard')",
+    "text": ""
+  },
+  {
+    "category": "object",
+    "definitions": 4,
+    "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/examples/tweet/config/routes.cfm",
+    "function": "root",
+    "line": 32,
+    "methodEvidence": {
+      "function": "root",
+      "indexedDeclarations": 4,
+      "nameStatus": "ambiguous-source-declarations",
+      "ownership": "unproven",
+      "relationship": "source-or-context-missing",
+      "sourceDeclarations": 4
+    },
+    "reason": "chained on 'mapper', which is not found (calling 'root')",
+    "text": ""
+  },
+  {
+    "category": "object",
+    "definitions": 4,
+    "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/examples/tweet/config/routes.cfm",
+    "function": "end",
+    "line": 33,
+    "methodEvidence": {
+      "function": "end",
+      "indexedDeclarations": 4,
+      "nameStatus": "ambiguous-source-declarations",
+      "ownership": "unproven",
+      "relationship": "source-or-context-missing",
+      "sourceDeclarations": 3
+    },
+    "reason": "chained on 'mapper', which is not found (calling 'end')",
+    "text": ""
+  },
+  {
+    "candidateCount": 1,
+    "candidates": [
+      {
+        "basis": [
+          "declares mapper"
+        ],
+        "confidence": "medium",
+        "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/vendor/wheels/Global.cfc",
+        "line": 2000
+      }
+    ],
+    "category": "method",
+    "definitions": 1,
+    "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/vendor/wheels/tests/resources/app/config/routes.cfm",
+    "function": "mapper",
+    "line": 4,
+    "methodEvidence": {
+      "function": "mapper",
+      "indexedDeclarations": 1,
+      "nameStatus": "unique-source-declaration",
+      "ownership": "unproven",
+      "relationship": "binding-unproven",
+      "sourceDeclarations": 1
+    },
+    "reason": "no qualifier, not in file",
+    "text": ""
+  },
+  {
+    "category": "object",
+    "definitions": 2,
+    "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/vendor/wheels/tests/resources/app/config/routes.cfm",
+    "function": "wildcard",
+    "line": 7,
+    "methodEvidence": {
+      "function": "wildcard",
+      "indexedDeclarations": 2,
+      "nameStatus": "ambiguous-source-declarations",
+      "ownership": "unproven",
+      "relationship": "source-or-context-missing",
+      "sourceDeclarations": 2
+    },
+    "reason": "chained on 'mapper', which is not found (calling 'wildcard')",
+    "text": ""
+  },
+  {
+    "category": "object",
+    "definitions": 4,
+    "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/vendor/wheels/tests/resources/app/config/routes.cfm",
+    "function": "root",
+    "line": 10,
+    "methodEvidence": {
+      "function": "root",
+      "indexedDeclarations": 4,
+      "nameStatus": "ambiguous-source-declarations",
+      "ownership": "unproven",
+      "relationship": "source-or-context-missing",
+      "sourceDeclarations": 4
+    },
+    "reason": "chained on 'mapper', which is not found (calling 'root')",
+    "text": ""
+  },
+  {
+    "category": "object",
+    "definitions": 4,
+    "file": "/Users/garethedwards/corpus/cfwheels_cfwheels/vendor/wheels/tests/resources/app/config/routes.cfm",
+    "function": "end",
+    "line": 11,
+    "methodEvidence": {
+      "function": "end",
+      "indexedDeclarations": 4,
+      "nameStatus": "ambiguous-source-declarations",
+      "ownership": "unproven",
+      "relationship": "source-or-context-missing",
+      "sourceDeclarations": 3
+    },
+    "reason": "chained on 'mapper', which is not found (calling 'end')",
+    "text": ""
+  }
+]

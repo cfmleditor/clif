@@ -5,9 +5,29 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cfmleditor/clif/internal/config"
 	"github.com/cfmleditor/clif/internal/index"
 	"github.com/cfmleditor/clif/internal/vfs"
 )
+
+func TestWheelsRouteTemplateUsesRealGlobalFactory(t *testing.T) {
+	dir := t.TempDir()
+	files := wheelsFactoryFiles()
+	files["examples/blog/config/routes.cfm"] = `<cfscript>
+mapper().route("/").end();
+mapper().missing();
+missingGlobal();
+</cfscript>`
+	writeFiles(t, dir, files)
+
+	r := &Resolver{ImplicitExtends: config.ImplicitExtends([]string{"wheels"})}
+	got := reasonsWith(t, r, dir, "examples/blog/config/routes.cfm")
+	expectReasons(t, got, map[string]string{
+		"mapper.route.end": "",
+		"mapper.missing":   "method 'missing' not found in Mapper",
+		"missingGlobal":    "not found in extends chain",
+	})
+}
 
 func wheelsFactoryFiles() map[string]string {
 	files := mapperFiles()
