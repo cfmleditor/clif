@@ -29,7 +29,7 @@ type Index struct {
 	extends       map[string]string                            // lowercase URI -> that component's extends, "" for none
 	delegates     map[string][]parser.Delegate                 // lowercase URI -> the WireBox delegations it declares; kept and dropped with extends
 	fileURIs      map[string]uri.URI                           // lowercase URI -> the file's URI as indexed, in its real case; kept with fileFuncs
-	fileRevisions map[string]uint64                            // source revisions; kept with fileURIs
+	diskRevisions map[string]uint64                            // disk source revisions; kept with fileURIs
 	beans         map[string]string                            // lowercase bean name -> dot-path
 	// entities holds every file declaring an entity name: several
 	// applications in one workspace may each declare one (Lucee's tests
@@ -578,9 +578,6 @@ func (idx *Index) ShiftLines(fileURI uri.URI, afterLine int, delta int) {
 	defer idx.mu.Unlock()
 
 	key := uriKey(fileURI)
-	if _, known := idx.fileURIs[key]; known {
-		idx.markFileRevision(key)
-	}
 
 	// Only the edited file's entries can move, and fileFuncs/fileRefs already
 	// index exactly those. This used to walk every bucket of funcs and comprefs
@@ -767,7 +764,7 @@ func (idx *Index) indexParseResult(fileURI uri.URI, content string, pr *parser.P
 
 	idx.storeFileFunctionsLocked(fk, funcs)
 	idx.fileURIs[fk] = uri.URI(strings.Clone(string(fileURI)))
-	idx.markFileRevision(fk)
+	idx.markDiskRevision(fk)
 
 	fileRefsList := make([]*parser.ComponentRef, 0, len(refs))
 
@@ -798,8 +795,19 @@ func (idx *Index) storeFileFunctionsLocked(fk string, funcs []parser.FunctionDef
 	idx.fileFuncs[fk] = fileDefs
 }
 
-// IndexFileFromResult updates the index using pre-parsed function defs and refs.
+// IndexFileFromResult updates the index using pre-parsed function defs and refs
+// read from disk.
 func (idx *Index) IndexFileFromResult(fileURI uri.URI, funcs []parser.FunctionDef, refs []parser.ComponentRef) {
+	idx.indexFileFromResult(fileURI, funcs, refs, true)
+}
+
+// IndexBufferFromResult updates indexed symbols from an editor buffer while
+// preserving the revision used to validate disk-backed source metadata.
+func (idx *Index) IndexBufferFromResult(fileURI uri.URI, funcs []parser.FunctionDef, refs []parser.ComponentRef) {
+	idx.indexFileFromResult(fileURI, funcs, refs, false)
+}
+
+func (idx *Index) indexFileFromResult(fileURI uri.URI, funcs []parser.FunctionDef, refs []parser.ComponentRef, disk bool) {
 	// The strings a parse produces are slices of the file's source, and a Go
 	// substring keeps the whole backing array alive. That is right for a parse
 	// result, which dies with the source it came from, and wrong here: the index
@@ -825,7 +833,10 @@ func (idx *Index) IndexFileFromResult(fileURI uri.URI, funcs []parser.FunctionDe
 
 	idx.storeFileFunctionsLocked(fk, funcs)
 	idx.fileURIs[fk] = uri.URI(strings.Clone(string(fileURI)))
-	idx.markFileRevision(fk)
+
+	if disk {
+		idx.markDiskRevision(fk)
+	}
 
 	fileRefsList := make([]*parser.ComponentRef, 0, len(refs))
 
@@ -856,6 +867,7 @@ func (idx *Index) RemoveFile(fileURI uri.URI) {
 	defer idx.shapeEnd(fk, &mark)
 
 	idx.removeFileEntries(fileURI)
+	delete(idx.diskRevisions, fk)
 	// Not in removeFileEntries: every re-index runs that first, and a file
 	// re-indexed with the includes it already had must not move the generation
 	// and make the resolver rebuild its include graph. The writers that
@@ -928,7 +940,7 @@ func (idx *Index) RemoveFilesUnder(prefix string) {
 
 			delete(idx.fileFuncs, key)
 			delete(idx.fileURIs, key)
-			delete(idx.fileRevisions, key)
+			delete(idx.diskRevisions, key)
 			idx.shapeEnd(key, &mark)
 			delete(idx.fileRefs, key)
 			delete(idx.thisVars, key)
@@ -1017,7 +1029,6 @@ func (idx *Index) RemoveFilesUnder(prefix string) {
 // replaces them.
 func (idx *Index) removeFileEntries(fileURI uri.URI) {
 	key := uriKey(fileURI)
-	delete(idx.fileRevisions, key)
 	delete(idx.thisVars, key)
 	delete(idx.scopeRefs, key)
 	// Dropped with everything else, which is what makes the extends record

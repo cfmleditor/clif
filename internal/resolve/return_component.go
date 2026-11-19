@@ -91,6 +91,7 @@ func (r *Resolver) ReturnComponentOf(fd *parser.FunctionDef) string {
 	r.mu.RLock()
 	entry, ok := r.returnCache.entries[fd]
 	ok = ok && r.returnCache.gen == gen
+	epoch := r.pathCacheEpoch
 	r.mu.RUnlock()
 
 	if ok && entry.size == stamp.size && entry.modTime.Equal(stamp.modTime) {
@@ -101,12 +102,17 @@ func (r *Resolver) ReturnComponentOf(fd *parser.FunctionDef) string {
 	component := r.returnComponentOf(fd, 0, &budget)
 
 	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.pathCacheEpoch != epoch {
+		return component
+	}
+
 	if r.returnCache.gen != gen || r.returnCache.entries == nil || len(r.returnCache.entries) >= maxReturnCache {
 		r.returnCache = returnCache{gen: gen, entries: make(map[*parser.FunctionDef]returnEntry), stamps: r.returnCache.stampsFor(gen)}
 	}
 
 	r.returnCache.entries[fd] = returnEntry{component: component, size: stamp.size, modTime: stamp.modTime}
-	r.mu.Unlock()
 
 	return component
 }

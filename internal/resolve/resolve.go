@@ -51,12 +51,9 @@ type Resolver struct {
 	PropertyResolvers        []parser.PropertyResolver
 	ServicePropertyResolvers map[string]string
 	InterpolateAllText       bool // features.outputContextInterpolation turned off
-	// IndexTracksFiles says a change to a file on disk reaches Index as a
-	// write, which moves its generation: the LSP re-indexes a saved or
-	// watched file. Source-backed caches then trust the generation rather
-	// than stat the file on every lookup, which on a large component was the
-	// largest flat cost of a reparse. A batch scan, which reads the disk
-	// as it goes, leaves it false.
+	// IndexTracksFiles says indexed disk changes reach the resolver through
+	// reindexing or InvalidatePaths. A batch scan, which reads the disk as
+	// it goes, leaves it false.
 	IndexTracksFiles bool
 	// SnapshotScan says the resolver serves one batch scan over files that do
 	// not change while it runs (unresolved.NewResolver sets it), so answers
@@ -82,6 +79,7 @@ type Resolver struct {
 	CallerInferenceLimits config.CallerInferenceLimits
 	stubFS                vfs.FS
 	mu                    sync.RWMutex
+	pathCacheEpoch        uint64 // advances on path invalidation, under mu
 	// The build locks are outside pathCaches: InvalidatePaths replaces that
 	// struct whole, and a lock held by a build in progress would be replaced
 	// by an unlocked one, which the build's Unlock then aborts on.

@@ -5,10 +5,12 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 
 	"github.com/cfmleditor/clif/internal/index"
+	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
 	"github.com/cfmleditor/clif/internal/vfs"
 )
@@ -188,5 +190,89 @@ func TestSourceMetadataWithoutIndexCoverageRemainsLive(t *testing.T) {
 		if got := fsys.stats.Load(); got != 2 {
 			t.Fatalf("IndexTracksFiles=%v: unindexed input checked %d times, want 2", indexed, got)
 		}
+	}
+}
+
+func TestSourceMetadataSurvivesEditsToItsBuffer(t *testing.T) {
+	const text = "component {function original(){}}"
+
+	file := filepath.Join(t.TempDir(), "Edited.cfc")
+	if err := os.WriteFile(file, []byte(text), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	u := cfpath.ToURI(file)
+	idx := index.New()
+	idx.IndexFile(u, text)
+
+	fsys := &sourceStatCounter{}
+	r := &Resolver{FS: fsys, Index: idx, IndexTracksFiles: true}
+	before := r.sourceInfo(file)
+
+	for range 20 {
+		idx.IndexBufferFromResult(u, nil, nil)
+		idx.ShiftLines(u, 0, 1)
+
+		if after := r.sourceInfo(file); after.content != text || after.derived != before.derived {
+			t.Fatal("buffer edit changed the disk source")
+		}
+	}
+
+	if got := fsys.stats.Load(); got != 1 {
+		t.Fatalf("disk source checked %d times; want one check across all buffer edits", got)
+	}
+}
+
+type sourceReadHook struct {
+	vfs.OS
+	afterRead func()
+}
+
+func (f *sourceReadHook) ReadFileString(path string) (string, error) {
+	text, err := f.OS.ReadFileString(path)
+	if f.afterRead != nil {
+		f.afterRead()
+	}
+
+	return text, err
+}
+
+func TestInvalidatedSourceReadCannotRefillCache(t *testing.T) {
+	const before = `component { function mode(value="self") { if (arguments.value eq "query") { return q; } else { return this; } } }`
+
+	after := strings.Replace(before, `"self"`, `"none"`, 1)
+
+	file := filepath.Join(t.TempDir(), "Changed.cfc")
+	if err := os.WriteFile(file, []byte(before), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	u := cfpath.ToURI(file)
+	idx := index.New()
+	idx.IndexFile(u, before)
+
+	fsys := &sourceReadHook{}
+	r := &Resolver{FS: fsys, Index: idx, IndexTracksFiles: true}
+	fsys.afterRead = func() {
+		fsys.afterRead = nil
+
+		if err := os.WriteFile(file, []byte(after), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		r.InvalidatePaths()
+	}
+
+	fd := &parser.FunctionDef{URI: u, Name: "mode", ReturnComponent: "$builtin.struct"}
+	if first := r.ReturnComponentOf(fd); first != "" {
+		t.Fatalf("in-flight return = %q, want the old dispatch's unknown return", first)
+	}
+
+	if got := r.sourceInfo(file).content; got != after {
+		t.Fatalf("source after invalidation = %q, want %q", got, after)
+	}
+
+	if got := r.ReturnComponentOf(fd); got != "$builtin.struct" {
+		t.Fatalf("return after invalidation = %q, want $builtin.struct", got)
 	}
 }

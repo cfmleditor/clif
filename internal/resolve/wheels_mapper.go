@@ -197,7 +197,7 @@ type sourceInfo struct {
 	// gen is the index generation the source was last validated against, when
 	// the index tracks the disk. revision avoids checking unchanged files again.
 	gen      uint64
-	revision uint64 // this file's indexed revision; zero for unindexed inputs
+	revision uint64 // this file's disk revision; zero without disk indexing
 }
 
 // Cache lexical work, not definitions or directory listings. Re-read bytes
@@ -216,6 +216,7 @@ func (r *Resolver) sourceInfo(path string) sourceInfo {
 
 	r.mu.RLock()
 	cached, ok := r.sourceInfos[path]
+	epoch := r.pathCacheEpoch
 	r.mu.RUnlock()
 
 	// Nothing the index has seen has changed since the stamp was checked, and
@@ -226,14 +227,13 @@ func (r *Resolver) sourceInfo(path string) sourceInfo {
 
 	var revision uint64
 	if r.IndexTracksFiles && r.Index != nil {
-		revision = r.Index.FileRevision(cfpath.ToURI(path))
-		// A different file advanced the index. Keep the cheap generation fast
-		// path above, and revalidate this file only when its own revision moved.
+		revision = r.Index.DiskRevision(cfpath.ToURI(path))
+		// Other files and buffer edits can advance the index without changing
+		// this file's saved source. Revalidate only when its disk revision moves.
 		if ok && revision != 0 && cached.revision == revision {
 			cached.gen = gen
-			r.storeSourceInfo(path, &cached)
 
-			return cached
+			return r.adoptSourceInfo(path, cached, epoch)
 		}
 	}
 
@@ -246,7 +246,8 @@ func (r *Resolver) sourceInfo(path string) sourceInfo {
 		if r.IndexTracksFiles {
 			cached.gen = gen
 			cached.revision = revision
-			r.storeSourceInfo(path, &cached)
+
+			return r.adoptSourceInfo(path, cached, epoch)
 		}
 
 		return cached
@@ -268,7 +269,7 @@ func (r *Resolver) sourceInfo(path string) sourceInfo {
 	result.size, result.modTime, result.gen = info.Size(), info.ModTime(), gen
 	result.revision = revision
 
-	return r.adoptSourceInfo(path, result)
+	return r.adoptSourceInfo(path, result, epoch)
 }
 
 // adoptSourceInfo stores src for path and returns it, unless another caller
@@ -277,9 +278,15 @@ func (r *Resolver) sourceInfo(path string) sourceInfo {
 // one that stored last used to replace the other's, so whatever the first had
 // derived (its parses, its spans, its bodies) was derived again; a MasaCMS
 // scan parsed some files a third time over.
-func (r *Resolver) adoptSourceInfo(path string, src sourceInfo) sourceInfo {
+func (r *Resolver) adoptSourceInfo(path string, src sourceInfo, epoch uint64) sourceInfo {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	// A lookup that started before a disk event can finish with its snapshot.
+	// The next lookup must start with fresh metadata.
+	if r.pathCacheEpoch != epoch {
+		return src
+	}
 
 	if r.sourceInfos == nil {
 		r.sourceInfos = make(map[string]sourceInfo)
@@ -536,16 +543,6 @@ func (s *sourceInfo) startupAssignments(file uri.URI) []parser.StartupVariableAs
 	s.derived.startupOnce.Do(func() { s.derived.startup = s.plainParse(file.Path()).StartupVariableAssignments() })
 
 	return s.derived.startup
-}
-
-func (r *Resolver) storeSourceInfo(path string, src *sourceInfo) {
-	r.mu.Lock()
-	if r.sourceInfos == nil {
-		r.sourceInfos = make(map[string]sourceInfo)
-	}
-
-	r.sourceInfos[path] = *src
-	r.mu.Unlock()
 }
 
 // wheelsMethods is the source's script methods by lowercased name, read from
