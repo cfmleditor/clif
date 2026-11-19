@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"cmp"
 	"fmt"
 	"io"
 	"os"
@@ -107,6 +108,12 @@ func cmdRoutes(args []string) {
 		os.Exit(1)
 	}
 
+	switch format {
+	case "json", "md", "markdown", "text":
+	default:
+		fatalf("unknown format %q (want text, md or json)\n", format)
+	}
+
 	resolved, unresolved, scanned := scanRoutes(paths, quiet)
 
 	out := os.Stdout
@@ -133,8 +140,6 @@ func cmdRoutes(args []string) {
 		err = writeRouteMarkdown(w, resolved, unresolved, scanned, limit)
 	case "text":
 		err = writeRouteText(w, resolved, unresolved, scanned, onlyUnresolved, limit)
-	default:
-		fatalf("unknown format %q (want text, md or json)\n", format)
 	}
 
 	if err != nil {
@@ -241,10 +246,24 @@ func scanRoutes(paths []string, quiet bool) (resolved, unresolved []routeFinding
 
 	wg.Wait()
 
-	sort.Slice(unresolved, func(i, j int) bool { return unresolved[i].Route < unresolved[j].Route })
-	sort.Slice(resolved, func(i, j int) bool { return resolved[i].Route < resolved[j].Route })
+	sortRouteFindings(unresolved)
+	sortRouteFindings(resolved)
 
 	return resolved, unresolved, scanned
+}
+
+func sortRouteFindings(findings []routeFinding) {
+	sort.Slice(findings, func(i, j int) bool {
+		a, b := &findings[i], &findings[j]
+
+		return cmp.Or(
+			cmp.Compare(a.Route, b.Route),
+			cmp.Compare(a.File, b.File),
+			cmp.Compare(a.Line, b.Line),
+			cmp.Compare(a.Source, b.Source),
+			cmp.Compare(a.Name, b.Name),
+		) < 0
+	})
 }
 
 func routeScanSetup(fsys vfs.FS, root string, paths []string, quiet bool) (*configSet, []string) {
@@ -307,7 +326,7 @@ func writeRouteText(w io.Writer, resolved, unresolved []routeFinding, scanned in
 		for i := range resolved {
 			f := &resolved[i]
 
-			if i >= limit {
+			if limit > 0 && i >= limit {
 				break
 			}
 
@@ -361,7 +380,7 @@ func writeRouteText(w io.Writer, resolved, unresolved []routeFinding, scanned in
 		for i := range g {
 			f := &g[i]
 
-			if seen[f.Route] || shown >= limit {
+			if seen[f.Route] || (limit > 0 && shown >= limit) {
 				continue
 			}
 
