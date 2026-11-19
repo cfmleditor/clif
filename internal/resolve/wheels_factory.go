@@ -40,14 +40,10 @@ func (r *Resolver) wheelsFactoryReturnFor(def *parser.FunctionDef, expression, b
 		return ""
 	}
 
-	scanner := parser.NewSourceScanner(expression)
-	for scanner.PeekSkipComments().Kind != parser.TokLParen {
-		if scanner.NextSkipComments().Kind == parser.TokEOF {
-			return ""
-		}
+	scanner := callArgumentScanner(expression)
+	if scanner == nil {
+		return ""
 	}
-
-	scanner.NextSkipComments()
 
 	args := beanArguments(scanner)
 	if args == nil || scanner.NextSkipComments().Kind != parser.TokEOF {

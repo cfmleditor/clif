@@ -1,0 +1,6 @@
+--- FAIL: TestAncestorTraversalBoundsCyclesAndMatches (0.00s)
+    --- FAIL: TestAncestorTraversalBoundsCyclesAndMatches/cycle (0.00s)
+        ancestors_test.go:33: matched false, visited [a b c a b c a b c a b c]; want false, [a b c]
+FAIL
+FAIL	github.com/cfmleditor/clif/internal/resolve	1.021s
+FAIL

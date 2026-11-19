@@ -1,0 +1,27 @@
+File: clif-consolidation-after-server.test
+Type: cpu
+Time: 2026-11-19 15:52:12 AEST
+Duration: 9.37s, Total samples = 1000ms (10.68%)
+Showing nodes accounting for 470ms, 47.00% of 1000ms total
+Showing top 20 nodes out of 251
+      flat  flat%   sum%        cum   cum%
+         0     0%     0%      480ms 48.00%  github.com/cfmleditor/clif/internal/server.TestEditorSession
+         0     0%     0%      480ms 48.00%  testing.tRunner
+         0     0%     0%      470ms 47.00%  github.com/cfmleditor/clif/internal/parser.(*ParseResult).extractSignatures
+     470ms 47.00% 47.00%      470ms 47.00%  syscall.rawsyscalln
+         0     0% 47.00%      470ms 47.00%  syscall.syscall
+         0     0% 47.00%      470ms 47.00%  syscall.syscalln
+         0     0% 47.00%      460ms 46.00%  os.ignoringEINTR (inline)
+         0     0% 47.00%      450ms 45.00%  github.com/cfmleditor/clif/internal/parser.(*ParseResult).settleSignatures
+         0     0% 47.00%      390ms 39.00%  github.com/cfmleditor/clif/internal/parser.memoFuncLookup.func1
+         0     0% 47.00%      390ms 39.00%  github.com/cfmleditor/clif/internal/resolve.(*Resolver).funcLookupUncached.func1
+         0     0% 47.00%      380ms 38.00%  github.com/cfmleditor/clif/internal/parser.(*ParseResult).ApplyFullReplace (inline)
+         0     0% 47.00%      380ms 38.00%  github.com/cfmleditor/clif/internal/parser.(*ParseResult).reparseShallow
+         0     0% 47.00%      380ms 38.00%  github.com/cfmleditor/clif/internal/server.(*Server).flushReparse
+         0     0% 47.00%      380ms 38.00%  github.com/cfmleditor/clif/internal/server.(*Server).handleHover
+         0     0% 47.00%      380ms 38.00%  github.com/cfmleditor/clif/internal/server.(*Server).lockDoc
+         0     0% 47.00%      380ms 38.00%  github.com/cfmleditor/clif/internal/server.TestEditorSession.func3 (inline)
+         0     0% 47.00%      370ms 37.00%  github.com/cfmleditor/clif/internal/frameworkapi.overlay.Stat
+         0     0% 47.00%      370ms 37.00%  github.com/cfmleditor/clif/internal/resolve.(*Resolver).ReturnComponentOf
+         0     0% 47.00%      370ms 37.00%  github.com/cfmleditor/clif/internal/resolve.(*Resolver).producerReturn
+         0     0% 47.00%      370ms 37.00%  github.com/cfmleditor/clif/internal/resolve.(*Resolver).returnComponentOf

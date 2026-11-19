@@ -1,0 +1,12 @@
+--- FAIL: TestCallArgumentScannerPreservesStreamingReader (0.00s)
+    --- FAIL: TestCallArgumentScannerPreservesStreamingReader/factory() (0.00s)
+        token_readers_test.go:81: got [], want [[]]
+    --- FAIL: TestCallArgumentScannerPreservesStreamingReader/factory_/*_before_*/_(_/*_inside_*/_)_/*_after_*/ (0.00s)
+        token_readers_test.go:81: got [], want [[]]
+    --- FAIL: TestCallArgumentScannerPreservesStreamingReader/factory(name="(x,y)",_{one:[1,2]},_nested(a,b)) (0.00s)
+        token_readers_test.go:81: got [], want [[{name 8 0 1} {= 12 0 13} {"(x,y)" 13 0 2}] [{{ 22 0 6} {one 23 0 1} {: 26 0 18} {[ 27 0 8} {1 28 0 3} {, 29 0 11} {2 30 0 3} {] 31 0 9} {} 32 0 7}] [{nested 35 0 1} {( 41 0 4} {a 42 0 1} {, 43 0 11} {b 44 0 1} {) 45 0 5}]]
+    --- FAIL: TestCallArgumentScannerPreservesStreamingReader/factory("#nested('value')#") (0.00s)
+        token_readers_test.go:81: got [], want [[{"#nested('value')#" 8 0 2}]]
+FAIL
+FAIL	github.com/cfmleditor/clif/internal/resolve	0.961s
+FAIL

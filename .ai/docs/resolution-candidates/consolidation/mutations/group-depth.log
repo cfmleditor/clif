@@ -1,0 +1,14 @@
+--- FAIL: TestGroupEndKeepsDelimiterPolicies (0.00s)
+    --- FAIL: TestGroupEndKeepsDelimiterPolicies/nested (0.00s)
+        token_groups_test.go:28: got -1, want 3
+    --- FAIL: TestGroupEndKeepsDelimiterPolicies/other_delimiters (0.00s)
+        token_groups_test.go:28: got -1, want 2
+    --- FAIL: TestGroupEndKeepsDelimiterPolicies/EOF_is_not_a_delimiter (0.00s)
+        token_groups_test.go:28: got -1, want 2
+    --- FAIL: TestGroupEndKeepsDelimiterPolicies/unmatched_closer (0.00s)
+        token_groups_test.go:28: got 0, want -1
+--- FAIL: TestGroupEndMatchesPreviousBraceReader (0.00s)
+    token_groups_test.go:77: start 2, tokens [{ 0 0 0} { 0 0 4} { 0 0 9} { 0 0 6} { 0 0 8} { 0 0 0} { 0 0 1} { 0 0 0} { 0 0 4} { 0 0 0} { 0 0 8} { 0 0 7} { 0 0 1} { 0 0 7} { 0 0 0} { 0 0 1} { 0 0 0} { 0 0 6} { 0 0 4} { 0 0 7} { 0 0 6}]: got 13, want 11
+FAIL
+FAIL	github.com/cfmleditor/clif/internal/parser	1.065s
+FAIL

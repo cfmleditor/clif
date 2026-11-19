@@ -33,16 +33,7 @@ const maxInterpolationDepth = 4
 // expression inside one of their strings, and of the expressions inside
 // those. Every token's offset and line are the text's.
 func codeLists(tokens []parser.Token) [][]parser.Token {
-	top := tokens
-	if slices.ContainsFunc(tokens, func(t parser.Token) bool { return t.Kind == parser.TokNewline }) {
-		top = make([]parser.Token, 0, len(tokens))
-
-		for _, t := range tokens {
-			if t.Kind != parser.TokNewline {
-				top = append(top, t)
-			}
-		}
-	}
+	top := withoutNewlines(tokens)
 
 	lists := [][]parser.Token{top}
 
