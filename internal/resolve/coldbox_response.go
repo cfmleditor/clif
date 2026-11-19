@@ -37,29 +37,24 @@ func (r *Resolver) coldboxPrcResponse(variable string, pr *parser.ParseResult) s
 // own RestHandler does with a bare extends="EventHandler".
 func (r *Resolver) reachesEventHandler(path string) bool {
 	target := r.ComponentPath("coldbox.system.EventHandler", filepath.Dir(path))
-	seen := map[string]bool{}
 
-	for depth := 0; path != "" && !seen[path] && depth < 12; depth++ {
-		seen[path] = true
-
+	return walkAncestors(path, 12, func(path string) (string, bool) {
 		ext, ok := r.extendsOf(path, cfpath.ToURI(path))
 		if !ok || ext == "" {
-			return false
+			return "", false
 		}
 
 		if strings.EqualFold(ext, "coldbox.system.EventHandler") {
-			return true
+			return "", true
 		}
 
 		next := r.ComponentPath(ext, filepath.Dir(path))
 		if next != "" && target != "" && cfpath.SamePath(next, target) {
-			return true
+			return "", true
 		}
 
-		path = next
-	}
-
-	return false
+		return next, false
+	})
 }
 
 // writesPrcResponse reports whether tokens, a file's, assign prc.response or

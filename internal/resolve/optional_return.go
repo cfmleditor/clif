@@ -35,16 +35,8 @@ func (r *Resolver) absentArgumentComponent(fd *parser.FunctionDef, expression, b
 		return ""
 	}
 
-	scanner := parser.NewSourceScanner(expression)
-	for scanner.PeekSkipComments().Kind != parser.TokLParen {
-		if scanner.NextSkipComments().Kind == parser.TokEOF {
-			return ""
-		}
-	}
-
-	scanner.NextSkipComments()
-
-	if scanner.NextSkipComments().Kind != parser.TokRParen || scanner.NextSkipComments().Kind != parser.TokEOF {
+	scanner := callArgumentScanner(expression)
+	if scanner == nil || scanner.NextSkipComments().Kind != parser.TokRParen || scanner.NextSkipComments().Kind != parser.TokEOF {
 		return ""
 	}
 
@@ -80,7 +72,12 @@ func absentArgumentReturn(params [][]parser.Token, body []parser.Token) string {
 		return ""
 	}
 
-	body = afterGuardBlock(body[10:])
+	end := parser.GroupEnd(body, 9, parser.TokLBrace, parser.TokRBrace)
+	if end < 0 {
+		return ""
+	}
+
+	body = body[end+1:]
 	if len(body) < 7 || !tokenValues(body[:3], "else", "{", "return") {
 		return ""
 	}
@@ -146,27 +143,6 @@ func skipLiteralLocals(body []parser.Token) []parser.Token {
 	}
 
 	return body
-}
-
-func afterGuardBlock(body []parser.Token) []parser.Token {
-	depth := 1
-
-	for i, tok := range body {
-		switch tok.Kind {
-		case parser.TokLBrace:
-			depth++
-		case parser.TokRBrace:
-			depth--
-		default:
-			// Other tokens do not change block depth.
-		}
-
-		if depth == 0 {
-			return body[i+1:]
-		}
-	}
-
-	return nil
 }
 
 func tokenValues(tokens []parser.Token, values ...string) bool {

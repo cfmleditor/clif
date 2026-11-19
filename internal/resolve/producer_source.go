@@ -351,22 +351,7 @@ func scriptProducerMethod(params [][]parser.Token, body []parser.Token) *produce
 }
 
 func producerGroupEnd(tokens []parser.Token, start int, open, closing parser.TokenKind) int {
-	depth := 0
-
-	for i := start; i < len(tokens); i++ {
-		if tokens[i].Kind == open {
-			depth++
-		}
-
-		if tokens[i].Kind == closing {
-			depth--
-			if depth == 0 {
-				return i
-			}
-		}
-	}
-
-	return -1
+	return parser.GroupEnd(tokens, start, open, closing)
 }
 
 func producerSplit(tokens []parser.Token) [][]parser.Token {

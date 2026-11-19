@@ -54,18 +54,14 @@ func (r *Resolver) moduleHelper(pr *parser.ParseResult, funcName, baseDir string
 // reachesColdBox reports whether the component at path extends one of
 // ColdBox's own, directly or through its bases.
 func (r *Resolver) reachesColdBox(path, baseDir string) bool {
-	seen := map[string]bool{}
-
-	for depth := 0; path != "" && !seen[path] && depth < 12; depth++ {
-		seen[path] = true
-
+	return walkAncestors(path, 12, func(path string) (string, bool) {
 		ext, ok := r.extendsOf(path, cfpath.ToURI(path))
 		if !ok || ext == "" {
-			return false
+			return "", false
 		}
 
 		if len(ext) > len("coldbox.system.") && strings.EqualFold(ext[:len("coldbox.system.")], "coldbox.system.") {
-			return true
+			return "", true
 		}
 
 		next := r.ComponentPath(ext, filepath.Dir(path))
@@ -73,10 +69,8 @@ func (r *Resolver) reachesColdBox(path, baseDir string) bool {
 			next = r.ComponentPath(ext, baseDir)
 		}
 
-		path = next
-	}
-
-	return false
+		return next, false
+	})
 }
 
 // declaresMemento reports whether text's code assigns this.memento.

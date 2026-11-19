@@ -1,0 +1,22 @@
+File: clif-consolidation-after-server.test
+Type: cpu
+Time: 2026-11-19 15:52:12 AEST
+Duration: 9.37s, Total samples = 1000ms (10.68%)
+Showing nodes accounting for 990ms, 99.00% of 1000ms total
+Showing top 15 nodes out of 251
+      flat  flat%   sum%        cum   cum%
+     470ms 47.00% 47.00%      470ms 47.00%  syscall.rawsyscalln
+     130ms 13.00% 60.00%      130ms 13.00%  runtime.madvise
+      80ms  8.00% 68.00%       80ms  8.00%  runtime.pthread_cond_signal
+      60ms  6.00% 74.00%       60ms  6.00%  runtime.pthread_cond_wait
+      60ms  6.00% 80.00%       60ms  6.00%  runtime.pthread_kill
+      50ms  5.00% 85.00%       50ms  5.00%  runtime.kevent
+      40ms  4.00% 89.00%       40ms  4.00%  internal/bytealg.IndexByteString
+      30ms  3.00% 92.00%       30ms  3.00%  runtime.usleep
+      10ms  1.00% 93.00%       10ms  1.00%  github.com/cfmleditor/clif/internal/parser.(*scriptParser).addPendingCall
+      10ms  1.00% 94.00%       20ms  2.00%  github.com/cfmleditor/clif/internal/parser.findPrefixPos-range1
+      10ms  1.00% 95.00%       10ms  1.00%  github.com/cfmleditor/clif/internal/parser.rarestByte
+      10ms  1.00% 96.00%      130ms 13.00%  runtime.(*mheap).allocSpan
+      10ms  1.00% 97.00%       10ms  1.00%  runtime.(*spanSet).push
+      10ms  1.00% 98.00%       10ms  1.00%  runtime.findfunc
+      10ms  1.00% 99.00%       10ms  1.00%  runtime.heapArenaOf

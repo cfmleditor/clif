@@ -36,28 +36,22 @@ func (r *Resolver) isWheelsModel(path string) bool {
 // component base names or one whose path ends in suffix (lowercase, with
 // forward slashes).
 func (r *Resolver) extendsReaches(path, base, suffix string) bool {
-	seen := map[string]bool{}
-
-	for depth := 0; path != "" && !seen[path] && depth < 8; depth++ {
-		seen[path] = true
-
+	return walkAncestors(path, 8, func(path string) (string, bool) {
 		if strings.HasSuffix(strings.ToLower(filepath.ToSlash(path)), suffix) {
-			return true
+			return "", true
 		}
 
 		ext, ok := r.extendsOf(path, cfpath.ToURI(path))
 		if !ok || ext == "" {
-			return false
+			return "", false
 		}
 
 		if strings.EqualFold(ext, base) {
-			return true
+			return "", true
 		}
 
-		path = r.ComponentPath(ext, filepath.Dir(path))
-	}
-
-	return false
+		return r.ComponentPath(ext, filepath.Dir(path)), false
+	})
 }
 
 // receiverReturn is what a call to method on the component at path returns

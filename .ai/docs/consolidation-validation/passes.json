@@ -1,0 +1,86 @@
+{
+  "before": [
+    [
+      "first open in a session",
+      "22.29",
+      "11"
+    ],
+    [
+      "a second component's open",
+      "13.47",
+      "6"
+    ],
+    [
+      "reopening the first",
+      "1.90",
+      "1"
+    ],
+    [
+      "folding",
+      "1.00",
+      "0"
+    ],
+    [
+      "document links",
+      "1.00",
+      "0"
+    ],
+    [
+      "hover on a call",
+      "0.00",
+      "0"
+    ],
+    [
+      "a keystroke inside a function",
+      "0.09",
+      "1"
+    ],
+    [
+      "a keystroke outside any function",
+      "2.90",
+      "0"
+    ]
+  ],
+  "after": [
+    [
+      "first open in a session",
+      "22.29",
+      "11"
+    ],
+    [
+      "a second component's open",
+      "13.47",
+      "6"
+    ],
+    [
+      "reopening the first",
+      "1.90",
+      "1"
+    ],
+    [
+      "folding",
+      "1.00",
+      "0"
+    ],
+    [
+      "document links",
+      "1.00",
+      "0"
+    ],
+    [
+      "hover on a call",
+      "0.00",
+      "0"
+    ],
+    [
+      "a keystroke inside a function",
+      "0.09",
+      "1"
+    ],
+    [
+      "a keystroke outside any function",
+      "2.90",
+      "0"
+    ]
+  ]
+}

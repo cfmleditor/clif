@@ -85,22 +85,22 @@ func componentAttribute(tokens []parser.Token, attribute string) (string, int) {
 // coldboxTestBase is the ColdBox test base path's extends chain reaches,
 // lowercased, or "".
 func (r *Resolver) coldboxTestBase(path string) string {
-	seen := map[string]bool{}
+	base := ""
 
-	for depth := 0; path != "" && !seen[path] && depth < 12; depth++ {
-		seen[path] = true
-
+	walkAncestors(path, 12, func(path string) (string, bool) {
 		ext, ok := r.extendsOf(path, cfpath.ToURI(path))
 		if !ok || ext == "" {
-			return ""
+			return "", false
 		}
 
 		if _, known := coldboxTestBases[strings.ToLower(ext)]; known {
-			return strings.ToLower(ext)
+			base = strings.ToLower(ext)
+
+			return "", true
 		}
 
-		path = r.ComponentPath(ext, filepath.Dir(path))
-	}
+		return r.ComponentPath(ext, filepath.Dir(path)), false
+	})
 
-	return ""
+	return base
 }

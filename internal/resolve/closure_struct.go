@@ -2,7 +2,6 @@ package resolve
 
 import (
 	"path/filepath"
-	"slices"
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/docs"
@@ -420,23 +419,7 @@ func (r *Resolver) closureStructHops(fd *parser.FunctionDef, comp, hop string, c
 }
 
 func significantTokens(text string) []parser.Token {
-	all := allTokens(text)
-
-	// Comment-skipping drops newlines, so there is usually nothing to filter and
-	// the shared slice is the answer. Callers read it and do not edit it.
-	if !slices.ContainsFunc(all, func(t parser.Token) bool { return t.Kind == parser.TokNewline }) {
-		return all
-	}
-
-	out := make([]parser.Token, 0, len(all))
-
-	for _, t := range all {
-		if t.Kind != parser.TokNewline {
-			out = append(out, t)
-		}
-	}
-
-	return out
+	return withoutNewlines(allTokens(text))
 }
 
 func indexKind(tokens []parser.Token, from int, kind parser.TokenKind) int {
@@ -451,22 +434,7 @@ func indexKind(tokens []parser.Token, from int, kind parser.TokenKind) int {
 
 // matchingBrace is the index of the } closing the { at open.
 func matchingBrace(tokens []parser.Token, open int) int {
-	depth := 0
-
-	for i := open; i < len(tokens); i++ {
-		switch tokens[i].Kind {
-		case parser.TokLBrace:
-			depth++
-		case parser.TokRBrace:
-			depth--
-			if depth == 0 {
-				return i
-			}
-		default:
-		}
-	}
-
-	return -1
+	return parser.GroupEnd(tokens, open, parser.TokLBrace, parser.TokRBrace)
 }
 
 // structReturnedLocal is the one name every return at the body's own level returns
