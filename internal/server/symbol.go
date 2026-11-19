@@ -75,17 +75,24 @@ func (s *Server) handleWorkspaceSymbol(_ context.Context, rawParams []byte) (any
 
 	query := strings.ToLower(params.Query)
 
-	// Filtered inside the index, which tests the query once per distinct name
-	// rather than once per definition, and never builds the discarded
-	// remainder. AllFunctions here cost 3.1MB per keystroke on a
-	// 40,000-definition workspace to return a few dozen symbols.
-	defs := s.index.FunctionsMatching(func(name string) bool {
+	match := func(name string) bool {
 		return query == "" || containsFoldStr(name, query)
-	})
-	defs = browsableWorkspaceSymbols(defs)
+	}
 
-	if len(query) < 3 && len(defs) > workspaceSymbolShortQueryLimit {
-		defs = bestWorkspaceSymbols(defs, query, workspaceSymbolShortQueryLimit)
+	var defs []*parser.FunctionDef
+
+	if len(query) < 3 {
+		selection := workspaceSymbolHeap{query: query}
+		if !s.index.VisitMatchingFunctionBatches(match, selection.visit) {
+			// Function definitions changed between batches. Retry from a full
+			// snapshot so the results still all come from one generation.
+			selection = workspaceSymbolHeap{query: query}
+			selection.visit(s.index.FunctionsMatching(match))
+		}
+
+		defs = selection.results()
+	} else {
+		defs = browsableWorkspaceSymbols(s.index.FunctionsMatching(match))
 	}
 
 	symbols := make([]protocol.SymbolInformation, 0, len(defs))
@@ -124,8 +131,9 @@ func compareWorkspaceSymbols(a, b *parser.FunctionDef, query string) int {
 }
 
 type workspaceSymbolHeap struct {
-	defs  []*parser.FunctionDef
-	query string
+	defs   []*parser.FunctionDef
+	query  string
+	capped bool
 }
 
 func (h *workspaceSymbolHeap) Len() int { return len(h.defs) }
@@ -150,20 +158,41 @@ func (h *workspaceSymbolHeap) Pop() any {
 	return value
 }
 
-func bestWorkspaceSymbols(defs []*parser.FunctionDef, query string, limit int) []*parser.FunctionDef {
-	h := &workspaceSymbolHeap{defs: append([]*parser.FunctionDef(nil), defs[:limit]...), query: query}
-	heap.Init(h)
+func (h *workspaceSymbolHeap) visit(defs []*parser.FunctionDef) {
+	for _, def := range browsableWorkspaceSymbols(defs) {
+		h.consider(def)
+	}
+}
 
-	for _, d := range defs[limit:] {
-		if compareWorkspaceSymbols(d, h.defs[0], query) < 0 {
-			h.defs[0] = d
-			heap.Fix(h, 0)
+func (h *workspaceSymbolHeap) consider(def *parser.FunctionDef) {
+	if len(h.defs) < workspaceSymbolShortQueryLimit {
+		if len(h.defs) == cap(h.defs) {
+			capacity := min(max(8, 2*len(h.defs)), workspaceSymbolShortQueryLimit)
+			h.defs = append(make([]*parser.FunctionDef, 0, capacity), h.defs...)
 		}
+
+		h.defs = append(h.defs, def)
+
+		return
 	}
 
-	slices.SortFunc(h.defs, func(a, b *parser.FunctionDef) int {
-		return compareWorkspaceSymbols(a, b, query)
-	})
+	if !h.capped {
+		h.capped = true
+		heap.Init(h)
+	}
+
+	if compareWorkspaceSymbols(def, h.defs[0], h.query) < 0 {
+		h.defs[0] = def
+		heap.Fix(h, 0)
+	}
+}
+
+func (h *workspaceSymbolHeap) results() []*parser.FunctionDef {
+	if h.capped {
+		slices.SortFunc(h.defs, func(a, b *parser.FunctionDef) int {
+			return compareWorkspaceSymbols(a, b, h.query)
+		})
+	}
 
 	return h.defs
 }

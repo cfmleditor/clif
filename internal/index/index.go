@@ -19,6 +19,7 @@ import (
 // Index is a concurrency-safe store of function definitions keyed by name.
 type Index struct {
 	mu            writeCountingMutex
+	funcGen       uint64                                       // protected by mu; advances when function buckets change
 	funcs         map[string][]*parser.FunctionDef             // lowercase name -> definitions
 	fileFuncs     map[string][]*parser.FunctionDef             // lowercase URI -> definitions in that file
 	comprefs      map[string][]*parser.ComponentRef            // lowercase variable -> refs
@@ -254,6 +255,58 @@ func (idx *Index) FunctionsMatching(match func(loweredName string) bool) []*pars
 	}
 
 	return all
+}
+
+const matchingFunctionBatchSize = 256
+
+// VisitMatchingFunctionBatches visits bounded copies of the matching buckets.
+// Match runs under the read lock once per name and must not re-enter the index.
+// Visit runs without the lock and may retain the immutable definitions. The
+// slice is reused. A false result means a definition changed between batches and the
+// caller must discard it.
+func (idx *Index) VisitMatchingFunctionBatches(match func(loweredName string) bool, visit func([]*parser.FunctionDef)) bool {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+
+	generation := idx.funcGen
+	visitUnlocked := func(batch []*parser.FunctionDef) {
+		idx.mu.RUnlock()
+		defer idx.mu.RLock()
+
+		visit(batch)
+	}
+
+	var batch [matchingFunctionBatchSize]*parser.FunctionDef
+
+	used := 0
+
+	for name, defs := range idx.funcs {
+		if !match(name) {
+			continue
+		}
+
+		for len(defs) > 0 {
+			copied := copy(batch[used:], defs)
+			used += copied
+			defs = defs[copied:]
+
+			if used == len(batch) {
+				visitUnlocked(batch[:])
+
+				if idx.funcGen != generation {
+					return false
+				}
+
+				used = 0
+			}
+		}
+	}
+
+	if used > 0 {
+		visitUnlocked(batch[:used])
+	}
+
+	return true
 }
 
 // Every entry below is filed as new(funcs[i]) — a copy the index alone owns —
@@ -592,6 +645,10 @@ func (idx *Index) ShiftLines(fileURI uri.URI, afterLine int, delta int) {
 	// Only the buckets holding a replaced entry need touching. A definition
 	// lives under its lowercased name and a ref under its lowercased variable,
 	// so the affected keys are known without searching for them.
+	if len(funcReps) > 0 {
+		idx.funcGen++
+	}
+
 	for name, reps := range funcReps {
 		remap(idx.funcs[name], reps)
 	}
@@ -705,16 +762,7 @@ func (idx *Index) indexParseResult(fileURI uri.URI, content string, pr *parser.P
 
 	idx.setIncludesLocked(fileURI, includes)
 
-	fileDefs := make([]*parser.FunctionDef, 0, len(funcs))
-
-	for i := range funcs {
-		d := new(funcs[i])
-		key := strings.ToLower(d.Name)
-		idx.funcs[key] = append(idx.funcs[key], d)
-		fileDefs = append(fileDefs, d)
-	}
-
-	idx.fileFuncs[fk] = fileDefs
+	idx.storeFileFunctionsLocked(fk, funcs)
 	idx.fileURIs[fk] = uri.URI(strings.Clone(string(fileURI)))
 	idx.markDiskRevision(fk)
 
@@ -728,6 +776,23 @@ func (idx *Index) indexParseResult(fileURI uri.URI, content string, pr *parser.P
 	}
 
 	idx.fileRefs[fk] = fileRefsList
+}
+
+func (idx *Index) storeFileFunctionsLocked(fk string, funcs []parser.FunctionDef) {
+	if len(funcs) > 0 {
+		idx.funcGen++
+	}
+
+	fileDefs := make([]*parser.FunctionDef, 0, len(funcs))
+
+	for i := range funcs {
+		d := new(funcs[i])
+		key := strings.ToLower(d.Name)
+		idx.funcs[key] = append(idx.funcs[key], d)
+		fileDefs = append(fileDefs, d)
+	}
+
+	idx.fileFuncs[fk] = fileDefs
 }
 
 // IndexFileFromResult updates the index using pre-parsed function defs and refs
@@ -766,16 +831,7 @@ func (idx *Index) indexFileFromResult(fileURI uri.URI, funcs []parser.FunctionDe
 	idx.removeFileEntries(fileURI)
 	fk := uriKey(fileURI)
 
-	fileDefs := make([]*parser.FunctionDef, 0, len(funcs))
-
-	for i := range funcs {
-		d := new(funcs[i])
-		key := strings.ToLower(d.Name)
-		idx.funcs[key] = append(idx.funcs[key], d)
-		fileDefs = append(fileDefs, d)
-	}
-
-	idx.fileFuncs[fk] = fileDefs
+	idx.storeFileFunctionsLocked(fk, funcs)
 	idx.fileURIs[fk] = uri.URI(strings.Clone(string(fileURI)))
 
 	if disk {
@@ -847,6 +903,12 @@ func (idx *Index) RemoveFilesUnder(prefix string) {
 		filtered := keepIf(entries, func(e *parser.FunctionDef) bool {
 			return !strings.HasPrefix(string(e.URI), prefix)
 		})
+
+		if len(filtered) == len(entries) {
+			continue
+		}
+
+		idx.funcGen++
 
 		if len(filtered) == 0 {
 			delete(idx.funcs, key)
@@ -984,6 +1046,10 @@ func (idx *Index) removeFileEntries(fileURI uri.URI) {
 	// entries of this file that carry that one name, which is one of them
 	// except where a file declares the same name twice, so the test is a
 	// pointer comparison or two.
+	if len(idx.fileFuncs[key]) > 0 {
+		idx.funcGen++
+	}
+
 	for name, group := range groupFuncsByName(idx.fileFuncs[key]) {
 		if filtered := dropEntries(idx.funcs[name], group); len(filtered) == 0 {
 			delete(idx.funcs, name)
