@@ -1,0 +1,2 @@
+# Unified diff context starts with a space even when the source is tab-indented.
+*.patch whitespace=-space-before-tab

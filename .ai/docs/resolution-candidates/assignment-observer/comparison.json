@@ -1,0 +1,98 @@
+{
+  "ColdBox_coldbox-platform": {
+    "files": 652,
+    "script-regions": 596,
+    "exact": 172,
+    "changed-regions": 424,
+    "changed-files": 419,
+    "baseline": 18874,
+    "observer": 10081,
+    "missing": 8793,
+    "extra": 0,
+    "unknown-missing": 2241,
+    "element-missing": 534
+  },
+  "cfwheels_cfwheels": {
+    "files": 1713,
+    "script-regions": 1559,
+    "exact": 237,
+    "changed-regions": 1322,
+    "changed-files": 1314,
+    "baseline": 92649,
+    "observer": 46861,
+    "missing": 45788,
+    "extra": 0,
+    "unknown-missing": 15084,
+    "element-missing": 982
+  },
+  "Ortus-Solutions_ContentBox": {
+    "files": 724,
+    "script-regions": 453,
+    "exact": 57,
+    "changed-regions": 396,
+    "changed-files": 395,
+    "baseline": 19071,
+    "observer": 8690,
+    "missing": 10381,
+    "extra": 0,
+    "unknown-missing": 1425,
+    "element-missing": 254
+  },
+  "Ortus-Solutions_TestBox": {
+    "files": 145,
+    "script-regions": 124,
+    "exact": 16,
+    "changed-regions": 108,
+    "changed-files": 103,
+    "baseline": 4885,
+    "observer": 2399,
+    "missing": 2486,
+    "extra": 0,
+    "unknown-missing": 768,
+    "element-missing": 127
+  },
+  "framework-one_fw1": {
+    "files": 305,
+    "script-regions": 231,
+    "exact": 54,
+    "changed-regions": 177,
+    "changed-files": 177,
+    "baseline": 4097,
+    "observer": 2629,
+    "missing": 1468,
+    "extra": 0,
+    "unknown-missing": 175,
+    "element-missing": 72
+  },
+  "MSU-NatSci_MuraCMS": {
+    "files": 937,
+    "script-regions": 572,
+    "exact": 225,
+    "changed-regions": 347,
+    "changed-files": 311,
+    "baseline": 22794,
+    "observer": 11041,
+    "missing": 11753,
+    "extra": 0,
+    "unknown-missing": 606,
+    "element-missing": 1277
+  },
+  "lucee_Lucee": {
+    "files": 3775,
+    "script-regions": 3369,
+    "exact": 525,
+    "changed-regions": 2844,
+    "changed-files": 2812,
+    "baseline": 78889,
+    "observer": 28198,
+    "missing": 50691,
+    "extra": 0,
+    "unknown-missing": 13448,
+    "element-missing": 5069
+  },
+  "checked-token-tapes": {
+    "script-regions": 6904,
+    "accepted-exact": 6597,
+    "fallback": 307
+  }
+}

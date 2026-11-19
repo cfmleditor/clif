@@ -1,0 +1,273 @@
+diff --git a/internal/parser/assignment_observer_probe.go b/internal/parser/assignment_observer_probe.go
+new file mode 100644
+--- /dev/null
++++ b/internal/parser/assignment_observer_probe.go
+@@ -0,0 +1,3 @@
++package parser
++
++var probeAssignmentSites map[int][]int
+diff --git a/internal/parser/assignment_observer_probe_test.go b/internal/parser/assignment_observer_probe_test.go
+new file mode 100644
+--- /dev/null
++++ b/internal/parser/assignment_observer_probe_test.go
+@@ -0,0 +1,154 @@
++package parser
++
++import (
++	"io/fs"
++	"os"
++	"path/filepath"
++	"slices"
++	"strings"
++	"testing"
++
++	"github.com/cfmleditor/clif/internal/lex"
++	"go.lsp.dev/uri"
++)
++
++// Read the target and expression only at offsets the parser visited as
++// assignments. Reuse the current expression boundary rule.
++func probeWrites(src string, sites []int, toks []Token) []expressionWrite {
++	if len(sites) == 0 {
++		return nil
++	}
++	slices.Sort(sites)
++	sites = slices.Compact(sites)
++	ends := newExpressionEndsFrom(src, toks)
++	sc := newReplayScanner(src, &toks)
++	var writes []expressionWrite
++	for _, site := range sites {
++		i, found := slices.BinarySearchFunc(toks, site, func(tok Token, at int) int { return tok.Offset - at })
++		if !found || i > 0 && (toks[i-1].Kind == TokDot || toks[i-1].Kind == TokDoubleColon) {
++			continue
++		}
++		t := toks[i]
++		sc.Restore(ScannerState{pos: site, line: int(t.Line)})
++		root, elem := collectionTarget(sc)
++		local := identEq(t.Value, "var")
++		if local {
++			root, elem = collectionTarget(sc)
++		}
++		if root == "" || sc.NextSkipComments().Kind != TokEquals || sc.PeekSkipComments().Kind == TokEquals {
++			continue
++		}
++		local = local || lex.HasPrefixFold(root, "local.")
++		writes = append(writes, expressionWrite{write: collectionWrite{
++			target: root, expression: ends.from(sc.PeekSkipComments().Offset), element: elem, local: local,
++		}, at: site, placed: true})
++	}
++	return writes
++}
++
++func TestAssignmentObserverCorpusProbe(t *testing.T) {
++	type counts struct {
++		files, scripts, mismatch, mismatchedFiles, exact, baseline, candidate int
++		missing, extra, unknown, element                                      int
++	}
++	var totals counts
++	for _, root := range filepath.SplitList(os.Getenv("CLIF_ASSIGN_PROBE_ROOTS")) {
++		if root == "" {
++			continue
++		}
++		var c counts
++		err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
++			if err != nil {
++				return err
++			}
++			if entry.IsDir() {
++				if entry.Name() == ".git" || entry.Name() == "node_modules" {
++					return filepath.SkipDir
++				}
++				return nil
++			}
++			ext := strings.ToLower(filepath.Ext(path))
++			if ext != ".cfc" && ext != ".cfm" {
++				return nil
++			}
++			data, err := os.ReadFile(path)
++			if err != nil {
++				return err
++			}
++			if len(data) > 2<<20 {
++				return nil
++			}
++			c.files++
++			probeAssignmentSites = make(map[int][]int)
++			pr := ParseWithOptions(uri.File(path), string(data), &ParseOptions{ExtractCalls: true})
++			fileMismatch := false
++			for _, r := range pr.Regions {
++				if r.Kind != RegionScript {
++					continue
++				}
++				c.scripts++
++				toks := scriptTokensOf(r.Text)
++				base := scanExpressionWritesFrom(newReplayScanner(r.Text, toks), r.Text, *toks)
++				candidate := probeWrites(r.Text, probeAssignmentSites[r.Offset], *toks)
++				c.baseline += len(base)
++				c.candidate += len(candidate)
++				if slices.Equal(base, candidate) {
++					c.exact++
++					continue
++				}
++				c.mismatch++
++				fileMismatch = true
++				observed := map[expressionWrite]int{}
++				for _, got := range candidate {
++					observed[got]++
++				}
++				for _, expected := range base {
++					if observed[expected] > 0 {
++						observed[expected]--
++						continue
++					}
++					c.missing++
++					if expected.write.unknown {
++						c.unknown++
++					}
++					if expected.write.element {
++						c.element++
++					}
++					if c.missing <= 10 {
++						t.Logf("%s byte %d missing target=%q unknown=%v element=%v expression prefix=%q",
++							filepath.Base(path), r.Offset+expected.at, expected.write.target, expected.write.unknown,
++							expected.write.element, expected.write.expression[:min(85, len(expected.write.expression))])
++					}
++				}
++				for _, n := range observed {
++					c.extra += n
++				}
++			}
++			if fileMismatch {
++				c.mismatchedFiles++
++			}
++			probeAssignmentSites = nil
++			return nil
++		})
++		if err != nil {
++			t.Fatal(err)
++		}
++		t.Logf("%s files=%d script-regions=%d exact=%d changed-regions=%d changed-files=%d baseline=%d observer=%d missing=%d extra=%d unknown-missing=%d element-missing=%d",
++			filepath.Base(root), c.files, c.scripts, c.exact, c.mismatch, c.mismatchedFiles, c.baseline, c.candidate, c.missing, c.extra, c.unknown, c.element)
++		totals.files += c.files
++		totals.scripts += c.scripts
++		totals.exact += c.exact
++		totals.mismatch += c.mismatch
++		totals.mismatchedFiles += c.mismatchedFiles
++		totals.baseline += c.baseline
++		totals.candidate += c.candidate
++		totals.missing += c.missing
++		totals.extra += c.extra
++		totals.unknown += c.unknown
++		totals.element += c.element
++	}
++	if totals.files == 0 {
++		t.Fatal("no files read")
++	}
++	t.Logf("total %+v", totals)
++}
+diff --git a/internal/parser/result.go b/internal/parser/result.go
+--- a/internal/parser/result.go
++++ b/internal/parser/result.go
+@@ -775,6 +775,9 @@
+ func (pr *ParseResult) mergeScriptRegion(r *Region, tagScopes []FuncScope, open *openLocals) []pendingCall {
+ 	sp := newScriptParser(r.Text, string(pr.URI), r.StartLine, pr.Resolvers).asCFScript()
+ 	sp.baseOffset = r.Offset
++	if probeAssignmentSites != nil {
++		sp.assignmentProbe = func(at int) { probeAssignmentSites[r.Offset] = append(probeAssignmentSites[r.Offset], at) }
++	}
+ 	sp.resolverSet = pr.resolverSet
+ 	sp.extractCalls = pr.walksCalls()
+ 	sp.setCallNames(pr.callNames())
+diff --git a/internal/parser/script_parser.go b/internal/parser/script_parser.go
+--- a/internal/parser/script_parser.go
++++ b/internal/parser/script_parser.go
+@@ -19,6 +19,7 @@
+ // scriptParser extracts function signatures, component refs, and variable
+ // declarations from CFScript source in a single pass.
+ type scriptParser struct {
++	assignmentProbe     func(int)
+ 	sc                  *Scanner
+ 	funcs               []FunctionDef
+ 	vars                []VarDef
+@@ -925,6 +926,10 @@
+ 	}
+
+ 	p.sc.NextSkipComments() // consume =
++	if p.assignmentProbe != nil {
++		p.assignmentProbe(tok.Offset)
++		p.assignmentProbe(nameTok.Offset)
++	}
+
+ 	if p.localVarSet != nil {
+ 		p.localVarSet[strings.ToLower(nameTok.Value)] = true
+@@ -1185,6 +1190,9 @@
+ 	}
+
+ 	p.sc.NextSkipComments() // consume =
++	if p.assignmentProbe != nil {
++		p.assignmentProbe(tok.Offset)
++	}
+
+ 	p.vars = append(p.vars, VarDef{
+ 		Name: nameTok.Value, Scope: scope,
+@@ -1289,6 +1297,9 @@
+ 	}
+
+ 	next := p.sc.PeekSkipComments()
++	if next.Kind == TokEquals && p.assignmentProbe != nil {
++		p.assignmentProbe(tok.Offset)
++	}
+ 	if next.Kind == TokIdent && identEq(next.Value, "function") {
+ 		p.sc.NextSkipComments()
+ 		p.parseFunction(tok, "", retVal.String())
+@@ -3084,6 +3095,10 @@
+ 	}
+
+ 	p.sc.NextSkipComments() // consume =
++	if p.assignmentProbe != nil {
++		p.assignmentProbe(varTok.Offset)
++		p.assignmentProbe(nameTok.Offset)
++	}
+ 	p.noteAssign(nameTok.Value, int(varTok.Line))
+
+ 	p.localVarSet[strings.ToLower(nameTok.Value)] = true
+@@ -3152,6 +3167,9 @@
+ 	}
+
+ 	p.sc.NextSkipComments() // consume =
++	if p.assignmentProbe != nil {
++		p.assignmentProbe(scopeTok.Offset)
++	}
+ 	p.noteAssign(nameTok.Value, int(scopeTok.Line))
+
+ 	p.vars = append(p.vars, VarDef{
+@@ -3264,6 +3282,9 @@
+ 	}
+
+ 	p.sc.NextSkipComments() // consume =
++	if p.assignmentProbe != nil {
++		p.assignmentProbe(tok.Offset)
++	}
+ 	p.noteAssign(tok.Value, int(tok.Line))
+
+ 	// Record the variable
+@@ -3523,6 +3544,9 @@
+ 		p.recordChainFromScope(fullChain.String(), int(callLine))
+ 	case TokEquals:
+ 		if chain := strings.Split(fullChain.String(), "."); len(chain) > 2 {
++			if p.assignmentProbe != nil {
++				p.assignmentProbe(scopeTok.Offset)
++			}
+ 			p.checkMemberSet(chain, int(scopeTok.Line))
+ 		}
+ 	default:
+@@ -3708,6 +3732,9 @@
+
+ 	// Must end with ( to be a call
+ 	if p.sc.PeekSkipComments().Kind != TokLParen {
++		if p.assignmentProbe != nil {
++			p.assignmentProbe(tok.Offset)
++		}
+ 		p.checkMemberSet(identChain, int(tok.Line))
+
+ 		return
