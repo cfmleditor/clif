@@ -11,7 +11,7 @@ import tempfile
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("probe", choices=("assignments", "tokens", "benchmark", "selective", "selective-benchmark"))
+    parser.add_argument("probe", choices=("assignments", "tokens", "benchmark", "selective", "selective-benchmark", "editor"))
     parser.add_argument("paths", nargs="+", type=Path)
     args = parser.parse_args()
 
@@ -25,9 +25,13 @@ def main():
     here = Path(__file__).resolve().parent
     repo = here.parents[3]
     patch = here / ("assignment-offsets.patch" if args.probe == "assignments" else "checked-tokens.patch")
-    if args.probe.startswith("selective"):
+    if args.probe.startswith("selective") or args.probe == "editor":
         patch = here / "selective-tokens.patch"
-    files = [Path(line.removeprefix("+++ b/")) for line in patch.read_text().splitlines() if line.startswith("+++ b/")]
+    patches = [patch]
+    if args.probe == "editor":
+        patches.append(here / "editor-workload.patch")
+    files = [Path(line.removeprefix("+++ b/")) for source in patches
+             for line in source.read_text().splitlines() if line.startswith("+++ b/")]
     env = dict(os.environ)
     env.setdefault("GOMAXPROCS", "2")
     if args.probe.endswith("benchmark"):
@@ -47,10 +51,15 @@ def main():
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(source, destination)
 
-        subprocess.run(["git", "apply", str(patch)], cwd=scratch, check=True)
+        subprocess.run(["git", "apply", *map(str, patches)], cwd=scratch, check=True)
+        replacements = {str(repo / path): str(scratch / path) for path in files}
+        package = "./internal/parser"
+        if args.probe == "editor":
+            package = "./internal/server"
+            flags = ["-run", "^TestCorpusEditorTokenReuse$", "-count=1", "-v", "-timeout=30m"]
         overlay = scratch / "overlay.json"
-        overlay.write_text(json.dumps({"Replace": {str(repo / path): str(scratch / path) for path in files}}))
-        subprocess.run(["go", "test", f"-overlay={overlay}", *flags, "./internal/parser"], cwd=repo, env=env, check=True)
+        overlay.write_text(json.dumps({"Replace": replacements}))
+        subprocess.run(["go", "test", f"-overlay={overlay}", *flags, package], cwd=repo, env=env, check=True)
 
 
 if __name__ == "__main__":

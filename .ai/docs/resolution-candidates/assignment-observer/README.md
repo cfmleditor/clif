@@ -110,3 +110,54 @@ adopting this in production.
 
 Run the same two commands above with `selective` in place of `tokens` and
 `selective-benchmark` in place of `benchmark`.
+
+## Indexed editor corpus
+
+The `editor` probe configures the LSP server for each of the same seven
+workspace roots, indexes it, and parses each file with the document-open
+handler's real resolver and parse options. It primes the resolver, empties the
+shared token cache for each arm, and compares the baseline and selective parse
+for that file. It checks function definitions (including inferred returns and
+collection values), file and function-scoped component references, and scopes.
+It also compares every consumed capture to standalone tokenization.
+
+| Workspace | Files | Captures consumed | Large misses served by standalone tokenization | Incomplete captures | Files with differing results |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| ColdBox | 652 | 20 | 44 | 20 | 0 |
+| Wheels | 1,713 | 206 | 78 | 2 | 0 |
+| ContentBox | 724 | 38 | 31 | 0 | 0 |
+| TestBox | 145 | 9 | 7 | 3 | 0 |
+| FW/1 | 305 | 5 | 0 | 0 | 0 |
+| Mura | 937 | 40 | 8 | 1 | 0 |
+| Lucee | 3,775 | 29 | 19 | 0 | 0 |
+| **Total** | **8,251** | **347** | **187** | **26** | **0** |
+
+The timing probe samples up to 12 files per project from each of three groups:
+files that consumed captures, other files at least 8 KiB, and smaller files.
+It picks evenly spaced paths within each group. That gives 233 files, weighted
+toward opportunities for reuse. It times the synchronous `textDocument/didOpen`
+handler, including JSON decoding, parsing, and reindexing. Background completion
+work is joined outside the timer before closing the document. Structure diagnostics
+are disabled. The server uses the editor's 16 MiB cache budget and both modes
+use the instrumented binary. Each arm primes the resolver and index with an
+untimed open, clears the token cache, then times an open and an immediate
+reopen. Three paired repetitions alternate arm order by path and repetition.
+Each timing percentile therefore covers 699 opens per arm and cache condition,
+per trial. These are local handler timings on an indexed workspace.
+
+Reproduce with `python3 run-probes.py editor ROOT...` from this directory. The
+order used was ColdBox, Wheels, ContentBox, TestBox, FW/1, Mura, then Lucee.
+
+| Token cache | Baseline p50 | Selective p50 | Baseline p95 | Selective p95 |
+| --- | ---: | ---: | ---: | ---: |
+| Empty before open | 0.458 ms | 0.467 ms | 4.994 ms | 4.830 ms |
+| Immediate reopen | 0.439 ms | 0.453 ms | 4.969 ms | 4.839 ms |
+
+These are the medians of the three trials' pooled percentiles. Selective reuse
+removed 347 of 534 standalone tokenizations on large-region misses in the
+parity run. On the timed sample, the selective arm consumed 222 captures on
+empty-cache opens per trial and zero on reopens. The p95 improvement also
+appeared on reopens, making it difficult to attribute it to token reuse.
+Typical open latency showed no consistent benefit on cold tokens, and the
+reopen median was slightly higher in every trial.
+[Per-project and combined timings](editor-open-timings.tsv)
