@@ -161,3 +161,65 @@ appeared on reopens, making it difficult to attribute it to token reuse.
 Typical open latency showed no consistent benefit on cold tokens, and the
 reopen median was slightly higher in every trial.
 [Per-project and combined timings](editor-open-timings.tsv)
+
+## Reusing the recording buffer
+
+The original selective recorder grew a fresh token slice for each attempted
+capture. The revised recorder borrows a growable buffer from a pool. When
+inference consumes a complete stream, it copies the tokens once into an
+exact-sized slice owned by the shared cache. It clears the scratch token
+references before returning the buffer, and discards buffers with capacity
+above 32,768 tokens. Incomplete and unconsumed recordings never get copied
+into the shared cache. The pool can retain scratch capacity between parses
+and Go can drop it at garbage collection.
+
+A second variant buffers only the ordinary tokenizer on a large cache miss.
+It uses the same copy and release operation, and starts only when a consumer
+requests tokens. It requires no early demand check or recording during the
+main scanner walk. The two variants isolate the savings from reusing storage
+and from avoiding a second tokenization.
+
+ColdBox controller, 32 rotating texts, medians of three 350 ms samples:
+
+| Implementation | Time per parse | Bytes allocated per parse | Allocations per parse |
+| --- | ---: | ---: | ---: |
+| Ordinary tokenizer (control in revised build) | 1.363 ms | 1,339,610 | 3,967 |
+| Original selective recorder (separate build) | 1.350 ms | 1,336,914 | 3,970 |
+| Pooled ordinary tokenizer on demand | 1.335 ms | 951,469 | 3,954 |
+| Pooled selective recorder | 1.230 ms | 951,281 | 3,956 |
+
+The original build's ordinary-tokenizer control measured 1.415 ms and
+1,342,449 bytes per parse. With two warm texts, all three arms in the revised
+build allocated 3,952 times per parse and neither variant recorded anything.
+The synthetic file without inference demand allocated 4,840 bytes in all arms.
+These figures measure allocation traffic, not peak or retained process memory.
+
+The indexed editor workload used the same per-file parity checks and 233
+timed documents as before. The ordinary-tokenizer experiment also ran the
+selective eligibility probe outside the timer to preserve the exact same
+sampling groups. Each variant was compared against capture disabled in its own
+instrumented build. Each trial has 699 opens per arm per cache condition.
+
+Run `buffered-benchmark` with the controller path, and `buffered-editor` and
+`pooled-editor` with the seven workspace roots. `buffered-selective` runs the
+parser-only corpus comparison plus a check that recycling the source buffer
+leaves the shared cache's tokens intact.
+
+All three trials of each variant matched all 8,251 files. Selective capture
+reused 347 streams and fell back to ordinary tokenization on 187 other large
+misses. The demand-only variant exercised its pooled tokenizer on all 534
+large misses. Every checked stream matched standalone tokenization.
+
+| Variant and token cache | Control p50 | Variant p50 | Control p95 | Variant p95 |
+| --- | ---: | ---: | ---: | ---: |
+| Pooled capture, empty | 0.507 ms | 0.495 ms | 5.321 ms | 4.965 ms |
+| Pooled capture, reopen | 0.476 ms | 0.469 ms | 5.082 ms | 4.927 ms |
+| Pooled tokenizer, empty | 0.491 ms | 0.495 ms | 5.148 ms | 5.130 ms |
+| Pooled tokenizer, reopen | 0.478 ms | 0.468 ms | 5.120 ms | 5.148 ms |
+
+The values are medians of three trials' pooled percentiles. The clearest
+benefit was lower allocation on the controller misses. Pooled capture also
+lowered empty-cache p95 in each editor trial. Reopen timings moved despite
+zero captures on reopens, so the size of any user-visible latency gain is
+uncertain. The demand-only variant gives a smaller production candidate if
+allocation traffic is the objective. [Trial timings](buffered-open-timings.tsv)

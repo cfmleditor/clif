@@ -1,0 +1,167 @@
+diff --git a/internal/parser/collection_returns.go b/internal/parser/collection_returns.go
+index a99da86..0ddcd77 100644
+--- a/internal/parser/collection_returns.go
++++ b/internal/parser/collection_returns.go
+@@ -762,8 +762,9 @@ func (m *writesMemo) release() {
+ // once for every parse of its text (scriptTokensOf): that list is not the
+ // memo's to release, nor anyone's to change.
+ func (pr *ParseResult) scriptTokens(r *Region) *[]Token {
+-	if tokens := pr.captured[r.Offset]; tokens != nil {
++	if tape := pr.captured[r.Offset]; tape != nil {
+ 		delete(pr.captured, r.Offset)
++		tokens := tape.takeTokens()
+ 		tapeReuseHits++
+ 		if probeVerify && !slices.Equal(tokens, tokenize(r.Text)) {
+ 			probeMismatch++
+diff --git a/internal/parser/result.go b/internal/parser/result.go
+index 7cb283c..cc96a59 100644
+--- a/internal/parser/result.go
++++ b/internal/parser/result.go
+@@ -23,7 +23,7 @@ type Logger = log.Logger
+ // and component refs eagerly, but defers function body parsing until requested.
+ type ParseResult struct {
+ 	probeDemandChecked, probeDemand bool
+-	captured                        map[int][]Token
++	captured                        map[int]*checkedTape
+ 	imports                         map[string]string // from the file's `import`, for a function body parsed later
+
+ 	URI                 uri.URI
+@@ -576,6 +576,11 @@ func (pr *ParseResult) settleSignatures(allPendingCalls []pendingCall) {
+
+ func (pr *ParseResult) extractSignatures() {
+ 	defer func() {
++		// A parse can exit before a predicted consumer runs.
++		for offset, tape := range pr.captured {
++			delete(pr.captured, offset)
++			tape.release()
++		}
+ 		if r := recover(); r != nil {
+ 			log.Recovered(pr.log, "parse panic in extractSignatures", r, "uri", string(pr.URI))
+ 		}
+@@ -821,7 +826,7 @@ func (pr *ParseResult) mergeScriptRegion(r *Region, tagScopes []FuncScope, open
+
+ 	var tape *checkedTape
+ 	if probeEnabled && !pr.shallow && !pr.scopesOnly && pr.bodies.only == nil && len(r.Text) >= sharedTokenMin && sp.sc.src == r.Text && pr.shouldCapture(r.Text) {
+-		tape = &checkedTape{}
++		tape = captureScratch.Get().(*checkedTape)
+ 		probeAttempts++
+ 		if sp.sc.aux == nil {
+ 			sp.sc.aux = &scannerAux{}
+@@ -832,12 +837,13 @@ func (pr *ParseResult) mergeScriptRegion(r *Region, tagScopes []FuncScope, open
+ 	sp.parse()
+ 	finishScript(sp.sc, watch)
+ 	if tape != nil {
+-		if tokens := tape.complete(); tokens != nil {
++		if tape.complete() != nil {
+ 			if pr.captured == nil {
+-				pr.captured = make(map[int][]Token)
++				pr.captured = make(map[int]*checkedTape)
+ 			}
+-			pr.captured[r.Offset] = tokens
++			pr.captured[r.Offset] = tape
+ 		} else {
++			tape.release()
+ 			probeIncomplete++
+ 		}
+ 	}
+diff --git a/internal/parser/shared_tokens.go b/internal/parser/shared_tokens.go
+index 593223f..594f351 100644
+--- a/internal/parser/shared_tokens.go
++++ b/internal/parser/shared_tokens.go
+@@ -125,6 +125,11 @@ func scriptTokensOf(text string) *[]Token {
+ 		return toks
+ 	}
+
++	if probePooledScan {
++		scratch := captureScratch.Get().(*checkedTape)
++		scratch.tokens = tokenizeInto(scratch.tokens, text)
++		return publishTokens(text, scratch.takeTokens())
++	}
+ 	return publishTokens(text, tokenize(text))
+ }
+
+diff --git a/internal/parser/tape_probe.go b/internal/parser/tape_probe.go
+index 38d553d..2d29a53 100644
+--- a/internal/parser/tape_probe.go
++++ b/internal/parser/tape_probe.go
+@@ -1,5 +1,7 @@
+ package parser
+
++import "sync"
++
+ // Instrumentation for the single-threaded corpus and benchmark probes.
+ var probeEnabled, probeVerify bool
+ var probeAttempts, probeIncomplete, probeMismatch, probeCacheHits, probeMissedDemand int
+@@ -53,3 +55,26 @@ func (t *checkedTape) complete() []Token {
+ }
+
+ var tapeReuseHits int
++
++// Each active region owns its scratch until inference consumes it or the parse ends.
++var captureScratch = sync.Pool{New: func() any { return new(checkedTape) }}
++
++func (t *checkedTape) release() {
++	if cap(t.tokens) > 32<<10 {
++		return
++	}
++	clear(t.tokens)
++	*t = checkedTape{tokens: t.tokens[:0]}
++	captureScratch.Put(t)
++}
++
++// The shared cache can outlive this parse. Give it an independent, exact-sized slice.
++func (t *checkedTape) takeTokens() []Token {
++	tokens := make([]Token, len(t.tokens))
++	copy(tokens, t.tokens)
++	t.release()
++	return tokens
++}
++
++// Compare pooling alone with recording during the parser walk.
++var probePooledScan bool
+diff --git a/internal/parser/tape_probe_test.go b/internal/parser/tape_probe_test.go
+index df08e60..c8fcc4c 100644
+--- a/internal/parser/tape_probe_test.go
++++ b/internal/parser/tape_probe_test.go
+@@ -4,6 +4,7 @@ import (
+ 	"io/fs"
+ 	"os"
+ 	"path/filepath"
++	"slices"
+ 	"strings"
+ 	"testing"
+
+@@ -99,10 +100,11 @@ func BenchmarkCollectionTokenReuseProbe(b *testing.B) {
+ 				cache.texts[i] = strings.Replace(original, "\n\t// BoxLang Detection", "\n"+strings.Repeat(" ", i+1)+"\t// BoxLang Detection", 1)
+ 			}
+ 		}
+-		for _, mode := range []string{"baseline", "checked_tape"} {
++		for _, mode := range []string{"baseline", "pooled_scan", "checked_tape"} {
+ 			b.Run(cache.name+"/"+mode, func(b *testing.B) {
+ 				probeEnabled = mode == "checked_tape"
+-				defer func() { probeEnabled = false }()
++				probePooledScan = mode == "pooled_scan"
++				defer func() { probeEnabled, probePooledScan = false, false }()
+ 				if cache.name == "warm" {
+ 					for _, text := range cache.texts {
+ 						ParseWithOptions(u, text, &ParseOptions{ExtractCalls: true})
+@@ -125,3 +127,19 @@ func BenchmarkCollectionTokenReuseProbe(b *testing.B) {
+ 		}
+ 	}
+ }
++
++func TestBufferedCaptureOwnsPublishedTokens(t *testing.T) {
++	text := "x = new Thing();"
++	want := tokenize(text)
++	scratch := &checkedTape{tokens: append([]Token(nil), want...), done: true}
++	backing := scratch.tokens
++	published := scratch.takeTokens()
++	for _, token := range backing {
++		if token != (Token{}) {
++			t.Fatal("scratch retains source text after release")
++		}
++	}
++	if !slices.Equal(published, want) || cap(published) != len(want) {
++		t.Fatal("published tokens must own exact-sized storage")
++	}
++}

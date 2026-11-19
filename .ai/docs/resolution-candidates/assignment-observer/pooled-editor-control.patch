@@ -1,0 +1,100 @@
+diff --git a/internal/parser/editor_probe.go b/internal/parser/editor_probe.go
+index 4029a83..0cef133 100644
+--- a/internal/parser/editor_probe.go
++++ b/internal/parser/editor_probe.go
+@@ -4,6 +4,7 @@ import "reflect"
+
+ // Used only between synchronous parses or after the editor probe's workers join.
+ func EditorProbeMode(enabled, verify bool) {
++	probePooledScan = false
+ 	probeEnabled, probeVerify = enabled, verify
+ 	probeAttempts, tapeReuseHits, probeIncomplete, probeMismatch, probeMissedDemand = 0, 0, 0, 0, 0
+ }
+@@ -26,3 +27,8 @@ func EditorProbeDifference(a, b *ParseResult) string {
+ 	}
+ 	return ""
+ }
++
++func EditorProbePooledMode(enabled, verify bool) {
++	EditorProbeMode(false, verify)
++	probePooledScan = enabled
++}
+diff --git a/internal/parser/shared_tokens.go b/internal/parser/shared_tokens.go
+index 594f351..681138a 100644
+--- a/internal/parser/shared_tokens.go
++++ b/internal/parser/shared_tokens.go
+@@ -128,7 +128,13 @@ func scriptTokensOf(text string) *[]Token {
+ 	if probePooledScan {
+ 		scratch := captureScratch.Get().(*checkedTape)
+ 		scratch.tokens = tokenizeInto(scratch.tokens, text)
+-		return publishTokens(text, scratch.takeTokens())
++		tokens := scratch.takeTokens()
++		if probeVerify && !slices.Equal(tokens, tokenize(text)) {
++			probeMismatch++
++		}
++		// Count cache misses served by the ordinary tokenizer with pooled scratch.
++		tapeReuseHits++
++		return publishTokens(text, tokens)
+ 	}
+ 	return publishTokens(text, tokenize(text))
+ }
+diff --git a/internal/server/editor_probe_test.go b/internal/server/editor_probe_test.go
+index 981e84b..24c30f6 100644
+--- a/internal/server/editor_probe_test.go
++++ b/internal/server/editor_probe_test.go
+@@ -36,7 +36,7 @@ func TestCorpusEditorTokenReuse(t *testing.T) {
+ 			s.Features.StructureDiagnostics = false
+ 			s.indexWorkspace()
+ 			defer parser.EditorProbeMode(false, false)
+-			var files, reused, incomplete, standalone, diffs int
++			var files, reused, incomplete, standalone, diffs, pooledReads int
+ 			var sample [3][]string
+ 			err := filepath.WalkDir(root, func(path string, e fs.DirEntry, err error) error {
+ 				if err != nil {
+@@ -79,6 +79,18 @@ func TestCorpusEditorTokenReuse(t *testing.T) {
+ 						t.Errorf("%s: changed %s", path, field)
+ 					}
+ 				}
++				// Preserve the capture-based sampling groups so both experiments open the same files.
++				clearEditorProbeTokens()
++				parser.EditorProbePooledMode(true, true)
++				pooled := s.parseContent(u, text)
++				_, scans, _, mismatch, _ := parser.EditorProbeCounts()
++				pooledReads += scans
++				if mismatch != 0 {
++					t.Errorf("%s: %d pooled token streams differ", path, mismatch)
++				}
++				if field := parser.EditorProbeDifference(baseline, pooled); field != "" {
++					t.Errorf("%s: pooled scan changed %s", path, field)
++				}
+ 				files++
+ 				reused += hits
+ 				incomplete += partial
+@@ -99,7 +111,8 @@ func TestCorpusEditorTokenReuse(t *testing.T) {
+ 			if files == 0 {
+ 				t.Fatal("empty corpus root")
+ 			}
+-			totalReads += reused
++			t.Logf("pooled tokenizer misses=%d", pooledReads)
++			totalReads += pooledReads
+ 			t.Logf("files=%d reused=%d incomplete=%d standalone=%d differences=%d", files, reused, incomplete, standalone, diffs)
+ 			var paths []string
+ 			for _, group := range sample {
+@@ -139,7 +152,7 @@ func TestCorpusEditorTokenReuse(t *testing.T) {
+ 						cycle() // same document indexed and resolver primed in either arm
+ 						clearEditorProbeTokens()
+ 						for cache := range 2 {
+-							parser.EditorProbeMode(mode == 1, false)
++							parser.EditorProbePooledMode(mode == 1, false)
+ 							elapsed, hits := cycle()
+ 							timings[cache][mode] = append(timings[cache][mode], elapsed)
+ 							hitsByCondition[cache] += hits
+@@ -153,7 +166,7 @@ func TestCorpusEditorTokenReuse(t *testing.T) {
+ 					reportOpenLatency(t, cache, mode, v)
+ 				}
+ 			}
+-			t.Logf("sample capture reads cold=%d reopen=%d", hitsByCondition[0], hitsByCondition[1])
++			t.Logf("sample pooled tokenizations cold=%d reopen=%d", hitsByCondition[0], hitsByCondition[1])
+ 		})
+ 	}
+ 	if totalReads == 0 {

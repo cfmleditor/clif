@@ -11,9 +11,16 @@ import tempfile
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("probe", choices=("assignments", "tokens", "benchmark", "selective", "selective-benchmark", "editor"))
+    buffered_probes = {"buffered-benchmark": "selective-benchmark",
+                       "buffered-editor": "editor", "pooled-editor": "editor", "buffered-selective": "selective"}
+    parser.add_argument("probe", choices=("assignments", "tokens", "benchmark", "selective",
+                                          "selective-benchmark", "editor", *buffered_probes))
     parser.add_argument("paths", nargs="+", type=Path)
     args = parser.parse_args()
+    pooled_editor = args.probe == "pooled-editor"
+    buffered = args.probe in buffered_probes
+    if buffered:
+        args.probe = buffered_probes[args.probe]
 
     paths = [path.resolve() for path in args.paths]
     if args.probe.endswith("benchmark"):
@@ -28,8 +35,12 @@ def main():
     if args.probe.startswith("selective") or args.probe == "editor":
         patch = here / "selective-tokens.patch"
     patches = [patch]
+    if buffered:
+        patches.append(here / "buffered-capture.patch")
     if args.probe == "editor":
         patches.append(here / "editor-workload.patch")
+    if pooled_editor:
+        patches.append(here / "pooled-editor-control.patch")
     files = [Path(line.removeprefix("+++ b/")) for source in patches
              for line in source.read_text().splitlines() if line.startswith("+++ b/")]
     env = dict(os.environ)
@@ -40,6 +51,8 @@ def main():
     else:
         env["CLIF_ASSIGN_PROBE_ROOTS"] = os.pathsep.join(map(str, paths))
         test = "TestAssignmentObserverCorpusProbe" if args.probe == "assignments" else "TestMainParseTokenTapeProbe"
+        if buffered and args.probe == "selective":
+            test = "(TestMainParseTokenTapeProbe|TestBufferedCaptureOwnsPublishedTokens)"
         flags = ["-run", f"^{test}$", "-count=1", "-v"]
 
     with tempfile.TemporaryDirectory(prefix="clif-assignment-probe-") as directory:
@@ -51,7 +64,8 @@ def main():
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(source, destination)
 
-        subprocess.run(["git", "apply", *map(str, patches)], cwd=scratch, check=True)
+        for source in patches:
+            subprocess.run(["git", "apply", str(source)], cwd=scratch, check=True)
         replacements = {str(repo / path): str(scratch / path) for path in files}
         package = "./internal/parser"
         if args.probe == "editor":
