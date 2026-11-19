@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/cfmleditor/clif/internal/cflint"
 )
 
 func TestParseAddedLines(t *testing.T) {
@@ -85,6 +87,47 @@ func TestChangedLinesAreTheStagedOnes(t *testing.T) {
 
 	if want := []int{2, 5}; !slices.Equal(got, want) {
 		t.Errorf("staged added lines = %v, want %v", got, want)
+	}
+}
+
+func TestChangedLinesKeepFindingsOnGitPaths(t *testing.T) {
+	for _, tc := range []struct{ name, file, config string }{
+		{"space", "with space.cfm", "diff.mnemonicPrefix"},
+		{"non-ASCII", "café.cfm", "diff.noprefix"},
+		{"patch-looking source", "page.cfm", "diff.mnemonicPrefix"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := gitRepo(t, map[string]string{tc.file: "old\n2\n3\n4\nold\n"})
+			gitIn(t, repo, "config", tc.config, "true")
+			path := filepath.Join(repo, tc.file)
+			writeTestFile(t, path, "++ source text\n2\n3\n4\nnew\n")
+			gitIn(t, repo, "add", "--", tc.file)
+
+			added, err := gitAddedLines(repo, true, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			var run cflint.Run
+
+			for _, line := range []int{1, 3, 5} {
+				var issue cflint.RunIssue
+
+				issue.Locations = []cflint.Location{{File: path, Line: line}}
+				run.Issues = append(run.Issues, issue)
+			}
+
+			run.KeepLines(added)
+
+			var kept []int
+			for i := range run.Issues {
+				kept = append(kept, run.Issues[i].Locations[0].Line)
+			}
+
+			if !slices.Equal(kept, []int{1, 5}) {
+				t.Fatalf("kept lines %v, want [1 5]; changed lines: %v", kept, added)
+			}
+		})
 	}
 }
 
