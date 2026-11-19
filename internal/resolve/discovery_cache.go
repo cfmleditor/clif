@@ -117,6 +117,7 @@ func (r *Resolver) InvalidatePaths() {
 	r.mu.Lock()
 	views := r.contextViews
 	r.contextViews = nil
+	r.pathCacheEpoch++
 	r.pathCaches = pathCaches{}
 	r.mu.Unlock()
 

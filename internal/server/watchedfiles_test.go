@@ -1,9 +1,12 @@
 package server
 
 import (
+	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
@@ -268,6 +271,110 @@ func TestWatchedFileChangeSkipsOpenDocuments(t *testing.T) {
 	if got := indexedCount(t, srv, "onDisk"); got != 0 {
 		t.Errorf("disk function onDisk indexed %d times, want 0 — an open document was read from disk", got)
 	}
+}
+
+func TestOpenBufferDiskMetadataFollowsSaveAndWatcherEvents(t *testing.T) {
+	const (
+		dispatch = `component { function mode(value="self") { if (arguments.value eq "query") { return q; } else { return this; } } }`
+		buffer   = `component { function inBuffer() {} }`
+	)
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "Modes.cfc")
+	u := uri.File(path)
+	doc := protocol.TextDocumentIdentifier{URI: u}
+	plain := strings.Replace(dispatch, `"self"`, `"none"`, 1)
+	writeDisk := func(text string) {
+		t.Helper()
+		writeCFC(t, path, text)
+
+		stamp := time.Unix(1_700_000_000, 0)
+		if err := os.Chtimes(path, stamp, stamp); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeDisk(plain)
+
+	srv := newTestServer()
+	srv.WorkspaceFolders = []string{dir}
+	srv.indexWorkspace()
+
+	ctx := context.Background()
+
+	open := protocol.DidOpenTextDocumentParams{
+		TextDocument: protocol.TextDocumentItem{URI: u, Version: 1, Text: buffer},
+	}
+	if _, err := srv.handleDidOpen(ctx, mustJSON(t, open)); err != nil {
+		t.Fatal(err)
+	}
+
+	checkBuffer := func(stage string) {
+		t.Helper()
+
+		result, err := srv.handleDocumentSymbol(ctx, mustJSON(t, protocol.DocumentSymbolParams{TextDocument: doc}))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		symbols, ok := result.([]protocol.DocumentSymbol)
+		if !ok || len(symbols) != 1 || symbols[0].Name != "inBuffer" {
+			t.Fatalf("%s: document symbols = %v, want inBuffer", stage, result)
+		}
+	}
+
+	// The saved body determines whether an apparent return is conditional on
+	// the self mode, even while the editor indexes different buffer symbols.
+	fd := &parser.FunctionDef{URI: u, Name: "mode", ReturnComponent: "$builtin.struct"}
+	checkReturn := func(stage, want string) {
+		t.Helper()
+
+		if got := srv.getResolver().ReturnComponentOf(fd); got != want {
+			t.Fatalf("%s: disk-backed return = %q, want %q", stage, got, want)
+		}
+	}
+	checkReturn("open", "$builtin.struct")
+
+	writeDisk(dispatch)
+
+	changes := []protocol.TextDocumentContentChangeEvent{
+		&protocol.TextDocumentContentChangeWholeDocument{Text: buffer + " "},
+	}
+	if err := callDidChange(t, srv, u, changes); err != nil {
+		t.Fatal(err)
+	}
+
+	checkBuffer("buffer edit")
+	checkReturn("buffer edit before disk notification", "$builtin.struct")
+
+	if _, err := srv.handleDidSave(ctx, mustJSON(t, protocol.DidSaveTextDocumentParams{TextDocument: doc})); err != nil {
+		t.Fatal(err)
+	}
+
+	checkReturn("save", "")
+
+	writeDisk(plain)
+	srv.applyWatchedFileChanges([]protocol.FileEvent{fileEvent(path, protocol.FileChangeTypeChanged)})
+	checkReturn("watched change", "$builtin.struct")
+
+	if indexedCount(t, srv, "inBuffer") != 1 || indexedCount(t, srv, "mode") != 0 {
+		t.Fatal("watcher replaced the open buffer's index entries with disk symbols")
+	}
+
+	writeDisk(dispatch)
+	srv.applyWatchedFileChanges([]protocol.FileEvent{fileEvent(path, protocol.FileChangeTypeChanged)})
+	checkReturn("watched replacement", "")
+
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+
+	srv.applyWatchedFileChanges([]protocol.FileEvent{fileEvent(path, protocol.FileChangeTypeDeleted)})
+	checkReturn("watched deletion", "$builtin.struct")
+	checkBuffer("watched deletion")
+	writeDisk(dispatch)
+	srv.applyWatchedFileChanges([]protocol.FileEvent{fileEvent(path, protocol.FileChangeTypeCreated)})
+	checkReturn("watched recreation", "")
+	checkBuffer("watched recreation")
 }
 
 // TestWatchedFileDeleteAppliesToOpenDocuments is the deliberate exception to

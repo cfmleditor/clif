@@ -119,55 +119,61 @@ func (s *Server) applyWatchedFileChanges(changes []protocol.FileEvent) {
 		return
 	}
 
-	var indexed, removed, skipped, appChanged, mappingChanged int
+	var indexed, removed, skipped, appChanged, mappingChanged, openChanged int
 
 	discoveryChanged := false
 
 	reload := map[string]bool{}
 
 	for _, ev := range changes {
-		if p := filepath.Clean(cfpath.FromURI(string(ev.URI))); s.isKnownIssuesFile(p) {
-			reload[p] = true
+		path := cfpath.FromURI(string(ev.URI))
+		if cleaned := filepath.Clean(path); s.isKnownIssuesFile(cleaned) {
+			reload[cleaned] = true
 
 			continue
 		}
 
-		if strings.EqualFold(filepath.Ext(cfpath.FromURI(string(ev.URI))), ".json") {
-			if s.isMappingJSON(cfpath.FromURI(string(ev.URI))) {
+		if strings.EqualFold(filepath.Ext(path), ".json") {
+			if s.isMappingJSON(path) {
 				mappingChanged++
 			}
 
 			continue
 		}
 
-		switch s.applyWatchedFileChange(ev) {
+		switch s.applyWatchedFileChange(path, ev.Type) {
 		case watchedIndexed:
 			indexed++
-			discoveryChanged = discoveryChanged || isApplicationFile(cfpath.FromURI(string(ev.URI))) || s.getResolver().DiscoveryAffected(cfpath.FromURI(string(ev.URI)))
 		case watchedRemoved:
 			removed++
-			discoveryChanged = discoveryChanged || isApplicationFile(cfpath.FromURI(string(ev.URI))) || s.getResolver().DiscoveryAffected(cfpath.FromURI(string(ev.URI)))
+		case watchedOpenChanged:
+			openChanged++
 		case watchedSkipped:
 			skipped++
+
+			continue
 		}
 
-		if isApplicationFile(cfpath.FromURI(string(ev.URI))) {
+		application := isApplicationFile(path)
+		if application {
 			appChanged++
 		}
+
+		discoveryChanged = discoveryChanged || application || s.getResolver().DiscoveryAffected(path)
 	}
 
 	for file := range reload {
 		s.loadKnownIssuesFile(context.Background(), file)
 	}
 
-	if indexed == 0 && removed == 0 && mappingChanged == 0 {
+	if indexed == 0 && removed == 0 && mappingChanged == 0 && openChanged == 0 {
 		s.log.Debug("watched files: nothing to apply", cflog.Int("skipped", skipped))
 
 		return
 	}
 
-	// Both caches are keyed on answers the index just stopped agreeing with.
-	// This mirrors what didSave does for an edit made in the editor.
+	// Disk-backed answers can change even if the indexed buffer is unchanged.
+	// This mirrors the invalidation didSave does for an edit in the editor.
 
 	if discoveryChanged || mappingChanged > 0 {
 		s.invalidateResolver()
@@ -181,6 +187,7 @@ func (s *Server) applyWatchedFileChanges(changes []protocol.FileEvent) {
 	s.log.Info("watched files applied",
 		cflog.Int("indexed", indexed),
 		cflog.Int("removed", removed),
+		cflog.Int("openChanged", openChanged),
 		cflog.Int("skipped", skipped),
 		cflog.Int("applicationFiles", appChanged))
 }
@@ -192,10 +199,10 @@ const (
 	watchedSkipped watchedOutcome = iota
 	watchedIndexed
 	watchedRemoved
+	watchedOpenChanged
 )
 
-func (s *Server) applyWatchedFileChange(ev protocol.FileEvent) watchedOutcome {
-	path := cfpath.FromURI(string(ev.URI))
+func (s *Server) applyWatchedFileChange(path string, kind protocol.FileChangeType) watchedOutcome {
 	if !cfpath.IsCFMLFile(path) {
 		return watchedSkipped
 	}
@@ -207,7 +214,7 @@ func (s *Server) applyWatchedFileChange(ev protocol.FileEvent) watchedOutcome {
 	// longer exists resolves go-to-definition to nothing and cannot recover on
 	// its own; re-saving the buffer re-indexes it through didSave. Content, by
 	// contrast, is the editor's to report — see below.
-	if ev.Type == protocol.FileChangeTypeDeleted {
+	if kind == protocol.FileChangeTypeDeleted {
 		s.index.RemoveFile(fileURI)
 		s.dropFileCaches(fileURI)
 
@@ -217,9 +224,10 @@ func (s *Server) applyWatchedFileChange(ev protocol.FileEvent) watchedOutcome {
 	// An open document's buffer outranks what is on disk: it may hold unsaved
 	// edits, and when it does not the editor reloads it and sends didChange
 	// itself. Reading the file here would file the editor's own save a second
-	// time at best, and overwrite newer buffer content at worst.
+	// time at best, and overwrite newer buffer content at worst. The event
+	// still invalidates resolver caches that describe the saved source.
 	if _, open := s.getDocument(fileURI); open {
-		return watchedSkipped
+		return watchedOpenChanged
 	}
 
 	// The gate reindexIfCFC applies to editor writes, applied here for the same

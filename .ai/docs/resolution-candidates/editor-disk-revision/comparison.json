@@ -1,0 +1,114 @@
+{
+  "wheels": {
+    "before": {
+      "Index": "1710",
+      "Scan": "1710",
+      "findings": 795,
+      "resolved": 63411
+    },
+    "after": {
+      "Index": "1710",
+      "Scan": "1710",
+      "findings": 795,
+      "resolved": 63411
+    },
+    "removed": 0,
+    "added": 0
+  },
+  "coldbox": {
+    "before": {
+      "Index": "652",
+      "Scan": "652",
+      "findings": 183,
+      "resolved": 20005
+    },
+    "after": {
+      "Index": "652",
+      "Scan": "652",
+      "findings": 183,
+      "resolved": 20005
+    },
+    "removed": 0,
+    "added": 0
+  },
+  "contentbox": {
+    "before": {
+      "Index": "724",
+      "Scan": "724",
+      "findings": 177,
+      "resolved": 17120
+    },
+    "after": {
+      "Index": "724",
+      "Scan": "724",
+      "findings": 177,
+      "resolved": 17120
+    },
+    "removed": 0,
+    "added": 0
+  },
+  "testbox": {
+    "before": {
+      "Index": "145",
+      "Scan": "145",
+      "findings": 110,
+      "resolved": 3994
+    },
+    "after": {
+      "Index": "145",
+      "Scan": "145",
+      "findings": 110,
+      "resolved": 3994
+    },
+    "removed": 0,
+    "added": 0
+  },
+  "fw1": {
+    "before": {
+      "Index": "305",
+      "Scan": "305",
+      "findings": 69,
+      "resolved": 2632
+    },
+    "after": {
+      "Index": "305",
+      "Scan": "305",
+      "findings": 69,
+      "resolved": 2632
+    },
+    "removed": 0,
+    "added": 0
+  },
+  "mura": {
+    "before": {
+      "Index": "839",
+      "Scan": "839",
+      "findings": 151,
+      "resolved": 34100
+    },
+    "after": {
+      "Index": "839",
+      "Scan": "839",
+      "findings": 151,
+      "resolved": 34100
+    },
+    "removed": 0,
+    "added": 0
+  },
+  "lucee": {
+    "before": {
+      "Index": "3776",
+      "Scan": "3776",
+      "findings": 283,
+      "resolved": 45196
+    },
+    "after": {
+      "Index": "3776",
+      "Scan": "3776",
+      "findings": 283,
+      "resolved": 45196
+    },
+    "removed": 0,
+    "added": 0
+  }
+}
