@@ -86,6 +86,35 @@ func TestWatchedFileChangeReplacesTheOldEntries(t *testing.T) {
 	}
 }
 
+func TestWatchedBinaryReplacementClearsOldDefinitions(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "Svc.cfc")
+	writeCFC(t, path, "component { function beforeReplacement() {} }")
+
+	srv := newTestServer()
+	srv.WorkspaceFolders = []string{dir}
+	srv.indexWorkspace()
+
+	if got := indexedCount(t, srv, "beforeReplacement"); got != 1 {
+		t.Fatalf("before replacement: indexed %d definitions, want 1", got)
+	}
+
+	changed := []protocol.FileEvent{fileEvent(path, protocol.FileChangeTypeChanged)}
+	writeCFC(t, path, "\x00\x01\x02")
+	srv.applyWatchedFileChanges(changed)
+
+	if got := indexedCount(t, srv, "beforeReplacement"); got != 0 {
+		t.Errorf("after binary replacement: %d old definitions remain", got)
+	}
+
+	writeCFC(t, path, "component { function afterReplacement() {} }")
+	srv.applyWatchedFileChanges(changed)
+
+	if got := indexedCount(t, srv, "afterReplacement"); got != 1 {
+		t.Errorf("after restoring text: indexed %d definitions, want 1", got)
+	}
+}
+
 // TestWatchedFileDeleteRemovesFromIndex covers a file deleted on disk, and with
 // it the ORM entity registration keyed by its name.
 func TestWatchedFileDeleteRemovesFromIndex(t *testing.T) {
