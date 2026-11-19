@@ -109,8 +109,10 @@ func TestChangedLinesKeepFindingsOnGitPaths(t *testing.T) {
 			}
 
 			var run cflint.Run
+
 			for _, line := range []int{1, 3, 5} {
 				var issue cflint.RunIssue
+
 				issue.Locations = []cflint.Location{{File: path, Line: line}}
 				run.Issues = append(run.Issues, issue)
 			}
