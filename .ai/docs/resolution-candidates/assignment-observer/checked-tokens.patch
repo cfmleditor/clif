@@ -183,8 +183,8 @@ new file mode 100644
 +			t.Fatal(err)
 +		}
 +	}
-+	if total == 0 {
-+		t.Fatal("no script regions")
++	if exact == 0 {
++		t.Fatalf("no exact token streams compared across %d script regions (%d fallbacks)", total, fellBack)
 +	}
 +	t.Logf("script regions=%d accepted-exact=%d fallback=%d", total, exact, fellBack)
 +}
