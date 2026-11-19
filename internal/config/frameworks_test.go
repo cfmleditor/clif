@@ -364,6 +364,34 @@ func TestAWheelsGlobalTemplateRunsInGlobal(t *testing.T) {
 	}
 }
 
+func TestWheelsRoutesRunInGlobal(t *testing.T) {
+	for _, frameworks := range [][]string{{"wheels"}, {"coldbox"}, nil} {
+		implicit := ImplicitExtends(frameworks)
+
+		for path, route := range map[string]bool{
+			"/app/config/routes.cfm":               true,
+			"/app/examples/blog/config/routes.cfm": true,
+			"/app/CONFIG/ROUTES.CFM":               true,
+			"/app/config/settings.cfm":             false,
+			"/app/other/routes.cfm":                false,
+			"/app/config/routes.cfc":               false,
+		} {
+			got, want := "", ""
+			if implicit != nil {
+				got = implicit(path)
+			}
+
+			if route && slices.Contains(frameworks, "wheels") {
+				want = "wheels.Global"
+			}
+
+			if got != want {
+				t.Errorf("%v %s: %q, want %q", frameworks, path, got, want)
+			}
+		}
+	}
+}
+
 // TestSuggestFrameworksFromBoxJSON: a project finds out a preset exists from
 // its own box.json — a dependency, a dev dependency or the package's own slug
 // (coldbox-platform is the package named coldbox) — minus the presets the

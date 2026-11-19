@@ -285,6 +285,9 @@ var frameworkPresets = map[string]frameworkPreset{
 		bases: []implicitBase{
 			{dir: "views", ext: ".cfm", component: wheelsView},
 			{dir: "layouts", ext: ".cfm", component: wheelsView},
+			// Global.$lockedLoadRoutes includes config/routes.cfm, so
+			// mapper() there uses Global's real factory and Mapper API.
+			{dir: "config", file: "routes.cfm", ext: ".cfm", component: "wheels.Global"},
 			// app/global/*.cfm is mixed into every controller, model and
 			// view, and vendor/wheels/global/*.cfm into Global; Global is
 			// what all of them have, so model() in a global helper is its.
