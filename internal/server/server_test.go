@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/cfmleditor/clif/internal/config"
+	"github.com/cfmleditor/clif/internal/frameworkapi"
 	"github.com/cfmleditor/clif/internal/index"
 	cflog "github.com/cfmleditor/clif/internal/log"
 	"github.com/cfmleditor/clif/internal/parser"
@@ -855,6 +856,12 @@ func TestWorkspaceSymbolBoundsAndRanksShortQueries(t *testing.T) {
 	exactURI := uri.File("/app/Exact.cfc")
 	srv.index.IndexFileFromResult(exactURI, []parser.FunctionDef{{Name: "m", URI: exactURI}}, nil)
 
+	prefixURI := uri.File("/app/Prefix.cfc")
+	srv.index.IndexFileFromResult(prefixURI, []parser.FunctionDef{{Name: "matchedPrefix", URI: prefixURI}}, nil)
+
+	stubURI := uri.File(filepath.Join(frameworkapi.Root, "Symbols.cfc"))
+	srv.index.IndexFileFromResult(stubURI, []parser.FunctionDef{{Name: "m", URI: stubURI}}, nil)
+
 	req := makeCall(t, protocol.MethodWorkspaceSymbol, protocol.WorkspaceSymbolParams{Query: "m"})
 
 	result, err := srv.handleWorkspaceSymbol(context.Background(), req)
@@ -875,9 +882,14 @@ func TestWorkspaceSymbolBoundsAndRanksShortQueries(t *testing.T) {
 		t.Errorf("first symbol = %q at %q, want exact match at %q", symbols[0].Name, symbols[0].Location.URI, exactURI)
 	}
 
-	for i := 2; i < len(symbols); i++ {
-		if symbols[i-1].Location.URI > symbols[i].Location.URI {
-			t.Fatalf("symbols are not stable by URI at %d: %q before %q", i, symbols[i-1].Location.URI, symbols[i].Location.URI)
+	if symbols[1].Location.URI != prefixURI {
+		t.Errorf("second symbol = %q, want prefix match at %q", symbols[1].Location.URI, prefixURI)
+	}
+
+	for i, symbol := range symbols[2:] {
+		want := uri.File(fmt.Sprintf("/app/File%04d.cfc", i))
+		if symbol.Location.URI != want {
+			t.Fatalf("substring match %d = %q, want %q", i, symbol.Location.URI, want)
 		}
 	}
 

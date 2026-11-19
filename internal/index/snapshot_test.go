@@ -9,6 +9,49 @@ import (
 	"go.lsp.dev/uri"
 )
 
+func TestMatchingFunctionBatchesStopAfterAnIndexWrite(t *testing.T) {
+	idx := New()
+	u := uri.File("/ws/Functions.cfc")
+	defs := make([]parser.FunctionDef, 2*matchingFunctionBatchSize+1)
+
+	for i := range defs {
+		defs[i] = parser.FunctionDef{Name: "build", URI: u, Line: uint32(i + 1)}
+	}
+
+	idx.IndexFileFromResult(u, defs, nil)
+
+	match := func(name string) bool { return name == "build" }
+	visited := 0
+
+	complete := idx.VisitMatchingFunctionBatches(match, func(batch []*parser.FunctionDef) {
+		if visited == 0 {
+			idx.ShiftLines(u, 0, 1)
+
+			if batch[0].Line != 1 {
+				t.Fatal("the writer changed a definition in the caller's batch")
+			}
+		}
+
+		visited += len(batch)
+	})
+	if complete || visited != matchingFunctionBatchSize {
+		t.Fatalf("visit after a write reported complete=%v and %d definitions", complete, visited)
+	}
+
+	visited = 0
+
+	complete = idx.VisitMatchingFunctionBatches(match, func(batch []*parser.FunctionDef) {
+		if len(batch) > matchingFunctionBatchSize || batch[0].Line != uint32(visited+2) {
+			t.Fatalf("unexpected batch of %d definitions starting at line %d", len(batch), batch[0].Line)
+		}
+
+		visited += len(batch)
+	})
+	if !complete || visited != len(defs) {
+		t.Fatalf("uninterrupted visit reported complete=%v and %d definitions, want %d", complete, visited, len(defs))
+	}
+}
+
 // Every accessor hands its result out and then releases the read lock, so what
 // it returns must be storage no writer will touch. The index relies on that in
 // the other direction too: because nothing escapes, removal compacts a bucket

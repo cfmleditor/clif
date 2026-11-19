@@ -256,6 +256,58 @@ func (idx *Index) FunctionsMatching(match func(loweredName string) bool) []*pars
 	return all
 }
 
+const matchingFunctionBatchSize = 256
+
+// VisitMatchingFunctionBatches visits bounded copies of the matching buckets.
+// Match runs under the read lock once per name and must not re-enter the index.
+// Visit runs without the lock and may retain the immutable definitions. The
+// slice is reused. A false result means a write interrupted the walk and the
+// caller must discard it.
+func (idx *Index) VisitMatchingFunctionBatches(match func(loweredName string) bool, visit func([]*parser.FunctionDef)) bool {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+
+	generation := idx.Generation()
+	visitUnlocked := func(batch []*parser.FunctionDef) {
+		idx.mu.RUnlock()
+		defer idx.mu.RLock()
+
+		visit(batch)
+	}
+
+	var batch [matchingFunctionBatchSize]*parser.FunctionDef
+
+	used := 0
+
+	for name, defs := range idx.funcs {
+		if !match(name) {
+			continue
+		}
+
+		for len(defs) > 0 {
+			copied := copy(batch[used:], defs)
+			used += copied
+			defs = defs[copied:]
+
+			if used == len(batch) {
+				visitUnlocked(batch[:])
+
+				if idx.Generation() != generation {
+					return false
+				}
+
+				used = 0
+			}
+		}
+	}
+
+	if used > 0 {
+		visitUnlocked(batch[:used])
+	}
+
+	return true
+}
+
 // Every entry below is filed as new(funcs[i]) — a copy the index alone owns —
 // and never as &funcs[i].
 //
