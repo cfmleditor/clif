@@ -84,21 +84,21 @@ $(GOLANGCI_BIN):
 # generator that would refuse the stale copy screens later. `make docs-bump`
 # moves the pin and the vendored copy.
 docs:
-	@bash scripts/docs.sh
+	@bash scripts/docs-driver.sh docs
 
 docs-cfdocs:
-	@bash scripts/docs.sh --cfdocs
+	@bash scripts/docs-driver.sh docs-cfdocs
 
 docs-assemble:
-	@bash scripts/assemble-docs.sh
+	@bash scripts/docs-driver.sh assemble
 
 # Moves the cfdocs pin in docs/sources.lock and the vendored docs/lucee to
 # upstream's latest, and stages them. Follow with `make generate`, and review
-# its diff with the lock's and docs/lucee's. scripts/docs-bump.sh holds
+# its diff with the lock's and docs/lucee's. cmd/docpipe holds
 # the docs lock across every step, and orders them so nothing committed changes
 # unless both sources stage.
 docs-bump:
-	@bash scripts/docs-bump.sh
+	@bash scripts/docs-driver.sh bump
 
 # Fetches every source and regenerates internal/docs/generated_docs.go (and
 # generated_sources.txt). Refuses (exit 1) to write a file that lost entries
@@ -106,7 +106,7 @@ docs-bump:
 # a build compiles the committed docs, as CI and the release workflow do, and
 # regenerating is a deliberate step whose diff gets reviewed.
 generate:
-	@bash scripts/generate.sh
+	@bash scripts/docs-driver.sh generate
 
 # Bumps the grammar first and regenerates the docs strictly last: a docs
 # problem (an upstream removal, a failed fetch) cannot stop the bump, and is

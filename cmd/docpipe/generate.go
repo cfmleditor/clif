@@ -1,6 +1,3 @@
-//go:build ignore
-// +build ignore
-
 package main
 
 import (
@@ -14,14 +11,11 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/cfmleditor/clif/internal/confine"
 	docsources "github.com/cfmleditor/clif/internal/docs/sources"
-	"github.com/cfmleditor/clif/internal/flock"
 	"github.com/cfmleditor/clif/internal/vfs"
 )
 
@@ -34,7 +28,7 @@ const (
 	// signature, nothing removed for removedEntries to see.
 	sourcesFile = "internal/docs/generated_sources.txt"
 
-	// orderFile, written by scripts/assemble-docs.sh (the only place the
+	// orderFile, written by pipeline.assemble (the only place the
 	// order is written down), names the doc sources from lowest precedence to
 	// highest, each with the directory its files are read from, in place.
 	orderFile = "docs/data/order"
@@ -49,7 +43,7 @@ const (
 )
 
 // stagedMarkers maps each fetched source to the file holding what it was
-// staged at (fetch-docs-cfdocs.sh removes it before a swap, and writes it
+// staged at (fetchCFDocs removes it before a swap, and writes it
 // only once the new copy is whole).
 var stagedMarkers = map[string]string{"cfdocs": "docs/.sha-cfdocs"}
 
@@ -97,12 +91,14 @@ func repoRelative(path string) string {
 	// on macOS) is inside; the final name is kept as given, so git reads
 	// the file the variable names, not what a link there points to.
 	roots := confine.Roots(wd)
+
 	dir, err := confine.Resolve(filepath.Dir(abs))
 	if err != nil || len(roots) == 0 {
 		refuse(fmt.Sprintf("Cannot resolve DOCS_ALLOWED_REMOVALS_FILE=%q: %v", path, err))
 	}
 
 	full := filepath.Join(dir, filepath.Base(abs))
+
 	rel, err := filepath.Rel(roots[0], full)
 	if err != nil || !confine.Within(full, roots) || rel == "." {
 		refuse(fmt.Sprintf("DOCS_ALLOWED_REMOVALS_FILE=%q is outside the repository, so has no copy at a base to compare with.", path))
@@ -111,39 +107,11 @@ func repoRelative(path string) string {
 	return filepath.ToSlash(rel)
 }
 
-// stopSeen is closed once this process has received a stopping signal; its
-// handler then ends the run by it (stopOnSignal). caught: the stopping
-// signals it handles, those not ignored at the start.
-var (
-	stopSeen = make(chan struct{})
-	stopOnce sync.Once
-	caught   []os.Signal
-)
-
-// git runs git with args and returns what it printed. A git that a stopping
-// signal ended (SIGINT, SIGTERM, SIGHUP) may be no answer to report (a
-// missing commit, an unreadable baseline): a Ctrl-C at the terminal reaches
-// it and this process alike, and then this process's own handler stops the
-// run by it. So that is waited for, and nothing more is done meanwhile:
-// should this process have got the signal too, the handler ends it. One
-// sent to git alone (a timeout, a pkill) reaches no handler here, and after
-// a while is reported as the failure it is.
+// git reads repository state using the driver's cancellable context.
 func git(args ...string) ([]byte, error) {
-	out, err := exec.Command("git", args...).Output()
+	checkStopped()
 
-	// Only for a signal this process handles: one it ignores (a SIGINT it
-	// was started with ignored) reaches no handler here, whoever sent it.
-	// git is never run during the write, so a stop seen here ends the run at
-	// once; one not seen within a moment was sent to git alone.
-	if sig, ok := flock.SignalOf(err); ok && slices.Contains(caught, sig) {
-		select {
-		case <-stopSeen:
-			stoppedBy(sig, "nothing was written")
-		case <-time.After(500 * time.Millisecond):
-		}
-	}
-
-	return out, err
+	return runCommand("git", args...)
 }
 
 // gitOK reports whether git with args succeeds.
@@ -245,7 +213,7 @@ type gitState struct {
 
 var gitInfo = sync.OnceValue(func() gitState {
 	g := gitState{
-		available: gitOK("ls-files", "--error-unmatch", "--", "scripts/generate_docs.go"),
+		available: gitOK("ls-files", "--error-unmatch", "--", "go.mod"),
 	}
 	g.head = g.available && gitOK("rev-parse", "--verify", "--quiet", "HEAD")
 
@@ -268,6 +236,7 @@ type Param struct {
 
 func (p *Param) Values() []string {
 	var out []string
+
 	for _, raw := range p.RawValues {
 		var s string
 		if json.Unmarshal(raw, &s) == nil {
@@ -276,6 +245,7 @@ func (p *Param) Values() []string {
 			out = append(out, strings.TrimSpace(string(raw)))
 		}
 	}
+
 	return out
 }
 
@@ -296,116 +266,12 @@ type Entry struct {
 	} `json:"member_details"`
 }
 
-// docsLock is held by scripts/docslock.go (the OS's own file lock) for the
-// whole of `make generate`: the fetch, the assemble and this generator, so no
-// fetch or bump can swap a source while it is read. The generator takes no
-// lock of its own: docslock gave the run a token (DOCS_LOCK_TOKEN), recorded
-// in docs/.flock, and flock.Verify checks it is still the holder's, the same
-// check `docslock --held` makes for the scripts.
-const docsLock = "docs/.flock"
-
-func requireLock() {
-	if !holdsLock() {
-		fmt.Fprintln(os.Stderr, "error: run the generator through `make generate` (scripts/generate.sh), which holds the docs lock")
-		fmt.Fprintln(os.Stderr, "       across the fetch and the generation, so no other docs run can swap a source meanwhile.")
-		os.Exit(1)
-	}
-}
-
-// lockFD is the lock's descriptor, when docslock passed it (`docslock --then`,
-// as `make generate` runs this): kept for the whole run, as an *os.File
-// nothing refers to is closed by its finalizer, and with it the hold.
-var lockFD *os.File
-
-// holdsLock reports whether this run holds the docs lock. Given the lock's
-// descriptor (DOCS_LOCK_FD), this process holds it itself, and keeps it should
-// docslock be killed: it checks the descriptor is docs/.flock as on disk and
-// the record holds its token, and marks it close-on-exec, so the git it runs
-// cannot keep the lock past it. Otherwise (Windows, which passes no
-// descriptor, or run some other way under the lock) the token must be the
-// live holder's (flock.Verify).
-func holdsLock() bool {
-	token := os.Getenv("DOCS_LOCK_TOKEN")
-
-	// Taken (and marked close-on-exec) only once it proves to be the lock's
-	// descriptor for this run: a DOCS_LOCK_FD from elsewhere (a leaked
-	// variable, an IDE's own fd 3) is left alone, and the token checked as
-	// for any process under the lock.
-	if lockFD == nil {
-		if fd, err := strconv.Atoi(os.Getenv("DOCS_LOCK_FD")); err == nil {
-			lockFD = flock.Inherited(fd, docsLock, token)
-		}
-	}
-
-	if lockFD != nil {
-		return flock.Holds(lockFD, docsLock, token)
-	}
-
-	return flock.Verify(docsLock, token)
-}
-
-var (
-	// sigMu guards writing and pending. A signal while the two generated
-	// files are being written is held in pending, not acted on, so the pair
-	// is never left split; main then exits with that signal's code once both
-	// are in place. At any other time the handler exits at once.
-	sigMu   sync.Mutex
-	writing bool
-	written bool // both generated files are in place
-	pending os.Signal
-)
-
-// stoppedBy prints why the run stopped and exits with the shell's code for
-// sig (128 + its number).
-//
-// It ends by sig itself where it can (flock.Raise), not merely with its
-// code, so what ran it sees an interrupted run: docslock passes a Ctrl-C on
-// to the make that ran it only for a command that died of one.
-func stoppedBy(sig os.Signal, what string) {
-	fmt.Fprintf(os.Stderr, "\n%v: stopped; %s\n", sig, what)
-	flock.Exit(sig)
-}
-
-// stopOnSignal exits on Ctrl-C, a kill or a hang-up with the shell's code for
-// that signal, at once, or, during the write, as soon as both files are in
-// place. A signal this process was started with ignored (nohup's SIGHUP) is
-// left so; with none left to catch, nothing is (signal.Notify with no
-// signals relays every one).
-func stopOnSignal() {
-	c := make(chan os.Signal, 1)
-	if caught = flock.NotifyStops(c); len(caught) == 0 {
-		return
-	}
-
-	go func() {
-		for sig := range c {
-			stopOnce.Do(func() { close(stopSeen) })
-
-			sigMu.Lock()
-			if writing {
-				if pending == nil {
-					pending = sig
-				}
-				sigMu.Unlock()
-
-				continue
-			}
-			// Exiting with sigMu still held: released first, main could
-			// start the write in the gap and be cut off between the two
-			// renames, the split this is here to prevent.
-			if written {
-				stoppedBy(sig, "both generated files had already been written")
-			}
-			stoppedBy(sig, "nothing was written")
-		}
-	}()
-}
-
 // refuse stops without writing anything, and exits 1.
 func refuse(reason ...string) {
 	bar := strings.Repeat("=", 78)
 	fmt.Fprintln(os.Stderr, bar)
 	fmt.Fprintf(os.Stderr, "DOCS NOT REGENERATED: %s on disk was not rewritten.\n\n", outFile)
+
 	for _, r := range reason {
 		fmt.Fprintln(os.Stderr, r)
 	}
@@ -419,8 +285,10 @@ func refuse(reason ...string) {
 	if g := gitInfo(); !g.available || !g.head {
 		files = nil
 	}
+
 	for _, f := range files {
 		var note string
+
 		at, err := atRef("HEAD", f)
 		switch {
 		case err != nil:
@@ -429,18 +297,20 @@ func refuse(reason ...string) {
 			note = "is not committed" // at HEAD; staged is not committed
 		default:
 			_, err := git("diff", "--quiet", "HEAD", "--", f)
+
 			var exitErr *exec.ExitError
 			if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
 				note = "differs from HEAD's"
 			}
 		}
+
 		if note != "" {
 			fmt.Fprintf(os.Stderr, "\nNote: %s on disk %s (`git checkout -- %s` restores the committed one).\n", f, note, f)
 		}
 	}
 
 	fmt.Fprintln(os.Stderr, bar)
-	os.Exit(1)
+	exit(1)
 }
 
 // checkPins refuses unless every source docs/sources.lock pins was staged at
@@ -449,37 +319,45 @@ func refuse(reason ...string) {
 // written, however few entries they would change.
 func checkPins() {
 	read := func(path string) (map[string]string, error) {
-		b, err := os.ReadFile(path)
+		b, err := vfs.ReadRegular(path)
 		if err != nil {
 			return nil, err
 		}
 
 		return docsources.ReadPairs(path, b)
 	}
+
 	pins, err := read(lockFile)
 	if err != nil {
 		refuse("Cannot read the pins: "+err.Error(), "Restore docs/sources.lock from git, or `make docs-bump`.")
 	}
+
 	var off []string
+
 	for src := range stagedMarkers {
 		if pins[src] == "" {
 			off = append(off, fmt.Sprintf("%s: not pinned in %s at all", src, lockFile))
 		}
 	}
+
 	for src, pin := range pins {
 		got := ""
+
 		if marker, ok := stagedMarkers[src]; ok {
-			if b, err := os.ReadFile(marker); err == nil {
+			if b, err := vfs.ReadRegular(marker); err == nil {
 				got = strings.TrimSpace(string(b))
 			}
 		}
+
 		if got != pin {
 			if got == "" {
 				got = "nothing"
 			}
+
 			off = append(off, fmt.Sprintf("%s: staged %s, pinned %s", src, got, pin))
 		}
 	}
+
 	if len(off) > 0 {
 		sort.Strings(off)
 		refuse(append(append([]string{"Staged docs are not the versions docs/sources.lock pins:"}, off...),
@@ -487,41 +365,87 @@ func checkPins() {
 	}
 }
 
-func main() {
-	// The handler first, so a signal at any point is handled the one way:
-	// any write in progress finishes both renames, then the run exits.
-	stopOnSignal()
-	requireLock()
-	ob, err := os.ReadFile(orderFile)
+type removalAcceptance struct {
+	ref, file, from string
+	accept          docsources.Acceptance
+	leftOver        []string
+	baseLines       map[string]string
+	baseBroken      bool
+}
+
+func generate() {
+	order, dirs := readOrder()
+	entries, sources := pickEntries(readSources(order, dirs))
+	checkRemovals(sources, order)
+
+	if err := os.MkdirAll("internal/docs", 0o755); err != nil { //nolint:gosec // generated docs retain the repository's public directory mode
+		fmt.Fprintln(os.Stderr, err)
+		exit(1)
+	}
+
+	out := renderEntries(entries)
+	manifest := renderManifest(sources, order)
+
+	// No child writes these files. Keep both renames synchronous while this
+	// process holds the lock; act on a pending stop once the pair is complete.
+	checkStopped()
+	clearStaleTemps(outFile, sourcesFile)
+
+	if err := writeAll([]generated{{path: outFile, data: out}, {path: sourcesFile, data: manifest}}); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		exit(1)
+	}
+
+	checkStopped()
+
+	fmt.Fprintf(os.Stderr, "generated %s with %d entries, and %s\n", outFile, len(entries), sourcesFile)
+}
+
+func readOrder() ([]string, map[string]string) {
+	checkStopped()
+
+	ob, err := vfs.ReadRegular(orderFile)
 	if err != nil {
 		refuse(fmt.Sprintf("No %s: run `make docs` first (fetches cfdocs and assembles the order).", orderFile))
 	}
+
 	checkPins()
 	// Each line names a source and the directory its files are read from, in
 	// place: docs/src/cfdocs (the staged fetch), docs/retained and docs/lucee
 	// (committed). Nothing is copied, so no copy can go stale.
 	var order []string
+
 	dirs := map[string]string{}
+
 	for i, l := range docsources.Lines(ob) {
 		f := strings.Fields(l)
 		if len(f) == 0 {
 			continue
 		}
+
 		if len(f) != 2 || dirs[f[0]] != "" {
 			refuse(fmt.Sprintf("%s:%d: want \"<source> <directory>\" once per source, have %q", orderFile, i+1, l),
 				"Rerun `make docs`.")
 		}
+
 		order = append(order, f[0])
 		dirs[f[0]] = f[1]
 	}
 
+	return order, dirs
+}
+
+func readSources(order []string, dirs map[string]string) []sourced {
 	// Every docs/retained file must parse: one skipped would vanish without a
 	// word. A fetched one that does not is reported (below). A retained file
 	// must also be an entry: upstream ships listing files (all.json, functions.json) of
 	// other types, but a retained file with "Function" for its type is a
 	// mistake that would otherwise drop the entry it was kept for.
-	var all []sourced
-	var broken, brokenOurs []string
+	var (
+		all                []sourced
+		broken, brokenOurs []string
+	)
+
 	for _, src := range order {
 		files, err := filepath.Glob(filepath.Join(dirs[src], "*.json"))
 		if err != nil {
@@ -536,7 +460,9 @@ func main() {
 			refuse(fmt.Sprintf("%s (the %s docs) holds no JSON files.", dirs[src], src),
 				"Run `make docs` (cfdocs), or restore docs/lucee from git.")
 		}
+
 		for _, f := range files {
+			checkStopped()
 			// docs/retained is written by hand here: a file there that does
 			// not parse, or names no valid entry, is a mistake to fix, and
 			// refused. Upstream's files (the fetched cfdocs, the vendored
@@ -548,18 +474,20 @@ func main() {
 				bad = &brokenOurs
 			}
 
-			data, err := os.ReadFile(f)
+			data, err := vfs.ReadRegular(f)
 			if err != nil {
 				*bad = append(*bad, err.Error())
 
 				continue
 			}
+
 			var e Entry
 			if err := json.Unmarshal(data, &e); err != nil {
 				*bad = append(*bad, fmt.Sprintf("%s: %v", f, err))
 
 				continue
 			}
+
 			if e.Type != "function" && e.Type != "tag" {
 				if src == retainedSource {
 					*bad = append(*bad, fmt.Sprintf("%s: type %q, want \"function\" or \"tag\"", f, e.Type))
@@ -576,9 +504,11 @@ func main() {
 
 				continue
 			}
+
 			all = append(all, sourced{Entry: e, file: filepath.Base(f), source: src})
 		}
 	}
+
 	if len(brokenOurs) > 0 {
 		refuse(append([]string{"Broken docs/retained files:"}, brokenOurs...)...)
 	}
@@ -591,15 +521,23 @@ func main() {
 	for _, b := range broken {
 		fmt.Fprintf(os.Stderr, "warning: skipping an unreadable upstream doc file: %s\n", b)
 	}
+
 	if len(all) == 0 {
 		refuse("No entries in any doc source: run `make docs` first.")
 	}
 
+	return all
+}
+
+func pickEntries(all []sourced) ([]Entry, map[string]string) {
 	cands := make([]docsources.Candidate, len(all))
-	for i, e := range all {
+	for i := range all {
+		e := &all[i]
 		cands[i] = docsources.Candidate{Key: docsources.Key(e.Type, e.Name), Source: e.source, File: e.file}
 	}
+
 	keep, sameSource, shadowed := docsources.Pick(cands)
+
 	kept := make([]sourced, len(keep))
 	for i, idx := range keep {
 		kept[i] = all[idx]
@@ -609,33 +547,41 @@ func main() {
 	// the day Lucee stops documenting the name): refused. Upstream's alias or
 	// leftover is upstream's to sort out: Pick keeps the later file, noted.
 	retainedFiles := map[string][]string{}
+
 	for _, c := range cands {
 		if c.Source == retainedSource {
 			retainedFiles[c.Key] = append(retainedFiles[c.Key], c.File)
 		}
 	}
+
 	var twiceOurs []string
+
 	for k, files := range retainedFiles {
 		if len(files) > 1 {
 			twiceOurs = append(twiceOurs, k+": "+strings.Join(files, ", "))
 		}
 	}
+
 	if len(twiceOurs) > 0 {
 		sort.Strings(twiceOurs)
 		refuse(append([]string{"docs/retained documents a name twice; keep one file per name:"}, twiceOurs...)...)
 	}
+
 	for _, d := range sameSource {
 		if d.Source != retainedSource {
 			fmt.Fprintf(os.Stderr, "note: one source documents a name twice, keeping the later file: %s\n", d)
 		}
 	}
+
 	for _, f := range shadowed {
 		fmt.Fprintf(os.Stderr, "note: a higher source documents docs/retained/%s again; it can be deleted\n", f)
 	}
 
 	entries := make([]Entry, 0, len(kept))
+
 	sources := make(map[string]string, len(kept))
-	for _, e := range kept {
+	for i := range kept {
+		e := &kept[i]
 		entries = append(entries, e.Entry)
 		sources[docsources.Key(e.Type, e.Name)] = e.source
 	}
@@ -644,53 +590,49 @@ func main() {
 		if entries[i].Type != entries[j].Type {
 			return entries[i].Type == "tag"
 		}
+
 		return strings.ToLower(entries[i].Name) < strings.ToLower(entries[j].Name)
 	})
 
-	// Refuse to lose entries silently. A fetch that failed drops a whole
-	// source; an upstream that stopped publishing drops a few names. Either
-	// way the fix is a decision, not a regeneration: keep the entry in
-	// docs/retained, or accept the removal with DOCS_ALLOW_REMOVALS=1.
-	//
-	// The baseline is the committed sourcesFile. Without one there is
-	// nothing to compare with, and every check would pass: that is refused
-	// too, unless DOCS_ALLOW_REMOVALS=1 says this run is the one that
-	// creates it.
-	// DOCS_ALLOWED_REMOVALS_FILE (CI's comparison with a pull request's
-	// base) takes the accepted losses from a committed file, read strictly;
-	// DOCS_ALLOW_REMOVALS (a person at a terminal) from the environment.
-	//
-	// In the file, only the lines this pull request adds (those the base's
-	// copy lacks) accept anything. A line the base already has is left over
-	// from an earlier pull request: it accepts nothing, so it can neither wave
-	// a later loss through by accident nor fail anyone, and only warns until
-	// cleared.
-	ref := baselineRef()
+	return entries, sources
+}
+
+func readAcceptance(ref string) *removalAcceptance {
 	allowedFile := repoRelative(os.Getenv("DOCS_ALLOWED_REMOVALS_FILE"))
 	// A symlink would be read here through the link, but `git show` at the
 	// base gives the link's own text, a path, which then cannot parse: every
 	// left-over line would count as added and accept a loss again.
 	if info, err := os.Lstat(allowedFile); allowedFile != "" && err == nil && info.Mode()&os.ModeSymlink != 0 {
-		refuse(fmt.Sprintf("%s is a symlink: it must be the file itself, as git compares it with the base's copy.", allowedFile))
+		refuse(allowedFile + " is a symlink: it must be the file itself, as git compares it with the base's copy.")
 	}
+
 	acceptFrom := "DOCS_ALLOW_REMOVALS"
-	var accept docsources.Acceptance
-	var leftOver []string
-	var baseLines map[string]string
+
+	var (
+		accept    docsources.Acceptance
+		leftOver  []string
+		baseLines map[string]string
+	)
+
 	baseBroken := false
+
 	if allowedFile != "" {
 		acceptFrom = allowedFile
+
 		if os.Getenv("DOCS_ALLOW_REMOVALS") != "" {
 			refuse("DOCS_ALLOW_REMOVALS and DOCS_ALLOWED_REMOVALS_FILE are both set: use one.")
 		}
+
 		b, err := vfs.ReadRegular(allowedFile)
 		if err != nil && !errors.Is(err, fs.ErrNotExist) {
 			refuse("Cannot read " + allowedFile + ": " + err.Error())
 		}
+
 		lines, err := docsources.ParseAllowedRemovals(allowedFile, b)
 		if err != nil {
 			refuse(err.Error())
 		}
+
 		baseStatus, baseRaw, baseErr := committed(ref, allowedFile)
 		if baseStatus == baselineUnreadable {
 			refuse(fmt.Sprintf("Could not read %s at %s: %v", allowedFile, ref, baseErr))
@@ -702,23 +644,32 @@ func main() {
 		baseLines, err = docsources.ParseAllowedRemovals(ref+":"+allowedFile, baseRaw)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "warning: the base's %s does not parse (%v); treating every line here as added\n", allowedFile, err)
+
 			baseLines, baseBroken = nil, true
 		}
+
 		var added map[string]bool
+
 		added, leftOver = docsources.AddedLines(lines, baseLines)
 		accept = docsources.Acceptance{Keys: added}
 	} else {
 		var ignored []string
+
 		accept, ignored = docsources.ParseAcceptance(os.Getenv("DOCS_ALLOW_REMOVALS"))
 		for _, k := range ignored {
 			fmt.Fprintf(os.Stderr, "warning: DOCS_ALLOW_REMOVALS: %q is not \"function <name>\" or \"tag <name>\"; ignored\n", k)
 		}
 	}
+
+	return &removalAcceptance{ref: ref, file: allowedFile, from: acceptFrom, accept: accept, leftOver: leftOver, baseLines: baseLines, baseBroken: baseBroken}
+}
+
+func readBaseline(ref string, accept docsources.Acceptance, order []string) (map[string]string, []string) {
 	status, committedRaw, readErr := committed(ref, sourcesFile)
 
-	switch {
-	case status == baselinePresent:
-	case status == baselineUnreadable:
+	switch status {
+	case baselinePresent:
+	case baselineUnreadable:
 		// The ref has the file but git could not read it: never "no
 		// baseline", which DOCS_ALLOW_REMOVALS=1 would wave through.
 		refuse(fmt.Sprintf("Could not read the baseline at %s: %v", ref, readErr),
@@ -728,7 +679,7 @@ func main() {
 			why := map[baselineStatus]string{
 				baselineAbsent: fmt.Sprintf("%s has no %s", ref, sourcesFile),
 				baselineNoGit:  "git is not available here, or does not trust this checkout",
-				baselineNoRef:  fmt.Sprintf("%s does not resolve to a commit", ref),
+				baselineNoRef:  ref + " does not resolve to a commit",
 			}[status]
 			refuse(fmt.Sprintf("No baseline to compare the new entries with (%s), so a loss could not be seen.", why),
 				"Commit generated_sources.txt with generated_docs.go (both are written together). To create it",
@@ -738,53 +689,85 @@ func main() {
 
 	parsed, err := docsources.Parse(sourcesFile, committedRaw)
 	committedSources, committedOrder := parsed.Entries, parsed.Order
+
 	if err != nil {
 		refuse(err.Error(), "Fix the committed file (a merge left it broken?), or regenerate from a good commit.")
 	}
+
 	if status == baselinePresent && len(committedSources) == 0 {
 		refuse(fmt.Sprintf("The committed %s lists no entries: a baseline of nothing protects nothing.", sourcesFile),
 			"Restore it from an earlier commit.")
 	}
+
 	if committedOrder == nil {
 		committedOrder = order // a file from before it recorded one
 	}
+
+	return committedSources, committedOrder
+}
+
+func checkRemovals(sources map[string]string, order []string) {
+	rules := readAcceptance(baselineRef())
+	committedSources, committedOrder := readBaseline(rules.ref, rules.accept, order)
 
 	removed := docsources.Removed(sources, committedSources)
 	lostByKey, toRetained := docsources.FellBack(sources, committedSources, committedOrder)
 
 	var accepted, refusedRemoved, refusedLost []string
+
 	for _, k := range removed {
-		if accept.Accepts(k) {
+		if rules.accept.Accepts(k) {
 			accepted = append(accepted, k+" (removed)")
 		} else {
 			refusedRemoved = append(refusedRemoved, k)
 		}
 	}
+
 	var refusedLostKeys []string
+
 	for k, move := range lostByKey {
-		if accept.Accepts(k) {
+		if rules.accept.Accepts(k) {
 			accepted = append(accepted, move)
 		} else {
 			refusedLost = append(refusedLost, move)
 			refusedLostKeys = append(refusedLostKeys, k)
 		}
 	}
+
 	sort.Strings(refusedLostKeys)
 	sort.Strings(accepted)
 	sort.Strings(refusedLost)
 
 	if len(accepted) > 0 {
-		fmt.Fprintf(os.Stderr, "%s: accepting %d: %s\n", acceptFrom, len(accepted), strings.Join(accepted, ", "))
+		fmt.Fprintf(os.Stderr, "%s: accepting %d: %s\n", rules.from, len(accepted), strings.Join(accepted, ", "))
 	}
-	for _, k := range leftOver {
-		fmt.Fprintf(os.Stderr, "warning: %s still lists %q from an earlier pull request; it accepts nothing now, so clear it\n", acceptFrom, k)
+
+	warnStale(rules, removed, lostByKey)
+
+	if len(refusedRemoved)+len(refusedLost) > 0 {
+		refuseLosses(rules, refusedRemoved, refusedLost, refusedLostKeys)
 	}
-	named := make([]string, 0, len(accept.Keys))
-	for k := range accept.Keys {
+
+	// Going ahead: now say which entries moved into docs/retained.
+	for _, m := range toRetained {
+		fmt.Fprintf(os.Stderr, "note: %s now comes from docs/retained; check its signature in the generated_docs.go diff\n", m)
+	}
+}
+
+func warnStale(rules *removalAcceptance, removed []string, lostByKey map[string]string) {
+	for _, k := range rules.leftOver {
+		fmt.Fprintf(os.Stderr, "warning: %s still lists %q from an earlier pull request; it accepts nothing now, so clear it\n", rules.from, k)
+	}
+
+	named := make([]string, 0, len(rules.accept.Keys))
+	for k := range rules.accept.Keys {
 		named = append(named, k)
 	}
+
 	sort.Strings(named)
+
 	var stale []string
+
 	for _, k := range named {
 		if !slices.Contains(removed, k) && lostByKey[k] == "" {
 			stale = append(stale, k)
@@ -798,98 +781,107 @@ func main() {
 	// only warns, rather than block the pull request that fixes that copy.
 	// Under DOCS_ALLOW_REMOVALS everything here only warns.
 	var staleNew []string
+
 	for _, k := range stale {
-		if _, listed := baseLines[k]; allowedFile != "" && !baseBroken && !listed {
+		if _, listed := rules.baseLines[k]; rules.file != "" && !rules.baseBroken && !listed {
 			staleNew = append(staleNew, k)
 
 			continue
 		}
-		fmt.Fprintf(os.Stderr, "warning: %s names %q, which this run neither removes nor moves\n", acceptFrom, k)
+
+		fmt.Fprintf(os.Stderr, "warning: %s names %q, which this run neither removes nor moves\n", rules.from, k)
 	}
+
 	if len(staleNew) > 0 {
-		reason := append([]string{allowedFile + ": this pull request adds entries it neither removes nor moves:"}, staleNew...)
+		reason := append([]string{rules.file + ": this pull request adds entries it neither removes nor moves:"}, staleNew...)
 		refuse(append(reason, "", "Delete those lines, or check the name (\"function <name>\" or \"tag <name>\").")...)
 	}
+}
 
-	if len(refusedRemoved)+len(refusedLost) > 0 {
-		var reason []string
-		if len(refusedRemoved) > 0 {
-			reason = append(reason, fmt.Sprintf("Committed entries missing from every doc source (%d):\n  %s\n",
-				len(refusedRemoved), strings.Join(refusedRemoved, ", ")))
+func refuseLosses(rules *removalAcceptance, refusedRemoved, refusedLost, refusedLostKeys []string) {
+	var reason []string
+	if len(refusedRemoved) > 0 {
+		reason = append(reason, fmt.Sprintf("Committed entries missing from every doc source (%d):\n  %s\n",
+			len(refusedRemoved), strings.Join(refusedRemoved, ", ")))
+	}
+
+	if len(refusedLost) > 0 {
+		reason = append(reason, fmt.Sprintf("Entries falling back to a lower source, Adobe's cfdocs for Lucee's (%d):\n  %s\n",
+			len(refusedLost), strings.Join(refusedLost, ", ")))
+	}
+
+	reason = append(reason,
+		"So this build has none of the sources' other updates either. If a source failed to fetch,",
+		"fix that. If upstream stopped publishing them, copy each entry into docs/retained/ (see its",
+		"README).")
+
+	for _, k := range slices.Concat(refusedRemoved, refusedLostKeys) {
+		if slices.Contains(rules.leftOver, k) {
+			reason = append(reason, fmt.Sprintf("%s is listed in %s, but its line is left over from an earlier pull request,", k, rules.file),
+				"and a leftover line accepts nothing. To remove it again on purpose, change that line (a new # reason).")
 		}
-		if len(refusedLost) > 0 {
-			reason = append(reason, fmt.Sprintf("Entries falling back to a lower source, Adobe's cfdocs for Lucee's (%d):\n  %s\n",
-				len(refusedLost), strings.Join(refusedLost, ", ")))
-		}
+	}
+
+	if rules.file != "" {
+		// CI's comparison with what main held before (a pull request's
+		// base, or the commit a push moved main from): the banner's HEAD
+		// notes below are about the checkout, not this baseline.
 		reason = append(reason,
-			"So this build has none of the sources' other updates either. If a source failed to fetch,",
-			"fix that. If upstream stopped publishing them, copy each entry into docs/retained/ (see its",
-			"README).")
-		for _, k := range append(append([]string{}, refusedRemoved...), refusedLostKeys...) {
-			if slices.Contains(leftOver, k) {
-				reason = append(reason, fmt.Sprintf("%s is listed in %s, but its line is left over from an earlier pull request,", k, allowedFile),
-					"and a leftover line accepts nothing. To remove it again on purpose, change that line (a new # reason).")
-			}
-		}
-		if allowedFile != "" {
-			// CI's comparison with what main held before (a pull request's
-			// base, or the commit a push moved main from): the banner's HEAD
-			// notes below are about the checkout, not this baseline.
-			reason = append(reason,
-				fmt.Sprintf("This compared with %s, what main held before this change, not HEAD: a local `make generate`", ref),
-				"can pass while this fails. To drop an entry on purpose, list it in "+allowedFile+".")
-		} else {
-			reason = append(reason,
-				"To accept a loss deliberately, rerun `make generate` with DOCS_ALLOW_REMOVALS set to the entries,",
-				"comma-separated (DOCS_ALLOW_REMOVALS=\"function foo,tag bar\"), or to 1 for all.")
-		}
-		refuse(reason...)
+			fmt.Sprintf("This compared with %s, what main held before this change, not HEAD: a local `make generate`", rules.ref),
+			"can pass while this fails. To drop an entry on purpose, list it in "+rules.file+".")
+	} else {
+		reason = append(reason,
+			"To accept a loss deliberately, rerun `make generate` with DOCS_ALLOW_REMOVALS set to the entries,",
+			"comma-separated (DOCS_ALLOW_REMOVALS=\"function foo,tag bar\"), or to 1 for all.")
 	}
 
-	// Going ahead: now say which entries moved into docs/retained.
-	for _, m := range toRetained {
-		fmt.Fprintf(os.Stderr, "note: %s now comes from docs/retained; check its signature in the generated_docs.go diff\n", m)
-	}
+	refuse(reason...)
+}
 
-	if err := os.MkdirAll("internal/docs", 0o755); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
-
+func renderEntries(entries []Entry) []byte {
 	// Both files are built in memory and written to temporary files first,
 	// then renamed into place, so a failed write leaves both as they were
 	// rather than one new and one old (the next run's baseline).
 	out := &bytes.Buffer{}
 
-	fmt.Fprintln(out, "// Code generated by scripts/generate_docs.go; DO NOT EDIT.")
+	fmt.Fprintln(out, "// Code generated by cmd/docpipe/generate.go; DO NOT EDIT.")
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "package docs")
 	fmt.Fprintln(out, "")
 	fmt.Fprintln(out, "func builtinEntries() []Entry {")
 	fmt.Fprintln(out, "\treturn []Entry{")
 
-	for _, e := range entries {
+	for i := range entries {
+		e := &entries[i]
 		fmt.Fprintf(out, "\t\t{Name: %s, Description: %s, Syntax: %s, Member: %s, Script: %s, Returns: %s, Type: %s",
 			goStr(e.Name), goStr(e.Description), goStr(e.Syntax), goStr(e.Member), goStr(e.Script), goStr(e.Returns), goStr(e.Type))
+
 		if len(e.Params) > 0 {
 			fmt.Fprintln(out, ", Params: []Param{")
-			for _, p := range e.Params {
+
+			for j := range e.Params {
+				p := &e.Params[j]
+
 				vals := p.Values()
 				if len(vals) > 0 {
 					fmt.Fprintf(out, "\t\t\t{Name: %s, Description: %s, Type: %s, Required: %v, Values: []string{",
 						goStr(p.Name), goStr(p.Description), goStr(p.Type), p.Required)
+
 					for i, v := range vals {
 						if i > 0 {
 							fmt.Fprint(out, ", ")
 						}
+
 						fmt.Fprint(out, goStr(v))
 					}
+
 					fmt.Fprintln(out, "}},")
 				} else {
 					fmt.Fprintf(out, "\t\t\t{Name: %s, Description: %s, Type: %s, Required: %v},\n",
 						goStr(p.Name), goStr(p.Description), goStr(p.Type), p.Required)
 				}
 			}
+
 			fmt.Fprintln(out, "\t\t}},")
 		} else {
 			fmt.Fprintln(out, "},")
@@ -905,7 +897,8 @@ func main() {
 	fmt.Fprintln(out, "func builtinMembers() []Member {")
 	fmt.Fprintln(out, "\treturn []Member{")
 
-	for _, e := range entries {
+	for i := range entries {
+		e := &entries[i]
 		if e.Type != "function" || e.MemberDetails == nil || e.MemberDetails.Name == "" || e.MemberDetails.Type == "" {
 			continue
 		}
@@ -917,83 +910,37 @@ func main() {
 	fmt.Fprintln(out, "\t}")
 	fmt.Fprintln(out, "}")
 
+	return out.Bytes()
+}
+
+func renderManifest(sources map[string]string, order []string) []byte {
 	keys := make([]string, 0, len(sources))
 	for k := range sources {
 		keys = append(keys, k)
 	}
+
 	sort.Strings(keys)
 
 	var sb strings.Builder
-	sb.WriteString("# Generated by scripts/generate_docs.go; DO NOT EDIT. Which doc source each entry in\n")
+	sb.WriteString("# Generated by cmd/docpipe/generate.go; DO NOT EDIT. Which doc source each entry in\n")
 	sb.WriteString("# generated_docs.go came from, so a regeneration can see Lucee's entry fall back to cfdocs'.\n")
 	sb.WriteString(docsources.OrderPrefix + strings.Join(order, " ") + "\n")
+
 	for _, k := range keys {
 		sb.WriteString(k + "\t" + sources[k] + "\n")
 	}
-	// Checked again just before writing: the file deleted and created again
-	// meanwhile, or, without the descriptor, the lock released (its docslock
-	// killed), would let another docs run take it and swap a source under
-	// this one.
-	if !holdsLock() {
-		refuse("This run no longer holds the docs lock ("+docsLock+"): its docslock was stopped, or the file was",
-			"deleted, so another docs run may have changed a source meanwhile. Run `make generate` again.")
-	}
 
-	// A signal from here until both renames are done is held, then acted on.
-	sigMu.Lock()
-	writing = true
-	sigMu.Unlock()
-
-	clearStaleTemps(outFile, sourcesFile)
-	err = writeAll([]generated{{path: outFile, data: out.Bytes()}, {path: sourcesFile, data: []byte(sb.String())}})
-
-	sigMu.Lock()
-	writing, written = false, err == nil
-	sig := pending
-	sigMu.Unlock()
-
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		if sig != nil {
-			// Interrupted as well: the signal's code, so the run reads as
-			// stopped, not as an ordinary failure.
-			stoppedBy(sig, "the write failed, as above")
-		}
-		os.Exit(1)
-	}
-	if sig != nil {
-		stoppedBy(sig, "both generated files had already been written")
-	}
-
-	fmt.Fprintf(os.Stderr, "generated %s with %d entries, and %s\n", outFile, len(entries), sourcesFile)
+	return []byte(sb.String())
 }
 
-// runTag names this run's scratch: the first 16 characters of its token, as
-// lib/underlock.sh's docs_scratch does, or its PID when run with none.
-func runTag() string {
-	if t := os.Getenv("DOCS_LOCK_TOKEN"); len(t) >= 16 {
-		return t[:16]
-	}
-
-	return strconv.Itoa(os.Getpid())
-}
-
-// clearStaleTemps removes the temporary files killed generators left beside
-// paths (PATH.tmp.<run>, and PATH.tmp and PATH.<pid>.tmp as earlier versions
-// named them), which git would otherwise show as new files, as
-// docs_clear_scratch does for the scripts. Called holding the lock, before
-// this run writes its own.
-//
-// Only once ten minutes old: on Windows a generator left running after its
-// docslock was killed may still be writing its own (it breaks away from the
-// job, and holds no descriptor), and removing them would split its pair.
+// clearStaleTemps runs under the same lock as every writer. No writer can
+// survive its owning process, so leftovers need no age or owner heuristic.
 func clearStaleTemps(paths ...string) {
 	for _, p := range paths {
-		a, _ := filepath.Glob(p + ".tmp.*")
-		b, _ := filepath.Glob(p + ".*.tmp")
-		for _, s := range append(append(a, b...), p+".tmp") {
-			if info, err := os.Stat(s); err == nil && time.Since(info.ModTime()) >= 10*time.Minute {
-				_ = os.Remove(s)
+		for _, pattern := range []string{p + ".tmp", p + ".tmp.*", p + ".tmp-*", p + ".*.tmp"} {
+			matches, _ := filepath.Glob(pattern)
+			for _, name := range matches {
+				_ = os.Remove(name)
 			}
 		}
 	}
@@ -1021,14 +968,25 @@ func writeAll(files []generated) error {
 	}()
 
 	for _, f := range files {
-		// This run's own name, PATH.tmp.<run> as the scripts name theirs
-		// (lib/underlock.sh's docs_scratch), never one another generator
-		// could be writing: on Windows, where the generator holds no
-		// descriptor, one left running after its docslock was killed might
-		// be.
-		tmp := f.path + ".tmp." + runTag()
-		tmps = append(tmps, tmp) // before writing: a partial write is cleaned up too
-		if err := os.WriteFile(tmp, f.data, 0o644); err != nil {
+		tmp, err := os.CreateTemp(filepath.Dir(f.path), filepath.Base(f.path)+".tmp-*")
+		if err != nil {
+			return err
+		}
+
+		tmps = append(tmps, tmp.Name())
+		if err := tmp.Chmod(0o644); err != nil {
+			_ = tmp.Close()
+
+			return err
+		}
+
+		if _, err := tmp.Write(f.data); err != nil {
+			_ = tmp.Close()
+
+			return err
+		}
+
+		if err := tmp.Close(); err != nil {
 			return err
 		}
 	}
@@ -1040,12 +998,17 @@ func writeAll(files []generated) error {
 			return err
 		}
 	}
+
 	tmps = nil
 
 	return nil
 }
 
 func goStr(s string) string {
-	b, _ := json.Marshal(s)
+	b, err := json.Marshal(s)
+	if err != nil {
+		panic(err)
+	}
+
 	return string(b)
 }

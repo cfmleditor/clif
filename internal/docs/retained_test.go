@@ -157,7 +157,7 @@ func TestLuceeCryptoFunctionsKeepLuceeSignatures(t *testing.T) {
 }
 
 // TestGeneratedSourcesMatchTheDocs: generated_sources.txt is the baseline
-// scripts/generate_docs.go compares a regeneration with, both for entries that
+// cmd/docpipe/generate.go compares a regeneration with, both for entries that
 // went missing and for Lucee entries that fell back to cfdocs'. Committed
 // without it, or out of step with generated_docs.go, the next regeneration
 // checks against the wrong set, or none.

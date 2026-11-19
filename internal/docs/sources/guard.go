@@ -13,7 +13,7 @@ import (
 	"github.com/cfmleditor/clif/internal/vfs"
 )
 
-// The checks scripts/generate_docs.go makes before it writes the docs. They
+// The checks cmd/docpipe/generate.go makes before it writes the docs. They
 // live here, not in that build-ignored script, so they are compiled, vetted,
 // linted and tested like the rest of the module.
 
@@ -250,7 +250,7 @@ func ManifestHash(files map[string][]byte) string {
 // it could not hash (unhashed: unreadable, or not a regular file), and those
 // it hashed that fail CheckEntryFile (invalid: bad JSON, an invalid name). It
 // is what `make docs-bump` records in docs/lucee/SOURCE (through
-// scripts/check_vendored.go, which refuses both kinds) and what
+// cmd/docpipe/lucee.go, which refuses both kinds) and what
 // TestVendoredLuceeMatchesItsSource compares with it (which fails on unhashed
 // ones only: whether a file's content passes the checks is the bump's
 // business, and the checks may tighten after it was vendored), so the two
