@@ -18,17 +18,18 @@ import (
 
 // Index is a concurrency-safe store of function definitions keyed by name.
 type Index struct {
-	mu        writeCountingMutex
-	funcs     map[string][]*parser.FunctionDef             // lowercase name -> definitions
-	fileFuncs map[string][]*parser.FunctionDef             // lowercase URI -> definitions in that file
-	comprefs  map[string][]*parser.ComponentRef            // lowercase variable -> refs
-	fileRefs  map[string][]*parser.ComponentRef            // lowercase URI -> refs in that file
-	thisVars  map[string][]string                          // lowercase URI -> this-scoped var names
-	scopeRefs map[string]map[string][]*parser.ComponentRef // lowercase URI -> function scope key -> refs
-	extends   map[string]string                            // lowercase URI -> that component's extends, "" for none
-	delegates map[string][]parser.Delegate                 // lowercase URI -> the WireBox delegations it declares; kept and dropped with extends
-	fileURIs  map[string]uri.URI                           // lowercase URI -> the file's URI as indexed, in its real case; kept with fileFuncs
-	beans     map[string]string                            // lowercase bean name -> dot-path
+	mu            writeCountingMutex
+	funcs         map[string][]*parser.FunctionDef             // lowercase name -> definitions
+	fileFuncs     map[string][]*parser.FunctionDef             // lowercase URI -> definitions in that file
+	comprefs      map[string][]*parser.ComponentRef            // lowercase variable -> refs
+	fileRefs      map[string][]*parser.ComponentRef            // lowercase URI -> refs in that file
+	thisVars      map[string][]string                          // lowercase URI -> this-scoped var names
+	scopeRefs     map[string]map[string][]*parser.ComponentRef // lowercase URI -> function scope key -> refs
+	extends       map[string]string                            // lowercase URI -> that component's extends, "" for none
+	delegates     map[string][]parser.Delegate                 // lowercase URI -> the WireBox delegations it declares; kept and dropped with extends
+	fileURIs      map[string]uri.URI                           // lowercase URI -> the file's URI as indexed, in its real case; kept with fileFuncs
+	fileRevisions map[string]uint64                            // source revisions; kept with fileURIs
+	beans         map[string]string                            // lowercase bean name -> dot-path
 	// entities holds every file declaring an entity name: several
 	// applications in one workspace may each declare one (Lucee's tests
 	// declare Author three times), and which file indexed last is not an
@@ -524,6 +525,9 @@ func (idx *Index) ShiftLines(fileURI uri.URI, afterLine int, delta int) {
 	defer idx.mu.Unlock()
 
 	key := uriKey(fileURI)
+	if _, known := idx.fileURIs[key]; known {
+		idx.markFileRevision(key)
+	}
 
 	// Only the edited file's entries can move, and fileFuncs/fileRefs already
 	// index exactly those. This used to walk every bucket of funcs and comprefs
@@ -715,6 +719,7 @@ func (idx *Index) indexParseResult(fileURI uri.URI, content string, pr *parser.P
 
 	idx.fileFuncs[fk] = fileDefs
 	idx.fileURIs[fk] = uri.URI(strings.Clone(string(fileURI)))
+	idx.markFileRevision(fk)
 
 	fileRefsList := make([]*parser.ComponentRef, 0, len(refs))
 
@@ -764,6 +769,7 @@ func (idx *Index) IndexFileFromResult(fileURI uri.URI, funcs []parser.FunctionDe
 
 	idx.fileFuncs[fk] = fileDefs
 	idx.fileURIs[fk] = uri.URI(strings.Clone(string(fileURI)))
+	idx.markFileRevision(fk)
 
 	fileRefsList := make([]*parser.ComponentRef, 0, len(refs))
 
@@ -860,6 +866,7 @@ func (idx *Index) RemoveFilesUnder(prefix string) {
 
 			delete(idx.fileFuncs, key)
 			delete(idx.fileURIs, key)
+			delete(idx.fileRevisions, key)
 			idx.shapeEnd(key, &mark)
 			delete(idx.fileRefs, key)
 			delete(idx.thisVars, key)
@@ -948,6 +955,7 @@ func (idx *Index) RemoveFilesUnder(prefix string) {
 // replaces them.
 func (idx *Index) removeFileEntries(fileURI uri.URI) {
 	key := uriKey(fileURI)
+	delete(idx.fileRevisions, key)
 	delete(idx.thisVars, key)
 	delete(idx.scopeRefs, key)
 	// Dropped with everything else, which is what makes the extends record

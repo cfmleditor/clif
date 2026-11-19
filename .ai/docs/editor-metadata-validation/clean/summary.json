@@ -1,0 +1,30 @@
+{
+  "before": {
+    "inside": {
+      "change_p50_us": 97.0,
+      "change_p95_us": 180.0,
+      "hover_p50_us": 71.0,
+      "hover_p95_us": 122.0
+    },
+    "outside": {
+      "change_p50_us": 68.0,
+      "change_p95_us": 117.0,
+      "hover_p50_us": 6729.0,
+      "hover_p95_us": 11419.0
+    }
+  },
+  "after": {
+    "inside": {
+      "change_p50_us": 97.0,
+      "change_p95_us": 171.0,
+      "hover_p50_us": 70.0,
+      "hover_p95_us": 125.0
+    },
+    "outside": {
+      "change_p50_us": 70.0,
+      "change_p95_us": 122.0,
+      "hover_p50_us": 6688.0,
+      "hover_p95_us": 11942.0
+    }
+  }
+}

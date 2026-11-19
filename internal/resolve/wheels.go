@@ -129,8 +129,11 @@ func isWordText(s string) bool {
 // at path gives it, as a definition returning the associated model, or nil.
 func (r *Resolver) associationFunc(path, name string) *parser.FunctionDef {
 	source := r.sourceInfo(path)
+	if source.derived == nil {
+		return nil
+	}
 
-	def, ok := source.associations[strings.ToLower(name)]
+	def, ok := source.derived.associations[strings.ToLower(name)]
 	if !ok {
 		return nil
 	}

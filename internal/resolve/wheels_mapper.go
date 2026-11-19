@@ -12,6 +12,7 @@ import (
 	"go.lsp.dev/uri"
 
 	"github.com/cfmleditor/clif/internal/parser"
+	cfpath "github.com/cfmleditor/clif/internal/path"
 )
 
 // Wheels' Mapper copies public function references from wheels.mapper.* into
@@ -184,9 +185,8 @@ type wheelsMethod struct {
 // It is not merged with sourceFacts: that one reads the text a parse holds,
 // which in the editor is the open buffer, where this one reads the disk.
 type sourceInfo struct {
-	associations map[string]parser.FunctionDef
-	content      string
-	derived      *sourceDerived // facts read from content on first use
+	content string
+	derived *sourceDerived // facts read from content on first use
 
 	// size and modTime are the file's stamp when content was read. An
 	// unchanged stamp serves the cache without reading the file again: this
@@ -194,9 +194,10 @@ type sourceInfo struct {
 	size    int64
 	modTime time.Time
 
-	// gen is the index generation the stamp was last checked at, when the
-	// index tracks the disk.
-	gen uint64
+	// gen is the index generation the source was last validated against, when
+	// the index tracks the disk. revision avoids checking unchanged files again.
+	gen      uint64
+	revision uint64 // this file's indexed revision; zero for unindexed inputs
 }
 
 // Cache lexical work, not definitions or directory listings. Re-read bytes
@@ -223,6 +224,19 @@ func (r *Resolver) sourceInfo(path string) sourceInfo {
 		return cached
 	}
 
+	var revision uint64
+	if r.IndexTracksFiles && r.Index != nil {
+		revision = r.Index.FileRevision(cfpath.ToURI(path))
+		// A different file advanced the index. Keep the cheap generation fast
+		// path above, and revalidate this file only when its own revision moved.
+		if ok && revision != 0 && cached.revision == revision {
+			cached.gen = gen
+			r.storeSourceInfo(path, &cached)
+
+			return cached
+		}
+	}
+
 	info, err := r.fs().Stat(path)
 	if err != nil {
 		return sourceInfo{}
@@ -231,6 +245,7 @@ func (r *Resolver) sourceInfo(path string) sourceInfo {
 	if ok && cached.size == info.Size() && cached.modTime.Equal(info.ModTime()) {
 		if r.IndexTracksFiles {
 			cached.gen = gen
+			cached.revision = revision
 			r.storeSourceInfo(path, &cached)
 		}
 
@@ -247,10 +262,11 @@ func (r *Resolver) sourceInfo(path string) sourceInfo {
 	result := cached
 	if !ok || cached.content != content {
 		result = sourceInfo{content: content, derived: &sourceDerived{path: path}}
-		result.associations = wheelsAssociations(content, func() *parser.ParseResult { return result.plainParse(path) })
+		result.derived.associations = wheelsAssociations(content, func() *parser.ParseResult { return result.plainParse(path) })
 	}
 
 	result.size, result.modTime, result.gen = info.Size(), info.ModTime(), gen
+	result.revision = revision
 
 	return r.adoptSourceInfo(path, result)
 }
@@ -271,6 +287,7 @@ func (r *Resolver) adoptSourceInfo(path string, src sourceInfo) sourceInfo {
 
 	if held, ok := r.sourceInfos[path]; ok && held.derived != nil && held.content == src.content {
 		held.size, held.modTime, held.gen = src.size, src.modTime, src.gen
+		held.revision = src.revision
 		src = held
 	}
 
@@ -282,6 +299,7 @@ func (r *Resolver) adoptSourceInfo(path string, src sourceInfo) sourceInfo {
 // sourceDerived holds what is read from a source's content once, the first
 // time it is asked for, and shared by every copy of its sourceInfo.
 type sourceDerived struct {
+	associations    map[string]parser.FunctionDef
 	uncommentedOnce sync.Once
 	uncommented     string
 	producersOnce   sync.Once

@@ -1,0 +1,5 @@
+--- FAIL: TestSourceMetadataSurvivesUnrelatedIndexWrites (0.00s)
+    source_metadata_test.go:90: unchanged library checked 21 times; want one check across unrelated edits
+FAIL
+FAIL	github.com/cfmleditor/clif/internal/resolve	1.112s
+FAIL
