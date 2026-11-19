@@ -215,10 +215,7 @@ func (s *Server) applyWatchedFileChange(path string, kind protocol.FileChangeTyp
 	// its own; re-saving the buffer re-indexes it through didSave. Content, by
 	// contrast, is the editor's to report — see below.
 	if kind == protocol.FileChangeTypeDeleted {
-		s.index.RemoveFile(fileURI)
-		s.dropFileCaches(fileURI)
-
-		return watchedRemoved
+		return s.removeWatchedFile(fileURI)
 	}
 
 	// An open document's buffer outranks what is on disk: it may hold unsaved
@@ -242,21 +239,25 @@ func (s *Server) applyWatchedFileChange(path string, kind protocol.FileChangeTyp
 		// Created-then-deleted inside one batch, or a file the watcher saw
 		// mid-write. Treat it as gone rather than leaving the previous
 		// contents indexed as though they were current.
-		s.index.RemoveFile(fileURI)
-		s.dropFileCaches(fileURI)
-
-		return watchedRemoved
+		return s.removeWatchedFile(fileURI)
 	}
 
 	data, isText := cfpath.AsText(data)
 	if !isText {
-		return watchedSkipped
+		return s.removeWatchedFile(fileURI)
 	}
 
 	s.applyIndexResult(fileURI, s.parseContentForIndex(fileURI, string(data)))
 	s.dropFileCaches(fileURI)
 
 	return watchedIndexed
+}
+
+func (s *Server) removeWatchedFile(fileURI uri.URI) watchedOutcome {
+	s.index.RemoveFile(fileURI)
+	s.dropFileCaches(fileURI)
+
+	return watchedRemoved
 }
 
 // dropFileCaches clears the per-file caches that survive independently of the
