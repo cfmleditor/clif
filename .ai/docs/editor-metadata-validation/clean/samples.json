@@ -1,0 +1,146 @@
+{
+  "before": [
+    {
+      "inside": {
+        "change_p50_us": 97.0,
+        "change_p95_us": 179.0,
+        "hover_p50_us": 71.0,
+        "hover_p95_us": 107.0
+      },
+      "outside": {
+        "change_p50_us": 70.0,
+        "change_p95_us": 132.0,
+        "hover_p50_us": 6729.0,
+        "hover_p95_us": 11715.0
+      }
+    },
+    {
+      "inside": {
+        "change_p50_us": 95.0,
+        "change_p95_us": 180.0,
+        "hover_p50_us": 72.0,
+        "hover_p95_us": 142.0
+      },
+      "outside": {
+        "change_p50_us": 67.0,
+        "change_p95_us": 106.0,
+        "hover_p50_us": 6785.0,
+        "hover_p95_us": 12413.0
+      }
+    },
+    {
+      "inside": {
+        "change_p50_us": 93.0,
+        "change_p95_us": 139.0,
+        "hover_p50_us": 68.0,
+        "hover_p95_us": 111.0
+      },
+      "outside": {
+        "change_p50_us": 68.0,
+        "change_p95_us": 100.0,
+        "hover_p50_us": 6677.0,
+        "hover_p95_us": 10952.0
+      }
+    },
+    {
+      "inside": {
+        "change_p50_us": 98.0,
+        "change_p95_us": 191.0,
+        "hover_p50_us": 70.0,
+        "hover_p95_us": 122.0
+      },
+      "outside": {
+        "change_p50_us": 65.0,
+        "change_p95_us": 117.0,
+        "hover_p50_us": 6508.0,
+        "hover_p95_us": 9983.0
+      }
+    },
+    {
+      "inside": {
+        "change_p50_us": 100.0,
+        "change_p95_us": 187.0,
+        "hover_p50_us": 71.0,
+        "hover_p95_us": 163.0
+      },
+      "outside": {
+        "change_p50_us": 70.0,
+        "change_p95_us": 159.0,
+        "hover_p50_us": 7046.0,
+        "hover_p95_us": 11419.0
+      }
+    }
+  ],
+  "after": [
+    {
+      "inside": {
+        "change_p50_us": 97.0,
+        "change_p95_us": 155.0,
+        "hover_p50_us": 69.0,
+        "hover_p95_us": 125.0
+      },
+      "outside": {
+        "change_p50_us": 71.0,
+        "change_p95_us": 113.0,
+        "hover_p50_us": 6688.0,
+        "hover_p95_us": 11942.0
+      }
+    },
+    {
+      "inside": {
+        "change_p50_us": 97.0,
+        "change_p95_us": 169.0,
+        "hover_p50_us": 70.0,
+        "hover_p95_us": 118.0
+      },
+      "outside": {
+        "change_p50_us": 70.0,
+        "change_p95_us": 127.0,
+        "hover_p50_us": 6533.0,
+        "hover_p95_us": 11656.0
+      }
+    },
+    {
+      "inside": {
+        "change_p50_us": 98.0,
+        "change_p95_us": 200.0,
+        "hover_p50_us": 70.0,
+        "hover_p95_us": 159.0
+      },
+      "outside": {
+        "change_p50_us": 69.0,
+        "change_p95_us": 122.0,
+        "hover_p50_us": 7004.0,
+        "hover_p95_us": 12824.0
+      }
+    },
+    {
+      "inside": {
+        "change_p50_us": 95.0,
+        "change_p95_us": 171.0,
+        "hover_p50_us": 69.0,
+        "hover_p95_us": 104.0
+      },
+      "outside": {
+        "change_p50_us": 69.0,
+        "change_p95_us": 115.0,
+        "hover_p50_us": 6549.0,
+        "hover_p95_us": 10142.0
+      }
+    },
+    {
+      "inside": {
+        "change_p50_us": 102.0,
+        "change_p95_us": 190.0,
+        "hover_p50_us": 71.0,
+        "hover_p95_us": 145.0
+      },
+      "outside": {
+        "change_p50_us": 70.0,
+        "change_p95_us": 135.0,
+        "hover_p50_us": 7465.0,
+        "hover_p95_us": 12194.0
+      }
+    }
+  ]
+}

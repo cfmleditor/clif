@@ -1,0 +1,4 @@
+/*.log
+/editing-sessions.json
+/clean/*.log
+!/no-reuse-mutation.log
