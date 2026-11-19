@@ -9,7 +9,7 @@ import (
 	"go.lsp.dev/uri"
 )
 
-func TestMatchingFunctionBatchesStopAfterAnIndexWrite(t *testing.T) {
+func TestMatchingFunctionBatchesAcrossIndexWrites(t *testing.T) {
 	idx := New()
 	u := uri.File("/ws/Functions.cfc")
 	defs := make([]parser.FunctionDef, 2*matchingFunctionBatchSize+1)
@@ -41,6 +41,8 @@ func TestMatchingFunctionBatchesStopAfterAnIndexWrite(t *testing.T) {
 	visited = 0
 
 	complete = idx.VisitMatchingFunctionBatches(match, func(batch []*parser.FunctionDef) {
+		idx.SetExtends(uri.File("/ws/Other.cfc"), "Base")
+
 		if len(batch) > matchingFunctionBatchSize || batch[0].Line != uint32(visited+2) {
 			t.Fatalf("unexpected batch of %d definitions starting at line %d", len(batch), batch[0].Line)
 		}
@@ -48,7 +50,7 @@ func TestMatchingFunctionBatchesStopAfterAnIndexWrite(t *testing.T) {
 		visited += len(batch)
 	})
 	if !complete || visited != len(defs) {
-		t.Fatalf("uninterrupted visit reported complete=%v and %d definitions, want %d", complete, visited, len(defs))
+		t.Fatalf("visit across a metadata write reported complete=%v and %d definitions, want %d", complete, visited, len(defs))
 	}
 }
 

@@ -84,7 +84,7 @@ func (s *Server) handleWorkspaceSymbol(_ context.Context, rawParams []byte) (any
 	if len(query) < 3 {
 		selection := workspaceSymbolHeap{query: query}
 		if !s.index.VisitMatchingFunctionBatches(match, selection.visit) {
-			// A writer changed the index between batches. Retry from a full
+			// Function definitions changed between batches. Retry from a full
 			// snapshot so the results still all come from one generation.
 			selection = workspaceSymbolHeap{query: query}
 			selection.visit(s.index.FunctionsMatching(match))
