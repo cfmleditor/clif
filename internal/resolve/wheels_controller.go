@@ -13,7 +13,15 @@ import (
 // A normal method never replaces an own method; super<name> is the original
 // framework method only when an actual own/inherited override is present.
 func (r *Resolver) wheelsObjectMixinFunc(chain []string, name string) *parser.FunctionDef {
-	for at, path := range chain {
+	if len(chain) < 2 {
+		return nil
+	}
+
+	// A loader host must have wheels.Global as its next ancestor. The last
+	// component cannot contribute a mixin, so its source need not be inspected.
+	candidates := chain[:len(chain)-1]
+
+	for at, path := range candidates {
 		if !strings.EqualFold(filepath.Base(path), "Controller.cfc") && !strings.EqualFold(filepath.Base(path), "Model.cfc") {
 			continue
 		}
