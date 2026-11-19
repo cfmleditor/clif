@@ -10,7 +10,9 @@ import (
 func TestRoutesInvalidFormatPreservesReport(t *testing.T) {
 	dir := t.TempDir()
 	report := filepath.Join(dir, "report.txt")
+
 	const original = "previous report\n"
+
 	writeTestFile(t, report, original)
 
 	if out, code := runClif(t, dir, "routes", "--format", "jsno", "--out", report, dir); code != 1 || !strings.Contains(out, "unknown format") {
@@ -48,6 +50,7 @@ func TestRouteTextZeroLimitShowsEveryExample(t *testing.T) {
 func TestRouteScanOrdersSitesForTheSameRoute(t *testing.T) {
 	dir := t.TempDir()
 	writeTestFile(t, filepath.Join(dir, ".clif.json"), `{"routes":{"attributes":["data-view"],"views":[{"path":"views/${1}/${2}.cfm"}]}}`)
+
 	names := []string{"a.cfm", "b.cfm", "c.cfm", "d.cfm", "e.cfm", "f.cfm"}
 	for _, name := range names {
 		writeTestFile(t, filepath.Join(dir, name), `<a data-view="home.missing"></a>`)
@@ -58,6 +61,7 @@ func TestRouteScanOrdersSitesForTheSameRoute(t *testing.T) {
 		if scanned != len(names) || len(unresolved) != len(names) {
 			t.Fatalf("scanned %d, unresolved %d, want %d", scanned, len(unresolved), len(names))
 		}
+
 		for i, name := range names {
 			if unresolved[i].File != name {
 				t.Fatalf("site %d is %q, want %q", i, unresolved[i].File, name)
