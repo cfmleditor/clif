@@ -10,6 +10,10 @@ import "sync/atomic"
 // CPU when the counters were measured by hand.
 var scanCounts struct{ tokens, parses atomic.Int64 }
 
+// quotedSkipCount measures quote-aware lookahead, including repeated visits
+// to a quoted value when tag folding searches for an end.
+var quotedSkipCount atomic.Int64
+
 // ScanCounts is the tokens scanned and the parses run since the last
 // ResetScanCounts; both zero unless built with the passcount tag.
 func ScanCounts() (tokens, parses int64) {

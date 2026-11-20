@@ -299,6 +299,7 @@ check: $(GOLANGCI_BIN)
 	@bash scripts/check-go-format.sh
 	go test -short -race ./...
 	go test -tags passcount -run TestABatchScanReadsEachFileFewTimes ./cmd/clif/
+	go test -short -tags passcount -run '^TestFoldingUnterminatedTagsBoundsQuoteSearch$$' ./internal/parser/
 	$(GOLANGCI_BIN) run ./...
 	$(MAKE) --no-print-directory vuln
 
