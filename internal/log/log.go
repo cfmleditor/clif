@@ -96,6 +96,17 @@ type zapLogger struct {
 	sink Sink
 }
 
+// LocalDebug returns the debug writer for stderr and the configured log file,
+// without forwarding its records to the attached sink. It is nil when debug
+// logging is disabled so callers can skip preparing expensive fields.
+func LocalDebug(log Logger) func(string, ...any) {
+	if z, ok := log.(*zapLogger); ok && z.debug {
+		return z.l.Debugw
+	}
+
+	return nil
+}
+
 func (z *zapLogger) Debug(msg string, kv ...any) {
 	if !z.debug {
 		return

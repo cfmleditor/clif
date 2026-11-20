@@ -258,6 +258,10 @@ func (p *scriptParser) readCreateObjectPath() string {
 	}
 
 	arg1 := p.sc.NextSkipComments()
+	if arg1.Kind == TokIdent && (p.sc.PeekSkipComments().Kind == TokEquals || p.sc.PeekSkipComments().Kind == TokColon) {
+		return p.readNamedCreateObjectPath(arg1)
+	}
+
 	if arg1.Kind != TokString {
 		return ""
 	}
@@ -285,14 +289,73 @@ func (p *scriptParser) readCreateObjectPath() string {
 		return "$any"
 	}
 
-	if identEq(arg1Val, "component") {
-		return unquote(arg2.Value)
+	return p.createObjectTarget(arg1Val, unquote(arg2.Value))
+}
+
+// readNamedCreateObjectPath reads Lucee's named arguments in either order.
+// Unknown options may contain calls, which are scanned as in a computed path.
+func (p *scriptParser) readNamedCreateObjectPath(key Token) string {
+	var kind, path string
+
+	for key.Kind == TokIdent {
+		assign := p.sc.NextSkipComments()
+		if assign.Kind != TokEquals && assign.Kind != TokColon {
+			return ""
+		}
+
+		value := p.sc.NextSkipComments()
+		if value.Kind == TokRParen || value.Kind == TokEOF {
+			return ""
+		}
+
+		literal := value.Kind == TokString && p.atArgEnd()
+
+		switch {
+		case identEq(key.Value, "type"), identEq(key.Value, "componentType"):
+			kind = ""
+			if literal {
+				kind = unquote(value.Value)
+			}
+		case identEq(key.Value, "classname"), identEq(key.Value, "component"), identEq(key.Value, "class"):
+			path = "$any"
+			if literal {
+				path = unquote(value.Value)
+			}
+		}
+
+		if !literal {
+			p.skipComputedArg(value)
+		}
+
+		switch p.sc.PeekSkipComments().Kind {
+		case TokRParen:
+			if kind == "" || path == "" {
+				return ""
+			}
+
+			if path == "$any" {
+				return path
+			}
+
+			return p.createObjectTarget(kind, path)
+		case TokComma:
+			p.sc.NextSkipComments()
+			key = p.sc.NextSkipComments()
+		default:
+			return ""
+		}
 	}
 
-	// Non-component createObject (e.g. java) — try resolvers
-	expr := "createObject(\"" + arg1Val + "\",\"" + unquote(arg2.Value) + "\")"
+	return ""
+}
 
-	return p.resolveCall(expr)
+func (p *scriptParser) createObjectTarget(kind, path string) string {
+	if identEq(kind, "component") {
+		return path
+	}
+
+	// Non-component createObject (e.g. java) — try resolvers.
+	return p.resolveCall("createObject(\"" + kind + "\",\"" + path + "\")")
 }
 
 // atArgEnd reports whether the next token ends an argument.

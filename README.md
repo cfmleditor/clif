@@ -178,6 +178,15 @@ The server logs to stderr, which the editor keeps in its language-server log. Tw
 - **Crash reports** always go to a file, with nothing to configure: `crash.log` in the server's cache directory. That is `~/Library/Caches/clif/crash.log` on macOS, `~/.cache/clif/crash.log` on Linux (or under `$XDG_CACHE_HOME`), and `%LocalAppData%\clif\crash.log` on Windows. Each start adds one line naming the version, the process and the time; anything else in the file is a crash record. That covers a crash that ended the process, whatever caused it, and a panic the server recovered from and kept running after, each with its stack.
 - **A copy of the whole log** goes to the file named by `CLIF_LOG`, when that is set in the environment the editor starts the server with. Crash reports then go to that file instead of `crash.log`.
 
+Set `"debug": true` in the workspace's `.clif.json` and restart clif to trace LSP
+traffic. Look for `LSP response` records in stderr or `CLIF_LOG`. Each records
+the method, request ID, elapsed time and JSON result or error. Workspace
+commands also record the command name. The trace includes server notifications
+such as published diagnostics and acknowledgments for client actions such as
+`workspace/applyEdit`. Incoming notification records identify the method and
+document. Results and edits can contain source text, so keep the log private
+and review it before sharing.
+
 For a fatal Go error, such as a stack overflow, the one-line reason (`fatal error: stack overflow`) appears only on stderr. The file gets the traceback that follows it.
 
 ### Restart after a crash
@@ -1809,7 +1818,7 @@ Relative paths resolve against the directory of whichever source declared them â
 Two caveats:
 
 - Settings are read once, at `initialize`. Changing them requires restarting the language server.
-- `debug` is ignored here, because the logger is constructed before the client connects. Use `.clif.json` for that one.
+- Set `debug` in `.clif.json` to trace LSP traffic. The server reads this setting from disk.
 
 ### Daemon mode
 

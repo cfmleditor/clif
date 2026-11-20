@@ -5,6 +5,7 @@ import (
 	"encoding/json/v2"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -52,7 +53,8 @@ func (s *Server) Handler() jsonrpc2.Handler {
 				result, err = nil, fmt.Errorf("internal error: %v", r)
 			}
 
-			if dur := time.Since(start); dur > 100*time.Millisecond {
+			dur := time.Since(start)
+			if dur > 100*time.Millisecond {
 				// The document, not just the method. "textDocument/definition
 				// took 3s" repeated every few seconds is indistinguishable from
 				// one stuck request and from many slow ones, and names nothing
@@ -62,6 +64,8 @@ func (s *Server) Handler() jsonrpc2.Handler {
 					cflog.Duration("dur", dur),
 					cflog.String("doc", docOf(req.Params())))
 			}
+
+			s.traceLSPRequest(req, result, err, dur)
 		}()
 
 		switch req.Method() {
@@ -848,6 +852,8 @@ func (s *Server) handleDidChangeWorkspaceFolders(_ context.Context, rawParams []
 		return nil, err
 	}
 
+	rootsBefore := s.searchRoots()
+
 	for _, removed := range params.Event.Removed {
 		root := cfpath.FromURI(string(removed.URI))
 		if !s.isWorkspaceFolder(root) {
@@ -858,6 +864,8 @@ func (s *Server) handleDidChangeWorkspaceFolders(_ context.Context, rawParams []
 		s.log.Info("workspace folder removed", cflog.String("uri", string(removed.URI)))
 	}
 
+	var addedRoots []string
+
 	for _, added := range params.Event.Added {
 		root, ok := s.usableWorkspaceRoot(string(added.URI))
 		if !ok {
@@ -865,8 +873,17 @@ func (s *Server) handleDidChangeWorkspaceFolders(_ context.Context, rawParams []
 		}
 
 		s.addWorkspaceRoot(root)
-		s.indexRoot(root)
+		addedRoots = append(addedRoots, root)
+
 		s.log.Info("workspace folder added", cflog.String("uri", string(added.URI)))
+	}
+
+	if !slices.Equal(rootsBefore, s.searchRoots()) {
+		s.invalidateResolver()
+	}
+
+	for _, root := range addedRoots {
+		s.indexRoot(root)
 	}
 
 	return nil, nil

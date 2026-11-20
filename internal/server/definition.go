@@ -6,7 +6,6 @@ import (
 	"encoding/json/v2"
 	"path/filepath"
 	"slices"
-	"strings"
 
 	"github.com/cfmleditor/clif/internal/conv"
 	cflog "github.com/cfmleditor/clif/internal/log"
@@ -395,72 +394,10 @@ func (s *Server) resolveComponentFileDef(component string, docURI uri.URI) *prot
 	}
 }
 
-// filePathAtCursor checks if the cursor is inside a file path attribute value
-// (cfinclude template, cfmodule template, include). Returns the path or empty string.
-// resolveFilePathDef resolves a file path (from cfinclude etc.) to a location.
+// resolveFilePathDef finds the same template as documentLink/resolve.
 func (s *Server) resolveFilePathDef(filePath string, docURI uri.URI) *protocol.Location {
-	currentPath := docURI.Path()
-	baseDir := filepath.Dir(currentPath)
-
-	// Try relative to current file
-	candidate := filepath.Join(baseDir, filePath)
-	if _, err := s.FS.Stat(candidate); err == nil {
-		return &protocol.Location{
-			URI:   cfpath.ToURI(candidate),
-			Range: protocol.Range{},
-		}
-	}
-
-	// Try relative to Application.cfc root
-	if appDir := s.getResolver().FindApplicationRoot(baseDir); appDir != "" {
-		candidate = filepath.Join(appDir, filePath)
-		if _, err := s.FS.Stat(candidate); err == nil {
-			return &protocol.Location{
-				URI:   cfpath.ToURI(candidate),
-				Range: protocol.Range{},
-			}
-		}
-	}
-
-	// Try mappings — match the first path segment against mapping keys
-	mappings := s.getResolver().EffectiveMappings(baseDir)
-	if len(mappings) > 0 {
-		clean := strings.TrimPrefix(filePath, "/")
-		if seg, rest, _ := strings.Cut(clean, "/"); seg != "" {
-			for key, dir := range mappings {
-				if strings.EqualFold(seg, key) {
-					candidate = filepath.Join(dir, rest)
-					if _, err := s.FS.Stat(candidate); err == nil {
-						return &protocol.Location{
-							URI:   cfpath.ToURI(candidate),
-							Range: protocol.Range{},
-						}
-					}
-				}
-			}
-		}
-	}
-
-	// Try relative to workspace folders
-	for _, root := range s.searchRoots() {
-		candidate = filepath.Join(root, filePath)
-		if _, err := s.FS.Stat(candidate); err == nil {
-			return &protocol.Location{
-				URI:   cfpath.ToURI(candidate),
-				Range: protocol.Range{},
-			}
-		}
-	}
-
-	// Last, a workspace folder named by the first segment, which is the
-	// mapping a folder implies (resolve's inFolderNamed).
-	for _, candidate := range cfpath.InFolderNamed(s.searchRoots(), filePath) {
-		if _, err := s.FS.Stat(candidate); err == nil {
-			return &protocol.Location{
-				URI:   cfpath.ToURI(candidate),
-				Range: protocol.Range{},
-			}
-		}
+	if target := s.resolveTemplatePath(filePath, docURI); target != "" {
+		return &protocol.Location{URI: cfpath.ToURI(target)}
 	}
 
 	return nil

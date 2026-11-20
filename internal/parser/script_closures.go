@@ -65,7 +65,7 @@ func (p *scriptParser) skipNestedFunction(tok Token, _ int) {
 	// The argument list goes through parseArgList rather than scanParenBody so
 	// the signature reaches signature help; both record the calls an argument
 	// default holds, since parseArgList routes one through skipDefault.
-	args, closing, defaults := p.parseArgs()
+	args, closing, defaults := p.parseArgs(false)
 	funcLine := p.baseLine + int(tok.Line)
 
 	p.funcs = append(p.funcs, FunctionDef{
