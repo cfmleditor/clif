@@ -191,6 +191,7 @@ type VarDef struct {
 	Name      string
 	Scope     Scope
 	Line      uint32
+	NameStart int // byte offset of the identifier, or zero when unknown
 	FuncStart int // -1 if file-scope
 	FuncEnd   int // -1 if file-scope
 }

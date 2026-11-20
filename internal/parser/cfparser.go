@@ -65,6 +65,18 @@ func varDefs(found [][]VarDef, scopes []FuncScope) []VarDef {
 			seen[k] = true
 
 			fs := findFuncScope(int(v.Line), scopes)
+			if v.Scope == ScopeArguments {
+				// A named nested function has its own arguments scope.
+				// Scopes are ordered by start line, so narrower scopes come last.
+				for _, inner := range slices.Backward(scopes) {
+					if int(v.Line) >= inner.Start && int(v.Line) <= inner.End {
+						fs = inner
+
+						break
+					}
+				}
+			}
+
 			// var/local outside a function → variables scope
 			if fs.Start == -1 && v.Scope == ScopeLocal {
 				v.Scope = ScopeVariables

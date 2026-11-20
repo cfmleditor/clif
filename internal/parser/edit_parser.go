@@ -182,19 +182,8 @@ func callResultQualifier(lineText string, dotPos int) string {
 	prefix := lineText[:dotPos]
 	lowerPrefix := strings.ToLower(prefix)
 
-	if idx := strings.LastIndex(lowerPrefix, "createobject("); idx >= 0 {
-		args := prefix[idx+13:]
-		args = strings.TrimSuffix(args, ")")
-
-		parts := strings.SplitN(args, ",", 2)
-		if len(parts) == 2 {
-			comp := strings.TrimSpace(parts[1])
-			comp = strings.Trim(comp, "\"'")
-
-			if comp != "" {
-				return "~" + comp
-			}
-		}
+	if qualifier := createObjectQualifier(prefix); qualifier != "" {
+		return qualifier
 	}
 
 	if idx := strings.LastIndex(lowerPrefix, "new "); idx >= 0 {
@@ -240,6 +229,55 @@ func callResultQualifier(lineText string, dotPos int) string {
 	}
 
 	return "~"
+}
+
+// createObjectQualifier recognises a constructor immediately before the dot.
+// The scanner identifies its parentheses without mistaking quoted text or
+// a nested call for the receiver, and the expression parser reads its arguments.
+func createObjectQualifier(prefix string) string {
+	if IndexFold(prefix, "createObject") < 0 {
+		return ""
+	}
+
+	sc := NewScanner(prefix)
+
+	var (
+		calls    []int
+		previous Token
+	)
+
+	for tok := sc.NextSkipComments(); tok.Kind != TokEOF; tok = sc.NextSkipComments() {
+		switch tok.Kind {
+		case TokLParen:
+			at := -1
+			if previous.Kind == TokIdent && identEq(previous.Value, "createObject") {
+				at = tok.Offset
+			}
+
+			calls = append(calls, at)
+		case TokRParen:
+			if len(calls) == 0 {
+				break
+			}
+
+			at := calls[len(calls)-1]
+			calls = calls[:len(calls)-1]
+
+			if at >= 0 && tok.Offset == len(prefix)-1 {
+				p := scriptParser{sc: NewScanner(prefix[at:]), baseOffset: -1}
+				if target := p.readCreateObjectPath(); target != "" && target != "$any" {
+					return "~" + target
+				}
+
+				return "~"
+			}
+		default:
+		}
+
+		previous = tok
+	}
+
+	return ""
 }
 
 // ComponentPathAtCursor checks if the cursor is on a component dot-path in a

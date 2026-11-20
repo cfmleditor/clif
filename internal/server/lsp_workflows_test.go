@@ -18,12 +18,27 @@ import (
 )
 
 type workflowClient struct {
-	t          *testing.T
-	conn       jsonrpc2.Conn
-	registered chan protocol.RegistrationParams
+	t            *testing.T
+	conn         jsonrpc2.Conn
+	registered   chan protocol.RegistrationParams
+	capabilities protocol.ServerCapabilities
+	events       chan workflowEvent
+}
+
+type workflowEvent struct {
+	method string
+	params []byte
 }
 
 func startWorkflow(t *testing.T, root string, watchesFiles bool) *workflowClient {
+	t.Helper()
+
+	return startWorkflowWithCapabilities(t, root, map[string]any{"workspace": map[string]any{
+		"didChangeWatchedFiles": map[string]bool{"dynamicRegistration": watchesFiles},
+	}})
+}
+
+func startWorkflowWithCapabilities(t *testing.T, root string, caps map[string]any, observe ...string) *workflowClient {
 	t.Helper()
 
 	ctx := t.Context()
@@ -40,6 +55,7 @@ func startWorkflow(t *testing.T, root string, watchesFiles bool) *workflowClient
 	client := &workflowClient{
 		t: t, conn: jsonrpc2.NewConn(jsonrpc2.NewStream(b)),
 		registered: make(chan protocol.RegistrationParams, 1),
+		events:     make(chan workflowEvent, 64),
 	}
 
 	serverConn.Go(ctx, srv.Handler())
@@ -57,19 +73,46 @@ func startWorkflow(t *testing.T, root string, watchesFiles bool) *workflowClient
 			}
 		}
 
+		if slices.Contains(observe, req.Method()) {
+			event := workflowEvent{method: req.Method(), params: slices.Clone(req.Params())}
+
+			select {
+			case client.events <- event:
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+
 		return nil, nil
 	})
 
 	var result protocol.InitializeResult
 	client.call(protocol.MethodInitialize, map[string]any{
 		"workspaceFolders": []protocol.WorkspaceFolder{{URI: cfpath.ToURI(root), Name: filepath.Base(root)}},
-		"capabilities": map[string]any{"workspace": map[string]any{
-			"didChangeWatchedFiles": map[string]bool{"dynamicRegistration": watchesFiles},
-		}},
+		"capabilities":     caps,
 	}, &result)
+	client.capabilities = result.Capabilities
 	client.notify(protocol.MethodInitialized, protocol.InitializedParams{})
 
 	return client
+}
+
+func (c *workflowClient) waitForEvent(method string, matches func([]byte) bool) {
+	c.t.Helper()
+
+	timer := time.NewTimer(15 * time.Second)
+	defer timer.Stop()
+
+	for {
+		select {
+		case event := <-c.events:
+			if event.method == method && matches(event.params) {
+				return
+			}
+		case <-timer.C:
+			c.t.Fatalf("timed out waiting for %s", method)
+		}
+	}
 }
 
 func (c *workflowClient) call(method string, params, result any) {
@@ -407,6 +450,125 @@ func TestIntelliLuceeRename(t *testing.T) {
 			return edit.Range == (protocol.Range{Start: start, End: end}) && edit.NewText == "totalUsers"
 		}) {
 			t.Errorf("rename is missing an edit at %v: %+v", start, edits)
+		}
+	}
+}
+
+func TestWorkflowParameterDefinitionUsesItsDeclaration(t *testing.T) {
+	root := t.TempDir()
+	client := startWorkflow(t, root, false)
+
+	doc := client.open(filepath.Join(root, "Report.cfc"), `component {
+  function mode(required string mode) {
+    function nested(string mode) {
+      return arguments.mode;
+    }
+    return arguments.mode;
+  }
+}`)
+
+	for _, tc := range []struct{ useLine, declLine, declCol uint32 }{
+		{3, 2, 27}, {5, 1, 32},
+	} {
+		loc := client.definition(doc, tc.useLine, 23)
+
+		start := protocol.Position{Line: tc.declLine, Character: tc.declCol}
+
+		want := protocol.Range{Start: start, End: protocol.Position{Line: tc.declLine, Character: tc.declCol + 4}}
+		if loc == nil || loc.URI != doc.URI || loc.Range != want {
+			t.Errorf("definition at line %d = %+v, want range %v", tc.useLine, loc, want)
+		}
+	}
+}
+
+func TestWorkflowRemovingFolderKeepsOverlappingSymbols(t *testing.T) {
+	for _, removeParent := range []bool{false, true} {
+		name := "remove child"
+		if removeParent {
+			name = "remove parent"
+		}
+
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+
+			parent := filepath.Join(root, "app")
+
+			child := filepath.Join(parent, "lib")
+			if err := os.MkdirAll(child, 0o700); err != nil {
+				t.Fatal(err)
+			}
+
+			writeCFC(t, filepath.Join(parent, "Parent.cfc"), "component { function parentOnly() {} }")
+			writeCFC(t, filepath.Join(child, "Service.cfc"), "component { function childSymbol() {} }")
+
+			client := startWorkflow(t, t.TempDir(), false)
+			parentFolder := protocol.WorkspaceFolder{URI: cfpath.ToURI(parent), Name: "app"}
+			childFolder := protocol.WorkspaceFolder{URI: cfpath.ToURI(child), Name: "lib"}
+			client.notify(protocol.MethodWorkspaceDidChangeWorkspaceFolders, protocol.DidChangeWorkspaceFoldersParams{
+				Event: protocol.WorkspaceFoldersChangeEvent{Added: []protocol.WorkspaceFolder{parentFolder, childFolder}},
+			})
+
+			if !hasWorkflowSymbol(client, "childSymbol") || !hasWorkflowSymbol(client, "parentOnly") {
+				t.Fatal("both files should be indexed before removing a folder")
+			}
+
+			removed := childFolder
+			if removeParent {
+				removed = parentFolder
+			}
+
+			client.notify(protocol.MethodWorkspaceDidChangeWorkspaceFolders, protocol.DidChangeWorkspaceFoldersParams{
+				Event: protocol.WorkspaceFoldersChangeEvent{Removed: []protocol.WorkspaceFolder{removed}},
+			})
+
+			if !hasWorkflowSymbol(client, "childSymbol") {
+				t.Error("child symbol disappeared from the remaining workspace")
+			}
+
+			if hasWorkflowSymbol(client, "parentOnly") == removeParent {
+				t.Errorf("parent-only symbol visibility after removing %s is wrong", removed.Name)
+			}
+		})
+	}
+}
+
+func hasWorkflowSymbol(client *workflowClient, name string) bool {
+	var symbols []protocol.SymbolInformation
+	client.call(protocol.MethodWorkspaceSymbol, protocol.WorkspaceSymbolParams{Query: name}, &symbols)
+
+	return slices.ContainsFunc(symbols, func(symbol protocol.SymbolInformation) bool { return symbol.Name == name })
+}
+
+func TestWorkflowDefinitionOfInlineCreateObject(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "Service.cfc")
+	other := filepath.Join(root, "Unrelated.cfc")
+
+	const method = "function runOrder() {}"
+	writeCFC(t, target, "component { "+method+" }")
+	writeCFC(t, other, "component { "+method+" }")
+	client := startWorkflow(t, root, false)
+	client.open(target, "component { "+method+" }")
+	client.open(other, "component { "+method+" }")
+
+	for i, args := range []string{
+		`"component", "Service"`,
+		`type="component", component="Service"`,
+		`class: "Service", componentType: "component"`,
+	} {
+		line := "writeOutput(createObject(" + args + ").runOrder());"
+		doc := client.open(filepath.Join(root, "calls"+itoa(i)+".cfm"), "<cfscript>\n"+line+"\n</cfscript>")
+
+		var result jsonrpc2.RawMessage
+		client.call(protocol.MethodTextDocumentDefinition, protocol.DefinitionParams{
+			TextDocument: doc,
+			Position:     protocol.Position{Line: 1, Character: uint32(strings.Index(line, "runOrder")) + 1},
+		}, &result)
+
+		var loc protocol.Location
+
+		if err := json.Unmarshal(result, &loc); err != nil || loc.URI != cfpath.ToURI(target) {
+			t.Errorf("createObject(%s) definition = %s, want a single location in %s", args, result, target)
 		}
 	}
 }
