@@ -775,6 +775,7 @@ func (o *openLocals) namesFor(key fnKey) []string {
 func (pr *ParseResult) mergeScriptRegion(r *Region, tagScopes []FuncScope, open *openLocals) []pendingCall {
 	sp := newScriptParser(r.Text, string(pr.URI), r.StartLine, pr.Resolvers).asCFScript()
 	sp.baseOffset = r.Offset
+	sp.keepVars = pr.keepVars
 	sp.resolverSet = pr.resolverSet
 	sp.extractCalls = pr.walksCalls()
 	sp.setCallNames(pr.callNames())

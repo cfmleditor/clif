@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json/v2"
 	"path/filepath"
+	"strings"
 
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
 	"go.lsp.dev/protocol"
+	"go.lsp.dev/uri"
 )
 
 func (s *Server) handleDocumentLink(_ context.Context, rawParams []byte) (any, error) {
@@ -20,20 +22,20 @@ func (s *Server) handleDocumentLink(_ context.Context, rawParams []byte) (any, e
 
 	defer func() { dt.report(s.log, "documentLink", string(params.TextDocument.URI), 0, 0) }()
 
-	content, ok := s.getDocument(params.TextDocument.URI)
-	if !ok {
-		return nil, nil
-	}
-
-	dt.mark("getDocument")
-
-	// Use cached parse result for global-scope links; scan function bodies on demand
 	docURI := params.TextDocument.URI
 
 	defer s.lockDoc(docURI)()
 
 	dt.mark("lockDoc")
 
+	content, ok := s.getDocument(docURI)
+	if !ok {
+		return nil, nil
+	}
+
+	dt.mark("getDocument")
+
+	// Use cached parse result for global-scope links; scan function bodies on demand.
 	s.mu.RLock()
 	pr := s.parseResults[docURI]
 	s.mu.RUnlock()
@@ -112,9 +114,7 @@ func (s *Server) handleDocumentLinkResolve(_ context.Context, rawParams []byte) 
 		return link, nil
 	}
 
-	baseDir := filepath.Dir(cfpath.FromURI(docURI))
-
-	target := s.resolveLink(filePath, baseDir)
+	target := s.resolveTemplatePath(filePath, uri.URI(docURI))
 	if target != "" {
 		targetURI := cfpath.ToURI(target)
 		link.Target = &targetURI
@@ -123,21 +123,53 @@ func (s *Server) handleDocumentLinkResolve(_ context.Context, rawParams []byte) 
 	return link, nil
 }
 
-func (s *Server) resolveLink(filePath, baseDir string) string {
+// resolveTemplatePath shares the search order for navigation and document links.
+func (s *Server) resolveTemplatePath(filePath string, docURI uri.URI) string {
+	baseDir := filepath.Dir(cfpath.FromURI(string(docURI)))
+
+	// Try relative to current file
 	candidate := filepath.Join(baseDir, filePath)
 	if _, err := s.FS.Stat(candidate); err == nil {
 		return candidate
 	}
 
-	if appDir := s.getResolver().FindApplicationRoot(baseDir); appDir != "" {
+	// Try relative to Application.cfc root
+	resolver := s.getResolver()
+	if appDir := resolver.FindApplicationRoot(baseDir); appDir != "" {
 		candidate = filepath.Join(appDir, filePath)
 		if _, err := s.FS.Stat(candidate); err == nil {
 			return candidate
 		}
 	}
 
-	for _, root := range s.searchRoots() {
+	// Try mappings — match the first path segment against mapping keys
+	mappings := resolver.EffectiveMappings(baseDir)
+	if len(mappings) > 0 {
+		clean := strings.TrimPrefix(filePath, "/")
+		if seg, rest, _ := strings.Cut(clean, "/"); seg != "" {
+			for key, dir := range mappings {
+				if strings.EqualFold(seg, key) {
+					candidate = filepath.Join(dir, rest)
+					if _, err := s.FS.Stat(candidate); err == nil {
+						return candidate
+					}
+				}
+			}
+		}
+	}
+
+	// Try relative to workspace folders
+	roots := s.searchRoots()
+	for _, root := range roots {
 		candidate = filepath.Join(root, filePath)
+		if _, err := s.FS.Stat(candidate); err == nil {
+			return candidate
+		}
+	}
+
+	// Last, a workspace folder named by the first segment, which is the
+	// mapping a folder implies (resolve's inFolderNamed).
+	for _, candidate := range cfpath.InFolderNamed(roots, filePath) {
 		if _, err := s.FS.Stat(candidate); err == nil {
 			return candidate
 		}

@@ -289,7 +289,12 @@ func (s *Server) fileLines(path string) []string {
 		return nil
 	}
 
-	return strings.Split(string(data), "\n")
+	text, ok := cfpath.AsTextString(string(data))
+	if !ok {
+		return nil
+	}
+
+	return strings.Split(text, "\n")
 }
 
 // nameRange spans name where it appears on the given line, so the client

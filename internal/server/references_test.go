@@ -2,11 +2,13 @@ package server
 
 import (
 	"context"
+	"encoding/binary"
 	"os"
 	"path/filepath"
 	"runtime"
 	"slices"
 	"testing"
+	"unicode/utf16"
 
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
@@ -223,6 +225,52 @@ func TestReferenceRangeSpansTheIdentifier(t *testing.T) {
 	}
 
 	t.Fatal("no reference in view.cfm to check the range of")
+}
+
+func TestReferencesUseDecodedTextForClosedFiles(t *testing.T) {
+	srv, dir, docURI := refsWorkspace(t, "controller.cfc")
+
+	const (
+		callPrefix = `<cfset label = "🚲"> <cfset report = myCtrl.`
+		line       = callPrefix + `GetReport()>`
+		firstLine  = `<cfset myCtrl = new controller()>`
+	)
+
+	utf16File := filepath.Join(dir, "encoded.cfm")
+	crFile := filepath.Join(dir, "legacy.cfm")
+
+	encoded := []byte{0xff, 0xfe}
+	for _, unit := range utf16.Encode([]rune(firstLine + "\r\n" + line)) {
+		encoded = binary.LittleEndian.AppendUint16(encoded, unit)
+	}
+
+	if err := os.WriteFile(utf16File, encoded, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	writeCFC(t, crFile, firstLine+"\r"+line)
+
+	locs := referencesAt(t, srv, docURI, 4, 27, false)
+	start := uint32(len(utf16.Encode([]rune(callPrefix))))
+	want := protocol.Range{
+		Start: protocol.Position{Line: 1, Character: start},
+		End:   protocol.Position{Line: 1, Character: start + uint32(len("GetReport"))},
+	}
+
+	for _, file := range []string{utf16File, crFile} {
+		fileURI := cfpath.ToURI(file)
+
+		i := slices.IndexFunc(locs, func(loc protocol.Location) bool { return loc.URI == fileURI })
+		if i < 0 {
+			t.Errorf("no reference for %s in %v", filepath.Base(file), locs)
+
+			continue
+		}
+
+		if got := locs[i].Range; got != want {
+			t.Errorf("%s reference span = %v, want %v", filepath.Base(file), got, want)
+		}
+	}
 }
 
 // TestReferencesToAComponentPath covers the other kind of target. The cursor is

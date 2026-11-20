@@ -53,6 +53,7 @@ type scriptParser struct {
 
 	// The flags sit together: spread between the wider fields above, each
 	// was padded to eight bytes, and the struct fell into a larger size class.
+	keepVars     bool // whether this walk retains declaration positions for AllVars
 	accessors    bool
 	persistent   bool
 	extractCalls bool  // whether to extract all call sites
@@ -1833,7 +1834,7 @@ func (p *scriptParser) parseFunction(startTok Token, access string, returnType s
 		return
 	}
 
-	args, closing, defaults := p.parseArgs()
+	args, closing, defaults := p.parseArgs(p.keepVars)
 
 	// Apply JSDoc @param {type} annotations to arguments
 	if docComment != "" {
@@ -1922,7 +1923,7 @@ func (p *scriptParser) parseFunctionValue(name string, startTok Token) bool {
 
 	p.sc.LastBlockComment = ""
 
-	args, closing, defaults := p.parseArgs()
+	args, closing, defaults := p.parseArgs(p.keepVars)
 	if docComment != "" {
 		applyParameterDocs(docComment, args)
 	}
@@ -2262,7 +2263,7 @@ func (p *scriptParser) recordLiteralMemberCall() {
 }
 
 func (p *scriptParser) parseArgList() []Argument {
-	args, _, _ := p.parseArgs()
+	args, _, _ := p.parseArgs(false)
 
 	return args
 }
@@ -2270,7 +2271,7 @@ func (p *scriptParser) parseArgList() []Argument {
 // parseArgs is parseArgList with what a FunctionSpan keeps of the list: the
 // offset of its closing parenthesis in the region (-1 when it runs to the
 // end), and its literal defaults (FunctionSpan.Defaults).
-func (p *scriptParser) parseArgs() (args []Argument, closing int, defaults map[string]string) {
+func (p *scriptParser) parseArgs(recordDeclarations bool) (args []Argument, closing int, defaults map[string]string) {
 	args = make([]Argument, 0, 4)
 	closing = -1
 
@@ -2303,6 +2304,7 @@ func (p *scriptParser) parseArgs() (args []Argument, closing int, defaults map[s
 		// for every argument of every function in the file.
 		idents := make([]string, 1, 3)
 		idents[0] = tok.Value
+		nameLine := tok.Line
 
 	loop:
 		for {
@@ -2321,6 +2323,8 @@ func (p *scriptParser) parseArgs() (args []Argument, closing int, defaults map[s
 				p.sc.NextSkipComments()
 
 				idents = append(idents, peek.Value)
+				nameLine = peek.Line
+
 				if len(idents) == 3 {
 					break loop
 				}
@@ -2360,6 +2364,9 @@ func (p *scriptParser) parseArgs() (args []Argument, closing int, defaults map[s
 		}
 
 		args = append(args, Argument{Name: name, Type: typeName, Required: required})
+		if recordDeclarations {
+			p.vars = append(p.vars, VarDef{Name: name, Scope: ScopeArguments, Line: conv.Uint32(p.baseLine + int(nameLine))})
+		}
 	}
 
 	return args, closing, defaults

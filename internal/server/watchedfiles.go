@@ -27,7 +27,7 @@ const watchedFilesRegistrationID = "cfmleditor-watched-files"
 // `.cfc`, because Application.cfm carries mappings, beans and ORM locations
 // that cfpath caches; a change to one has to invalidate that cache the same way
 // saving it in the editor does.
-var watchedGlobs = []string{"**/*.cfc", "**/*.cfm", "**/*.json"}
+var watchedGlobs = []string{"**/*.cfc", "**/*.cfm", "**/*.cfml", "**/*.cfs", "**/*.json"}
 
 // registerFileWatchers asks the client to watch the workspace for CFML files
 // changing outside the editor.

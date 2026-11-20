@@ -5,6 +5,7 @@ import (
 	"encoding/json/v2"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -851,6 +852,8 @@ func (s *Server) handleDidChangeWorkspaceFolders(_ context.Context, rawParams []
 		return nil, err
 	}
 
+	rootsBefore := s.searchRoots()
+
 	for _, removed := range params.Event.Removed {
 		root := cfpath.FromURI(string(removed.URI))
 		if !s.isWorkspaceFolder(root) {
@@ -861,6 +864,8 @@ func (s *Server) handleDidChangeWorkspaceFolders(_ context.Context, rawParams []
 		s.log.Info("workspace folder removed", cflog.String("uri", string(removed.URI)))
 	}
 
+	var addedRoots []string
+
 	for _, added := range params.Event.Added {
 		root, ok := s.usableWorkspaceRoot(string(added.URI))
 		if !ok {
@@ -868,8 +873,17 @@ func (s *Server) handleDidChangeWorkspaceFolders(_ context.Context, rawParams []
 		}
 
 		s.addWorkspaceRoot(root)
-		s.indexRoot(root)
+		addedRoots = append(addedRoots, root)
+
 		s.log.Info("workspace folder added", cflog.String("uri", string(added.URI)))
+	}
+
+	if !slices.Equal(rootsBefore, s.searchRoots()) {
+		s.invalidateResolver()
+	}
+
+	for _, root := range addedRoots {
+		s.indexRoot(root)
 	}
 
 	return nil, nil
