@@ -52,17 +52,17 @@ func (r *Resolver) lazyGetterReturn(fd *parser.FunctionDef) string {
 		return ""
 	}
 
-	text, err := r.readText(path)
-	if err != nil {
+	source := r.sourceInfo(path)
+	if source.derived == nil {
 		return ""
 	}
 
-	content := text
+	content := source.content
 	guarded = mentions(content, "isobject(")
 
 	if guarded {
-		if field := lazyField(functionBodyNamed(content, r.functionSpansOf(path, content), fd.Name)); field != "" {
-			answer = r.fieldWrites(content, r.assignmentsIn(path, content), field, filepath.Dir(path))
+		if field := lazyField(functionBodyNamed(content, source.functionSpans(), fd.Name)); field != "" {
+			answer = r.fieldWrites(content, source.assignments(), field, filepath.Dir(path))
 		}
 	}
 
