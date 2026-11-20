@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Debug mode records LSP results, errors and client action acknowledgments in stderr and `CLIF_LOG`.
+
 ## [0.7.0]
 
 ### Added

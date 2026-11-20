@@ -544,7 +544,10 @@ func (s *Server) ensureBeansLoaded() {
 
 func (s *Server) notify(ctx context.Context, method string, params any) {
 	if s.conn != nil {
-		_ = s.conn.Notify(ctx, method, params)
+		err := s.conn.Notify(ctx, method, params)
+		if method != protocol.MethodWindowLogMessage {
+			s.traceLSPNotification(method, params, err)
+		}
 	}
 }
 
@@ -577,6 +580,21 @@ func (s *Server) call(ctx context.Context, method string, params, result any) {
 	}
 
 	jsonrpc2.Async(ctx)
+
+	if debug := cflog.LocalDebug(s.log); debug != nil {
+		// Commands normally discard acknowledgments. Capture the client
+		// reply here so an action such as clif.format shows whether the
+		// editor actually applied the edits.
+		var raw jsonrpc2.RawMessage
+		if result == nil {
+			result = &raw
+		}
+
+		id, err := s.conn.Call(ctx, method, params, result)
+		traceLSPClientCall(debug, method, id, params, result, err)
+
+		return
+	}
 
 	_, _ = s.conn.Call(ctx, method, params, result)
 }

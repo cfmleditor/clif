@@ -63,6 +63,12 @@ func (s *Server) configureSession(editorCfg *config.JSON) {
 	dir := baseDir
 
 	if fileCfg != nil {
+		// A standalone server may have been started outside the workspace.
+		// Use the project's debug setting before attaching the editor's sink.
+		if fileCfg.Debug {
+			s.log = cflog.NewLogger(true)
+		}
+
 		dir = filepath.Dir(path)
 		fileCfg.Mappings = config.ResolvePaths(fileCfg.Mappings, dir)
 		fileCfg.StartupFiles = config.ResolvePathList(fileCfg.StartupFiles, dir)
@@ -226,8 +232,7 @@ func (s *Server) governingConfig() (string, *config.JSON) {
 // same shape as .clif.json. Editors that expose no way to set them (or
 // set nothing) send an empty value, which yields nil.
 //
-// Note `debug` is ignored here: the logger is built from the on-disk config
-// before the client connects, so by this point it is too late to change.
+// Debug logging is enabled only by the on-disk configuration.
 func (s *Server) editorConfig(raw protocol.LSPAny) *config.JSON {
 	if len(raw) == 0 || string(raw) == "null" {
 		return nil

@@ -52,7 +52,8 @@ func (s *Server) Handler() jsonrpc2.Handler {
 				result, err = nil, fmt.Errorf("internal error: %v", r)
 			}
 
-			if dur := time.Since(start); dur > 100*time.Millisecond {
+			dur := time.Since(start)
+			if dur > 100*time.Millisecond {
 				// The document, not just the method. "textDocument/definition
 				// took 3s" repeated every few seconds is indistinguishable from
 				// one stuck request and from many slow ones, and names nothing
@@ -62,6 +63,8 @@ func (s *Server) Handler() jsonrpc2.Handler {
 					cflog.Duration("dur", dur),
 					cflog.String("doc", docOf(req.Params())))
 			}
+
+			s.traceLSPRequest(req, result, err, dur)
 		}()
 
 		switch req.Method() {
