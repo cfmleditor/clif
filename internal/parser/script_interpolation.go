@@ -246,6 +246,10 @@ func indexQuote(s string) int {
 // skipQuotedIn returns the index of the quote closing the string opened at i,
 // honouring CFML's doubled-quote escape, or -1 if it never closes.
 func skipQuotedIn(s string, i int) int {
+	if countScans {
+		quotedSkipCount.Add(1)
+	}
+
 	q := s[i]
 
 	for j := i + 1; j < len(s); j++ {

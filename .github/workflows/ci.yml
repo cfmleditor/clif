@@ -83,6 +83,9 @@ jobs:
       - name: Scan passes
         run: go test -tags passcount -run TestABatchScanReadsEachFileFewTimes ./cmd/clif/
 
+      - name: Folding scan work
+        run: go test -short -tags passcount -run '^TestFoldingUnterminatedTagsBoundsQuoteSearch$' ./internal/parser/
+
   race:
     name: Race detector
     runs-on: ubuntu-latest
@@ -234,7 +237,8 @@ jobs:
 
           # -count=1 defeats the test cache: a cached "ok" would report a
           # measurement that never ran.
-          go test -count=1 -run 'TestParsePerformance|TestResolverRegexNotRecompiledPerCall' \
+          go test -v -count=1 \
+            -run '^(TestParsePerformance|TestResolverRegexNotRecompiledPerCall|TestOnePassBeatsOneScanPerScope|TestFoldingUnterminatedTagsScalesLinearly)$' \
             ./internal/parser/ ./internal/server/ 2>&1 | tee -a "$GITHUB_STEP_SUMMARY" || true
 
           {

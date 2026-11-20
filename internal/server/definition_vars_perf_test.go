@@ -109,6 +109,10 @@ func TestVariableLookupDoesNotCopyTheDocument(t *testing.T) {
 // the first version of this test measured, making a 2.7x improvement look like a
 // 10x regression.
 func TestOnePassBeatsOneScanPerScope(t *testing.T) {
+	if testing.Short() {
+		t.Skip("wall-clock comparison")
+	}
+
 	content, vars := varCorpus(t, 4000)
 	line := len(content) / 40
 

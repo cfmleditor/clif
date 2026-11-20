@@ -254,6 +254,10 @@ func TestManyCFSetsInOneFunctionParseInLinearTime(t *testing.T) {
 // Folding reads tags with the same search, so a page of unterminated tags
 // was quadratic there too.
 func TestFoldingUnterminatedTagsScalesLinearly(t *testing.T) {
+	if testing.Short() {
+		t.Skip("wall-clock comparison")
+	}
+
 	cost := func(src string) float64 {
 		best := 0.0
 
@@ -271,9 +275,32 @@ func TestFoldingUnterminatedTagsScalesLinearly(t *testing.T) {
 
 	const n = 5000
 
-	build := func(n int) string { return strings.Repeat(`<a x="b>c"`, n) + ">" }
+	assertScalesLinearly(t, "folding unterminated tags", cost(unterminatedFoldingTags(n)), cost(unterminatedFoldingTags(n*scalingInputRatio)))
+}
 
-	assertScalesLinearly(t, "folding unterminated tags", cost(build(n)), cost(build(n*scalingInputRatio)))
+func unterminatedFoldingTags(n int) string {
+	return strings.Repeat(`<a x="b>c"`, n) + ">"
+}
+
+// Each opening tag used to rescan most of the same quoted values. Count the
+// quote scans through the folding entry point, including the uncached path.
+func TestFoldingUnterminatedTagsBoundsQuoteSearch(t *testing.T) {
+	if !countScans {
+		t.Skip("requires -tags passcount")
+	}
+
+	for _, n := range []int{256, 256 * scalingInputRatio} {
+		before := quotedSkipCount.Load()
+
+		_ = StructureSpans(unterminatedFoldingTags(n))
+
+		skips := quotedSkipCount.Load() - before
+		t.Logf("%d tags: %d quote scans", n, skips)
+
+		if skips == 0 || skips > int64(2*n) {
+			t.Errorf("%d tags: got %d quote scans, want between 1 and %d", n, skips, 2*n)
+		}
+	}
 }
 
 // A tag name running to the end of the text has no '>' and no attributes,
