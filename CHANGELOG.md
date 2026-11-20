@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.7.0]
+
 ### Added
 
 - **Rename a local variable** (`features.rename`, off by default). `textDocument/prepareRename` and `rename` on a variable a script function declares with `var` or `local`: every use in the function, including `local.x`, a closure's use of it and a `#x#` in a string; not a struct key, a named argument or another object's member. It refuses, with a reason, an argument, a name the function also uses in a string or with `evaluate`, one a closure or arrow function shadows, and a new name that is reserved or already taken.
@@ -57,6 +59,9 @@
 - **`unresolved --verbose` says how many calls each classify rule let through.** The resolved count includes calls accepted for their reason alone (`untypedHop`, `sharedMember`, `distinctiveMember`, …), which are judgements about the receiver and not proofs; nothing listed them. They are now counted by rule name in `Report.Rules` and printed on stderr after the totals. A plain built-in function is not counted. The report on stdout is unchanged.
 
 ### Changed
+
+- **Fewer reads during editor startup and navigation.** The resolver reuses saved source for lazy getter return types and tracks disk changes separately from buffer edits. In the ColdBox first-open workload, lazy getter source reuse reduced successful file reads from 43 to 34.
+- **Workspace symbol results stay bounded for broad queries.** The server gathers matches in batches and limits short queries to the best 1,000 results.
 
 - **A batch scan parses less than it did.** The functions a template declares (`templateDeclares`) were read by a full parse of every included template, which the scan then parsed again; they are now the function spans, the names that parse lists (1,063 templates across the corpora agree). An included page's include paths are remembered per text, where each walk of a page's includes read the whole file's references again. cfwheels' scan reads its text 5.4 times over, not 5.9, and parses 0.90 times per file, not 0.93; output is unchanged on the nine corpora.
 
@@ -114,6 +119,10 @@
 - **A componentResolvers `match` written as a regular expression.** A `match` that holds a backslash is read as a regular expression; that is deprecated and will stop working in a future release. clif now says so when it starts (on the command line and in the editor's log), naming each pattern. A `match` is a plain string with `$1` placeholders where it captures (`get$1()`, `getService("$1")`), and the framework presets, which no longer use patterns at all, cover the common cases. A rule for a call that takes a string, which a pattern could only say with a regular expression, is the new `call` form (see Added).
 
 ### Fixed
+
+- The changed-lines CFLint filter preserves findings in staged files with spaces or non-ASCII characters in their names, including repositories with custom Git diff prefixes.
+- Route reports preserve the output file when the format is invalid, list source locations in a stable order and show all examples with `--limit 0`.
+- The language server removes stale symbols when a closed component is replaced by binary content and reindexes it when text returns.
 
 - **An editor no longer grows with every keystroke outside a function.** The reparse such an edit runs reset the functions, refs and scopes but not the parse's properties or instantiations, so each one listed them again and the refs made from the properties grew with them: about 27 KB of heap per keystroke, 72 MB after 2,400 (155 MB resident). A parse reparsed after an edit now holds what a fresh parse of the text does (a test compares every slice and map field, for a script and a tag component); the same session ends at 13 MB (44 MB resident). The hover after such a keystroke is faster for it, 1.3 ms at the median where it was 5 ms, since every reparse and lookup was walking the duplicates.
 
