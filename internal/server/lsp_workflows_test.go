@@ -18,12 +18,27 @@ import (
 )
 
 type workflowClient struct {
-	t          *testing.T
-	conn       jsonrpc2.Conn
-	registered chan protocol.RegistrationParams
+	t            *testing.T
+	conn         jsonrpc2.Conn
+	registered   chan protocol.RegistrationParams
+	capabilities protocol.ServerCapabilities
+	events       chan workflowEvent
+}
+
+type workflowEvent struct {
+	method string
+	params []byte
 }
 
 func startWorkflow(t *testing.T, root string, watchesFiles bool) *workflowClient {
+	t.Helper()
+
+	return startWorkflowWithCapabilities(t, root, map[string]any{"workspace": map[string]any{
+		"didChangeWatchedFiles": map[string]bool{"dynamicRegistration": watchesFiles},
+	}})
+}
+
+func startWorkflowWithCapabilities(t *testing.T, root string, caps map[string]any, observe ...string) *workflowClient {
 	t.Helper()
 
 	ctx := t.Context()
@@ -40,6 +55,7 @@ func startWorkflow(t *testing.T, root string, watchesFiles bool) *workflowClient
 	client := &workflowClient{
 		t: t, conn: jsonrpc2.NewConn(jsonrpc2.NewStream(b)),
 		registered: make(chan protocol.RegistrationParams, 1),
+		events:     make(chan workflowEvent, 64),
 	}
 
 	serverConn.Go(ctx, srv.Handler())
@@ -57,19 +73,46 @@ func startWorkflow(t *testing.T, root string, watchesFiles bool) *workflowClient
 			}
 		}
 
+		if slices.Contains(observe, req.Method()) {
+			event := workflowEvent{method: req.Method(), params: slices.Clone(req.Params())}
+
+			select {
+			case client.events <- event:
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+
 		return nil, nil
 	})
 
 	var result protocol.InitializeResult
 	client.call(protocol.MethodInitialize, map[string]any{
 		"workspaceFolders": []protocol.WorkspaceFolder{{URI: cfpath.ToURI(root), Name: filepath.Base(root)}},
-		"capabilities": map[string]any{"workspace": map[string]any{
-			"didChangeWatchedFiles": map[string]bool{"dynamicRegistration": watchesFiles},
-		}},
+		"capabilities":     caps,
 	}, &result)
+	client.capabilities = result.Capabilities
 	client.notify(protocol.MethodInitialized, protocol.InitializedParams{})
 
 	return client
+}
+
+func (c *workflowClient) waitForEvent(method string, matches func([]byte) bool) {
+	c.t.Helper()
+
+	timer := time.NewTimer(15 * time.Second)
+	defer timer.Stop()
+
+	for {
+		select {
+		case event := <-c.events:
+			if event.method == method && matches(event.params) {
+				return
+			}
+		case <-timer.C:
+			c.t.Fatalf("timed out waiting for %s", method)
+		}
+	}
 }
 
 func (c *workflowClient) call(method string, params, result any) {

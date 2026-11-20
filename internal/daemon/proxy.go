@@ -15,6 +15,10 @@ import (
 // is not dialled (checkSocket): the editor's session would be theirs to
 // answer.
 func Proxy(sockPath string) error {
+	return proxy(sockPath, os.Stdin, os.Stdout)
+}
+
+func proxy(sockPath string, input io.ReadCloser, output io.Writer) error {
 	if err := checkSocket(sockPath); err != nil {
 		return err
 	}
@@ -41,7 +45,7 @@ func Proxy(sockPath string) error {
 	go func() {
 		defer wg.Done()
 
-		_, _ = io.Copy(conn, os.Stdin)
+		_, _ = io.Copy(conn, input)
 
 		closeConn()
 	}()
@@ -50,9 +54,9 @@ func Proxy(sockPath string) error {
 	go func() {
 		defer wg.Done()
 
-		_, _ = io.Copy(os.Stdout, conn)
+		_, _ = io.Copy(output, conn)
 		// Daemon closed the socket; close stdin to unblock the other goroutine
-		_ = os.Stdin.Close()
+		_ = input.Close()
 	}()
 
 	wg.Wait()
