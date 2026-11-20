@@ -855,12 +855,7 @@ func (s *Server) handleDidChangeWorkspaceFolders(_ context.Context, rawParams []
 	rootsBefore := s.searchRoots()
 
 	for _, removed := range params.Event.Removed {
-		root := cfpath.FromURI(string(removed.URI))
-		if !s.isWorkspaceFolder(root) {
-			s.index.RemoveFilesUnder(string(removed.URI))
-		}
-
-		s.removeWorkspaceRoot(root)
+		s.removeWorkspaceRoot(cfpath.FromURI(string(removed.URI)))
 		s.log.Info("workspace folder removed", cflog.String("uri", string(removed.URI)))
 	}
 
@@ -876,6 +871,21 @@ func (s *Server) handleDidChangeWorkspaceFolders(_ context.Context, rawParams []
 		addedRoots = append(addedRoots, root)
 
 		s.log.Info("workspace folder added", cflog.String("uri", string(added.URI)))
+	}
+
+	if len(params.Event.Removed) > 0 {
+		// Files can still belong to another editor root or to a configured
+		// root after the client changes its workspace folders.
+		roots := append(s.editorRoots(), s.WorkspaceFolders...)
+		retained := make([]uri.URI, 0, len(roots))
+
+		for _, root := range roots {
+			retained = append(retained, cfpath.ToURI(root))
+		}
+
+		for _, removed := range params.Event.Removed {
+			s.index.RemoveFilesUnder(string(removed.URI), retained...)
+		}
 	}
 
 	if !slices.Equal(rootsBefore, s.searchRoots()) {

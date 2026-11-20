@@ -751,20 +751,14 @@ func (s *Server) usableWorkspaceRoot(rawURI string) (string, bool) {
 // which is indistinguishable from there being nothing to find: clif.findRefs
 // answered "0 match(es)" for a function with three callers sitting next to it.
 //
-// Use this for anything that goes looking. The configured set itself is still
-// the right question for membership (isWorkspaceFolder) and for whether the
-// inclusion filter applies at all (isIncludedPath), so those keep reading the
-// field.
+// Use this for anything that goes looking. The inclusion filter
+// (isIncludedPath) still uses the configured set.
 func (s *Server) searchRoots() []string {
 	if len(s.WorkspaceFolders) > 0 {
 		return s.WorkspaceFolders
 	}
 
 	return s.editorRoots()
-}
-
-func (s *Server) isWorkspaceFolder(root string) bool {
-	return slices.Contains(s.WorkspaceFolders, root)
 }
 
 // isIncludedPath checks whether a file URI should be indexed based on config.

@@ -2304,7 +2304,7 @@ func (p *scriptParser) parseArgs(recordDeclarations bool) (args []Argument, clos
 		// for every argument of every function in the file.
 		idents := make([]string, 1, 3)
 		idents[0] = tok.Value
-		nameLine := tok.Line
+		nameTok := tok
 
 	loop:
 		for {
@@ -2323,7 +2323,7 @@ func (p *scriptParser) parseArgs(recordDeclarations bool) (args []Argument, clos
 				p.sc.NextSkipComments()
 
 				idents = append(idents, peek.Value)
-				nameLine = peek.Line
+				nameTok = peek
 
 				if len(idents) == 3 {
 					break loop
@@ -2365,7 +2365,12 @@ func (p *scriptParser) parseArgs(recordDeclarations bool) (args []Argument, clos
 
 		args = append(args, Argument{Name: name, Type: typeName, Required: required})
 		if recordDeclarations {
-			p.vars = append(p.vars, VarDef{Name: name, Scope: ScopeArguments, Line: conv.Uint32(p.baseLine + int(nameLine))})
+			decl := VarDef{Name: name, Scope: ScopeArguments, Line: conv.Uint32(p.baseLine + int(nameTok.Line))}
+			if p.baseOffset >= 0 {
+				decl.NameStart = p.baseOffset + nameTok.Offset
+			}
+
+			p.vars = append(p.vars, decl)
 		}
 	}
 
@@ -4174,7 +4179,7 @@ func (p *scriptParser) scanParenArgs() (firstArg string, positional []string, ok
 		// An arrow function's block body: `=>` is `=` then `>`.
 		if tok.Kind == TokGT && arrow.prev == TokEquals && p.sc.PeekSkipComments().Kind == TokLBrace {
 			p.sc.NextSkipComments() // consume {
-			p.scanClosureBody(int(tok.Line), arrow.params())
+			p.scanClosureBody(int(tok.Line), arrow.params(), true)
 
 			arrow = arrowParams{prev: TokRBrace}
 			argStart = false

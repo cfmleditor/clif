@@ -354,6 +354,16 @@ func (s *Server) varSearchDirs(docURI uri.URI, scope parser.Scope) []string {
 // []string to read a single row of it: a megabyte allocated per lookup on a
 // 64,000-line component, and the only thing wanted from it was one line's text.
 func varLocation(docURI uri.URI, content string, v parser.VarDef, name string) *protocol.Location {
+	if v.NameStart > 0 && v.NameStart+len(v.Name) <= len(content) {
+		lineStart := strings.LastIndexByte(content[:v.NameStart], '\n') + 1
+		col := utf16Len(content[lineStart:v.NameStart])
+
+		return &protocol.Location{URI: docURI, Range: protocol.Range{
+			Start: protocol.Position{Line: v.Line, Character: col},
+			End:   protocol.Position{Line: v.Line, Character: col + utf16Len(v.Name)},
+		}}
+	}
+
 	rng, _ := rangeInLine(parser.LineTextAt(content, int(v.Line)), v.Line, name)
 
 	return &protocol.Location{URI: docURI, Range: rng}

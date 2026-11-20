@@ -878,7 +878,7 @@ func (idx *Index) RemoveFile(fileURI uri.URI) {
 	delete(idx.entityRead, uriKey(fileURI))
 }
 
-// RemoveFilesUnder removes all indexed entries whose URI starts with prefix.
+// RemoveFilesUnder removes indexed entries under prefix, except under retained roots.
 // Called when a workspace folder is removed, so it is rare and may walk every
 // bucket; what it must not do is leave the two views of an entry disagreeing.
 //
@@ -889,11 +889,27 @@ func (idx *Index) RemoveFile(fileURI uri.URI) {
 // the folder came back. It also leaves removeFileEntries — which reaches the
 // name buckets through exactly these maps — reconciling a view no writer
 // maintains.
-func (idx *Index) RemoveFilesUnder(prefix string) {
-	// A folder's files are those under it: without the separator, removing
-	// /work/app removed /work/app2 as well.
-	if !strings.HasSuffix(prefix, "/") {
-		prefix += "/"
+func (idx *Index) RemoveFilesUnder(prefix string, retained ...uri.URI) {
+	folderKey := func(root uri.URI) string {
+		return strings.TrimRight(uriKey(root), "/") + "/"
+	}
+	fileKey := folderKey(uri.URI(prefix))
+	keepKeys := make([]string, 0, len(retained))
+
+	for _, root := range retained {
+		key := folderKey(root)
+		switch {
+		case strings.HasPrefix(fileKey, key):
+			return // The entire removed folder still belongs to a retained root.
+		case strings.HasPrefix(key, fileKey):
+			keepKeys = append(keepKeys, key)
+		}
+	}
+
+	remove := func(key string) bool {
+		return strings.HasPrefix(key, fileKey) && !slices.ContainsFunc(keepKeys, func(keep string) bool {
+			return strings.HasPrefix(key, keep)
+		})
 	}
 
 	idx.mu.Lock()
@@ -901,7 +917,7 @@ func (idx *Index) RemoveFilesUnder(prefix string) {
 
 	for key, entries := range idx.funcs {
 		filtered := keepIf(entries, func(e *parser.FunctionDef) bool {
-			return !strings.HasPrefix(string(e.URI), prefix)
+			return !remove(uriKey(e.URI))
 		})
 
 		if len(filtered) == len(entries) {
@@ -919,7 +935,7 @@ func (idx *Index) RemoveFilesUnder(prefix string) {
 
 	for key, entries := range idx.comprefs {
 		filtered := keepIf(entries, func(e *parser.ComponentRef) bool {
-			return !strings.HasPrefix(string(e.URI), prefix)
+			return !remove(uriKey(e.URI))
 		})
 
 		if len(filtered) == 0 {
@@ -929,13 +945,8 @@ func (idx *Index) RemoveFilesUnder(prefix string) {
 		}
 	}
 
-	// The per-file maps are keyed by uriKey, which lowercases and decodes the
-	// URI, so the prefix has to be put through the same normalisation before it
-	// can be compared against a key.
-	fileKey := uriKey(uri.URI(prefix))
-
 	for key := range idx.fileFuncs {
-		if strings.HasPrefix(key, fileKey) {
+		if remove(key) {
 			mark := idx.shapeBegin(key)
 
 			delete(idx.fileFuncs, key)
@@ -951,7 +962,7 @@ func (idx *Index) RemoveFilesUnder(prefix string) {
 	// fileRefs can hold a file that declared no functions, so it cannot be
 	// swept only alongside fileFuncs.
 	for key := range idx.fileRefs {
-		if strings.HasPrefix(key, fileKey) {
+		if remove(key) {
 			delete(idx.fileRefs, key)
 			delete(idx.thisVars, key)
 			delete(idx.scopeRefs, key)
@@ -959,14 +970,14 @@ func (idx *Index) RemoveFilesUnder(prefix string) {
 	}
 
 	for key := range idx.thisVars {
-		if strings.HasPrefix(key, fileKey) {
+		if remove(key) {
 			delete(idx.thisVars, key)
 			delete(idx.scopeRefs, key)
 		}
 	}
 
 	for key := range idx.includes {
-		if strings.HasPrefix(key, fileKey) {
+		if remove(key) {
 			delete(idx.includes, key)
 			idx.includeGen++
 		}
@@ -978,7 +989,7 @@ func (idx *Index) RemoveFilesUnder(prefix string) {
 
 	for _, list := range idx.entities {
 		for _, u := range list {
-			if strings.HasPrefix(uriKey(u), fileKey) {
+			if remove(uriKey(u)) {
 				entityFiles = append(entityFiles, u)
 			}
 		}
@@ -986,7 +997,7 @@ func (idx *Index) RemoveFilesUnder(prefix string) {
 
 	for _, list := range idx.defaultEntities {
 		for _, u := range list {
-			if strings.HasPrefix(uriKey(u), fileKey) {
+			if remove(uriKey(u)) {
 				entityFiles = append(entityFiles, u)
 			}
 		}
@@ -997,7 +1008,7 @@ func (idx *Index) RemoveFilesUnder(prefix string) {
 	}
 
 	for key := range idx.entityRead {
-		if strings.HasPrefix(key, fileKey) {
+		if remove(key) {
 			delete(idx.entityRead, key)
 		}
 	}
