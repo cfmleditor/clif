@@ -183,21 +183,11 @@ func (s *Server) cmdFormat(ctx context.Context, args []protocol.LSPAny) (any, er
 		return nil, nil
 	}
 
-	lines := parser.CountNewlines(content)
+	edits := s.withDocumentLineBreaks(fileURI, lineEdits(content, formatted))
 	formatLabel := "Format document"
 	s.call(ctx, protocol.MethodWorkspaceApplyEdit, &protocol.ApplyWorkspaceEditParams{
 		Label: &formatLabel,
-		Edit: protocol.WorkspaceEdit{
-			Changes: map[uri.URI][]protocol.TextEdit{
-				fileURI: {{
-					Range: protocol.Range{
-						Start: protocol.Position{Line: 0, Character: 0},
-						End:   protocol.Position{Line: conv.Uint32(lines + 1), Character: 0},
-					},
-					NewText: formatted,
-				}},
-			},
-		},
+		Edit:  *s.documentEdit(fileURI, edits),
 	}, nil)
 
 	return nil, nil

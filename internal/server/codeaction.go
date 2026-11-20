@@ -49,6 +49,12 @@ func (s *Server) handleCodeAction(_ context.Context, rawParams []byte) (any, err
 		}
 	}
 
+	// The remaining commands do not declare a kind. Only return them when
+	// the client requested the unrestricted list.
+	if !wantsKind(params.Context.Only, "") {
+		return actions, nil
+	}
+
 	// Offered only on a line that looks as if it holds a call, so it is not
 	// noise on every line of the file; the cursor need not be on the call
 	// itself. See lineMayHoldCall for why this is not a parse.
