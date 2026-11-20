@@ -222,6 +222,40 @@ func TestSourceInvalidationRefreshesLazySource(t *testing.T) {
 	}
 }
 
+func TestLazyGetterReusesSavedSource(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "Holder.cfc")
+	writeFiles(t, dir, map[string]string{
+		"Holder.cfc": `component {
+			variables.value = "";
+			function load() { variables.value = new Service(); }
+			function getValue() {
+				if (!isObject(variables.value)) { load(); }
+				return variables.value;
+			}
+		}`,
+		"Service.cfc": "component {}",
+	})
+
+	fs := newCountingFS()
+
+	r := &Resolver{FS: fs, Index: index.New(), WorkspaceFolders: []string{dir}, IndexTracksFiles: true}
+	if src := r.sourceInfo(file); src.content == "" {
+		t.Fatal("could not load the saved source")
+	}
+
+	before := fs.count(file)
+	fd := &parser.FunctionDef{Name: "getValue", URI: cfpath.ToURI(file)}
+
+	if got := r.lazyGetterReturn(fd); got == "" {
+		t.Fatal("lazy getter return was not inferred")
+	}
+
+	if got := fs.count(file) - before; got != 0 {
+		t.Errorf("lazy getter reread the cached source %d times", got)
+	}
+}
+
 func TestBlockArrowProviderCallback(t *testing.T) {
 	for _, argument := range []string{`(x)=>{x.go();}`, `x=>{x.go();}`, `callback:(x)=>{x.go();}`} {
 		t.Run(argument, func(t *testing.T) {
