@@ -556,6 +556,24 @@ func (idx *Index) HasFile(fileURI uri.URI) bool {
 	return ok
 }
 
+// ComponentFiles returns the real-case URIs of every indexed .cfc file, sorted.
+func (idx *Index) ComponentFiles() []uri.URI {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+
+	var out []uri.URI
+
+	for key, u := range idx.fileURIs {
+		if strings.HasSuffix(key, ".cfc") {
+			out = append(out, u)
+		}
+	}
+
+	slices.Sort(out)
+
+	return out
+}
+
 // ShiftLines adjusts line numbers for all entries in a file where Line > afterLine.
 //
 // It replaces the affected entries rather than writing through the pointers it
