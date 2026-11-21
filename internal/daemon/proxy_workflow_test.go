@@ -94,7 +94,7 @@ func TestProxyClientSeesSharedEditsAndSurvivesDisconnect(t *testing.T) {
 	var symbols []protocol.DocumentSymbol
 	call(direct, protocol.MethodTextDocumentDocumentSymbol, protocol.DocumentSymbolParams{TextDocument: doc}, &symbols)
 
-	if len(symbols) != 1 || symbols[0].Name != "oldSharedName" {
+	if len(symbols) != 1 || len(symbols[0].Children) != 1 || symbols[0].Children[0].Name != "oldSharedName" {
 		t.Fatalf("opening client symbols = %+v", symbols)
 	}
 
@@ -127,7 +127,7 @@ func TestProxyClientSeesSharedEditsAndSurvivesDisconnect(t *testing.T) {
 	})
 	call(direct, protocol.MethodTextDocumentDocumentSymbol, protocol.DocumentSymbolParams{TextDocument: doc}, &symbols)
 
-	if len(symbols) != 1 || symbols[0].Name != "newSharedName" {
+	if len(symbols) != 1 || len(symbols[0].Children) != 1 || symbols[0].Children[0].Name != "newSharedName" {
 		t.Fatalf("editing client symbols = %+v", symbols)
 	}
 
