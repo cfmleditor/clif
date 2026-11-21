@@ -70,10 +70,218 @@ func (s *Server) handleReferences(_ context.Context, rawParams []byte) (any, err
 		return nil, nil
 	}
 
+	if locs, ok := s.variableReferences(word, content, docURI, line, char, params.Context.IncludeDeclaration); ok {
+		s.log.Debug("references: variable", cflog.String("word", word), cflog.Int("results", len(locs)), cflog.Any("dur", time.Since(start)))
+
+		return locs, nil
+	}
+
 	locs := s.functionReferences(word, content, docURI, line, char, params.Context.IncludeDeclaration)
 	s.log.Debug("references: function", cflog.String("word", word), cflog.Int("results", len(locs)), cflog.Any("dur", time.Since(start)))
 
 	return locs, nil
+}
+
+// variableReferences finds every occurrence of the scoped variable binding
+// under the cursor within docURI. It returns ok=false when the cursor is not on
+// a declared variable (e.g. a function call, function declaration, comment,
+// markup text, or another object's member) so handleReferences falls through to
+// function references.
+func (s *Server) variableReferences(word, content string, docURI uri.URI, line, char int, includeDecl bool) ([]protocol.Location, bool) {
+	if isCallAt(content, line, char) {
+		return nil, false
+	}
+
+	qualifier := parser.QualifierBeforeWord(content, line, char)
+
+	scope, scoped := parser.Scope(0), false
+	if qualifier != "" {
+		scope, scoped = parser.ScopeForPrefix(qualifier)
+		if !scoped {
+			return nil, false
+		}
+	}
+
+	vars := s.documentVars(docURI, content)
+	decl, ok := resolveVariableBinding(vars, word, line, scoped, scope)
+
+	if !ok {
+		return nil, false
+	}
+
+	lines := parser.NewLineTable(content)
+
+	lineStart, ok := lines.Start(line)
+	if !ok {
+		return nil, false
+	}
+
+	at := lineStart + char
+	spans := s.functionSpansOfDoc(docURI, content)
+
+	var (
+		funcSpan    *parser.FunctionSpan
+		shadowSpans []parser.FunctionSpan
+	)
+
+	if decl.Scope == parser.ScopeLocal || decl.Scope == parser.ScopeArguments {
+		funcSpan = enclosingFuncSpan(spans, at)
+		if funcSpan == nil && decl.FuncStart >= 0 {
+			return nil, false
+		}
+
+		if funcSpan == nil {
+			// Script-page top-level `var`: skip all function bodies.
+			shadowSpans = spans
+		}
+	} else {
+		shadowSpans = functionsShadowingVar(vars, spans, lines, word)
+	}
+
+	occs := parser.FindVariableOccurrences(content, word, decl.Scope, funcSpan, spans, shadowSpans)
+	if len(occs) == 0 {
+		return nil, false
+	}
+
+	cursorOnOcc := false
+
+	for _, o := range occs {
+		if at >= o.Start && at <= o.End {
+			cursorOnOcc = true
+
+			break
+		}
+	}
+
+	if !cursorOnOcc {
+		return nil, false
+	}
+
+	declIdx := declarationOccIndex(occs, decl, lines)
+	pos := rangePositioner(content, lines)
+	locs := make([]protocol.Location, 0, len(occs))
+
+	for i, o := range occs {
+		if !includeDecl && i == declIdx {
+			continue
+		}
+
+		locs = append(locs, protocol.Location{
+			URI:   docURI,
+			Range: protocol.Range{Start: pos(o.Start), End: pos(o.End)},
+		})
+	}
+
+	return locs, true
+}
+
+func resolveVariableBinding(vars []parser.VarDef, word string, line int, scoped bool, scope parser.Scope) (parser.VarDef, bool) {
+	if scoped {
+		if best := earliestVarDecl(vars, word, scope, line); best != nil {
+			return *best, true
+		}
+
+		return parser.VarDef{}, false
+	}
+
+	for _, sc := range unscopedSearchOrder {
+		if best := earliestVarDecl(vars, word, sc, line); best != nil {
+			return *best, true
+		}
+	}
+
+	return parser.VarDef{}, false
+}
+
+// earliestVarDecl returns the first declaration of (name, scope) in the binding
+// visible at line: inside the enclosing function if one declares it there, else
+// at file scope.
+func earliestVarDecl(vars []parser.VarDef, name string, scope parser.Scope, line int) *parser.VarDef {
+	var inFunc, atFile *parser.VarDef
+
+	for i := range vars {
+		v := &vars[i]
+		if v.Scope != scope || !strings.EqualFold(v.Name, name) {
+			continue
+		}
+
+		enclosing := v.FuncStart >= 0 && line >= v.FuncStart && line <= v.FuncEnd
+
+		switch {
+		case enclosing:
+			if inFunc == nil || v.Line < inFunc.Line || (v.Line == inFunc.Line && v.NameStart < inFunc.NameStart) {
+				inFunc = v
+			}
+		case v.FuncStart < 0:
+			if atFile == nil || v.Line < atFile.Line || (v.Line == atFile.Line && v.NameStart < atFile.NameStart) {
+				atFile = v
+			}
+		}
+	}
+
+	if inFunc != nil {
+		return inFunc
+	}
+
+	return atFile
+}
+
+func enclosingFuncSpan(spans []parser.FunctionSpan, at int) *parser.FunctionSpan {
+	var best *parser.FunctionSpan
+
+	for i := range spans {
+		sp := &spans[i]
+		if at < sp.Start || at > sp.End {
+			continue
+		}
+
+		if best == nil || sp.End-sp.Start < best.End-best.Start {
+			best = sp
+		}
+	}
+
+	return best
+}
+
+func functionsShadowingVar(vars []parser.VarDef, spans []parser.FunctionSpan, lines parser.LineTable, name string) []parser.FunctionSpan {
+	var out []parser.FunctionSpan
+
+	for i := range spans {
+		sp := &spans[i]
+		startLine := lines.LineOf(sp.Start)
+		endLine := lines.LineOf(sp.End)
+
+		for j := range vars {
+			v := &vars[j]
+			if (v.Scope == parser.ScopeLocal || v.Scope == parser.ScopeArguments) &&
+				strings.EqualFold(v.Name, name) &&
+				v.FuncStart >= 0 && v.FuncStart >= startLine && v.FuncStart <= endLine {
+				out = append(out, *sp)
+
+				break
+			}
+		}
+	}
+
+	return out
+}
+
+func declarationOccIndex(occs []parser.VarOccurrence, decl parser.VarDef, lines parser.LineTable) int {
+	if decl.NameStart > 0 {
+		for i, o := range occs {
+			if o.Start == decl.NameStart {
+				return i
+			}
+		}
+	}
+
+	for i, o := range occs {
+		if lines.LineOf(o.Start) == int(decl.Line) {
+			return i
+		}
+	}
+
+	return -1
 }
 
 // openDocFS serves the editor's copy of any file it has open, falling through
