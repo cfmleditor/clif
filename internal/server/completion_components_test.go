@@ -112,12 +112,12 @@ func TestComponentPathCompletionVariants(t *testing.T) {
 			forbid:  []string{"models.Order"},
 		},
 		{
-			name:    "hash interpolation keeps variable completions",
+			name:    "hash interpolation keeps expression completions",
 			file:    "interp.cfm",
 			marked:  `<cfset dynPath = "models.User"><cfobject name="s" component="#dyn|">`,
 			trigger: protocol.CompletionContext{TriggerKind: protocol.CompletionTriggerKindInvoked},
-			want:    []string{"dynPath"},
-			forbid:  []string{"models.User"},
+			want:    []string{"VARIABLES"},
+			forbid:  []string{"models.User", "models.Order"},
 		},
 	}
 
