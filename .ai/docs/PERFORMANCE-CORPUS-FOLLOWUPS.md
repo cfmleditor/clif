@@ -236,10 +236,13 @@ corpus first.
 ### 5.2 Smaller items in the write pass
 
 - `expressionEnds.fill` calls `classify` twice per identifier token (the token
-  and its predecessor). Carrying the predecessor's class forward saves
-  roughly 1% of a parse; below this sandbox's noise, so unproven.
-- `placeWrites` calls `functionAt` (two binary searches) per write; a cursor over
-  `pr.Scopes`, as `lineCursor` did for lines, would likely do.
+  and its predecessor). `newlineEndsStatement` now short-circuits on
+  `t.Line == prev.Line` before calling `classify` or slicing `src`, avoiding
+  both checks on same-line tokens; carrying the predecessor's class across line
+  breaks remains a small (~1%) corpus-only follow-up.
+- **Done:** `collectWrites`'s `functionAt` now uses a monotonic `lineCursor`
+  and `pr.Scopes` cursor (with binary-search fallback on out-of-order lookups)
+  instead of two binary searches per write.
 - `settleCollections` and `invalidateCollectionParents` are 7% and 5.5% of the
   pass; both walk every node. Not profiled below that.
 

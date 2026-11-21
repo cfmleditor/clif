@@ -4,6 +4,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -47,8 +48,79 @@ func TestExpressionEndsMatchScriptReturnExpression(t *testing.T) {
 		"a = (b) ) ; c = d } e = f",
 		"",
 		"x = '#y(\"z\")#'; w = 1",
+		"x = \"multi\nline\"\ny = 2\nz = 'same line' w = 3",
+		"x = 1 /* multi\nline comment */ y = 2\nz = 3",
 	} {
 		checkExpressionEnds(t, src)
+	}
+}
+
+func TestCollectWritesFunctionCursorMatchesScopes(t *testing.T) {
+	src := strings.Join([]string{
+		"component {",
+		"	variables.top = new Top();",
+		"	function outer() {",
+		"		var a = new Alpha();",
+		"		function inner() {",
+		"			var b = new Beta();",
+		"		}",
+		"		var c = new Gamma();",
+		"	}",
+		"	variables.between = new Mid();",
+		"	function second() {",
+		"		var d = new Delta();",
+		"	}",
+		"	variables.tail = new Tail();",
+		"}",
+	}, "\n")
+
+	pr := ParseWithOptions("file:///test/NestedScopes.cfc", src, nil)
+	writes := pr.collectWrites(nil)
+	lines := NewLineTable(pr.Content)
+
+	refFunctionAt := func(offset int) string {
+		line := lines.LineOf(offset)
+
+		idx := sort.Search(len(pr.Scopes), func(i int) bool { return pr.Scopes[i].Start > line }) - 1
+		if idx >= 0 && line <= pr.Scopes[idx].End {
+			return pr.scopeKey(idx)
+		}
+
+		return ""
+	}
+
+	wantFunc := map[string]string{
+		"variables.top":     "",
+		"a":                 "2:8",
+		"b":                 "4:6",
+		"c":                 "",
+		"variables.between": "",
+		"d":                 "10:12",
+		"variables.tail":    "",
+	}
+
+	seen := map[string]string{}
+
+	for _, w := range writes {
+		if w.target != "" {
+			seen[w.target] = w.function
+			if ref := refFunctionAt(w.offset); w.function != ref {
+				t.Errorf("write %q at offset %d: cursor got %q, reference sort.Search got %q", w.target, w.offset, w.function, ref)
+			}
+		}
+	}
+
+	for target, want := range wantFunc {
+		got, ok := seen[target]
+		if !ok {
+			t.Errorf("missing write for %q", target)
+
+			continue
+		}
+
+		if got != want {
+			t.Errorf("write %q function = %q, want %q", target, got, want)
+		}
 	}
 }
 
