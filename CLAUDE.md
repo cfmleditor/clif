@@ -392,7 +392,7 @@ the user-facing view and all `formatting` defaults.
 | `linting.minSeverity` | Least severe CFLint level reported, on CFLint's own scale (`FATAL`…`COSMETIC`); unset reports everything. See `mapSeverity` and `meetsFloor` in [`lsp.md`](.ai/docs/guide/lsp.md) |
 | `check` | What `clif check` runs (`checks`, default `["cflint"]`) and, per check, `maxFindings`, `baseline` and (cflint) `minSeverity`. Merged key by key (`mergeCheck`); `config.ResolveCheck` |
 | `references.enabled` | Answer `textDocument/references` (off by default; see [`lsp.md`](.ai/docs/guide/lsp.md)) |
-| `features` | Per-capability switches: `documentHighlight`, `watchedFiles`, `rangeFormatting` and `folding` default **on** (opt-outs, for when one misbehaves); `typeDefinition`, `structureDiagnostics`, `inlayHints` and `rename` default **off** (opt-in while new). See "`features`" in [`lsp.md`](.ai/docs/guide/lsp.md) |
+| `features` | Per-capability switches: `documentHighlight`, `watchedFiles`, `rangeFormatting`, `folding` and `typeDefinition` default **on** (opt-outs, for when one misbehaves); `structureDiagnostics`, `inlayHints` and `rename` default **off** (opt-in while new). See "`features`" in [`lsp.md`](.ai/docs/guide/lsp.md) |
 | `completions` | `tagSnippets`, `functionSnippets`, `globalFunctionResolution` |
 | `debug` | Verbose zap development logging to stderr. Without it `Debug` records are dropped before anything is formatted, and never reach the client as `window/logMessage` (`TestDebugRecordsNeedTheDebugFlag`) |
 

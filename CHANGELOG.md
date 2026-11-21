@@ -5,6 +5,14 @@
 ### Added
 
 - Debug mode records LSP results, errors and client action acknowledgments in stderr and `CLIF_LOG`.
+- **CSS color swatches and picker (`textDocument/documentColor` & `textDocument/colorPresentation`).** Detects hex (`#`/`##` according to ColdFusion output context), `rgb`/`rgba`, and `hsl`/`hsla` literals in `<style>` declarations and inline `style=` attributes, ignoring selectors, comments, and `#...#` interpolations. Color-picker edits write `##rrggbb`/`##rrggbbaa` inside evaluated output contexts (`<cfoutput>`, `<cffunction output="true">`, `<cfmail>`, etc.) and `#rrggbb`/`#rrggbbaa` outside.
+
+### Changed
+
+- **Go to Type Definition (`features.typeDefinition`) is now enabled by default**, matching the VS Code extension's native provider (opt out with `{"features": {"typeDefinition": false}}`).
+- **Hierarchical CFC & interface outline (`textDocument/documentSymbol`).** Component and interface files now return a `Class` or `Interface` container (`component`, `interface`, `component interface`, `<cfcomponent>`, `<cfinterface>`) with `Property`, `Constructor` (`init` or `initmethod`), and `Method` children, exact ranges and selection ranges, and synthetic property accessors omitted. `.cfm` templates keep flat `Function` symbols with exact identifier ranges.
+- **Exact identifier ranges for method and user-function Go to Definition.** Function definitions retain their declared name's UTF-16 range during parsing (including multiline headers, function values, named nested functions, and mid-line `<cfscript>`/tag regions) and serve it directly from the index for closed-file lookup without re-reading disk.
+- **Improved signature help argument tracking.** Selects named arguments by name and handles multiline incomplete calls, quoted commas, comments, nested literals, interpolated strings, UTF-16 columns, and markup/tag regions.
 
 ## [0.7.0]
 

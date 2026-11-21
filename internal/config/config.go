@@ -522,9 +522,8 @@ type Features struct {
 	OutputContextInterpolation *bool `json:"outputContextInterpolation"`
 	// TypeDefinition answers textDocument/typeDefinition: go to the component
 	// a variable, argument or property holds, or a called function returns.
-	// Off by default: it is new, and an editor that has not
-	// asked for it loses nothing it had. Turn it on with
-	// `{"features": {"typeDefinition": true}}`.
+	// On by default (matching the VS Code extension's native provider); switch
+	// it off with `{"features": {"typeDefinition": false}}`.
 	TypeDefinition *bool `json:"typeDefinition"`
 	// StructureDiagnostics publishes what is wrong with the structure of a
 	// document's CF tags as the document is opened and edited: a tag left open,
@@ -567,8 +566,8 @@ type ResolvedFeatures struct {
 // defaults read the same constant the resolver does, instead of restating it.
 const foldingDefault = true
 
-// typeDefinitionDefault is off, and named for the same reason.
-const typeDefinitionDefault = false
+// typeDefinitionDefault is on, and named for the same reason.
+const typeDefinitionDefault = true
 
 // structureDiagnosticsDefault is off, for the reason the field gives.
 const structureDiagnosticsDefault = false
@@ -580,8 +579,8 @@ const inlayHintsDefault = false
 const renameDefault = false
 
 // ResolveFeatures applies the defaults for a `features` block: absent means
-// every feature is on except typeDefinition, structureDiagnostics, inlayHints
-// and rename, which are opt-in for the reasons the type above gives.
+// every feature is on except structureDiagnostics, inlayHints and rename,
+// which are opt-in for the reasons the type above gives.
 //
 // As with ResolveCompletions, the defaults live here so that every path to a
 // Server agrees on them. A path that skipped this and took the zero value
