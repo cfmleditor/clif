@@ -242,6 +242,11 @@ func (s *Server) completionItemsFor(params *protocol.CompletionParams, cc *compl
 		docItems, inDocBlock = s.docBlockItems(content, params)
 	}
 
+	var compCtx componentPathCtx
+	if hasDoc && !inDocBlock && !cc.inHashExpr {
+		compCtx = componentPathContext(content, int(params.Position.Line), char, cc)
+	}
+
 	switch {
 	case inDocBlock:
 		items = docItems
@@ -257,6 +262,10 @@ func (s *Server) completionItemsFor(params *protocol.CompletionParams, cc *compl
 		}
 
 		items = s.completionFromCache(params.TextDocument.URI, int(params.Position.Line))
+	case compCtx.kind != componentPathNone:
+		if compCtx.kind == componentPathCFC {
+			items = s.componentPathItems(params.Position, content, compCtx)
+		}
 	case cc.inAttrValue:
 		if CompletionAttributes {
 			items = attrValueItems(content, int(params.Position.Line), char, tagName)

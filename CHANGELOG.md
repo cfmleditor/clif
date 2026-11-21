@@ -7,6 +7,7 @@
 - Debug mode records LSP results, errors and client action acknowledgments in stderr and `CLIF_LOG`.
 - **CSS color swatches and picker (`textDocument/documentColor` & `textDocument/colorPresentation`).** Detects hex (`#`/`##` according to ColdFusion output context), `rgb`/`rgba`, and `hsl`/`hsla` literals in `<style>` declarations and inline `style=` attributes, ignoring selectors, comments, and `#...#` interpolations. Color-picker edits write `##rrggbb`/`##rrggbbaa` inside evaluated output contexts (`<cfoutput>`, `<cffunction output="true">`, `<cfmail>`, etc.) and `#rrggbb`/`#rrggbbaa` outside.
 - **Deferred `workspaceSymbol/resolve` (LSP 3.17).** When a client advertises `workspace.symbol.resolveSupport` for `location.range`, `workspace/symbol` omits per-symbol ranges (halving response JSON size and cutting 5,000-symbol end-to-end latency by ~43%) and `workspaceSymbol/resolve` resolves the exact declaration range on selection.
+- **Component path completion in `<cfobject>`, `<cfinvoke>`, `<cfcomponent extends>`, and `createObject()`.** Offers prefix-filtered workspace CFC dot-paths from the index inside component path strings while suppressing unrelated variable and CFC suggestions in non-component contexts such as `createObject("java", ...)`.
 
 ### Changed
 
