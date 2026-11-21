@@ -140,6 +140,10 @@ func (s *Server) Handler() jsonrpc2.Handler {
 			return s.handleColorPresentation(ctx, req.Params())
 		case protocol.MethodTextDocumentCodeAction:
 			return s.handleCodeAction(ctx, req.Params())
+		case protocol.MethodTextDocumentCodeLens:
+			return s.handleCodeLens(ctx, req.Params())
+		case protocol.MethodCodeLensResolve:
+			return s.handleCodeLensResolve(ctx, req.Params())
 		case protocol.MethodWorkspaceDidChangeWorkspaceFolders:
 			return s.handleDidChangeWorkspaceFolders(ctx, req.Params())
 		case protocol.MethodWorkspaceDidChangeWatchedFiles:

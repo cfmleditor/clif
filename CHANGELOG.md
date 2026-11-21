@@ -9,6 +9,7 @@
 - **Deferred `workspaceSymbol/resolve` (LSP 3.17).** When a client advertises `workspace.symbol.resolveSupport` for `location.range`, `workspace/symbol` omits per-symbol ranges (halving response JSON size and cutting 5,000-symbol end-to-end latency by ~43%) and `workspaceSymbol/resolve` resolves the exact declaration range on selection.
 - **Component path completion in `<cfobject>`, `<cfinvoke>`, `<cfcomponent extends>`, and `createObject()`.** Offers prefix-filtered workspace CFC dot-paths from the index inside component path strings while suppressing unrelated variable and CFC suggestions in non-component contexts such as `createObject("java", ...)`.
 - **Scoped variable Find References (`textDocument/references`).** When `references.enabled` is on, finding references on a declared variable in a tag template or script/tag function returns its in-document uses across assignments, expressions, and `#...#` interpolations, respecting `includeDeclaration`, ignoring comments, markup text, struct keys, and other objects' members, and isolating function-local bindings.
+- **Function usage CodeLens (`textDocument/codeLens` & `codeLens/resolve`).** When `references.enabled` is on, displays usage counts above declared functions with known calls via a single shared workspace scan (`refs.FindCallsMany`), ignoring comments and string literals.
 
 ### Changed
 

@@ -4,6 +4,7 @@ package refs
 import (
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 
@@ -87,6 +88,149 @@ func FindCalls(fsys vfs.FS, roots []string, funcName string, r *resolve.Resolver
 // defines it.
 func FindComponentRefs(fsys vfs.FS, roots []string, component string, r *resolve.Resolver) ([]Entry, int) {
 	return FindCounted(fsys, roots, &Options{Component: component, Resolver: r})
+}
+
+// FindCallsMany scans all CFML files under roots once and returns matched call
+// entries grouped by lowercased function name for every function in funcNames
+// declared in sourceFile. When sourceFile is non-empty and not yet on disk
+// (such as an unsaved editor buffer served through fsys), it is still included.
+func FindCallsMany(fsys vfs.FS, roots []string, funcNames []string, sourceFile string, r *resolve.Resolver) map[string][]Entry {
+	if len(funcNames) == 0 {
+		return nil
+	}
+
+	targets := make([]string, 0, len(funcNames))
+	seen := make(map[string]struct{}, len(funcNames))
+
+	for _, name := range funcNames {
+		lower := strings.ToLower(name)
+		if lower == "" {
+			continue
+		}
+
+		if _, dup := seen[lower]; dup {
+			continue
+		}
+
+		seen[lower] = struct{}{}
+
+		targets = append(targets, lower)
+	}
+
+	if len(targets) == 0 {
+		return nil
+	}
+
+	files := cfpath.CollectCFML(fsys, roots)
+	if sourceFile != "" && !slices.ContainsFunc(files, func(f string) bool { return cfpath.SamePath(f, sourceFile) }) {
+		files = append(files, sourceFile)
+	}
+
+	var (
+		mu      sync.Mutex
+		wg      sync.WaitGroup
+		results = make(map[string][]Entry, len(targets))
+		sem     = make(chan struct{}, 8)
+	)
+
+	for _, f := range files {
+		wg.Add(1)
+
+		sem <- struct{}{}
+
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+
+			perFile := findManyInFileRecovered(fsys, f, targets, sourceFile, r)
+			if len(perFile) == 0 {
+				return
+			}
+
+			mu.Lock()
+
+			for k, entries := range perFile {
+				results[k] = append(results[k], entries...)
+			}
+
+			mu.Unlock()
+		}()
+	}
+
+	wg.Wait()
+
+	return results
+}
+
+func findManyInFileRecovered(fsys vfs.FS, f string, targets []string, sourceFile string, r *resolve.Resolver) (entries map[string][]Entry) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			cflog.Recovered(nil, "reference search panic", rec, cflog.String("file", f))
+
+			entries = nil
+		}
+	}()
+
+	return findManyInFile(fsys, f, targets, sourceFile, r)
+}
+
+func findManyInFile(fsys vfs.FS, f string, targets []string, sourceFile string, r *resolve.Resolver) map[string][]Entry {
+	data, err := fsys.ReadFile(f)
+	if err != nil {
+		return nil
+	}
+
+	data, isText := cfpath.AsText(data)
+	if !isText {
+		return nil
+	}
+
+	var matched []string
+
+	for _, t := range targets {
+		if containsFold(data, t) {
+			matched = append(matched, t)
+		}
+	}
+
+	if len(matched) == 0 {
+		return nil
+	}
+
+	content := string(data)
+	spec := resolve.ParseSpec{Calls: true, AllScopes: true, ByResolversOnly: true, FindCalls: matched}
+	pr := r.ParseFile(f, content, spec)
+
+	if len(pr.Calls) == 0 {
+		return nil
+	}
+
+	var contentLines []string
+
+	lines := func() []string {
+		if contentLines == nil {
+			contentLines = strings.Split(content, "\n")
+		}
+
+		return contentLines
+	}
+
+	opts := &Options{SourceFile: sourceFile, Resolver: r}
+	out := make(map[string][]Entry)
+
+	for j := range pr.Calls {
+		call := &pr.Calls[j]
+
+		resolved, ok := matchCall(call, pr, f, opts)
+		if !ok {
+			continue
+		}
+
+		key := strings.ToLower(call.FuncName)
+		out[key] = append(out[key], callEntry(call, pr, f, resolved, lines, opts))
+	}
+
+	return out
 }
 
 func findInFiles(fsys vfs.FS, files []string, opts *Options) []Entry {

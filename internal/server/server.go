@@ -210,6 +210,7 @@ func (s *Server) capabilities() protocol.ServerCapabilities {
 		DocumentLinkProvider:      &protocol.DocumentLinkOptions{ResolveProvider: &resolveProvider},
 		ColorProvider:             protocol.Boolean(true),
 		CodeActionProvider:        protocol.Boolean(true),
+		CodeLensProvider:          s.codeLensProvider(),
 		ExecuteCommandProvider: protocol.ExecuteCommandOptions{
 			Commands: []string{"clif.reindex", "clif.format", "clif.showComponentPath", "clif.restartDaemon", "clif.showResolvers", "clif.showFileIndex", "clif.showConnections", "clif.openActiveApplicationFile", "clif.goToMatchingTag", "clif.copyPackage", "clif.findRefs", "clif.exportDeps", "clif.scanWorkspace", "clif.generateCodeMap", "clif.showCodeMapStats", "clif.resolveRoute", "clif.exportUnresolved", "clif.exportCFLint", "clif.explainCall", "clif.searchDocs", "clif.docEntry"},
 		},
