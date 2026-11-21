@@ -126,12 +126,28 @@ survivors are the near ones rather than whichever bucket the parallel scan
 filled first. Ranking 40,000 entries costs something, but far less than
 encoding them.
 
-**(b) LSP 3.17 `WorkspaceSymbol` with a URI-only location**, resolved through
-`workspaceSymbol/resolve`, gated on the client's
-`workspace.symbol.resolveSupport`. Drops the range from each entry — 151 bytes
-to about 75 — so roughly half, with **no result lost**. It does not solve the
-problem on its own (6.2MB becomes ~3MB, 26ms becomes ~13ms) and it needs a new
-handler, but it composes with (a) and it costs the user nothing.
+**(b) LSP 3.17 `WorkspaceSymbol` with a URI-only location — done.** Gated on
+the client advertising `"location.range"` in
+`workspace.symbol.resolveSupport.properties` at `initialize`,
+`workspace/symbol` omits per-symbol ranges (`LocationUriOnly`) and advertises
+`workspaceSymbolProvider: {"resolveProvider": true}`, while
+`workspaceSymbol/resolve` fills in the exact declaration range from the index
+when the user selects a match. Clients without `resolveSupport` keep full
+`SymbolInformation` responses unchanged.
+
+Measured end to end on `BenchmarkWorkspaceSymbolWithMarshal` (Apple M1 Pro,
+5,000 files / 40,000 definitions, two runs):
+
+| query | mode | symbols | JSON | time/op | allocated/op | allocations/op |
+|---|---|---:|---:|---:|---:|---:|
+| `m` | full | 1,000 | 155,279 B | 3.25–3.28 ms | 287–291 KB | 1,016 |
+| `m` | deferred | 1,000 | 79,279 B (-49%) | 2.98–3.23 ms | 224 KB (-23%) | 1,017 |
+| `method3` | full | 5,000 | 776,391 B | 2.35–2.39 ms | 1,444–1,500 KB | 5,008–5,009 |
+| `method3` | deferred | 5,000 | 396,391 B (-49%) | 1.35–1.36 ms (-43%) | 1,059–1,064 KB (-28%) | 5,008–5,009 |
+
+Pre-allocating a contiguous `[]protocol.LocationUriOnly` backing slice keeps
+deferred allocation counts identical to the full path while halving wire JSON
+size and cutting 5,000-symbol end-to-end latency by 43%.
 
 **(c) Require a minimum query length.** One or two characters return nothing
 until the query is worth answering. Cheap, but it makes the picker feel broken

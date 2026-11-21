@@ -46,8 +46,12 @@ type Server struct {
 	// items leave those out, and completionItem/resolve fills them in. See
 	// completion_resolve.go.
 	completionDefer completionDefer
-	Version         string
-	FS              vfs.FS // filesystem abstraction for portability
+	// workspaceSymbolDefer is true when the client advertised resolveSupport
+	// for location.range at initialize, so workspace/symbol omits per-symbol
+	// ranges and workspaceSymbol/resolve fills them in on selection.
+	workspaceSymbolDefer bool
+	Version              string
+	FS                   vfs.FS // filesystem abstraction for portability
 
 	mu        sync.RWMutex
 	documents map[uri.URI]string
@@ -201,7 +205,7 @@ func (s *Server) capabilities() protocol.ServerCapabilities {
 		// misbehaves, not because either is expensive.
 		DocumentHighlightProvider: protocol.Boolean(s.Features.DocumentHighlight),
 		FoldingRangeProvider:      protocol.Boolean(s.Features.Folding),
-		WorkspaceSymbolProvider:   protocol.Boolean(true),
+		WorkspaceSymbolProvider:   s.workspaceSymbolProvider(),
 		HoverProvider:             protocol.Boolean(true),
 		DocumentLinkProvider:      &protocol.DocumentLinkOptions{ResolveProvider: &resolveProvider},
 		ColorProvider:             protocol.Boolean(true),

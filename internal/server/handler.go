@@ -124,6 +124,8 @@ func (s *Server) Handler() jsonrpc2.Handler {
 			return s.handleDocumentSymbol(ctx, req.Params())
 		case protocol.MethodWorkspaceSymbol:
 			return s.handleWorkspaceSymbol(ctx, req.Params())
+		case protocol.MethodWorkspaceSymbolResolve:
+			return s.handleWorkspaceSymbolResolve(ctx, req.Params())
 		case protocol.MethodTextDocumentHover:
 			return s.handleHover(ctx, req.Params())
 		case protocol.MethodTextDocumentSignatureHelp:
@@ -159,6 +161,7 @@ func (s *Server) handleInitialize(_ context.Context, rawParams []byte) (any, err
 	s.initialized = true
 	s.watchedFilesDynamic = clientWatchesFiles(params.Capabilities)
 	s.completionDefer = clientDefers(params.Capabilities)
+	s.workspaceSymbolDefer = clientDefersWorkspaceSymbol(params.Capabilities)
 	s.clientDocChanges = clientTakesDocumentChanges(params.Capabilities)
 
 	folders, _ := params.WorkspaceFolders.Get()

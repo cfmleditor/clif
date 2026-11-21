@@ -815,12 +815,38 @@ func (pr *ParseResult) collectWrites(cache *expressionWriteCache) []collectionWr
 		lines = NewLineTable(pr.Content)
 	}
 
-	functionAt := func(offset int) string {
-		line := lines.LineOf(offset)
+	lc := lineCursor{idx: lines}
+	scopeIdx := 0
 
-		idx := sort.Search(len(pr.Scopes), func(i int) bool { return pr.Scopes[i].Start > line }) - 1
-		if idx >= 0 && line <= pr.Scopes[idx].End {
-			return pr.scopeKey(idx)
+	functionAt := func(offset int) string {
+		line := lc.at(offset)
+		scopes := pr.Scopes
+
+		if len(scopes) == 0 {
+			return ""
+		}
+
+		if line < scopes[scopeIdx].Start {
+			if scopeIdx == 0 {
+				return ""
+			}
+
+			idx := sort.Search(scopeIdx, func(i int) bool { return scopes[i].Start > line }) - 1
+			if idx < 0 {
+				scopeIdx = 0
+
+				return ""
+			}
+
+			scopeIdx = idx
+		} else {
+			for scopeIdx+1 < len(scopes) && scopes[scopeIdx+1].Start <= line {
+				scopeIdx++
+			}
+		}
+
+		if line <= scopes[scopeIdx].End {
+			return pr.scopeKey(scopeIdx)
 		}
 
 		return ""
@@ -1496,7 +1522,7 @@ func (pr *ParseResult) hasTagRegion() bool {
 // that is not an operator. A line ending on an operator, an open bracket or
 // a comma, or a line starting with one, continues the statement.
 func newlineEndsStatement(src string, prev, t Token) bool {
-	if t.Kind != TokIdent || classify(t.Value)&wordOperator != 0 {
+	if t.Kind != TokIdent || t.Line == prev.Line || classify(t.Value)&wordOperator != 0 {
 		return false
 	}
 

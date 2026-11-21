@@ -268,6 +268,25 @@ func strPtr(s string) *string {
 	return &s
 }
 
+func (s *Server) workspaceSymbolProvider() protocol.WorkspaceSymbolProvider {
+	if s.workspaceSymbolDefer {
+		resolveProvider := true
+
+		return &protocol.WorkspaceSymbolOptions{ResolveProvider: &resolveProvider}
+	}
+
+	return protocol.Boolean(true)
+}
+
+func clientDefersWorkspaceSymbol(caps protocol.ClientCapabilities) bool {
+	w := caps.Workspace
+	if w == nil || w.Symbol == nil {
+		return false
+	}
+
+	return slices.Contains(w.Symbol.ResolveSupport.Properties, "location.range")
+}
+
 func (s *Server) handleWorkspaceSymbol(_ context.Context, rawParams []byte) (any, error) {
 	var params protocol.WorkspaceSymbolParams
 	if err := json.Unmarshal(rawParams, &params); err != nil {
@@ -296,6 +315,20 @@ func (s *Server) handleWorkspaceSymbol(_ context.Context, rawParams []byte) (any
 		defs = browsableWorkspaceSymbols(s.index.FunctionsMatching(match))
 	}
 
+	if s.workspaceSymbolDefer {
+		symbols := make([]protocol.WorkspaceSymbol, len(defs))
+		locs := make([]protocol.LocationUriOnly, len(defs))
+
+		for i, d := range defs {
+			locs[i].URI = d.URI
+			symbols[i].Name = d.Name
+			symbols[i].Kind = protocol.SymbolKindFunction
+			symbols[i].Location = &locs[i]
+		}
+
+		return symbols, nil
+	}
+
 	symbols := make([]protocol.SymbolInformation, 0, len(defs))
 
 	for _, d := range defs {
@@ -310,6 +343,41 @@ func (s *Server) handleWorkspaceSymbol(_ context.Context, rawParams []byte) (any
 	}
 
 	return symbols, nil
+}
+
+func (s *Server) handleWorkspaceSymbolResolve(_ context.Context, rawParams []byte) (any, error) {
+	var sym protocol.WorkspaceSymbol
+	if err := json.Unmarshal(rawParams, &sym); err != nil {
+		return nil, err
+	}
+
+	var docURI uri.URI
+
+	switch loc := sym.Location.(type) {
+	case *protocol.LocationUriOnly:
+		docURI = loc.URI
+	case *protocol.Location:
+		return sym, nil
+	default:
+		return sym, nil
+	}
+
+	if docURI == "" {
+		return sym, nil
+	}
+
+	for _, d := range s.index.FunctionsForFile(docURI) {
+		if strings.EqualFold(d.Name, sym.Name) {
+			loc := funcDefLocation(d)
+			sym.Location = &loc
+
+			return sym, nil
+		}
+	}
+
+	sym.Location = &protocol.Location{URI: docURI}
+
+	return sym, nil
 }
 
 func compareWorkspaceSymbols(a, b *parser.FunctionDef, query string) int {

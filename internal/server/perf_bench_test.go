@@ -125,40 +125,58 @@ func BenchmarkWorkspaceSymbol(b *testing.B) {
 func BenchmarkWorkspaceSymbolWithMarshal(b *testing.B) {
 	s := benchLoadedServer()
 
-	for _, q := range []string{"m", "method3", "zzz"} {
-		b.Run("query_"+q, func(b *testing.B) {
-			req, err := json.Marshal(protocol.WorkspaceSymbolParams{Query: q})
-			if err != nil {
-				b.Fatal(err)
-			}
+	for _, mode := range []struct {
+		name     string
+		deferred bool
+	}{
+		{"full", false},
+		{"deferred", true},
+	} {
+		for _, q := range []string{"m", "method3", "zzz"} {
+			b.Run(mode.name+"_query_"+q, func(b *testing.B) {
+				s.workspaceSymbolDefer = mode.deferred
 
-			res, err := s.handleWorkspaceSymbol(context.Background(), req)
-			if err != nil {
-				b.Fatal(err)
-			}
-
-			out, err := json.Marshal(res)
-			if err != nil {
-				b.Fatal(err)
-			}
-
-			syms, _ := res.([]protocol.SymbolInformation)
-			b.Logf("response: %d symbols, %d bytes of JSON", len(syms), len(out))
-
-			b.ReportAllocs()
-			b.ResetTimer()
-
-			for b.Loop() {
-				r, err := s.handleWorkspaceSymbol(context.Background(), req)
+				req, err := json.Marshal(protocol.WorkspaceSymbolParams{Query: q})
 				if err != nil {
 					b.Fatal(err)
 				}
 
-				if _, err := json.Marshal(r); err != nil {
+				res, err := s.handleWorkspaceSymbol(context.Background(), req)
+				if err != nil {
 					b.Fatal(err)
 				}
-			}
-		})
+
+				out, err := json.Marshal(res)
+				if err != nil {
+					b.Fatal(err)
+				}
+
+				var count int
+
+				switch syms := res.(type) {
+				case []protocol.SymbolInformation:
+					count = len(syms)
+				case []protocol.WorkspaceSymbol:
+					count = len(syms)
+				}
+
+				b.Logf("response: %d symbols, %d bytes of JSON", count, len(out))
+
+				b.ReportAllocs()
+				b.ResetTimer()
+
+				for b.Loop() {
+					r, err := s.handleWorkspaceSymbol(context.Background(), req)
+					if err != nil {
+						b.Fatal(err)
+					}
+
+					if _, err := json.Marshal(r); err != nil {
+						b.Fatal(err)
+					}
+				}
+			})
+		}
 	}
 }
 
