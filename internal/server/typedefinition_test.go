@@ -163,15 +163,16 @@ func TestTypeDefinitionTagSyntaxAndPages(t *testing.T) {
 	}
 }
 
-// The capability is what makes an editor offer the command at all.
-func TestTypeDefinitionIsNotAdvertisedUntilAskedFor(t *testing.T) {
-	if providerOn(t, initializeWithConfig(t, `{}`).capabilities().TypeDefinitionProvider) {
-		t.Error("typeDefinition is advertised without being asked for")
+// The capability is on by default so editors get type definition out of the
+// box, and opting out un-advertises it.
+func TestTypeDefinitionIsAdvertisedByDefaultAndCanBeOptedOut(t *testing.T) {
+	if !providerOn(t, initializeWithConfig(t, `{}`).capabilities().TypeDefinitionProvider) {
+		t.Error("typeDefinition should be advertised by default")
 	}
 
-	on := initializeWithConfig(t, `{"features": {"typeDefinition": true}}`).capabilities()
-	if !providerOn(t, on.TypeDefinitionProvider) {
-		t.Error("typeDefinition is still not advertised after being switched on")
+	off := initializeWithConfig(t, `{"features": {"typeDefinition": false}}`).capabilities()
+	if providerOn(t, off.TypeDefinitionProvider) {
+		t.Error("typeDefinition is still advertised after being switched off")
 	}
 }
 
@@ -179,6 +180,7 @@ func TestTypeDefinitionIsNotAdvertisedUntilAskedFor(t *testing.T) {
 // gets nothing, on a line that answers when the switch is on.
 func TestTypeDefinitionDeclinesWhenOff(t *testing.T) {
 	srv := newTestdataServer()
+	srv.Features.TypeDefinition = false
 	docURI := openProbe(t, srv, "typedef_probe.cfc", typeDefProbe)
 
 	if got := typeDefinitionAt(t, srv, docURI, typeDefProbe, 11, "u."); got != "" {

@@ -810,16 +810,6 @@ edge the map does not have, so on a workspace resolving around half its call sit
 "nothing calls this" means rather less than it looks like it does. That is also why
 the unreferenced list is described as candidates rather than as dead code.
 
-## Not yet implemented
-
-The VS Code extension stands its own language providers down while this server is
-running, so two capabilities it can answer are unavailable when the server is
-enabled:
-
-- **Docblock completion** — `@param`, `@return` and friends inside `/** */`
-  (would also need `@` and `*` added to the completion trigger characters)
-- **`textDocument/documentColor`** — colour swatches and the picker
-
 ## Configuration
 
 Place a `.clif.json` file in your project root to enable daemon mode and configure workspace indexing.
@@ -857,7 +847,7 @@ The same settings can also be supplied by your editor as LSP `initializationOpti
 | `completions` | No | `tagSnippets`, `functionSnippets`, `globalFunctionResolution`. All three default to `true`; set the block only to turn one off. |
 | `docBlock` | No | What `/**` expands to: `gap` (default `true`) puts a blank ` *` line between the hint and the tags, and `extra` is a list of `{ "name", "default", "types" }` tags added to every block (`types` limits them to `component`, `interface`, `function` or `property`). Inside a doc block, `@` completes the attributes of the tag being documented and a function's argument names. |
 | `references` | No | `textDocument/references` support, off by default. See below. |
-| `features` | No | Per-capability switches. `documentHighlight`, `watchedFiles` and `rangeFormatting` default to `true`; `folding` defaults to `true`; `typeDefinition` defaults to `false` and is opt-in. See below. |
+| `features` | No | Per-capability switches. `documentHighlight`, `folding`, `watchedFiles`, `rangeFormatting`, `typeDefinition`, `variableDefinitions`, `routes` and `outputContextInterpolation` default to `true`; `structureDiagnostics`, `inlayHints` and `rename` default to `false` (opt-in). See below. |
 | `check` | No | What `clif check` runs in CI and what fails it. See [Checks for CI](#checks-for-ci). |
 | `debug` | No | Enable debug logging (`zap.NewDevelopment`). Outputs verbose logs to stderr. |
 
@@ -1213,8 +1203,8 @@ there is nothing it could honestly do with `false` short of declining to format.
 
 Most capabilities the server adds are on by default and each can be switched off
 on its own, for when one misbehaves on a real workspace and the alternative is
-downgrading the binary. **`typeDefinition`, `structureDiagnostics`,
-`inlayHints` and `rename` are the exceptions: they are off unless you ask for them.**
+downgrading the binary. **`structureDiagnostics`, `inlayHints` and `rename` are
+the exceptions: they are off unless you ask for them.**
 
 ```json
 {
@@ -1223,7 +1213,7 @@ downgrading the binary. **`typeDefinition`, `structureDiagnostics`,
     "folding": true,
     "watchedFiles": true,
     "rangeFormatting": true,
-    "typeDefinition": false,
+    "typeDefinition": true,
     "structureDiagnostics": false,
     "inlayHints": false,
     "rename": false
@@ -1237,7 +1227,7 @@ downgrading the binary. **`typeDefinition`, `structureDiagnostics`,
 | `folding` | on | Folding ranges for functions and comments; in CFScript every block, closure, literal, multi-line argument list and switch case; in markup every element, CF tag and `<cfelse>` branch. With it off the editor folds by indentation. |
 | `watchedFiles` | on | Re-indexing files changed outside the editor. With it off the index reflects startup plus whatever you have had open, and `clif.reindex` is the way to refresh it. |
 | `rangeFormatting` | on | "Format Selection". Switching it off leaves whole-document formatting and format-on-save working. |
-| `typeDefinition` | **off** | "Go to Type Definition": from a variable, argument or property to the component it holds, or from a call to the component the function returns. The newest capability here, so it waits to be asked for. |
+| `typeDefinition` | on | "Go to Type Definition": from a variable, argument or property to the component it holds, or from a call to the component the function returns. |
 | `structureDiagnostics` | **off** | Diagnostics for the structure of a document's CF tags (a missing attribute and a repeated argument are errors; a tag left open or closed with no opener, one outside its parent and a repeated attribute are warnings, since a template included into another page can be right to have them), published as it is opened and edited (300 ms after the last change): a tag left open (`<cfif>` with no `</cfif>`), a closing tag with no opener, a `<cfcatch>` outside a `<cftry>` (and `<cfelse>`, `<cfcase>`, `<cfargument>` outside theirs), a `<cffunction>`, `<cfargument>`, `<cfparam>` or `<cfproperty>` with no `name`, a `<cfinclude>` with no `template`, an attribute given twice (a warning), and an argument a function declares twice. Only tags that always take a body are checked for closing, and a tag that can stand alone (`<cfhttp>`, `<cftransaction action="commit">`) never is, so a page that runs reports nothing: over 10,400 pages of real code the only findings were broken test inputs and one malformed import script. Off by default because it is new, and because an editor that draws its own tag errors would show each twice. Source `clif`; the code is the kind (`unclosed-tag`, `unmatched-close`, `misplaced-tag`, `missing-attribute`, `duplicate-attribute`, `duplicate-argument`). |
 | `inlayHints` | **off** | Inlay hints: a component's own dot path beside its declaration, `Path: (models.User)`, the name `new` and `createObject` take. None in an `Application.cfc`. Off by default because it is new, and because an editor that draws its own hints would show each twice. |
 | `rename` | **off** | Rename a local variable of a script function: the variable under the cursor, every place the function writes it (`var x`, `local.x`, its uses, a use in a string's `#...#`), in that document. It does not rename an argument (callers pass it by name) or anything outside a function, and it refuses, saying why, where it cannot show it has every use: the name in a string (`structKeyExists( local, "x" )`), `evaluate()`, a closure or arrow function that declares or takes the same name, a `catch` that binds it, CF tags in the body. A new name is refused when CFML reserves it (`return`, `local`, `true`, a scope), when it is a statement word (`lock`, `param`, `thread`, `static`, …) and the variable is written at the start of a statement, where the engine would read it as that statement, and when the function already means something by it: an argument, a variable, a catch variable, a variable it reads from outside, a function it calls. The refusal says which. A struct key, a named argument's label, another object's member and a type are not names the function means anything by. A rename sent from a name that is spelled like the variable but is not it (a struct key, `o.x`, a label) is refused too. Off by default because a rename edits code. |

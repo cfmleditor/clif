@@ -10,8 +10,8 @@ Declared in `Server.capabilities()` (`internal/server/server.go`):
   folding ranges, workspace folders.
 - `textDocument/typeDefinition` (`internal/server/typedefinition.go`) goes to the component
   the symbol under the cursor holds: a variable, argument or property's component, or the
-  component a called function returns. **Opt-in** (`features.typeDefinition`, default off,
-  `config.typeDefinitionDefault`) while it is new. It is the extension's `CFMLTypeDefinitionProvider`,
+  component a called function returns. **Default on** (`features.typeDefinition`,
+  `config.typeDefinitionDefault`, opt-out). It is the extension's `CFMLTypeDefinitionProvider`,
   and the extension's source is the spec, since it has no tests for it.
 
   **What a variable holds comes from `resolve.ComponentOf`, which is `CanResolveCall`'s own
@@ -205,10 +205,7 @@ Declared in `Server.capabilities()` (`internal/server/server.go`):
   whole-line match, because the parser also records the variables a component ref flows into
   (`report = myCtrl.getReport()` is a ref to myCtrl's component on a line that never names it).
 - **`features`** (`config.Features`/`ResolvedFeatures`) switches off individual capabilities.
-  Every switch but `typeDefinition` defaults **on**, as an opt-out. **`folding`** (`config.foldingDefault`) was opt-in
-  while it was expensive, and is on since the span pass covers 93.9% of what the tree-sitter
-  version folded and folds the corpus at 273 MB/s (`.ai/docs/FOLDING-PLAN.md` §5).
-  **`typeDefinition` defaults off** (`config.typeDefinitionDefault`), as the newest capability. The fields are `*bool` for the reason the `completions` block documents — a
+  `documentHighlight`, `folding`, `watchedFiles`, `rangeFormatting`, `typeDefinition`, `variableDefinitions`, `routes` and `outputContextInterpolation` default **on**, as opt-outs. `structureDiagnostics`, `inlayHints` and `rename` default **off**, as opt-ins. The fields are `*bool` for the reason the `completions` block documents — a
   defaults-true flag as a plain bool cannot tell "turned off" from "not mentioned", so naming one
   key would switch off its siblings. `mergeFeatures` unions key by key for the same reason
   `mergeFormatting` does. `featureDefaults` in `features_chain_test.go` states every default and
@@ -636,7 +633,7 @@ match.
 
 It was four. Variable definitions were the largest, and they are closed — the
 conformance suite below is what made that a measured change rather than a claim.
-`textDocument/typeDefinition` is closed too, behind `features.typeDefinition`; see the LSP
+`textDocument/typeDefinition` is closed and on by default (`features.typeDefinition`); see the LSP
 surface. Docblock completion is closed (`internal/server/docblock.go`): `/**` expands to a
 comment block for the function, property, component or interface that follows it, with a
 tag line per argument and a blank line after the hint; inside a `/** … */`, `@` offers the
@@ -649,14 +646,13 @@ cursor inside a doc block (the extension offered it anywhere in a component file
 function's arguments are read from the declaration text rather than the document's parse,
 because the comment being typed is usually unclosed and hides the rest of the file from it.
 `TestSlashStarStarExpandsToADocBlock`, `TestAtInADocBlockOffersTheTagsAttributes`.
+`textDocument/documentColor` and `textDocument/colorPresentation` are closed too
+(`internal/server/color.go`): CSS color literals (`#`/`##` hex by output context, `rgb`/`rgba`,
+`hsl`/`hsla`) in `<style>` declarations and inline `style=` attributes are reported with RGBA
+values, and color-picker edits write `##rrggbb`/`##rrggbbaa` inside evaluated output contexts
+(`<cfoutput>`, `<cffunction output="true">`, etc.) and `#rrggbb`/`#rrggbbaa` outside.
 
-| Missing here | Extension's implementation | Notes |
-|---|---|---|
-| `textDocument/documentColor` | `CFMLDocumentColorProvider` | Colour swatches and the picker for colour literals. Wholly absent here; nothing in the parser records them. |
-
-`documentColor` is the one with no foundation at all. Until it lands, a user who enables the
-server loses it — which is worth remembering when one is reported as a regression rather than
-a gap.
+All four original capability gaps with the VS Code extension are now closed.
 
 **The list is measured, not maintained by hand.**
 `internal/server/definition_conformance_test.go` replays the extension's own
