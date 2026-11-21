@@ -608,12 +608,19 @@ func (idx *Index) ShiftLines(fileURI uri.URI, afterLine int, delta int) {
 	fileFuncReps := make([]funcReplacement, 0, len(idx.fileFuncs[key]))
 
 	for _, d := range idx.fileFuncs[key] {
-		if int(d.Line) <= afterLine {
+		shiftLine, shiftName := int(d.Line) > afterLine, d.HasNameRange() && int(d.NameLine) > afterLine
+		if !shiftLine && !shiftName {
 			continue
 		}
 
 		shifted := *d
-		shifted.Line = conv.Uint32(int(shifted.Line) + delta)
+		if shiftLine {
+			shifted.Line = conv.Uint32(int(shifted.Line) + delta)
+		}
+
+		if shiftName {
+			shifted.NameLine = conv.Uint32(int(shifted.NameLine) + delta)
+		}
 
 		rep := funcReplacement{old: d, new: &shifted}
 		name := strings.ToLower(d.Name)

@@ -848,6 +848,32 @@ func (pr *ParseResult) mergeScriptRegion(r *Region, tagScopes []FuncScope, open 
 		sp.funcs = sp.funcs[1:]
 	}
 
+	if prefixCols := linePrefixUTF16(pr.Content, r.Offset); prefixCols > 0 {
+		startLine := conv.Uint32(r.StartLine)
+		for i := range sp.funcs {
+			if sp.funcs[i].HasNameRange() && sp.funcs[i].NameLine == startLine {
+				sp.funcs[i].NameCol += prefixCols
+				sp.funcs[i].NameEndCol += prefixCols
+			}
+		}
+
+		for i := range sp.properties {
+			prop := &sp.properties[i]
+			if prop.line == startLine {
+				prop.col += prefixCols
+			}
+
+			if prop.endLine == startLine {
+				prop.endCol += prefixCols
+			}
+
+			if prop.nameEndCol > prop.nameCol && prop.nameLine == startLine {
+				prop.nameCol += prefixCols
+				prop.nameEndCol += prefixCols
+			}
+		}
+	}
+
 	pr.Funcs = append(pr.Funcs, sp.funcs...)
 	pr.ComponentRefs = append(pr.ComponentRefs, sp.componentRefs...)
 
@@ -1038,8 +1064,19 @@ func (pr *ParseResult) mergeTagRegion(r *Region, tagScopes []FuncScope, open *op
 		*open = openLocals{key: shiftFuncKey(tp.inFunc, r.StartLine), names: slices.Clone(tp.localVars)}
 	}
 
+	prefixCols := linePrefixUTF16(pr.Content, r.Offset)
+
 	for i := range tp.funcs {
+		if prefixCols > 0 && tp.funcs[i].HasNameRange() && tp.funcs[i].NameLine == 0 {
+			tp.funcs[i].NameCol += prefixCols
+			tp.funcs[i].NameEndCol += prefixCols
+		}
+
 		tp.funcs[i].Line += conv.Uint32(r.StartLine)
+		if tp.funcs[i].HasNameRange() {
+			tp.funcs[i].NameLine += conv.Uint32(r.StartLine)
+		}
+
 		tp.funcs[i].returnLine += conv.Uint32(r.StartLine)
 	}
 
@@ -1048,7 +1085,28 @@ func (pr *ParseResult) mergeTagRegion(r *Region, tagScopes []FuncScope, open *op
 	}
 
 	for i := range tp.properties {
-		tp.properties[i].line += conv.Uint32(r.StartLine)
+		prop := &tp.properties[i]
+		if prefixCols > 0 {
+			if prop.line == 0 {
+				prop.col += prefixCols
+			}
+
+			if prop.endLine == 0 {
+				prop.endCol += prefixCols
+			}
+
+			if prop.nameEndCol > prop.nameCol && prop.nameLine == 0 {
+				prop.nameCol += prefixCols
+				prop.nameEndCol += prefixCols
+			}
+		}
+
+		prop.line += conv.Uint32(r.StartLine)
+		prop.endLine += conv.Uint32(r.StartLine)
+
+		if prop.nameEndCol > prop.nameCol {
+			prop.nameLine += conv.Uint32(r.StartLine)
+		}
 	}
 
 	pr.Funcs = append(pr.Funcs, tp.funcs...)

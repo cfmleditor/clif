@@ -100,25 +100,30 @@ var conformanceCases = []conformanceCase{
 	{"global/server", "cfml/GlobalVariables.cfm", `<cfset ref = server.|serverVariable>`, "Server.cfc"},
 }
 
-// conformanceDeclarations copies the native provider's variable target
-// assertions. The bars enclose the exact identifier range.
+// conformanceDeclarations copies the native provider's method, user-function,
+// and variable target assertions. The bars enclose the exact identifier range.
 var conformanceDeclarations = map[string]string{
-	"var/argument":              `<cfargument name="|argumentVariable|"`,
-	"var/local":                 "local.|localVariable| = ",
-	"var/var":                   "var |varVariable| = ",
-	"var/variables":             "variables.|variablesVariable| = ",
-	"cfm/variables-scoped":      `variables.|variablesVariable| = "foo"`,
-	"cfm/variables-unscoped":    `variables.|variablesVariable| = "foo"`,
-	"cfm/url-scoped":            `url.|urlVariable| = "foo"`,
-	"cfm/url-unscoped":          `url.|urlVariable| = "foo"`,
-	"cfm/cfparam-scoped":        `<cfparam name="url.|cfparamUrlVariable|">`,
-	"cfm/cfparam-unscoped":      `<cfparam name="url.|cfparamUrlVariable|">`,
-	"cfm/cfloop-index-scoped":   `<cfloop index="variables.|loopIndex|"`,
-	"cfm/cfloop-index-unscoped": `<cfloop index="variables.|loopIndex|"`,
-	"global/application":        `<cfset application.|applicationVariable| = "foo">`,
-	"global/request":            `<cfset request.|requestVariable| = "foo">`,
-	"global/session":            `<cfset session.|sessionVariable| = "foo">`,
-	"global/server":             `<cfset server.|serverVariable| = "foo">`,
+	"cfml/method-of-component-var":     `<cffunction name="|render|"`,
+	"cfml/method-within-component":     `<cffunction name="|generateID|">`,
+	"cfscript/method-of-component-var": `public string function |render|()`,
+	"cfscript/method-within-component": `function |generateID|()`,
+	"cfm/user-function":                `<cffunction name="|userFunctionFoo|">`,
+	"var/argument":                     `<cfargument name="|argumentVariable|"`,
+	"var/local":                        "local.|localVariable| = ",
+	"var/var":                          "var |varVariable| = ",
+	"var/variables":                    "variables.|variablesVariable| = ",
+	"cfm/variables-scoped":             `variables.|variablesVariable| = "foo"`,
+	"cfm/variables-unscoped":           `variables.|variablesVariable| = "foo"`,
+	"cfm/url-scoped":                   `url.|urlVariable| = "foo"`,
+	"cfm/url-unscoped":                 `url.|urlVariable| = "foo"`,
+	"cfm/cfparam-scoped":               `<cfparam name="url.|cfparamUrlVariable|">`,
+	"cfm/cfparam-unscoped":             `<cfparam name="url.|cfparamUrlVariable|">`,
+	"cfm/cfloop-index-scoped":          `<cfloop index="variables.|loopIndex|"`,
+	"cfm/cfloop-index-unscoped":        `<cfloop index="variables.|loopIndex|"`,
+	"global/application":               `<cfset application.|applicationVariable| = "foo">`,
+	"global/request":                   `<cfset request.|requestVariable| = "foo">`,
+	"global/session":                   `<cfset session.|sessionVariable| = "foo">`,
+	"global/server":                    `<cfset server.|serverVariable| = "foo">`,
 }
 
 // knownGaps are cases the extension answers and this server does not, each with

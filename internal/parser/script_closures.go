@@ -67,12 +67,16 @@ func (p *scriptParser) skipNestedFunction(tok Token, _ int) {
 	// default holds, since parseArgList routes one through skipDefault.
 	args, closing, defaults := p.parseArgs(p.keepVars)
 	funcLine := p.baseLine + int(tok.Line)
+	nameLine, nameCol, nameEndCol := p.tokenNameRange(nameTok)
 
 	p.funcs = append(p.funcs, FunctionDef{
-		Name:      nameTok.Value,
-		URI:       uriFromString(p.fileURI),
-		Line:      conv.Uint32(funcLine),
-		Arguments: args,
+		Name:       nameTok.Value,
+		URI:        uriFromString(p.fileURI),
+		Line:       conv.Uint32(funcLine),
+		NameLine:   nameLine,
+		NameCol:    nameCol,
+		NameEndCol: nameEndCol,
+		Arguments:  args,
 	})
 
 	access := ""

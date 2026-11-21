@@ -10,10 +10,55 @@ import (
 
 // propertyDef holds parsed property metadata.
 type propertyDef struct {
-	name     string
-	typeName string
-	line     uint32
-	attrs    map[string]string // all attribute key=value pairs (lowercase keys)
+	name       string
+	typeName   string
+	line       uint32
+	col        uint32
+	endLine    uint32
+	endCol     uint32
+	nameLine   uint32
+	nameCol    uint32
+	nameEndCol uint32
+	attrs      map[string]string // all attribute key=value pairs (lowercase keys)
+}
+
+// PropertySymbol describes a declared component property for document outlines,
+// with UTF-16 columns for both the full declaration and its identifier name.
+type PropertySymbol struct {
+	Name       string
+	Type       string
+	Line       uint32
+	Col        uint32
+	EndLine    uint32
+	EndCol     uint32
+	NameLine   uint32
+	NameCol    uint32
+	NameEndCol uint32
+}
+
+// PropertySymbols returns the component's declared properties with their ranges.
+func (pr *ParseResult) PropertySymbols() []PropertySymbol {
+	if pr == nil || len(pr.Properties) == 0 {
+		return nil
+	}
+
+	out := make([]PropertySymbol, len(pr.Properties))
+	for i := range pr.Properties {
+		p := &pr.Properties[i]
+		out[i] = PropertySymbol{
+			Name:       p.name,
+			Type:       p.typeName,
+			Line:       p.line,
+			Col:        p.col,
+			EndLine:    p.endLine,
+			EndCol:     p.endCol,
+			NameLine:   p.nameLine,
+			NameCol:    p.nameCol,
+			NameEndCol: p.nameEndCol,
+		}
+	}
+
+	return out
 }
 
 // scriptParser extracts function signatures, component refs, and variable
@@ -1212,7 +1257,7 @@ func (p *scriptParser) parseScopedVar(tok Token, scope Scope) {
 
 	// Check RHS for component refs
 	if (scope == ScopeThis || scope == ScopeVariables) &&
-		p.parseFunctionValue(nameTok.Value, tok) {
+		p.parseFunctionValue(nameTok, tok) {
 		return
 	}
 
@@ -1462,11 +1507,17 @@ func (p *scriptParser) parseProperty(startTok Token) {
 	// Collect tokens until semicolon or EOF
 	var tokens []Token
 
+	endTok := startTok
 	inHash := false // between the hashes of an unquoted `default=#f()#`
 
 	for {
 		tok := p.sc.NextSkipComments()
-		if tok.Kind == TokEOF || tok.Kind == TokSemicolon {
+		if tok.Kind == TokEOF {
+			break
+		}
+
+		endTok = tok
+		if tok.Kind == TokSemicolon {
 			break
 		}
 
@@ -1495,6 +1546,11 @@ func (p *scriptParser) parseProperty(startTok Token) {
 	// with an empty value, and taken out of the positional form below.
 	flags := 0
 
+	var (
+		nameTok    Token
+		hasNameTok bool
+	)
+
 	for i, tok := range tokens {
 		if tok.Kind != TokIdent {
 			continue
@@ -1503,7 +1559,12 @@ func (p *scriptParser) parseProperty(startTok Token) {
 		if i+1 < len(tokens) && tokens[i+1].Kind == TokEquals {
 			if i+2 < len(tokens) && (tokens[i+2].Kind == TokString || tokens[i+2].Kind == TokIdent || tokens[i+2].Kind == TokNumber) {
 				val := propertyAttributeValue(tokens, i+2)
-				attrs[strings.ToLower(tok.Value)] = val
+				key := strings.ToLower(tok.Value)
+				attrs[key] = val
+
+				if key == "name" {
+					nameTok, hasNameTok = tokens[i+2], true
+				}
 			}
 
 			continue
@@ -1523,31 +1584,11 @@ func (p *scriptParser) parseProperty(startTok Token) {
 
 	// If no name= attribute, try positional: property [type] name [attrs...];
 	if name == "" {
-		idents := make([]string, 0, 2)
+		var posType string
 
-		for i, tok := range tokens {
-			if tok.Kind == TokIdent {
-				// Stop if this ident is followed by = (it's an attribute, not positional)
-				if i+1 < len(tokens) && tokens[i+1].Kind == TokEquals {
-					break
-				}
-
-				if flags > 0 && propertyFlags[strings.ToLower(tok.Value)] {
-					break
-				}
-
-				idents = append(idents, tok.Value)
-			} else {
-				break
-			}
-		}
-
-		switch len(idents) {
-		case 1:
-			name = idents[0]
-		case 2:
-			typeName = idents[0]
-			name = idents[1]
+		posType, name, nameTok, hasNameTok = positionalPropertyName(tokens, flags)
+		if posType != "" {
+			typeName = posType
 		}
 	}
 
@@ -1559,7 +1600,66 @@ func (p *scriptParser) parseProperty(startTok Token) {
 		attrs["type"] = typeName
 	}
 
-	p.properties = append(p.properties, propertyDef{name: name, typeName: typeName, line: line, attrs: attrs})
+	p.properties = append(p.properties, p.buildPropertyDef(name, typeName, line, startTok, endTok, nameTok, hasNameTok, attrs))
+}
+
+func positionalPropertyName(tokens []Token, flags int) (typeName, name string, nameTok Token, hasNameTok bool) {
+	idents := make([]Token, 0, 2)
+
+	for i, tok := range tokens {
+		if tok.Kind != TokIdent {
+			break
+		}
+
+		if i+1 < len(tokens) && tokens[i+1].Kind == TokEquals {
+			break
+		}
+
+		if flags > 0 && propertyFlags[strings.ToLower(tok.Value)] {
+			break
+		}
+
+		idents = append(idents, tok)
+	}
+
+	switch len(idents) {
+	case 1:
+		return "", idents[0].Value, idents[0], true
+	case 2:
+		return idents[0].Value, idents[1].Value, idents[1], true
+	default:
+		return "", "", Token{}, false
+	}
+}
+
+func (p *scriptParser) buildPropertyDef(name, typeName string, line uint32, startTok, endTok, nameTok Token, hasNameTok bool, attrs map[string]string) propertyDef {
+	col := linePrefixUTF16(p.sc.src, startTok.Offset)
+	endLine := conv.Uint32(p.baseLine + int(endTok.Line))
+	endCol := linePrefixUTF16(p.sc.src, endTok.Offset+len(endTok.Value))
+
+	var nameLine, nameCol, nameEndCol uint32
+
+	if hasNameTok {
+		off := nameTok.Offset
+		if nameTok.Kind == TokString && len(nameTok.Value) >= 2 && (nameTok.Value[0] == '"' || nameTok.Value[0] == '\'') {
+			off++
+		}
+
+		nameLine, nameCol, nameEndCol = nameRangeAt(p.sc.src, off, p.baseLine+int(nameTok.Line), name)
+	}
+
+	return propertyDef{
+		name:       name,
+		typeName:   typeName,
+		line:       line,
+		col:        col,
+		endLine:    endLine,
+		endCol:     endCol,
+		nameLine:   nameLine,
+		nameCol:    nameCol,
+		nameEndCol: nameEndCol,
+		attrs:      attrs,
+	}
 }
 
 func (p *scriptParser) parseComponentAttrs() {
@@ -1848,11 +1948,15 @@ func (p *scriptParser) parseFunction(startTok Token, access string, returnType s
 	}
 
 	funcLine := p.baseLine + int(startTok.Line)
+	nameLine, nameCol, nameEndCol := p.tokenNameRange(nameTok)
 
 	p.funcs = append(p.funcs, FunctionDef{
 		Name:       nameTok.Value,
 		URI:        uriFromString(p.fileURI),
 		Line:       conv.Uint32(funcLine),
+		NameLine:   nameLine,
+		NameCol:    nameCol,
+		NameEndCol: nameEndCol,
 		Arguments:  args,
 		ReturnType: returnType,
 		DocReturn:  docReturn(docComment),
@@ -1889,7 +1993,7 @@ func (p *scriptParser) parseFunction(startTok Token, access string, returnType s
 // recognised: telling it from an ordinary `this.x = a` needs three tokens of
 // lookahead on every assignment whose right-hand side is a bare identifier,
 // which is most of them.
-func (p *scriptParser) parseFunctionValue(name string, startTok Token) bool {
+func (p *scriptParser) parseFunctionValue(nameTok, startTok Token) bool {
 	if p.inFunc.in {
 		return false
 	}
@@ -1934,7 +2038,7 @@ func (p *scriptParser) parseFunctionValue(name string, startTok Token) bool {
 		p.sc.NextSkipComments()
 	}
 
-	p.recordFunctionValue(name, startTok, args, functionParams{parens: [2]int{lp.Offset, closing}, defaults: defaults})
+	p.recordFunctionValue(nameTok, startTok, args, functionParams{parens: [2]int{lp.Offset, closing}, defaults: defaults})
 
 	return true
 }
@@ -2000,21 +2104,29 @@ func (p *scriptParser) skipParensQuiet() bool {
 
 // recordFunctionValue files the declaration and walks the body, as
 // parseFunction does for a declared method.
-func (p *scriptParser) recordFunctionValue(name string, startTok Token, args []Argument, params functionParams) {
+func (p *scriptParser) recordFunctionValue(nameTok, startTok Token, args []Argument, params functionParams) {
 	funcLine := p.baseLine + int(startTok.Line)
+	nameLine, nameCol, nameEndCol := p.tokenNameRange(nameTok)
 
 	p.funcs = append(p.funcs, FunctionDef{
-		Name:      name,
-		URI:       uriFromString(p.fileURI),
-		Line:      conv.Uint32(funcLine),
-		Arguments: args,
+		Name:       nameTok.Value,
+		URI:        uriFromString(p.fileURI),
+		Line:       conv.Uint32(funcLine),
+		NameLine:   nameLine,
+		NameCol:    nameCol,
+		NameEndCol: nameEndCol,
+		Arguments:  args,
 	})
 
 	endLine, braces := p.parseBody(funcLine, args)
 	p.scopes = append(p.scopes, FuncScope{
-		Name: name, Start: funcLine, End: p.baseLine + endLine,
-		span: p.functionSpan(FunctionValue, name, "", startTok, params.parens, braces, params.defaults),
+		Name: nameTok.Value, Start: funcLine, End: p.baseLine + endLine,
+		span: p.functionSpan(FunctionValue, nameTok.Value, "", startTok, params.parens, braces, params.defaults),
 	})
+}
+
+func (p *scriptParser) tokenNameRange(tok Token) (line, col, endCol uint32) {
+	return nameRangeAt(p.sc.src, tok.Offset, p.baseLine+int(tok.Line), tok.Value)
 }
 
 // declareLoopVar declares the loop variable of `for (var row in qry)`.
@@ -3295,7 +3407,7 @@ func (p *scriptParser) checkAssignRef(tok Token) {
 		return
 	}
 
-	if p.parseFunctionValue(tok.Value, tok) {
+	if p.parseFunctionValue(tok, tok) {
 		p.forceGlobal = false
 
 		return

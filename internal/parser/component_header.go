@@ -80,6 +80,138 @@ func opensDeclaration(t, prev Token) bool {
 	}
 }
 
+// ComponentHeader locates a component or interface declaration and its body
+// for document-symbol outlines.
+type ComponentHeader struct {
+	IsInterface bool   // true for <cfinterface>, interface {}, or component interface {}
+	InitMethod  string // explicit initmethod attribute, or ""
+	Start       int    // byte offset of the opening token
+	NameStart   int    // byte offset of the declaration keyword
+	NameEnd     int    // byte offset just past that keyword
+	End         int    // byte offset just past the closing `}` or closing tag, or len(content)
+}
+
+// ComponentOutline finds a component or interface declaration and its closing
+// delimiter in content. ok is false for templates that declare neither.
+func ComponentOutline(content string) (ComponentHeader, bool) {
+	sc := NewScriptScanner(content)
+	inDeclaration := false
+	isTag := false
+	depth := 0
+	inTag := false
+
+	var (
+		prev   Token
+		header ComponentHeader
+	)
+
+	for budget := declarationTokens; budget > 0; budget-- {
+		t := sc.NextSkipComments()
+
+		switch {
+		case t.Kind == TokEOF:
+			return ComponentHeader{}, false
+		case t.Kind == TokLBrace && inDeclaration && !isTag:
+			header.End = scriptComponentEnd(content, t.Offset)
+
+			return header, true
+		case t.Kind == TokGT && !inDeclaration:
+			inTag = false
+		case t.Kind == TokGT && inDeclaration && isTag:
+			tag := content[header.Start : t.Offset+1]
+			header.InitMethod = getAttr(tag, "initmethod")
+			header.End = tagComponentEnd(content, t.Offset)
+
+			return header, true
+		case t.Kind == TokLBrace:
+			depth++
+		case t.Kind == TokRBrace:
+			depth = max(depth-1, 0)
+		case inDeclaration && !isTag:
+			if t.Kind == TokIdent && prev.Kind != TokEquals && prev.Kind != TokColon {
+				if identEq(t.Value, "interface") {
+					header.IsInterface = true
+				} else if identEq(t.Value, "initmethod") {
+					if next := sc.PeekSkipComments(); next.Kind == TokEquals || next.Kind == TokColon {
+						sc.NextSkipComments()
+
+						if val := sc.PeekSkipComments(); val.Kind == TokString || val.Kind == TokIdent {
+							sc.NextSkipComments()
+
+							header.InitMethod = unquote(val.Value)
+							prev = val
+
+							continue
+						}
+					}
+				}
+			}
+		case t.Kind == TokIdent && !inDeclaration && depth == 0:
+			if inTag {
+				break
+			}
+
+			if opensDeclaration(t, prev) {
+				inDeclaration = true
+				isTag = prev.Kind == TokLT
+				header = ComponentHeader{
+					IsInterface: identEq(t.Value, "interface") || identEq(t.Value, "cfinterface"),
+					Start:       t.Offset,
+					NameStart:   t.Offset,
+					NameEnd:     t.Offset + len(t.Value),
+				}
+
+				if isTag {
+					header.Start = prev.Offset
+				}
+			} else if prev.Kind == TokLT {
+				inTag = true
+			}
+		}
+
+		prev = t
+	}
+
+	return ComponentHeader{}, false
+}
+
+func tagComponentEnd(content string, openGT int) int {
+	at := -1
+
+	for _, tag := range CFTags(content, "cfcomponent", "cfinterface") {
+		if tag.Close && tag.Start >= openGT {
+			at = tag.End
+		}
+	}
+
+	if at >= 0 {
+		return at
+	}
+
+	return len(content)
+}
+
+func scriptComponentEnd(content string, openBrace int) int {
+	sc := NewScriptScanner(content[openBrace:])
+	depth := 0
+
+	for {
+		switch t := sc.NextSkipComments(); t.Kind {
+		case TokEOF:
+			return len(content)
+		case TokLBrace:
+			depth++
+		case TokRBrace:
+			depth--
+
+			if depth == 0 {
+				return openBrace + t.Offset + 1
+			}
+		default:
+		}
+	}
+}
+
 // ComponentBodyEnd is the byte offset where a component's body ends: the `}`
 // that closes a script component, or the last `</cfcomponent>` of a tag one,
 // and whether the component is written as tags. ok is false when the text

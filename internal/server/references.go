@@ -130,7 +130,9 @@ func (s *Server) functionReferences(word, content string, docURI uri.URI, line, 
 
 	if includeDecl && decl != nil {
 		d := *decl
-		d.Range = nameRange(s.fileLines(cfpath.FromURI(string(d.URI))), d.Range.Start.Line, word)
+		if d.Range.Start == d.Range.End {
+			d.Range = nameRange(s.fileLines(cfpath.FromURI(string(d.URI))), d.Range.Start.Line, word)
+		}
 
 		locs = dedupeLocations(append([]protocol.Location{d}, locs...))
 	}
@@ -232,10 +234,9 @@ func onlyDefOutside(defs []*parser.FunctionDef, docURI uri.URI) *protocol.Locati
 }
 
 func defLocation(def *parser.FunctionDef) *protocol.Location {
-	return &protocol.Location{
-		URI:   def.URI,
-		Range: protocol.Range{Start: protocol.Position{Line: def.Line}, End: protocol.Position{Line: def.Line}},
-	}
+	loc := funcDefLocation(def)
+
+	return &loc
 }
 
 // entryLocations turns reference entries into LSP locations.

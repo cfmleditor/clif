@@ -330,6 +330,35 @@ func (o *outputState) track(ends *tagEnds, idx int) {
 	}
 }
 
+// OutputSpans returns the sorted, disjoint byte spans where ColdFusion
+// evaluates #...# in text (e.g. <cfoutput>, <cfmail>, <cfquery>, or a
+// <cffunction>/<cfcomponent> with output="true").
+func OutputSpans(content string) [][2]int {
+	spans, _ := outputContext(content)
+
+	return spans
+}
+
+// InOutputContext reports whether byte offset lies inside an evaluated
+// output span of content.
+func InOutputContext(content string, offset int) bool {
+	if offset < 0 || offset > len(content) {
+		return false
+	}
+
+	for _, span := range OutputSpans(content) {
+		if offset < span[0] {
+			return false
+		}
+
+		if offset < span[1] {
+			return true
+		}
+	}
+
+	return false
+}
+
 // cfimportPrefixes is the tag prefixes content declares with <cfimport>,
 // lowercased: outputContext's walk, run only on a file that mentions one.
 // A prefix applies to the whole file, so the tag walk cannot collect it as it

@@ -186,11 +186,30 @@ func (pr *ParseResult) shiftAfter(editLine, delta int) {
 		if int(pr.Funcs[i].Line) > editLine {
 			pr.Funcs[i].Line = conv.Uint32(int(pr.Funcs[i].Line) + delta)
 		}
+
+		if pr.Funcs[i].HasNameRange() && int(pr.Funcs[i].NameLine) > editLine {
+			pr.Funcs[i].NameLine = conv.Uint32(int(pr.Funcs[i].NameLine) + delta)
+		}
 	}
 
 	for i := range pr.ComponentRefs {
 		if int(pr.ComponentRefs[i].Line) > editLine {
 			pr.ComponentRefs[i].Line = conv.Uint32(int(pr.ComponentRefs[i].Line) + delta)
+		}
+	}
+
+	for i := range pr.Properties {
+		prop := &pr.Properties[i]
+		if int(prop.line) > editLine {
+			prop.line = conv.Uint32(int(prop.line) + delta)
+		}
+
+		if int(prop.endLine) > editLine {
+			prop.endLine = conv.Uint32(int(prop.endLine) + delta)
+		}
+
+		if prop.nameEndCol > prop.nameCol && int(prop.nameLine) > editLine {
+			prop.nameLine = conv.Uint32(int(prop.nameLine) + delta)
 		}
 	}
 

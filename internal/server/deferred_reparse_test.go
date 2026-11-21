@@ -77,6 +77,9 @@ func symbolNames(t *testing.T, srv *Server, docURI uri.URI) []string {
 	}
 
 	symbols, _ := res.([]protocol.DocumentSymbol)
+	if len(symbols) == 1 && (symbols[0].Kind == protocol.SymbolKindClass || symbols[0].Kind == protocol.SymbolKindInterface) {
+		symbols = symbols[0].Children
+	}
 
 	names := make([]string, len(symbols))
 	for i := range symbols {
