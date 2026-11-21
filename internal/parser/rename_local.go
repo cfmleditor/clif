@@ -165,28 +165,43 @@ func NotAVariable(why string) error { return noVariableError{why} }
 // name is a value and no rename can follow it.
 func PlanLocalRename(content string, spans []FunctionSpan, at int) (*LocalRename, error) {
 	owner := innermostScriptSpan(spans, at)
-	if owner == nil {
-		return nil, NotAVariable("the cursor is not in a script function's body")
+
+	var (
+		scopes    []renameScope
+		ownerSpan FunctionSpan
+	)
+
+	if owner != nil {
+		ownerSpan = *owner
+		scopes = append(closuresAround(content, owner, at), renameScope{
+			params: owner.ParamsText(content), body: owner.Body, bodyEnd: owner.BodyEnd,
+			paramsAt: owner.Params, paramsEnd: owner.ParamsEnd,
+		})
+	} else {
+		if !isScriptPage(content) {
+			return nil, NotAVariable("the cursor is not in a script function's body")
+		}
+
+		ownerSpan = FunctionSpan{Start: 0, End: len(content), Params: -1, ParamsEnd: -1, Body: 0, BodyEnd: len(content)}
+		scopes = append(closuresAround(content, &ownerSpan, at), renameScope{
+			body: 0, bodyEnd: len(content), paramsAt: -1, paramsEnd: -1,
+		})
 	}
 
-	// The scopes that hold the cursor, innermost first: the closures written
-	// in the function around it, then the function. A variable belongs to the
-	// nearest of them that declares it.
-	scopes := append(closuresAround(content, owner, at), renameScope{
-		params: owner.ParamsText(content), body: owner.Body, bodyEnd: owner.BodyEnd,
-		paramsAt: owner.Params, paramsEnd: owner.ParamsEnd,
-	})
-
 	for _, sc := range scopes {
+		if plan, handled, err := planCatchScope(content, spans, &ownerSpan, sc, at); handled {
+			return plan, err
+		}
+
 		plan, err := planScope(content, spans, sc, at)
 		if errors.Is(err, errUndeclared) {
 			continue
 		}
 
-		if err == nil && (sc.body != owner.Body || sc.bodyEnd != owner.BodyEnd) {
+		if err == nil && (sc.body != ownerSpan.Body || sc.bodyEnd != ownerSpan.BodyEnd) {
 			// A closure's variable is renamed among the names of the whole
 			// function around it, whose own variables it reads.
-			for name, why := range mentionedNames(content, spans, owner) {
+			for name, why := range mentionedNames(content, spans, &ownerSpan) {
 				takeName(plan.Taken, name, why)
 			}
 		}
@@ -195,6 +210,196 @@ func PlanLocalRename(content string, spans []FunctionSpan, at int) (*LocalRename
 	}
 
 	return nil, NotAVariable("'" + wordAt(content, at) + "' is not declared in this function with var or local")
+}
+
+// isScriptPage reports whether content is a standalone CFScript page (no CF
+// tags and not a component/interface wrapper).
+func isScriptPage(content string) bool {
+	if strings.TrimSpace(content) == "" || strings.Contains(content, "```") || IndexFold(content, "<cf") >= 0 {
+		return false
+	}
+
+	if !isScriptFile(content) {
+		return false
+	}
+
+	if _, isComp := ComponentOutline(content); isComp {
+		return false
+	}
+
+	return true
+}
+
+type catchBinding struct {
+	name      string
+	nameStart int
+	nameEnd   int
+	bodyStart int
+	bodyEnd   int
+}
+
+// planCatchScope plans a rename when the cursor is on a catch clause's bound
+// variable or a use of it inside that catch block, provided the enclosing scope
+// does not also declare the same variable.
+func planCatchScope(content string, spans []FunctionSpan, owner *FunctionSpan, sc renameScope, at int) (*LocalRename, bool, error) {
+	if at < sc.body || at > sc.bodyEnd {
+		return nil, false, nil
+	}
+
+	name := wordAt(content, at)
+	if name == "" {
+		return nil, false, nil
+	}
+
+	cb, ok := innermostCatchBinding(content, sc, at, name)
+	if !ok {
+		return nil, false, nil
+	}
+
+	// If the enclosing scope also declares this name as an argument, local, or
+	// var outside the catch, fall through to the existing shadowing safeguard.
+	if slices.Contains(paramNames(sc.params), strings.ToLower(name)) {
+		return nil, false, nil
+	}
+
+	if scopeDeclaresOutsideCatch(content[sc.body:sc.bodyEnd], sc.body, cb, name) {
+		return nil, false, nil
+	}
+
+	body := content[cb.bodyStart:cb.bodyEnd]
+	if strings.Contains(body, "```") || strings.Contains(strings.ToLower(body), "<cf") {
+		return nil, true, refuse("the catch block holds CF tags")
+	}
+
+	w := &renameWalk{
+		name:     cb.name,
+		declared: true,
+		taken:    map[string]string{},
+		nested:   nestedRanges(spans, cb.bodyStart, cb.bodyEnd),
+		ranges:   [][2]int{{cb.nameStart, cb.nameEnd}},
+	}
+	w.walk(body, cb.bodyStart, false)
+
+	switch {
+	case w.err != nil:
+		return nil, true, w.err
+	case w.called && !w.assignedFn:
+		return nil, true, refuse("'" + cb.name + "' is also called, and a call to an unscoped name may be a method of the component, which a rename would leave behind")
+	}
+
+	for taken, why := range mentionedNames(content, spans, owner) {
+		takeName(w.taken, taken, why)
+	}
+
+	slices.SortFunc(w.ranges, func(a, b [2]int) int { return a[0] - b[0] })
+
+	return &LocalRename{Name: cb.name, Ranges: w.ranges, Taken: w.taken, StatementStart: w.statementStart}, true, nil
+}
+
+func innermostCatchBinding(content string, sc renameScope, at int, name string) (catchBinding, bool) {
+	toks := scriptTokens(content[sc.body:sc.bodyEnd])
+
+	var (
+		best  catchBinding
+		found bool
+	)
+
+	for i, t := range toks {
+		if t.Kind != TokIdent || !strings.EqualFold(t.Value, "catch") || i > 0 && toks[i-1].Kind == TokDot {
+			continue
+		}
+
+		if i+1 >= len(toks) || toks[i+1].Kind != TokLParen {
+			continue
+		}
+
+		rparen := matching(toks, i+1, TokLParen, TokRParen)
+		if rparen < 0 || rparen+1 >= len(toks) || toks[rparen+1].Kind != TokLBrace {
+			continue
+		}
+
+		rbrace := matching(toks, rparen+1, TokLBrace, TokRBrace)
+		if rbrace < 0 {
+			continue
+		}
+
+		last := -1
+
+		for j := i + 2; j < rparen; j++ {
+			if toks[j].Kind == TokIdent {
+				last = j
+			}
+		}
+
+		if last < 0 || !strings.EqualFold(toks[last].Value, name) {
+			continue
+		}
+
+		cb := catchBinding{
+			name:      toks[last].Value,
+			nameStart: sc.body + toks[last].Offset,
+			nameEnd:   sc.body + toks[last].Offset + len(toks[last].Value),
+			bodyStart: sc.body + toks[rparen+1].Offset + 1,
+			bodyEnd:   sc.body + toks[rbrace].Offset,
+		}
+
+		onHeader := at >= cb.nameStart && at <= cb.nameEnd
+		inBody := at >= cb.bodyStart && at <= cb.bodyEnd
+
+		if !onHeader && !inBody {
+			continue
+		}
+
+		if !found || (cb.bodyEnd-cb.nameStart) < (best.bodyEnd-best.nameStart) {
+			best, found = cb, true
+		}
+	}
+
+	return best, found
+}
+
+func scopeDeclaresOutsideCatch(body string, base int, cb catchBinding, name string) bool {
+	toks := scriptTokens(body)
+
+	for i, t := range toks {
+		off := base + t.Offset
+		if off >= cb.nameStart && off <= cb.bodyEnd {
+			continue
+		}
+
+		if t.Kind == TokIdent && strings.EqualFold(t.Value, "var") && (i == 0 || toks[i-1].Kind != TokDot) {
+			last := -1
+
+			for j := i + 1; j < len(toks); j++ {
+				if toks[j].Kind == TokDot {
+					continue
+				}
+
+				if toks[j].Kind != TokIdent || strings.EqualFold(toks[j].Value, "in") {
+					break
+				}
+
+				if last >= 0 && toks[j].Line != toks[last].Line {
+					break
+				}
+
+				last = j
+			}
+
+			if last >= 0 && strings.EqualFold(toks[last].Value, name) {
+				return true
+			}
+		}
+
+		if t.Kind == TokIdent && strings.EqualFold(t.Value, name) &&
+			i >= 2 && toks[i-1].Kind == TokDot && toks[i-2].Kind == TokIdent && strings.EqualFold(toks[i-2].Value, "local") &&
+			(i < 3 || toks[i-3].Kind != TokDot) &&
+			i+1 < len(toks) && toks[i+1].Kind == TokEquals && !equalsPair(toks, i+1) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // renameScope is a function's own scope: its parameter list and its body.
@@ -391,7 +596,7 @@ func nestedRanges(spans []FunctionSpan, body, bodyEnd int) [][2]int {
 	var out [][2]int
 
 	for i := range spans {
-		if s := &spans[i]; s.Start > body && s.End <= bodyEnd {
+		if s := &spans[i]; s.Start >= body && s.End <= bodyEnd && (s.Start != body || s.End != bodyEnd) {
 			out = append(out, [2]int{s.Start, s.End})
 		}
 	}
@@ -823,6 +1028,8 @@ func (w *renameWalk) word(toks []Token, i int, st *bracketState, base int) {
 		}
 	case "var":
 		w.declaration(toks, i, st)
+	case "for":
+		w.forInBinding(toks, i, st)
 	case "catch":
 		w.catchVariable(toks, i, st)
 	}
@@ -1010,6 +1217,33 @@ func (w *renameWalk) declaration(toks []Token, i int, st *bracketState) {
 	w.take(name, takenLocal)
 
 	if strings.EqualFold(name, w.name) {
+		if st.fnDepth > 0 || st.inArrow(i) {
+			w.fail("a function inside this one declares '" + w.name + "' for itself")
+
+			return
+		}
+
+		w.declared = true
+	}
+}
+
+// forInBinding recognizes `for ( item in expr )` without `var`: it marks
+// `item` as declared in this scope when renaming it (while leaving `for ( var
+// item in expr )` to declaration and keeping `Taken` classification unchanged).
+func (w *renameWalk) forInBinding(toks []Token, i int, st *bracketState) {
+	if i > 0 && toks[i-1].Kind == TokDot {
+		return
+	}
+
+	if i+3 >= len(toks) || toks[i+1].Kind != TokLParen || toks[i+2].Kind != TokIdent || toks[i+3].Kind != TokIdent {
+		return
+	}
+
+	if strings.EqualFold(toks[i+2].Value, "var") || !strings.EqualFold(toks[i+3].Value, "in") {
+		return
+	}
+
+	if strings.EqualFold(toks[i+2].Value, w.name) {
 		if st.fnDepth > 0 || st.inArrow(i) {
 			w.fail("a function inside this one declares '" + w.name + "' for itself")
 

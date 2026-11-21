@@ -14,6 +14,7 @@
 ### Changed
 
 - **Faster collection write-pass scanning.** `newlineEndsStatement` skips same-line string slicing via token line numbers, and `collectWrites` uses a monotonic line and function-scope cursor instead of binary-searching per write.
+- **Expanded variable rename support (`features.rename`).** `textDocument/prepareRename` and `textDocument/rename` now also rename script-page `var` declarations, `for (item in items)` bindings without `var`, and `catch (any err)` bindings scoped to their catch block while keeping shadowing and collision safeguards intact.
 
 - **Go to Type Definition (`features.typeDefinition`) is now enabled by default**, matching the VS Code extension's native provider (opt out with `{"features": {"typeDefinition": false}}`).
 - **Hierarchical CFC & interface outline (`textDocument/documentSymbol`).** Component and interface files now return a `Class` or `Interface` container (`component`, `interface`, `component interface`, `<cfcomponent>`, `<cfinterface>`) with `Property`, `Constructor` (`init` or `initmethod`), and `Method` children, exact ranges and selection ranges, and synthetic property accessors omitted. `.cfm` templates keep flat `Function` symbols with exact identifier ranges.

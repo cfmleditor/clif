@@ -65,6 +65,10 @@ func TestPlanLocalRename(t *testing.T) {
 		{"safe navigation and elvis leave no ternary open", "component {\n function f( o ) {\n  var ¦x = 1;\n  return [ g( o?.a, x: 2, y = x ), o.p ?: x, { k: o?.b, x: x } ];\n }\n}", "component {\n function f( o ) {\n  var N = 1;\n  return [ g( o?.a, x: 2, y = N ), o.p ?: N, { k: o?.b, x: N } ];\n }\n}"},
 		{"a default naming the variable is the outer one", "component {\n function f( a = count ) {\n  var ¦count = 0;\n  return count + a;\n }\n}", "component {\n function f( a = count ) {\n  var N = 0;\n  return N + a;\n }\n}"},
 		{"a function of the same name elsewhere is its own", "component {\n function g() {\n  var count = 5;\n  return count;\n }\n function f() {\n  var ¦count = 0;\n  return count;\n }\n}", "component {\n function g() {\n  var count = 5;\n  return count;\n }\n function f() {\n  var N = 0;\n  return N;\n }\n}"},
+		{"a script page variable", "var ¦caption = \"Hello\";\nwriteOutput( caption );", "var N = \"Hello\";\nwriteOutput( N );"},
+		{"a for-in binding without var", "component {\n function f( items ) {\n  for ( ¦item in items ) { g( item ); }\n }\n}", "component {\n function f( items ) {\n  for ( N in items ) { g( N ); }\n }\n}"},
+		{"a catch binding from header", "component {\n function f() {\n  try { work(); } catch ( any ¦problem ) { log( problem.message ); }\n }\n}", "component {\n function f() {\n  try { work(); } catch ( any N ) { log( N.message ); }\n }\n}"},
+		{"a catch binding from body leaves sibling catch intact", "component {\n function f() {\n  try { work(); } catch ( database problem ) { log( ¦problem ); } catch ( any problem ) { log( problem ); }\n }\n}", "component {\n function f() {\n  try { work(); } catch ( database N ) { log( N ); } catch ( any problem ) { log( problem ); }\n }\n}"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			got, err := renameLocal(t, c.src, "N")
