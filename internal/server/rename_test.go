@@ -5,6 +5,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"unicode/utf16"
+	"unicode/utf8"
 
 	"go.lsp.dev/protocol"
 	"go.lsp.dev/uri"
@@ -335,5 +337,165 @@ func TestRenameEditIsVersionedForAClientThatTakesThem(t *testing.T) {
 
 	if plain, err := renameTo(t, s, docURI, 2, 7, "total"); err != nil || len(plain.Changes) != 1 {
 		t.Errorf("a plain client got %+v, %v", plain, err)
+	}
+}
+
+// renameAtMarker renames the variable at the ¦ in src, opened as a file named
+// name, to N, and returns the text with the edits applied as an editor
+// applies them: UTF-16 columns, every range read against the unedited text.
+func renameAtMarker(t *testing.T, name, src string) (string, error) {
+	t.Helper()
+
+	at := strings.Index(src, "¦")
+	if at < 0 {
+		t.Fatal("no cursor in the source")
+	}
+
+	text := src[:at] + src[at+len("¦"):]
+	lineStart := strings.LastIndex(text[:at], "\n") + 1
+	line := uint32(strings.Count(text[:at], "\n"))
+	char := uint32(len(utf16.Encode([]rune(text[lineStart:at]))))
+
+	s := newTestServer()
+	s.Features.Rename = true
+
+	docURI := uri.File("/tmp/" + name)
+	openDoc(t, s, docURI, text)
+
+	edit, err := renameTo(t, s, docURI, line, char, "N")
+	if err != nil {
+		return "", err
+	}
+
+	edits := edit.Changes[docURI]
+	if len(edits) == 0 {
+		t.Fatal("a rename with no edits")
+	}
+
+	offset := func(p protocol.Position) int {
+		off := 0
+		for range p.Line {
+			off += strings.IndexByte(text[off:], '\n') + 1
+		}
+
+		for units := uint32(0); units < p.Character; {
+			r, size := utf8.DecodeRuneInString(text[off:])
+			units += uint32(len(utf16.Encode([]rune{r})))
+			off += size
+		}
+
+		return off
+	}
+
+	out := text
+	for _, e := range slices.Backward(edits) {
+		out = out[:offset(e.Range.Start)] + e.NewText + out[offset(e.Range.End):]
+	}
+
+	return out, nil
+}
+
+// A rename is planned from the request's position wherever the function is
+// written: a .cfm's cfscript block, a script island in a tag component, an
+// interface's default method; and its edits land on the name however the
+// line before it counts its columns: CRLF line ends, a byte order mark, a
+// character of two UTF-16 units earlier on the same line.
+func TestRenameWhereverAScriptFunctionIsWritten(t *testing.T) {
+	for _, c := range []struct{ name, file, src, want string }{
+		{
+			"a cfscript block in a template", "page.cfm",
+			"<cfoutput>count</cfoutput>\n<cfscript>\nfunction f() {\n\tvar ¦count = 1;\n\treturn count;\n}\n</cfscript>\n",
+			"<cfoutput>count</cfoutput>\n<cfscript>\nfunction f() {\n\tvar N = 1;\n\treturn N;\n}\n</cfscript>\n",
+		},
+		{
+			"a cfscript block inside a tag", "page.cfm",
+			"<cfif true>\n<cfscript>\nfunction f() {\n\tvar ¦count = 1;\n\treturn count;\n}\n</cfscript>\n</cfif>\n",
+			"<cfif true>\n<cfscript>\nfunction f() {\n\tvar N = 1;\n\treturn N;\n}\n</cfscript>\n</cfif>\n",
+		},
+		{
+			"the first of two functions on adjacent lines", "page.cfm",
+			"<cfscript>\nfunction a() { var ¦x = 1; return x; }\nfunction b() { var x = 2; return x; }\n</cfscript>\n<cfoutput>#x#</cfoutput>\n",
+			"<cfscript>\nfunction a() { var N = 1; return N; }\nfunction b() { var x = 2; return x; }\n</cfscript>\n<cfoutput>#x#</cfoutput>\n",
+		},
+		{
+			"a script island in a tag component", "T.cfc",
+			"<cfcomponent>\n<cfscript>\nfunction f() {\n\tvar ¦count = 1;\n\treturn count;\n}\n</cfscript>\n</cfcomponent>\n",
+			"<cfcomponent>\n<cfscript>\nfunction f() {\n\tvar N = 1;\n\treturn N;\n}\n</cfscript>\n</cfcomponent>\n",
+		},
+		{
+			"a static function", "S.cfc",
+			"component {\n\tstatic function f() {\n\t\tvar ¦count = 1;\n\t\treturn count;\n\t}\n}\n",
+			"component {\n\tstatic function f() {\n\t\tvar N = 1;\n\t\treturn N;\n\t}\n}\n",
+		},
+		{
+			"an interface's default method", "I.cfc",
+			"interface {\n\tdefault function f() {\n\t\tvar ¦x = 1;\n\t\treturn x;\n\t}\n}\n",
+			"interface {\n\tdefault function f() {\n\t\tvar N = 1;\n\t\treturn N;\n\t}\n}\n",
+		},
+		{
+			"CRLF line ends", "C.cfc",
+			"component {\r\n\tfunction f() {\r\n\t\tvar ¦count = 1;\r\n\t\treturn count;\r\n\t}\r\n}\r\n",
+			"component {\r\n\tfunction f() {\r\n\t\tvar N = 1;\r\n\t\treturn N;\r\n\t}\r\n}\r\n",
+		},
+		{
+			"a byte order mark", "B.cfc",
+			"\ufeffcomponent {\n\tfunction f() {\n\t\tvar ¦count = 1;\n\t\treturn count;\n\t}\n}\n",
+			"\ufeffcomponent {\n\tfunction f() {\n\t\tvar N = 1;\n\t\treturn N;\n\t}\n}\n",
+		},
+		{
+			"a surrogate pair earlier on the line", "E.cfc",
+			"component {\n\tfunction f() {\n\t\tvar s = \"😀\"; var ¦count = 1;\n\t\treturn s & count;\n\t}\n}\n",
+			"component {\n\tfunction f() {\n\t\tvar s = \"😀\"; var N = 1;\n\t\treturn s & N;\n\t}\n}\n",
+		},
+		{
+			"the cursor just after the name", "A.cfc",
+			"component {\n\tfunction f() {\n\t\tvar count¦ = 1;\n\t\treturn count;\n\t}\n}\n",
+			"component {\n\tfunction f() {\n\t\tvar N = 1;\n\t\treturn N;\n\t}\n}\n",
+		},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := renameAtMarker(t, c.file, c.src)
+			if err != nil {
+				t.Fatalf("refused: %v", err)
+			}
+
+			if got != c.want {
+				t.Errorf("got:\n%q\nwant:\n%q", got, c.want)
+			}
+		})
+	}
+}
+
+// What is not a script function's variable is refused, not renamed as text:
+// a tag function, even one whose body is a cfscript block, and a word in a
+// template's markup spelled like a variable a function declares.
+func TestRenameRefusesWhatIsNotAScriptFunctionsVariable(t *testing.T) {
+	for _, c := range []struct{ name, file, src string }{
+		{"a tag function's cfscript body", "T.cfc", "<cfcomponent>\n<cffunction name=\"f\">\n<cfscript>\nvar ¦x = 1;\nreturn x;\n</cfscript>\n</cffunction>\n</cfcomponent>\n"},
+		{"markup spelled like a variable", "page.cfm", "<p>¦count</p>\n<cfscript>\nfunction f() { var count = 1; return count; }\n</cfscript>\n"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := renameAtMarker(t, c.file, c.src)
+			if err == nil || !strings.Contains(err.Error(), "script function") {
+				t.Errorf("renamed to:\n%s\nerror %v, want a refusal naming a script function", got, err)
+			}
+		})
+	}
+}
+
+// A request for a document the client never opened: prepareRename has nothing
+// to offer, which is null, and rename says why it cannot.
+func TestRenameOfADocumentNotOpen(t *testing.T) {
+	s := newTestServer()
+	s.Features.Rename = true
+
+	docURI := uri.File("/tmp/never_opened.cfc")
+
+	if got, err := prepareRename(t, s, docURI, 0, 0); got != nil || err != nil {
+		t.Errorf("prepareRename: %v, %v, want null", got, err)
+	}
+
+	if _, err := renameTo(t, s, docURI, 0, 0, "x"); err == nil || !strings.Contains(err.Error(), "not open") {
+		t.Errorf("rename: %v, want an error that it is not open", err)
 	}
 }

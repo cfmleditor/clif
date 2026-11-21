@@ -5,6 +5,15 @@ _Fixtures, golangci-lint rules and why, and the gocritic/gofumpt conventions. Mo
 - Test fixtures live in `testdata/` (`beans/`, `chain/`, `deps/`, `refs/`, `models/`,
   `services/`, `includes/`, plus `Application.cfc` and assorted `.cfm`/`.cfc` files). Server,
   deps, and resolve tests locate them relative to the source file via `runtime.Caller(0)`.
+- LSP features end to end: `cmd/clif/lsp_refactor_e2e_test.go` runs the server as an editor
+  does, the test binary re-run as a child (its `TestMain` starts `main` when
+  `CLIF_LSP_E2E_SERVER=1`) and driven over stdio with Content-Length framing, configured by
+  `initializationOptions` in a temporary directory with no `.clif.json` above it. Reach for its
+  `lspClient` (`initialize`, `notify`, `call`, `result`) when a feature depends on what the unit
+  tests cannot see: a capability advertised, an option reaching the session, UTF-16 columns, an
+  edit planned from text a `didChange` has since replaced, or the version on a returned edit. Its
+  `apply` applies edits as an editor does, every range against the unedited text, so a test
+  checks the document the user would get rather than the ranges.
 - Formatter golden-output tests: `make visualtest` (`TestFormatOutput`); comparison fixtures
   `testdata/comparison.cfm` / `comparison.html`.
 - The formatter's whitespace-only claim is checked against external corpora, not fixtures:
