@@ -346,8 +346,8 @@ func TestOpenBufferDiskMetadataFollowsSaveAndWatcherEvents(t *testing.T) {
 		}
 
 		symbols, ok := result.([]protocol.DocumentSymbol)
-		if !ok || len(symbols) != 1 || symbols[0].Name != "inBuffer" {
-			t.Fatalf("%s: document symbols = %v, want inBuffer", stage, result)
+		if !ok || len(symbols) != 1 || len(symbols[0].Children) != 1 || symbols[0].Children[0].Name != "inBuffer" {
+			t.Fatalf("%s: document symbols = %v, want Modes -> [inBuffer]", stage, result)
 		}
 	}
 

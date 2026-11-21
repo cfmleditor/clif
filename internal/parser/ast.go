@@ -9,6 +9,7 @@ import (
 	"sync"
 	"unsafe"
 
+	"github.com/cfmleditor/clif/internal/conv"
 	"github.com/cfmleditor/clif/internal/lex"
 	"go.lsp.dev/uri"
 )
@@ -44,10 +45,8 @@ type ReturnCall struct {
 type FunctionDef struct {
 	Name             string
 	URI              uri.URI
-	Line             uint32
 	Arguments        []Argument
 	ReturnType       string            // declared return type (e.g. "query", "models.User")
-	Generated        bool              // synthetic property/relationship accessor, not a source function
 	ReturnSources    []ReturnSource    // uniform collection element sources, resolved on demand
 	CollectionValues *CollectionValues // closed source contract for struct values
 	ReturnComponent  string            // inferred component from return statements (e.g. "services.Foo")
@@ -65,21 +64,61 @@ type FunctionDef struct {
 	// holding ReturnVia.Component and m not looked up, which a parse without
 	// FuncLookup (the index's) cannot do. The resolver finishes it.
 	ReturnVia *ReturnCall
+	returnVar string // unexported: variable name from "return varName" for deferred resolution
+
+	Line uint32
+	// NameLine, NameCol and NameEndCol locate the declared function name in
+	// UTF-16 code units, so closed-file go-to-definition can highlight the
+	// identifier (including across multiline headers) without re-reading the
+	// file. NameEndCol == 0 means no name range was recorded.
+	NameLine   uint32
+	NameCol    uint32
+	NameEndCol uint32
+	// returnLine is the line of the return returnVar came from. The
+	// variable's type is what its latest assignment at or before that line
+	// gave it, not its first.
+	returnLine uint32
+	Generated  bool // synthetic property/relationship accessor, not a source function
 	// ReturnsUntyped is set when a branch reaching a return assigned the
 	// returned variable a value no component can be (a string, a number, an
 	// argument passed through), which is why ReturnComponent is "$any". The
 	// "$any" a parse without FuncLookup gives a chain it could not walk is
 	// not that, and only this one is a fact about every call.
 	ReturnsUntyped bool
-	returnVar      string // unexported: variable name from "return varName" for deferred resolution
-	// returnLine is the line of the return returnVar came from. The
-	// variable's type is what its latest assignment at or before that line
-	// gave it, not its first.
-	returnLine uint32
 	// returnsStruct: some return is a struct literal or structNew(). A
 	// function declared struct that also returns a component returns
 	// either, so it is not typed by the component — see componentReturnFor.
 	returnsStruct bool
+}
+
+// HasNameRange reports whether def carries the declared identifier's range.
+func (def *FunctionDef) HasNameRange() bool {
+	return def != nil && def.NameEndCol > def.NameCol
+}
+
+// nameRangeAt locates name at byte offset in src on the given 0-based line,
+// returning UTF-16 start and end columns on that line.
+func nameRangeAt(src string, offset, line int, name string) (nameLine, nameCol, nameEndCol uint32) {
+	if offset < 0 || offset > len(src) || name == "" || strings.IndexByte(name, '\n') >= 0 {
+		return 0, 0, 0
+	}
+
+	lineStart := strings.LastIndexByte(src[:offset], '\n') + 1
+	col := lex.UTF16Len(src[lineStart:offset])
+
+	return conv.Uint32(line), conv.Uint32(col), conv.Uint32(col + lex.UTF16Len(name))
+}
+
+// linePrefixUTF16 is the UTF-16 column where offset sits on its line, or 0
+// when offset is at the start of a line.
+func linePrefixUTF16(src string, offset int) uint32 {
+	if offset <= 0 || offset > len(src) || src[offset-1] == '\n' {
+		return 0
+	}
+
+	lineStart := strings.LastIndexByte(src[:offset], '\n') + 1
+
+	return conv.Uint32(lex.UTF16Len(src[lineStart:offset]))
 }
 
 // Scope represents the CFML variable scope.

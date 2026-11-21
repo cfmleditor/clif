@@ -225,6 +225,17 @@ func (p *tagParser) parseNestedScript(idx int) int {
 	sp.extractCalls = p.extractCalls
 	sp.setCallNames(p.callNames)
 	sp.parse()
+
+	if prefixCols := linePrefixUTF16(p.src, bodyStart); prefixCols > 0 {
+		startLine := conv.Uint32(baseLine)
+		for i := range sp.funcs {
+			if sp.funcs[i].HasNameRange() && sp.funcs[i].NameLine == startLine {
+				sp.funcs[i].NameCol += prefixCols
+				sp.funcs[i].NameEndCol += prefixCols
+			}
+		}
+	}
+
 	p.funcs = append(p.funcs, sp.funcs...)
 	p.vars = append(p.vars, sp.vars...)
 
@@ -470,7 +481,7 @@ func (p *tagParser) dispatchCFTag(ch byte, tag string, idx, tagEnd, line int) {
 	case 'p':
 		switch {
 		case hasCFTagPrefix(tag, "<cfproperty"):
-			p.parseCFProperty(tag, line)
+			p.parseCFProperty(tag, idx, tagEnd, line)
 		case hasCFTagPrefix(tag, "<cfparam"):
 			p.parseScopedAttrVar(tag, "name", line)
 		}
@@ -677,10 +688,12 @@ func (p *tagParser) functionCloseAfter(from int) int {
 
 // parseCFFunction extracts a function def from <cffunction> and its <cfargument> children.
 func (p *tagParser) parseCFFunction(tag string, idx, tagEnd, line int) {
-	name := getAttr(tag, "name")
-	if name == "" {
+	nameStart, nameEnd, ok := attrSpan(tag, "name")
+	if !ok || nameStart == nameEnd {
 		return
 	}
+
+	name := tag[nameStart:nameEnd]
 
 	// Check for JSDoc comment preceding this function tag
 	docComment := p.precedingComment(idx)
@@ -772,10 +785,22 @@ func (p *tagParser) parseCFFunction(tag string, idx, tagEnd, line int) {
 		returnType = returnHint
 	}
 
+	absStart := idx + nameStart
+
+	nameLine := line
+	if strings.IndexByte(tag[:nameStart], '\n') >= 0 {
+		nameLine = p.lineAt(absStart)
+	}
+
+	nLine, nCol, nEndCol := nameRangeAt(p.src, absStart, nameLine, name)
+
 	p.funcs = append(p.funcs, FunctionDef{
 		Name:       name,
 		URI:        uriFromString(p.fileURI),
 		Line:       conv.Uint32(line),
+		NameLine:   nLine,
+		NameCol:    nCol,
+		NameEndCol: nEndCol,
 		Arguments:  args,
 		ReturnType: returnType,
 	})

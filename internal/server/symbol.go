@@ -6,14 +6,17 @@ import (
 	"context"
 	"encoding/json/v2"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"strings"
 
+	"github.com/cfmleditor/clif/internal/conv"
 	"github.com/cfmleditor/clif/internal/frameworkapi"
-
 	"github.com/cfmleditor/clif/internal/lex"
 	"github.com/cfmleditor/clif/internal/parser"
+	cfpath "github.com/cfmleditor/clif/internal/path"
 	"go.lsp.dev/protocol"
+	"go.lsp.dev/uri"
 )
 
 // The symbol picker sends each prefix while the user types. Keep those broad,
@@ -35,36 +38,234 @@ func (s *Server) handleDocumentSymbol(_ context.Context, rawParams []byte) (any,
 	pr := s.parseResults[docURI]
 	s.mu.RUnlock()
 
-	var defs []parser.FunctionDef
-	if pr != nil {
-		defs = pr.Funcs
-	} else {
+	if pr == nil {
 		content, ok := s.getDocument(docURI)
 		if !ok {
 			return nil, nil
 		}
 
-		defs = parser.ParseFunctionDefs(docURI, content)
+		pr = parser.ParseWithOptions(docURI, content, &parser.ParseOptions{Shallow: true})
 	}
 
-	symbols := make([]protocol.DocumentSymbol, 0, len(defs))
+	return buildDocumentSymbols(docURI, pr), nil
+}
 
-	for i := range defs {
-		d := &defs[i]
+func buildDocumentSymbols(docURI uri.URI, pr *parser.ParseResult) []protocol.DocumentSymbol {
+	content := pr.Content
+	lines := parser.NewLineTable(content)
+	header, isComp := parser.ComponentOutline(content)
 
-		r := protocol.Range{
-			Start: protocol.Position{Line: d.Line, Character: 0},
-			End:   protocol.Position{Line: d.Line, Character: 0},
+	ctorName := "init"
+	if header.InitMethod != "" {
+		ctorName = header.InitMethod
+	}
+
+	methods := make([]protocol.DocumentSymbol, 0, len(pr.Funcs))
+
+	for i := range pr.Funcs {
+		d := &pr.Funcs[i]
+		if d.Generated {
+			continue
 		}
-		symbols = append(symbols, protocol.DocumentSymbol{
+
+		selRange := funcDefRange(d)
+		fullRange := functionOutlineRange(content, lines, d, pr.Scopes, selRange)
+
+		kind := protocol.SymbolKindFunction
+
+		if isComp {
+			if !header.IsInterface && strings.EqualFold(d.Name, ctorName) {
+				kind = protocol.SymbolKindConstructor
+			} else {
+				kind = protocol.SymbolKindMethod
+			}
+		}
+
+		methods = append(methods, protocol.DocumentSymbol{
 			Name:           d.Name,
-			Kind:           protocol.SymbolKindFunction,
-			Range:          r,
-			SelectionRange: r,
+			Detail:         strPtr(d.ReturnType),
+			Kind:           kind,
+			Range:          fullRange,
+			SelectionRange: selRange,
 		})
 	}
 
-	return symbols, nil
+	if !isComp {
+		return methods
+	}
+
+	props := pr.PropertySymbols()
+	children := make([]protocol.DocumentSymbol, 0, len(props)+len(methods))
+
+	for i := range props {
+		p := &props[i]
+		selRange := propertySelectionRange(p)
+		fullRange := containRange(protocol.Range{
+			Start: protocol.Position{Line: p.Line, Character: p.Col},
+			End:   protocol.Position{Line: p.EndLine, Character: p.EndCol},
+		}, selRange)
+
+		children = append(children, protocol.DocumentSymbol{
+			Name:           p.Name,
+			Detail:         strPtr(p.Type),
+			Kind:           protocol.SymbolKindProperty,
+			Range:          fullRange,
+			SelectionRange: selRange,
+		})
+	}
+
+	children = append(children, methods...)
+
+	kind := protocol.SymbolKindClass
+	if header.IsInterface {
+		kind = protocol.SymbolKindInterface
+	}
+
+	selRange := offsetRange(content, lines, header.NameStart, header.NameEnd)
+	fullRange := containRange(offsetRange(content, lines, header.Start, header.End), selRange)
+
+	return []protocol.DocumentSymbol{{
+		Name:           componentSymbolName(docURI, header.IsInterface),
+		Kind:           kind,
+		Range:          fullRange,
+		SelectionRange: selRange,
+		Children:       children,
+	}}
+}
+
+func componentSymbolName(docURI uri.URI, isInterface bool) string {
+	base := filepath.Base(cfpath.FromURI(string(docURI)))
+	if ext := filepath.Ext(base); ext != "" {
+		base = strings.TrimSuffix(base, ext)
+	}
+
+	if base != "" && base != "." && base != string(filepath.Separator) {
+		return base
+	}
+
+	if isInterface {
+		return "interface"
+	}
+
+	return "component"
+}
+
+func propertySelectionRange(p *parser.PropertySymbol) protocol.Range {
+	if p.NameEndCol > p.NameCol {
+		return protocol.Range{
+			Start: protocol.Position{Line: p.NameLine, Character: p.NameCol},
+			End:   protocol.Position{Line: p.NameLine, Character: p.NameEndCol},
+		}
+	}
+
+	return protocol.Range{
+		Start: protocol.Position{Line: p.Line, Character: p.Col},
+		End:   protocol.Position{Line: p.Line, Character: p.Col},
+	}
+}
+
+func functionOutlineRange(content string, lines parser.LineTable, d *parser.FunctionDef, scopes []parser.FuncScope, sel protocol.Range) protocol.Range {
+	endLine := int(d.Line)
+	if d.HasNameRange() && int(d.NameLine) > endLine {
+		endLine = int(d.NameLine)
+	}
+
+	for _, sc := range scopes {
+		if sc.Start == int(d.Line) && strings.EqualFold(sc.Name, d.Name) {
+			if sc.End > endLine {
+				endLine = sc.End
+			}
+
+			break
+		}
+	}
+
+	startCol := firstNonSpaceCol(content, lines, int(d.Line))
+	endCol := lineUTF16Len(content, lines, endLine)
+
+	return containRange(protocol.Range{
+		Start: protocol.Position{Line: d.Line, Character: startCol},
+		End:   protocol.Position{Line: conv.Uint32(endLine), Character: endCol},
+	}, sel)
+}
+
+func offsetRange(content string, lines parser.LineTable, start, end int) protocol.Range {
+	return protocol.Range{
+		Start: offsetPosition(content, lines, start),
+		End:   offsetPosition(content, lines, max(start, end)),
+	}
+}
+
+func offsetPosition(content string, lines parser.LineTable, offset int) protocol.Position {
+	offset = min(max(offset, 0), len(content))
+	line := lines.LineOf(offset)
+
+	lineStart, ok := lines.Start(line)
+	if !ok {
+		return protocol.Position{}
+	}
+
+	return protocol.Position{
+		Line:      conv.Uint32(line),
+		Character: conv.Uint32(lex.UTF16Len(content[lineStart:offset])),
+	}
+}
+
+func firstNonSpaceCol(content string, lines parser.LineTable, line int) uint32 {
+	text := lineTextFromTable(content, lines, line)
+	i := 0
+
+	for i < len(text) && (text[i] == ' ' || text[i] == '\t') {
+		i++
+	}
+
+	return conv.Uint32(lex.UTF16Len(text[:i]))
+}
+
+func lineUTF16Len(content string, lines parser.LineTable, line int) uint32 {
+	return conv.Uint32(lex.UTF16Len(lineTextFromTable(content, lines, line)))
+}
+
+func lineTextFromTable(content string, lines parser.LineTable, line int) string {
+	start, ok := lines.Start(line)
+	if !ok {
+		return ""
+	}
+
+	end := len(content)
+	if next, ok := lines.Start(line + 1); ok {
+		end = next - 1
+	}
+
+	if end > start && content[end-1] == '\r' {
+		end--
+	}
+
+	return content[start:end]
+}
+
+func containRange(outer, inner protocol.Range) protocol.Range {
+	if posBefore(inner.Start, outer.Start) {
+		outer.Start = inner.Start
+	}
+
+	if posBefore(outer.End, inner.End) {
+		outer.End = inner.End
+	}
+
+	return outer
+}
+
+func posBefore(a, b protocol.Position) bool {
+	return a.Line < b.Line || (a.Line == b.Line && a.Character < b.Character)
+}
+
+func strPtr(s string) *string {
+	if s == "" {
+		return nil
+	}
+
+	return &s
 }
 
 func (s *Server) handleWorkspaceSymbol(_ context.Context, rawParams []byte) (any, error) {
@@ -102,11 +303,8 @@ func (s *Server) handleWorkspaceSymbol(_ context.Context, rawParams []byte) (any
 			Name: d.Name,
 			Kind: protocol.SymbolKindFunction,
 			Location: protocol.Location{
-				URI: d.URI,
-				Range: protocol.Range{
-					Start: protocol.Position{Line: d.Line, Character: 0},
-					End:   protocol.Position{Line: d.Line, Character: 0},
-				},
+				URI:   d.URI,
+				Range: funcDefRange(d),
 			},
 		})
 	}

@@ -781,16 +781,21 @@ function saveUser() {
 		t.Fatalf("expected []DocumentSymbol, got %T", result)
 	}
 
-	if len(symbols) != 2 {
-		t.Fatalf("expected 2 symbols, got %d", len(symbols))
+	if len(symbols) != 1 || symbols[0].Name != "User" || symbols[0].Kind != protocol.SymbolKindClass {
+		t.Fatalf("expected class symbol User, got %+v", symbols)
 	}
 
-	if symbols[0].Name != "getUser" {
-		t.Errorf("expected getUser, got %s", symbols[0].Name)
+	children := symbols[0].Children
+	if len(children) != 2 {
+		t.Fatalf("expected 2 child symbols, got %d", len(children))
 	}
 
-	if symbols[1].Name != "saveUser" {
-		t.Errorf("expected saveUser, got %s", symbols[1].Name)
+	if children[0].Name != "getUser" {
+		t.Errorf("expected getUser, got %s", children[0].Name)
+	}
+
+	if children[1].Name != "saveUser" {
+		t.Errorf("expected saveUser, got %s", children[1].Name)
 	}
 }
 
@@ -3322,8 +3327,8 @@ func TestDocumentSymbolBasic(t *testing.T) {
 		return
 	}
 
-	if len(symbols) < 2 {
-		t.Errorf("expected at least 2 symbols, got %d", len(symbols))
+	if len(symbols) != 1 || len(symbols[0].Children) < 2 {
+		t.Errorf("expected class symbol with at least 2 children, got %+v", symbols)
 	}
 }
 

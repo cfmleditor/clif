@@ -219,10 +219,7 @@ func (s *Server) qualifiedDefinition(qualifier, word string, docURI uri.URI, lin
 	s.log.Debug("definition: qualifier found", cflog.String("qualifier", qualifier), cflog.String("word", word))
 
 	if def := s.resolveUserFunc(qualifier, word, docURI, conv.Uint32(line)); def != nil {
-		return protocol.Location{
-			URI:   def.URI,
-			Range: protocol.Range{Start: protocol.Position{Line: def.Line}, End: protocol.Position{Line: def.Line}},
-		}
+		return funcDefLocation(def)
 	}
 
 	// Qualified call that can't be resolved — fall through to all matches
@@ -251,10 +248,7 @@ func (s *Server) qualifiedDefinition(qualifier, word string, docURI uri.URI, lin
 	var locations, sameFile []protocol.Location
 
 	for _, d := range defs {
-		loc := protocol.Location{
-			URI:   d.URI,
-			Range: protocol.Range{Start: protocol.Position{Line: d.Line}, End: protocol.Position{Line: d.Line}},
-		}
+		loc := funcDefLocation(d)
 
 		if d.URI == docURI {
 			sameFile = append(sameFile, loc)
@@ -294,10 +288,7 @@ func (s *Server) unqualifiedDefinition(word string, docURI uri.URI) any {
 
 	for _, d := range defs {
 		if d.URI == docURI {
-			return protocol.Location{
-				URI:   d.URI,
-				Range: protocol.Range{Start: protocol.Position{Line: d.Line}, End: protocol.Position{Line: d.Line}},
-			}
+			return funcDefLocation(d)
 		}
 	}
 
@@ -317,10 +308,7 @@ func (s *Server) unqualifiedDefinition(word string, docURI uri.URI) any {
 
 	var locations []protocol.Location
 	for _, d := range defs {
-		locations = append(locations, protocol.Location{
-			URI:   d.URI,
-			Range: protocol.Range{Start: protocol.Position{Line: d.Line}, End: protocol.Position{Line: d.Line}},
-		})
+		locations = append(locations, funcDefLocation(d))
 	}
 
 	if len(locations) == 1 {
@@ -343,10 +331,9 @@ func (s *Server) resolveComponentDef(component, funcName string, docURI uri.URI)
 	baseDir := filepath.Dir(currentPath)
 
 	if d := s.getResolver().ResolveFunc(component, funcName, baseDir); d != nil {
-		return &protocol.Location{
-			URI:   d.URI,
-			Range: protocol.Range{Start: protocol.Position{Line: d.Line}, End: protocol.Position{Line: d.Line}},
-		}
+		loc := funcDefLocation(d)
+
+		return &loc
 	}
 
 	return nil
@@ -366,13 +353,33 @@ func (s *Server) resolveSuper(funcName string, docURI uri.URI) *protocol.Locatio
 	baseDir := filepath.Dir(currentPath)
 
 	if d := s.getResolver().ResolveFunc(pr.Extends, funcName, baseDir); d != nil {
-		return &protocol.Location{
-			URI:   d.URI,
-			Range: protocol.Range{Start: protocol.Position{Line: d.Line}, End: protocol.Position{Line: d.Line}},
-		}
+		loc := funcDefLocation(d)
+
+		return &loc
 	}
 
 	return nil
+}
+
+func funcDefRange(d *parser.FunctionDef) protocol.Range {
+	if d.HasNameRange() {
+		return protocol.Range{
+			Start: protocol.Position{Line: d.NameLine, Character: d.NameCol},
+			End:   protocol.Position{Line: d.NameLine, Character: d.NameEndCol},
+		}
+	}
+
+	return protocol.Range{
+		Start: protocol.Position{Line: d.Line},
+		End:   protocol.Position{Line: d.Line},
+	}
+}
+
+func funcDefLocation(d *parser.FunctionDef) protocol.Location {
+	return protocol.Location{
+		URI:   d.URI,
+		Range: funcDefRange(d),
+	}
 }
 
 // qualifierBeforeWord returns the identifier before the dot preceding the word at cursor.

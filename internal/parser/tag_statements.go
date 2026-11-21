@@ -453,16 +453,47 @@ func scopedReturnExpr(expr string) (string, RefScope) {
 }
 
 // parseCFProperty handles <cfproperty name="x" type="y" />.
-func (p *tagParser) parseCFProperty(tag string, line int) {
-	name := getAttr(tag, "name")
-	if name == "" {
+func (p *tagParser) parseCFProperty(tag string, idx, tagEnd, line int) {
+	nameStart, nameEnd, ok := attrSpan(tag, "name")
+	if !ok || nameStart == nameEnd {
 		return
 	}
 
+	name := tag[nameStart:nameEnd]
 	typeName := getAttr(tag, "type")
 	attrs := extractAllAttrs(tag)
 	addBareFlags(tag, attrs)
-	p.properties = append(p.properties, propertyDef{name: name, typeName: typeName, line: conv.Uint32(line), attrs: attrs})
+
+	col := linePrefixUTF16(p.src, idx)
+
+	endLine := line
+	if strings.IndexByte(tag, '\n') >= 0 {
+		endLine = p.lineAt(tagEnd - 1)
+	}
+
+	endCol := linePrefixUTF16(p.src, tagEnd)
+
+	absName := idx + nameStart
+
+	nameLine := line
+	if strings.IndexByte(tag[:nameStart], '\n') >= 0 {
+		nameLine = p.lineAt(absName)
+	}
+
+	nLine, nCol, nEndCol := nameRangeAt(p.src, absName, nameLine, name)
+
+	p.properties = append(p.properties, propertyDef{
+		name:       name,
+		typeName:   typeName,
+		line:       conv.Uint32(line),
+		col:        col,
+		endLine:    conv.Uint32(endLine),
+		endCol:     endCol,
+		nameLine:   nLine,
+		nameCol:    nCol,
+		nameEndCol: nEndCol,
+		attrs:      attrs,
+	})
 }
 
 // addBareFlags records the propertyFlags a tag writes without a value —

@@ -245,10 +245,9 @@ func (s *Server) findMethodPosition(cfcPath, method string) *protocol.Range {
 			continue
 		}
 
-		return &protocol.Range{
-			Start: protocol.Position{Line: fn.Line},
-			End:   protocol.Position{Line: fn.Line},
-		}
+		rng := funcDefRange(fn)
+
+		return &rng
 	}
 
 	return nil
