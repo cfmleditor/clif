@@ -100,6 +100,27 @@ var conformanceCases = []conformanceCase{
 	{"global/server", "cfml/GlobalVariables.cfm", `<cfset ref = server.|serverVariable>`, "Server.cfc"},
 }
 
+// conformanceDeclarations copies the native provider's variable target
+// assertions. The bars enclose the exact identifier range.
+var conformanceDeclarations = map[string]string{
+	"var/argument":              `<cfargument name="|argumentVariable|"`,
+	"var/local":                 "local.|localVariable| = ",
+	"var/var":                   "var |varVariable| = ",
+	"var/variables":             "variables.|variablesVariable| = ",
+	"cfm/variables-scoped":      `variables.|variablesVariable| = "foo"`,
+	"cfm/variables-unscoped":    `variables.|variablesVariable| = "foo"`,
+	"cfm/url-scoped":            `url.|urlVariable| = "foo"`,
+	"cfm/url-unscoped":          `url.|urlVariable| = "foo"`,
+	"cfm/cfparam-scoped":        `<cfparam name="url.|cfparamUrlVariable|">`,
+	"cfm/cfparam-unscoped":      `<cfparam name="url.|cfparamUrlVariable|">`,
+	"cfm/cfloop-index-scoped":   `<cfloop index="variables.|loopIndex|"`,
+	"cfm/cfloop-index-unscoped": `<cfloop index="variables.|loopIndex|"`,
+	"global/application":        `<cfset application.|applicationVariable| = "foo">`,
+	"global/request":            `<cfset request.|requestVariable| = "foo">`,
+	"global/session":            `<cfset session.|sessionVariable| = "foo">`,
+	"global/server":             `<cfset server.|serverVariable| = "foo">`,
+}
+
 // knownGaps are cases the extension answers and this server does not, each with
 // the reason. They are expected to fail, and the test fails if one starts
 // passing — a list of known failures that silently absorbs a fix is a list that
@@ -223,7 +244,7 @@ func cursorPosition(t *testing.T, content, snippet string) (line, char uint32) {
 
 	offset := strings.Index(content, needle) + cursor
 	line = uint32(strings.Count(content[:offset], "\n"))
-	char = uint32(offset - (strings.LastIndex(content[:offset], "\n") + 1))
+	char = utf16Len(content[strings.LastIndex(content[:offset], "\n")+1 : offset])
 
 	return line, char
 }
@@ -242,10 +263,11 @@ func TestDefinitionConformanceWithTheExtension(t *testing.T) {
 			}
 
 			line, char := cursorPosition(t, content, c.at)
-			got := conformanceTargets(t, definitionAt(t, srv, docURI, line, char), root)
+			locations := conformanceLocations(t, definitionAt(t, srv, docURI, line, char))
+			targetURI := uri.File(filepath.Join(root, filepath.FromSlash(c.want)))
 
 			reason, isGap := knownGaps[c.name]
-			landed := slicesContains(got, c.want)
+			landed := slices.ContainsFunc(locations, func(loc protocol.Location) bool { return loc.URI == targetURI })
 
 			if isGap {
 				if landed {
@@ -256,7 +278,19 @@ func TestDefinitionConformanceWithTheExtension(t *testing.T) {
 			}
 
 			if !landed {
-				t.Errorf("want a definition in %s, got %v", c.want, got)
+				t.Errorf("want a definition in %s, got %v", c.want, locations)
+			}
+
+			if declaration := conformanceDeclarations[c.name]; declaration != "" {
+				target, ok := srv.getDocument(targetURI)
+				if !ok {
+					t.Fatalf("target fixture %s was not indexed", c.want)
+				}
+
+				want := protocol.Location{URI: targetURI, Range: conformanceDeclarationRange(t, target, declaration)}
+				if len(locations) != 1 || locations[0] != want {
+					t.Errorf("want exact declaration %+v, got %+v", want, locations)
+				}
 			}
 		})
 	}
@@ -278,36 +312,37 @@ func TestKnownGapsAreRealCases(t *testing.T) {
 	}
 }
 
-func conformanceTargets(t *testing.T, result any, root string) []string {
+func conformanceLocations(t *testing.T, result any) []protocol.Location {
 	t.Helper()
-
-	var locs []protocol.Location
 
 	switch v := result.(type) {
 	case nil:
 		return nil
 	case protocol.Location:
-		locs = []protocol.Location{v}
+		return []protocol.Location{v}
 	case []protocol.Location:
-		locs = v
+		return v
 	default:
 		t.Fatalf("unexpected definition result %T", result)
+
+		return nil
 	}
-
-	out := make([]string, 0, len(locs))
-
-	for _, l := range locs {
-		rel, err := filepath.Rel(root, l.URI.Path())
-		if err != nil {
-			rel = string(l.URI)
-		}
-
-		out = append(out, filepath.ToSlash(rel))
-	}
-
-	return out
 }
 
-func slicesContains(haystack []string, needle string) bool {
-	return slices.Contains(haystack, needle)
+func conformanceDeclarationRange(t *testing.T, content, declaration string) protocol.Range {
+	t.Helper()
+
+	before, rest, ok := strings.Cut(declaration, "|")
+	name, after, closed := strings.Cut(rest, "|")
+
+	if !ok || !closed || name == "" {
+		t.Fatalf("declaration %q must mark its name with two bars", declaration)
+	}
+
+	line, start := cursorPosition(t, content, before+"|"+name+after)
+
+	return protocol.Range{
+		Start: protocol.Position{Line: line, Character: start},
+		End:   protocol.Position{Line: line, Character: start + utf16Len(name)},
+	}
 }

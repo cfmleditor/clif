@@ -32,54 +32,68 @@ func (s *Server) handleSignatureHelp(_ context.Context, rawParams []byte) (any, 
 	}
 
 	line := int(params.Position.Line)
-	char := byteCol(content, line, params.Position.Character)
+	docURI := params.TextDocument.URI
+	call := s.parseResultOf(docURI).SignatureCallAt(content, line, params.Position.Character)
 
-	funcName, qualifier, activeParam := parser.FindCallContext(content, line, char)
-	if funcName == "" {
+	if call.Name == "" {
 		return nil, nil
 	}
 
-	var activeSignature uint32
+	// Try builtin functions first.
+	if e, ok := docs.LookupFunction(call.Name); ok {
+		idx := call.ArgumentIndex
 
-	// Try builtin functions first
-	if e, ok := docs.LookupFunction(funcName); ok {
-		sig := buildBuiltinSignature(e)
-		sig.ActiveParameter = protocol.NewNullable(conv.Uint32(activeParam))
+		for i := range e.Params {
+			if strings.EqualFold(call.ArgumentName, e.Params[i].Name) {
+				idx = i
 
-		return &protocol.SignatureHelp{
-			Signatures:      []protocol.SignatureInformation{sig},
-			ActiveSignature: &activeSignature,
-			ActiveParameter: protocol.NewNullable(conv.Uint32(activeParam)),
-		}, nil
+				break
+			}
+		}
+
+		return signatureHelp(buildBuiltinSignature(e), idx), nil
 	}
 
-	docURI := params.TextDocument.URI
-
-	// Try resolving via qualifier (e.g. service.method or getService("x").method)
-	if qualifier != "" {
-		if def := s.resolveUserFunc(qualifier, funcName, docURI, conv.Uint32(line)); def != nil {
-			return &protocol.SignatureHelp{
-				Signatures:      []protocol.SignatureInformation{buildUserSignature(def)},
-				ActiveSignature: &activeSignature,
-				ActiveParameter: protocol.NewNullable(conv.Uint32(activeParam)),
-			}, nil
+	// Try resolving via qualifier (e.g. service.method or getService("x").method).
+	if call.Qualifier != "" {
+		if def := s.resolveUserFunc(call.Qualifier, call.Name, docURI, params.Position.Line); def != nil {
+			return userSignatureHelp(def, &call), nil
 		}
 	}
 
-	// Try user-defined functions from the index
-	// Prefer current file, else the first match. Asked of the index rather
-	// than of a returned slice, so a name every component declares does not
-	// cost a copy of one entry per file in the workspace on each keystroke.
-	def, _, total := s.index.LookupPreferred(funcName, docURI)
+	// Prefer the current file, then the first match, without copying the
+	// index bucket when many components declare the same name.
+	def, _, total := s.index.LookupPreferred(call.Name, docURI)
 	if total == 0 {
 		return nil, nil
 	}
 
+	return userSignatureHelp(def, &call), nil
+}
+
+func userSignatureHelp(def *parser.FunctionDef, call *parser.SignatureCall) *protocol.SignatureHelp {
+	idx := call.ArgumentIndex
+
+	for i := range def.Arguments {
+		if strings.EqualFold(call.ArgumentName, def.Arguments[i].Name) {
+			idx = i
+
+			break
+		}
+	}
+
+	return signatureHelp(buildUserSignature(def), idx)
+}
+
+func signatureHelp(sig protocol.SignatureInformation, idx int) *protocol.SignatureHelp {
+	active := protocol.NewNullable(conv.Uint32(idx))
+	sig.ActiveParameter = active
+
 	return &protocol.SignatureHelp{
-		Signatures:      []protocol.SignatureInformation{buildUserSignature(def)},
-		ActiveSignature: &activeSignature,
-		ActiveParameter: protocol.NewNullable(conv.Uint32(activeParam)),
-	}, nil
+		Signatures:      []protocol.SignatureInformation{sig},
+		ActiveSignature: new(uint32),
+		ActiveParameter: active,
+	}
 }
 
 func buildUserSignature(def *parser.FunctionDef) protocol.SignatureInformation {
