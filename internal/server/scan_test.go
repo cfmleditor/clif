@@ -11,12 +11,31 @@ import (
 	"go.lsp.dev/protocol"
 )
 
+type showMessageWaitConn struct {
+	fakeConn
+
+	done chan string
+}
+
+func (c *showMessageWaitConn) Notify(_ context.Context, method string, params any) error {
+	if p, ok := params.(*protocol.ShowMessageParams); ok && method == protocol.MethodWindowShowMessage {
+		select {
+		case c.done <- p.Message:
+		default:
+		}
+	}
+
+	return nil
+}
+
 func TestExecuteCommandScanWorkspace(t *testing.T) {
 	dir := t.TempDir()
 	_ = os.WriteFile(filepath.Join(dir, "good.cfm"), []byte("<cfoutput>hello</cfoutput>"), 0o644)
 	_ = os.WriteFile(filepath.Join(dir, "bad.cfm"), []byte("<cfoutput><cfif>unclosed"), 0o644)
 
+	conn := &showMessageWaitConn{done: make(chan string, 1)}
 	srv := newTestServer()
+	srv.conn = conn
 	srv.WorkspaceFolders = []string{dir}
 
 	req := makeCall(t, protocol.MethodWorkspaceExecuteCommand, protocol.ExecuteCommandParams{
@@ -25,6 +44,11 @@ func TestExecuteCommandScanWorkspace(t *testing.T) {
 
 	if _, err := srv.handleExecuteCommand(context.Background(), req); err != nil {
 		t.Fatal(err)
+	}
+
+	msg := <-conn.done
+	if !strings.Contains(msg, "Scan complete:") {
+		t.Errorf("unexpected scan message: %q", msg)
 	}
 }
 
