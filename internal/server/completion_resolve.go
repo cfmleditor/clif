@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json/v2"
 	"slices"
+	"strings"
 	"sync"
 
 	"github.com/cfmleditor/clif/internal/docs"
@@ -65,12 +66,24 @@ func clientDefers(caps protocol.ClientCapabilities) completionDefer {
 	}
 }
 
-// deferredItems holds a list in each of its four shapes. Each is built once per
-// process and shared by every session that asks for it, like the full list it
-// is derived from, so nothing may write to what get returns.
+// clientSupportsSnippetDefault reports whether the client accepts
+// CompletionList.itemDefaults.insertTextFormat (LSP 3.17).
+func clientSupportsSnippetDefault(caps protocol.ClientCapabilities) bool {
+	td := caps.TextDocument
+	if td == nil || td.Completion == nil || td.Completion.CompletionList == nil {
+		return false
+	}
+
+	return slices.Contains(td.Completion.CompletionList.ItemDefaults, "insertTextFormat")
+}
+
+// deferredItems holds a list in each of its eight shapes (documentation,
+// detail, and hoisted insertTextFormat). Each is built once per process and
+// shared by every session that asks for it, like the full list it is derived
+// from, so nothing may write to what get returns.
 type deferredItems struct {
-	once  [4]sync.Once
-	items [4][]protocol.CompletionItem
+	once  [8]sync.Once
+	items [8][]protocol.CompletionItem
 
 	// labelIsNoKey: an item's label never names its entry, so its data
 	// always carries the entry, even when the two are spelled alike. A
@@ -81,8 +94,12 @@ type deferredItems struct {
 
 // key names the docs entry item i of the full list came from, or "" for an
 // item with nothing to defer.
-func (v *deferredItems) get(d completionDefer, full func() []protocol.CompletionItem, key func(i int, it *protocol.CompletionItem) string) []protocol.CompletionItem {
+func (v *deferredItems) get(d completionDefer, hoistSnippet bool, full func() []protocol.CompletionItem, key func(i int, it *protocol.CompletionItem) string) []protocol.CompletionItem {
 	i := d.variant()
+	if hoistSnippet {
+		i |= 4
+	}
+
 	if i == 0 {
 		return full()
 	}
@@ -103,9 +120,13 @@ func (v *deferredItems) get(d completionDefer, full func() []protocol.Completion
 					it.Detail.Clear()
 				}
 
-				if k != it.Label || v.labelIsNoKey {
+				if (d.documentation || d.detail) && (k != it.Label || v.labelIsNoKey) {
 					it.Data = protocol.LSPAny(mustMarshal(k))
 				}
+			}
+
+			if hoistSnippet && it.InsertTextFormat == protocol.InsertTextFormatSnippet {
+				it.InsertTextFormat = 0
 			}
 
 			out[j] = it
@@ -122,16 +143,63 @@ var (
 	deferredMembers  = deferredItems{labelIsNoKey: true}
 )
 
+func (s *Server) hoistCompletionSnippets() bool {
+	return s.completionDefaultSnippet && s.FunctionSnippets
+}
+
 // builtinFuncItems is getBuiltinFuncItems in the shape this session's client
 // asked for.
 func (s *Server) builtinFuncItems() []protocol.CompletionItem {
-	return deferredBuiltins.get(s.completionDefer, getBuiltinFuncItems, builtinKey)
+	return deferredBuiltins.get(s.completionDefer, s.hoistCompletionSnippets(), getBuiltinFuncItems, builtinKey)
 }
 
 // memberFuncItems is getMemberFuncItems in the shape this session's client
 // asked for.
 func (s *Server) memberFuncItems() []protocol.CompletionItem {
-	return deferredMembers.get(s.completionDefer, getMemberFuncItems, memberKey)
+	return deferredMembers.get(s.completionDefer, false, getMemberFuncItems, memberKey)
+}
+
+// guardNonSnippetItems ensures plain-text items whose label or insertText
+// contains snippet metacharacters ('$', '}', '\') explicitly set
+// InsertTextFormatPlainText when the CompletionList hoists Snippet as its
+// itemDefaults.insertTextFormat. Copy-on-write: returns items untouched when
+// nothing needs guarding.
+func guardNonSnippetItems(items []protocol.CompletionItem) []protocol.CompletionItem {
+	var out []protocol.CompletionItem
+
+	for i := range items {
+		it := &items[i]
+		if it.InsertTextFormat != 0 {
+			continue
+		}
+
+		if it.Kind == protocol.CompletionItemKindFunction {
+			if sortText, _ := it.SortText.Get(); strings.HasPrefix(sortText, SortBuiltinFuncs) {
+				continue
+			}
+		}
+
+		insertText, _ := it.InsertText.Get()
+		if !hasSnippetMetachar(it.Label) && !hasSnippetMetachar(insertText) {
+			continue
+		}
+
+		if out == nil {
+			out = append(make([]protocol.CompletionItem, 0, len(items)), items...)
+		}
+
+		out[i].InsertTextFormat = protocol.InsertTextFormatPlainText
+	}
+
+	if out == nil {
+		return items
+	}
+
+	return out
+}
+
+func hasSnippetMetachar(s string) bool {
+	return strings.ContainsAny(s, "$}\\")
 }
 
 // builtinKey names the docs entry a built-in function item came from, or "" for

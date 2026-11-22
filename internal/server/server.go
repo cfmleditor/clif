@@ -46,6 +46,10 @@ type Server struct {
 	// items leave those out, and completionItem/resolve fills them in. See
 	// completion_resolve.go.
 	completionDefer completionDefer
+	// completionDefaultSnippet is true when the client advertised
+	// completionList.itemDefaults containing "insertTextFormat" at initialize,
+	// so built-in snippet completions hoist insertTextFormat into itemDefaults.
+	completionDefaultSnippet bool
 	// workspaceSymbolDefer is true when the client advertised resolveSupport
 	// for location.range at initialize, so workspace/symbol omits per-symbol
 	// ranges and workspaceSymbol/resolve fills them in on selection.
