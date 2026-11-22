@@ -57,3 +57,35 @@ func TestFormatCommandStillRunsWhenEnabled(t *testing.T) {
 		t.Errorf("clif.format with formatting enabled: %v", err)
 	}
 }
+
+func TestFormattingWithSelfCloseTagsDisabled(t *testing.T) {
+	srv := newTestServer()
+	docURI := uri.URI("file:///t.cfm")
+	srv.setDocument(docURI, "<CFSET color=\"purple\">\n<cfinclude template=\"header.cfm\">\n")
+
+	srv.Formatting = config.DefaultResolvedFormatting()
+	srv.Formatting.Enabled = true
+	srv.Formatting.SelfCloseTags = false
+
+	req := makeCall(t, protocol.MethodTextDocumentFormatting, protocol.DocumentFormattingParams{
+		TextDocument: protocol.TextDocumentIdentifier{URI: docURI},
+		Options:      protocol.FormattingOptions{TabSize: 4, InsertSpaces: true},
+	})
+
+	res, err := srv.handleFormatting(context.Background(), req)
+	if err != nil {
+		t.Fatalf("handleFormatting: %v", err)
+	}
+
+	edits, _ := res.([]protocol.TextEdit)
+	if len(edits) == 0 {
+		t.Fatal("expected formatting edits when SelfCloseTags is false")
+	}
+
+	got := applyEdits(t, srv.documents[docURI], edits)
+	want := "<cfset color = \"purple\">\n\n<cfinclude template=\"header.cfm\">\n"
+
+	if got != want {
+		t.Errorf("formatted output:\ngot:  %q\nwant: %q", got, want)
+	}
+}

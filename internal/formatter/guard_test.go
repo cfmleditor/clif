@@ -285,3 +285,60 @@ func TestGuardRequoteGatedOnItsOwnOption(t *testing.T) {
 		t.Error("re-quoting should be reported with doubleQuoteAttributes off")
 	}
 }
+
+// TestSelfCloseTagsDisabledOmitsSlashOnVoidCFTags verifies that formatting
+// <cfset>, <cfreturn>, <cfinclude>, and other void CF tags with
+// SelfCloseTags=false emits ">" rather than inserting " />" (CFML Editor #174),
+// while preserving "/>" on tags that were already self-closed in the source.
+func TestSelfCloseTagsDisabledOmitsSlashOnVoidCFTags(t *testing.T) {
+	opts := testOpts()
+	opts.SelfCloseTags = false
+	opts.WhitespaceOnly = true
+
+	cases := []struct {
+		name string
+		src  string
+		want string
+	}{
+		{
+			name: "cfset",
+			src:  `<CFSET color="purple">`,
+			want: "<cfset color = \"purple\">\n",
+		},
+		{
+			name: "cfinclude",
+			src:  `<CFINCLUDE template='header.cfm'>`,
+			want: "<cfinclude template=\"header.cfm\">\n",
+		},
+		{
+			name: "cfreturn empty and value",
+			src:  "<cfreturn>\n<cfreturn   x+1>",
+			want: "<cfreturn>\n<cfreturn x + 1>\n",
+		},
+		{
+			name: "multiline cfset",
+			src:  "<cfset l = {\n  a = function(x) {\n    return x;\n  },\n  b = 1\n}>",
+			want: "<cfset l = {\n    a = function(x) {\n\n        return x;\n\n    },\n    b = 1\n}>\n",
+		},
+		{
+			name: "already self-closed tags keep slash",
+			src:  "<cfset color = \"purple\" />\n<cfinclude template=\"header.cfm\" />\n<cftransaction action=\"commit\" />",
+			want: "<cfset color = \"purple\" />\n\n<cfinclude template=\"header.cfm\" />\n\n<cftransaction action=\"commit\" />\n",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tree := parse(t, tc.src)
+
+			got, err := Format([]byte(tc.src), tree, &opts)
+			if err != nil {
+				t.Fatalf("Format(%q) returned unexpected error: %v", tc.src, err)
+			}
+
+			if string(got) != tc.want {
+				t.Errorf("Format(%q):\ngot:  %q\nwant: %q", tc.src, string(got), tc.want)
+			}
+		})
+	}
+}
