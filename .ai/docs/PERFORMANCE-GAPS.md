@@ -206,8 +206,19 @@ Measured with `BenchmarkCompletionWithMarshal`, run alternately, three rounds:
 | `full` | 322KB | 840µs | 340KB |
 | `deferred` | 144KB (−55%) | 510µs (−40%) | 157KB |
 
-Option (c), `itemDefaults`, is not done: the 6% it covers is `insertTextFormat`,
-and it needs a client advertising `completionList.itemDefaults` as well.
+Option (c), `itemDefaults`, is also done: when the client advertises
+`"insertTextFormat"` in `textDocument.completion.completionList.itemDefaults`,
+built-in function items omit per-item `insertTextFormat: 2` and the
+`CompletionList` hoists `itemDefaults: {"insertTextFormat": 2}` (while
+copy-on-write guarding any plain-text item containing `$`, `}`, or `\`).
+
+Measured with `BenchmarkCompletionWithMarshal` (Apple M1 Pro, two runs):
+
+| | JSON | handler + marshal | allocated |
+|---|---:|---:|---:|
+| `full` | 306 KB | 446–452 µs | 322 KB |
+| `deferred` | 128 KB (−58%) | 261–262 µs (−42%) | 140 KB |
+| `deferred_defaults` | 108 KB (−65% vs full, −16% vs deferred) | 239–241 µs (−46% vs full, −9% vs deferred) | 124 KB |
 
 What follows is the analysis as it stood before, kept for its reasoning.
 

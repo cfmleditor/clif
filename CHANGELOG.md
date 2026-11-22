@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- **LSP 3.17 `CompletionList.itemDefaults` for `insertTextFormat`.** When a client advertises `"insertTextFormat"` in `textDocument.completion.completionList.itemDefaults`, built-in snippet completions omit per-item `insertTextFormat` and hoist it into `CompletionList.itemDefaults` (reducing deferred completion JSON by a further ~16%, and ~65% vs full), while explicitly marking plain-text items containing `$`, `}`, or `\` as `PlainText`.
+
 ## [0.7.1]
 
 ### Added

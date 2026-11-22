@@ -3,7 +3,10 @@ package server
 import (
 	"context"
 	"encoding/json/v2"
+	"path/filepath"
 	"reflect"
+	"slices"
+	"strings"
 	"testing"
 
 	cflog "github.com/cfmleditor/clif/internal/log"
@@ -103,8 +106,8 @@ func TestResolvedItemsMatchTheFullOnes(t *testing.T) {
 		full func() []protocol.CompletionItem
 		lean []protocol.CompletionItem
 	}{
-		{"builtin", getBuiltinFuncItems, deferredBuiltins.get(both, getBuiltinFuncItems, builtinKey)},
-		{"member", getMemberFuncItems, deferredMembers.get(both, getMemberFuncItems, memberKey)},
+		{"builtin", getBuiltinFuncItems, deferredBuiltins.get(both, false, getBuiltinFuncItems, builtinKey)},
+		{"member", getMemberFuncItems, deferredMembers.get(both, false, getMemberFuncItems, memberKey)},
 	}
 
 	for _, l := range lists {
@@ -162,8 +165,9 @@ func roundTrip(t *testing.T, it *protocol.CompletionItem) protocol.CompletionIte
 // would strip the documentation from every other session's popup.
 func TestDeferringLeavesTheSharedListsWhole(t *testing.T) {
 	both := completionDefer{documentation: true, detail: true}
-	deferredBuiltins.get(both, getBuiltinFuncItems, builtinKey)
-	deferredMembers.get(both, getMemberFuncItems, memberKey)
+	deferredBuiltins.get(both, false, getBuiltinFuncItems, builtinKey)
+	deferredBuiltins.get(both, true, getBuiltinFuncItems, builtinKey)
+	deferredMembers.get(both, false, getMemberFuncItems, memberKey)
 
 	for _, list := range [][]protocol.CompletionItem{getBuiltinFuncItems(), getMemberFuncItems()} {
 		for _, it := range list {
@@ -231,4 +235,82 @@ func TestDeferredCompletionIsSmaller(t *testing.T) {
 	if lean*2 > full {
 		t.Errorf("deferred response is %d bytes against %d; expected under half", lean, full)
 	}
+}
+
+func TestCompletionItemDefaultsHoistsInsertTextFormat(t *testing.T) {
+	root := t.TempDir()
+	src := "component {\n  function run() {\n    var $special = 1;\n    \n  }\n}"
+
+	t.Run("client advertising itemDefaults insertTextFormat hoists snippet format and guards $ variables", func(t *testing.T) {
+		client := startWorkflowWithCapabilities(t, root, map[string]any{
+			"textDocument": map[string]any{
+				"completion": map[string]any{
+					"completionItem": map[string]any{
+						"resolveSupport": map[string]any{"properties": []string{"documentation", "detail"}},
+					},
+					"completionList": map[string]any{
+						"itemDefaults": []string{"insertTextFormat"},
+					},
+				},
+			},
+		})
+		doc := client.open(filepath.Join(root, "Hoist.cfc"), src)
+
+		var list protocol.CompletionList
+		client.call(protocol.MethodTextDocumentCompletion, protocol.CompletionParams{
+			TextDocument: doc,
+			Position:     protocol.Position{Line: 3, Character: 4},
+		}, &list)
+
+		if list.ItemDefaults == nil || list.ItemDefaults.InsertTextFormat != protocol.InsertTextFormatSnippet {
+			t.Fatalf("ItemDefaults = %+v, want InsertTextFormatSnippet", list.ItemDefaults)
+		}
+
+		idx := slices.IndexFunc(list.Items, func(it protocol.CompletionItem) bool { return strings.EqualFold(it.Label, "abs") })
+		if idx < 0 {
+			t.Fatal("missing built-in abs")
+		}
+
+		if list.Items[idx].InsertTextFormat != 0 {
+			t.Errorf("built-in abs InsertTextFormat = %v, want 0 (inherited from itemDefaults)", list.Items[idx].InsertTextFormat)
+		}
+
+		// Plain-text items containing snippet metacharacters must be guarded explicitly.
+		guarded := guardNonSnippetItems([]protocol.CompletionItem{
+			{Label: "$special", Kind: protocol.CompletionItemKindVariable},
+			{Label: "plain", Kind: protocol.CompletionItemKindVariable},
+			{Label: "abs", Kind: protocol.CompletionItemKindFunction, SortText: optStr(SortBuiltinFuncs + "abs")},
+		})
+		if guarded[0].InsertTextFormat != protocol.InsertTextFormatPlainText {
+			t.Errorf("$special InsertTextFormat = %v, want PlainText", guarded[0].InsertTextFormat)
+		}
+
+		if guarded[1].InsertTextFormat != 0 {
+			t.Errorf("plain InsertTextFormat = %v, want 0", guarded[1].InsertTextFormat)
+		}
+
+		if guarded[2].InsertTextFormat != 0 {
+			t.Errorf("built-in abs InsertTextFormat = %v, want 0", guarded[2].InsertTextFormat)
+		}
+	})
+
+	t.Run("client without itemDefaults keeps per-item insertTextFormat", func(t *testing.T) {
+		client := startWorkflow(t, root, false)
+		doc := client.open(filepath.Join(root, "NoHoist.cfc"), src)
+
+		var list protocol.CompletionList
+		client.call(protocol.MethodTextDocumentCompletion, protocol.CompletionParams{
+			TextDocument: doc,
+			Position:     protocol.Position{Line: 3, Character: 4},
+		}, &list)
+
+		if list.ItemDefaults != nil {
+			t.Fatalf("ItemDefaults = %+v, want nil", list.ItemDefaults)
+		}
+
+		idx := slices.IndexFunc(list.Items, func(it protocol.CompletionItem) bool { return strings.EqualFold(it.Label, "abs") })
+		if idx < 0 || list.Items[idx].InsertTextFormat != protocol.InsertTextFormatSnippet {
+			t.Errorf("built-in abs InsertTextFormat = %+v, want Snippet", list.Items[idx])
+		}
+	})
 }

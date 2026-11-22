@@ -367,15 +367,18 @@ func BenchmarkCompletionWithMarshal(b *testing.B) {
 	// client listing documentation and detail in resolveSupport is sent, the
 	// two fields filled in later by completionItem/resolve.
 	for _, c := range []struct {
-		name string
-		d    completionDefer
+		name     string
+		d        completionDefer
+		defaults bool
 	}{
-		{"full", completionDefer{}},
-		{"deferred", completionDefer{documentation: true, detail: true}},
+		{"full", completionDefer{}, false},
+		{"deferred", completionDefer{documentation: true, detail: true}, false},
+		{"deferred_defaults", completionDefer{documentation: true, detail: true}, true},
 	} {
 		b.Run(c.name, func(b *testing.B) {
 			s := benchLoadedServer()
 			s.completionDefer = c.d
+			s.completionDefaultSnippet = c.defaults
 			docURI := uri.File("/ws/open/Doc.cfc")
 
 			benchOpen(b, s, docURI, benchDoc(60))

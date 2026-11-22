@@ -192,7 +192,7 @@ func (s *Server) handleCompletion(_ context.Context, rawParams []byte) (any, err
 		cflog.Uint32("char", params.Position.Character),
 	)
 
-	items := s.completionItemsFor(&params, &cc, content, hasDoc)
+	items, useSnippetDefault := s.completionItemsFor(&params, &cc, content, hasDoc)
 
 	s.log.Debug("completion: total",
 		cflog.Duration("context", contextDur),
@@ -206,10 +206,18 @@ func (s *Server) handleCompletion(_ context.Context, rawParams []byte) (any, err
 		items = []protocol.CompletionItem{}
 	}
 
-	return &protocol.CompletionList{
+	list := &protocol.CompletionList{
 		IsIncomplete: false,
 		Items:        items,
-	}, nil
+	}
+	if useSnippetDefault && s.hoistCompletionSnippets() {
+		list.Items = guardNonSnippetItems(list.Items)
+		list.ItemDefaults = &protocol.CompletionItemDefaults{
+			InsertTextFormat: protocol.InsertTextFormatSnippet,
+		}
+	}
+
+	return list, nil
 }
 
 // triggerKindName is the trigger of a completion request as the debug log
@@ -233,9 +241,10 @@ func triggerKindName(kind protocol.CompletionTriggerKind, triggerChar string) st
 // the tag around the cursor, a tag name, the methods after a dot, and
 // otherwise the named arguments of the call around the cursor and the
 // document's cached variables and functions.
-func (s *Server) completionItemsFor(params *protocol.CompletionParams, cc *completionContext, content string, hasDoc bool) []protocol.CompletionItem {
+func (s *Server) completionItemsFor(params *protocol.CompletionParams, cc *completionContext, content string, hasDoc bool) ([]protocol.CompletionItem, bool) {
 	char, tagName := cc.char, cc.tagName
 	items := []protocol.CompletionItem(nil)
+	useSnippetDefault := false
 
 	docItems, inDocBlock := []protocol.CompletionItem(nil), false
 	if hasDoc {
@@ -262,6 +271,7 @@ func (s *Server) completionItemsFor(params *protocol.CompletionParams, cc *compl
 		}
 
 		items = s.completionFromCache(params.TextDocument.URI, int(params.Position.Line))
+		useSnippetDefault = true
 	case compCtx.kind != componentPathNone:
 		if compCtx.kind == componentPathCFC {
 			items = s.componentPathItems(params.Position, content, compCtx)
@@ -273,6 +283,7 @@ func (s *Server) completionItemsFor(params *protocol.CompletionParams, cc *compl
 
 		if CompletionBuiltinFunctions {
 			items = append(items, s.builtinFuncItems()...)
+			useSnippetDefault = true
 		}
 	case cc.triggeredByClose && hasDoc:
 		if CompletionCloseTags {
@@ -345,9 +356,11 @@ func (s *Server) completionItemsFor(params *protocol.CompletionParams, cc *compl
 		} else {
 			items = append(items, cached...)
 		}
+
+		useSnippetDefault = true
 	}
 
-	return items
+	return items, useSnippetDefault
 }
 
 // scopeArgumentsCompletion returns the declared arguments for the enclosing function.

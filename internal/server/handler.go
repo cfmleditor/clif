@@ -165,6 +165,7 @@ func (s *Server) handleInitialize(_ context.Context, rawParams []byte) (any, err
 	s.initialized = true
 	s.watchedFilesDynamic = clientWatchesFiles(params.Capabilities)
 	s.completionDefer = clientDefers(params.Capabilities)
+	s.completionDefaultSnippet = clientSupportsSnippetDefault(params.Capabilities)
 	s.workspaceSymbolDefer = clientDefersWorkspaceSymbol(params.Capabilities)
 	s.clientDocChanges = clientTakesDocumentChanges(params.Capabilities)
 
