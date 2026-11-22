@@ -1338,7 +1338,11 @@ func (idx *Index) LookupComponentRefInFile(variable string, fileURI uri.URI, lin
 			continue
 		}
 
-		if best == nil || ref.Line > best.Line {
+		if ref.Component == "" || strings.HasPrefix(ref.Component, parser.NativeTypePrefix) {
+			continue
+		}
+
+		if best == nil || ref.Line >= best.Line {
 			best = ref
 		}
 	}

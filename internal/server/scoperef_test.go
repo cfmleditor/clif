@@ -2,6 +2,9 @@ package server
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"slices"
 	"testing"
 
 	"go.lsp.dev/protocol"
@@ -118,5 +121,118 @@ func TestFuncScopeRefsClearWhenEmptied(t *testing.T) {
 
 	if got := srv.index.LookupComponentRef("svc"); len(got) != 0 {
 		t.Errorf("stale ref survived after its assignment was removed: %+v", got)
+	}
+}
+
+func TestDotCompletionAndReassignmentInsideFunction(t *testing.T) {
+	dir := t.TempDir()
+	fooPath := filepath.Join(dir, "Foo.cfc")
+	barPath := filepath.Join(dir, "Bar.cfc")
+
+	if err := os.WriteFile(fooPath, []byte("component {\n\tpublic void function fromFoo(required string fooArg) {}\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(barPath, []byte("component {\n\tpublic void function fromBar(required string barArg) {}\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := newTestServer()
+	srv.WorkspaceFolders = []string{dir}
+	docURI := uri.File(filepath.Join(dir, "Consumer.cfc"))
+
+	// Declares variables.mapper as a string first, then assigns a component in
+	// init() (CFML Editor #75), plus a function-local var and typed argument.
+	src := "component {\n" +
+		"\tvariables.mapper = \"\";\n" +
+		"\tpublic void function init(Foo argFoo) {\n" +
+		"\t\tvariables.mapper = new Bar();\n" +
+		"\t\tvar localSvc = new Foo();\n" +
+		"\t\tvariables.mapper.\n" +
+		"\t\tlocalSvc.\n" +
+		"\t\targFoo.\n" +
+		"\t\tvariables.mapper.fromBar()\n" +
+		"\t}\n" +
+		"}\n"
+
+	open := makeCall(t, protocol.MethodTextDocumentDidOpen, protocol.DidOpenTextDocumentParams{
+		TextDocument: protocol.TextDocumentItem{URI: docURI, Text: src},
+	})
+	if _, err := srv.handleDidOpen(context.Background(), open); err != nil {
+		t.Fatal(err)
+	}
+
+	hasLabel := func(line, col uint32, want string) bool {
+		req := makeCall(t, protocol.MethodTextDocumentCompletion, protocol.CompletionParams{
+			TextDocument: protocol.TextDocumentIdentifier{URI: docURI},
+			Position:     protocol.Position{Line: line, Character: col},
+			Context:      protocol.CompletionContext{TriggerKind: protocol.CompletionTriggerKindTriggerCharacter, TriggerCharacter: new(".")},
+		})
+
+		res, err := srv.handleCompletion(context.Background(), req)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		list, _ := res.(*protocol.CompletionList)
+
+		return list != nil && slices.ContainsFunc(list.Items, func(it protocol.CompletionItem) bool {
+			return it.Label == want
+		})
+	}
+
+	// variables.mapper. at line 5 -> Bar.fromBar
+	if !hasLabel(5, 19, "fromBar") {
+		t.Error("expected dot completion on reassigned variables.mapper. to include fromBar")
+	}
+
+	// localSvc. at line 6 -> Foo.fromFoo (without any prior hover/definition call)
+	if !hasLabel(6, 11, "fromFoo") {
+		t.Error("expected dot completion on function-local localSvc. to include fromFoo")
+	}
+
+	// argFoo. at line 7 -> Foo.fromFoo
+	if !hasLabel(7, 9, "fromFoo") {
+		t.Error("expected dot completion on typed parameter argFoo. to include fromFoo")
+	}
+
+	// Named-argument completion inside variables.mapper.fromBar(|) at line 8
+	argReq := makeCall(t, protocol.MethodTextDocumentCompletion, protocol.CompletionParams{
+		TextDocument: protocol.TextDocumentIdentifier{URI: docURI},
+		Position:     protocol.Position{Line: 8, Character: 27},
+	})
+
+	argRes, err := srv.handleCompletion(context.Background(), argReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	argList, _ := argRes.(*protocol.CompletionList)
+	if argList == nil || !slices.ContainsFunc(argList.Items, func(it protocol.CompletionItem) bool { return it.Label == "barArg=" }) {
+		t.Errorf("expected named argument completion barArg= inside variables.mapper.fromBar(), got %+v", argList)
+	}
+
+	// Incremental EditInFunc: change `var localSvc = new Foo();` on line 4 to `var localSvc = new Bar();`
+	change := makeCall(t, protocol.MethodTextDocumentDidChange, protocol.DidChangeTextDocumentParams{
+		TextDocument: protocol.VersionedTextDocumentIdentifier{
+			TextDocumentIdentifier: protocol.TextDocumentIdentifier{URI: docURI},
+		},
+		ContentChanges: []protocol.TextDocumentContentChangeEvent{
+			&protocol.TextDocumentContentChangePartial{
+				Range: protocol.Range{
+					Start: protocol.Position{Line: 4, Character: 21},
+					End:   protocol.Position{Line: 4, Character: 24},
+				},
+				Text: "Bar",
+			},
+		},
+	})
+	if _, err := srv.handleDidChange(context.Background(), change); err != nil {
+		t.Fatal(err)
+	}
+
+	// After the incremental edit inside init(), localSvc. at line 6 must offer fromBar, not stale fromFoo.
+	if !hasLabel(6, 11, "fromBar") {
+		t.Error("expected dot completion on localSvc. after EditInFunc to update to fromBar")
 	}
 }

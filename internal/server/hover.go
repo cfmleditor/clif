@@ -156,15 +156,21 @@ func (s *Server) doResolveUserFunc(qualifier, funcName string, docURI uri.URI, l
 	case strings.HasPrefix(qualifier, "~"):
 		comp = qualifier[1:]
 	default:
+		s.ensureFuncRefsIndexed(docURI, int(line))
 		ref := s.index.LookupComponentRefInFile(qualifier, docURI, line)
+
 		if ref == nil {
-			s.ensureFuncRefsIndexed(docURI, int(line))
-			ref = s.index.LookupComponentRefInFile(qualifier, docURI, line)
+			if name, _, _ := parser.MemberReceiverName(qualifier); name != "" && name != qualifier {
+				ref = s.index.LookupComponentRefInFile(name, docURI, line)
+			}
 		}
 
-		if ref != nil {
+		switch {
+		case ref != nil:
 			comp = ref.Component
-		} else {
+		case s.componentOfAt(docURI, qualifier, line) != "":
+			comp = s.componentOfAt(docURI, qualifier, line)
+		default:
 			comp = s.cfResolverSet().Resolve(qualifier)
 		}
 	}
@@ -177,4 +183,16 @@ func (s *Server) doResolveUserFunc(qualifier, funcName string, docURI uri.URI, l
 	baseDir := filepath.Dir(currentPath)
 
 	return s.getResolver().ResolveFunc(comp, funcName, baseDir)
+}
+
+func (s *Server) componentOfAt(docURI uri.URI, variable string, line uint32) string {
+	s.mu.RLock()
+	pr := s.parseResults[docURI]
+	s.mu.RUnlock()
+
+	if pr == nil {
+		return ""
+	}
+
+	return s.getResolver().ComponentOf(variable, line, pr, filepath.Dir(docURI.Path()))
 }

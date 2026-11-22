@@ -503,16 +503,22 @@ func (s *Server) dotCompletionMethods(content string, docURI uri.URI, line, char
 		return items
 	}
 
-	// Look up component ref for this variable in the current file
+	// Look up component ref for this variable in the current file.
+	// Index the enclosing function's refs first so function-local variables,
+	// typed parameters, and in-function reassignments are current.
+	s.ensureFuncRefsIndexed(docURI, line)
 	ref := s.index.LookupComponentRefInFile(varName, docURI, conv.Uint32(line))
 
 	var component string
 
-	if ref != nil {
+	switch {
+	case ref != nil:
 		component = ref.Component
-	} else if comp := s.cfResolverSet().Resolve(varName); comp != "" {
-		component = comp
-	} else {
+	case s.componentOfAt(docURI, varName, conv.Uint32(line)) != "":
+		component = s.componentOfAt(docURI, varName, conv.Uint32(line))
+	case s.cfResolverSet().Resolve(varName) != "":
+		component = s.cfResolverSet().Resolve(varName)
+	default:
 		return nil
 	}
 
