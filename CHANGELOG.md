@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.7.2]
+
 ### Added
 
 - **Parse error scan report document.** `clif.scanWorkspace` now writes a Markdown report (`clif-parse-errors.md` in the workspace root by default, or a custom filename passed as a command argument) listing every parse error grouped by file with line, column, message, and source line snippet. `clif scan` adds `--out <file>`, `--format <text|md|json>`, and `--json` to write parse error reports to disk or stdout.
