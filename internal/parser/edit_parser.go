@@ -341,6 +341,10 @@ func ComponentPathAtCursor(content string, line, char int) string {
 	}
 
 	after := strings.TrimLeft(lineText[end:], " \t")
+	if strings.HasPrefix(after, "::") && isIdentStart(dotPath[0]) &&
+		!identEq(dotPath, "super") && !identEq(dotPath, "static") && !strings.HasSuffix(lowerBefore, "java:") {
+		return dotPath
+	}
 
 	lowerAfter := strings.ToLower(after)
 	if hasDot && (strings.HasPrefix(lowerAfter, "function") || strings.HasPrefix(lowerAfter, "function ")) {
