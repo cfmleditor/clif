@@ -1085,7 +1085,7 @@ func (f *Formatter) formatQueryNodeInline(n *sitter.Node) {
 func (f *Formatter) writeQuerySelfCloseTag(n *sitter.Node) {
 	name := f.tagName(n)
 	attrs := f.collectAttrs(n)
-	f.write("<" + f.openTagName(n) + f.renderAttrs(name, attrs) + " />")
+	f.write("<" + f.openTagName(n) + f.renderAttrs(name, attrs) + f.selfCloseEnd(n))
 }
 
 // emitQueryExtrasAndRight emits any cf_comment extras in a node, then the

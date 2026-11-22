@@ -649,6 +649,17 @@ func (f *Formatter) formatCFElse(n *sitter.Node) {
 	f.write(f.text(n))
 }
 
+// selfCloseEnd returns the closing delimiter for a void or self-closing CF tag:
+// " />" when SelfCloseTags is enabled (or when the source tag itself was written
+// with "/>"), and ">" otherwise.
+func (f *Formatter) selfCloseEnd(n *sitter.Node) string {
+	if f.opts.SelfCloseTags || strings.HasSuffix(trimSpace(f.text(n)), "/>") {
+		return " />"
+	}
+
+	return ">"
+}
+
 // formatCFSelfCloseAttrTag handles cf_selfclose_tag (cfparam, cfargument, etc.)
 // that have cf_attribute children.
 func (f *Formatter) formatCFSelfCloseAttrTag(n *sitter.Node) {
@@ -659,12 +670,13 @@ func (f *Formatter) formatCFSelfCloseAttrTag(n *sitter.Node) {
 	f.lastTagMultiLine = strings.Contains(rendered, "\n")
 	f.nl()
 	f.writeIndent()
-	f.write("<" + f.openTagName(n) + rendered + " />")
+	f.write("<" + f.openTagName(n) + rendered + f.selfCloseEnd(n))
 	f.write("\n")
 }
 
 func (f *Formatter) formatCFSelfClosingTag(n *sitter.Node) {
 	f.lastTagMultiLine = false
+	end := f.selfCloseEnd(n)
 
 	// For specific self-closing tags (cf_set_tag, cf_return_tag),
 	// reconstruct from expression children with normalized spacing.
@@ -706,7 +718,7 @@ func (f *Formatter) formatCFSelfClosingTag(n *sitter.Node) {
 			f.write(l)
 
 			if i == len(lines)-2 {
-				f.write(" />")
+				f.write(end)
 			}
 
 			f.write("\n")
@@ -719,9 +731,9 @@ func (f *Formatter) formatCFSelfClosingTag(n *sitter.Node) {
 	f.writeIndent()
 
 	if body != "" {
-		f.write("<" + f.openTagName(n) + " " + body + " />")
+		f.write("<" + f.openTagName(n) + " " + body + end)
 	} else {
-		f.write("<" + f.openTagName(n) + " />")
+		f.write("<" + f.openTagName(n) + end)
 	}
 
 	f.write("\n")
