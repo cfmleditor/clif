@@ -587,10 +587,31 @@ func (s *Server) cmdExportDeps(ctx context.Context, args []protocol.LSPAny) (any
 }
 
 // cmdScanWorkspace runs clif.scanWorkspace.
-func (s *Server) cmdScanWorkspace(_ context.Context, _ []protocol.LSPAny) (any, error) {
+func (s *Server) cmdScanWorkspace(_ context.Context, args []protocol.LSPAny) (any, error) {
+	outName := scanWorkspaceOutArg(args)
+
 	// Same reasoning as runDiagnostics: this goroutine outlives the
 	// handler, so the request ctx (pooled/reset on return) is unsafe here.
-	s.safeGo("scanWorkspace", func() { s.scanWorkspace(context.Background()) })
+	s.safeGo("scanWorkspace", func() { s.scanWorkspace(context.Background(), outName) })
 
 	return nil, nil
+}
+
+func scanWorkspaceOutArg(args []protocol.LSPAny) string {
+	if len(args) == 0 {
+		return ""
+	}
+
+	if s, ok := argString(args, 0); ok {
+		return strings.TrimSpace(s)
+	}
+
+	var opts struct {
+		Out string `json:"out"`
+	}
+	if err := json.Unmarshal(args[0], &opts); err == nil {
+		return strings.TrimSpace(opts.Out)
+	}
+
+	return ""
 }

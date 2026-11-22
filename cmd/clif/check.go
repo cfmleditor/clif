@@ -343,7 +343,9 @@ func (env *checkEnv) runScan(res *checkResult) error {
 			continue
 		}
 
-		for _, e := range parseErrors(f, content) {
+		errs := parseErrors(f, content)
+		for i := range errs {
+			e := &errs[i]
 			res.Findings = append(res.Findings, checkFinding{
 				File:    e.file,
 				Line:    e.line,
