@@ -10,6 +10,8 @@
 ### Fixed
 
 - **Formatter respects `formatting.selfCloseTags: false` on CFML tags (CFML Editor #174).** Tag emitters for `<cfset>`, `<cfreturn>`, `<cfinclude>`, `<cfparam>`, `<cfqueryparam>`, and other void CF tags no longer insert ` />` when `selfCloseTags` is disabled, preventing the `whitespaceOnly` guard from rejecting the formatted output.
+- **Function-local and reassigned component completion and resolution (CFML Editor #75).** Dot completion (`textDocument/completion`) and method resolution now refresh enclosing function-scope component bindings before lookup, ignore non-component native placeholder refs when resolving a CFC receiver, and strip variable scope prefixes (`variables.`, `local.`, `this.`, `arguments.`) for named-argument and signature-help resolution.
+- **Go to Definition and Hover for `this.method()` and static `Component::method()` calls (CFML Editor #132, #38).** `this`-scoped method calls resolve within their declaring component (including `private` methods) before falling back to inheritance, and static `::` component receivers resolve for Go to Definition.
 
 ## [0.7.1]
 
