@@ -74,7 +74,9 @@ func startWorkflowWithCapabilities(t *testing.T, root string, caps map[string]an
 		}
 
 		if slices.Contains(observe, req.Method()) {
-			event := workflowEvent{method: req.Method(), params: slices.Clone(req.Params())}
+			// Both Method and Params borrow the stream's reusable read buffer
+			// and are overwritten by the next incoming frame.
+			event := workflowEvent{method: strings.Clone(req.Method()), params: slices.Clone(req.Params())}
 
 			select {
 			case client.events <- event:
