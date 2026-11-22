@@ -275,7 +275,11 @@ func (pr *ParseResult) addPendingRef(c *pendingCall, comp string) bool {
 	if !c.funcKey.in && !c.hasClosureSpan || c.global {
 		pr.ComponentRefs = append(pr.ComponentRefs, ref)
 	} else {
-		pr.funcRefsMap = appendKeyed(pr.funcRefsMap, c.funcKey, []ComponentRef{ref})
+		if pr.funcRefsMap == nil {
+			pr.funcRefsMap = make(map[fnKey][]ComponentRef)
+		}
+
+		pr.funcRefsMap[c.funcKey] = append(pr.funcRefsMap[c.funcKey], ref)
 	}
 
 	if pr.flow != nil && c.funcKey.in {

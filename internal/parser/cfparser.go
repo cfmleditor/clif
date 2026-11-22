@@ -279,26 +279,37 @@ func commentCovering(src string, from, at int) int {
 // in a <cfscript> block took the next function's </cffunction> as its own and
 // swallowed that function.
 func findTagFuncScopesIdx(src string, baseLine int, idx LineTable, regions []Region) []FuncScope {
+	first := indexCFTag(src, "cffunction")
+	if first < 0 {
+		return nil
+	}
+
 	// A modest capacity rather than a counted one. Counting <cffunction first
-	// sizes the slice exactly, but it is a second pass over the whole source and
-	// it runs on script components too, where it scans everything to find
-	// nothing — measurably, at +1.6% on script parsing for a slice that append
-	// grows well enough on its own.
+	// sizes the slice exactly, but it is a second pass over the whole source.
 	scopes := make([]FuncScope, 0, 8)
 
 	if idx == nil {
 		idx = NewLineTable(src)
 	}
 
+	var spanSlab []FunctionSpan
+
 	pos := 0
+	next := first
 
 	for {
-		i := indexCFTag(src[pos:], "cffunction")
-		if i < 0 {
-			break
-		}
+		var i int
+		if next >= 0 {
+			i = next
+			next = -1
+		} else {
+			i = indexCFTag(src[pos:], "cffunction")
+			if i < 0 {
+				break
+			}
 
-		i += pos
+			i += pos
+		}
 
 		// A <cffunction in a comment is none. The comments are read by the one
 		// comment reader, which closes a comment of dashes alone where a count
@@ -325,7 +336,13 @@ func findTagFuncScopesIdx(src string, baseLine int, idx LineTable, regions []Reg
 
 		// The span reads the whole tag, which ends at its own '>' rather than
 		// 200 bytes on, and its body starts past that.
-		span := &FunctionSpan{Kind: FunctionTag, Line: startLine, Start: i, Params: -1, ParamsEnd: -1, Body: -1, BodyEnd: -1}
+		if len(spanSlab) == 0 {
+			spanSlab = make([]FunctionSpan, 16)
+		}
+
+		span := &spanSlab[0]
+		spanSlab = spanSlab[1:]
+		*span = FunctionSpan{Kind: FunctionTag, Line: startLine, Start: i, Params: -1, ParamsEnd: -1, Body: -1, BodyEnd: -1}
 		bodyFrom := -1
 
 		if gt := tagEndIndex(src[i:]); gt >= 0 {
