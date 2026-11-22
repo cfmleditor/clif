@@ -874,36 +874,26 @@ func (pr *ParseResult) mergeScriptRegion(r *Region, tagScopes []FuncScope, open 
 		}
 	}
 
-	pr.Funcs = append(pr.Funcs, sp.funcs...)
-	pr.ComponentRefs = append(pr.ComponentRefs, sp.componentRefs...)
+	pr.Funcs = appendSlice(pr.Funcs, sp.funcs)
+	pr.ComponentRefs = appendSlice(pr.ComponentRefs, sp.componentRefs)
 
 	for i := range sp.scopes {
 		pr.keepSpan(&sp.scopes[i])
 	}
 
-	pr.Scopes = append(pr.Scopes, sp.scopes...)
-	pr.Properties = append(pr.Properties, sp.properties...)
+	pr.Scopes = appendSlice(pr.Scopes, sp.scopes)
+	pr.Properties = appendSlice(pr.Properties, sp.properties)
 
 	if len(sp.imports) > 0 {
 		pr.imports = maps.Clone(sp.imports)
 	}
 
-	// Merge function-scoped refs from script parser
-	for k, refs := range sp.funcRefs {
-		pr.funcRefsMap = appendKeyed(pr.funcRefsMap, k, refs)
-	}
-
-	// Merge links from script parser
-	pr.Links = append(pr.Links, sp.links...)
-	for k, links := range sp.funcLinks {
-		pr.funcLinksMap = appendKeyed(pr.funcLinksMap, k, links)
-	}
-
-	// Merge calls from script parser
-	pr.Calls = append(pr.Calls, sp.calls...)
-	for k, calls := range sp.funcCalls {
-		pr.funcCallsMap = appendKeyed(pr.funcCallsMap, k, calls)
-	}
+	// Merge function-scoped refs, links, and calls from script parser
+	pr.funcRefsMap = mergeKeyedMap(pr.funcRefsMap, sp.funcRefs)
+	pr.Links = appendSlice(pr.Links, sp.links)
+	pr.funcLinksMap = mergeKeyedMap(pr.funcLinksMap, sp.funcLinks)
+	pr.Calls = appendSlice(pr.Calls, sp.calls)
+	pr.funcCallsMap = mergeKeyedMap(pr.funcCallsMap, sp.funcCalls)
 
 	pr.Instantiations = append(pr.Instantiations, sp.instantiationsFound()...)
 
@@ -957,31 +947,40 @@ func (pr *ParseResult) mergeTagFindings(tp *tagParser, startLine int) {
 		}
 	}
 
-	pr.Links = append(pr.Links, tp.links...)
-	for k, links := range tp.funcLinks {
-		if startLine > 0 {
-			k = shiftFuncKey(k, startLine)
+	pr.Links = appendSlice(pr.Links, tp.links)
 
-			for i := range links {
-				links[i].Line += conv.Uint32(startLine)
+	if startLine == 0 && pr.funcLinksMap == nil {
+		pr.funcLinksMap = tp.funcLinks
+	} else {
+		for k, links := range tp.funcLinks {
+			if startLine > 0 {
+				k = shiftFuncKey(k, startLine)
+
+				for i := range links {
+					links[i].Line += conv.Uint32(startLine)
+				}
 			}
-		}
 
-		pr.funcLinksMap = appendKeyed(pr.funcLinksMap, k, links)
+			pr.funcLinksMap = appendKeyed(pr.funcLinksMap, k, links)
+		}
 	}
 
 	// Merge function-scoped refs from tag parser
-	for k, refs := range tp.funcRefs {
-		// Offset the key and ref lines by region start line
-		if startLine > 0 {
-			k = shiftFuncKey(k, startLine)
+	if startLine == 0 && pr.funcRefsMap == nil {
+		pr.funcRefsMap = tp.funcRefs
+	} else {
+		for k, refs := range tp.funcRefs {
+			// Offset the key and ref lines by region start line
+			if startLine > 0 {
+				k = shiftFuncKey(k, startLine)
 
-			for i := range refs {
-				refs[i].Line += conv.Uint32(startLine)
+				for i := range refs {
+					refs[i].Line += conv.Uint32(startLine)
+				}
 			}
-		}
 
-		pr.funcRefsMap = appendKeyed(pr.funcRefsMap, k, refs)
+			pr.funcRefsMap = appendKeyed(pr.funcRefsMap, k, refs)
+		}
 	}
 
 	// Collect pending calls from tag parser (offset lines and funcKey)
@@ -1151,16 +1150,20 @@ func (pr *ParseResult) mergeTagCalls(tp *tagParser, startLine int) {
 		pr.Instantiations = append(pr.Instantiations, in)
 	}
 
-	for k, calls := range tp.funcCalls {
-		if startLine > 0 {
-			k = shiftFuncKey(k, startLine)
+	if startLine == 0 && pr.funcCallsMap == nil {
+		pr.funcCallsMap = tp.funcCalls
+	} else {
+		for k, calls := range tp.funcCalls {
+			if startLine > 0 {
+				k = shiftFuncKey(k, startLine)
 
-			for i := range calls {
-				calls[i].Line += conv.Uint32(startLine)
+				for i := range calls {
+					calls[i].Line += conv.Uint32(startLine)
+				}
 			}
-		}
 
-		pr.funcCallsMap = appendKeyed(pr.funcCallsMap, k, calls)
+			pr.funcCallsMap = appendKeyed(pr.funcCallsMap, k, calls)
+		}
 	}
 }
 
@@ -1208,13 +1211,53 @@ func shiftFuncKey(k fnKey, delta int) fnKey {
 	return funcKey(int(k.start)+delta, int(k.end)+delta)
 }
 
+// appendSlice returns src directly when dst is empty, avoiding an extra copy
+// for single-region files where src is already an owned slice.
+func appendSlice[T any](dst, src []T) []T {
+	if len(src) == 0 {
+		return dst
+	}
+
+	if len(dst) == 0 {
+		return src
+	}
+
+	return append(dst, src...)
+}
+
+// mergeKeyedMap moves src directly into dst when dst is nil, otherwise appends
+// each entry through appendKeyed.
+func mergeKeyedMap[T any](dst, src map[fnKey][]T) map[fnKey][]T {
+	if len(src) == 0 {
+		return dst
+	}
+
+	if dst == nil {
+		return src
+	}
+
+	for k, v := range src {
+		dst = appendKeyed(dst, k, v)
+	}
+
+	return dst
+}
+
 // appendKeyed appends v to m[k], making the map on first use, and returns it.
 func appendKeyed[T any](m map[fnKey][]T, k fnKey, v []T) map[fnKey][]T {
+	if len(v) == 0 {
+		return m
+	}
+
 	if m == nil {
 		m = make(map[fnKey][]T)
 	}
 
-	m[k] = append(m[k], v...)
+	if cur := m[k]; len(cur) == 0 {
+		m[k] = v
+	} else {
+		m[k] = append(cur, v...)
+	}
 
 	return m
 }

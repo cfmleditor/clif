@@ -834,20 +834,32 @@ func (p *tagParser) precedingComment(idx int) string {
 // what `ref = argumentVariable` refers to — and without a line there is nowhere
 // for go-to-definition to land.
 func (p *tagParser) parseCFArguments(block string, blockStart int) []Argument {
+	first := indexCFTag(block, "cfargument")
+	if first < 0 {
+		return nil
+	}
+
 	// Most functions take a few arguments, and a nil slice reaching four costs
 	// three copies to get there.
 	args := make([]Argument, 0, 4)
 	ends := newTagEnds(block)
 
 	pos := 0
+	next := first
 
 	for {
-		idx := indexCFTag(block[pos:], "cfargument")
-		if idx < 0 {
-			break
-		}
+		var idx int
+		if next >= 0 {
+			idx = next
+			next = -1
+		} else {
+			idx = indexCFTag(block[pos:], "cfargument")
+			if idx < 0 {
+				break
+			}
 
-		idx += pos
+			idx += pos
+		}
 
 		end := ends.at(idx)
 		if end < 0 {
