@@ -223,7 +223,7 @@ func (s *Server) qualifiedDefinition(qualifier, word string, docURI uri.URI, lin
 	}
 
 	// Qualified call that can't be resolved — fall through to all matches
-	if !s.GlobalFunctionResolution {
+	if !s.GlobalFunctionResolution || isComponentThis(qualifier, docURI) {
 		return nil
 	}
 

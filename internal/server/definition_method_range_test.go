@@ -11,6 +11,67 @@ import (
 	"go.lsp.dev/protocol"
 )
 
+func TestThisMethodDefinitionStaysInComponent(t *testing.T) {
+	root := t.TempDir()
+	srv := newTestServer()
+	srv.WorkspaceFolders = []string{root}
+	srv.GlobalFunctionResolution = true
+
+	caller := filepath.Join(root, "Caller.cfc")
+	callerSrc := `component extends="Base" {
+	private function ownMethod() {}
+	function run() {
+		THIS.ownMethod();
+		this.peerOnly();
+		other.this.peerOnly();
+		this.baseMethod();
+	}
+}`
+	peer := filepath.Join(root, "Peer.cfc")
+	peerSrc := `component {
+	private function ownMethod() {}
+	function peerOnly() {}
+}`
+	base := filepath.Join(root, "Base.cfc")
+	baseSrc := `component { function baseMethod() {} }`
+
+	for path, src := range map[string]string{caller: callerSrc, peer: peerSrc, base: baseSrc} {
+		writeCFC(t, path, src)
+		u := cfpath.ToURI(path)
+
+		params := mustJSON(t, protocol.DidOpenTextDocumentParams{
+			TextDocument: protocol.TextDocumentItem{URI: u, LanguageID: "cfml", Version: 1, Text: src},
+		})
+		if _, err := srv.handleDidOpen(context.Background(), params); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	locs := func(snippet string) []protocol.Location {
+		t.Helper()
+
+		line, col := cursorPosition(t, callerSrc, snippet)
+
+		return conformanceLocations(t, definitionAt(t, srv, cfpath.ToURI(caller), line, col))
+	}
+
+	if got := locs("THIS.|ownMethod()"); len(got) != 1 || got[0].URI != cfpath.ToURI(caller) {
+		t.Errorf("own private method definition = %+v", got)
+	}
+
+	if got := locs("\t\tthis.|peerOnly()"); len(got) != 0 {
+		t.Errorf("unrelated method definition = %+v", got)
+	}
+
+	if got := locs("other.this.|peerOnly()"); len(got) != 1 || got[0].URI != cfpath.ToURI(peer) {
+		t.Errorf("nested receiver fallback definition = %+v", got)
+	}
+
+	if got := locs("this.|baseMethod()"); len(got) != 1 || got[0].URI != cfpath.ToURI(base) {
+		t.Errorf("inherited method definition = %+v", got)
+	}
+}
+
 func TestClosedFileMethodDefinitionUsesParsedNameRange(t *testing.T) {
 	root := t.TempDir()
 
