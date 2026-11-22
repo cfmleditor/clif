@@ -102,7 +102,7 @@ func collectionReadAt(sc *Scanner) (root string, element bool) {
 // with no tag region, since a tag region marks every collection escaped
 // (markCollectionEscapes). A tag component returning variables, the common
 // case, skips the pass.
-func collectionReturnExpressions(calls []pendingCall, tagFile bool) map[string][]string {
+func collectionReturnExpressions(calls []pendingCall, tagFile bool) map[int][]string {
 	candidates := false
 
 	for i := range calls {
@@ -120,12 +120,17 @@ func collectionReturnExpressions(calls []pendingCall, tagFile bool) map[string][
 		return nil
 	}
 
-	returns := map[string][]string{}
+	returns := map[int][]string{}
 
 	for i := range calls {
 		c := &calls[i]
 		if c.returnExpr {
-			returns[c.funcKey.String()] = append(returns[c.funcKey.String()], c.varName)
+			start := -1
+			if c.funcKey.in {
+				start = int(c.funcKey.start)
+			}
+
+			returns[start] = append(returns[start], c.varName)
 		}
 	}
 
@@ -201,21 +206,37 @@ func (pr *ParseResult) applyCollectionReturns(calls []pendingCall) {
 		}
 	}
 
-	for function, expressions := range returns {
+	for start, expressions := range returns {
+		fnStr := ""
+
+		if start >= 0 {
+			fnStr = keys[start]
+		}
+
 		for _, expr := range expressions {
 			if root, element := collectionRead(expr); element {
-				roots[key(root, function)] = true
+				roots[key(root, fnStr)] = true
 			}
 		}
 	}
 
-	nodes := map[collKey]*collectionNode{}
+	var slab []collectionNode
+
+	nodes := make(map[collKey]*collectionNode, len(roots))
 	node := func(k collKey) *collectionNode {
-		if nodes[k] == nil {
-			nodes[k] = &collectionNode{}
+		if n := nodes[k]; n != nil {
+			return n
 		}
 
-		return nodes[k]
+		if len(slab) == 0 {
+			slab = make([]collectionNode, 16)
+		}
+
+		n := &slab[0]
+		slab = slab[1:]
+		nodes[k] = n
+
+		return n
 	}
 
 	// Whether the file declares a structNew of its own, asked once: it walks
@@ -251,16 +272,19 @@ func (pr *ParseResult) applyCollectionReturns(calls []pendingCall) {
 
 	for i := range pr.Funcs {
 		f := &pr.Funcs[i]
-		f.CollectionValues = wholeStructValues(f, returns[keys[int(f.Line)]], keys[int(f.Line)], key, nodes)
+		fnLine := int(f.Line)
+		fnKeyStr := keys[fnLine]
+		fnReturns := returns[fnLine]
+		f.CollectionValues = wholeStructValues(f, fnReturns, fnKeyStr, key, nodes)
 
 		if f.CollectionValues != nil && !escapes {
 			escapes = true
 
 			pr.markCollectionEscapes(key, nodes, kt)
-			f.CollectionValues = wholeStructValues(f, returns[keys[int(f.Line)]], keys[int(f.Line)], key, nodes)
+			f.CollectionValues = wholeStructValues(f, fnReturns, fnKeyStr, key, nodes)
 		}
 
-		pr.applyCollectionFunction(f, returns[keys[int(f.Line)]], keys[int(f.Line)], key, nodes)
+		pr.applyCollectionFunction(f, fnReturns, fnKeyStr, key, nodes)
 	}
 }
 

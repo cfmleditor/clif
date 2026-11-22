@@ -3932,9 +3932,9 @@ func (p *scriptParser) scanChainedCalls(component string) []string {
 		caller = p.currentFunc().Name
 	}
 
-	// hops is what the caller's ref walks; chain is the same hops as the
-	// CallSites carry them, each call with its arguments.
-	var hops, chain []string
+	// hops is both what the caller's ref walks and the chain carried by each
+	// CallSite (each call with its arguments).
+	var hops []string
 
 	for p.sc.PeekSkipComments().Kind == TokDot {
 		p.sc.NextSkipComments() // consume .
@@ -3948,7 +3948,6 @@ func (p *scriptParser) scanChainedCalls(component string) []string {
 
 		if p.sc.PeekSkipComments().Kind != TokLParen {
 			hops = append(hops, PropertyHop(methTok.Value))
-			chain = append(chain, PropertyHop(methTok.Value))
 
 			continue
 		}
@@ -3956,14 +3955,13 @@ func (p *scriptParser) scanChainedCalls(component string) []string {
 		p.addCall(&CallSite{
 			FuncName:  methTok.Value,
 			Component: component,
-			Chain:     chainSoFar(chain),
+			Chain:     chainSoFar(hops),
 			Line:      conv.Uint32(p.baseLine + int(methTok.Line)),
 			Caller:    caller,
 			Resolved:  true,
 		})
 
 		hops = append(hops, callHopAt(p.sc, methTok.Value))
-		chain = append(chain, callHopAt(p.sc, methTok.Value))
 
 		p.skipParens()
 	}
