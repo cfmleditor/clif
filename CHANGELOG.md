@@ -4,6 +4,7 @@
 
 ### Added
 
+- **Parse error scan report document.** `clif.scanWorkspace` now writes a Markdown report (`clif-parse-errors.md` in the workspace root by default, or a custom filename passed as a command argument) listing every parse error grouped by file with line, column, message, and source line snippet. `clif scan` adds `--out <file>`, `--format <text|md|json>`, and `--json` to write parse error reports to disk or stdout.
 - **LSP 3.17 `CompletionList.itemDefaults` for `insertTextFormat`.** When a client advertises `"insertTextFormat"` in `textDocument.completion.completionList.itemDefaults`, built-in snippet completions omit per-item `insertTextFormat` and hoist it into `CompletionList.itemDefaults` (reducing deferred completion JSON by a further ~16%, and ~65% vs full), while explicitly marking plain-text items containing `$`, `}`, or `\` as `PlainText`.
 
 ## [0.7.1]

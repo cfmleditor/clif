@@ -53,10 +53,14 @@ Parse CFML files and report, per file, how long the parse took and how many
 functions and component references it found, then the totals.
 `
 
-const scanUsage = `usage: clif scan <file-or-dir> [...]
+const scanUsage = `usage: clif scan [options] <file-or-dir> [...]
 
 Parse CFML files with the tree-sitter grammar and report every file it could
 not parse, with the position of each error.
+
+  --out <file>   write the report here instead of stdout
+  --format <f>   text, md, or json (defaults from --out extension, or text)
+  --json         shorthand for --format json
 `
 
 const formatUsage = `usage: clif format [-w] [--allow-non-whitespace] [--root <dir>] [--follow-symlinks] <file> [...]

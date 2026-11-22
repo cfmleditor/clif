@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/cfmleditor/clif/internal/language"
@@ -50,5 +51,33 @@ func TestCollectErrorDiagnostics(t *testing.T) {
 		if src, _ := d.Source.Get(); src != "cfmleditor" {
 			t.Errorf("expected source 'cfmleditor', got %q", src)
 		}
+	}
+}
+
+func TestScanWorkspaceWritesParseErrorReport(t *testing.T) {
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, "good.cfm"), []byte("<cfoutput>hello</cfoutput>\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "bad.cfm"), []byte("<cfoutput>\n<cfif>unclosed\n</cfoutput>\n"), 0o644)
+
+	srv := newTestServer()
+	srv.WorkspaceFolders = []string{dir}
+	srv.scanWorkspace(context.Background(), "")
+
+	reportPath := filepath.Join(dir, defaultParseErrorReport)
+
+	data, err := os.ReadFile(reportPath)
+	if err != nil {
+		t.Fatalf("expected parse error report at %s: %v", reportPath, err)
+	}
+
+	text := string(data)
+	for _, want := range []string{"# Parse Errors", "## `bad.cfm`", "bad.cfm:", "```cfml"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("report missing %q:\n%s", want, text)
+		}
+	}
+
+	if strings.Contains(text, "good.cfm") {
+		t.Errorf("clean file good.cfm should not appear in report:\n%s", text)
 	}
 }
