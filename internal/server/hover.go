@@ -10,6 +10,7 @@ import (
 	"github.com/cfmleditor/clif/internal/conv"
 	"github.com/cfmleditor/clif/internal/docs"
 	"github.com/cfmleditor/clif/internal/parser"
+	cfpath "github.com/cfmleditor/clif/internal/path"
 	"go.lsp.dev/protocol"
 	"go.lsp.dev/uri"
 )
@@ -53,7 +54,7 @@ func (s *Server) handleHover(_ context.Context, rawParams []byte) (any, error) {
 			}, nil
 		}
 
-		if !s.GlobalFunctionResolution {
+		if !s.GlobalFunctionResolution || isComponentThis(qualifier, docURI) {
 			return nil, nil
 		}
 	}
@@ -125,10 +126,20 @@ func (s *Server) resolveUserFunc(qualifier, funcName string, docURI uri.URI, lin
 	return def
 }
 
+func isComponentThis(qualifier string, docURI uri.URI) bool {
+	return strings.EqualFold(qualifier, "this") && strings.EqualFold(filepath.Ext(docURI.Path()), ".cfc")
+}
+
 func (s *Server) doResolveUserFunc(qualifier, funcName string, docURI uri.URI, line uint32) *parser.FunctionDef {
 	var comp string
 
 	switch {
+	case isComponentThis(qualifier, docURI):
+		if def := s.index.FunctionInFile(docURI, funcName); def != nil {
+			return def
+		}
+
+		comp = cfpath.FromURI(string(docURI))
 	case strings.EqualFold(qualifier, "super"):
 		// Resolve from parent component
 		s.mu.RLock()

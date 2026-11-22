@@ -171,7 +171,13 @@ func QualifierBeforeWord(content string, line, char int) string {
 		return ""
 	}
 
-	return lineText[s:end]
+	qualifier := lineText[s:end]
+	if strings.EqualFold(qualifier, "this") && strings.HasSuffix(strings.TrimRight(lineText[:s], " \t"), ".") {
+		// Treat a member named this as an unresolved receiver.
+		return "~"
+	}
+
+	return qualifier
 }
 
 // callResultQualifier is QualifierBeforeWord's answer when the dot at dotPos
