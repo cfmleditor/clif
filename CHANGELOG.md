@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Typed `arrayAppend` / `.append` and non-empty array literal collection tracking (#431).** Closed arrays populated via single-element `arrayAppend(arr, expr)`, `arrayPrepend(arr, expr)`, `arr.append(expr)`, `arr.prepend(expr)`, or non-empty array literals `[expr1, expr2]` now preserve their element component contract instead of unconditionally invalidating (calls with `merge` flags, extra arguments, or named arguments remain conservative).
+
+### Changed
+
+- **CFScript hover signatures (#430).** Hover documentation now renders built-in and user function signatures in CFScript syntax.
+- **Parser and index performance (#425, #426, #428, #429, #432).** Reduced parser allocations by ~40% on script CFCs and ~35% on tag CFCs with call extraction (direct token-slice collection write scanning, slab-allocated `FunctionSpan` and `[]Argument`, `localNames` slice+fallback for script function locals, cached `chainBuilder.String()`, lazy `flowRecord.lastReturn`, zero-copy region merges), sped up `IndexFileFromResult` by ~5×, and cut `ShiftLines` / structural keystroke allocations by up to 96% (O(1) in function count).
+
 ## [0.7.2]
 
 ### Added
