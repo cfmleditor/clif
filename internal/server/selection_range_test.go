@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/cfmleditor/clif/internal/parser"
@@ -105,5 +106,28 @@ func TestSelectionRangeExpandsAcrossCFMLTagsAndInterpolation(t *testing.T) {
 		if !slices.Contains(texts, w) {
 			t.Errorf("selection chain %q missing %q", texts, w)
 		}
+	}
+}
+
+func TestSelectionRangePathologicalAndBoundaryInputs(t *testing.T) {
+	dir := t.TempDir()
+	s := newTestServer()
+
+	// Empty document & out-of-range positions must never panic.
+	emptyURI := uri.File(filepath.Join(dir, "empty.cfm"))
+	openDoc(t, s, emptyURI, "")
+
+	if got := selectionRanges(t, s, emptyURI, protocol.Position{Line: 99, Character: 99}); len(got) != 1 {
+		t.Fatalf("empty doc returned %d ranges, want 1", len(got))
+	}
+
+	// Thousands of unmatched closing tags and brackets must stay O(N).
+	mismatched := strings.Repeat("<div>", 1500) + strings.Repeat("</span>", 1500) +
+		"<cfscript>" + strings.Repeat("(", 1500) + strings.Repeat("]", 1500) + "</cfscript>"
+	badURI := uri.File(filepath.Join(dir, "bad.cfm"))
+	openDoc(t, s, badURI, mismatched)
+
+	if got := selectionRanges(t, s, badURI, protocol.Position{Line: 0, Character: 10}); len(got) != 1 {
+		t.Fatalf("mismatched doc returned %d ranges, want 1", len(got))
 	}
 }
