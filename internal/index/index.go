@@ -622,73 +622,140 @@ func (idx *Index) ShiftLines(fileURI uri.URI, afterLine int, delta int) {
 	// that bucket. Pooling them into one map keyed by pointer made every entry
 	// of a 5,000-entry `init` bucket pay a hash and a probe to be told it was
 	// not one of this file's few.
-	funcReps := make(map[string][]funcReplacement)
-	fileFuncReps := make([]funcReplacement, 0, len(idx.fileFuncs[key]))
+	// Slab-allocate shifted copies once per call rather than once per moved
+	// function/ref, and update both per-file slices and name buckets in place
+	// without intermediate per-name maps or strings.ToLower allocations.
+	fileFuncs := idx.fileFuncs[key]
+	nShiftedFuncs := 0
 
-	for _, d := range idx.fileFuncs[key] {
-		shiftLine, shiftName := int(d.Line) > afterLine, d.HasNameRange() && int(d.NameLine) > afterLine
-		if !shiftLine && !shiftName {
-			continue
+	for _, d := range fileFuncs {
+		if int(d.Line) > afterLine || (d.HasNameRange() && int(d.NameLine) > afterLine) {
+			nShiftedFuncs++
 		}
-
-		shifted := *d
-		if shiftLine {
-			shifted.Line = conv.Uint32(int(shifted.Line) + delta)
-		}
-
-		if shiftName {
-			shifted.NameLine = conv.Uint32(int(shifted.NameLine) + delta)
-		}
-
-		rep := funcReplacement{old: d, new: &shifted}
-		name := strings.ToLower(d.Name)
-		funcReps[name] = append(funcReps[name], rep)
-		fileFuncReps = append(fileFuncReps, rep)
 	}
 
-	refReps := make(map[string][]refReplacement)
-	fileRefReps := make([]refReplacement, 0, len(idx.fileRefs[key]))
+	if nShiftedFuncs > 0 {
+		idx.funcGen++
 
-	for _, r := range idx.fileRefs[key] {
+		slab := make([]parser.FunctionDef, nShiftedFuncs)
+		si := 0
+
+		var buf foldScratch
+
+		for i, d := range fileFuncs {
+			shiftLine, shiftName := int(d.Line) > afterLine, d.HasNameRange() && int(d.NameLine) > afterLine
+			if !shiftLine && !shiftName {
+				continue
+			}
+
+			shifted := &slab[si]
+			si++
+			*shifted = *d
+
+			if shiftLine {
+				shifted.Line = conv.Uint32(int(shifted.Line) + delta)
+			}
+
+			if shiftName {
+				shifted.NameLine = conv.Uint32(int(shifted.NameLine) + delta)
+			}
+
+			fileFuncs[i] = shifted
+
+			var bucket []*parser.FunctionDef
+			if b, ok := buf.lowerASCII(d.Name); ok {
+				bucket = idx.funcs[string(b)]
+			} else {
+				bucket = idx.funcs[strings.ToLower(d.Name)]
+			}
+
+			if j := slices.Index(bucket, d); j >= 0 {
+				bucket[j] = shifted
+			}
+		}
+	}
+
+	fileRefs := idx.fileRefs[key]
+	nShiftedRefs := 0
+
+	for _, r := range fileRefs {
+		if int(r.Line) > afterLine {
+			nShiftedRefs++
+		}
+	}
+
+	if nShiftedRefs == 0 {
+		return
+	}
+
+	refSlab := make([]parser.ComponentRef, nShiftedRefs)
+	ri := 0
+
+	scopeMap := idx.scopeRefs[key]
+
+	var fileRefReps []refReplacement
+	if len(scopeMap) > 0 {
+		fileRefReps = make([]refReplacement, 0, nShiftedRefs)
+	}
+
+	var buf foldScratch
+
+	for i, r := range fileRefs {
 		if int(r.Line) <= afterLine {
 			continue
 		}
 
-		shifted := *r
+		shifted := &refSlab[ri]
+		ri++
+		*shifted = *r
 		shifted.Line = conv.Uint32(int(shifted.Line) + delta)
 
-		rep := refReplacement{old: r, new: &shifted}
-		name := strings.ToLower(r.Variable)
-		refReps[name] = append(refReps[name], rep)
-		fileRefReps = append(fileRefReps, rep)
+		fileRefs[i] = shifted
+
+		var bucket []*parser.ComponentRef
+		if b, ok := buf.lowerASCII(r.Variable); ok {
+			bucket = idx.comprefs[string(b)]
+		} else {
+			bucket = idx.comprefs[strings.ToLower(r.Variable)]
+		}
+
+		if j := slices.Index(bucket, r); j >= 0 {
+			bucket[j] = shifted
+		}
+
+		if len(scopeMap) > 0 {
+			fileRefReps = append(fileRefReps, refReplacement{old: r, new: shifted})
+		}
 	}
 
-	if len(fileFuncReps) == 0 && len(fileRefReps) == 0 {
-		return
-	}
-
-	// Only the buckets holding a replaced entry need touching. A definition
-	// lives under its lowercased name and a ref under its lowercased variable,
-	// so the affected keys are known without searching for them.
-	if len(funcReps) > 0 {
-		idx.funcGen++
-	}
-
-	for name, reps := range funcReps {
-		remap(idx.funcs[name], reps)
-	}
-
-	remap(idx.fileFuncs[key], fileFuncReps)
-
-	for name, reps := range refReps {
-		remap(idx.comprefs[name], reps)
-	}
-
-	remap(idx.fileRefs[key], fileRefReps)
-
-	for _, refs := range idx.scopeRefs[key] {
+	for _, refs := range scopeMap {
 		remap(refs, fileRefReps)
 	}
+}
+
+// foldScratch folds an ASCII identifier to lowercase on the stack so map reads
+// and deletes (`m[string(b)]`) do not allocate.
+type foldScratch [64]byte
+
+func (f *foldScratch) lowerASCII(s string) ([]byte, bool) {
+	if len(s) > len(f) {
+		return nil, false
+	}
+
+	for i := range len(s) {
+		c := s[i]
+		if c >= 0x80 {
+			return nil, false
+		}
+
+		if c >= 'A' && c <= 'Z' {
+			c += 'a' - 'A'
+		}
+
+		f[i] = c
+	}
+
+	return f[:len(s)], true
 }
 
 // replacement pairs an entry with the shifted copy that supersedes it.
@@ -696,10 +763,7 @@ type replacement[T comparable] struct {
 	old, new T
 }
 
-type (
-	funcReplacement = replacement[*parser.FunctionDef]
-	refReplacement  = replacement[*parser.ComponentRef]
-)
+type refReplacement = replacement[*parser.ComponentRef]
 
 // remap substitutes replaced entries into a stored slice in place. Safe because
 // accessors hand out a copy (see snapshot), so the only slices this is called
@@ -794,7 +858,7 @@ func (idx *Index) indexParseResult(fileURI uri.URI, content string, pr *parser.P
 	fileRefsList := make([]*parser.ComponentRef, 0, len(refs))
 
 	for i := range refs {
-		r := new(refs[i])
+		r := &refs[i]
 		key := strings.ToLower(r.Variable)
 		idx.comprefs[key] = append(idx.comprefs[key], r)
 		fileRefsList = append(fileRefsList, r)
@@ -811,7 +875,7 @@ func (idx *Index) storeFileFunctionsLocked(fk string, funcs []parser.FunctionDef
 	fileDefs := make([]*parser.FunctionDef, 0, len(funcs))
 
 	for i := range funcs {
-		d := new(funcs[i])
+		d := &funcs[i]
 		key := strings.ToLower(d.Name)
 		idx.funcs[key] = append(idx.funcs[key], d)
 		fileDefs = append(fileDefs, d)
@@ -866,7 +930,7 @@ func (idx *Index) indexFileFromResult(fileURI uri.URI, funcs []parser.FunctionDe
 	fileRefsList := make([]*parser.ComponentRef, 0, len(refs))
 
 	for i := range refs {
-		r := new(refs[i])
+		r := &refs[i]
 		key := strings.ToLower(r.Variable)
 		idx.comprefs[key] = append(idx.comprefs[key], r)
 		fileRefsList = append(fileRefsList, r)
@@ -1082,97 +1146,67 @@ func (idx *Index) removeFileEntries(fileURI uri.URI) {
 	// entries of this file that carry that one name, which is one of them
 	// except where a file declares the same name twice, so the test is a
 	// pointer comparison or two.
-	if len(idx.fileFuncs[key]) > 0 {
+	fileFuncs := idx.fileFuncs[key]
+	if len(fileFuncs) > 0 {
 		idx.funcGen++
 	}
 
-	for name, group := range groupFuncsByName(idx.fileFuncs[key]) {
-		if filtered := dropEntries(idx.funcs[name], group); len(filtered) == 0 {
-			delete(idx.funcs, name)
+	var buf foldScratch
+
+	for _, d := range fileFuncs {
+		if b, ok := buf.lowerASCII(d.Name); ok {
+			if filtered := dropEntry(idx.funcs[string(b)], d); len(filtered) == 0 {
+				delete(idx.funcs, string(b))
+			} else {
+				idx.funcs[strings.ToLower(d.Name)] = filtered
+			}
 		} else {
-			idx.funcs[name] = filtered
+			name := strings.ToLower(d.Name)
+			if filtered := dropEntry(idx.funcs[name], d); len(filtered) == 0 {
+				delete(idx.funcs, name)
+			} else {
+				idx.funcs[name] = filtered
+			}
 		}
 	}
 
 	delete(idx.fileFuncs, key)
 	delete(idx.fileURIs, key)
 
-	for name, group := range groupRefsByVariable(idx.fileRefs[key]) {
-		if filtered := dropEntries(idx.comprefs[name], group); len(filtered) == 0 {
-			delete(idx.comprefs, name)
+	for _, r := range idx.fileRefs[key] {
+		if b, ok := buf.lowerASCII(r.Variable); ok {
+			if filtered := dropEntry(idx.comprefs[string(b)], r); len(filtered) == 0 {
+				delete(idx.comprefs, string(b))
+			} else {
+				idx.comprefs[strings.ToLower(r.Variable)] = filtered
+			}
 		} else {
-			idx.comprefs[name] = filtered
+			name := strings.ToLower(r.Variable)
+			if filtered := dropEntry(idx.comprefs[name], r); len(filtered) == 0 {
+				delete(idx.comprefs, name)
+			} else {
+				idx.comprefs[name] = filtered
+			}
 		}
 	}
 
 	delete(idx.fileRefs, key)
 }
 
-// groupFuncsByName and groupRefsByVariable bucket one file's entries by the key
-// they are filed under, so a bucket sweep only has to consider the entries that
-// could actually be in it.
-func groupFuncsByName(defs []*parser.FunctionDef) map[string][]*parser.FunctionDef {
-	return groupByLower(defs, func(d *parser.FunctionDef) string { return d.Name })
-}
-
-func groupRefsByVariable(refs []*parser.ComponentRef) map[string][]*parser.ComponentRef {
-	return groupByLower(refs, func(r *parser.ComponentRef) string { return r.Variable })
-}
-
-// groupByLower buckets items by the lowercased key; nil for no items.
-func groupByLower[T any](items []T, key func(T) string) map[string][]T {
-	if len(items) == 0 {
-		return nil
+// dropEntry swap-removes target from entries, clearing the vacated slot so a
+// dropped entry is not pinned by the backing array.
+func dropEntry[T comparable](entries []T, target T) []T {
+	i := slices.Index(entries, target)
+	if i < 0 {
+		return entries
 	}
 
-	out := make(map[string][]T, len(items))
-	for _, it := range items {
-		k := strings.ToLower(key(it))
-		out[k] = append(out[k], it)
-	}
+	last := len(entries) - 1
+	entries[i] = entries[last]
 
-	return out
-}
+	clear(entries[last:])
 
-// dropEntries removes group's entries from a bucket, for the caller that knows
-// exactly which pointers it is removing rather than a rule for recognising
-// them.
-//
-// keepFuncs with a `not in this group` predicate walks the same bucket and
-// makes the same comparisons, and was five times slower at it. The comparison
-// was never the cost: a bucket of 5,000 entries meant 5,000 indirect calls
-// through the predicate and 5,000 calls to slices.Contains over a one-element
-// group, and those two were 36% of the time an index write spent. Searching the
-// bucket for the entry instead turns that into one call to slices.Index per
-// entry removed, over a slice long enough for the loop inside it to be worth
-// entering. A file declaring eight names into a workspace where 5,000 files
-// declare each of them: 220us an index write, against 42us.
-//
-// Removal is a swap with the last entry, not a shift, because bucket order
-// carries no meaning — entries land in whatever order a parallel workspace scan
-// finished in, and the two readers that could care, LookupPreferred and the
-// definition handler's multi-location list, both order by URI distance and then
-// by URI. The vacated slot is cleared so a dropped entry is not pinned by the
-// array the map still points at, the same reason keepFuncs clears its tail.
-//
-// group holds one file's entries under a single name, so it is one entry except
-// where a file declares that name twice.
-func dropEntries[T comparable](entries []T, group []T) []T {
-	for _, g := range group {
-		i := slices.Index(entries, g)
-		if i < 0 {
-			continue
-		}
-
-		last := len(entries) - 1
-		entries[i] = entries[last]
-
-		clear(entries[last:])
-
-		entries = entries[:last]
-	}
-
-	return entries
+	return entries[:last]
 }
 
 // LookupComponentRef returns component references for the given variable name.
