@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.7.3]
+
 ### Added
 
 - **Typed `arrayAppend` / `.append` and non-empty array literal collection tracking (#431).** Closed arrays populated via single-element `arrayAppend(arr, expr)`, `arrayPrepend(arr, expr)`, `arr.append(expr)`, `arr.prepend(expr)`, or non-empty array literals `[expr1, expr2]` now preserve their element component contract instead of unconditionally invalidating (calls with `merge` flags, extra arguments, or named arguments remain conservative).
