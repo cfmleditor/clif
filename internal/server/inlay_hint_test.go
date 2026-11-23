@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -166,5 +167,112 @@ func TestInlayHintOfAFileUnderNoRootIsSkipped(t *testing.T) {
 
 	if got := inlayHints(t, s, outside, wholeDocument); len(got) != 0 {
 		t.Errorf("a file outside every root got %d hints", len(got))
+	}
+}
+
+func TestInlayHintShowsParameterNamesForCalls(t *testing.T) {
+	dir := t.TempDir()
+	s := newTestServer()
+	s.WorkspaceFolders = []string{dir}
+	s.Features.InlayHints = true
+
+	page := uri.File(filepath.Join(dir, "index.cfm"))
+	openDoc(t, s, page, `<cfscript>
+function greet(required string name, numeric times = 1) {}
+greet("Ada", 3);
+greet(name = "Ada", times = 2);
+greet(name: "Ada");
+mid("hello", 1, 3);
+if (true) {
+	greet("Bob");
+}
+</cfscript>
+<cfset x = greet("Cara", 2) />
+`)
+
+	hints := inlayHints(t, s, page, wholeDocument)
+
+	var got []string
+
+	for _, h := range hints {
+		if h.Kind != protocol.InlayHintKindParameter {
+			continue
+		}
+
+		label, _ := h.Label.(protocol.String)
+		got = append(got, string(label))
+	}
+
+	want := []string{
+		"name:", "times:", // greet("Ada", 3)
+		"string:", "start:", "count:", // mid("hello", 1, 3)
+		"name:",           // greet("Bob")
+		"name:", "times:", // <cfset x = greet("Cara", 2) />
+	}
+
+	if len(got) != len(want) {
+		t.Fatalf("parameter hints = %v, want %v", got, want)
+	}
+
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("hint[%d] = %q, want %q (all: %v)", i, got[i], want[i], got)
+		}
+	}
+}
+
+func TestInlayHintShowsParameterNamesForComponentAndConstructorCalls(t *testing.T) {
+	dir := t.TempDir()
+	userPath := filepath.Join(dir, "models", "User.cfc")
+	userSrc := "component {\n\tfunction init(required string email, boolean active = true) {}\n\tfunction rename(required string fullName) {}\n}\n"
+
+	if err := os.MkdirAll(filepath.Dir(userPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(userPath, []byte(userSrc), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	s := newTestServer()
+	s.WorkspaceFolders = []string{dir}
+	s.Features.InlayHints = true
+
+	userURI := uri.File(userPath)
+	openDoc(t, s, userURI, userSrc)
+
+	callerURI := uri.File(filepath.Join(dir, "service.cfc"))
+	callerSrc := "component {\n\tfunction run() {\n\t\tvar u = new models.User(\"a@b.com\", false);\n\t\tu.rename(\"Ada\");\n\t}\n}\n"
+	openDoc(t, s, callerURI, callerSrc)
+
+	hints := inlayHints(t, s, callerURI, wholeDocument)
+
+	var paramLabels []string
+
+	for _, h := range hints {
+		if h.Kind == protocol.InlayHintKindParameter {
+			label, _ := h.Label.(protocol.String)
+			paramLabels = append(paramLabels, string(label))
+		}
+	}
+
+	want := []string{"email:", "active:", "fullName:"}
+	if len(paramLabels) != len(want) {
+		t.Fatalf("param hints = %v, want %v (all hints: %+v)", paramLabels, want, hints)
+	}
+
+	for i := range want {
+		if paramLabels[i] != want[i] {
+			t.Errorf("hint[%d] = %q, want %q", i, paramLabels[i], want[i])
+		}
+	}
+
+	// Range filtering: requesting only line 3 returns only `fullName:`.
+	line3 := inlayHints(t, s, callerURI, protocol.Range{
+		Start: protocol.Position{Line: 3, Character: 0},
+		End:   protocol.Position{Line: 3, Character: 40},
+	})
+	if len(line3) != 1 || line3[0].Label != protocol.String("fullName:") {
+		t.Errorf("line 3 hints = %+v, want single fullName: hint", line3)
 	}
 }

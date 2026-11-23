@@ -209,6 +209,7 @@ func (s *Server) capabilities() protocol.ServerCapabilities {
 		// misbehaves, not because either is expensive.
 		DocumentHighlightProvider: protocol.Boolean(s.Features.DocumentHighlight),
 		FoldingRangeProvider:      protocol.Boolean(s.Features.Folding),
+		SelectionRangeProvider:    protocol.Boolean(true),
 		WorkspaceSymbolProvider:   s.workspaceSymbolProvider(),
 		HoverProvider:             protocol.Boolean(true),
 		DocumentLinkProvider:      &protocol.DocumentLinkOptions{ResolveProvider: &resolveProvider},
