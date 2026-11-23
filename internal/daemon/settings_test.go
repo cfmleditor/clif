@@ -57,8 +57,14 @@ func TestSettingsFromFillsEveryField(t *testing.T) {
 	set := reflect.ValueOf(SettingsFrom(cfg))
 
 	for i := range set.NumField() {
+		name := set.Type().Field(i).Name
+		if name == "Version" {
+			// Binary build version, set by main rather than .clif.json.
+			continue
+		}
+
 		if set.Field(i).IsZero() {
-			t.Errorf("server.Settings.%s is not filled by SettingsFrom", set.Type().Field(i).Name)
+			t.Errorf("server.Settings.%s is not filled by SettingsFrom", name)
 		}
 	}
 }

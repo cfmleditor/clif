@@ -222,6 +222,7 @@ func runDaemon(cfg *daemon.Config, log cflog.Logger) {
 	// every editor after the first; building it in daemon.SettingsFrom
 	// rather than here is what lets a test check that nothing is missing.
 	settings := daemon.SettingsFrom(cfg)
+	settings.Version = version
 
 	go func() {
 		// A daemon that cannot serve its socket still serves this editor
