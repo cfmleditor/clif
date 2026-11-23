@@ -120,6 +120,8 @@ func (s *Server) Handler() jsonrpc2.Handler {
 			return s.handleDocumentHighlight(ctx, req.Params())
 		case protocol.MethodTextDocumentFoldingRange:
 			return s.handleFoldingRange(ctx, req.Params())
+		case protocol.MethodTextDocumentSelectionRange:
+			return s.handleSelectionRange(ctx, req.Params())
 		case protocol.MethodTextDocumentDocumentSymbol:
 			return s.handleDocumentSymbol(ctx, req.Params())
 		case protocol.MethodWorkspaceSymbol:

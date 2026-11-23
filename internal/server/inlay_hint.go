@@ -13,14 +13,15 @@ import (
 	"go.lsp.dev/protocol"
 )
 
-// handleInlayHint answers textDocument/inlayHint: a component's own dot path,
-// `Path: (models.User)`, beside its declaration, where an editor can show what
-// to write to refer to it. Opt-in (features.inlayHints): it is new, and an
-// editor that draws its own hints would show each twice.
+// handleInlayHint answers textDocument/inlayHint with:
+//  1. A component's own dot path, `Path: (models.User)`, beside its declaration
+//     (for non-Application.cfc `.cfc` files).
+//  2. Parameter-name hints (`name:`) before positional call arguments whose
+//     callee signature is known (built-in functions, local/component methods,
+//     and `new` constructors).
 //
-// Only a .cfc that is not an Application.cfc has one: that is the file
-// `new` and `createObject` name, and an application's root has no dot path a
-// call would use. The path is the one clif.copyPackage answers.
+// Opt-in (features.inlayHints): an editor that draws its own hints would
+// otherwise show each twice.
 func (s *Server) handleInlayHint(_ context.Context, rawParams []byte) (any, error) {
 	if !s.Features.InlayHints {
 		return nil, nil
@@ -32,11 +33,6 @@ func (s *Server) handleInlayHint(_ context.Context, rawParams []byte) (any, erro
 	}
 
 	docURI := params.TextDocument.URI
-	file := cfpath.FromURI(string(docURI))
-
-	if !strings.EqualFold(filepath.Ext(file), ".cfc") || strings.EqualFold(filepath.Base(file), "Application.cfc") {
-		return nil, nil
-	}
 
 	// An unopened document has no text to hint, and no close to take its lock
 	// away again.
@@ -44,21 +40,42 @@ func (s *Server) handleInlayHint(_ context.Context, rawParams []byte) (any, erro
 		return nil, nil
 	}
 
-	defer s.lockDocOnly(docURI)()
+	defer s.lockDoc(docURI)()
 
 	content, ok := s.getDocument(docURI)
 	if !ok {
 		return nil, nil
 	}
 
+	file := cfpath.FromURI(string(docURI))
+
+	var hints []protocol.InlayHint
+	if h, ok := s.componentPathHint(content, file, params.Range); ok {
+		hints = append(hints, h)
+	}
+
+	hints = append(hints, s.parameterInlayHints(docURI, file, content, params.Range)...)
+
+	if hints == nil {
+		return []protocol.InlayHint{}, nil
+	}
+
+	return hints, nil
+}
+
+func (s *Server) componentPathHint(content, file string, want protocol.Range) (protocol.InlayHint, bool) {
+	if !strings.EqualFold(filepath.Ext(file), ".cfc") || strings.EqualFold(filepath.Base(file), "Application.cfc") {
+		return protocol.InlayHint{}, false
+	}
+
 	open, end, ok := parser.ComponentDeclarationBounds(content)
 	if !ok {
-		return nil, nil
+		return protocol.InlayHint{}, false
 	}
 
 	// A self-closed `<cfcomponent />` has no body to name.
 	if content[open] == '>' && open > 0 && content[open-1] == '/' {
-		return []protocol.InlayHint{}, nil
+		return protocol.InlayHint{}, false
 	}
 
 	// One offset: the lines before it counted, and its own line's columns, not a
@@ -67,23 +84,23 @@ func (s *Server) handleInlayHint(_ context.Context, rawParams []byte) (any, erro
 	lineStart := strings.LastIndexByte(content[:end], '\n') + 1
 	at := protocol.Position{Line: conv.Uint32(line), Character: conv.Uint32(lex.UTF16Len(content[lineStart:end]))}
 
-	if !positionInRange(at, params.Range) {
-		return []protocol.InlayHint{}, nil
+	if !positionInRange(at, want) {
+		return protocol.InlayHint{}, false
 	}
 
 	dotPath, _ := s.fileToPackageIn(file)
 	if dotPath == "" {
-		return []protocol.InlayHint{}, nil
+		return protocol.InlayHint{}, false
 	}
 
 	pad := true
 
-	return []protocol.InlayHint{{
+	return protocol.InlayHint{
 		Position:    at,
 		Label:       protocol.String("Path: (" + dotPath + ")"),
 		PaddingLeft: &pad,
 		Tooltip:     protocol.String("The dot path that names this component"),
-	}}, nil
+	}, true
 }
 
 // positionInRange reports whether p lies within r, its ends included.
