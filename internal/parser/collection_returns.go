@@ -138,10 +138,10 @@ func collectionReturnExpressions(calls []pendingCall, tagFile bool) map[int][]st
 }
 
 func (pr *ParseResult) collectionKeys(writes []collectionWrite) (*localSet, map[int]string, func(string, string) collKey, *keyTable) {
-	kt := newKeyTable()
-	locals := &localSet{kt: kt, m: map[collKey]bool{}}
+	kt := newKeyTableCap(len(pr.Scopes) + len(writes)/2 + 8)
+	locals := &localSet{kt: kt, m: make(map[collKey]bool, len(pr.Funcs)*2+len(writes)/4)}
 
-	scopeKeys := map[int]string{}
+	scopeKeys := make(map[int]string, len(pr.Scopes))
 	for i := range pr.Scopes {
 		scopeKeys[pr.Scopes[i].Start] = pr.scopeKey(i)
 	}
@@ -198,7 +198,7 @@ func (pr *ParseResult) applyCollectionReturns(calls []pendingCall) {
 	// name up among the locals.
 	ks := pr.writeKeys(writes)
 	locals, keys, key, targets, kt := ks.locals, ks.scopeKeys, ks.key, ks.targets, ks.kt
-	roots := map[collKey]bool{}
+	roots := make(map[collKey]bool, len(writes)/4+len(returns))
 
 	for i := range writes {
 		if w := &writes[i]; w.element || emptyCollection(w.expression) || startsArrayLiteral(w.expression) {
@@ -910,7 +910,7 @@ func (pr *ParseResult) collectWrites(cache *expressionWriteCache) []collectionWr
 		r := &pr.Regions[i]
 		if r.Kind == RegionScript {
 			toks := pr.scriptTokens(r)
-			writes = placeWrites(scanExpressionWritesFrom(newReplayScanner(r.Text, toks), r.Text, *toks), r.Offset, functionAt, writes)
+			writes = placeWrites(scanTokenWrites(*toks, r.Text), r.Offset, functionAt, writes)
 
 			continue
 		}
@@ -968,6 +968,242 @@ func scanExpressionWrites(expression string) []expressionWrite {
 	sc.interpStrings = true
 
 	return scanExpressionWritesFrom(sc, expression, nil)
+}
+
+func tokenKindAt(toks []Token, i int) TokenKind {
+	if i < len(toks) {
+		return toks[i].Kind
+	}
+
+	return TokEOF
+}
+
+func isCompoundWriteOp(k TokenKind) bool {
+	switch k {
+	case TokPlus, TokMinus, TokStar, TokSlash, TokAmpersand, TokPercent, TokCaret:
+		return true
+	default:
+		return false
+	}
+}
+
+// scanTokenWrites is scanExpressionWritesFrom walking a pre-tokenized script
+// region directly by slice index — avoiding replay-scanner copies, Restore
+// binary searches, and expressionEnds offset binary searches.
+func scanTokenWrites(toks []Token, expression string) []expressionWrite {
+	writes := newExpressionWrites(toks)
+
+	var ends *expressionEnds
+
+	defer func() {
+		if ends != nil {
+			ends.src = ""
+			expressionEndsPool.Put(ends)
+		}
+	}()
+
+	prev := TokEOF
+
+	for i := range toks {
+		t := toks[i]
+		if t.Kind == TokEOF {
+			break
+		}
+
+		before := prev
+		prev = t.Kind
+
+		nextKind := tokenKindAt(toks, i+1)
+
+		// Closure-local collection bindings need their own lexical identities.
+		// Withhold collection inference rather than attributing them to the parent.
+		if ((t.Kind == TokEquals || t.Kind == TokMinus) && nextKind == TokGT) ||
+			(t.Kind == TokIdent && identEq(t.Value, "function") && nextKind == TokLParen) {
+			writes = append(writes, expressionWrite{write: collectionWrite{unknown: true}, at: t.Offset})
+		}
+
+		if t.Kind != TokIdent || before == TokDot || before == TokDoubleColon {
+			continue
+		}
+
+		if !mayStartWrite(nextKind) && !identEq(t.Value, "var") {
+			continue
+		}
+
+		if collectionMutator(t.Value) && nextKind == TokLParen {
+			if root, element, after := collectionTargetAt(toks, i+2); root != "" && !element {
+				writes = append(writes, expressionWrite{write: collectionMutatorWriteAt(t.Value, root, toks, after, expression), at: t.Offset, placed: true})
+			}
+		}
+
+		local := identEq(t.Value, "var")
+		startIdx := i
+
+		if local {
+			startIdx = i + 1
+		}
+
+		root, element, after := collectionTargetAt(toks, startIdx)
+		if root == "" {
+			continue
+		}
+
+		afterKind := tokenKindAt(toks, after)
+		if afterKind == TokLParen {
+			if base, method, ok := strings.CutLast(root, "."); ok && collectionMemberMutator(method) {
+				writes = append(writes, expressionWrite{write: memberMutatorWriteAt(method, base, toks, after, expression), at: t.Offset, placed: true})
+			}
+		}
+
+		if isCompoundWriteOp(afterKind) {
+			if afterNext := tokenKindAt(toks, after+1); afterNext == TokEquals || afterNext == afterKind {
+				writes = append(writes, expressionWrite{write: collectionWrite{target: root, element: element, unknown: true}, at: t.Offset, placed: true})
+			}
+
+			continue
+		}
+
+		if afterKind != TokEquals || tokenKindAt(toks, after+1) == TokEquals {
+			continue
+		}
+
+		if ends == nil {
+			ends, _ = expressionEndsPool.Get().(*expressionEnds)
+			ends.fill(expression, toks)
+		}
+
+		writes = append(writes, expressionWrite{write: collectionWrite{target: root, expression: ends.at(after + 1), element: element, local: local || lex.HasPrefixFold(root, "local.")}, at: t.Offset, placed: true})
+	}
+
+	return writes
+}
+
+// collectionTargetAt is collectionTarget over a token slice starting at i,
+// returning the index of the first token after the target.
+func collectionTargetAt(toks []Token, i int) (root string, element bool, next int) {
+	n := len(toks)
+	if i >= n || toks[i].Kind != TokIdent {
+		return "", false, i
+	}
+
+	var path chainBuilder
+	path.reset(toks[i].Value)
+	i++
+
+	for i < n && toks[i].Kind == TokDot {
+		i++
+		if i >= n || toks[i].Kind != TokIdent {
+			return "", false, i
+		}
+
+		path.writeDot()
+		path.writeString(toks[i].Value)
+		i++
+	}
+
+	root = path.String()
+	if i >= n || toks[i].Kind != TokLBracket {
+		return root, false, i
+	}
+
+	i++
+	depth := 1
+
+	for depth > 0 {
+		if i >= n {
+			return "", false, i
+		}
+
+		switch toks[i].Kind {
+		case TokEOF:
+			return "", false, i
+		case TokLBracket:
+			depth++
+		case TokRBracket:
+			depth--
+		default:
+		}
+
+		i++
+	}
+
+	return root, true, i
+}
+
+func collectionMutatorWriteAt(name, root string, toks []Token, i int, expression string) collectionWrite {
+	if isArrayAppendMutator(name) {
+		if val, ok := mutatorArgExprAt(toks, i, expression, true); ok {
+			return collectionWrite{target: root, expression: val, element: true}
+		}
+	}
+
+	return collectionWrite{target: root, unknown: true}
+}
+
+func memberMutatorWriteAt(method, base string, toks []Token, i int, expression string) collectionWrite {
+	if isMemberAppendMutator(method) {
+		if val, ok := mutatorArgExprAt(toks, i, expression, false); ok {
+			return collectionWrite{target: base, expression: val, element: true}
+		}
+	}
+
+	return collectionWrite{target: base, element: true, unknown: true}
+}
+
+func mutatorArgExprAt(toks []Token, i int, expression string, afterComma bool) (string, bool) {
+	n := len(toks)
+	if afterComma {
+		if i >= n || toks[i].Kind != TokComma {
+			return "", false
+		}
+	} else {
+		if i >= n || toks[i].Kind != TokLParen {
+			return "", false
+		}
+	}
+
+	i++
+	if i >= n || toks[i].Kind == TokEOF || toks[i].Kind == TokRParen {
+		return "", false
+	}
+
+	start := toks[i].Offset
+	depth := 0
+
+	for ; i < n; i++ {
+		tok := toks[i]
+		switch tok.Kind {
+		case TokEOF:
+			return "", false
+		case TokLParen, TokLBracket, TokLBrace:
+			depth++
+		case TokRParen:
+			if depth == 0 {
+				if start < 0 || tok.Offset < start || tok.Offset > len(expression) {
+					return "", false
+				}
+
+				val := strings.TrimSpace(expression[start:tok.Offset])
+
+				return val, val != ""
+			}
+
+			depth--
+		case TokRBracket, TokRBrace:
+			if depth == 0 {
+				return "", false
+			}
+
+			depth--
+		case TokComma, TokEquals:
+			if depth == 0 {
+				return "", false
+			}
+		default:
+		}
+	}
+
+	return "", false
 }
 
 // scanExpressionWritesFrom is scanExpressionWrites reading sc, a scanner over
@@ -1232,6 +1468,15 @@ func (e *expressionEnds) fill(src string, toks []Token) {
 
 	e.src, e.offsets, e.ends = src, offsets, ends
 	e.depths, e.terminal, e.newline, e.next, e.nextLine = depths, terminal, newline, next, nextLine
+}
+
+// at is from when the caller already has the token's index in e.offsets.
+func (e *expressionEnds) at(i int) string {
+	if i < 0 || i >= len(e.ends) {
+		return ""
+	}
+
+	return strings.TrimSpace(e.src[e.offsets[i]:e.ends[i]])
 }
 
 // from is scriptReturnExpression for a scanner whose next token starts at

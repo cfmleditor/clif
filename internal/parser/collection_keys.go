@@ -53,7 +53,18 @@ type keyTable struct {
 }
 
 func newKeyTable() *keyTable {
-	t := &keyTable{ids: map[string]uint32{}}
+	return newKeyTableCap(8)
+}
+
+func newKeyTableCap(hint int) *keyTable {
+	if hint < 8 {
+		hint = 8
+	}
+
+	t := &keyTable{
+		ids:  make(map[string]uint32, hint),
+		strs: make([]string, 0, hint),
+	}
 
 	for _, s := range []string{"variables.", "this.", "*"} {
 		t.ids[s] = conv.Uint32(len(t.strs))
@@ -100,7 +111,9 @@ func (t *keyTable) findLower(s string) (uint32, bool) {
 		return 0, false
 	}
 
-	id, ok := t.ids[strings.ToLower(s)]
+	var buf foldScratch
+
+	id, ok := t.ids[string(buf.lowerFold(s))]
 
 	return id, ok
 }

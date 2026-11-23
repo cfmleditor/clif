@@ -384,17 +384,22 @@ func (pr *ParseResult) memberAssignmentCandidate(content string, offset int) boo
 		return false
 	}
 
-	cursor := NewScanner(content[offset+1:])
-	expression := mappingSourceExpression(cursor)
-
-	first := NewScanner(expression).PeekSkipComments()
-	if first.Kind == TokIdent && (identEq(first.Value, "new") || identEq(first.Value, "createObject")) {
-		return true
-	}
-
 	if pr.FuncLookup != nil || len(pr.Resolvers) > 0 {
 		return true
 	}
+
+	cursor := NewScanner(content[offset+1:])
+
+	first := cursor.PeekSkipComments()
+	if first.Kind != TokIdent {
+		return false
+	}
+
+	if identEq(first.Value, "new") || identEq(first.Value, "createObject") {
+		return true
+	}
+
+	expression := mappingSourceExpression(cursor)
 
 	root, element := collectionRead(expression)
 	if root == "" || element {
