@@ -321,22 +321,18 @@ Measured against the old pin on the same `main`:
   RustCFML's `bench/ws/probe.cfm` (#176). Galaxie: 406 -> 411 clean.
 - `go test -short ./cmd/... ./internal/...` and `golangci-lint` pass.
 
-### Decision: #119 and #177 stay unsupported
+### Decision: remaining grammar gaps are known limitations (not to be fixed)
 
-The 8 parse errors left on Galaxie Blog after tree-sitter-cfml v0.26.44 are, by decision, not going to be fixed in
-the grammar for now:
+As of `tree-sitter-cfml` `v0.26.44`, `#116` (`() => ;`), `#117` (interleaved return type/modifiers), and `#118` (`thread {}` followed by a tag island) are closed/completed upstream.
 
-- **2 are the #119 class**, a tag whose structure is split across `<cfif>` branches
-  (`includes/templates/blogContentCss.cfm`: an element opened in one branch; `galaxiePlayer.cfm`: an attribute quote
-  that spans a `</cfif>`). The grammar repo measured a fix and reverted it, because every rule shape that makes the
-  construct parse breaks the spelling that parses today, and recorded the shapes as probes (`fail` on purpose) and in
-  its `LIMITATIONS.md` (cfmleditor/tree-sitter-cfml#180).
-- **#177**, a literal `<` before a hash expression (`<span><#context#/index.cfm/[siteid]?</span>`, MuraCMS's
-  `core/setup/inc/_form.cfm`), was reduced but needs start-tag-name scanning restructured for one corpus file, and is
-  recorded the same way. It does not occur in Galaxie.
-- **6 are in the table above**, of which only the two CF-tag errors are likely to be invalid to an engine; `/ >` is
-  filed as cfmleditor/tree-sitter-cfml#181 for someone to check on Lucee.
+All remaining open `tree-sitter-cfml` grammar gaps are **flagged as known limitations — invalid or non-standard syntax, not to be fixed**:
 
-Both issues stay open so the question can be reopened. In clif the consequence is the same as for any file the grammar
-refuses: `clif scan` reports it and the formatter declines the file, and the file's calls are still read by the
-line-scanning parser (`internal/parser`), which does not use the grammar.
+- **`#119`** — start tag, element, or attribute quote split across `<cfif>` branches (ContentBox, Galaxie Blog `blogContentCss.cfm` / `galaxiePlayer.cfm`). Recorded in `tree-sitter-cfml`'s `LIMITATIONS.md` and as intentional `fail` probes (`tree-sitter-cfml#180`).
+- **`#177`** — literal `<` before `#expr#` in HTML text (`<span><#context#/index.cfm/[siteid]?</span>`, MuraCMS `core/setup/inc/_form.cfm`). Recorded as a known limitation.
+- **`#181`** — space between `/` and `>` in a self-closing CF tag (`<cfset x = 1 / >`, Galaxie Blog `Application.cfc:430,440`). Non-standard syntax; not to be fixed.
+- **`#182`** — stray `"` in a host HTML tag's attribute area (`<span tooltip" class="hint">`, `<tr <cfif ...>...</cfif>" width="12">`). Malformed HTML; not to be fixed.
+- **`#75`** — statement as an arrow-function body (`(s) => return s`). Known limitation; not to be fixed.
+- **`#132`** — dynamic tag names with a static prefix + `#expr#`. Known limitation; not to be fixed.
+- **`#175`** — remaining unreduced corpus parse errors (the 12 files above and Galaxie's malformed HTML/CF tag rows). Not queued for grammar work.
+
+In `clif` the consequence is the same as for any file the grammar refuses: `clif scan` reports it and the formatter declines the file safely, while the file's symbols and calls are still read by the line-scanning parser (`internal/parser`), which does not use the grammar.
