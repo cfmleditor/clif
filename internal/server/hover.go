@@ -61,10 +61,13 @@ func (s *Server) handleHover(_ context.Context, rawParams []byte) (any, error) {
 
 	// Builtin function
 	if e, ok := docs.LookupFunction(word); ok {
+		previews := e.FunctionPreviews()
+		value := "```cfs\n" + strings.Join(previews, "\n```\n\n```cfs\n") + "\n```\n\n" + e.Doc()
+
 		return &protocol.Hover{
 			Contents: &protocol.MarkupContent{
 				Kind:  protocol.MarkupKindMarkdown,
-				Value: fmt.Sprintf("**%s**\n\n```cfml\n%s\n```\n\n%s", e.Name, e.Syntax, e.Doc()),
+				Value: value,
 			},
 		}, nil
 	}
@@ -74,7 +77,7 @@ func (s *Server) handleHover(_ context.Context, rawParams []byte) (any, error) {
 		return &protocol.Hover{
 			Contents: &protocol.MarkupContent{
 				Kind:  protocol.MarkupKindMarkdown,
-				Value: fmt.Sprintf("**<%s>**\n\n%s", e.Name, e.Doc()),
+				Value: fmt.Sprintf("```cfml\n<%s>\n```\n\n%s", e.Name, e.Doc()),
 			},
 		}, nil
 	}

@@ -69,7 +69,16 @@ func (e *Entry) Doc() string {
 				req = " *(required)*"
 			}
 
-			fmt.Fprintf(&sb, "- `%s` (%s)%s — %s\n", p.Name, p.Type, req, firstLine(p.Description))
+			if e.Type == "tag" {
+				attributeType := p.Type
+				if attributeType == "" {
+					attributeType = "any"
+				}
+
+				fmt.Fprintf(&sb, "- **%s** `%s`%s — %s\n", p.Name, attributeType, req, firstLine(p.Description))
+			} else {
+				fmt.Fprintf(&sb, "- `%s` (%s)%s — %s\n", p.Name, p.Type, req, firstLine(p.Description))
+			}
 		}
 	}
 
