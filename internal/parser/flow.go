@@ -153,6 +153,11 @@ func (fb *flowBlocks) note(name string, line, block uint32) {
 	r := fb.rec
 	line += fb.shift
 	r.sorted = r.sorted && (len(r.notes) == 0 || r.notes[len(r.notes)-1].line <= line)
+
+	if r.notes == nil {
+		r.notes = make([]refNote, 0, 16)
+	}
+
 	r.notes = append(r.notes, refNote{name, line, block})
 }
 
@@ -201,20 +206,46 @@ func (fb *flowBlocks) untypedReaches(reaching []*ComponentRef, name string, star
 // noteReturn records the blocks open at a return on line.
 func (fb *flowBlocks) noteReturn(line uint32) {
 	r := fb.rec
+	if r.open == nil {
+		r.open = make([]uint32, 0, 16)
+		r.returns = make([]returnNote, 0, 16)
+	}
+
 	from := len(r.open)
 	r.open = append(r.open, fb.stack...)
 	r.returns = append(r.returns, returnNote{line + fb.shift, from, len(r.open)})
 
-	if r.lastReturn == nil {
-		r.lastReturn = map[uint32]int{}
+	if r.lastReturn != nil {
+		r.lastReturn[line+fb.shift] = len(r.returns) - 1
 	}
-
-	r.lastReturn[line+fb.shift] = len(r.returns) - 1
 }
 
 // openAt is the blocks open at the return on line, the latest recorded.
 func (fb *flowBlocks) openAt(line uint32) []uint32 {
 	r := fb.rec
+	if len(r.returns) == 0 {
+		return nil
+	}
+
+	// Most files have few returns or never query openAt; scanning backwards
+	// avoids allocating lastReturn until a file actually needs O(1) lookup.
+	if r.lastReturn == nil {
+		if len(r.returns) <= 16 {
+			for _, n := range slices.Backward(r.returns) {
+				if n.line == line {
+					return r.open[n.from:n.to]
+				}
+			}
+
+			return nil
+		}
+
+		r.lastReturn = make(map[uint32]int, len(r.returns))
+		for i, n := range r.returns {
+			r.lastReturn[n.line] = i
+		}
+	}
+
 	if i, ok := r.lastReturn[line]; ok {
 		n := r.returns[i]
 

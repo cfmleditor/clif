@@ -18,10 +18,10 @@ var parseAllocBudgets = []struct {
 	opts    ParseOptions
 	budget  float64
 }{
-	{"script", &benchScriptCFC, ParseOptions{}, 1100},
-	{"script, calls", &benchScriptCFC, ParseOptions{ExtractCalls: true}, 1180},
-	{"tag", &benchTagCFC, ParseOptions{}, 425},
-	{"tag, calls", &benchTagCFC, ParseOptions{ExtractCalls: true}, 870},
+	{"script", &benchScriptCFC, ParseOptions{}, 720},
+	{"script, calls", &benchScriptCFC, ParseOptions{ExtractCalls: true}, 770},
+	{"tag", &benchTagCFC, ParseOptions{}, 340},
+	{"tag, calls", &benchTagCFC, ParseOptions{ExtractCalls: true}, 580},
 }
 
 func TestParseStaysWithinItsAllocationBudget(t *testing.T) {

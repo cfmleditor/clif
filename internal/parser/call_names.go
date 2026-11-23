@@ -18,6 +18,96 @@ import "strings"
 // member writes a tag file's <cfset> sub-parse keeps when it extracts calls,
 // so every other field of the result is the plain parse's.
 
+// localNames tracks variable names declared local in a script function body.
+// Up to maxLocalScan names are kept in a small slice and scanned with
+// strings.EqualFold — avoiding map buckets and strings.ToLower allocations for
+// the common case — and promoted to a map only for functions with many locals.
+type localNames struct {
+	names []string
+	set   map[string]struct{}
+}
+
+func (l *localNames) reset() {
+	l.names = l.names[:0]
+	if l.set != nil {
+		clear(l.set)
+		l.set = nil
+	}
+}
+
+func (l *localNames) has(name string) bool {
+	if l == nil {
+		return false
+	}
+
+	if l.set != nil {
+		var buf foldScratch
+
+		_, ok := l.set[string(buf.lowerFold(name))]
+
+		return ok
+	}
+
+	for _, v := range l.names {
+		if strings.EqualFold(v, name) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (l *localNames) add(name string) {
+	if l == nil {
+		return
+	}
+
+	if l.set != nil {
+		var buf foldScratch
+		if _, ok := l.set[string(buf.lowerFold(name))]; ok {
+			return
+		}
+
+		l.set[strings.ToLower(name)] = struct{}{}
+		l.names = append(l.names, name)
+
+		return
+	}
+
+	for _, v := range l.names {
+		if strings.EqualFold(v, name) {
+			return
+		}
+	}
+
+	l.names = append(l.names, name)
+	if len(l.names) > maxLocalScan {
+		l.set = make(map[string]struct{}, 2*len(l.names))
+		for _, v := range l.names {
+			l.set[strings.ToLower(v)] = struct{}{}
+		}
+	}
+}
+
+func (l *localNames) clone() *localNames {
+	out := &localNames{}
+	if l == nil || len(l.names) == 0 {
+		return out
+	}
+
+	out.names = make([]string, len(l.names))
+	copy(out.names, l.names)
+
+	if l.set != nil {
+		out.set = make(map[string]struct{}, len(l.set))
+		for k := range l.set {
+			out.set[k] = struct{}{}
+		}
+	}
+
+	return out
+}
+
 // scriptExtras is what a script parser records in some parses only, behind
 // one pointer: a slice here moved the struct up a size class
 // (TestParserStructsKeepTheirSize).
@@ -26,6 +116,46 @@ type scriptExtras struct {
 	// callNames, lowercased, are the only names whose calls are recorded;
 	// nil records every call.
 	callNames []string
+	// rootLocals is reused across top-level functions in parseBraceBody so
+	// each function does not allocate a fresh map or slice.
+	rootLocals localNames
+	// spanSlab and argSlab batch FunctionSpan and []Argument allocations
+	// across functions in a script file.
+	spanSlab []FunctionSpan
+	argSlab  []Argument
+}
+
+func (p *scriptParser) ensureExtras() *scriptExtras {
+	if p.extras == nil {
+		p.extras = &scriptExtras{}
+	}
+
+	return p.extras
+}
+
+func (p *scriptParser) allocSpan() *FunctionSpan {
+	ex := p.ensureExtras()
+	if len(ex.spanSlab) == 0 {
+		ex.spanSlab = make([]FunctionSpan, 16)
+	}
+
+	s := &ex.spanSlab[0]
+	ex.spanSlab = ex.spanSlab[1:]
+
+	return s
+}
+
+func (p *scriptParser) allocArgs(args []Argument) []Argument {
+	if len(args) == 0 {
+		return nil
+	}
+
+	ex := p.ensureExtras()
+	start := len(ex.argSlab)
+	ex.argSlab = append(ex.argSlab, args...)
+	end := len(ex.argSlab)
+
+	return ex.argSlab[start:end:end]
 }
 
 // lowerNames is names lowercased, or nil for none.
