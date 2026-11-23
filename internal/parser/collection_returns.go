@@ -201,7 +201,7 @@ func (pr *ParseResult) applyCollectionReturns(calls []pendingCall) {
 	roots := map[collKey]bool{}
 
 	for i := range writes {
-		if w := &writes[i]; w.element || emptyCollection(w.expression) {
+		if w := &writes[i]; w.element || emptyCollection(w.expression) || startsArrayLiteral(w.expression) {
 			roots[targets[i]] = true
 		}
 	}
@@ -425,11 +425,41 @@ func (pr *ParseResult) recordCollectionWrite(w collectionWrite, target collKey, 
 	}
 
 	if !w.element {
-		if emptyCollection(w.expression) {
+		switch {
+		case emptyCollection(w.expression):
 			n.structure = true
 			n.arraySeed = n.arraySeed || strings.HasPrefix(strings.TrimSpace(w.expression), "[")
 			n.structSeed = n.structSeed || strings.HasPrefix(strings.TrimSpace(w.expression), "{") || !n.arraySeed && !structNew()
-		} else {
+		case startsArrayLiteral(w.expression):
+			elems, ok := arrayLiteralElements(w.expression)
+			if !ok {
+				n.invalid = true
+
+				return
+			}
+
+			n.structure = true
+			n.arraySeed = true
+
+			for _, el := range elems {
+				if source, elem := collectionRead(el); source != "" && elem {
+					dep := key(source, w.function)
+					n.dependencies = append(n.dependencies, dep)
+					node(dep)
+
+					continue
+				}
+
+				source := pr.collectionValueSource(el, w.function, locals)
+				if source.Component == "" || strings.HasPrefix(source.Component, "$") {
+					n.invalid = true
+
+					return
+				}
+
+				n.addSource(source)
+			}
+		default:
 			n.invalid = true
 		}
 
@@ -990,7 +1020,7 @@ func scanExpressionWritesFrom(sc *Scanner, expression string, toks []Token) []ex
 
 			root, element := collectionTarget(&cursor)
 			if root != "" && !element {
-				writes = append(writes, expressionWrite{write: collectionWrite{target: root, unknown: true}, at: t.Offset, placed: true})
+				writes = append(writes, expressionWrite{write: collectionMutatorWrite(t.Value, root, &cursor, expression), at: t.Offset, placed: true})
 			}
 		}
 
@@ -1013,7 +1043,7 @@ func scanExpressionWritesFrom(sc *Scanner, expression string, toks []Token) []ex
 		// variables.instance.DAO.update( bean ) on Masa's DAOs.
 		if cursor.PeekSkipComments().Kind == TokLParen {
 			if base, method, ok := strings.CutLast(root, "."); ok && collectionMemberMutator(method) {
-				writes = append(writes, expressionWrite{write: collectionWrite{target: base, element: true, unknown: true}, at: t.Offset, placed: true})
+				writes = append(writes, expressionWrite{write: memberMutatorWrite(method, base, &cursor, expression), at: t.Offset, placed: true})
 			}
 		}
 
@@ -1422,6 +1452,156 @@ func wholeCollectionValue(expression string) bool {
 			}
 		default:
 			return false
+		}
+	}
+}
+
+func collectionMutatorWrite(name, root string, cursor *Scanner, expression string) collectionWrite {
+	if isArrayAppendMutator(name) {
+		if val, ok := mutatorArgExpr(cursor, expression, true); ok {
+			return collectionWrite{target: root, expression: val, element: true}
+		}
+	}
+
+	return collectionWrite{target: root, unknown: true}
+}
+
+func memberMutatorWrite(method, base string, cursor *Scanner, expression string) collectionWrite {
+	if isMemberAppendMutator(method) {
+		c := *cursor
+		if val, ok := mutatorArgExpr(&c, expression, false); ok {
+			return collectionWrite{target: base, expression: val, element: true}
+		}
+	}
+
+	return collectionWrite{target: base, element: true, unknown: true}
+}
+
+func isArrayAppendMutator(name string) bool {
+	return identEq(name, "arrayappend") || identEq(name, "arrayprepend")
+}
+
+func isMemberAppendMutator(name string) bool {
+	return identEq(name, "append") || identEq(name, "prepend")
+}
+
+// mutatorArgExpr extracts the single positional value expression passed to
+// arrayAppend(arr, expr) / arrayPrepend(arr, expr) (afterComma=true) or
+// arr.append(expr) / arr.prepend(expr) (afterComma=false). Calls with a merge
+// flag, extra arguments, or named arguments return false so the caller falls
+// back to invalidating the collection.
+func mutatorArgExpr(sc *Scanner, expression string, afterComma bool) (string, bool) {
+	if afterComma {
+		if sc.NextSkipComments().Kind != TokComma {
+			return "", false
+		}
+	} else {
+		if sc.NextSkipComments().Kind != TokLParen {
+			return "", false
+		}
+	}
+
+	first := sc.PeekSkipComments()
+	if first.Kind == TokEOF || first.Kind == TokRParen {
+		return "", false
+	}
+
+	start := first.Offset
+	depth := 0
+
+	for {
+		tok := sc.NextSkipComments()
+		switch tok.Kind {
+		case TokEOF:
+			return "", false
+		case TokLParen, TokLBracket, TokLBrace:
+			depth++
+		case TokRParen:
+			if depth == 0 {
+				if start < 0 || tok.Offset < start || tok.Offset > len(expression) {
+					return "", false
+				}
+
+				val := strings.TrimSpace(expression[start:tok.Offset])
+
+				return val, val != ""
+			}
+
+			depth--
+		case TokRBracket, TokRBrace:
+			if depth == 0 {
+				return "", false
+			}
+
+			depth--
+		case TokComma, TokEquals:
+			if depth == 0 {
+				return "", false
+			}
+		default:
+		}
+	}
+}
+
+func startsArrayLiteral(expression string) bool {
+	s := strings.TrimSpace(expression)
+
+	return len(s) >= 3 && s[0] == '[' && s[len(s)-1] == ']'
+}
+
+// arrayLiteralElements splits a top-level non-empty array literal `[e1, e2]`
+// into its element expressions. Compound expressions like `[a] + [b]` return
+// false.
+func arrayLiteralElements(expression string) ([]string, bool) {
+	s := strings.TrimSpace(expression)
+	if len(s) < 3 || s[0] != '[' || s[len(s)-1] != ']' {
+		return nil, false
+	}
+
+	sc := NewScanner(s)
+	if sc.NextSkipComments().Kind != TokLBracket {
+		return nil, false
+	}
+
+	depth := 1
+	elemStart := sc.PeekSkipComments().Offset
+
+	var elems []string
+
+	for {
+		tok := sc.NextSkipComments()
+		switch tok.Kind {
+		case TokEOF:
+			return nil, false
+		case TokLBracket, TokLParen, TokLBrace:
+			depth++
+		case TokRBracket, TokRParen, TokRBrace:
+			depth--
+			if depth == 0 {
+				if tok.Kind != TokRBracket || sc.PeekSkipComments().Kind != TokEOF {
+					return nil, false
+				}
+
+				el := strings.TrimSpace(s[elemStart:tok.Offset])
+				if el == "" {
+					return nil, false
+				}
+
+				elems = append(elems, el)
+
+				return elems, true
+			}
+		case TokComma:
+			if depth == 1 {
+				el := strings.TrimSpace(s[elemStart:tok.Offset])
+				if el == "" {
+					return nil, false
+				}
+
+				elems = append(elems, el)
+				elemStart = sc.PeekSkipComments().Offset
+			}
+		default:
 		}
 	}
 }

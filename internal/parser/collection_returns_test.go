@@ -44,6 +44,15 @@ func TestUniformCollectionReturns(t *testing.T) {
 		{"explicit field receiver", `var dao=arguments.value; built[key]=variables.dao.read();`, `return variables.items[key];`, "models.Site"},
 		{"parent overwrite", `variables.nested.items=structNew(); variables.nested.items[key]=new models.Site(); variables.nested=arguments.value;`, `return variables.nested.items[key];`, ""},
 		{"argument shadows field", `built[key]=new models.Site();`, `return items[key];`, ""},
+		{"arrayAppend typed", `built=[]; arrayAppend(built, new models.Site());`, `return variables.items[1];`, "models.Site"},
+		{"arrayPrepend typed", `built=[]; arrayPrepend(built, new models.Site());`, `return variables.items[1];`, "models.Site"},
+		{"member append typed", `built=[]; built.append(new models.Site());`, `return variables.items[1];`, "models.Site"},
+		{"member prepend typed", `built=[]; built.prepend(new models.Site());`, `return variables.items[1];`, "models.Site"},
+		{"array literal typed", `built=[new models.Site(), new models.Site()];`, `return variables.items[1];`, "models.Site"},
+		{"arrayAppend unknown", `built=[]; arrayAppend(built, new models.Site()); arrayAppend(built, arguments.value);`, `return variables.items[1];`, ""},
+		{"arrayAppend merge flag", `built=[]; arrayAppend(built, new models.Site(), true);`, `return variables.items[1];`, ""},
+		{"member append merge flag", `built=[]; built.append(new models.Site(), true);`, `return variables.items[1];`, ""},
+		{"array literal mixed unknown", `built=[new models.Site(), arguments.value];`, `return variables.items[1];`, ""},
 	}
 	for _, syntax := range []string{"script", "tag", "mixed"} {
 		for _, tc := range cases {
