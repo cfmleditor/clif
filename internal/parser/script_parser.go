@@ -85,11 +85,11 @@ type scriptParser struct {
 	imports             map[string]string // last segment (lowercased) → full dot-path, from `import`
 	builtinReturnLookup func(string) string
 	argumentTypes       func(string, string, []Argument)
-	inFunc              fnKey           // current function scope key, noFn if global
-	localVarSet         map[string]bool // var'd/local. names in current function
-	returnVar           string          // last "return varName" seen in current function
-	pendingCalls        []pendingCall   // unresolved varName = funcCall(...) assignments
-	flow                *flowBlocks     // the blocks a function body opens; nil outside a full parse
+	inFunc              fnKey         // current function scope key, noFn if global
+	localVarSet         *localNames   // var'd/local. names in current function
+	returnVar           string        // last "return varName" seen in current function
+	pendingCalls        []pendingCall // unresolved varName = funcCall(...) assignments
+	flow                *flowBlocks   // the blocks a function body opens; nil outside a full parse
 
 	// extras holds the instantiations and the call-name filter, made on the
 	// first: a slice header here moved the struct up a size class, for
@@ -941,13 +941,7 @@ func (p *scriptParser) recordChainFromScope(fullChain string, line int) {
 }
 
 func (p *scriptParser) isVarDeclaredLocal(name string) bool {
-	if p.localVarSet == nil {
-		return false
-	}
-
-	var buf foldScratch
-
-	return p.localVarSet[string(buf.lowerFold(name))]
+	return p.localVarSet.has(name)
 }
 
 // fileLinks files links, the region's, under the function each is in, or
@@ -972,9 +966,7 @@ func (p *scriptParser) parseVarDecl(tok Token) {
 
 	p.sc.NextSkipComments() // consume =
 
-	if p.localVarSet != nil {
-		p.localVarSet[strings.ToLower(nameTok.Value)] = true
-	}
+	p.localVarSet.add(nameTok.Value)
 
 	p.vars = append(p.vars, VarDef{
 		Name: nameTok.Value, Scope: ScopeLocal,
@@ -1051,26 +1043,28 @@ func (p *scriptParser) checkVarRHS(varName string, line int) {
 	}
 
 	if p.sc.PeekSkipComments().Kind == TokLParen {
-		p.recordCallFromChain(fullChain.String(), int(lastLine))
+		chainStr := fullChain.String()
+		p.recordCallFromChain(chainStr, int(lastLine))
 
-		if comp := p.tryResolveCall(fullChain.String()); comp != "" {
-			rest := p.recordChainContinuation(receiverOf(fullChain.String()), lastIdent, comp, line)
+		if comp := p.tryResolveCall(chainStr); comp != "" {
+			recv := receiverOf(chainStr)
+			rest := p.recordChainContinuation(recv, lastIdent, comp, line)
 			p.addRef(&ComponentRef{
 				Variable: varName, Component: comp,
 				ChainBase: prevIdent, ChainMethod: lastIdent, ChainRest: rest,
 				URI: uriFromString(p.fileURI), Line: conv.Uint32(p.baseLine + line),
-				Rebinds: rebinds(varName, receiverOf(fullChain.String())),
+				Rebinds: rebinds(varName, recv),
 			})
-		} else if comp, ext := p.tryExtendChain(fullChain.String()); comp != "" {
-			rest := p.continueExtendedChain(receiverOf(fullChain.String()), lastIdent, ext, line)
+		} else if comp, ext := p.tryExtendChain(chainStr); comp != "" {
+			rest := p.continueExtendedChain(receiverOf(chainStr), lastIdent, ext, line)
 			p.addRef(&ComponentRef{
 				Variable: varName, Component: comp, ChainRest: rest,
 				URI: uriFromString(p.fileURI), Line: conv.Uint32(p.baseLine + line),
 			})
 		} else if p.builtinReturnLookup != nil {
-			p.recordBuiltinAssignment(varName, prevIdent, lastIdent, fullChain.String(), line)
+			p.recordBuiltinAssignment(varName, prevIdent, lastIdent, chainStr, line)
 		} else {
-			p.addPendingCall(varName, prevIdent, lastIdent, fullChain.String(), line)
+			p.addPendingCall(varName, prevIdent, lastIdent, chainStr, line)
 		}
 	} else {
 		p.assignNonCall(varName, fullChain.String(), line)
@@ -1238,8 +1232,8 @@ func (p *scriptParser) parseScopedVar(tok Token, scope Scope) {
 	})
 
 	isLocal := scope == ScopeLocal || scope == ScopeArguments
-	if isLocal && p.localVarSet != nil {
-		p.localVarSet[strings.ToLower(nameTok.Value)] = true
+	if isLocal {
+		p.localVarSet.add(nameTok.Value)
 	}
 
 	if !isLocal {
@@ -1881,7 +1875,8 @@ func (p *scriptParser) functionSpan(kind FunctionKind, name, access string, star
 	}
 
 	base := p.baseOffset
-	s := &FunctionSpan{
+	s := p.allocSpan()
+	*s = FunctionSpan{
 		Name: name, Access: access, Defaults: defaults, Kind: kind,
 		Line:   p.baseLine + int(start.Line),
 		Start:  base + start.Offset,
@@ -2185,8 +2180,8 @@ func (p *scriptParser) parseCatchVar() {
 func (p *scriptParser) declareVar(nameTok Token, scope Scope) {
 	if !p.inFunc.in {
 		scope = ScopeVariables
-	} else if scope == ScopeLocal && p.localVarSet != nil {
-		p.localVarSet[strings.ToLower(nameTok.Value)] = true
+	} else if scope == ScopeLocal {
+		p.localVarSet.add(nameTok.Value)
 	}
 
 	p.vars = append(p.vars, VarDef{
@@ -2383,9 +2378,13 @@ func (p *scriptParser) parseArgList() []Argument {
 // parseArgs is parseArgList with what a FunctionSpan keeps of the list: the
 // offset of its closing parenthesis in the region (-1 when it runs to the
 // end), and its literal defaults (FunctionSpan.Defaults).
-func (p *scriptParser) parseArgs(recordDeclarations bool) (args []Argument, closing int, defaults map[string]string) {
-	args = make([]Argument, 0, 4)
-	closing = -1
+func (p *scriptParser) parseArgs(recordDeclarations bool) ([]Argument, int, map[string]string) {
+	var localArgs [8]Argument
+
+	args := localArgs[:0]
+	closing := -1
+
+	var defaults map[string]string
 
 	for {
 		tok := p.sc.NextSkipComments()
@@ -2411,11 +2410,12 @@ func (p *scriptParser) parseArgs(recordDeclarations bool) (args []Argument, clos
 
 		var typeName, name string
 
-		// Capacity 3 because the loop below stops there: an argument is at most
-		// `required type name`. Built from a literal of one, it reallocated twice
-		// for every argument of every function in the file.
-		idents := make([]string, 1, 3)
-		idents[0] = tok.Value
+		// Stack-backed array of 3 because the loop below stops there: an argument
+		// is at most `required type name`.
+		var identsBuf [3]string
+
+		identsBuf[0] = tok.Value
+		idents := identsBuf[:1]
 		nameTok := tok
 
 	loop:
@@ -2486,7 +2486,7 @@ func (p *scriptParser) parseArgs(recordDeclarations bool) (args []Argument, clos
 		}
 	}
 
-	return args, closing, defaults
+	return p.allocArgs(args), closing, defaults
 }
 
 // skipDefault consumes an argument's default value, recording any calls written
@@ -2586,9 +2586,16 @@ func (p *scriptParser) parseBraceBody(funcLine int, args []Argument, tok Token) 
 	pendingFrom := len(p.pendingCalls)
 	p.returnVar = ""
 
-	p.localVarSet = make(map[string]bool)
+	if prevLocalVarSet == nil {
+		root := &p.ensureExtras().rootLocals
+		root.reset()
+		p.localVarSet = root
+	} else {
+		p.localVarSet = &localNames{}
+	}
+
 	for _, a := range args {
-		p.localVarSet[strings.ToLower(a.Name)] = true
+		p.localVarSet.add(a.Name)
 
 		if comp := argumentComponentType(&a); comp != "" {
 			if p.funcRefs == nil {
@@ -3210,7 +3217,7 @@ func (p *scriptParser) parseBodyVarDecl(varTok Token) {
 	p.sc.NextSkipComments() // consume =
 	p.noteAssign(nameTok.Value, int(varTok.Line))
 
-	p.localVarSet[strings.ToLower(nameTok.Value)] = true
+	p.localVarSet.add(nameTok.Value)
 	p.vars = append(p.vars, VarDef{
 		Name: nameTok.Value, Scope: ScopeLocal,
 		Line: conv.Uint32(p.baseLine + int(varTok.Line)),
@@ -3285,7 +3292,7 @@ func (p *scriptParser) parseBodyScopedVar(scopeTok Token, scope Scope) {
 
 	isLocal := scope == ScopeLocal || scope == ScopeArguments
 	if isLocal {
-		p.localVarSet[strings.ToLower(nameTok.Value)] = true
+		p.localVarSet.add(nameTok.Value)
 	} else {
 		p.forceGlobal = true
 	}
@@ -3663,21 +3670,23 @@ func (p *scriptParser) assignFromChain(varName string, c *chainBuilder, prevIden
 		return
 	}
 
-	p.recordCallFromChain(c.String(), callLine)
+	chainStr := c.String()
+	p.recordCallFromChain(chainStr, callLine)
 
-	if comp := p.tryResolveCall(c.String()); comp != "" {
-		rest := p.recordChainContinuation(receiverOf(c.String()), lastIdent, comp, line)
+	if comp := p.tryResolveCall(chainStr); comp != "" {
+		recv := receiverOf(chainStr)
+		rest := p.recordChainContinuation(recv, lastIdent, comp, line)
 		p.addRef(&ComponentRef{
 			Variable: varName, Component: comp,
 			ChainBase: prevIdent, ChainMethod: lastIdent, ChainRest: rest,
 			URI: uriFromString(p.fileURI), Line: conv.Uint32(p.baseLine + line),
-			Rebinds: rebinds(varName, receiverOf(c.String())),
+			Rebinds: rebinds(varName, recv),
 		})
 
 		return
 	}
 
-	p.addPendingCall(varName, prevIdent, lastIdent, c.String(), line)
+	p.addPendingCall(varName, prevIdent, lastIdent, chainStr, line)
 }
 
 // argumentComponent is the declared type of a whole arguments.name value.

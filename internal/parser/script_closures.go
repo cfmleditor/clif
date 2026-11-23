@@ -3,9 +3,6 @@
 package parser
 
 import (
-	"maps"
-	"strings"
-
 	"github.com/cfmleditor/clif/internal/conv"
 )
 
@@ -218,10 +215,7 @@ func (p *scriptParser) scanClosureBody(line int, params []string, recordParams b
 	// What the closure declares is its own: its `var t` must not make a
 	// later unscoped `t = …` in the enclosing function a local.
 	if statements {
-		p.localVarSet = maps.Clone(prevLocals)
-		if p.localVarSet == nil {
-			p.localVarSet = make(map[string]bool)
-		}
+		p.localVarSet = prevLocals.clone()
 	}
 
 	refsBefore, pendingBefore := len(p.funcRefs[p.inFunc]), len(p.pendingCalls)
@@ -230,7 +224,7 @@ func (p *scriptParser) scanClosureBody(line int, params []string, recordParams b
 	// and `function( ctx ) {` bind names the body reads.
 	if statements {
 		for _, name := range params {
-			p.localVarSet[strings.ToLower(name)] = true
+			p.localVarSet.add(name)
 		}
 
 		if recordParams {

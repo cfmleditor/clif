@@ -797,14 +797,14 @@ func (pr *ParseResult) mergeScriptRegion(r *Region, tagScopes []FuncScope, open 
 	if s, ok := pr.regionTagScope(tagScopes, r.StartLine); ok {
 		sp.inFunc = funcKey(s.Start, s.End)
 		seed, sp.funcs = pr.seedRegionFunction(s.Start, s.Name)
-		sp.localVarSet = make(map[string]bool)
+		sp.localVarSet = &localNames{}
 
 		for _, arg := range pr.argsOfFuncAt(s.Start) {
-			sp.localVarSet[strings.ToLower(arg.Name)] = true
+			sp.localVarSet.add(arg.Name)
 		}
 
 		for _, name := range open.namesFor(sp.inFunc) {
-			sp.localVarSet[strings.ToLower(name)] = true
+			sp.localVarSet.add(name)
 		}
 	}
 
@@ -836,8 +836,8 @@ func (pr *ParseResult) mergeScriptRegion(r *Region, tagScopes []FuncScope, open 
 	// What the block declared local stays local in the regions after it.
 	if key.in {
 		names := slices.Clone(open.namesFor(key))
-		for name := range sp.localVarSet {
-			names = append(names, name)
+		if sp.localVarSet != nil {
+			names = append(names, sp.localVarSet.names...)
 		}
 
 		*open = openLocals{key: key, names: names}

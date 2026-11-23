@@ -99,6 +99,8 @@ type tagParser struct {
 	// outputAt is the output state at each function this region opens
 	// where it is not the empty one, on the region's lines.
 	outputAt []functionOutput
+	// argSlab batches []Argument backing arrays across <cffunction> bodies.
+	argSlab []Argument
 }
 
 func newTagParser(src, fileURI string) *tagParser {
@@ -839,9 +841,7 @@ func (p *tagParser) parseCFArguments(block string, blockStart int) []Argument {
 		return nil
 	}
 
-	// Most functions take a few arguments, and a nil slice reaching four costs
-	// three copies to get there.
-	args := make([]Argument, 0, 4)
+	start := len(p.argSlab)
 	ends := newTagEnds(block)
 
 	pos := 0
@@ -880,7 +880,7 @@ func (p *tagParser) parseCFArguments(block string, blockStart int) []Argument {
 				a.Type = a.Hint
 			}
 
-			args = append(args, a)
+			p.argSlab = append(p.argSlab, a)
 
 			p.vars = append(p.vars, VarDef{
 				Name: name, Scope: ScopeArguments,
@@ -891,7 +891,12 @@ func (p *tagParser) parseCFArguments(block string, blockStart int) []Argument {
 		pos = idx + end + 1
 	}
 
-	return args
+	end := len(p.argSlab)
+	if end == start {
+		return nil
+	}
+
+	return p.argSlab[start:end:end]
 }
 
 // addRef appends a component ref to the correct bucket (global or per-function).
