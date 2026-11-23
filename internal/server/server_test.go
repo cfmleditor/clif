@@ -913,7 +913,7 @@ func TestWorkspaceSymbolBoundsAndRanksShortQueries(t *testing.T) {
 
 func TestHoverFunction(t *testing.T) {
 	srv := newTestServer()
-	srv.setDocument(uri.URI("file:///test.cfm"), "<cfset x = Len(y)>")
+	srv.setDocument(uri.URI("file:///test.cfm"), "<cfset x = getTempFile('tmp')>")
 
 	req := makeCall(t, protocol.MethodTextDocumentHover, protocol.HoverParams{
 		TextDocument: protocol.TextDocumentIdentifier{URI: "file:///test.cfm"},
@@ -930,8 +930,9 @@ func TestHoverFunction(t *testing.T) {
 		t.Fatalf("expected *Hover, got %T", result)
 	}
 
-	if !strings.Contains(strings.ToLower(markupContent(t, hover.Contents).Value), "len") {
-		t.Errorf("expected hover to contain 'len', got %s", markupContent(t, hover.Contents).Value)
+	want := "```cfs\nstring function getTempFile(required string prefix, string dir, string extension)\n```"
+	if value := markupContent(t, hover.Contents).Value; !strings.Contains(value, want) {
+		t.Errorf("expected CFScript declaration in documented call order, got %s", value)
 	}
 
 	if markupContent(t, hover.Contents).Kind != protocol.MarkupKindMarkdown {
@@ -941,7 +942,7 @@ func TestHoverFunction(t *testing.T) {
 
 func TestHoverTag(t *testing.T) {
 	srv := newTestServer()
-	srv.setDocument(uri.URI("file:///test.cfm"), "<cfquery name=\"q\">")
+	srv.setDocument(uri.URI("file:///test.cfm"), "<cfdump var=\"#value#\">")
 
 	req := makeCall(t, protocol.MethodTextDocumentHover, protocol.HoverParams{
 		TextDocument: protocol.TextDocumentIdentifier{URI: "file:///test.cfm"},
@@ -958,8 +959,9 @@ func TestHoverTag(t *testing.T) {
 		t.Fatalf("expected *Hover, got %T", result)
 	}
 
-	if !strings.Contains(markupContent(t, hover.Contents).Value, "cfquery") {
-		t.Errorf("expected hover to contain 'cfquery', got %s", markupContent(t, hover.Contents).Value)
+	value := markupContent(t, hover.Contents).Value
+	if !strings.HasPrefix(value, "```cfml\n<cfdump>\n```") || !strings.Contains(value, "- **expand** `boolean`") {
+		t.Errorf("expected a compact header and typed attribute details, got %s", value)
 	}
 }
 

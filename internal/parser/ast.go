@@ -1354,9 +1354,19 @@ func IsComponentType(t string) bool { return isComponentType(t) }
 func (def *FunctionDef) FormatHover() string {
 	var b strings.Builder
 
-	b.WriteString("**")
-	b.WriteString(def.Name)
-	b.WriteString("**\n\n```cfml\n")
+	b.WriteString("```cfs\n")
+
+	returnType := def.ReturnType
+	if returnType == "" {
+		returnType = def.DocReturn
+	}
+
+	if returnType == "" {
+		returnType = "any"
+	}
+
+	b.WriteString(returnType)
+	b.WriteString(" function ")
 	b.WriteString(def.Name)
 	b.WriteString("(")
 
@@ -1372,6 +1382,8 @@ func (def *FunctionDef) FormatHover() string {
 		if arg.Type != "" {
 			b.WriteString(arg.Type)
 			b.WriteString(" ")
+		} else {
+			b.WriteString("any ")
 		}
 
 		b.WriteString(arg.Name)
