@@ -25,6 +25,7 @@ func TestSettingsApplyCoversEveryField(t *testing.T) {
 	set := Settings{
 		CallerInferenceLimits:    config.CallerInferenceLimits{MaxCallSites: 40},
 		ConfigPath:               "/w/.cfmleditor.json",
+		Version:                  "0.7.3",
 		WorkspaceFolders:         []string{"/w"},
 		IndexGlobs:               []string{"**/*.cfc"},
 		Mappings:                 map[string]string{"models": "/w/models"},

@@ -244,12 +244,14 @@ func (s *Server) handleInitialize(_ context.Context, rawParams []byte) (any, err
 
 	s.log.Info("CFML LSP initialized", cflog.Strings("workspaceRoots", s.editorRoots()))
 
+	serverInfo := protocol.ServerInfo{Name: "clif"}
+	if s.Version != "" {
+		serverInfo.Version = optStr(s.Version)
+	}
+
 	return protocol.InitializeResult{
 		Capabilities: s.capabilities(),
-		ServerInfo: protocol.ServerInfo{
-			Name:    "clif",
-			Version: optStr(s.Version),
-		},
+		ServerInfo:   serverInfo,
 	}, nil
 }
 

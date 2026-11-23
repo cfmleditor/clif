@@ -24,11 +24,17 @@ type Settings struct {
 	// whether its configuration has already been discovered for it — see
 	// handleInitialize.
 	ConfigPath string
+	// Version is the clif binary version reported in InitializeResult.ServerInfo
+	// for every session, including subsequent clients served by the daemon socket.
+	Version string
 }
 
 // Apply copies the settings onto a freshly created Server.
 func (set *Settings) Apply(s *Server) {
 	s.ConfigPath = set.ConfigPath
+	if set.Version != "" {
+		s.Version = set.Version
+	}
 
 	// On a server nothing has configured yet, the layered application of a
 	// resolved config (fill what is unset, append resolvers) is an assignment,
