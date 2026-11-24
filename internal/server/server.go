@@ -212,6 +212,7 @@ func (s *Server) capabilities() protocol.ServerCapabilities {
 		FoldingRangeProvider:      protocol.Boolean(s.Features.Folding),
 		SelectionRangeProvider:    protocol.Boolean(true),
 		TypeHierarchyProvider:     protocol.Boolean(true),
+		CallHierarchyProvider:     protocol.Boolean(true),
 		WorkspaceSymbolProvider:   s.workspaceSymbolProvider(),
 		HoverProvider:             protocol.Boolean(true),
 		DocumentLinkProvider:      &protocol.DocumentLinkOptions{ResolveProvider: &resolveProvider},

@@ -132,6 +132,12 @@ func (s *Server) Handler() jsonrpc2.Handler {
 			return s.handleTypeHierarchySupertypes(ctx, req.Params())
 		case protocol.MethodTypeHierarchySubtypes:
 			return s.handleTypeHierarchySubtypes(ctx, req.Params())
+		case protocol.MethodTextDocumentPrepareCallHierarchy:
+			return s.handlePrepareCallHierarchy(ctx, req.Params())
+		case protocol.MethodCallHierarchyIncomingCalls:
+			return s.handleCallHierarchyIncomingCalls(ctx, req.Params())
+		case protocol.MethodCallHierarchyOutgoingCalls:
+			return s.handleCallHierarchyOutgoingCalls(ctx, req.Params())
 		case protocol.MethodTextDocumentDocumentSymbol:
 			return s.handleDocumentSymbol(ctx, req.Params())
 		case protocol.MethodWorkspaceSymbol:
