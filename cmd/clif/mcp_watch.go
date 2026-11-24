@@ -44,7 +44,7 @@ func newMCPMapWatcher(root, dbPath string) *mcpMapWatcher {
 	return &mcpMapWatcher{
 		root:         root,
 		dbPath:       dbPath,
-		pollInterval: 1 * time.Second,
+		pollInterval: 3 * time.Second,
 		debounce:     2 * time.Second,
 		pending:      make(map[string]struct{}),
 	}

@@ -16,7 +16,8 @@ import (
 const mcpUsage = `usage: clif mcp [--db <file>] [--watch] [--root <dir>] [--tools <list>] [--allow-lint] [--map-only] [--no-explain]
 
 Serve a CFML workspace over the Model Context Protocol on stdio, so an
-assistant can ask about the code instead of grepping for it. It writes nothing.
+assistant can ask about the code instead of grepping for it. It writes nothing
+unless --watch is set, which updates the --db code map.
 
 Always offered, reading source on disk:
   explore                 one-shot symbol/file context (source, callers, callees, impact)
@@ -257,8 +258,10 @@ func cmdMCP(args []string) {
 
 	srv := mcpServer(&f, db)
 
+	var watcher *mcpMapWatcher
+
 	if f.watch {
-		watcher := newMCPMapWatcher(mcpRoot(&f, db), f.db)
+		watcher = newMCPMapWatcher(mcpRoot(&f, db), f.db)
 
 		watcher.Start(context.Background())
 		defer watcher.Stop()
@@ -275,9 +278,12 @@ func cmdMCP(args []string) {
 	}
 
 	if err := srv.Serve(os.Stdin, os.Stdout); err != nil {
-		// Close before exiting rather than relying on the defer, which os.Exit
-		// skips: this is a WAL-mode database and an unclosed one strands its -wal
-		// and -shm files next to it for the next reader to recover.
+		// Drain any in-flight sync and close the WAL DB before exiting, because
+		// os.Exit skips defers.
+		if watcher != nil {
+			watcher.Stop()
+		}
+
 		if db != nil {
 			_ = db.Close()
 		}
