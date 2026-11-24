@@ -49,6 +49,24 @@ type RefFinder func(target string, paths []string, limit int) (any, error)
 // Linter runs CFLint over paths.
 type Linter func(paths []string, limit int) (any, error)
 
+// Outliner extracts a file's component declaration, properties, and function signatures.
+type Outliner func(file string) (any, error)
+
+// TypeHierarchyFinder returns supertypes and subtypes for a component file.
+type TypeHierarchyFinder func(file string) (any, error)
+
+// DocsLookup searches or retrieves embedded CFML tag, function, and member docs.
+type DocsLookup func(name, query, kind string, limit int) (any, error)
+
+// StructureChecker reports tag-structure and duplicate-argument diagnostics.
+type StructureChecker func(paths []string, limit int) (any, error)
+
+// RouteResolver resolves a framework route string using .clif.json's routes config.
+type RouteResolver func(route string) (any, error)
+
+// FormatChecker checks whether CFML files would change under `clif format` without writing.
+type FormatChecker func(paths []string, includeDiff bool, limit int) (any, error)
+
 // Server answers MCP requests. Like Explain, every hook is supplied by the
 // caller, since each needs the workspace config and resolver chain.
 type Server struct {
@@ -60,10 +78,16 @@ type Server struct {
 
 	// Each hook is optional. When one is nil its tool is not advertised, so a
 	// client sees the tools that actually work rather than one that always errors.
-	Explain    Explainer
-	Unresolved Unresolver
-	FindRefs   RefFinder
-	Lint       Linter
+	Explain       Explainer
+	Unresolved    Unresolver
+	FindRefs      RefFinder
+	Lint          Linter
+	Outline       Outliner
+	TypeHierarchy TypeHierarchyFinder
+	LookupDocs    DocsLookup
+	Structure     StructureChecker
+	ResolveRoute  RouteResolver
+	CheckFormat   FormatChecker
 }
 
 type request struct {
@@ -152,9 +176,13 @@ func send(enc *json.Encoder, writer *bufio.Writer, r *response) error {
 }
 
 func (s *Server) instructions() string {
-	text := "Checks over a CFML workspace: find_unresolved_calls reports calls that do not " +
+	text := "Read-only CFML workspace tools: find_unresolved_calls reports calls that do not " +
 		"resolve and explain_call says why one did or did not; find_references finds the uses " +
-		"of a component or function."
+		"of a component or function; get_outline lists a file's component header, properties " +
+		"and function signatures without reading the whole file; get_type_hierarchy shows " +
+		"supertypes and subtypes; lookup_docs queries embedded CFML tag/function docs; " +
+		"check_structure checks tag structure and duplicate arguments; resolve_route resolves " +
+		"configured framework routes; check_format previews formatting changes without writing."
 
 	if s.Lint != nil {
 		text += " lint runs CFLint over files or directories."
