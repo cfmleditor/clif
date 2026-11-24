@@ -50,11 +50,16 @@ func (s *Server) handleInlayHint(_ context.Context, rawParams []byte) (any, erro
 	file := cfpath.FromURI(string(docURI))
 
 	var hints []protocol.InlayHint
-	if h, ok := s.componentPathHint(content, file, params.Range); ok {
-		hints = append(hints, h)
+
+	if s.Features.InlayHintsComponentPath {
+		if h, ok := s.componentPathHint(content, file, params.Range); ok {
+			hints = append(hints, h)
+		}
 	}
 
-	hints = append(hints, s.parameterInlayHints(docURI, file, content, params.Range)...)
+	if s.Features.InlayHintsParameterNames {
+		hints = append(hints, s.parameterInlayHints(docURI, file, content, params.Range)...)
+	}
 
 	if hints == nil {
 		return []protocol.InlayHint{}, nil
