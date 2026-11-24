@@ -106,6 +106,16 @@ func TestMCPDaemonClientSharesLiveIndex(t *testing.T) {
 		t.Errorf("expected source snippet containing calculateTotal, got %q", src)
 	}
 
+	// LiveExplore by file path should return mode=daemon-file + outline + source.
+	fileRes, err := client.LiveExplore("OrderService.cfc", true)
+	if err != nil {
+		t.Fatalf("LiveExplore(file): %v", err)
+	}
+
+	if fm := mustMap(t, fileRes); fm["mode"] != "daemon-file" {
+		t.Errorf("file mode = %v, want daemon-file", fm["mode"])
+	}
+
 	cancel()
 	<-errCh
 }

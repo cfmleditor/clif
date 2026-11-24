@@ -278,8 +278,12 @@ func cmdMCP(args []string) {
 		srv.SyncStatus = watcher.status
 	}
 
+	var dc *mcpDaemonClient
+
 	if f.daemon && !f.mapOnly {
-		dc, err := connectMCPDaemon(mcpRoot(&f, db), f.daemonSocket)
+		var err error
+
+		dc, err = connectMCPDaemon(mcpRoot(&f, db), f.daemonSocket)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "clif mcp --daemon: %v (falling back to local workspace index)\n", err)
 		} else {
@@ -299,10 +303,14 @@ func cmdMCP(args []string) {
 	}
 
 	if err := srv.Serve(os.Stdin, os.Stdout); err != nil {
-		// Drain any in-flight sync and close the WAL DB before exiting, because
-		// os.Exit skips defers.
+		// Drain any in-flight sync, close the daemon socket, and close the WAL DB
+		// before exiting, because os.Exit skips defers.
 		if watcher != nil {
 			watcher.Stop()
+		}
+
+		if dc != nil {
+			_ = dc.Close()
 		}
 
 		if db != nil {
@@ -314,14 +322,15 @@ func cmdMCP(args []string) {
 }
 
 // wireMCPDaemon wraps live MCP hooks to query the running daemon's shared
-// index first, falling back seamlessly to the local workspace hooks if the
-// daemon connection drops.
+// index first, falling back to the local workspace hooks only when the daemon
+// transport itself fails (never on normal tool or path-confinement errors).
 func wireMCPDaemon(srv *mcp.Server, dc *mcpDaemonClient) {
 	if srv.Explain != nil {
 		fallback := srv.Explain
 		srv.Explain = func(file string, line int, match string) (string, error) {
-			if out, err := dc.ExplainCall(file, line, match); err == nil {
-				return out, nil
+			out, err := dc.ExplainCall(file, line, match)
+			if err == nil || !dc.isTransportFailure(err) {
+				return out, err
 			}
 
 			return fallback(file, line, match)
@@ -331,8 +340,9 @@ func wireMCPDaemon(srv *mcp.Server, dc *mcpDaemonClient) {
 	if srv.ResolveRoute != nil {
 		fallback := srv.ResolveRoute
 		srv.ResolveRoute = func(routeStr string) (any, error) {
-			if out, err := dc.ResolveRoute(routeStr); err == nil {
-				return out, nil
+			out, err := dc.ResolveRoute(routeStr)
+			if err == nil || !dc.isTransportFailure(err) {
+				return out, err
 			}
 
 			return fallback(routeStr)
@@ -342,8 +352,9 @@ func wireMCPDaemon(srv *mcp.Server, dc *mcpDaemonClient) {
 	if srv.LiveExplore != nil {
 		fallback := srv.LiveExplore
 		srv.LiveExplore = func(query string, includeSource bool) (any, error) {
-			if out, err := dc.LiveExplore(query, includeSource); err == nil {
-				return out, nil
+			out, err := dc.LiveExplore(query, includeSource)
+			if err == nil || !dc.isTransportFailure(err) {
+				return out, err
 			}
 
 			return fallback(query, includeSource)

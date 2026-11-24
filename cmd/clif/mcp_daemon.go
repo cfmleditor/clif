@@ -8,7 +8,9 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"io"
 	"net"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -201,7 +203,52 @@ func (c *mcpDaemonClient) WorkspaceSymbols(query string) ([]protocol.SymbolInfor
 	return syms, nil
 }
 
+func (c *mcpDaemonClient) isTransportFailure(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	select {
+	case <-c.conn.Done():
+		return true
+	default:
+	}
+
+	if _, ok := errors.AsType[net.Error](err); ok {
+		return true
+	}
+
+	return errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, net.ErrClosed)
+}
+
 func (c *mcpDaemonClient) LiveExplore(query string, includeSource bool) (any, error) {
+	// Handle file-path queries directly (matching mcpLiveExplore).
+	candidate := query
+	if !filepath.IsAbs(candidate) {
+		candidate = filepath.Join(c.root, filepath.FromSlash(candidate))
+	}
+
+	if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+		outline, oerr := mcpOutline(c.root, candidate)
+		if oerr != nil {
+			return nil, oerr
+		}
+
+		out := map[string]any{
+			"query":   query,
+			"mode":    "daemon-file",
+			"outline": outline,
+		}
+
+		if includeSource {
+			if src, serr := mcpReadSnippet(c.root, candidate, 0, 100); serr == nil {
+				out["source"] = src
+			}
+		}
+
+		return out, nil
+	}
+
 	syms, err := c.WorkspaceSymbols(query)
 	if err != nil {
 		return nil, err

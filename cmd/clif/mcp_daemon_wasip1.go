@@ -14,6 +14,8 @@ func connectMCPDaemon(_, _ string) (*mcpDaemonClient, error) {
 
 func (*mcpDaemonClient) Close() error { return nil }
 
+func (*mcpDaemonClient) isTransportFailure(error) bool { return true }
+
 func (*mcpDaemonClient) ExplainCall(string, int, string) (string, error) {
 	return "", errors.New("daemon mode is not supported in the wasip1 build")
 }
