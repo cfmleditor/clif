@@ -10,7 +10,7 @@
 ### Changed
 
 - **Reference searches type script receivers (#451).** A call whose receiver the parse left untyped (a script `var s = new Foo()`) is typed with the resolver's `ComponentOf`, as `unresolved` does, so another component's same-named method is excluded and not passed as a candidate; a type that names no file (a WireBox id) stays a candidate. A component's inherited methods count as its own for the match.
-- **Large source files split by concern (#449).** `script_parser.go`, `result.go`, `cfscript_formatter.go`, `resolve.go`, `producer_flow.go`, `collection_returns.go`, `index.go`, `producer_source.go`, `rename_local.go` and two of their pieces, moved unchanged (same code lines before and after; `unresolved` and `format` output identical on TestBox, FW/1, ColdBox, ContentBox, Wheels and Lucee).
+- **Large source files split by concern (#449).** `script_parser.go`, `result.go`, `cfscript_formatter.go`, `resolve.go`, `producer_flow.go`, `collection_returns.go`, `index.go`, `producer_source.go`, `rename_local.go`, and then `result_merge.go` and `cfscript_expr.go` again, moved unchanged (same code lines before and after; `unresolved` and `format` output identical on TestBox, FW/1, ColdBox, ContentBox, Wheels and Lucee).
 
 ### Fixed
 
