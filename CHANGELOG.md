@@ -4,6 +4,7 @@
 
 ### Added
 
+- **Per-archive checksum files in the release assets.** Beside `checksums.txt`, each release now carries a `<archive>.sha256` for every archive (`sha256sum -c clif-linux-amd64.tar.gz.sha256`), attested with the archives. `checksums.txt` is unchanged and still lists only the archives.
 - **Find-references, call hierarchy and the code lens follow `implements` and `extends` (#451).** A method's references, incoming calls and usage count now include calls typed as its subtypes (through `extends` and `implements`, overriding or inheriting) and as the ancestors and interfaces that declare it; siblings and unrelated same-named methods stay out. One workspace scan: `refs.Options.AlsoSources` lists the further files, and `FindCallsMany` takes them per function name. `clif.findRefs` uses the same rule.
 - **The index records `implements` (#449).** `ParseResult.Implements`, `Index.SetImplements`, `ImplementsForFile` and `ImplementersByName`, kept and dropped with the file's extends, so the questions that need an interface's implementers read the index and not the workspace.
 
