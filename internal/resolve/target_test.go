@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -25,9 +26,25 @@ import (
 func TestEveryAcceptPathRecordsATarget(t *testing.T) {
 	fset := token.NewFileSet()
 
-	file, err := parser.ParseFile(fset, "resolve.go", nil, 0)
+	// resolve.go and the files split from it: one file's declarations.
+	names, err := filepath.Glob("resolve*.go")
 	if err != nil {
-		t.Fatalf("parsing resolve.go: %v", err)
+		t.Fatal(err)
+	}
+
+	file := &ast.File{}
+
+	for _, name := range names {
+		if strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+
+		part, err := parser.ParseFile(fset, name, nil, 0)
+		if err != nil {
+			t.Fatalf("parsing %s: %v", name, err)
+		}
+
+		file.Decls = append(file.Decls, part.Decls...)
 	}
 
 	// canResolveCall and every piece split out of it: a function that takes the
