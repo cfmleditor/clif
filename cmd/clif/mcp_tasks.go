@@ -16,6 +16,7 @@ import (
 	"github.com/cfmleditor/clif/internal/confine"
 	"github.com/cfmleditor/clif/internal/daemon"
 	"github.com/cfmleditor/clif/internal/refs"
+	"github.com/cfmleditor/clif/internal/resolve"
 	"github.com/cfmleditor/clif/internal/unresolved"
 	"github.com/cfmleditor/clif/internal/vfs"
 )
@@ -156,6 +157,10 @@ type reference struct {
 }
 
 func mcpFindRefs(root, target string, paths []string, limit int) (any, error) {
+	return mcpFindRefsWithWorkspace(nil, root, target, paths, limit)
+}
+
+func mcpFindRefsWithWorkspace(ws *mcpWorkspace, root, target string, paths []string, limit int) (any, error) {
 	abs, err := absPaths(root, paths)
 	if err != nil {
 		return nil, err
@@ -163,7 +168,18 @@ func mcpFindRefs(root, target string, paths []string, limit int) (any, error) {
 
 	target = strings.TrimSpace(target)
 	fsys := vfs.OS{}
-	resolver := workspaceResolver(abs, cfpath.CollectCFML(fsys, abs))
+
+	var resolver *resolve.Resolver
+
+	if ws != nil {
+		if env, _, wsErr := ws.get(); wsErr == nil && env != nil {
+			resolver = env.resolver
+		}
+	}
+
+	if resolver == nil {
+		resolver = workspaceResolver(abs, cfpath.CollectCFML(fsys, abs))
+	}
 
 	var (
 		entries []refs.Entry

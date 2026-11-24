@@ -17,6 +17,14 @@ func TestEveryToolAnswersAndRefusesMissingArguments(t *testing.T) {
 	s.FindRefs = func(target string, _ []string, _ int) (any, error) { return map[string]any{"refs": target}, nil }
 	s.Unresolved = func(paths []string, _ bool, _ int) (any, error) { return map[string]any{"scanned": paths}, nil }
 	s.Lint = func(paths []string, _ int) (any, error) { return map[string]any{"linted": paths}, nil }
+	s.Outline = func(file string) (any, error) { return map[string]any{"outline": file}, nil }
+	s.TypeHierarchy = func(file string) (any, error) { return map[string]any{"hierarchy": file}, nil }
+	s.LookupDocs = func(name, query, _ string, _ int) (any, error) {
+		return map[string]any{"doc": name + query}, nil
+	}
+	s.Structure = func(paths []string, _ int) (any, error) { return map[string]any{"structured": paths}, nil }
+	s.ResolveRoute = func(route string) (any, error) { return map[string]any{"route": route}, nil }
+	s.CheckFormat = func(paths []string, _ bool, _ int) (any, error) { return map[string]any{"checked": paths}, nil }
 
 	for _, c := range []struct {
 		call    string
@@ -43,6 +51,18 @@ func TestEveryToolAnswersAndRefusesMissingArguments(t *testing.T) {
 		{`{"name":"find_references","arguments":{"target":"  ","paths":["a"]}}`, "missing required argument", true},
 		{`{"name":"lint","arguments":{"paths":["a"]}}`, "linted", false},
 		{`{"name":"lint","arguments":{}}`, "missing required argument", true},
+		{`{"name":"get_outline","arguments":{"file":"a.cfc"}}`, "outline", false},
+		{`{"name":"get_outline","arguments":{}}`, "missing required argument", true},
+		{`{"name":"get_type_hierarchy","arguments":{"file":"a.cfc"}}`, "hierarchy", false},
+		{`{"name":"get_type_hierarchy","arguments":{}}`, "missing required argument", true},
+		{`{"name":"lookup_docs","arguments":{"name":"arrayMap"}}`, "arrayMap", false},
+		{`{"name":"lookup_docs","arguments":{}}`, "missing required argument", true},
+		{`{"name":"check_structure","arguments":{"paths":["a"]}}`, "structured", false},
+		{`{"name":"check_structure","arguments":{}}`, "missing required argument", true},
+		{`{"name":"resolve_route","arguments":{"route":"admin.users"}}`, "admin.users", false},
+		{`{"name":"resolve_route","arguments":{}}`, "missing required argument", true},
+		{`{"name":"check_format","arguments":{"paths":["a"]}}`, "checked", false},
+		{`{"name":"check_format","arguments":{}}`, "missing required argument", true},
 		{`{"name":"nope","arguments":{}}`, "unknown tool", true},
 		{`{"name":"get_stats","arguments":{"limit":"many"}}`, "bad arguments for get_stats", true},
 	} {
@@ -94,9 +114,15 @@ func TestEveryAdvertisedToolIsRunnable(t *testing.T) {
 	s.FindRefs = func(string, []string, int) (any, error) { return nil, nil }
 	s.Unresolved = func([]string, bool, int) (any, error) { return nil, nil }
 	s.Lint = func([]string, int) (any, error) { return nil, nil }
+	s.Outline = func(string) (any, error) { return nil, nil }
+	s.TypeHierarchy = func(string) (any, error) { return nil, nil }
+	s.LookupDocs = func(string, string, string, int) (any, error) { return nil, nil }
+	s.Structure = func([]string, int) (any, error) { return nil, nil }
+	s.ResolveRoute = func(string) (any, error) { return nil, nil }
+	s.CheckFormat = func([]string, bool, int) (any, error) { return nil, nil }
 
 	names := listTools(t, s)
-	if len(names) < 12 {
+	if len(names) < 18 {
 		t.Fatalf("only %d tools advertised: %v", len(names), names)
 	}
 

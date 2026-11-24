@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 
 	"github.com/cfmleditor/clif/internal/codemap/mcp"
 	"github.com/cfmleditor/clif/internal/codemap/store"
@@ -22,6 +21,12 @@ Always offered, reading source on disk:
   find_unresolved_calls   what "unresolved" reports
   find_references         what "refs" reports
   explain_call            what "explain" reports
+  get_outline             component declaration, properties, and function signatures
+  get_type_hierarchy      supertypes and subtypes of a CFC
+  lookup_docs             embedded CFML tag, function, and member documentation
+  check_structure         tag-structure and duplicate-argument diagnostics
+  resolve_route           resolve a framework route via .clif.json routes config
+  check_format            read-only format check and optional diff preview
 With --db, the code map "graph --db" built:
   search_symbols, get_symbol, get_callers, get_callees, find_path,
   list_islands, list_orphans, get_stats
@@ -132,12 +137,29 @@ func mcpServer(f *mcpFlags, db *store.Store) *mcp.Server {
 	}
 
 	root := mcpRoot(f, db)
+	ws := newMCPWorkspace(root)
 
 	srv.Unresolved = func(paths []string, globalDefs bool, limit int) (any, error) {
 		return mcpUnresolved(root, paths, globalDefs, limit)
 	}
 	srv.FindRefs = func(target string, paths []string, limit int) (any, error) {
-		return mcpFindRefs(root, target, paths, limit)
+		return mcpFindRefsWithWorkspace(ws, root, target, paths, limit)
+	}
+	srv.Outline = func(file string) (any, error) {
+		return mcpOutline(root, file)
+	}
+	srv.TypeHierarchy = func(file string) (any, error) {
+		return mcpTypeHierarchy(ws, root, file)
+	}
+	srv.LookupDocs = mcpLookupDocs
+	srv.Structure = func(paths []string, limit int) (any, error) {
+		return mcpCheckStructure(root, paths, limit)
+	}
+	srv.ResolveRoute = func(routeStr string) (any, error) {
+		return mcpResolveRoute(ws, root, routeStr)
+	}
+	srv.CheckFormat = func(paths []string, includeDiff bool, limit int) (any, error) {
+		return mcpCheckFormat(root, paths, includeDiff, limit)
 	}
 
 	if f.allowLint {
@@ -145,7 +167,7 @@ func mcpServer(f *mcpFlags, db *store.Store) *mcp.Server {
 	}
 
 	if !f.noExplain {
-		srv.Explain = newExplainer(root)
+		srv.Explain = newWorkspaceExplainer(ws, root)
 	}
 
 	return srv
@@ -200,26 +222,13 @@ func cmdMCP(args []string) {
 	}
 }
 
-// newExplainer builds the resolver lazily, on the first explain_call.
-//
-// Indexing the workspace costs seconds on a large one, and most sessions never
-// call this tool. Paying it at startup would make every client's connection
-// handshake time out on exactly the codebases where the map is most useful.
-func newExplainer(root string) mcp.Explainer {
-	var (
-		once sync.Once
-		env  *explainEnv
-	)
-
+// newWorkspaceExplainer traces call sites using the shared, incrementally
+// refreshed workspace index.
+func newWorkspaceExplainer(ws *mcpWorkspace, root string) mcp.Explainer {
 	return func(file string, line int, match string) (string, error) {
-		once.Do(func() {
-			if abs, err := filepath.Abs(root); err == nil {
-				env = newExplainEnv(vfs.OS{}, abs, true, &unresolvedFlags{})
-			}
-		})
-
-		if env == nil {
-			return "", fmt.Errorf("could not index the workspace at %s", root)
+		env, _, err := ws.get()
+		if err != nil {
+			return "", err
 		}
 
 		return explainAt(root, env, file, line, match)

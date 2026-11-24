@@ -237,6 +237,95 @@ func (s *Server) taskTools() []tool {
 		})
 	}
 
+	if s.Outline != nil {
+		list = append(list, tool{
+			Name:  "get_outline",
+			Title: "Get file outline",
+			Description: "List a CFML file's component declaration (extends, accessors, persistent), " +
+				"properties, and function signatures with 1-based line numbers. Parses only the " +
+				"single file on disk, needs no code map, and is much faster than reading large CFCs.",
+			InputSchema: obj(map[string]any{
+				"file": str("Path to the CFML file, absolute or relative to the working directory."),
+			}, "file"),
+			Annotations: readOnly,
+		})
+	}
+
+	if s.TypeHierarchy != nil {
+		list = append(list, tool{
+			Name:  "get_type_hierarchy",
+			Title: "Get component type hierarchy",
+			Description: "Return the inheritance hierarchy for a CFC file: supertypes (the extends " +
+				"ancestor chain) and subtypes (components in the workspace that extend it). Uses " +
+				"the live workspace index and needs no code map.",
+			InputSchema: obj(map[string]any{
+				"file": str("Path to the CFC file, absolute or relative to the working directory."),
+			}, "file"),
+			Annotations: readOnly,
+		})
+	}
+
+	if s.LookupDocs != nil {
+		list = append(list, tool{
+			Name:  "lookup_docs",
+			Title: "Look up CFML documentation",
+			Description: "Look up built-in CFML tag, function, or member-function documentation " +
+				"embedded in clif. Pass \"name\" for an exact entry (e.g. \"arrayMap\", \"cfquery\", " +
+				"\"array.map\") or \"query\" for substring search.",
+			InputSchema: obj(map[string]any{
+				"name":  str("Exact tag, function, or type.member name to look up."),
+				"query": str("Substring to search across built-in tag, function, and member names/descriptions."),
+				"kind":  map[string]any{"type": "string", "enum": []string{"function", "tag", "member"}, "description": "Restrict search results to one kind."},
+				"limit": num("Maximum search results (default 25)."),
+			}),
+			Annotations: readOnly,
+		})
+	}
+
+	if s.Structure != nil {
+		list = append(list, tool{
+			Name:  "check_structure",
+			Title: "Check CFML tag structure",
+			Description: "Check CFML files for structural errors without starting CFLint: unclosed " +
+				"or mismatched tags, misplaced <cfcatch>/<cfelse>, duplicate tag attributes, and " +
+				"duplicate function arguments.",
+			InputSchema: obj(map[string]any{
+				"paths": strList("Files or directories, absolute or relative to the server's working directory."),
+				"limit": num("Maximum problems listed (default 200). The result gives the total."),
+			}, "paths"),
+			Annotations: readOnly,
+		})
+	}
+
+	if s.ResolveRoute != nil {
+		list = append(list, tool{
+			Name:  "resolve_route",
+			Title: "Resolve a framework route",
+			Description: "Resolve a framework route string (e.g. \"admin.users.edit\") against the " +
+				"workspace's .clif.json routes configuration, returning matching controller methods " +
+				"and view files.",
+			InputSchema: obj(map[string]any{
+				"route": str("The route string to resolve."),
+			}, "route"),
+			Annotations: readOnly,
+		})
+	}
+
+	if s.CheckFormat != nil {
+		list = append(list, tool{
+			Name:  "check_format",
+			Title: "Check CFML formatting",
+			Description: "Check whether CFML files would change under `clif format` without writing " +
+				"anything to disk. Optionally returns a line diff preview for changed files.",
+			InputSchema: obj(map[string]any{
+				"paths":        strList("Files or directories, absolute or relative to the server's working directory."),
+				"include_diff": flag("Include a unified-style line diff preview for changed files (default false, automatically enabled for a single file)."),
+				"limit":        num("Maximum changed/errored files listed (default 50)."),
+			}, "paths"),
+			Annotations: readOnly,
+		})
+	}
+
 	return list
 }
 
@@ -295,6 +384,9 @@ type toolArgs struct {
 	Target          string   `json:"target"`
 	Paths           []string `json:"paths"`
 	GlobalDefs      bool     `json:"global_defs"`
+	Name            string   `json:"name"`
+	Route           string   `json:"route"`
+	IncludeDiff     bool     `json:"include_diff"`
 }
 
 // toolHandler runs one tool for already-parsed arguments.
@@ -314,6 +406,12 @@ var toolHandlers = map[string]toolHandler{
 	"find_unresolved_calls": (*Server).findUnresolved,
 	"find_references":       (*Server).findReferences,
 	"lint":                  (*Server).lintPaths,
+	"get_outline":           (*Server).getOutline,
+	"get_type_hierarchy":    (*Server).getTypeHierarchy,
+	"lookup_docs":           (*Server).lookupDocs,
+	"check_structure":       (*Server).checkStructure,
+	"resolve_route":         (*Server).resolveRoute,
+	"check_format":          (*Server).checkFormat,
 }
 
 func (s *Server) run(name string, raw json.RawMessage) (any, error) {
@@ -459,6 +557,88 @@ func (s *Server) lintPaths(a *toolArgs) (any, error) {
 	}
 
 	return s.Lint(a.Paths, limitOr(a.Limit))
+}
+
+func (s *Server) getOutline(a *toolArgs) (any, error) {
+	if s.Outline == nil {
+		return nil, errors.New("get_outline is not available on this server")
+	}
+
+	if strings.TrimSpace(a.File) == "" {
+		return nil, errMissing("file")
+	}
+
+	return s.Outline(a.File)
+}
+
+func (s *Server) getTypeHierarchy(a *toolArgs) (any, error) {
+	if s.TypeHierarchy == nil {
+		return nil, errors.New("get_type_hierarchy is not available on this server")
+	}
+
+	if strings.TrimSpace(a.File) == "" {
+		return nil, errMissing("file")
+	}
+
+	return s.TypeHierarchy(a.File)
+}
+
+func (s *Server) lookupDocs(a *toolArgs) (any, error) {
+	if s.LookupDocs == nil {
+		return nil, errors.New("lookup_docs is not available on this server")
+	}
+
+	if strings.TrimSpace(a.Name) == "" && strings.TrimSpace(a.Query) == "" {
+		return nil, errMissing("name or query")
+	}
+
+	limit := a.Limit
+	if limit <= 0 {
+		limit = 25
+	}
+
+	return s.LookupDocs(a.Name, a.Query, a.Kind, limit)
+}
+
+func (s *Server) checkStructure(a *toolArgs) (any, error) {
+	if s.Structure == nil {
+		return nil, errors.New("check_structure is not available on this server")
+	}
+
+	if len(a.Paths) == 0 {
+		return nil, errMissing("paths")
+	}
+
+	return s.Structure(a.Paths, limitOr(a.Limit))
+}
+
+func (s *Server) resolveRoute(a *toolArgs) (any, error) {
+	if s.ResolveRoute == nil {
+		return nil, errors.New("resolve_route is not available on this server")
+	}
+
+	if strings.TrimSpace(a.Route) == "" {
+		return nil, errMissing("route")
+	}
+
+	return s.ResolveRoute(a.Route)
+}
+
+func (s *Server) checkFormat(a *toolArgs) (any, error) {
+	if s.CheckFormat == nil {
+		return nil, errors.New("check_format is not available on this server")
+	}
+
+	if len(a.Paths) == 0 {
+		return nil, errMissing("paths")
+	}
+
+	limit := a.Limit
+	if limit <= 0 {
+		limit = 50
+	}
+
+	return s.CheckFormat(a.Paths, a.IncludeDiff, limit)
 }
 
 // wrap gives a list result a named field and a count. A bare JSON array tells a
