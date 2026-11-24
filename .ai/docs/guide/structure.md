@@ -4,7 +4,7 @@ _Which source file holds what, and the tests that read source files by name. Mov
 
 **Files are split by concern, and some tests read source by file name.** `TestTagDispatchMatchesTheFastSkip`
 reads `tag_parser.go` and `TestDidCloseCoversEveryPerDocumentMap` reads `handler.go`, so the tag dispatch
-and `handleDidClose` stay in them; `TestEveryAcceptPathRecordsATarget` parses `resolve.go`, so a
+and `handleDidClose` stay in them; `TestEveryAcceptPathRecordsATarget` parses `resolve.go` and every `resolve_*.go` split from it, so a
 `return ""` that accepts a call stays in `canResolveCall` after its `tr.hit` (a helper decides, the caller
 records the target), or is a `return true` in `bareCallInComponent` / `bareCallThroughContext` / `methodAccepted` (the helpers the test names, which record their own); the parser's loop and dispatch-switch tests read every non-test file of the package
 (`readAllParserSource`). Move code with a declaration comparison (the same top-level declarations and
@@ -12,10 +12,22 @@ code lines before and after), then `unresolved` byte-identical on a corpus.
 
 - `internal/parser/result.go` — `ParseResult`, `ParseOptions`, `Parse()`/`ParseWithOptions()`,
   lazy per-function caches, `replaceExpressions`, `resolvePendingCalls`, property accessors
+  Split from it, all methods of `ParseResult`: `result_merge.go` (region merging), `result_merge_regions.go` (script and tag region merges), `result_merge_util.go` (key and slice helpers), `result_signatures.go` (signature extraction),
+  `result_postprocess.go` (service properties, chained returns, expression mappings),
+  `result_keys.go` (`fnKey`, line tables, member-method names), `result_declares.go`
+  (`Declares`), `result_managed.go` (managed setters, aliasing), `result_regions.go` (links,
+  includes, region facts)
 - `internal/parser/cfparser.go` — `ClassifyRegions()` plus the standalone
   `ParseFunctionDefs`/`ParseComponentRefs` helpers
-- `internal/parser/script_parser.go` — `scriptParser` and the two parse loops (top-level
-  `parse()` and `handleBodyToken`); see the scope-dispatch note below
+- `internal/parser/script_parser.go` — `scriptParser`, its constructor and the top-level
+  `parse()` loop; see the scope-dispatch note below. The rest of `scriptParser` is split by
+  concern, all one type: `script_body.go` (`parseBody`, `handleBodyToken`, return handling),
+  `script_functions.go` (function declarations, access modifiers, loop/catch vars),
+  `script_assign_refs.go` (assignments, `new`/`createObject` refs, chains in bodies),
+  `script_chain_record.go` (recording calls and chain hops), `script_mocks.go` (call
+  resolution helpers, mock markers), `script_arglist.go` (argument lists),
+  `script_property_parse.go` (`property` declarations), `script_skip.go` (paren/bracket
+  skipping, arrow params, mark/rewind)
 - `internal/parser/tag_parser.go` — `tagParser` for `<cffunction>`, `<cfcomponent>`, etc.
 - `internal/parser/scanner.go` — byte-level tokenizer (`isIdentStart` treats `_` and `$` as
   identifier starts)
@@ -37,7 +49,7 @@ code lines before and after), then `unresolved` byte-identical on a corpus.
 - `internal/server/structure_diagnostics.go` — the debounced tag-structure check and its publish;
   `rename.go`, `inlay_hint.go`, `docs_command.go` and `lifecycle_actions.go` are the rename,
   inlay-hint, documentation-command and Application-event code-action handlers
-- `internal/resolve/resolve.go` — `ComponentPath`, `CanResolveCall`, `ExplainCall`, extends walking
+- `internal/resolve/resolve.go` (with `resolve_hops.go`, `resolve_bare.go`, `resolve_missing.go`, `resolve_methods.go` split from it; `producer_flow.go` likewise into `producer_flow_{exec,fields,read,calls,assign}.go`; the formatter's `cfscript_formatter.go` into `cfscript_{expr,expr_ops,expr_nodes,expr_helpers,args,stmt}.go`) — `ComponentPath`, `CanResolveCall`, `ExplainCall`, extends walking
 - `internal/config/config.go` — `.clif.json` schema and defaults
 - `internal/docs/` — generated; regenerate via `make generate`, never hand-edit
 
@@ -63,3 +75,9 @@ the component's variables and left go-to-definition on it nothing to find in a s
 `Application.cfc` (tag syntax always had it right), and made `application.helper =
 function(){}` at component level a method of the component. `sharedScopeOf` maps the keyword;
 `TestSharedScopeAssignmentsKeepTheirScope` pins all three.
+
+**Further splits (same rule: declarations moved unchanged).** `internal/parser/collection_returns.go` is
+`collection_returns{,_settle}.go`, `collection_writes{,_scan}.go`, `collection_tags.go` and
+`collection_cache.go`; `rename_local.go` is `rename_{local,scope,walk,words}.go`;
+`internal/index/index.go` is `index{,_files,_write,_refs,_entities,_extends,_includes}.go`;
+`internal/resolve/producer_source.go` is `producer_{source,script,script_stmt,tags,analysis}.go`.

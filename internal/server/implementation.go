@@ -36,7 +36,9 @@ func (s *Server) handleImplementation(_ context.Context, rawParams []byte) (any,
 		return []protocol.Location{}, nil
 	}
 
-	defer s.lockDoc(docURI)()
+	// The lock covers only the parse and the cursor test: collecting subtypes
+	// below reads other files and must not hold up edits to this one.
+	unlock := s.lockDoc(docURI)
 
 	pr := s.parseResultOf(docURI)
 	if pr == nil || pr.Content != content {
@@ -63,21 +65,23 @@ func (s *Server) handleImplementation(_ context.Context, rawParams []byte) (any,
 
 	// If not on a method name, check if cursor is on the component/interface header.
 	onComponentHeader := false
+	isInterface := false
+
+	if header, ok := parser.ComponentOutline(content); ok {
+		isInterface = header.IsInterface
+	}
 
 	if methodName == "" {
-		if openOff, _, found := parser.ComponentDeclarationBounds(content); found {
-			lines := parser.NewLineTable(content)
-			if lines.LineOf(openOff) == int(params.Position.Line) {
-				onComponentHeader = true
-			}
-		}
+		onComponentHeader = cursorInDeclaration(content, int(params.Position.Line))
 	}
+
+	unlock()
 
 	if methodName == "" && !onComponentHeader {
 		return []protocol.Location{}, nil
 	}
 
-	subtypes := s.collectTransitiveSubtypes(file)
+	subtypes := s.collectTransitiveSubtypes(file, isInterface)
 	if len(subtypes) == 0 {
 		return []protocol.Location{}, nil
 	}
@@ -134,19 +138,86 @@ func (s *Server) handleImplementation(_ context.Context, rawParams []byte) (any,
 	return locs, nil
 }
 
-// collectTransitiveSubtypes performs a cycle-guarded BFS over Index.ExtendersByName()
-// to find all direct and transitive subtypes of rootFile.
-func (s *Server) collectTransitiveSubtypes(rootFile string) []string {
-	extenders := s.index.ExtendersByName()
-	if len(extenders) == 0 {
+// cursorInDeclaration reports whether line falls within the component or
+// interface declaration, from its keyword to the `{` or `>` that ends it, so a
+// header split over several lines answers on each of them.
+func cursorInDeclaration(content string, line int) bool {
+	openOff, _, found := parser.ComponentDeclarationBounds(content)
+	if !found {
+		return false
+	}
+
+	lines := parser.NewLineTable(content)
+	first := lines.LineOf(openOff)
+
+	if header, ok := parser.ComponentOutline(content); ok && header.NameStart <= openOff {
+		first = lines.LineOf(header.NameStart)
+	}
+
+	return line >= first && line <= lines.LineOf(openOff)
+}
+
+// collectImplementers finds the components whose implements attribute names
+// the interface at ifaceFile, from the index's record of it: the candidates
+// are the files sharing the interface's name, and each is kept only when one of
+// its names resolves to ifaceFile.
+func (s *Server) collectImplementers(ifaceFile string) []string {
+	base := strings.ToLower(strings.TrimSuffix(filepath.Base(ifaceFile), filepath.Ext(ifaceFile)))
+	cands := s.index.ImplementersByName()[base]
+
+	if len(cands) == 0 {
 		return nil
 	}
+
+	res := s.getResolver()
+
+	var out []string
+
+	for _, c := range cands {
+		path := cfpath.FromURI(c.URI)
+		if path == "" || cfpath.SamePath(path, ifaceFile) {
+			continue
+		}
+
+		for _, name := range c.Interfaces {
+			if target := res.ComponentPath(name, filepath.Dir(path)); target != "" && cfpath.SamePath(target, ifaceFile) {
+				out = append(out, path)
+
+				break
+			}
+		}
+	}
+
+	return out
+}
+
+// collectTransitiveSubtypes performs a cycle-guarded BFS over Index.ExtendersByName()
+// to find all direct and transitive subtypes of rootFile. For an interface the
+// components implementing it are the first level. A child counts only when its
+// extends resolves to the file it extends from: a bare name shared by several
+// components is not evidence.
+func (s *Server) collectTransitiveSubtypes(rootFile string, isInterface bool) []string {
+	extenders := s.index.ExtendersByName()
 
 	res := s.getResolver()
 	visited := map[string]bool{strings.ToLower(rootFile): true}
 	queue := []string{rootFile}
 
 	var out []string
+
+	if isInterface {
+		for _, impl := range s.collectImplementers(rootFile) {
+			key := strings.ToLower(impl)
+			if visited[key] {
+				continue
+			}
+
+			visited[key] = true
+
+			out = append(out, impl)
+			queue = append(queue, impl)
+		}
+	}
 
 	for len(queue) > 0 {
 		cur := queue[0]
@@ -161,9 +232,8 @@ func (s *Server) collectTransitiveSubtypes(rootFile string) []string {
 				continue
 			}
 
-			// Verify child's extends actually resolves to cur when resolvable.
 			resolvedParent := res.ComponentPath(child.Extends, filepath.Dir(childPath))
-			if resolvedParent != "" && !strings.EqualFold(resolvedParent, cur) {
+			if resolvedParent == "" || !cfpath.SamePath(resolvedParent, cur) {
 				continue
 			}
 

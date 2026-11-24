@@ -112,6 +112,8 @@ func (l *localNames) clone() *localNames {
 // one pointer: a slice here moved the struct up a size class
 // (TestParserStructsKeepTheirSize).
 type scriptExtras struct {
+	// implements is the implements attribute of the component header.
+	implements     string
 	instantiations []Instantiation
 	// callNames, lowercased, are the only names whose calls are recorded;
 	// nil records every call.

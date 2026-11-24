@@ -88,3 +88,106 @@ func TestImplementationComponentAndMethodOverrides(t *testing.T) {
 		t.Errorf("speak implementation URIs = [%s, %s], want [%s, %s]", methodLocs[0].URI, methodLocs[1].URI, catURI, dogURI)
 	}
 }
+
+func writeCFCs(t *testing.T, s *Server, dir string, files map[string]string) map[string]uri.URI {
+	t.Helper()
+
+	uris := map[string]uri.URI{}
+
+	for name, src := range files {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte(src), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		uris[name] = cfpath.ToURI(p)
+		openDoc(t, s, uris[name], src)
+	}
+
+	return uris
+}
+
+func TestImplementationInterfaceFindsImplementers(t *testing.T) {
+	dir := t.TempDir()
+	s := newTestServer()
+	s.WorkspaceFolders = []string{dir}
+
+	u := writeCFCs(t, s, dir, map[string]string{
+		"IShape.cfc": "interface {\n\tpublic numeric function area();\n}\n",
+		"Square.cfc": "component implements=\"IShape\" {\n\tpublic numeric function area() { return 1; }\n}\n",
+		"Cube.cfc":   "component extends=\"Square\" {\n\tpublic numeric function area() { return 6; }\n}\n",
+		"Other.cfc":  "component {\n\tpublic numeric function area() { return 0; }\n}\n",
+	})
+
+	locs := implementationsAt(t, s, u["IShape.cfc"], 1, 25)
+	if len(locs) != 2 || locs[0].URI != u["Cube.cfc"] || locs[1].URI != u["Square.cfc"] {
+		t.Fatalf("area implementations = %+v, want Cube and Square", locs)
+	}
+
+	if locs := implementationsAt(t, s, u["IShape.cfc"], 0, 2); len(locs) != 2 {
+		t.Fatalf("interface header implementations = %+v, want 2", locs)
+	}
+}
+
+func TestImplementationMultiLineHeader(t *testing.T) {
+	dir := t.TempDir()
+	s := newTestServer()
+	s.WorkspaceFolders = []string{dir}
+
+	u := writeCFCs(t, s, dir, map[string]string{
+		"Base.cfc":  "component\n\taccessors=true\n{\n}\n",
+		"Child.cfc": "component extends=\"Base\" {\n}\n",
+	})
+
+	for line := range uint32(3) {
+		if locs := implementationsAt(t, s, u["Base.cfc"], line, 1); len(locs) != 1 {
+			t.Errorf("line %d: implementations = %+v, want 1", line, locs)
+		}
+	}
+}
+
+func TestImplementationIgnoresUnresolvedSameNameExtends(t *testing.T) {
+	dir := t.TempDir()
+	s := newTestServer()
+	s.WorkspaceFolders = []string{dir}
+
+	u := writeCFCs(t, s, dir, map[string]string{
+		"Base.cfc":      "component {\n}\n",
+		"Real.cfc":      "component extends=\"Base\" {\n}\n",
+		"Elsewhere.cfc": "component extends=\"vendor.missing.Base\" {\n}\n",
+	})
+
+	locs := implementationsAt(t, s, u["Base.cfc"], 0, 2)
+	if len(locs) != 1 || locs[0].URI != u["Real.cfc"] {
+		t.Fatalf("implementations = %+v, want only Real", locs)
+	}
+}
+
+// A workspace scan indexes through applyIndexResult, not through an open
+// document: the implementers it finds must be the same.
+func TestImplementationAfterWorkspaceScan(t *testing.T) {
+	dir := t.TempDir()
+
+	files := map[string]string{
+		"IShape.cfc": "interface {\n\tpublic numeric function area();\n}\n",
+		"Square.cfc": "component implements=\"IShape\" {\n\tpublic numeric function area() { return 1; }\n}\n",
+	}
+
+	for name, src := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(src), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	s := newTestServer()
+	s.WorkspaceFolders = []string{dir}
+	s.indexWorkspace()
+
+	ifaceURI := cfpath.ToURI(filepath.Join(dir, "IShape.cfc"))
+	openDoc(t, s, ifaceURI, files["IShape.cfc"])
+
+	locs := implementationsAt(t, s, ifaceURI, 0, 2)
+	if len(locs) != 1 || locs[0].URI != cfpath.ToURI(filepath.Join(dir, "Square.cfc")) {
+		t.Fatalf("implementations = %+v, want Square only", locs)
+	}
+}

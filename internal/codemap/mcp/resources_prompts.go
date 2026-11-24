@@ -165,6 +165,12 @@ func (*Server) getPrompt(raw json.RawMessage) (any, *rpcError) {
 		return nil, &rpcError{codeInvalidParams, "bad prompts/get params: " + err.Error()}
 	}
 
+	for name, value := range p.Arguments {
+		if err := checkPromptArgument(name, value); err != nil {
+			return nil, &rpcError{codeInvalidParams, err.Error()}
+		}
+	}
+
 	switch p.Name {
 	case "audit-unresolved":
 		target := strings.TrimSpace(p.Arguments["path"])
@@ -233,4 +239,25 @@ func promptResponse(description, text string) map[string]any {
 			},
 		},
 	}
+}
+
+// maxPromptArgument bounds a prompt argument: a path, symbol or file name is
+// short, and the text is placed in a message the model reads as instructions.
+const maxPromptArgument = 512
+
+// checkPromptArgument refuses an argument that could not be a path or a
+// symbol: one that is long, or holds a control character such as a newline,
+// which would let the value start lines of its own in the prompt.
+func checkPromptArgument(name, value string) error {
+	if len(value) > maxPromptArgument {
+		return fmt.Errorf("prompt argument %q is longer than %d bytes", name, maxPromptArgument)
+	}
+
+	for _, r := range value {
+		if r < 0x20 || r == 0x7f || r == 0x85 || r == 0x2028 || r == 0x2029 {
+			return fmt.Errorf("prompt argument %q holds a control character", name)
+		}
+	}
+
+	return nil
 }
