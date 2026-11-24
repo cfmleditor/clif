@@ -38,7 +38,7 @@ func (f *Formatter) formatCFTag(n *sitter.Node) {
 	if isBlock {
 		f.level++
 
-		if hasBody {
+		if hasBody && f.opts.BlankLinesInBlocks {
 			f.write("\n")
 		}
 	}
@@ -92,7 +92,7 @@ func (f *Formatter) formatCFTag(n *sitter.Node) {
 		f.level--
 	}
 
-	if hasBody {
+	if hasBody && f.opts.BlankLinesInBlocks {
 		f.write("\n")
 	}
 
@@ -114,7 +114,12 @@ func (f *Formatter) formatCFComponentOpen(n *sitter.Node) {
 	f.nl()
 	f.writeIndent()
 	f.write("<" + f.openTagNameOf("cfcomponent", n) + f.renderAttrs("cfcomponent", attrs) + ">")
-	f.write("\n\n")
+
+	if f.opts.BlankLinesInBlocks {
+		f.write("\n\n")
+	} else {
+		f.write("\n")
+	}
 
 	f.level++
 }
@@ -131,7 +136,10 @@ func (f *Formatter) formatCFComponentClose(n *sitter.Node) {
 		f.level--
 	}
 
-	f.write("\n")
+	if f.opts.BlankLinesInBlocks {
+		f.write("\n")
+	}
+
 	f.nl()
 	f.writeIndent()
 	f.write("</" + f.closeTagNameOf("cfcomponent", n) + ">")
@@ -152,7 +160,8 @@ func (f *Formatter) formatCFBlockTag(n *sitter.Node) {
 	isBlock := true // specific block tag types are always blocks
 	if isBlock {
 		f.level++
-		if name != "cfoutput" && (name != "cffunction" || !f.firstBodyChildIsArg(n)) {
+
+		if f.opts.BlankLinesInBlocks && name != "cfoutput" && (name != "cffunction" || !f.firstBodyChildIsArg(n)) {
 			f.write("\n")
 		}
 	}
@@ -535,7 +544,10 @@ func (f *Formatter) formatCFIfTag(n *sitter.Node) {
 	f.write("\n")
 
 	f.level++
-	f.write("\n")
+
+	if f.opts.BlankLinesInBlocks {
+		f.write("\n")
+	}
 
 	f.formatNodes(bodyNodes)
 
@@ -556,7 +568,10 @@ func (f *Formatter) formatCFIfTag(n *sitter.Node) {
 		f.level--
 	}
 
-	f.write("\n")
+	if f.opts.BlankLinesInBlocks {
+		f.write("\n")
+	}
+
 	f.nl()
 	f.writeIndent()
 	f.write("</" + f.closeTagNameOf("cfif", n) + ">")
@@ -611,14 +626,20 @@ func (f *Formatter) formatCFIfAlt(n *sitter.Node) {
 	}
 
 	if isElse {
-		f.write("\n")
+		if f.opts.BlankLinesInBlocks {
+			f.write("\n")
+		}
+
 		f.nl()
 		f.writeIndent()
 		f.write("<" + f.openTagNameOf("cfelse", n) + ">")
 		f.write("\n")
 	} else {
 		cond := f.normalizeCond(strings.Join(condParts, " "))
-		f.write("\n")
+		if f.opts.BlankLinesInBlocks {
+			f.write("\n")
+		}
+
 		f.nl()
 		f.writeIndent()
 		f.write("<" + f.openTagNameOf("cfelseif", n) + " " + cond + ">")
@@ -626,7 +647,10 @@ func (f *Formatter) formatCFIfAlt(n *sitter.Node) {
 	}
 
 	f.level++
-	f.write("\n")
+
+	if f.opts.BlankLinesInBlocks {
+		f.write("\n")
+	}
 
 	f.formatNodes(bodyNodes)
 
