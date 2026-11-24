@@ -122,6 +122,10 @@ func (s *Server) Handler() jsonrpc2.Handler {
 			return s.handleFoldingRange(ctx, req.Params())
 		case protocol.MethodTextDocumentSelectionRange:
 			return s.handleSelectionRange(ctx, req.Params())
+		case protocol.MethodTextDocumentSemanticTokensFull:
+			return s.handleSemanticTokensFull(ctx, req.Params())
+		case protocol.MethodTextDocumentSemanticTokensRange:
+			return s.handleSemanticTokensRange(ctx, req.Params())
 		case protocol.MethodTextDocumentDocumentSymbol:
 			return s.handleDocumentSymbol(ctx, req.Params())
 		case protocol.MethodWorkspaceSymbol:
@@ -238,6 +242,7 @@ func (s *Server) handleInitialize(_ context.Context, rawParams []byte) (any, err
 		cflog.Bool("structureDiagnostics", s.Features.StructureDiagnostics),
 		cflog.Bool("inlayHints", s.Features.InlayHints),
 		cflog.Bool("rename", s.Features.Rename),
+		cflog.Bool("semanticTokens", s.Features.SemanticTokens),
 		cflog.Bool("watchedFiles", s.Features.WatchedFiles),
 		cflog.Bool("rangeFormatting", s.Features.RangeFormatting),
 		cflog.Bool("routesConfigured", s.Routes.Enabled()))

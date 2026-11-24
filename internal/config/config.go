@@ -545,6 +545,13 @@ type Features struct {
 	// a closure that shadows it). Off by default: a rename edits code. Turn it
 	// on with `{"features": {"rename": true}}`.
 	Rename *bool `json:"rename"`
+	// SemanticTokens answers textDocument/semanticTokens/full and
+	// textDocument/semanticTokens/range with buffer-local semantic token
+	// highlights (scopes, functions, methods, built-ins, parameters, `new`
+	// types). Off by default so editors relying on TextMate grammars pay zero
+	// highlighting overhead. Turn it on with
+	// `{"features": {"semanticTokens": true}}`.
+	SemanticTokens *bool `json:"semanticTokens"`
 }
 
 // ResolvedFeatures holds the feature switches with defaults applied.
@@ -560,6 +567,7 @@ type ResolvedFeatures struct {
 	StructureDiagnostics       bool
 	InlayHints                 bool
 	Rename                     bool
+	SemanticTokens             bool
 }
 
 // foldingDefault is on. Named rather than inlined so the tests that assert the
@@ -578,9 +586,12 @@ const inlayHintsDefault = false
 // renameDefault is off, for the reason the field gives.
 const renameDefault = false
 
+// semanticTokensDefault is off, for the reason the field gives.
+const semanticTokensDefault = false
+
 // ResolveFeatures applies the defaults for a `features` block: absent means
-// every feature is on except structureDiagnostics, inlayHints and rename,
-// which are opt-in for the reasons the type above gives.
+// every feature is on except structureDiagnostics, inlayHints, rename and
+// semanticTokens, which are opt-in for the reasons the type above gives.
 //
 // As with ResolveCompletions, the defaults live here so that every path to a
 // Server agrees on them. A path that skipped this and took the zero value
@@ -605,6 +616,7 @@ func ResolveFeatures(f *Features) ResolvedFeatures {
 		StructureDiagnostics:       BoolDefault(f.StructureDiagnostics, structureDiagnosticsDefault),
 		InlayHints:                 BoolDefault(f.InlayHints, inlayHintsDefault),
 		Rename:                     BoolDefault(f.Rename, renameDefault),
+		SemanticTokens:             BoolDefault(f.SemanticTokens, semanticTokensDefault),
 	}
 }
 
@@ -1193,6 +1205,7 @@ func mergeFeatures(base, over *Features) *Features {
 		{&out.StructureDiagnostics, &over.StructureDiagnostics},
 		{&out.InlayHints, &over.InlayHints},
 		{&out.Rename, &over.Rename},
+		{&out.SemanticTokens, &over.SemanticTokens},
 	} {
 		if *f.src != nil {
 			*f.dst = *f.src
