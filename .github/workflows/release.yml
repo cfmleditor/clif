@@ -283,12 +283,25 @@ jobs:
 
       # scripts/install.sh and install.ps1 check an archive against this, so
       # a pinned install gets exactly the bytes the release published.
+      #
+      # Each archive also gets its own <archive>.sha256, in the same format, so
+      # one download can be checked without the whole list:
+      # `sha256sum -c clif-linux-amd64.tar.gz.sha256` from the directory it
+      # was saved in. They are written after checksums.txt, which lists the
+      # archives and not these, and the attestation and the release take them
+      # with the clif-* and cfmleditor-lsp-* globs.
       - name: Write checksums
         run: |
           set -euo pipefail
           cd dist
-          sha256sum clif-* cfmleditor-lsp-* > checksums.txt
+          archives=(clif-* cfmleditor-lsp-*)
+          sha256sum "${archives[@]}" > checksums.txt
           cat checksums.txt
+
+          for archive in "${archives[@]}"; do
+            sha256sum "${archive}" > "${archive}.sha256"
+          done
+          ls -l ./*.sha256
 
       # Signed SLSA build provenance for every asset, checksums.txt included,
       # recorded against this repository and this workflow run. checksums.txt

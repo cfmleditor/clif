@@ -444,6 +444,12 @@ releases, and must be an `https://` URL. Chocolatey installs an
 exact version with `choco install clif --version <v>`; Homebrew's tap holds
 only the latest.
 
+**Checksums.** Each release publishes `checksums.txt`, the SHA-256 of every
+archive, and, from the release after 0.7.5, a `<archive>.sha256` beside each
+archive, so one download can be checked on its own: save both files in the same
+directory and run `sha256sum -c clif-linux-amd64.tar.gz.sha256` (`shasum -a 256
+-c` on macOS). The `.sha256` files are attested like the archives.
+
 **Verifying a download.** From the release after 0.5.3, every release asset
 and its `checksums.txt` carry a signed
 [build provenance attestation](https://docs.github.com/actions/security-for-github-actions/using-artifact-attestations),
