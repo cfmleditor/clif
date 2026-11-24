@@ -271,9 +271,13 @@ func (f *Formatter) formatBodyRuns(nodes []*sitter.Node) {
 
 // isInlineNode returns true for nodes that represent inline content
 // (text, hash expressions) rather than block-level elements.
+//
+// hash_empty is the escaped literal "##". Left out, it counted as block-level
+// and ended the run it sat in, so `a ##b` was broken into "a" and "##b" with
+// the second line unindented.
 func (f *Formatter) isInlineNode(n *sitter.Node) bool {
 	switch n.Kind() {
-	case "html_text", "text", "hash_expression", "hash_single", "implicit_end_tag":
+	case "html_text", "text", "hash_expression", "hash_single", "hash_empty", "implicit_end_tag":
 		return true
 	}
 

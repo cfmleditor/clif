@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **The formatter no longer breaks text around `#` onto separate lines (cfmleditor/cfmleditor#197).** The escaped literal `##` was not counted as inline content, so it ended the run of text around it: `This is a ##test of hashtags. #color#.` came out as `This is a`, then `##test of hashtags. #color#.` with no indent. At the top of a document, where each sibling was formatted on its own rather than as a run, a lone `#` split the text the same way and took `#color#` apart into `#color` and `#.`. `hash_empty` is now inline, and consecutive text and hash nodes at the top of a document are formatted as one run, as they already were inside an element or a tag body. Only whitespace moved, so the whitespace-only guard let it through.
+
 ## [0.7.6]
 
 ### Added
