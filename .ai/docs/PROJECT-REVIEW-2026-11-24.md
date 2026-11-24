@@ -11,7 +11,7 @@ Reviewed `main` at `e9502f0` (v0.7.5) on Linux amd64 with Go 1.27.4, then fixed 
 | P3 | The header check matched only the line holding the `{` or `>`, so a multi-line declaration answered on one line. | Fixed. The whole declaration, keyword to terminator, answers. |
 | P3 | The document lock was held while other files were read and indexed. | Fixed. It now covers only the parse and the cursor test. |
 | P3 | MCP prompt arguments were placed in the message the model reads, bounded only by `%q` quoting. | Fixed. Arguments with control characters or over 512 bytes are refused (`checkPromptArgument`). Low risk before: the client chooses the arguments. |
-| Maintainability | `script_parser.go` 5,283 lines; `result.go`, `cfscript_formatter.go`, `resolve.go`, `producer_flow.go` each over 2,000. | Split by concern into 30 files, none over 872 lines except `script_parser.go` (1,318). Declarations moved unchanged. |
+| Maintainability | `script_parser.go` 5,283 lines; `result.go`, `cfscript_formatter.go`, `resolve.go`, `producer_flow.go` each over 2,000. | Split by concern into new files; none is over 830 lines, and `script_parser.go` itself is 1,318. Declarations moved unchanged. |
 
 Not defects: `scripts/dev-env.sh check` reports the pinned Go as unavailable when only a toolchain-downloading `go` is on `PATH`. It tests with `GOTOOLCHAIN=local` on purpose, and `setup` is the remedy.
 
@@ -30,4 +30,4 @@ Read from the code, not reproduced: the routes format is validated before the ou
 
 - No real-world corpus was available, so `make corpus` and `make resolution-report` did not run. Those are the repository's check for moved resolver code and its formatter guard. Run `make resolution-report CORPUS="name=dir" BASELINE=<dir>` against `main` and this branch before merging.
 - The implementers lookup resolves each candidate's `implements` names with the component resolver. An interface named by a `componentResolvers` or mapping rule the resolver cannot follow is not found. `implements` written outside the component header is not read.
-- `script_parser.go` (1,318 lines) and `result_merge_regions.go` (436) are the largest of the split files; splitting further would cut through closely coupled code.
+- `script_parser.go` (1,318 lines), `script_assign_refs.go` (822), `script_skip.go` (776) are the largest results; splitting further would cut through closely coupled code.
