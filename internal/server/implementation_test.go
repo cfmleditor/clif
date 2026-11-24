@@ -162,3 +162,32 @@ func TestImplementationIgnoresUnresolvedSameNameExtends(t *testing.T) {
 		t.Fatalf("implementations = %+v, want only Real", locs)
 	}
 }
+
+// A workspace scan indexes through applyIndexResult, not through an open
+// document: the implementers it finds must be the same.
+func TestImplementationAfterWorkspaceScan(t *testing.T) {
+	dir := t.TempDir()
+
+	files := map[string]string{
+		"IShape.cfc": "interface {\n\tpublic numeric function area();\n}\n",
+		"Square.cfc": "component implements=\"IShape\" {\n\tpublic numeric function area() { return 1; }\n}\n",
+	}
+
+	for name, src := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(src), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	s := newTestServer()
+	s.WorkspaceFolders = []string{dir}
+	s.indexWorkspace()
+
+	ifaceURI := cfpath.ToURI(filepath.Join(dir, "IShape.cfc"))
+	openDoc(t, s, ifaceURI, files["IShape.cfc"])
+
+	locs := implementationsAt(t, s, ifaceURI, 0, 2)
+	if len(locs) != 1 || locs[0].URI != cfpath.ToURI(filepath.Join(dir, "Square.cfc")) {
+		t.Fatalf("implementations = %+v, want Square only", locs)
+	}
+}
