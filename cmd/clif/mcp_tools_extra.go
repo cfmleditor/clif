@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/codemap/mcp"
+	"github.com/cfmleditor/clif/internal/confine"
 	"github.com/cfmleditor/clif/internal/docs"
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
@@ -537,4 +539,148 @@ func simpleLineDiff(before, after string, maxLines int) string {
 	}
 
 	return sb.String()
+}
+
+// mcpReadSnippet reads a bounded, 1-based line-numbered source snippet from
+// file (resolved against root when relative and strictly confined within root).
+// When line > 0 lies inside a function span, the enclosing function body is
+// returned (up to maxLines).
+func mcpReadSnippet(root, file string, line, maxLines int) (string, error) {
+	if maxLines <= 0 {
+		maxLines = 80
+	}
+
+	target := file
+	if !filepath.IsAbs(target) {
+		target = filepath.Join(root, filepath.FromSlash(target))
+	}
+
+	abs, err := filepath.Abs(target)
+	if err != nil {
+		return "", err
+	}
+
+	if err := withinRoot(file, abs, confine.Roots(root)); err != nil {
+		return "", err
+	}
+
+	data, err := vfs.ReadRegular(abs)
+	if err != nil {
+		return "", err
+	}
+
+	content := string(data)
+	lines := strings.Split(content, "\n")
+
+	startLine := 1
+	endLine := min(len(lines), maxLines)
+
+	if line > 0 {
+		startLine = min(line, len(lines))
+		endLine = min(len(lines), startLine+maxLines-1)
+		lt := parser.NewLineTable(content)
+
+		// Prefer the exact enclosing function body when available.
+		spans := parser.FunctionSpansOf(abs, content)
+		for i := range spans {
+			sp := &spans[i]
+			sLine := lt.LineOf(sp.Start) + 1
+			eLine := lt.LineOf(max(sp.End-1, sp.Start)) + 1
+
+			if line >= sLine && line <= eLine {
+				startLine = sLine
+				endLine = min(eLine, startLine+maxLines-1)
+
+				break
+			}
+		}
+	}
+
+	var sb strings.Builder
+
+	for ln := startLine; ln <= endLine; ln++ {
+		fmt.Fprintf(&sb, "%4d: %s\n", ln, lines[ln-1])
+	}
+
+	if endLine < len(lines) && line <= 0 {
+		fmt.Fprintf(&sb, "... (%d more lines)\n", len(lines)-endLine)
+	}
+
+	return sb.String(), nil
+}
+
+// mcpLiveExplore answers explore queries without a pre-built code map by
+// combining file outlines, live definitions, line-numbered source snippets,
+// and workspace references in a single call.
+func mcpLiveExplore(ws *mcpWorkspace, root, query string, includeSource bool) (any, error) {
+	candidate := query
+	if !filepath.IsAbs(candidate) {
+		candidate = filepath.Join(root, filepath.FromSlash(candidate))
+	}
+
+	if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+		outline, oerr := mcpOutline(root, candidate)
+		if oerr != nil {
+			return nil, oerr
+		}
+
+		out := map[string]any{
+			"query":   query,
+			"mode":    "live-file",
+			"outline": outline,
+		}
+
+		if strings.EqualFold(filepath.Ext(candidate), ".cfc") {
+			if hier, herr := mcpTypeHierarchy(ws, root, candidate); herr == nil {
+				out["hierarchy"] = hier
+			}
+		}
+
+		if includeSource {
+			if src, serr := mcpReadSnippet(root, candidate, 0, 100); serr == nil {
+				out["source"] = src
+			}
+		}
+
+		return out, nil
+	}
+
+	env, _, err := ws.get()
+	if err != nil {
+		return nil, err
+	}
+
+	defs := env.resolver.Index.Lookup(query)
+	defResults := make([]map[string]any, 0, min(len(defs), 5))
+
+	for i, d := range defs {
+		if i >= 5 {
+			break
+		}
+
+		defPath := cfpath.FromURI(string(d.URI))
+		entry := map[string]any{
+			"name":       d.Name,
+			"file":       defPath,
+			"line":       d.Line + 1,
+			"returnType": d.ReturnType,
+		}
+
+		if includeSource {
+			if src, serr := mcpReadSnippet(root, defPath, int(d.Line)+1, 60); serr == nil {
+				entry["source"] = src
+			}
+		}
+
+		defResults = append(defResults, entry)
+	}
+
+	refsRes, _ := mcpFindRefsWithWorkspace(ws, root, query, []string{root}, 30)
+
+	return map[string]any{
+		"query":       query,
+		"mode":        "live-symbol",
+		"definitions": defResults,
+		"references":  refsRes,
+	}, nil
 }

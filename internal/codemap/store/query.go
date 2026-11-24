@@ -351,6 +351,199 @@ func (s *Store) rebuild(came map[string]string, from, to string) ([]Symbol, erro
 	return out, nil
 }
 
+// Impact returns the transitive reverse-dependency blast radius of id up to
+// maxDepth hops (default 4, capped at 10), using the same O(V+E) batched
+// frontier BFS strategy as Path.
+func (s *Store) Impact(id string, maxDepth, limit int) (*ImpactResult, error) {
+	if maxDepth <= 0 {
+		maxDepth = 4
+	}
+
+	if maxDepth > 10 {
+		maxDepth = 10
+	}
+
+	if limit <= 0 {
+		limit = 100
+	}
+
+	target, err := s.Node(id)
+	if err != nil {
+		return nil, err
+	}
+
+	type impactMeta struct {
+		depth    int
+		edgeKind string
+		via      string
+	}
+
+	visited := map[string]impactMeta{id: {depth: 0}}
+	frontier := []string{id}
+
+	for depth := 1; depth <= maxDepth && len(frontier) > 0; depth++ {
+		var next []string
+
+		for start := 0; start < len(frontier); start += sqlBatch {
+			end := min(start+sqlBatch, len(frontier))
+			batch := frontier[start:end]
+
+			ids, merr := json.Marshal(batch)
+			if merr != nil {
+				return nil, fmt.Errorf("encoding impact frontier: %w", merr)
+			}
+
+			rows, qerr := s.db.Query(reverseExpandQuery, string(ids))
+			if qerr != nil {
+				return nil, fmt.Errorf("expanding impact frontier: %w", qerr)
+			}
+
+			if cerr := collectReverseFrontier(rows, depth, visited, &next); cerr != nil {
+				return nil, cerr
+			}
+		}
+
+		frontier = next
+	}
+
+	delete(visited, id)
+
+	allIDs := make([]string, 0, len(visited))
+	for nid := range visited {
+		allIDs = append(allIDs, nid)
+	}
+
+	syms, err := s.nodesByIDs(allIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	nodes := make([]ImpactNode, 0, len(syms))
+	fileSet := make(map[string]struct{})
+	entrySet := make(map[string]struct{})
+
+	for i := range syms {
+		sym := syms[i]
+		meta := visited[sym.ID]
+
+		if sym.File != "" {
+			fileSet[sym.File] = struct{}{}
+		}
+
+		if sym.Entry {
+			entrySet[sym.ID] = struct{}{}
+		}
+
+		nodes = append(nodes, ImpactNode{
+			Symbol:   sym,
+			Depth:    meta.depth,
+			EdgeKind: meta.edgeKind,
+			Via:      meta.via,
+		})
+	}
+
+	slices.SortFunc(nodes, func(a, b ImpactNode) int {
+		if a.Depth != b.Depth {
+			return a.Depth - b.Depth
+		}
+
+		if a.InDegree != b.InDegree {
+			return b.InDegree - a.InDegree
+		}
+
+		return strings.Compare(a.ID, b.ID)
+	})
+
+	affectedFiles := make([]string, 0, len(fileSet))
+	for f := range fileSet {
+		affectedFiles = append(affectedFiles, f)
+	}
+
+	slices.Sort(affectedFiles)
+
+	entryPoints := make([]string, 0, len(entrySet))
+	for e := range entrySet {
+		entryPoints = append(entryPoints, e)
+	}
+
+	slices.Sort(entryPoints)
+
+	total := len(nodes)
+	truncated := total > limit
+
+	if truncated {
+		nodes = nodes[:limit]
+	}
+
+	return &ImpactResult{
+		Target:        target,
+		MaxDepth:      maxDepth,
+		Total:         total,
+		Truncated:     truncated,
+		AffectedFiles: affectedFiles,
+		EntryPoints:   entryPoints,
+		Nodes:         nodes,
+	}, nil
+}
+
+const reverseExpandQuery = `SELECT from_id, to_id, kind FROM edges
+                            WHERE kind != 'contains' AND to_id IN (SELECT value FROM json_each(?))`
+
+func collectReverseFrontier[M ~struct {
+	depth    int
+	edgeKind string
+	via      string
+}](rows *sql.Rows, depth int, visited map[string]M, next *[]string) error {
+	defer func() { _ = rows.Close() }()
+
+	for rows.Next() {
+		var fromID, toID, kind string
+		if err := rows.Scan(&fromID, &toID, &kind); err != nil {
+			return fmt.Errorf("scanning reverse edge: %w", err)
+		}
+
+		if _, seen := visited[fromID]; seen {
+			continue
+		}
+
+		visited[fromID] = M{depth: depth, edgeKind: kind, via: toID}
+		*next = append(*next, fromID)
+	}
+
+	return rows.Err()
+}
+
+func (s *Store) nodesByIDs(ids []string) ([]Symbol, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+
+	out := make([]Symbol, 0, len(ids))
+
+	for start := 0; start < len(ids); start += sqlBatch {
+		end := min(start+sqlBatch, len(ids))
+
+		encoded, err := json.Marshal(ids[start:end])
+		if err != nil {
+			return nil, fmt.Errorf("encoding node ids: %w", err)
+		}
+
+		rows, err := s.db.Query(`SELECT `+nodeCols+` FROM nodes n WHERE n.id IN (SELECT value FROM json_each(?))`, string(encoded))
+		if err != nil {
+			return nil, fmt.Errorf("reading impact nodes: %w", err)
+		}
+
+		batch, err := scanSymbols(rows)
+		if err != nil {
+			return nil, err
+		}
+
+		out = append(out, batch...)
+	}
+
+	return out, nil
+}
+
 // Islands lists the connected pieces, largest first. With detachedOnly it lists
 // only those no entry point reaches — the detached trees, which is the list worth
 // reading first on a codebase nobody has mapped before.

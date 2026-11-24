@@ -252,3 +252,66 @@ func TestMCPCheckFormatReadOnly(t *testing.T) {
 		t.Fatalf("check_format modified file on disk: got %q, want %q", string(after), orig)
 	}
 }
+
+func TestMCPLiveExploreAndSnippet(t *testing.T) {
+	root := t.TempDir()
+	svc := filepath.Join(root, "Svc.cfc")
+	content := strings.Join([]string{
+		`component {`,
+		`	public string function greet(required string who) {`,
+		`		return "hi " & who;`,
+		`	}`,
+		`}`,
+	}, "\n")
+
+	if err := os.WriteFile(svc, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	ws := newMCPWorkspace(root)
+
+	// Explore by file name.
+	fileRes, err := mcpLiveExplore(ws, root, "Svc.cfc", true)
+	if err != nil {
+		t.Fatalf("mcpLiveExplore(file) error: %v", err)
+	}
+
+	fm := mustMap(t, fileRes)
+	if fm["mode"] != "live-file" {
+		t.Errorf("mode = %v, want live-file", fm["mode"])
+	}
+
+	if src, _ := fm["source"].(string); !strings.Contains(src, "   2: \tpublic string function greet") {
+		t.Errorf("unexpected file snippet: %q", src)
+	}
+
+	// Explore by symbol name.
+	symRes, err := mcpLiveExplore(ws, root, "greet", true)
+	if err != nil {
+		t.Fatalf("mcpLiveExplore(symbol) error: %v", err)
+	}
+
+	sm := mustMap(t, symRes)
+	if sm["mode"] != "live-symbol" {
+		t.Errorf("mode = %v, want live-symbol", sm["mode"])
+	}
+
+	defs, ok := sm["definitions"].([]map[string]any)
+	if !ok || len(defs) != 1 || defs[0]["name"] != "greet" {
+		t.Fatalf("definitions = %+v, want 1 greet definition", sm["definitions"])
+	}
+}
+
+func TestMCPAllowedToolsFlagAndEnv(t *testing.T) {
+	t.Setenv("CLIF_MCP_TOOLS", "explore,lookup_docs")
+
+	gotEnv := mcpAllowedTools("")
+	if len(gotEnv) != 2 || gotEnv[0] != "explore" || gotEnv[1] != "lookup_docs" {
+		t.Fatalf("mcpAllowedTools(env) = %v", gotEnv)
+	}
+
+	gotSlim := mcpAllowedTools("slim")
+	if len(gotSlim) != 3 || gotSlim[0] != "explore" {
+		t.Fatalf("mcpAllowedTools(slim) = %v", gotSlim)
+	}
+}

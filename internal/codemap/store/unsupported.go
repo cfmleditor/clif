@@ -55,6 +55,9 @@ func (*Store) Callees(string, int) ([]Neighbour, error) { return nil, errUnsuppo
 // Path always fails.
 func (*Store) Path(string, string, int) ([]Symbol, error) { return nil, errUnsupported }
 
+// Impact always fails.
+func (*Store) Impact(string, int, int) (*ImpactResult, error) { return nil, errUnsupported }
+
 // Islands always fails.
 func (*Store) Islands(bool, int) ([]IslandSummary, error) { return nil, errUnsupported }
 

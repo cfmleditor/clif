@@ -55,5 +55,24 @@ type IslandSummary struct {
 	Roots     []string `json:"roots"`
 }
 
+// ImpactNode is a symbol transitively affected by changes to a target node.
+type ImpactNode struct {
+	Symbol
+	Depth    int    `json:"depth"`
+	EdgeKind string `json:"edgeKind"`
+	Via      string `json:"via"`
+}
+
+// ImpactResult summarizes the transitive reverse-dependency blast radius of a node.
+type ImpactResult struct {
+	Target        Symbol       `json:"target"`
+	MaxDepth      int          `json:"maxDepth"`
+	Total         int          `json:"total"`
+	Truncated     bool         `json:"truncated"`
+	AffectedFiles []string     `json:"affectedFiles"`
+	EntryPoints   []string     `json:"entryPoints"`
+	Nodes         []ImpactNode `json:"nodes"`
+}
+
 // ErrNotFound is returned when a query names a node that is not in the store.
 var ErrNotFound = errors.New("not found")

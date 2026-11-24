@@ -41,6 +41,10 @@ func TestEveryToolAnswersAndRefusesMissingArguments(t *testing.T) {
 		{`{"name":"find_path","arguments":{"from":"page.cfm","to":"svc.cfc::getuser"}}`, `"found": true`, false},
 		{`{"name":"find_path","arguments":{"from":"svc.cfc::getuser","to":"page.cfm"}}`, `"found": false`, false},
 		{`{"name":"find_path","arguments":{"from":"page.cfm"}}`, "missing required argument", true},
+		{`{"name":"impact_analysis","arguments":{"id":"svc.cfc::getuser"}}`, "affectedFiles", false},
+		{`{"name":"impact_analysis","arguments":{}}`, "missing required argument", true},
+		{`{"name":"explore","arguments":{"query":"getuser"}}`, "svc.cfc::getuser", false},
+		{`{"name":"explore","arguments":{}}`, "missing required argument", true},
 		{`{"name":"list_islands","arguments":{}}`, "islands", false},
 		{`{"name":"list_orphans","arguments":{}}`, "orphans", false},
 		{`{"name":"get_stats","arguments":{}}`, "callSites", false},
@@ -122,7 +126,7 @@ func TestEveryAdvertisedToolIsRunnable(t *testing.T) {
 	s.CheckFormat = func([]string, bool, int) (any, error) { return nil, nil }
 
 	names := listTools(t, s)
-	if len(names) < 18 {
+	if len(names) < 20 {
 		t.Fatalf("only %d tools advertised: %v", len(names), names)
 	}
 
@@ -131,5 +135,15 @@ func TestEveryAdvertisedToolIsRunnable(t *testing.T) {
 		if strings.Contains(text, "unknown tool") {
 			t.Errorf("%s is advertised and has no handler", name)
 		}
+	}
+}
+
+func TestAllowedToolsFiltersToolList(t *testing.T) {
+	s := server(t, true)
+	s.AllowedTools = []string{"explore", "impact_analysis"}
+
+	names := listTools(t, s)
+	if len(names) != 2 || names[0] != "explore" || names[1] != "impact_analysis" {
+		t.Fatalf("listTools with AllowedTools = %v, want [explore impact_analysis]", names)
 	}
 }

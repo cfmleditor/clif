@@ -56,7 +56,13 @@ const idHelp = "Node id. A function is \"<file>::<lowercased name>\", e.g. " +
 	"Use search_symbols to find one rather than guessing."
 
 func (s *Server) tools() []tool {
-	list := s.taskTools()
+	var list []tool
+
+	if s.Store != nil || s.LiveExplore != nil {
+		list = append(list, exploreTool)
+	}
+
+	list = append(list, s.taskTools()...)
 
 	if s.Store != nil {
 		list = append(list, mapTools...)
@@ -66,7 +72,39 @@ func (s *Server) tools() []tool {
 		list = append(list, explainTool)
 	}
 
-	return list
+	if len(s.AllowedTools) == 0 {
+		return list
+	}
+
+	allow := make(map[string]struct{}, len(s.AllowedTools))
+	for _, name := range s.AllowedTools {
+		allow[strings.ToLower(strings.TrimSpace(name))] = struct{}{}
+	}
+
+	filtered := make([]tool, 0, len(allow))
+	for _, t := range list {
+		if _, ok := allow[strings.ToLower(t.Name)]; ok {
+			filtered = append(filtered, t)
+		}
+	}
+
+	return filtered
+}
+
+var exploreTool = tool{
+	Name:  "explore",
+	Title: "Explore symbol or file context",
+	Description: "One-shot context lookup for a symbol name, node id, or file path. Returns " +
+		"matching symbol metadata, verbatim line-numbered source, direct callers and callees, " +
+		"and transitive blast radius (when a code map is loaded) in a single call — avoiding " +
+		"multi-step search/read round-trips.",
+	InputSchema: obj(map[string]any{
+		"query":          str("Symbol name, node id (e.g. \"svc.cfc::getuser\"), or file path."),
+		"depth":          num("Transitive blast-radius depth when a code map is loaded (default 2, max 10)."),
+		"max_symbols":    num("Maximum matching symbols to expand (default 3, max 10)."),
+		"include_source": flag("Include verbatim line-numbered source snippets (default true)."),
+	}, "query"),
+	Annotations: readOnly,
 }
 
 // mapTools query the code map, and are offered only when one is loaded.
@@ -129,6 +167,19 @@ var mapTools = []tool{
 			"to":        str("Target node id."),
 			"max_depth": num("How many hops to search (default 12)."),
 		}, "from", "to"),
+		Annotations: readOnly,
+	},
+	{
+		Name:  "impact_analysis",
+		Title: "Analyze transitive impact (blast radius)",
+		Description: "Walk the reverse dependency graph from a node up to max_depth hops to see " +
+			"everything transitively affected by changing it: affected files, entry points reached, " +
+			"and impacted callers ordered by hop distance.",
+		InputSchema: obj(map[string]any{
+			"id":        str(idHelp),
+			"max_depth": num("Maximum reverse hops to walk (default 4, max 10)."),
+			"limit":     num("Maximum impacted nodes returned (default 100)."),
+		}, "id"),
 		Annotations: readOnly,
 	},
 	{
@@ -387,6 +438,9 @@ type toolArgs struct {
 	Name            string   `json:"name"`
 	Route           string   `json:"route"`
 	IncludeDiff     bool     `json:"include_diff"`
+	Depth           int      `json:"depth"`
+	MaxSymbols      int      `json:"max_symbols"`
+	IncludeSource   *bool    `json:"include_source"`
 }
 
 // toolHandler runs one tool for already-parsed arguments.
@@ -394,11 +448,13 @@ type toolHandler func(s *Server, a *toolArgs) (any, error)
 
 // toolHandlers is every tool run answers, by name.
 var toolHandlers = map[string]toolHandler{
+	"explore":               (*Server).explore,
 	"search_symbols":        (*Server).searchSymbols,
 	"get_symbol":            (*Server).getSymbol,
 	"get_callers":           (*Server).getCallers,
 	"get_callees":           (*Server).getCallees,
 	"find_path":             (*Server).findPath,
+	"impact_analysis":       (*Server).impactAnalysis,
 	"list_islands":          (*Server).listIslands,
 	"list_orphans":          (*Server).listOrphans,
 	"get_stats":             func(s *Server, _ *toolArgs) (any, error) { return s.Store.Stats() },
@@ -492,6 +548,103 @@ func (s *Server) findPath(a *toolArgs) (any, error) {
 	}
 
 	return map[string]any{"found": true, "hops": len(path) - 1, "path": path}, nil
+}
+
+func (s *Server) impactAnalysis(a *toolArgs) (any, error) {
+	if a.ID == "" {
+		return nil, errMissing("id")
+	}
+
+	return s.Store.Impact(a.ID, a.MaxDepth, a.Limit)
+}
+
+func (s *Server) explore(a *toolArgs) (any, error) {
+	query := strings.TrimSpace(a.Query)
+	if query == "" {
+		return nil, errMissing("query")
+	}
+
+	includeSource := true
+	if a.IncludeSource != nil {
+		includeSource = *a.IncludeSource
+	}
+
+	if s.Store == nil {
+		if s.LiveExplore == nil {
+			return nil, errors.New("explore is not available on this server")
+		}
+
+		return s.LiveExplore(query, includeSource)
+	}
+
+	maxSymbols := a.MaxSymbols
+	if maxSymbols <= 0 {
+		maxSymbols = 3
+	}
+
+	if maxSymbols > 10 {
+		maxSymbols = 10
+	}
+
+	depth := a.Depth
+	if depth <= 0 {
+		depth = 2
+	}
+
+	var matched []store.Symbol
+	if sym, err := s.Store.Node(query); err == nil {
+		matched = []store.Symbol{sym}
+	} else {
+		found, serr := s.Store.SearchSymbols(&store.SearchOptions{
+			Query:     query,
+			SortByFan: true,
+			Limit:     maxSymbols,
+		})
+		if serr != nil {
+			return nil, serr
+		}
+
+		matched = found
+	}
+
+	items := make([]map[string]any, 0, len(matched))
+
+	for i := range matched {
+		sym := matched[i]
+		callers, _ := s.Store.Callers(sym.ID, 25)
+		callees, _ := s.Store.Callees(sym.ID, 25)
+
+		entry := map[string]any{
+			"symbol":  sym,
+			"callers": callers,
+			"callees": callees,
+		}
+
+		if imp, ierr := s.Store.Impact(sym.ID, depth, 20); ierr == nil && imp != nil {
+			entry["impact"] = map[string]any{
+				"maxDepth":      imp.MaxDepth,
+				"totalImpacted": imp.Total,
+				"affectedFiles": imp.AffectedFiles,
+				"entryPoints":   imp.EntryPoints,
+				"nodes":         imp.Nodes,
+			}
+		}
+
+		if includeSource && s.ReadSnippet != nil && sym.File != "" {
+			if snippet, rerr := s.ReadSnippet(sym.File, int(sym.Line), 80); rerr == nil && snippet != "" {
+				entry["source"] = snippet
+			}
+		}
+
+		items = append(items, entry)
+	}
+
+	return map[string]any{
+		"query":   query,
+		"mode":    "codemap",
+		"count":   len(items),
+		"results": items,
+	}, nil
 }
 
 func (s *Server) listIslands(a *toolArgs) (any, error) {
