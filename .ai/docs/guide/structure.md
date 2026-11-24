@@ -12,7 +12,7 @@ code lines before and after), then `unresolved` byte-identical on a corpus.
 
 - `internal/parser/result.go` — `ParseResult`, `ParseOptions`, `Parse()`/`ParseWithOptions()`,
   lazy per-function caches, `replaceExpressions`, `resolvePendingCalls`, property accessors
-  Split from it, all methods of `ParseResult`: `result_merge.go` (region merging, signatures),
+  Split from it, all methods of `ParseResult`: `result_merge.go` (region merging), `result_merge_regions.go` (script and tag region merges), `result_merge_util.go` (key and slice helpers), `result_signatures.go` (signature extraction),
   `result_postprocess.go` (service properties, chained returns, expression mappings),
   `result_keys.go` (`fnKey`, line tables, member-method names), `result_declares.go`
   (`Declares`), `result_managed.go` (managed setters, aliasing), `result_regions.go` (links,
@@ -49,7 +49,7 @@ code lines before and after), then `unresolved` byte-identical on a corpus.
 - `internal/server/structure_diagnostics.go` — the debounced tag-structure check and its publish;
   `rename.go`, `inlay_hint.go`, `docs_command.go` and `lifecycle_actions.go` are the rename,
   inlay-hint, documentation-command and Application-event code-action handlers
-- `internal/resolve/resolve.go` (with `resolve_hops.go`, `resolve_bare.go`, `resolve_missing.go`, `resolve_methods.go` split from it; `producer_flow.go` likewise into `producer_flow_{exec,fields,read,calls,assign}.go`; the formatter's `cfscript_formatter.go` into `cfscript_{expr,args,stmt}.go`) — `ComponentPath`, `CanResolveCall`, `ExplainCall`, extends walking
+- `internal/resolve/resolve.go` (with `resolve_hops.go`, `resolve_bare.go`, `resolve_missing.go`, `resolve_methods.go` split from it; `producer_flow.go` likewise into `producer_flow_{exec,fields,read,calls,assign}.go`; the formatter's `cfscript_formatter.go` into `cfscript_{expr,expr_ops,expr_nodes,expr_helpers,args,stmt}.go`) — `ComponentPath`, `CanResolveCall`, `ExplainCall`, extends walking
 - `internal/config/config.go` — `.clif.json` schema and defaults
 - `internal/docs/` — generated; regenerate via `make generate`, never hand-edit
 
