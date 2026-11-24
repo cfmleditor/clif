@@ -181,4 +181,18 @@ func TestCrossFileRenameRefusesAmbiguousAndAccessorProperties(t *testing.T) {
 	if edits := edit.Changes[plainURI]; len(edits) != 3 {
 		t.Fatalf("plain property edits = %+v, want 3 (decl + variables.title + this.title)", edits)
 	}
+
+	// Shorthand `property user user;` must select the property name, not the type.
+	sCol, eCol, ok := findPropNameCols("\tproperty user user;", "user")
+	if !ok || sCol != 15 || eCol != 19 {
+		t.Fatalf("findPropNameCols shorthand = (%d, %d, %v), want (15, 19, true)", sCol, eCol, ok)
+	}
+
+	// callNameRangesOnLine with receiver must only match that receiver's call.
+	line := "var x = other.fetchUser(1) + svc.fetchUser(2);"
+	rngs := callNameRangesOnLine(line, 0, "fetchUser", "svc")
+
+	if len(rngs) != 1 || rngs[0].Start.Character != 33 {
+		t.Fatalf("callNameRangesOnLine(svc) = %+v, want single match at col 33", rngs)
+	}
 }

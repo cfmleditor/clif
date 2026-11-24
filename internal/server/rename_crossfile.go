@@ -103,32 +103,49 @@ func findPropNameCols(lineText, name string) (startCol, endCol uint32, ok bool) 
 		return 0, 0, false
 	}
 
-	lowerLine := strings.ToLower(lineText)
+	// 1. Prefer explicit `name="foo"` or `name='foo'` attribute value.
+	if s, e, found := findTagAttrValue(lineText, 0, len(lineText), "name"); found && strings.EqualFold(lineText[s:e], name) {
+		return conv.Uint32(lex.UTF16Len(lineText[:s])), conv.Uint32(lex.UTF16Len(lineText[:e])), true
+	}
+
+	// 2. Shorthand `property [type] <name> [= default];`: take the last whole-word
+	// match before any `=`, `;`, or `{`, so `property user user;` selects the
+	// property name rather than the type.
+	limit := len(lineText)
+	if idx := strings.IndexAny(lineText, "=;{"); idx >= 0 {
+		limit = idx
+	}
+
+	lowerLine := strings.ToLower(lineText[:limit])
 	lowerName := strings.ToLower(name)
 
-	// Search for whole-word match of name on the property declaration line.
+	lastPos := -1
 	from := 0
+
 	for {
 		idx := strings.Index(lowerLine[from:], lowerName)
 		if idx < 0 {
-			return 0, 0, false
+			break
 		}
 
 		pos := from + idx
 		end := pos + len(name)
 
 		beforeOK := pos == 0 || !isSemIdentByte(lineText[pos-1])
-		afterOK := end >= len(lineText) || !isSemIdentByte(lineText[end])
+		afterOK := end >= limit || !isSemIdentByte(lineText[end])
 
 		if beforeOK && afterOK {
-			sCol := conv.Uint32(lex.UTF16Len(lineText[:pos]))
-			eCol := conv.Uint32(lex.UTF16Len(lineText[:end]))
-
-			return sCol, eCol, true
+			lastPos = pos
 		}
 
 		from = pos + 1
 	}
+
+	if lastPos < 0 {
+		return 0, 0, false
+	}
+
+	return conv.Uint32(lex.UTF16Len(lineText[:lastPos])), conv.Uint32(lex.UTF16Len(lineText[:lastPos+len(name)])), true
 }
 
 func (s *Server) prepareCrossFileRename(docURI uri.URI, pos protocol.Position) (protocol.PrepareRenamePlaceholder, bool) {
@@ -193,16 +210,35 @@ func (s *Server) renameComponentMethod(docURI uri.URI, t *crossFileRenameTarget,
 
 	res := s.getResolver()
 
-	// Refuse if a parent component or direct subtype declares the same method
-	// (renaming one side would silently break polymorphism).
-	if t.pr.Extends != "" {
-		if parentPath := res.ComponentPath(t.pr.Extends, filepath.Dir(t.filePath)); parentPath != "" {
-			for _, fn := range res.EnsureIndexed(parentPath) {
-				if strings.EqualFold(fn.Name, t.name) {
-					return nil, fmt.Errorf("cannot rename '%s': overrides method in parent component '%s'", t.name, t.pr.Extends)
-				}
+	// Refuse if any ancestor component (parent, grandparent, ...) or direct
+	// subtype declares the same method (renaming one side would silently break
+	// polymorphism).
+	visited := map[string]bool{strings.ToLower(t.filePath): true}
+	curDir := filepath.Dir(t.filePath)
+	curExtends := t.pr.Extends
+
+	for curExtends != "" {
+		parentPath := res.ComponentPath(curExtends, curDir)
+		if parentPath == "" {
+			break
+		}
+
+		key := strings.ToLower(parentPath)
+		if visited[key] {
+			break
+		}
+
+		visited[key] = true
+
+		for _, fn := range res.EnsureIndexed(parentPath) {
+			if strings.EqualFold(fn.Name, t.name) {
+				return nil, fmt.Errorf("cannot rename '%s': overrides method in ancestor component '%s'", t.name, curExtends)
 			}
 		}
+
+		parentExtends, _ := s.index.ExtendsForFile(cfpath.ToURI(parentPath))
+		curDir = filepath.Dir(parentPath)
+		curExtends = parentExtends
 	}
 
 	compName := strings.TrimSuffix(filepath.Base(t.filePath), filepath.Ext(t.filePath))
@@ -251,7 +287,12 @@ func (s *Server) renameComponentMethod(docURI uri.URI, t *crossFileRenameTarget,
 			callerContent = string(data)
 		}
 
-		for _, rng := range callNameRangesOnLine(callerContent, e.Line, t.name) {
+		rngs := callNameRangesOnLine(callerContent, e.Line, t.name, e.Variable)
+		if len(rngs) > 1 && e.Variable == "" {
+			return nil, fmt.Errorf("cannot safely rename '%s': multiple calls on %s:%d", t.name, filepath.Base(e.File), e.Line+1)
+		}
+
+		for _, rng := range rngs {
 			editsByURI[callerURI] = append(editsByURI[callerURI], protocol.TextEdit{
 				Range:   rng,
 				NewText: newName,
@@ -278,9 +319,20 @@ func (s *Server) renameComponentProperty(docURI uri.URI, t *crossFileRenameTarge
 	edits := []protocol.TextEdit{{Range: t.declRng, NewText: newName}}
 	lines := parser.NewLineTable(t.content)
 	posOf := rangePositioner(t.content, lines)
+	lowerProp := strings.ToLower(t.name)
 
 	// Find all `this.<prop>` and `variables.<prop>` references in script regions.
+	// If a tag region also mentions the property name outside the declaration,
+	// refuse rather than silently missing tag-based references.
 	for _, r := range parser.ClassifyRegions(t.content) {
+		if r.Kind == parser.RegionTag {
+			if strings.Contains(strings.ToLower(r.Text), "."+lowerProp) {
+				return nil, fmt.Errorf("cannot safely rename property '%s': referenced inside tag markup", t.name)
+			}
+
+			continue
+		}
+
 		if r.Kind != parser.RegionScript {
 			continue
 		}
@@ -316,8 +368,10 @@ func (s *Server) renameComponentProperty(docURI uri.URI, t *crossFileRenameTarge
 }
 
 // callNameRangesOnLine finds every call identifier matching targetName followed
-// by '(' on the 0-based line in content.
-func callNameRangesOnLine(content string, targetLine uint32, targetName string) []protocol.Range {
+// by '(' on the 0-based line in content. When receiver is non-empty, only calls
+// qualified by `<receiver>.<targetName>(` are matched; when receiver is empty,
+// only bare (non-member) calls are matched.
+func callNameRangesOnLine(content string, targetLine uint32, targetName, receiver string) []protocol.Range {
 	lines := strings.Split(content, "\n")
 	if int(targetLine) >= len(lines) {
 		return nil
@@ -327,8 +381,8 @@ func callNameRangesOnLine(content string, targetLine uint32, targetName string) 
 	sc := parser.NewSourceScanner(lineText)
 
 	var (
-		prev parser.Token
-		out  []protocol.Range
+		prev2, prev1 parser.Token
+		out          []protocol.Range
 	)
 
 	cur := sc.NextSkipComments()
@@ -336,8 +390,18 @@ func callNameRangesOnLine(content string, targetLine uint32, targetName string) 
 		next := sc.NextSkipComments()
 
 		if cur.Kind == parser.TokIdent && strings.EqualFold(cur.Value, targetName) && next.Kind == parser.TokLParen {
-			// Skip function declarations (`function targetName(`).
-			if prev.Kind != parser.TokIdent || !strings.EqualFold(prev.Value, "function") {
+			isDecl := prev1.Kind == parser.TokIdent && strings.EqualFold(prev1.Value, "function")
+			match := false
+
+			if !isDecl {
+				if receiver != "" {
+					match = prev1.Kind == parser.TokDot && prev2.Kind == parser.TokIdent && strings.EqualFold(prev2.Value, receiver)
+				} else {
+					match = true
+				}
+			}
+
+			if match {
 				sCol := conv.Uint32(lex.UTF16Len(lineText[:cur.Offset]))
 				eCol := conv.Uint32(lex.UTF16Len(lineText[:cur.Offset+len(cur.Value)]))
 				out = append(out, protocol.Range{
@@ -347,7 +411,8 @@ func callNameRangesOnLine(content string, targetLine uint32, targetName string) 
 			}
 		}
 
-		prev = cur
+		prev2 = prev1
+		prev1 = cur
 		cur = next
 	}
 
