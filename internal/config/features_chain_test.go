@@ -99,6 +99,7 @@ var featureDefaults = map[string]bool{
 	"InlayHintsParameterNames":   true,
 	"InlayHintsComponentPath":    true,
 	"Rename":                     renameDefault,
+	"RenameCrossFile":            renameCrossFileDefault,
 	"SemanticTokens":             semanticTokensDefault,
 }
 
