@@ -126,6 +126,12 @@ func (s *Server) Handler() jsonrpc2.Handler {
 			return s.handleSemanticTokensFull(ctx, req.Params())
 		case protocol.MethodTextDocumentSemanticTokensRange:
 			return s.handleSemanticTokensRange(ctx, req.Params())
+		case protocol.MethodTextDocumentPrepareTypeHierarchy:
+			return s.handlePrepareTypeHierarchy(ctx, req.Params())
+		case protocol.MethodTypeHierarchySupertypes:
+			return s.handleTypeHierarchySupertypes(ctx, req.Params())
+		case protocol.MethodTypeHierarchySubtypes:
+			return s.handleTypeHierarchySubtypes(ctx, req.Params())
 		case protocol.MethodTextDocumentDocumentSymbol:
 			return s.handleDocumentSymbol(ctx, req.Params())
 		case protocol.MethodWorkspaceSymbol:
