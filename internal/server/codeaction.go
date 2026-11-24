@@ -35,6 +35,10 @@ func (s *Server) handleCodeAction(_ context.Context, rawParams []byte) (any, err
 
 	var actions []protocol.CodeAction
 
+	if wantsKind(params.Context.Only, protocol.CodeActionKindQuickFix) && len(params.Context.Diagnostics) > 0 {
+		actions = append(actions, s.quickFixActions(params.TextDocument.URI, content, params.Context.Diagnostics)...)
+	}
+
 	// An Application.cfc is offered the application events it does not declare.
 	// They are refactorings: a client asking only for quick fixes has no use
 	// for the scan that finds them.
