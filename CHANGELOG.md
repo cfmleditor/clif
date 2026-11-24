@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **The formatter leaves a commented-out block of tags or HTML as written (cfmleditor/cfmleditor#196).** A multi-line `<!--- ... --->` that holds markup was rewritten: the markers moved onto lines of their own and the inside was re-indented, and since the first line sits after the marker at a depth of its own, the indent stripped was that line's alone and the rest of the block came out ragged. A block someone has switched off is meant to be switched back on, and the editor's toggle-comment shortcut removes the markers, so it now stays exactly where it was. A comment with no tag in it (a `<` followed by a letter or a slash) is formatted as before.
+
 ## [0.7.6]
 
 ### Added

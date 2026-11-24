@@ -16,6 +16,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -1504,13 +1505,29 @@ func (f *Formatter) formatComment(n *sitter.Node) {
 	f.write("\n")
 }
 
+// commentedMarkupPattern matches the start of a tag or an end tag: a less-than sign
+// followed by a letter or a slash. `a < b` does not match.
+var commentedMarkupPattern = regexp.MustCompile(`</?[A-Za-z]`)
+
 // normalizeCFComment collapses extra internal whitespace in <!--- ... ---> comments.
+//
+// A multi-line comment that holds markup is returned as written. It is code someone
+// switched off, and the point of switching it off with a comment is to switch it back
+// on: the editor's toggle-comment shortcut takes the markers away and the block should
+// be exactly where it was. Re-indenting it moved the markers onto lines of their own,
+// and the indent it stripped was the common one across every line, first line included,
+// though the first line sits after the marker at a depth of its own, so the rest of
+// the block came out ragged.
 func (f *Formatter) normalizeCFComment(raw string) string {
 	if !strings.HasPrefix(raw, "<!---") || !strings.HasSuffix(raw, "--->") {
 		return raw
 	}
 
 	inner := raw[5 : len(raw)-4]
+
+	if strings.Contains(inner, "\n") && commentedMarkupPattern.MatchString(inner) {
+		return raw
+	}
 
 	lines := strings.Split(inner, "\n")
 	for i, line := range lines {
