@@ -41,6 +41,15 @@ func (idx *Index) SetImplements(fileURI uri.URI, names []string) {
 	idx.setImplementsLocked(uriKey(fileURI), names)
 }
 
+// ImplementsForFile returns the interfaces a file's implements attribute names,
+// as the index recorded them.
+func (idx *Index) ImplementsForFile(fileURI uri.URI) []string {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+
+	return slices.Clone(idx.implements[uriKey(fileURI)])
+}
+
 // ImplementersByName groups every file that declares an implements attribute
 // by the last segment of each interface it names, lowercased, each group
 // sorted by URI. Only files with an implements attribute are held, so the pass

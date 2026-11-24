@@ -255,6 +255,10 @@ func (s *Server) renameComponentMethod(docURI uri.URI, t *crossFileRenameTarget,
 		}
 	}
 
+	if err := s.implementsRenameConflict(t); err != nil {
+		return nil, err
+	}
+
 	editsByURI := map[uri.URI][]protocol.TextEdit{
 		docURI: {{Range: t.declRng, NewText: newName}},
 	}
@@ -508,4 +512,34 @@ func dedupSortEdits(list []protocol.TextEdit) []protocol.TextEdit {
 	}
 
 	return out
+}
+
+// implementsRenameConflict refuses a rename across `implements`: an
+// interface's method and the method that satisfies it are renamed together or
+// not at all.
+func (s *Server) implementsRenameConflict(t *crossFileRenameTarget) error {
+	res := s.getResolver()
+
+	for _, iface := range s.index.ImplementsForFile(cfpath.ToURI(t.filePath)) {
+		ifacePath := res.ComponentPath(iface, filepath.Dir(t.filePath))
+		if ifacePath == "" {
+			continue
+		}
+
+		for _, fn := range res.EnsureIndexed(ifacePath) {
+			if strings.EqualFold(fn.Name, t.name) {
+				return fmt.Errorf("cannot rename '%s': implements method in interface '%s'", t.name, filepath.Base(ifacePath))
+			}
+		}
+	}
+
+	for _, implPath := range s.collectImplementers(t.filePath) {
+		for _, fn := range res.EnsureIndexed(implPath) {
+			if strings.EqualFold(fn.Name, t.name) {
+				return fmt.Errorf("cannot rename '%s': implemented in component '%s'", t.name, filepath.Base(implPath))
+			}
+		}
+	}
+
+	return nil
 }

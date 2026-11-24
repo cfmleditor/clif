@@ -196,3 +196,40 @@ func TestCrossFileRenameRefusesAmbiguousAndAccessorProperties(t *testing.T) {
 		t.Fatalf("callNameRangesOnLine(svc) = %+v, want single match at col 33", rngs)
 	}
 }
+
+func TestCrossFileRenameRefusesAcrossImplements(t *testing.T) {
+	dir := t.TempDir()
+
+	files := map[string]string{
+		"IShape.cfc": "interface {\n\tpublic numeric function area();\n}\n",
+		"Square.cfc": "component implements=\"IShape\" {\n\tpublic numeric function area() { return 1; }\n}\n",
+	}
+
+	for name, src := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(src), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	s := newTestServer()
+	s.Features.Rename = true
+	s.Features.RenameCrossFile = true
+	s.WorkspaceFolders = []string{dir}
+	s.indexWorkspace()
+
+	ifaceURI := cfpath.ToURI(filepath.Join(dir, "IShape.cfc"))
+	implURI := cfpath.ToURI(filepath.Join(dir, "Square.cfc"))
+
+	openDoc(t, s, ifaceURI, files["IShape.cfc"])
+	openDoc(t, s, implURI, files["Square.cfc"])
+
+	// Renaming the interface's method would leave Square.area unsatisfying it.
+	if _, err := renameTo(t, s, ifaceURI, 1, 25, "size"); err == nil || !strings.Contains(err.Error(), "implemented in component 'Square.cfc'") {
+		t.Errorf("rename on the interface: err = %v, want refusal naming Square.cfc", err)
+	}
+
+	// And the other way round.
+	if _, err := renameTo(t, s, implURI, 1, 25, "size"); err == nil || !strings.Contains(err.Error(), "implements method in interface 'IShape.cfc'") {
+		t.Errorf("rename on the implementer: err = %v, want refusal naming IShape.cfc", err)
+	}
+}
