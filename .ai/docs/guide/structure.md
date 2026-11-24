@@ -14,8 +14,15 @@ code lines before and after), then `unresolved` byte-identical on a corpus.
   lazy per-function caches, `replaceExpressions`, `resolvePendingCalls`, property accessors
 - `internal/parser/cfparser.go` — `ClassifyRegions()` plus the standalone
   `ParseFunctionDefs`/`ParseComponentRefs` helpers
-- `internal/parser/script_parser.go` — `scriptParser` and the two parse loops (top-level
-  `parse()` and `handleBodyToken`); see the scope-dispatch note below
+- `internal/parser/script_parser.go` — `scriptParser`, its constructor and the top-level
+  `parse()` loop; see the scope-dispatch note below. The rest of `scriptParser` is split by
+  concern, all one type: `script_body.go` (`parseBody`, `handleBodyToken`, return handling),
+  `script_functions.go` (function declarations, access modifiers, loop/catch vars),
+  `script_assign_refs.go` (assignments, `new`/`createObject` refs, chains in bodies),
+  `script_chain_record.go` (recording calls and chain hops), `script_mocks.go` (call
+  resolution helpers, mock markers), `script_arglist.go` (argument lists),
+  `script_property_parse.go` (`property` declarations), `script_skip.go` (paren/bracket
+  skipping, arrow params, mark/rewind)
 - `internal/parser/tag_parser.go` — `tagParser` for `<cffunction>`, `<cfcomponent>`, etc.
 - `internal/parser/scanner.go` — byte-level tokenizer (`isIdentStart` treats `_` and `$` as
   identifier starts)
