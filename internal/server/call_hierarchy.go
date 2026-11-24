@@ -96,7 +96,8 @@ func (s *Server) handleCallHierarchyIncomingCalls(_ context.Context, rawParams [
 	}
 
 	sourceFile := cfpath.FromURI(string(params.Item.URI))
-	byName := refs.FindCallsMany(s.refsFS(), s.searchRoots(), []string{name}, sourceFile, s.getResolver())
+	also := map[string][]string{strings.ToLower(name): s.relatedSources(sourceFile, name)}
+	byName := refs.FindCallsMany(s.refsFS(), s.searchRoots(), []string{name}, sourceFile, also, s.getResolver())
 	entries := byName[strings.ToLower(name)]
 
 	if len(entries) == 0 {

@@ -271,23 +271,27 @@ func (s *Server) walkExtenders(queue []string, visited map[string]bool) []string
 //
 // Siblings are not included: a call typed as a sibling never reaches file.
 func (s *Server) relatedSources(file, name string) []string {
-	res := s.getResolver()
-	declares := func(path string) bool {
-		return slices.ContainsFunc(res.EnsureIndexed(path), func(fn *parser.FunctionDef) bool {
-			return strings.EqualFold(fn.Name, name)
-		})
-	}
+	return s.relatedSourcesFor(file)(name)
+}
 
-	out := s.collectTransitiveSubtypes(file, true)
+// relatedSourcesFor is relatedSources for every name in file at once: the walk
+// of the subtypes and of the ancestors does not depend on the name, only the
+// ancestors that declare it do, so a caller asking for each function in a
+// document (the code lens) walks once.
+func (s *Server) relatedSourcesFor(file string) func(name string) []string {
+	res := s.getResolver()
+	below := s.collectTransitiveSubtypes(file, true)
 	seen := map[string]bool{strings.ToLower(file): true}
 
-	for _, sub := range out {
+	for _, sub := range below {
 		seen[strings.ToLower(sub)] = true
 	}
 
 	// Up: the extends chain, and the interfaces each file on it implements
 	// (an interface's own `extends` is the same chain). A file is walked
-	// whether or not it declares name: a grandparent may.
+	// whether or not it declares the name: a grandparent may.
+	var above []string
+
 	pending := []string{file}
 
 	visit := func(path string) {
@@ -297,10 +301,7 @@ func (s *Server) relatedSources(file, name string) []string {
 
 		seen[strings.ToLower(path)] = true
 
-		if declares(path) {
-			out = append(out, path)
-		}
-
+		above = append(above, path)
 		pending = append(pending, path)
 	}
 
@@ -319,7 +320,19 @@ func (s *Server) relatedSources(file, name string) []string {
 		}
 	}
 
-	return out
+	return func(name string) []string {
+		out := slices.Clone(below)
+
+		for _, path := range above {
+			if slices.ContainsFunc(res.EnsureIndexed(path), func(fn *parser.FunctionDef) bool {
+				return strings.EqualFold(fn.Name, name)
+			}) {
+				out = append(out, path)
+			}
+		}
+
+		return out
+	}
 }
 
 func (s *Server) componentDeclRange(docURI uri.URI, file string) protocol.Range {

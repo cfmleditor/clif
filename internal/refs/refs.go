@@ -99,7 +99,10 @@ func FindComponentRefs(fsys vfs.FS, roots []string, component string, r *resolve
 // entries grouped by lowercased function name for every function in funcNames
 // declared in sourceFile. When sourceFile is non-empty and not yet on disk
 // (such as an unsaved editor buffer served through fsys), it is still included.
-func FindCallsMany(fsys vfs.FS, roots []string, funcNames []string, sourceFile string, r *resolve.Resolver) map[string][]Entry {
+//
+// also names, by lowercased function name, the further files whose calls count
+// as references to that function ([Options.AlsoSources]); nil for none.
+func FindCallsMany(fsys vfs.FS, roots []string, funcNames []string, sourceFile string, also map[string][]string, r *resolve.Resolver) map[string][]Entry {
 	if len(funcNames) == 0 {
 		return nil
 	}
@@ -147,7 +150,7 @@ func FindCallsMany(fsys vfs.FS, roots []string, funcNames []string, sourceFile s
 			defer wg.Done()
 			defer func() { <-sem }()
 
-			perFile := findManyInFileRecovered(fsys, f, targets, sourceFile, r)
+			perFile := findManyInFileRecovered(fsys, f, targets, sourceFile, also, r)
 			if len(perFile) == 0 {
 				return
 			}
@@ -167,7 +170,7 @@ func FindCallsMany(fsys vfs.FS, roots []string, funcNames []string, sourceFile s
 	return results
 }
 
-func findManyInFileRecovered(fsys vfs.FS, f string, targets []string, sourceFile string, r *resolve.Resolver) (entries map[string][]Entry) {
+func findManyInFileRecovered(fsys vfs.FS, f string, targets []string, sourceFile string, also map[string][]string, r *resolve.Resolver) (entries map[string][]Entry) {
 	defer func() {
 		if rec := recover(); rec != nil {
 			cflog.Recovered(nil, "reference search panic", rec, cflog.String("file", f))
@@ -176,10 +179,10 @@ func findManyInFileRecovered(fsys vfs.FS, f string, targets []string, sourceFile
 		}
 	}()
 
-	return findManyInFile(fsys, f, targets, sourceFile, r)
+	return findManyInFile(fsys, f, targets, sourceFile, also, r)
 }
 
-func findManyInFile(fsys vfs.FS, f string, targets []string, sourceFile string, r *resolve.Resolver) map[string][]Entry {
+func findManyInFile(fsys vfs.FS, f string, targets []string, sourceFile string, also map[string][]string, r *resolve.Resolver) map[string][]Entry {
 	data, err := fsys.ReadFile(f)
 	if err != nil {
 		return nil
@@ -220,18 +223,20 @@ func findManyInFile(fsys vfs.FS, f string, targets []string, sourceFile string, 
 		return contentLines
 	}
 
-	opts := &Options{SourceFile: sourceFile, Resolver: r}
 	out := make(map[string][]Entry)
 
 	for j := range pr.Calls {
 		call := &pr.Calls[j]
+		key := strings.ToLower(call.FuncName)
+
+		// Per function: the related files are those of the name called.
+		opts := &Options{SourceFile: sourceFile, AlsoSources: also[key], Resolver: r}
 
 		resolved, ok := matchCall(call, pr, f, opts)
 		if !ok {
 			continue
 		}
 
-		key := strings.ToLower(call.FuncName)
 		out[key] = append(out[key], callEntry(call, pr, f, resolved, lines, opts))
 	}
 
