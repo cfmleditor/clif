@@ -104,6 +104,7 @@ type Server struct {
 	ReadSnippet   SnippetReader
 	LiveExplore   LiveExplorer
 	SyncStatus    func() map[string]any
+	ConfigSummary func() (any, error)
 }
 
 type request struct {
@@ -222,9 +223,13 @@ func (s *Server) dispatch(method string, params json.RawMessage) (any, *rpcError
 	case "initialize":
 		return map[string]any{
 			"protocolVersion": protocolVersion,
-			"capabilities":    map[string]any{"tools": map[string]any{"listChanged": false}},
-			"serverInfo":      map[string]any{"name": s.Name, "version": s.Version},
-			"instructions":    s.instructions(),
+			"capabilities": map[string]any{
+				"tools":     map[string]any{"listChanged": false},
+				"resources": map[string]any{"subscribe": false, "listChanged": false},
+				"prompts":   map[string]any{"listChanged": false},
+			},
+			"serverInfo":   map[string]any{"name": s.Name, "version": s.Version},
+			"instructions": s.instructions(),
 		}, nil
 
 	case "ping":
@@ -235,6 +240,18 @@ func (s *Server) dispatch(method string, params json.RawMessage) (any, *rpcError
 
 	case "tools/call":
 		return s.callTool(params)
+
+	case "resources/list":
+		return map[string]any{"resources": s.resources()}, nil
+
+	case "resources/read":
+		return s.readResource(params)
+
+	case "prompts/list":
+		return map[string]any{"prompts": s.prompts()}, nil
+
+	case "prompts/get":
+		return s.getPrompt(params)
 
 	default:
 		return nil, &rpcError{codeMethodMissing, "unknown method: " + method}
