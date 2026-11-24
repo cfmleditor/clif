@@ -580,3 +580,10 @@ func TestFindPopulatesCallTextLazily(t *testing.T) {
 		}
 	}
 }
+
+func TestOptionsIsSourceFollowsAlsoSources(t *testing.T) {
+	opts := &Options{FuncName: "f", SourceFile: "/w/A.cfc", AlsoSources: []string{"/w/B.cfc"}}
+	if !opts.isSource("/w/B.cfc") || !opts.isSource("/w/A.cfc") || opts.isSource("/w/C.cfc") {
+		t.Fatal("isSource does not follow SourceFile and AlsoSources")
+	}
+}

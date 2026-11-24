@@ -71,7 +71,14 @@ func (s *Server) handleCodeLens(_ context.Context, rawParams []byte) (any, error
 	}
 
 	sourceFile := cfpath.FromURI(string(docURI))
-	byName := refs.FindCallsMany(s.refsFS(), s.searchRoots(), names, sourceFile, s.getResolver())
+	related := s.relatedSourcesFor(sourceFile)
+	also := make(map[string][]string, len(names))
+
+	for _, name := range names {
+		also[strings.ToLower(name)] = related(name)
+	}
+
+	byName := refs.FindCallsMany(s.refsFS(), s.searchRoots(), names, sourceFile, also, s.getResolver())
 
 	lenses := make([]protocol.CodeLens, 0, len(funcs))
 

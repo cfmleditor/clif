@@ -197,9 +197,6 @@ func (s *Server) collectImplementers(ifaceFile string) []string {
 // extends resolves to the file it extends from: a bare name shared by several
 // components is not evidence.
 func (s *Server) collectTransitiveSubtypes(rootFile string, isInterface bool) []string {
-	extenders := s.index.ExtendersByName()
-
-	res := s.getResolver()
 	visited := map[string]bool{strings.ToLower(rootFile): true}
 	queue := []string{rootFile}
 
@@ -218,6 +215,20 @@ func (s *Server) collectTransitiveSubtypes(rootFile string, isInterface bool) []
 			queue = append(queue, impl)
 		}
 	}
+
+	return append(out, s.walkExtenders(queue, visited)...)
+}
+
+// walkExtenders is the breadth-first walk down `extends` from the files in
+// queue, skipping those in visited (which it updates), and returns the
+// components it reaches. A child counts only when its extends resolves to the
+// file it extends from: a bare name shared by several components is not
+// evidence.
+func (s *Server) walkExtenders(queue []string, visited map[string]bool) []string {
+	extenders := s.index.ExtendersByName()
+	res := s.getResolver()
+
+	var out []string
 
 	for len(queue) > 0 {
 		cur := queue[0]
@@ -245,6 +256,83 @@ func (s *Server) collectTransitiveSubtypes(rootFile string, isInterface bool) []
 	}
 
 	return out
+}
+
+// relatedSources are the files whose calls to name are references to the same
+// function as file's, along the lines a call can dispatch down or a method
+// overrides up:
+//   - below file: its subtypes, through `extends` and through `implements`
+//     (a component implementing file when it is an interface), whether or not
+//     they redeclare name. A call typed as one of them reaches this method, or
+//     the override of it;
+//   - above file: the ancestors, through `extends`, and the interfaces it or
+//     an ancestor implements, that declare name. A call typed as one of them
+//     may reach this method.
+//
+// Siblings are not included: a call typed as a sibling never reaches file.
+func (s *Server) relatedSources(file, name string) []string {
+	return s.relatedSourcesFor(file)(name)
+}
+
+// relatedSourcesFor is relatedSources for every name in file at once: the walk
+// of the subtypes and of the ancestors does not depend on the name, only the
+// ancestors that declare it do, so a caller asking for each function in a
+// document (the code lens) walks once.
+func (s *Server) relatedSourcesFor(file string) func(name string) []string {
+	res := s.getResolver()
+	below := s.collectTransitiveSubtypes(file, true)
+	seen := map[string]bool{strings.ToLower(file): true}
+
+	for _, sub := range below {
+		seen[strings.ToLower(sub)] = true
+	}
+
+	// Up: the extends chain, and the interfaces each file on it implements
+	// (an interface's own `extends` is the same chain). A file is walked
+	// whether or not it declares the name: a grandparent may.
+	var above []string
+
+	pending := []string{file}
+
+	visit := func(path string) {
+		if path == "" || seen[strings.ToLower(path)] {
+			return
+		}
+
+		seen[strings.ToLower(path)] = true
+
+		above = append(above, path)
+		pending = append(pending, path)
+	}
+
+	for hops := 0; len(pending) > 0 && hops < 64; hops++ {
+		cur := pending[0]
+		pending = pending[1:]
+
+		curURI := cfpath.ToURI(cur)
+
+		if ext, _ := s.index.ExtendsForFile(curURI); ext != "" {
+			visit(res.ComponentPath(ext, filepath.Dir(cur)))
+		}
+
+		for _, iface := range s.index.ImplementsForFile(curURI) {
+			visit(res.ComponentPath(iface, filepath.Dir(cur)))
+		}
+	}
+
+	return func(name string) []string {
+		out := slices.Clone(below)
+
+		for _, path := range above {
+			if slices.ContainsFunc(res.EnsureIndexed(path), func(fn *parser.FunctionDef) bool {
+				return strings.EqualFold(fn.Name, name)
+			}) {
+				out = append(out, path)
+			}
+		}
+
+		return out
+	}
 }
 
 func (s *Server) componentDeclRange(docURI uri.URI, file string) protocol.Range {

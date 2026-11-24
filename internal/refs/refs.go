@@ -44,6 +44,11 @@ type Options struct {
 	Component  string // component dot-path to find refs to (empty = skip)
 	SourceFile string // absolute path of the source file (same-file calls always match)
 
+	// AlsoSources are further files whose calls are references to the same
+	// function: an interface and the components implementing it. A call
+	// matches when its receiver resolves to SourceFile or to any of them.
+	AlsoSources []string
+
 	// Resolver is the workspace's. Every file is parsed as the workspace types
 	// it (resolve.Resolver.ParseFile), a call's component is checked to define
 	// the function, and, with a SourceFile, to be the one searched for. The
@@ -94,7 +99,10 @@ func FindComponentRefs(fsys vfs.FS, roots []string, component string, r *resolve
 // entries grouped by lowercased function name for every function in funcNames
 // declared in sourceFile. When sourceFile is non-empty and not yet on disk
 // (such as an unsaved editor buffer served through fsys), it is still included.
-func FindCallsMany(fsys vfs.FS, roots []string, funcNames []string, sourceFile string, r *resolve.Resolver) map[string][]Entry {
+//
+// also names, by lowercased function name, the further files whose calls count
+// as references to that function ([Options.AlsoSources]); nil for none.
+func FindCallsMany(fsys vfs.FS, roots []string, funcNames []string, sourceFile string, also map[string][]string, r *resolve.Resolver) map[string][]Entry {
 	if len(funcNames) == 0 {
 		return nil
 	}
@@ -142,7 +150,7 @@ func FindCallsMany(fsys vfs.FS, roots []string, funcNames []string, sourceFile s
 			defer wg.Done()
 			defer func() { <-sem }()
 
-			perFile := findManyInFileRecovered(fsys, f, targets, sourceFile, r)
+			perFile := findManyInFileRecovered(fsys, f, targets, sourceFile, also, r)
 			if len(perFile) == 0 {
 				return
 			}
@@ -162,7 +170,7 @@ func FindCallsMany(fsys vfs.FS, roots []string, funcNames []string, sourceFile s
 	return results
 }
 
-func findManyInFileRecovered(fsys vfs.FS, f string, targets []string, sourceFile string, r *resolve.Resolver) (entries map[string][]Entry) {
+func findManyInFileRecovered(fsys vfs.FS, f string, targets []string, sourceFile string, also map[string][]string, r *resolve.Resolver) (entries map[string][]Entry) {
 	defer func() {
 		if rec := recover(); rec != nil {
 			cflog.Recovered(nil, "reference search panic", rec, cflog.String("file", f))
@@ -171,10 +179,10 @@ func findManyInFileRecovered(fsys vfs.FS, f string, targets []string, sourceFile
 		}
 	}()
 
-	return findManyInFile(fsys, f, targets, sourceFile, r)
+	return findManyInFile(fsys, f, targets, sourceFile, also, r)
 }
 
-func findManyInFile(fsys vfs.FS, f string, targets []string, sourceFile string, r *resolve.Resolver) map[string][]Entry {
+func findManyInFile(fsys vfs.FS, f string, targets []string, sourceFile string, also map[string][]string, r *resolve.Resolver) map[string][]Entry {
 	data, err := fsys.ReadFile(f)
 	if err != nil {
 		return nil
@@ -215,18 +223,20 @@ func findManyInFile(fsys vfs.FS, f string, targets []string, sourceFile string, 
 		return contentLines
 	}
 
-	opts := &Options{SourceFile: sourceFile, Resolver: r}
 	out := make(map[string][]Entry)
 
 	for j := range pr.Calls {
 		call := &pr.Calls[j]
+		key := strings.ToLower(call.FuncName)
+
+		// Per function: the related files are those of the name called.
+		opts := &Options{SourceFile: sourceFile, AlsoSources: also[key], Resolver: r}
 
 		resolved, ok := matchCall(call, pr, f, opts)
 		if !ok {
 			continue
 		}
 
-		key := strings.ToLower(call.FuncName)
 		out[key] = append(out[key], callEntry(call, pr, f, resolved, lines, opts))
 	}
 
@@ -369,23 +379,78 @@ func findInFile(fsys vfs.FS, f string, opts *Options) []Entry {
 	return entries
 }
 
+// isSource reports whether path is the file searched for or one of the files
+// that count as it (Options.AlsoSources).
+func (o *Options) isSource(path string) bool {
+	if cfpath.SamePath(path, o.SourceFile) {
+		return true
+	}
+
+	return slices.ContainsFunc(o.AlsoSources, func(s string) bool { return cfpath.SamePath(path, s) })
+}
+
+// componentCalls reports whether a call to funcName on component is a call to
+// the function being searched for: the component has it, declared or inherited
+// through its extends chain, and is the file searched for or one that counts as
+// it (Options.AlsoSources). Inheriting counts: a component that does not
+// redeclare the function still answers the call, and whether that call is a
+// reference to the function searched for is the file test's to decide. A
+// component may be several alternatives, "A|B", when what a receiver holds
+// depends on the subclass; any one matching is enough.
+func (o *Options) componentCalls(component, funcName, dir string) bool {
+	for alt := range strings.SplitSeq(component, "|") {
+		if !o.Resolver.HasFunction(alt, funcName, dir) && o.Resolver.ResolveFunc(alt, funcName, dir) == nil {
+			continue
+		}
+
+		if o.SourceFile == "" || o.isSource(o.Resolver.ComponentPath(alt, dir)) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// namesFiles reports whether every alternative of component resolves to a file.
+func namesFiles(r *resolve.Resolver, component, dir string) bool {
+	for alt := range strings.SplitSeq(component, "|") {
+		if r.ComponentPath(alt, dir) == "" {
+			return false
+		}
+	}
+
+	return true
+}
+
 // matchCall reports whether call is a reference to the function being
 // searched for, and whether it resolved.
 func matchCall(call *parser.CallSite, pr *parser.ParseResult, absPath string, opts *Options) (resolved, ok bool) {
-	if call.Component != "" {
+	component, typed := call.Component, false
+
+	// A receiver the parse left untyped (a script `var s = new Foo()`, which
+	// only the resolver follows from the variable to its declaration) is typed
+	// by the same lookup `unresolved` runs. One it cannot type stays a
+	// candidate, below.
+	if component == "" && call.Variable != "" {
 		dir := filepath.Dir(absPath)
 
-		if !opts.Resolver.HasFunction(call.Component, call.FuncName, dir) {
-			return false, false
+		// Only a type that names files: a WireBox id (`authorService@contentbox`)
+		// resolves the call but is no file to compare with the target.
+		if c := opts.Resolver.ComponentOf(call.Variable, call.Line, pr, dir); c != "" && namesFiles(opts.Resolver, c, dir) {
+			component, typed = c, true
 		}
+	}
 
-		if opts.SourceFile != "" && !cfpath.SamePath(opts.Resolver.ComponentPath(call.Component, dir), opts.SourceFile) {
-			return false, false
-		}
+	if component != "" && !opts.componentCalls(component, call.FuncName, filepath.Dir(absPath)) {
+		return false, false
 	}
 
 	if call.Resolved || call.Component != "" {
 		return call.Resolved, true
+	}
+
+	if typed {
+		return true, true
 	}
 
 	// Check if the function exists in the same file
@@ -403,7 +468,7 @@ func matchCall(call *parser.CallSite, pr *parser.ParseResult, absPath string, op
 
 	if sameFile {
 		// Same-file call — only a match if this IS the source file
-		if !cfpath.SamePath(absPath, opts.SourceFile) {
+		if !opts.isSource(absPath) {
 			return false, false
 		}
 

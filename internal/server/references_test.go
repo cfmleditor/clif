@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strings"
 	"testing"
 	"unicode/utf16"
 
@@ -522,5 +523,119 @@ func TestDeclarationOfPrefersThisFileForABareCall(t *testing.T) {
 
 	if got == nil || got.URI != docURI {
 		t.Errorf("bare call should resolve to this file's own definition, got %+v", got)
+	}
+}
+
+func TestReferencesFollowImplements(t *testing.T) {
+	dir := t.TempDir()
+
+	files := map[string]string{
+		"IShape.cfc":       "interface {\n\tpublic numeric function area();\n}\n",
+		"Square.cfc":       "component implements=\"IShape\" {\n\tpublic numeric function area() { return 1; }\n}\n",
+		"Cube.cfc":         "component extends=\"Square\" {\n}\n",
+		"Unrelated.cfc":    "component {\n\tpublic numeric function area() { return 0; }\n}\n",
+		"viaSquare.cfm":    "<cfset r = new Square()>\n<cfset r.area()>\n",
+		"viaCube.cfm":      "<cfset r = new Cube()>\n<cfset r.area()>\n",
+		"viaInterface.cfm": "<cfset r = createObject(\"component\", \"IShape\")>\n<cfset r.area()>\n",
+		"viaOther.cfm":     "<cfset r = new Unrelated()>\n<cfset r.area()>\n",
+	}
+
+	for name, src := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(src), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	srv := newTestServer()
+	srv.References = true
+	srv.WorkspaceFolders = []string{dir}
+	srv.indexWorkspace()
+
+	open := func(name string) uri.URI {
+		u := cfpath.ToURI(filepath.Join(dir, name))
+		openDoc(t, srv, u, files[name])
+
+		return u
+	}
+
+	// Each page's call is on line 1. A script `var x = new ...` receiver stays
+	// unresolved in a reference search and passes as a candidate, so the pages
+	// are templates, where the receiver is typed.
+	cases := map[string][]string{
+		// The interface's method: calls through it, to an implementer, and to
+		// what extends an implementer without redeclaring the method.
+		"IShape.cfc": {"viaInterface.cfm:1", "viaSquare.cfm:1", "viaCube.cfm:1"},
+		// The implementing method: its own calls, calls through the interface,
+		// and calls typed as what extends it.
+		"Square.cfc": {"viaSquare.cfm:1", "viaInterface.cfm:1", "viaCube.cfm:1"},
+	}
+
+	for from, want := range cases {
+		u := open(from)
+		got := found(t, referencesAt(t, srv, u, 1, 26, false), dir)
+
+		if len(got) != len(want) || !hasAll(got, want) {
+			t.Errorf("references from %s = %v, want %v", from, got, want)
+		}
+	}
+}
+
+// A method's references follow `extends` down (a call typed as a subclass
+// reaches it, overridden or inherited) and up (a call typed as an ancestor may
+// reach the override), and never sideways. The receivers are script locals,
+// which the parse leaves untyped: the search types them itself, so the
+// unrelated component's call is excluded rather than passed as a candidate.
+func TestReferencesFollowExtendsAndTypeScriptReceivers(t *testing.T) {
+	dir := t.TempDir()
+
+	speak := "\tpublic string function speak() { return \"\"; }\n"
+	files := map[string]string{
+		"Animal.cfc":    "component {\n" + speak + "}\n",
+		"Dog.cfc":       "component extends=\"Animal\" {\n" + speak + "}\n",
+		"Puppy.cfc":     "component extends=\"Dog\" {\n}\n",
+		"Cat.cfc":       "component extends=\"Animal\" {\n" + speak + "}\n",
+		"Unrelated.cfc": "component {\n" + speak + "}\n",
+	}
+
+	types := []string{"Animal", "Dog", "Puppy", "Cat", "Unrelated"}
+
+	var consumer strings.Builder
+
+	consumer.WriteString("component {\n")
+
+	line := map[string]string{}
+
+	for i, typ := range types {
+		consumer.WriteString("\tpublic void function f" + typ + "() {\n\t\tvar x = new " + typ + "();\n\t\tx.speak();\n\t}\n")
+		line[typ] = "Consumer.cfc:" + itoa(1+i*4+2)
+	}
+
+	files["Consumer.cfc"] = consumer.String() + "}\n"
+
+	for name, src := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(src), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	srv := newTestServer()
+	srv.References = true
+	srv.WorkspaceFolders = []string{dir}
+	srv.indexWorkspace()
+
+	cases := map[string][]string{
+		"Animal.cfc": {line["Animal"], line["Dog"], line["Puppy"], line["Cat"]},
+		"Dog.cfc":    {line["Dog"], line["Puppy"], line["Animal"]},
+		"Cat.cfc":    {line["Cat"], line["Animal"]},
+	}
+
+	for from, want := range cases {
+		u := cfpath.ToURI(filepath.Join(dir, from))
+		openDoc(t, srv, u, files[from])
+
+		got := found(t, referencesAt(t, srv, u, 1, 26, false), dir)
+		if len(got) != len(want) || !hasAll(got, want) {
+			t.Errorf("references from %s = %v, want %v", from, got, want)
+		}
 	}
 }
