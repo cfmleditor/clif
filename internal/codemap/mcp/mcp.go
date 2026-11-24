@@ -67,6 +67,14 @@ type RouteResolver func(route string) (any, error)
 // FormatChecker checks whether CFML files would change under `clif format` without writing.
 type FormatChecker func(paths []string, includeDiff bool, limit int) (any, error)
 
+// SnippetReader reads a bounded, line-numbered source snippet around line (1-based)
+// from a workspace-confined file. Used by explore to inline source beside graph context.
+type SnippetReader func(file string, line int, maxLines int) (string, error)
+
+// LiveExplorer answers explore queries when no code map is loaded, combining
+// live outline, source snippet, and references in a single call.
+type LiveExplorer func(query string, includeSource bool) (any, error)
+
 // Server answers MCP requests. Like Explain, every hook is supplied by the
 // caller, since each needs the workspace config and resolver chain.
 type Server struct {
@@ -75,6 +83,11 @@ type Server struct {
 	Store   *store.Store
 	Name    string
 	Version string
+
+	// AllowedTools, when non-empty, restricts the advertised tools/list menu to
+	// the named tools (reducing tool-schema context overhead for coding agents).
+	// Unlisted tools remain callable if explicitly requested.
+	AllowedTools []string
 
 	// Each hook is optional. When one is nil its tool is not advertised, so a
 	// client sees the tools that actually work rather than one that always errors.
@@ -88,6 +101,8 @@ type Server struct {
 	Structure     StructureChecker
 	ResolveRoute  RouteResolver
 	CheckFormat   FormatChecker
+	ReadSnippet   SnippetReader
+	LiveExplore   LiveExplorer
 }
 
 type request struct {

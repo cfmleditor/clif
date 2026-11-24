@@ -12,12 +12,13 @@ import (
 	"github.com/cfmleditor/clif/internal/vfs"
 )
 
-const mcpUsage = `usage: clif mcp [--db <file>] [--root <dir>] [--allow-lint] [--map-only] [--no-explain]
+const mcpUsage = `usage: clif mcp [--db <file>] [--root <dir>] [--tools <list>] [--allow-lint] [--map-only] [--no-explain]
 
 Serve a CFML workspace over the Model Context Protocol on stdio, so an
 assistant can ask about the code instead of grepping for it. It writes nothing.
 
 Always offered, reading source on disk:
+  explore                 one-shot symbol/file context (source, callers, callees, impact)
   find_unresolved_calls   what "unresolved" reports
   find_references         what "refs" reports
   explain_call            what "explain" reports
@@ -29,7 +30,7 @@ Always offered, reading source on disk:
   check_format            read-only format check and optional diff preview
 With --db, the code map "graph --db" built:
   search_symbols, get_symbol, get_callers, get_callees, find_path,
-  list_islands, list_orphans, get_stats
+  impact_analysis, list_islands, list_orphans, get_stats
 With --allow-lint:
   lint                    CFLint's findings, as "cflint" reports them; starts a
                           CFLint process (carried by released builds)
@@ -38,6 +39,9 @@ With --allow-lint:
   --root <dir>    workspace root: explain_call indexes it, and every tool's
                   paths must lie in it (default: the map's own root, or the
                   working directory without a map)
+  --tools <list>  comma-separated allowlist of MCP tools to advertise (or "slim"
+                  for explore,find_unresolved_calls,explain_call); also read
+                  from CLIF_MCP_TOOLS
   --allow-lint    offer the lint tool
   --map-only      offer only the map tools, and never read source (needs --db)
   --no-explain    do not offer explain_call
@@ -61,7 +65,7 @@ func fatalf(format string, args ...any) {
 }
 
 type mcpFlags struct {
-	db, root                      string
+	db, root, tools               string
 	allowLint, mapOnly, noExplain bool
 }
 
@@ -70,15 +74,18 @@ func parseMCPFlags(args []string) mcpFlags {
 
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
-		case "--db", "--root":
+		case "--db", "--root", "--tools":
 			if i+1 >= len(args) {
 				fatalf("%s needs a value\n\n%s", args[i], mcpUsage)
 			}
 
-			if args[i] == "--db" {
+			switch args[i] {
+			case "--db":
 				f.db = args[i+1]
-			} else {
+			case "--root":
 				f.root = args[i+1]
+			case "--tools":
+				f.tools = args[i+1]
 			}
 
 			i++
@@ -128,9 +135,42 @@ func openMap(path string) *store.Store {
 	return db
 }
 
+// mcpAllowedTools parses a comma-separated tool allowlist (from --tools or
+// CLIF_MCP_TOOLS), expanding the "slim" preset.
+func mcpAllowedTools(spec string) []string {
+	spec = strings.TrimSpace(spec)
+	if spec == "" {
+		spec = strings.TrimSpace(os.Getenv("CLIF_MCP_TOOLS"))
+	}
+
+	if spec == "" {
+		return nil
+	}
+
+	if strings.EqualFold(spec, "slim") {
+		return []string{"explore", "find_unresolved_calls", "explain_call"}
+	}
+
+	parts := strings.Split(spec, ",")
+	out := make([]string, 0, len(parts))
+
+	for _, p := range parts {
+		if name := strings.TrimSpace(p); name != "" {
+			out = append(out, name)
+		}
+	}
+
+	return out
+}
+
 // mcpServer builds the server the flags ask for. db may be nil.
 func mcpServer(f *mcpFlags, db *store.Store) *mcp.Server {
-	srv := &mcp.Server{Store: db, Name: "clif", Version: version}
+	srv := &mcp.Server{
+		Store:        db,
+		Name:         "clif",
+		Version:      version,
+		AllowedTools: mcpAllowedTools(f.tools),
+	}
 
 	if f.mapOnly {
 		return srv
@@ -139,6 +179,12 @@ func mcpServer(f *mcpFlags, db *store.Store) *mcp.Server {
 	root := mcpRoot(f, db)
 	ws := newMCPWorkspace(root)
 
+	srv.ReadSnippet = func(file string, line, maxLines int) (string, error) {
+		return mcpReadSnippet(root, file, line, maxLines)
+	}
+	srv.LiveExplore = func(query string, includeSource bool) (any, error) {
+		return mcpLiveExplore(ws, root, query, includeSource)
+	}
 	srv.Unresolved = func(paths []string, globalDefs bool, limit int) (any, error) {
 		return mcpUnresolved(root, paths, globalDefs, limit)
 	}
