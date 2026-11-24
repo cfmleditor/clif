@@ -13,7 +13,7 @@ import (
 	"github.com/cfmleditor/clif/internal/vfs"
 )
 
-const mcpUsage = `usage: clif mcp [--db <file>] [--watch] [--root <dir>] [--tools <list>] [--allow-lint] [--map-only] [--no-explain]
+const mcpUsage = `usage: clif mcp [--db <file>] [--watch] [--root <dir>] [--tools <list>] [--daemon] [--daemon-socket <path>] [--allow-lint] [--map-only] [--no-explain]
 
 Serve a CFML workspace over the Model Context Protocol on stdio, so an
 assistant can ask about the code instead of grepping for it. It writes nothing
@@ -46,6 +46,10 @@ With --allow-lint:
   --tools <list>  comma-separated allowlist of MCP tools to advertise (or "slim"
                   for explore,find_unresolved_calls,explain_call); also read
                   from CLIF_MCP_TOOLS
+  --daemon        connect to a running clif daemon for this workspace so MCP
+                  shares the daemon's live index (falls back locally if down)
+  --daemon-socket <path>
+                  explicit Unix socket path for --daemon
   --allow-lint    offer the lint tool
   --map-only      offer only the map tools, and never read source (needs --db)
   --no-explain    do not offer explain_call
@@ -69,8 +73,8 @@ func fatalf(format string, args ...any) {
 }
 
 type mcpFlags struct {
-	db, root, tools                      string
-	allowLint, mapOnly, noExplain, watch bool
+	db, root, tools, daemonSocket                string
+	allowLint, mapOnly, noExplain, watch, daemon bool
 }
 
 func parseMCPFlags(args []string) mcpFlags {
@@ -78,7 +82,7 @@ func parseMCPFlags(args []string) mcpFlags {
 
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
-		case "--db", "--root", "--tools":
+		case "--db", "--root", "--tools", "--daemon-socket":
 			if i+1 >= len(args) {
 				fatalf("%s needs a value\n\n%s", args[i], mcpUsage)
 			}
@@ -90,9 +94,14 @@ func parseMCPFlags(args []string) mcpFlags {
 				f.root = args[i+1]
 			case "--tools":
 				f.tools = args[i+1]
+			case "--daemon-socket":
+				f.daemonSocket = args[i+1]
+				f.daemon = true
 			}
 
 			i++
+		case "--daemon":
+			f.daemon = true
 		case "--allow-lint":
 			f.allowLint = true
 		case "--map-only":
@@ -269,6 +278,18 @@ func cmdMCP(args []string) {
 		srv.SyncStatus = watcher.status
 	}
 
+	if f.daemon && !f.mapOnly {
+		dc, err := connectMCPDaemon(mcpRoot(&f, db), f.daemonSocket)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "clif mcp --daemon: %v (falling back to local workspace index)\n", err)
+		} else {
+			defer func() { _ = dc.Close() }()
+
+			fmt.Fprintf(os.Stderr, "clif MCP server connected to daemon (%s)\n", dc.sockPath)
+			wireMCPDaemon(srv, dc)
+		}
+	}
+
 	// Diagnostics go to stderr. Stdout is the protocol channel, and one stray line
 	// on it is a parse error at the other end rather than a log message.
 	if f.db != "" {
@@ -289,6 +310,44 @@ func cmdMCP(args []string) {
 		}
 
 		fatalf("%v\n", err)
+	}
+}
+
+// wireMCPDaemon wraps live MCP hooks to query the running daemon's shared
+// index first, falling back seamlessly to the local workspace hooks if the
+// daemon connection drops.
+func wireMCPDaemon(srv *mcp.Server, dc *mcpDaemonClient) {
+	if srv.Explain != nil {
+		fallback := srv.Explain
+		srv.Explain = func(file string, line int, match string) (string, error) {
+			if out, err := dc.ExplainCall(file, line, match); err == nil {
+				return out, nil
+			}
+
+			return fallback(file, line, match)
+		}
+	}
+
+	if srv.ResolveRoute != nil {
+		fallback := srv.ResolveRoute
+		srv.ResolveRoute = func(routeStr string) (any, error) {
+			if out, err := dc.ResolveRoute(routeStr); err == nil {
+				return out, nil
+			}
+
+			return fallback(routeStr)
+		}
+	}
+
+	if srv.LiveExplore != nil {
+		fallback := srv.LiveExplore
+		srv.LiveExplore = func(query string, includeSource bool) (any, error) {
+			if out, err := dc.LiveExplore(query, includeSource); err == nil {
+				return out, nil
+			}
+
+			return fallback(query, includeSource)
+		}
 	}
 }
 
