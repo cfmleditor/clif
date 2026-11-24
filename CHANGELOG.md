@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+## [0.7.5]
+
+### Added
+
+- **Linked tag editing (`textDocument/linkedEditingRange`) (#445).** Simultaneously edits matching opening and closing CFML and HTML tag names using a single-pass O(N) buffer-local scanner (skipping comments, script blocks, void tags, and self-closing tags) with zero idle overhead.
+- **Go to Implementation (`textDocument/implementation`) (#446).** Navigates from a CFC/interface declaration to all transitive extending/implementing CFCs, and from a component or interface method to all overriding methods in concrete subtypes.
+- **Quick-fix Code Actions (`textDocument/codeAction`) (#448).** Offers targeted `quickfix` edits for `duplicate-argument` (remove duplicate `<cfargument>`), `duplicate-attribute` (remove duplicate tag attribute), and `MISSING_VAR` (add `var ` or `local.` prefix in script and `<cfset>`).
+- **MCP Resources and Prompts (`resources/list`, `resources/read`, `prompts/list`, `prompts/get`) (#447).** Exposes read-only workspace resources (`clif://config`, `clif://stats`, `clif://islands`) and reusable CFML workflow prompts (`audit-unresolved`, `trace-impact`, `review-file`) on `clif mcp`.
+
+### Fixed
+
+- **Formatter respects `formatting.blankLinesInBlocks: false` on CFML tag blocks (#444, CFML Editor #190).** Stripping blank lines inside blocks now applies consistently to `<cfcomponent>`, `<cffunction>`, `<cfif>`/`<cfelseif>`/`<cfelse>`, and other CFML block tags, not only CFScript brace blocks.
+
 ## [0.7.4]
 
 ### Added
