@@ -471,7 +471,7 @@ func (s *Server) cmdFindRefs(ctx context.Context, args []protocol.LSPAny) (any, 
 		Explain:    true,
 	}
 	if sourceFile != "" {
-		findOpts.AlsoSources = s.implementsRelated(sourceFile, funcName)
+		findOpts.AlsoSources = s.relatedSources(sourceFile, funcName)
 	}
 
 	entries := refs.Trace(s.FS, s.searchRoots(), &findOpts)

@@ -258,39 +258,64 @@ func (s *Server) walkExtenders(queue []string, visited map[string]bool) []string
 	return out
 }
 
-// implementsRelated are the files whose calls to name are references to the
-// same function as file's, across `implements`:
-//   - file's implementers and what extends them, when file is an interface (or
-//     anything implemented): a call typed as one of them calls the interface's
-//     method;
-//   - the interfaces file implements that declare name: a call typed as the
-//     interface may reach file's method.
+// relatedSources are the files whose calls to name are references to the same
+// function as file's, along the lines a call can dispatch down or a method
+// overrides up:
+//   - below file: its subtypes, through `extends` and through `implements`
+//     (a component implementing file when it is an interface), whether or not
+//     they redeclare name. A call typed as one of them reaches this method, or
+//     the override of it;
+//   - above file: the ancestors, through `extends`, and the interfaces it or
+//     an ancestor implements, that declare name. A call typed as one of them
+//     may reach this method.
 //
-// `extends` alone is not followed here; that is how references already treat it.
-func (s *Server) implementsRelated(file, name string) []string {
+// Siblings are not included: a call typed as a sibling never reaches file.
+func (s *Server) relatedSources(file, name string) []string {
 	res := s.getResolver()
-	visited := map[string]bool{strings.ToLower(file): true}
-
-	var out []string
-
-	implementers := s.collectImplementers(file)
-	for _, impl := range implementers {
-		visited[strings.ToLower(impl)] = true
+	declares := func(path string) bool {
+		return slices.ContainsFunc(res.EnsureIndexed(path), func(fn *parser.FunctionDef) bool {
+			return strings.EqualFold(fn.Name, name)
+		})
 	}
 
-	out = append(out, implementers...)
-	out = append(out, s.walkExtenders(slices.Clone(implementers), visited)...)
+	out := s.collectTransitiveSubtypes(file, true)
+	seen := map[string]bool{strings.ToLower(file): true}
 
-	for _, iface := range s.index.ImplementsForFile(cfpath.ToURI(file)) {
-		ifacePath := res.ComponentPath(iface, filepath.Dir(file))
-		if ifacePath == "" || visited[strings.ToLower(ifacePath)] {
-			continue
+	for _, sub := range out {
+		seen[strings.ToLower(sub)] = true
+	}
+
+	// Up: the extends chain, and the interfaces each file on it implements
+	// (an interface's own `extends` is the same chain). A file is walked
+	// whether or not it declares name: a grandparent may.
+	pending := []string{file}
+
+	visit := func(path string) {
+		if path == "" || seen[strings.ToLower(path)] {
+			return
 		}
 
-		if slices.ContainsFunc(res.EnsureIndexed(ifacePath), func(fn *parser.FunctionDef) bool { return strings.EqualFold(fn.Name, name) }) {
-			visited[strings.ToLower(ifacePath)] = true
+		seen[strings.ToLower(path)] = true
 
-			out = append(out, ifacePath)
+		if declares(path) {
+			out = append(out, path)
+		}
+
+		pending = append(pending, path)
+	}
+
+	for hops := 0; len(pending) > 0 && hops < 64; hops++ {
+		cur := pending[0]
+		pending = pending[1:]
+
+		curURI := cfpath.ToURI(cur)
+
+		if ext, _ := s.index.ExtendsForFile(curURI); ext != "" {
+			visit(res.ComponentPath(ext, filepath.Dir(cur)))
+		}
+
+		for _, iface := range s.index.ImplementsForFile(curURI) {
+			visit(res.ComponentPath(iface, filepath.Dir(cur)))
 		}
 	}
 

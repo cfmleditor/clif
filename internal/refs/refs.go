@@ -384,37 +384,68 @@ func (o *Options) isSource(path string) bool {
 	return slices.ContainsFunc(o.AlsoSources, func(s string) bool { return cfpath.SamePath(path, s) })
 }
 
-// inheritsFunction reports whether the call's component, one of the files that
-// count as the target (Options.AlsoSources), gets the function from its
-// extends chain: a component extending an implementer calls the interface's
-// method without declaring it. Only those files are asked; elsewhere a
-// call to an inherited function stays a reference to the component that
-// declares it, as before.
-func (o *Options) inheritsFunction(call *parser.CallSite, dir string) bool {
-	if len(o.AlsoSources) == 0 || !o.isSource(o.Resolver.ComponentPath(call.Component, dir)) {
-		return false
+// componentCalls reports whether a call to funcName on component is a call to
+// the function being searched for: the component has it, declared or inherited
+// through its extends chain, and is the file searched for or one that counts as
+// it (Options.AlsoSources). Inheriting counts: a component that does not
+// redeclare the function still answers the call, and whether that call is a
+// reference to the function searched for is the file test's to decide. A
+// component may be several alternatives, "A|B", when what a receiver holds
+// depends on the subclass; any one matching is enough.
+func (o *Options) componentCalls(component, funcName, dir string) bool {
+	for alt := range strings.SplitSeq(component, "|") {
+		if !o.Resolver.HasFunction(alt, funcName, dir) && o.Resolver.ResolveFunc(alt, funcName, dir) == nil {
+			continue
+		}
+
+		if o.SourceFile == "" || o.isSource(o.Resolver.ComponentPath(alt, dir)) {
+			return true
+		}
 	}
 
-	return o.Resolver.ResolveFunc(call.Component, call.FuncName, dir) != nil
+	return false
+}
+
+// namesFiles reports whether every alternative of component resolves to a file.
+func namesFiles(r *resolve.Resolver, component, dir string) bool {
+	for alt := range strings.SplitSeq(component, "|") {
+		if r.ComponentPath(alt, dir) == "" {
+			return false
+		}
+	}
+
+	return true
 }
 
 // matchCall reports whether call is a reference to the function being
 // searched for, and whether it resolved.
 func matchCall(call *parser.CallSite, pr *parser.ParseResult, absPath string, opts *Options) (resolved, ok bool) {
-	if call.Component != "" {
+	component, typed := call.Component, false
+
+	// A receiver the parse left untyped (a script `var s = new Foo()`, which
+	// only the resolver follows from the variable to its declaration) is typed
+	// by the same lookup `unresolved` runs. One it cannot type stays a
+	// candidate, below.
+	if component == "" && call.Variable != "" {
 		dir := filepath.Dir(absPath)
 
-		if !opts.Resolver.HasFunction(call.Component, call.FuncName, dir) && !opts.inheritsFunction(call, dir) {
-			return false, false
+		// Only a type that names files: a WireBox id (`authorService@contentbox`)
+		// resolves the call but is no file to compare with the target.
+		if c := opts.Resolver.ComponentOf(call.Variable, call.Line, pr, dir); c != "" && namesFiles(opts.Resolver, c, dir) {
+			component, typed = c, true
 		}
+	}
 
-		if opts.SourceFile != "" && !opts.isSource(opts.Resolver.ComponentPath(call.Component, dir)) {
-			return false, false
-		}
+	if component != "" && !opts.componentCalls(component, call.FuncName, filepath.Dir(absPath)) {
+		return false, false
 	}
 
 	if call.Resolved || call.Component != "" {
 		return call.Resolved, true
+	}
+
+	if typed {
+		return true, true
 	}
 
 	// Check if the function exists in the same file

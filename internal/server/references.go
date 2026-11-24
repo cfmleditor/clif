@@ -328,7 +328,7 @@ func (s *Server) functionReferences(word, content string, docURI uri.URI, line, 
 	entries := refs.Find(s.refsFS(), s.searchRoots(), &refs.Options{
 		FuncName:    word,
 		SourceFile:  sourceFile,
-		AlsoSources: s.implementsRelated(sourceFile, word),
+		AlsoSources: s.relatedSources(sourceFile, word),
 		Resolver:    s.getResolver(),
 	})
 
