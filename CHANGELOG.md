@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.7.6]
+
 ### Added
 
 - **Per-archive checksum files in the release assets.** Beside `checksums.txt`, each release now carries a `<archive>.sha256` for every archive (`sha256sum -c clif-linux-amd64.tar.gz.sha256`), attested with the archives. `checksums.txt` is unchanged and still lists only the archives.
