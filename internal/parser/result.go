@@ -31,6 +31,7 @@ type ParseResult struct {
 	ComponentRefs       []ComponentRef
 	Scopes              []FuncScope
 	Extends             string                                  // dot-path of parent component (from extends attribute)
+	Implements          []string                                // interfaces named in the implements attribute
 	Accessors           bool                                    // component has accessors=true
 	Persistent          bool                                    // true if component has persistent="true" (ORM entity)
 	Properties          []propertyDef                           // parsed property declarations
@@ -903,6 +904,10 @@ func (pr *ParseResult) mergeScriptRegion(r *Region, tagScopes []FuncScope, open 
 		pr.Extends = sp.extends
 	}
 
+	if sp.extras != nil && sp.extras.implements != "" {
+		pr.Implements = SplitList(sp.extras.implements)
+	}
+
 	pr.Accessors = pr.Accessors || sp.accessors
 
 	if sp.persistent {
@@ -1123,6 +1128,10 @@ func (pr *ParseResult) mergeTagRegion(r *Region, tagScopes []FuncScope, open *op
 	// to handle functions spanning region boundaries.
 	if tp.extends != "" {
 		pr.Extends = tp.extends
+	}
+
+	if tp.implements != "" {
+		pr.Implements = SplitList(tp.implements)
 	}
 
 	pr.Accessors = pr.Accessors || tp.accessors

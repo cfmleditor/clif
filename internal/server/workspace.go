@@ -203,6 +203,7 @@ func (s *Server) applyIndexResult(fileURI uri.URI, pr *parser.ParseResult) {
 	// its delegates are known only for a file that never says "delegate",
 	// which every delegation needs. Both held over 13,636 components.
 	s.index.SetExtends(fileURI, pr.Extends)
+	s.index.SetImplements(fileURI, pr.Implements)
 
 	if !pr.IsShallow() {
 		s.index.SetDelegates(fileURI, pr.Delegates)

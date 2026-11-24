@@ -1688,6 +1688,16 @@ func (p *scriptParser) parseComponentAttrs() {
 				default:
 				}
 			}
+		case strings.EqualFold(tok.Value, "implements"):
+			if val, ok := p.attrValue(); ok {
+				switch val.Kind {
+				case TokString:
+					p.ensureExtras().implements = unquote(val.Value)
+				case TokIdent:
+					p.ensureExtras().implements = dottedRest(p.sc, val.Value)
+				default:
+				}
+			}
 		case strings.EqualFold(tok.Value, "accessors"):
 			if val, ok := p.attrValue(); ok {
 				p.accessors = isTruthy(unquote(val.Value))

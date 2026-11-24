@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json/v2"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 
@@ -158,67 +157,29 @@ func cursorInDeclaration(content string, line int) bool {
 	return line >= first && line <= lines.LineOf(openOff)
 }
 
-var implementsAttr = regexp.MustCompile(`(?i)\bimplements\s*=\s*(?:"([^"]*)"|'([^']*)'|([\w.,]+))`)
-
-// declaredImplements lists the interfaces a component's header names in its
-// implements attribute.
-func declaredImplements(content string) []string {
-	openOff, _, found := parser.ComponentDeclarationBounds(content)
-	if !found || openOff > len(content) {
-		return nil
-	}
-
-	start := 0
-	if header, ok := parser.ComponentOutline(content); ok && header.NameStart <= openOff {
-		start = header.NameStart
-	}
-
-	m := implementsAttr.FindStringSubmatch(content[start:openOff])
-	if m == nil {
-		return nil
-	}
-
-	var out []string
-
-	for name := range strings.SplitSeq(m[1]+m[2]+m[3], ",") {
-		if name = strings.TrimSpace(name); name != "" {
-			out = append(out, name)
-		}
-	}
-
-	return out
-}
-
 // collectImplementers finds the components whose implements attribute names
-// the interface at ifaceFile. The index records extends but not implements,
-// so this reads each indexed component whose text mentions the word; it runs
-// only for an interface.
+// the interface at ifaceFile, from the index's record of it: the candidates
+// are the files sharing the interface's name, and each is kept only when one of
+// its names resolves to ifaceFile.
 func (s *Server) collectImplementers(ifaceFile string) []string {
+	base := strings.ToLower(strings.TrimSuffix(filepath.Base(ifaceFile), filepath.Ext(ifaceFile)))
+	cands := s.index.ImplementersByName()[base]
+
+	if len(cands) == 0 {
+		return nil
+	}
+
 	res := s.getResolver()
 
 	var out []string
 
-	for _, u := range s.index.ComponentFiles() {
-		path := cfpath.FromURI(string(u))
+	for _, c := range cands {
+		path := cfpath.FromURI(c.URI)
 		if path == "" || cfpath.SamePath(path, ifaceFile) {
 			continue
 		}
 
-		content, ok := s.getDocument(u)
-		if !ok {
-			data, err := s.FS.ReadFile(path)
-			if err != nil {
-				continue
-			}
-
-			content = string(data)
-		}
-
-		if !strings.Contains(strings.ToLower(content), "implements") {
-			continue
-		}
-
-		for _, name := range declaredImplements(content) {
+		for _, name := range c.Interfaces {
 			if target := res.ComponentPath(name, filepath.Dir(path)); target != "" && cfpath.SamePath(target, ifaceFile) {
 				out = append(out, path)
 

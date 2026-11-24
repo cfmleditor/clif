@@ -841,6 +841,7 @@ func (s *Server) reindexFromParseResult(docURI uri.URI, pr *parser.ParseResult) 
 	// component twice per keystroke, once for each. The document's own full
 	// parse already holds both.
 	s.index.SetExtends(docURI, pr.Extends)
+	s.index.SetImplements(docURI, pr.Implements)
 	s.index.SetDelegates(docURI, pr.Delegates)
 	// The entity by the index's own rule. A component outside the workspace,
 	// which reindexIfCFC does not index either, adds none (an open file from

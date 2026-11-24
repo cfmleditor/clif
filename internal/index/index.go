@@ -27,6 +27,7 @@ type Index struct {
 	thisVars      map[string][]string                          // lowercase URI -> this-scoped var names
 	scopeRefs     map[string]map[string][]*parser.ComponentRef // lowercase URI -> function scope key -> refs
 	extends       map[string]string                            // lowercase URI -> that component's extends, "" for none
+	implements    map[string][]string                          // lowercase URI -> the interfaces it implements; kept and dropped with extends
 	delegates     map[string][]parser.Delegate                 // lowercase URI -> the WireBox delegations it declares; kept and dropped with extends
 	fileURIs      map[string]uri.URI                           // lowercase URI -> the file's URI as indexed, in its real case; kept with fileFuncs
 	diskRevisions map[string]uint64                            // disk source revisions; kept with fileURIs
@@ -113,6 +114,7 @@ func New() *Index {
 		scopeRefs:       make(map[string]map[string][]*parser.ComponentRef),
 		extends:         make(map[string]string),
 		delegates:       make(map[string][]parser.Delegate),
+		implements:      make(map[string][]string),
 		fileURIs:        make(map[string]uri.URI),
 		beans:           make(map[string]string),
 		entities:        make(map[string][]uri.URI),
@@ -838,6 +840,7 @@ func (idx *Index) indexParseResult(fileURI uri.URI, content string, pr *parser.P
 	idx.thisVars[fk] = thisVars
 	idx.setExtendsLocked(fk, strings.Clone(pr.Extends))
 	idx.delegates[fk] = cloneDelegates(pr.Delegates)
+	idx.setImplementsLocked(fk, pr.Implements)
 
 	// An ORM entity is named by its entityname attribute, which is often not
 	// its file's name: ContentBox's Author.cfc is cbAuthor, and
@@ -1136,6 +1139,7 @@ func (idx *Index) removeFileEntries(fileURI uri.URI) {
 	// lookup re-establishes it from the file as it now stands.
 	idx.dropExtendsLocked(key)
 	delete(idx.delegates, key)
+	delete(idx.implements, key)
 
 	// Grouped by bucket, not pooled into one set of everything this file
 	// declares. Both spellings visit the same bucket entries; the difference is
