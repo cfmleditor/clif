@@ -75,3 +75,9 @@ the component's variables and left go-to-definition on it nothing to find in a s
 `Application.cfc` (tag syntax always had it right), and made `application.helper =
 function(){}` at component level a method of the component. `sharedScopeOf` maps the keyword;
 `TestSharedScopeAssignmentsKeepTheirScope` pins all three.
+
+**Further splits (same rule: declarations moved unchanged).** `internal/parser/collection_returns.go` is
+`collection_returns{,_settle}.go`, `collection_writes{,_scan}.go`, `collection_tags.go` and
+`collection_cache.go`; `rename_local.go` is `rename_{local,scope,walk,words}.go`;
+`internal/index/index.go` is `index{,_files,_write,_refs,_entities,_extends,_includes}.go`;
+`internal/resolve/producer_source.go` is `producer_{source,script,script_stmt,tags,analysis}.go`.
