@@ -552,6 +552,11 @@ type Features struct {
 	// a closure that shadows it). Off by default: a rename edits code. Turn it
 	// on with `{"features": {"rename": true}}`.
 	Rename *bool `json:"rename"`
+	// RenameCrossFile extends textDocument/rename beyond local script variables
+	// to component methods and properties across the workspace. Refuses when
+	// callers are ambiguous/unresolved or inheritance overrides would break.
+	// Off by default (requires features.rename as well).
+	RenameCrossFile *bool `json:"renameCrossFile"`
 	// SemanticTokens answers textDocument/semanticTokens/full and
 	// textDocument/semanticTokens/range with buffer-local semantic token
 	// highlights (scopes, functions, methods, built-ins, parameters, `new`
@@ -576,6 +581,7 @@ type ResolvedFeatures struct {
 	InlayHintsParameterNames   bool
 	InlayHintsComponentPath    bool
 	Rename                     bool
+	RenameCrossFile            bool
 	SemanticTokens             bool
 }
 
@@ -594,6 +600,9 @@ const inlayHintsDefault = false
 
 // renameDefault is off, for the reason the field gives.
 const renameDefault = false
+
+// renameCrossFileDefault is off, for the reason the field gives.
+const renameCrossFileDefault = false
 
 // semanticTokensDefault is off, for the reason the field gives.
 const semanticTokensDefault = false
@@ -627,6 +636,7 @@ func ResolveFeatures(f *Features) ResolvedFeatures {
 		InlayHintsParameterNames:   BoolDefault(f.InlayHintsParameterNames, true),
 		InlayHintsComponentPath:    BoolDefault(f.InlayHintsComponentPath, true),
 		Rename:                     BoolDefault(f.Rename, renameDefault),
+		RenameCrossFile:            BoolDefault(f.RenameCrossFile, renameCrossFileDefault),
 		SemanticTokens:             BoolDefault(f.SemanticTokens, semanticTokensDefault),
 	}
 }
@@ -1218,6 +1228,7 @@ func mergeFeatures(base, over *Features) *Features {
 		{&out.InlayHintsParameterNames, &over.InlayHintsParameterNames},
 		{&out.InlayHintsComponentPath, &over.InlayHintsComponentPath},
 		{&out.Rename, &over.Rename},
+		{&out.RenameCrossFile, &over.RenameCrossFile},
 		{&out.SemanticTokens, &over.SemanticTokens},
 	} {
 		if *f.src != nil {

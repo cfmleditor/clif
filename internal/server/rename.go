@@ -90,6 +90,12 @@ func (s *Server) handlePrepareRename(_ context.Context, rawParams []byte) (any, 
 
 	req, err := s.renameAt(params.TextDocument.URI, params.Position)
 	if errors.Is(err, parser.ErrNoVariable) {
+		if s.Features.RenameCrossFile {
+			if ph, ok := s.prepareCrossFileRename(params.TextDocument.URI, params.Position); ok {
+				return ph, nil
+			}
+		}
+
 		// Nothing to rename at the cursor: null, which a client takes as "no",
 		// not an error it shows.
 		return nil, nil
@@ -124,6 +130,10 @@ func (s *Server) handleRename(_ context.Context, rawParams []byte) (any, error) 
 	defer s.lockDoc(docURI)()
 
 	req, err := s.renameAt(docURI, params.Position)
+	if errors.Is(err, parser.ErrNoVariable) && s.Features.RenameCrossFile {
+		return s.performCrossFileRename(docURI, params.Position, params.NewName)
+	}
+
 	if err != nil {
 		return nil, err
 	}
