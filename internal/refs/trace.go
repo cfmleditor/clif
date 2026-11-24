@@ -31,6 +31,9 @@ func Trace(fsys vfs.FS, roots []string, opts *Options) []Entry {
 	// A copy, not the caller's: each recursion below rewrites FuncName and
 	// SourceFile on it.
 	recurseOpts := *opts
+	// The related files belong to the function traced first, not to the
+	// wrappers the recursion moves on to.
+	recurseOpts.AlsoSources = nil
 
 	type funcRef struct {
 		name  string

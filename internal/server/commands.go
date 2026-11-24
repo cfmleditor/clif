@@ -463,12 +463,17 @@ func (s *Server) cmdFindRefs(ctx context.Context, args []protocol.LSPAny) (any, 
 	s.log.Debug("findRefs: searching", cflog.String("funcName", funcName), cflog.Strings("roots", s.searchRoots()))
 
 	sourceFile := uri.URI(sourceURI).Path()
+
 	findOpts := refs.Options{
 		FuncName:   funcName,
 		SourceFile: sourceFile,
 		Resolver:   s.getResolver(),
 		Explain:    true,
 	}
+	if sourceFile != "" {
+		findOpts.AlsoSources = s.implementsRelated(sourceFile, funcName)
+	}
+
 	entries := refs.Trace(s.FS, s.searchRoots(), &findOpts)
 	result := refs.FormatResult(entries, funcName, sourceURI, s.searchRoots())
 

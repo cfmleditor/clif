@@ -44,6 +44,11 @@ type Options struct {
 	Component  string // component dot-path to find refs to (empty = skip)
 	SourceFile string // absolute path of the source file (same-file calls always match)
 
+	// AlsoSources are further files whose calls are references to the same
+	// function: an interface and the components implementing it. A call
+	// matches when its receiver resolves to SourceFile or to any of them.
+	AlsoSources []string
+
 	// Resolver is the workspace's. Every file is parsed as the workspace types
 	// it (resolve.Resolver.ParseFile), a call's component is checked to define
 	// the function, and, with a SourceFile, to be the one searched for. The
@@ -369,17 +374,41 @@ func findInFile(fsys vfs.FS, f string, opts *Options) []Entry {
 	return entries
 }
 
+// isSource reports whether path is the file searched for or one of the files
+// that count as it (Options.AlsoSources).
+func (o *Options) isSource(path string) bool {
+	if cfpath.SamePath(path, o.SourceFile) {
+		return true
+	}
+
+	return slices.ContainsFunc(o.AlsoSources, func(s string) bool { return cfpath.SamePath(path, s) })
+}
+
+// inheritsFunction reports whether the call's component, one of the files that
+// count as the target (Options.AlsoSources), gets the function from its
+// extends chain: a component extending an implementer calls the interface's
+// method without declaring it. Only those files are asked; elsewhere a
+// call to an inherited function stays a reference to the component that
+// declares it, as before.
+func (o *Options) inheritsFunction(call *parser.CallSite, dir string) bool {
+	if len(o.AlsoSources) == 0 || !o.isSource(o.Resolver.ComponentPath(call.Component, dir)) {
+		return false
+	}
+
+	return o.Resolver.ResolveFunc(call.Component, call.FuncName, dir) != nil
+}
+
 // matchCall reports whether call is a reference to the function being
 // searched for, and whether it resolved.
 func matchCall(call *parser.CallSite, pr *parser.ParseResult, absPath string, opts *Options) (resolved, ok bool) {
 	if call.Component != "" {
 		dir := filepath.Dir(absPath)
 
-		if !opts.Resolver.HasFunction(call.Component, call.FuncName, dir) {
+		if !opts.Resolver.HasFunction(call.Component, call.FuncName, dir) && !opts.inheritsFunction(call, dir) {
 			return false, false
 		}
 
-		if opts.SourceFile != "" && !cfpath.SamePath(opts.Resolver.ComponentPath(call.Component, dir), opts.SourceFile) {
+		if opts.SourceFile != "" && !opts.isSource(opts.Resolver.ComponentPath(call.Component, dir)) {
 			return false, false
 		}
 	}
@@ -403,7 +432,7 @@ func matchCall(call *parser.CallSite, pr *parser.ParseResult, absPath string, op
 
 	if sameFile {
 		// Same-file call — only a match if this IS the source file
-		if !cfpath.SamePath(absPath, opts.SourceFile) {
+		if !opts.isSource(absPath) {
 			return false, false
 		}
 

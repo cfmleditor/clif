@@ -197,9 +197,6 @@ func (s *Server) collectImplementers(ifaceFile string) []string {
 // extends resolves to the file it extends from: a bare name shared by several
 // components is not evidence.
 func (s *Server) collectTransitiveSubtypes(rootFile string, isInterface bool) []string {
-	extenders := s.index.ExtendersByName()
-
-	res := s.getResolver()
 	visited := map[string]bool{strings.ToLower(rootFile): true}
 	queue := []string{rootFile}
 
@@ -218,6 +215,20 @@ func (s *Server) collectTransitiveSubtypes(rootFile string, isInterface bool) []
 			queue = append(queue, impl)
 		}
 	}
+
+	return append(out, s.walkExtenders(queue, visited)...)
+}
+
+// walkExtenders is the breadth-first walk down `extends` from the files in
+// queue, skipping those in visited (which it updates), and returns the
+// components it reaches. A child counts only when its extends resolves to the
+// file it extends from: a bare name shared by several components is not
+// evidence.
+func (s *Server) walkExtenders(queue []string, visited map[string]bool) []string {
+	extenders := s.index.ExtendersByName()
+	res := s.getResolver()
+
+	var out []string
 
 	for len(queue) > 0 {
 		cur := queue[0]
@@ -241,6 +252,45 @@ func (s *Server) collectTransitiveSubtypes(rootFile string, isInterface bool) []
 
 			out = append(out, childPath)
 			queue = append(queue, childPath)
+		}
+	}
+
+	return out
+}
+
+// implementsRelated are the files whose calls to name are references to the
+// same function as file's, across `implements`:
+//   - file's implementers and what extends them, when file is an interface (or
+//     anything implemented): a call typed as one of them calls the interface's
+//     method;
+//   - the interfaces file implements that declare name: a call typed as the
+//     interface may reach file's method.
+//
+// `extends` alone is not followed here; that is how references already treat it.
+func (s *Server) implementsRelated(file, name string) []string {
+	res := s.getResolver()
+	visited := map[string]bool{strings.ToLower(file): true}
+
+	var out []string
+
+	implementers := s.collectImplementers(file)
+	for _, impl := range implementers {
+		visited[strings.ToLower(impl)] = true
+	}
+
+	out = append(out, implementers...)
+	out = append(out, s.walkExtenders(slices.Clone(implementers), visited)...)
+
+	for _, iface := range s.index.ImplementsForFile(cfpath.ToURI(file)) {
+		ifacePath := res.ComponentPath(iface, filepath.Dir(file))
+		if ifacePath == "" || visited[strings.ToLower(ifacePath)] {
+			continue
+		}
+
+		if slices.ContainsFunc(res.EnsureIndexed(ifacePath), func(fn *parser.FunctionDef) bool { return strings.EqualFold(fn.Name, name) }) {
+			visited[strings.ToLower(ifacePath)] = true
+
+			out = append(out, ifacePath)
 		}
 	}
 

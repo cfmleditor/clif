@@ -326,9 +326,10 @@ func (s *Server) functionReferences(word, content string, docURI uri.URI, line, 
 	}
 
 	entries := refs.Find(s.refsFS(), s.searchRoots(), &refs.Options{
-		FuncName:   word,
-		SourceFile: sourceFile,
-		Resolver:   s.getResolver(),
+		FuncName:    word,
+		SourceFile:  sourceFile,
+		AlsoSources: s.implementsRelated(sourceFile, word),
+		Resolver:    s.getResolver(),
 	})
 
 	// A call site always writes the name it calls, so a line the name cannot be
