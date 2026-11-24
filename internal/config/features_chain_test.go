@@ -97,6 +97,7 @@ var featureDefaults = map[string]bool{
 	"StructureDiagnostics":       structureDiagnosticsDefault,
 	"InlayHints":                 inlayHintsDefault,
 	"Rename":                     renameDefault,
+	"SemanticTokens":             semanticTokensDefault,
 }
 
 // TestFeaturesDefaultToOn is the property that makes these opt-outs. An absent
