@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Find-references, call hierarchy and the code lens follow `implements` and `extends` (#451).** A method's references, incoming calls and usage count now include calls typed as its subtypes (through `extends` and `implements`, overriding or inheriting) and as the ancestors and interfaces that declare it; siblings and unrelated same-named methods stay out. One workspace scan: `refs.Options.AlsoSources` lists the further files, and `FindCallsMany` takes them per function name. `clif.findRefs` uses the same rule.
+- **The index records `implements` (#449).** `ParseResult.Implements`, `Index.SetImplements`, `ImplementsForFile` and `ImplementersByName`, kept and dropped with the file's extends, so the questions that need an interface's implementers read the index and not the workspace.
+
+### Changed
+
+- **Reference searches type script receivers (#451).** A call whose receiver the parse left untyped (a script `var s = new Foo()`) is typed with the resolver's `ComponentOf`, as `unresolved` does, so another component's same-named method is excluded and not passed as a candidate; a type that names no file (a WireBox id) stays a candidate. A component's inherited methods count as its own for the match.
+- **Large source files split by concern (#449).** `script_parser.go`, `result.go`, `cfscript_formatter.go`, `resolve.go`, `producer_flow.go`, `collection_returns.go`, `index.go`, `producer_source.go`, `rename_local.go`, and then `result_merge.go` and `cfscript_expr.go` again, moved unchanged (same code lines before and after; `unresolved` and `format` output identical on TestBox, FW/1, ColdBox, ContentBox, Wheels and Lucee).
+
+### Fixed
+
+- **Go to Implementation finds interface implementers (#449).** A component naming an interface in `implements` is found, a child whose `extends` does not resolve is no longer taken for a same-named parent, a declaration split over several lines answers on each of them, and the document lock is released before other files are read.
+- **Cross-file rename refuses across `implements` (#450).** Renaming an interface method, or the method that satisfies it, is refused with the other side named, as the extends-chain check already did.
+- **MCP prompt arguments are bounded (#449).** `prompts/get` refuses an argument with a control character or over 512 bytes.
+
 ## [0.7.5]
 
 ### Added
