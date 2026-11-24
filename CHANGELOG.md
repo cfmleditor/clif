@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+## [0.7.4]
+
+### Added
+
+- **Parameter-name inlay hints and smart selection range (#433).** `textDocument/inlayHint` now shows parameter names (`param:`) on positional arguments in script and tag expression calls (resolved against user functions, CFC methods, `new` constructors, and built-in CFML functions) alongside the component-path hint, and `textDocument/selectionRange` provides O(N) smart expand-selection chains across identifiers, strings, call arguments, balanced brackets, tags, and script/tag regions.
+- **Split inlay-hint feature switches (#437).** Added `features.inlayHintsParameterNames` and `features.inlayHintsComponentPath` (both default `true`, gated under the master `features.inlayHints` toggle) so each hint kind can be toggled independently.
+- **LSP Type Hierarchy and Call Hierarchy (#435, #436).** Implemented `textDocument/prepareTypeHierarchy`, `typeHierarchy/supertypes`, `typeHierarchy/subtypes`, `textDocument/prepareCallHierarchy`, `callHierarchy/incomingCalls`, and `callHierarchy/outgoingCalls` with zero idle overhead.
+- **Opt-in Semantic Tokens (#438).** Added `textDocument/semanticTokens/full` and `textDocument/semanticTokens/range` gated behind `features.semanticTokens` (default `false`) using a single-pass O(N) buffer-local streaming scanner (scopes, functions, methods, built-ins, parameters, and `new` types).
+- **Opt-in Cross-file Rename for component methods and properties (#443).** Added `features.renameCrossFile` (default `false`, requires `features.rename: true`) to rename CFC methods across workspace callers and non-accessor CFC properties, refusing safely on unresolved/ambiguous callers, inheritance overrides, or tag-referenced properties.
+- **Expanded MCP server: 20 read-only tools, incremental cache, `--watch`, and `--daemon` (#439, #440, #441, #442).** Added `get_outline`, `get_type_hierarchy`, `lookup_docs`, `check_structure`, `resolve_route`, `check_format`, `impact_analysis` (multi-hop reverse-BFS blast radius), and composite `explore` (one-shot source + callers/callees + impact); added `--tools` / `CLIF_MCP_TOOLS` allowlisting (including `--tools slim`), incremental mtime-based workspace caching, `--db <file> --watch` auto-sync, and `--daemon` / `--daemon-socket` to share a running daemon's live index.
+
+### Fixed
+
+- **Daemon-served LSP sessions report server version (#434).** Propagated `Version` through `server.Settings` so daemon-backed editor sessions (e.g. Zed) receive `ServerInfo.Version` instead of an empty string.
+
 ## [0.7.3]
 
 ### Added
