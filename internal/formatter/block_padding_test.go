@@ -133,3 +133,56 @@ func TestBlockOptionsAreIdempotent(t *testing.T) {
 		}
 	}
 }
+
+// TestBlankLinesInBlocksFalseAppliesToCFTags covers cfmleditor/cfmleditor#190:
+// blankLinesInBlocks: false must suppress block padding in CFML tag blocks
+// (<cfif>/<cfelseif>/<cfelse>, <cfloop>, <cfcomponent>, <cffunction>) as well
+// as CFScript blocks, and remain idempotent.
+func TestBlankLinesInBlocksFalseAppliesToCFTags(t *testing.T) {
+	t.Parallel()
+
+	src := strings.Join([]string{
+		`<cfcomponent>`,
+		`    <cffunction name="pick">`,
+		`        <cfif color EQ 'purple'>`,
+		`            <cfset flavor = 'grape'>`,
+		`        <cfelseif color EQ 'red'>`,
+		`            <cfset flavor = 'cherry'>`,
+		`        <cfelse>`,
+		`            <cfset flavor = 'plain'>`,
+		`        </cfif>`,
+		`        <cfloop from="1" to="3" index="i">`,
+		`            <cfset total = i>`,
+		`        </cfloop>`,
+		`    </cffunction>`,
+		`</cfcomponent>`,
+		``,
+	}, "\n")
+
+	compact := formatWithBlockOpts(t, src, false, false)
+
+	for _, forbidden := range []string{
+		"<cfcomponent>\n\n",
+		"\n\n</cfcomponent>",
+		"<cffunction name=\"pick\">\n\n",
+		"<cfif color EQ 'purple'>\n\n",
+		"\n\n        <cfelseif",
+		"<cfelseif color EQ 'red'>\n\n",
+		"\n\n        <cfelse>",
+		"<cfelse>\n\n",
+		"\n\n        </cfif>",
+		"<cfloop from=\"1\" to=\"3\" index=\"i\">\n\n",
+		"\n\n        </cfloop>",
+	} {
+		assertNotContains(t, compact, forbidden)
+	}
+
+	if twice := formatWithBlockOpts(t, compact, false, false); twice != compact {
+		t.Errorf("compact tag output not idempotent:\n--- pass 1\n%s\n--- pass 2\n%s", compact, twice)
+	}
+
+	// Default (true) still pads CFML tag blocks as before.
+	padded := formatWithBlockOpts(t, src, true, false)
+	assertContains(t, padded, "<cfif color EQ 'purple'>\n\n")
+	assertContains(t, padded, "\n\n        </cfif>")
+}
