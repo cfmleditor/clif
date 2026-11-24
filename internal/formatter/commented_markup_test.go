@@ -51,3 +51,38 @@ func TestLessThanInProseIsNotMarkup(t *testing.T) {
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)
 	}
 }
+
+// Prose that starts on the marker's line. The first line sits after `<!---` at a depth
+// of its own, so it is not part of the indentation the rest of the comment shares:
+// counting it left the common indent at the one space after the marker and the other
+// lines came out as deep as they were typed, ragged against the first.
+func TestProseStartingOnTheMarkerLineIsAligned(t *testing.T) {
+	for name, tc := range map[string]struct{ src, want string }{
+		"text lined up under the first": {
+			"<ul>\n    <!--- first line of prose\n             second line\n    --->\n    <li>Blue</li>\n</ul>\n",
+			"<ul>\n    <!---\n        first line of prose\n        second line\n    --->\n    <li>Blue</li>\n</ul>\n",
+		},
+		"closing marker on the last line": {
+			"<ul>\n    <!--- first line of prose\n             second line --->\n    <li>Blue</li>\n</ul>\n",
+			"<ul>\n    <!---\n        first line of prose\n        second line\n    --->\n    <li>Blue</li>\n</ul>\n",
+		},
+		"indentation among the rest is kept": {
+			"<div>\n    <!--- Items:\n            - one\n              continued\n            - two\n    --->\n</div>\n",
+			"<div>\n    <!---\n        Items:\n        - one\n          continued\n        - two\n    --->\n</div>\n",
+		},
+		"less-than sign in the prose": {
+			"<ul>\n    <!--- when a < b the\n          second line\n    --->\n    <li>Blue</li>\n</ul>\n",
+			"<ul>\n    <!---\n        when a < b the\n        second line\n    --->\n    <li>Blue</li>\n</ul>\n",
+		},
+		"at the top of a document": {
+			"<!--- first\n      second\n--->\n<p>x</p>\n",
+			"<!---\n    first\n    second\n--->\n<p>x</p>\n",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := formatStable(t, tc.src); got != tc.want {
+				t.Errorf("got:\n%s\nwant:\n%s", got, tc.want)
+			}
+		})
+	}
+}

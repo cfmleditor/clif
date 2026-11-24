@@ -1534,6 +1534,11 @@ func (f *Formatter) normalizeCFComment(raw string) string {
 		lines[i] = strings.TrimRight(line, " \t")
 	}
 
+	// Whether the text starts on the line of the opening marker. That first line sits
+	// after `<!---` at a depth of its own, so it is no part of the indentation the
+	// other lines share.
+	startsOnMarkerLine := len(lines) > 0 && trimSpace(lines[0]) != ""
+
 	for len(lines) > 0 && trimSpace(lines[0]) == "" {
 		lines = lines[1:]
 	}
@@ -1549,10 +1554,18 @@ func (f *Formatter) normalizeCFComment(raw string) string {
 	if len(lines) == 1 {
 		return "<!--- " + trimSpace(lines[0]) + " --->"
 	}
-	// Multi-line: strip common leading whitespace
+	// Multi-line: strip common leading whitespace. A first line on the marker's line
+	// starts at the base, and the common indent is that of the lines after it.
+	first := 0
+
+	if startsOnMarkerLine {
+		lines[0] = strings.TrimLeft(lines[0], " \t")
+		first = 1
+	}
+
 	minIndent := -1
 
-	for _, line := range lines {
+	for _, line := range lines[first:] {
 		if trimSpace(line) == "" {
 			continue
 		}
@@ -1564,9 +1577,9 @@ func (f *Formatter) normalizeCFComment(raw string) string {
 	}
 
 	if minIndent > 0 {
-		for i, line := range lines {
-			if len(line) >= minIndent {
-				lines[i] = line[minIndent:]
+		for i := first; i < len(lines); i++ {
+			if len(lines[i]) >= minIndent {
+				lines[i] = lines[i][minIndent:]
 			}
 		}
 	}
