@@ -1023,6 +1023,11 @@ func (f *Formatter) isWhitespaceNode(n *sitter.Node) bool {
 	return trimSpace(f.text(n)) == ""
 }
 
+// allWhitespace reports whether every node holds only whitespace.
+func (f *Formatter) allWhitespace(nodes []*sitter.Node) bool {
+	return !slices.ContainsFunc(nodes, func(n *sitter.Node) bool { return !f.isWhitespaceNode(n) })
+}
+
 func (f *Formatter) formatChildren(n *sitter.Node) {
 	children := make([]*sitter.Node, 0, n.ChildCount())
 	for i := range n.ChildCount() {
@@ -1039,7 +1044,33 @@ func (f *Formatter) formatNodes(nodes []*sitter.Node) {
 	prevTagKind := ""
 	prevWasComment := false
 
-	for _, c := range nodes {
+	for i := 0; i < len(nodes); {
+		c := nodes[i]
+
+		// Text and hash expressions that sit side by side are one line of
+		// content, not one line each: "This is a ##test #color#." is a single
+		// run, as it is inside an element or a tag body.
+		if f.isInlineNode(c) {
+			j := i + 1
+			for j < len(nodes) && f.isInlineNode(nodes[j]) {
+				j++
+			}
+
+			f.formatInlineRun(nodes[i:j])
+
+			// A run of only whitespace is not content, so it leaves the grouping
+			// state alone, as a lone whitespace node does below.
+			if !f.allWhitespace(nodes[i:j]) {
+				prevWasComment = false
+			}
+
+			i = j
+
+			continue
+		}
+
+		i++
+
 		kind := f.nodeTagKind(c)
 
 		if kind != "" && prevTagKind != "" && !prevWasComment && !f.nodeIsComment(c) &&
