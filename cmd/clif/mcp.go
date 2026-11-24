@@ -10,6 +10,7 @@ import (
 	"github.com/cfmleditor/clif/internal/codemap/mcp"
 	"github.com/cfmleditor/clif/internal/codemap/store"
 	"github.com/cfmleditor/clif/internal/confine"
+	"github.com/cfmleditor/clif/internal/daemon"
 	"github.com/cfmleditor/clif/internal/vfs"
 )
 
@@ -226,6 +227,9 @@ func mcpServer(f *mcpFlags, db *store.Store) *mcp.Server {
 	srv.CheckFormat = func(paths []string, includeDiff bool, limit int) (any, error) {
 		return mcpCheckFormat(root, paths, includeDiff, limit)
 	}
+	srv.ConfigSummary = func() (any, error) {
+		return mcpConfigSummary(root)
+	}
 
 	if f.allowLint {
 		srv.Lint = newMCPLinter(root)
@@ -360,6 +364,35 @@ func wireMCPDaemon(srv *mcp.Server, dc *mcpDaemonClient) {
 			return fallback(query, includeSource)
 		}
 	}
+}
+
+func mcpConfigSummary(root string) (any, error) {
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return nil, err
+	}
+
+	cfg, _ := daemon.FindConfig(absRoot)
+	if cfg == nil {
+		return map[string]any{
+			"root":       absRoot,
+			"configured": false,
+		}, nil
+	}
+
+	r := cfg.Resolved()
+
+	return map[string]any{
+		"root":               absRoot,
+		"configured":         true,
+		"configPath":         cfg.Path,
+		"workspaceFolders":   r.WorkspaceFolders,
+		"frameworks":         r.Frameworks,
+		"mappings":           r.Mappings,
+		"componentResolvers": len(r.ComponentResolvers),
+		"routesEnabled":      r.Routes.Enabled(),
+		"lintingEnabled":     r.Linting,
+	}, nil
 }
 
 // newWorkspaceExplainer traces call sites using the shared, incrementally

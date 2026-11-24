@@ -118,7 +118,7 @@ func TestUnknownToolIsAToolErrorNotAProtocolError(t *testing.T) {
 // TestUnknownMethodIsAProtocolError is the flip side: an unknown *method* is a
 // protocol-level failure and must be reported as one.
 func TestUnknownMethodIsAProtocolError(t *testing.T) {
-	replies := exchange(t, server(t, false), `{"jsonrpc":"2.0","id":1,"method":"resources/list"}`)
+	replies := exchange(t, server(t, false), `{"jsonrpc":"2.0","id":1,"method":"sampling/createMessage"}`)
 
 	errObj, ok := replies[0]["error"].(map[string]any)
 	if !ok {
