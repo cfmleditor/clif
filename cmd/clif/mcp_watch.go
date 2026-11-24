@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cfmleditor/clif/internal/config"
 	cfpath "github.com/cfmleditor/clif/internal/path"
 	"github.com/cfmleditor/clif/internal/vfs"
 )
@@ -199,9 +200,10 @@ func snapshotCFMLStamps(root string) map[string]fileStamp {
 		}
 	}
 
-	cfgPath := filepath.Join(root, ".clif.json")
-	if info, err := os.Stat(cfgPath); err == nil {
-		out[cfgPath] = fileStamp{size: info.Size(), modTime: info.ModTime()}
+	for _, cfgPath := range config.CandidatesIn(root) {
+		if info, err := os.Stat(cfgPath); err == nil {
+			out[cfgPath] = fileStamp{size: info.Size(), modTime: info.ModTime()}
+		}
 	}
 
 	return out
