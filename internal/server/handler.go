@@ -100,6 +100,8 @@ func (s *Server) Handler() jsonrpc2.Handler {
 			return s.handleCompletionResolve(ctx, req.Params())
 		case protocol.MethodTextDocumentDefinition:
 			return s.handleDefinition(ctx, req.Params())
+		case protocol.MethodTextDocumentImplementation:
+			return s.handleImplementation(ctx, req.Params())
 		case protocol.MethodTextDocumentTypeDefinition:
 			return s.handleTypeDefinition(ctx, req.Params())
 		case protocol.MethodTextDocumentInlayHint:

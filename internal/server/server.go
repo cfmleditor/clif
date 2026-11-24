@@ -191,6 +191,7 @@ func (s *Server) capabilities() protocol.ServerCapabilities {
 			FirstTriggerCharacter: ">",
 		},
 		DefinitionProvider:     protocol.Boolean(true),
+		ImplementationProvider: protocol.Boolean(true),
 		TypeDefinitionProvider: protocol.Boolean(s.Features.TypeDefinition),
 		InlayHintProvider:      protocol.Boolean(s.Features.InlayHints),
 		RenameProvider:         s.renameProvider(),
