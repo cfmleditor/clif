@@ -96,6 +96,8 @@ var featureDefaults = map[string]bool{
 	"TypeDefinition":             typeDefinitionDefault,
 	"StructureDiagnostics":       structureDiagnosticsDefault,
 	"InlayHints":                 inlayHintsDefault,
+	"InlayHintsParameterNames":   true,
+	"InlayHintsComponentPath":    true,
 	"Rename":                     renameDefault,
 }
 

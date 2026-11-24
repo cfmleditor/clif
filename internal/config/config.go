@@ -534,10 +534,17 @@ type Features struct {
 	// `{"features": {"structureDiagnostics": true}}`.
 	StructureDiagnostics *bool `json:"structureDiagnostics"`
 	// InlayHints answers textDocument/inlayHint: the component's own dot path
-	// beside its declaration, `Path: (models.User)`. Off by default: it is new,
-	// and an editor that draws its own hints would show each twice. Turn it on
-	// with `{"features": {"inlayHints": true}}`.
+	// beside its declaration (`Path: (models.User)`) and parameter-name hints
+	// before positional call arguments (`name:`). Off by default: an editor
+	// that draws its own hints would show each twice. Turn it on with
+	// `{"features": {"inlayHints": true}}`.
 	InlayHints *bool `json:"inlayHints"`
+	// InlayHintsParameterNames controls parameter-name hints (`name:`) when
+	// InlayHints is enabled (defaults to true).
+	InlayHintsParameterNames *bool `json:"inlayHintsParameterNames"`
+	// InlayHintsComponentPath controls the `Path: (models.User)` declaration
+	// hint when InlayHints is enabled (defaults to true).
+	InlayHintsComponentPath *bool `json:"inlayHintsComponentPath"`
 	// Rename answers textDocument/prepareRename and textDocument/rename for a
 	// local variable of a script function: the uses a function makes of a
 	// variable it declares with `var` or `local`, and nothing else. It refuses
@@ -559,6 +566,8 @@ type ResolvedFeatures struct {
 	TypeDefinition             bool
 	StructureDiagnostics       bool
 	InlayHints                 bool
+	InlayHintsParameterNames   bool
+	InlayHintsComponentPath    bool
 	Rename                     bool
 }
 
@@ -604,6 +613,8 @@ func ResolveFeatures(f *Features) ResolvedFeatures {
 		TypeDefinition:             BoolDefault(f.TypeDefinition, typeDefinitionDefault),
 		StructureDiagnostics:       BoolDefault(f.StructureDiagnostics, structureDiagnosticsDefault),
 		InlayHints:                 BoolDefault(f.InlayHints, inlayHintsDefault),
+		InlayHintsParameterNames:   BoolDefault(f.InlayHintsParameterNames, true),
+		InlayHintsComponentPath:    BoolDefault(f.InlayHintsComponentPath, true),
 		Rename:                     BoolDefault(f.Rename, renameDefault),
 	}
 }
@@ -1192,6 +1203,8 @@ func mergeFeatures(base, over *Features) *Features {
 		{&out.TypeDefinition, &over.TypeDefinition},
 		{&out.StructureDiagnostics, &over.StructureDiagnostics},
 		{&out.InlayHints, &over.InlayHints},
+		{&out.InlayHintsParameterNames, &over.InlayHintsParameterNames},
+		{&out.InlayHintsComponentPath, &over.InlayHintsComponentPath},
 		{&out.Rename, &over.Rename},
 	} {
 		if *f.src != nil {

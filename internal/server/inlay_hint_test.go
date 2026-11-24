@@ -276,3 +276,36 @@ func TestInlayHintShowsParameterNamesForComponentAndConstructorCalls(t *testing.
 		t.Errorf("line 3 hints = %+v, want single fullName: hint", line3)
 	}
 }
+
+func TestInlayHintSubSwitchesGateEachKindIndependently(t *testing.T) {
+	dir := t.TempDir()
+	s := newTestServer()
+	s.WorkspaceFolders = []string{dir}
+	s.Features.InlayHints = true
+
+	u := uri.File(filepath.Join(dir, "models", "User.cfc"))
+	openDoc(t, s, u, "component {\n\tfunction run() {\n\t\treturn mid(\"hello\", 1, 2);\n\t}\n}\n")
+
+	// Both on (default when InlayHints is enabled): 1 component path + 3 param hints.
+	both := inlayHints(t, s, u, wholeDocument)
+	if len(both) != 4 {
+		t.Fatalf("both enabled = %d hints (%+v), want 4", len(both), both)
+	}
+
+	// Parameter names off: only component path hint.
+	s.Features.InlayHintsParameterNames = false
+	pathOnly := inlayHints(t, s, u, wholeDocument)
+
+	if len(pathOnly) != 1 || pathOnly[0].Label != protocol.String("Path: (models.User)") {
+		t.Fatalf("path only = %+v, want single Path hint", pathOnly)
+	}
+
+	// Component path off, parameter names on: only the 3 param hints.
+	s.Features.InlayHintsParameterNames = true
+	s.Features.InlayHintsComponentPath = false
+	paramsOnly := inlayHints(t, s, u, wholeDocument)
+
+	if len(paramsOnly) != 3 {
+		t.Fatalf("params only = %d hints (%+v), want 3", len(paramsOnly), paramsOnly)
+	}
+}
