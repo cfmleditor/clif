@@ -122,6 +122,8 @@ func (s *Server) Handler() jsonrpc2.Handler {
 			return s.handleFoldingRange(ctx, req.Params())
 		case protocol.MethodTextDocumentSelectionRange:
 			return s.handleSelectionRange(ctx, req.Params())
+		case protocol.MethodTextDocumentLinkedEditingRange:
+			return s.handleLinkedEditingRange(ctx, req.Params())
 		case protocol.MethodTextDocumentSemanticTokensFull:
 			return s.handleSemanticTokensFull(ctx, req.Params())
 		case protocol.MethodTextDocumentSemanticTokensRange:
