@@ -457,7 +457,7 @@ var toolHandlers = map[string]toolHandler{
 	"impact_analysis":       (*Server).impactAnalysis,
 	"list_islands":          (*Server).listIslands,
 	"list_orphans":          (*Server).listOrphans,
-	"get_stats":             func(s *Server, _ *toolArgs) (any, error) { return s.Store.Stats() },
+	"get_stats":             (*Server).getStats,
 	"explain_call":          (*Server).explainCall,
 	"find_unresolved_calls": (*Server).findUnresolved,
 	"find_references":       (*Server).findReferences,
@@ -657,6 +657,22 @@ func (s *Server) listOrphans(a *toolArgs) (any, error) {
 	found, err := s.Store.Orphans(a.Kind, a.Limit)
 
 	return wrap("orphans", found), err
+}
+
+func (s *Server) getStats(_ *toolArgs) (any, error) {
+	stats, err := s.Store.Stats()
+	if err != nil {
+		return nil, err
+	}
+
+	if s.SyncStatus == nil {
+		return stats, nil
+	}
+
+	return map[string]any{
+		"stats": stats,
+		"watch": s.SyncStatus(),
+	}, nil
 }
 
 func (s *Server) explainCall(a *toolArgs) (any, error) {

@@ -103,6 +103,7 @@ type Server struct {
 	CheckFormat   FormatChecker
 	ReadSnippet   SnippetReader
 	LiveExplore   LiveExplorer
+	SyncStatus    func() map[string]any
 }
 
 type request struct {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,7 +13,7 @@ import (
 	"github.com/cfmleditor/clif/internal/vfs"
 )
 
-const mcpUsage = `usage: clif mcp [--db <file>] [--root <dir>] [--tools <list>] [--allow-lint] [--map-only] [--no-explain]
+const mcpUsage = `usage: clif mcp [--db <file>] [--watch] [--root <dir>] [--tools <list>] [--allow-lint] [--map-only] [--no-explain]
 
 Serve a CFML workspace over the Model Context Protocol on stdio, so an
 assistant can ask about the code instead of grepping for it. It writes nothing.
@@ -36,6 +37,8 @@ With --allow-lint:
                           CFLint process (carried by released builds)
 
   --db <file>     the database written by "graph --db"
+  --watch         auto-sync the --db code map in the background when CFML files
+                  change on disk (debounced incremental rebuild; needs --db)
   --root <dir>    workspace root: explain_call indexes it, and every tool's
                   paths must lie in it (default: the map's own root, or the
                   working directory without a map)
@@ -65,8 +68,8 @@ func fatalf(format string, args ...any) {
 }
 
 type mcpFlags struct {
-	db, root, tools               string
-	allowLint, mapOnly, noExplain bool
+	db, root, tools                      string
+	allowLint, mapOnly, noExplain, watch bool
 }
 
 func parseMCPFlags(args []string) mcpFlags {
@@ -95,9 +98,15 @@ func parseMCPFlags(args []string) mcpFlags {
 			f.mapOnly = true
 		case "--no-explain":
 			f.noExplain = true
+		case "--watch":
+			f.watch = true
 		default:
 			fatalf("unknown option %q\n\n%s", args[i], mcpUsage)
 		}
+	}
+
+	if f.watch && f.db == "" {
+		fatalf("--watch needs --db: there is no code map database to sync\n\n%s", mcpUsage)
 	}
 
 	if f.mapOnly && f.db == "" {
@@ -247,6 +256,15 @@ func cmdMCP(args []string) {
 	}
 
 	srv := mcpServer(&f, db)
+
+	if f.watch {
+		watcher := newMCPMapWatcher(mcpRoot(&f, db), f.db)
+
+		watcher.Start(context.Background())
+		defer watcher.Stop()
+
+		srv.SyncStatus = watcher.status
+	}
 
 	// Diagnostics go to stderr. Stdout is the protocol channel, and one stray line
 	// on it is a parse error at the other end rather than a log message.
