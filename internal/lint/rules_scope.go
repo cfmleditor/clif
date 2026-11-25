@@ -309,15 +309,9 @@ func checkMissingVar(fc *FileContext) []cflint.Issue {
 }
 
 func checkUnscopedUses(fc *FileContext, pick func(*funcScopeAnalysis) []identUse, msgFmt string) []cflint.Issue {
-	src := fc.Text()
-	pr := fc.ParseResult()
-
 	var out []cflint.Issue
 
-	spans := pr.FunctionSpans()
-
-	for i := range spans {
-		a := analyzeFunctionScope(src, &spans[i])
+	for _, a := range fc.functionScopes() {
 		reported := map[string]bool{}
 
 		for _, u := range pick(a) {
@@ -341,16 +335,9 @@ func checkUnscopedUses(fc *FileContext, pick func(*funcScopeAnalysis) []identUse
 }
 
 func checkArgVarConflict(fc *FileContext) []cflint.Issue {
-	src := fc.Text()
-	pr := fc.ParseResult()
-
 	var out []cflint.Issue
 
-	spans := pr.FunctionSpans()
-
-	for i := range spans {
-		a := analyzeFunctionScope(src, &spans[i])
-
+	for _, a := range fc.functionScopes() {
 		for name, off := range a.vars {
 			if a.params[name] {
 				msg := fmt.Sprintf("Variable %s conflicts with function argument of the same name.", name)
@@ -363,15 +350,9 @@ func checkArgVarConflict(fc *FileContext) []cflint.Issue {
 }
 
 func checkArgVarMixed(fc *FileContext) []cflint.Issue {
-	src := fc.Text()
-	pr := fc.ParseResult()
-
 	var out []cflint.Issue
 
-	spans := pr.FunctionSpans()
-
-	for i := range spans {
-		a := analyzeFunctionScope(src, &spans[i])
+	for _, a := range fc.functionScopes() {
 		reported := map[string]bool{}
 
 		checkUse := func(u identUse) {

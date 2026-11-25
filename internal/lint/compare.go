@@ -1,9 +1,12 @@
 package lint
 
 import (
+	"fmt"
 	"maps"
 	"path/filepath"
+	"slices"
 	"strings"
+	"time"
 
 	"github.com/cfmleditor/clif/internal/cflint"
 )
@@ -98,4 +101,79 @@ func keyOf(iss *cflint.RunIssue) FindingKey {
 		Line: loc.Line,
 		Rule: strings.ToUpper(strings.TrimSpace(iss.ID)),
 	}
+}
+
+// FormatComparison formats a human-readable timing and per-rule parity summary
+// comparing a native run against a CFLint run.
+func FormatComparison(cmp *Comparison, nativeDur, cflintDur time.Duration, showSamples int) string {
+	var b strings.Builder
+
+	speedup := ""
+	if nativeDur > 0 && cflintDur > 0 {
+		speedup = fmt.Sprintf(" (%.1fx faster)", float64(cflintDur)/float64(nativeDur))
+	}
+
+	fmt.Fprintf(&b, "Timing: native %s vs cflint %s%s\n", nativeDur.Round(time.Millisecond), cflintDur.Round(time.Millisecond), speedup)
+	fmt.Fprintf(&b, "Totals: %d matched, %d only-native, %d only-cflint\n\n", cmp.Matched, len(cmp.OnlyNative), len(cmp.OnlyCFLint))
+
+	type counts struct{ onlyNative, onlyCFLint int }
+
+	byRule := make(map[string]*counts)
+	get := func(rule string) *counts {
+		c := byRule[rule]
+		if c == nil {
+			c = &counts{}
+			byRule[rule] = c
+		}
+
+		return c
+	}
+
+	for i := range cmp.OnlyNative {
+		get(strings.ToUpper(cmp.OnlyNative[i].ID)).onlyNative++
+	}
+
+	for i := range cmp.OnlyCFLint {
+		get(strings.ToUpper(cmp.OnlyCFLint[i].ID)).onlyCFLint++
+	}
+
+	if len(byRule) == 0 {
+		b.WriteString("Exact parity: 0 differences across all rules.\n")
+
+		return b.String()
+	}
+
+	rules := make([]string, 0, len(byRule))
+	for r := range byRule {
+		rules = append(rules, r)
+	}
+
+	slices.Sort(rules)
+
+	fmt.Fprintf(&b, "%-36s %11s %11s\n", "RULE", "ONLY-NATIVE", "ONLY-CFLINT")
+
+	for _, r := range rules {
+		c := byRule[r]
+		fmt.Fprintf(&b, "%-36s %11d %11d\n", r, c.onlyNative, c.onlyCFLint)
+	}
+
+	if showSamples > 0 && len(cmp.OnlyNative) > 0 {
+		b.WriteString("\nSample only-native findings:\n")
+
+		for i := range min(showSamples, len(cmp.OnlyNative)) {
+			loc := firstLoc(cmp.OnlyNative[i].Issue)
+			fmt.Fprintf(&b, "  %s:%d [%s] %s\n", loc.File, loc.Line, cmp.OnlyNative[i].ID, loc.Message)
+		}
+	}
+
+	if showSamples > 0 && len(cmp.OnlyCFLint) > 0 {
+		b.WriteString("\nSample only-cflint findings:\n")
+
+		for i := range min(showSamples, len(cmp.OnlyCFLint)) {
+			loc := firstLoc(cmp.OnlyCFLint[i].Issue)
+			fmt.Fprintf(&b, "  %s:%d [%s] %s\n", loc.File, loc.Line, cmp.OnlyCFLint[i].ID, loc.Message)
+		}
+	}
+
+	return b.String()
 }

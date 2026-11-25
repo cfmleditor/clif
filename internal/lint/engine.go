@@ -126,8 +126,30 @@ type FileContext struct {
 	parseOnce sync.Once
 	parsed    *parser.ParseResult
 
+	scopesOnce sync.Once
+	scopes     []*funcScopeAnalysis
+
 	treeOnce sync.Once
 	tree     *sitter.Tree
+}
+
+// functionScopes lazily analyzes every FunctionSpan in the file once so all
+// scope rules (MISSING_VAR, IMPLICIT_SCOPE, ARG_VAR_CONFLICT, ARG_VAR_MIXED)
+// share a single pass.
+func (fc *FileContext) functionScopes() []*funcScopeAnalysis {
+	fc.scopesOnce.Do(func() {
+		src := fc.Text()
+		spans := fc.ParseResult().FunctionSpans()
+		out := make([]*funcScopeAnalysis, len(spans))
+
+		for i := range spans {
+			out[i] = analyzeFunctionScope(src, &spans[i])
+		}
+
+		fc.scopes = out
+	})
+
+	return fc.scopes
 }
 
 // ParseResult lazily parses the file with clif's internal parser and caches

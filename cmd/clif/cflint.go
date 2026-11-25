@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/cfmleditor/clif/internal/cflint"
 	"github.com/cfmleditor/clif/internal/config"
@@ -128,6 +129,7 @@ type cflintFlags struct {
 	quiet       bool
 	staged      bool
 	lines       bool
+	compare     bool
 }
 
 // regenerating reports whether the run writes a known-issues report, the one
@@ -176,6 +178,8 @@ func parseCFLintFlags(args []string) cflintFlags {
 			fl.staged = true
 		case "--changed-lines":
 			fl.lines = true
+		case "--compare":
+			fl.compare = true
 		case "--out":
 			fl.out = value()
 		case "--format":
@@ -299,6 +303,12 @@ func cmdCFLint(args []string) {
 
 	if err := cflint.CheckConfigs(sel.files); err != nil {
 		cflintFailf("%v\n", err)
+	}
+
+	if fl.compare {
+		runLintComparison(&sel, minSeverity, logf)
+
+		return
 	}
 
 	runner := buildLintEngine(engineName, minSeverity)
@@ -477,6 +487,38 @@ func selectCFLintFiles(fl *cflintFlags, dir string, roots, scanRoots []string) c
 
 // lintSelection runs CFLint over a selection: the staged content when there is
 // any, the files on disk otherwise.
+func runLintComparison(sel *cflintSelection, minSeverity string, logf func(string, ...any)) {
+	nativeRunner := lint.NewNativeRunner(lint.DefaultRegistry, minSeverity, version)
+
+	cflintRunner, err := cflint.NewRunner(context.Background(), minSeverity)
+	if err != nil {
+		cflintFailf("cflint unavailable for --compare: %v\n", err)
+	}
+
+	logf("Comparing native vs cflint over %d files...\n", len(sel.files))
+
+	t0 := time.Now()
+
+	nativeRun, err := lintSelection(nativeRunner, sel)
+	if err != nil {
+		cflintFailf("native lint failed: %v\n", err)
+	}
+
+	nativeDur := time.Since(t0)
+
+	t1 := time.Now()
+
+	cflintRun, err := lintSelection(cflintRunner, sel)
+	if err != nil {
+		cflintFailf("cflint failed: %v\n", err)
+	}
+
+	cflintDur := time.Since(t1)
+
+	cmp := lint.CompareRuns(nativeRun, cflintRun)
+	fmt.Print(lint.FormatComparison(&cmp, nativeDur, cflintDur, 10))
+}
+
 func buildLintEngine(engineName, minSeverity string) lint.Engine {
 	switch engineName {
 	case config.LintEngineNative:

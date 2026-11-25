@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -76,33 +77,78 @@ func (n *NativeRunner) Lint(ctx context.Context, files []string) (*cflint.Run, e
 	return n.LintContent(ctx, sources)
 }
 
-// LintContent runs native rules over in-memory sources.
+// LintContent runs native rules over in-memory sources in parallel across
+// available CPU cores, returning deterministically sorted findings.
 func (n *NativeRunner) LintContent(ctx context.Context, sources []cflint.Source) (*cflint.Run, error) {
 	run := &cflint.Run{Version: n.version}
+	if len(sources) == 0 {
+		return run, nil
+	}
+
 	rcCache := &rcDirCache{byDir: make(map[string]*RCConfig)}
 	rules := n.registry.Rules()
 
+	workers := min(max(runtime.GOMAXPROCS(0), 1), len(sources))
+	jobs := make(chan int, len(sources))
+
 	for i := range sources {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
+		jobs <- i
+	}
 
-		src := sources[i]
+	close(jobs)
 
-		rc, err := rcCache.forFile(src.Path)
-		if err != nil {
-			return nil, err
-		}
+	var (
+		mu       sync.Mutex
+		wg       sync.WaitGroup
+		firstErr error
+	)
 
-		if rc.FileExcluded(src.Path) {
-			continue
-		}
+	for range workers {
+		wg.Go(func() {
+			for idx := range jobs {
+				if err := ctx.Err(); err != nil {
+					mu.Lock()
+					if firstErr == nil {
+						firstErr = err
+					}
+					mu.Unlock()
 
-		run.TotalFiles++
-		run.TotalLines += countLines(src.Content)
+					return
+				}
 
-		issues := n.lintOne(src.Path, src.Content, rc, rules)
-		run.Issues = append(run.Issues, issues...)
+				src := sources[idx]
+
+				rc, err := rcCache.forFile(src.Path)
+				if err != nil {
+					mu.Lock()
+					if firstErr == nil {
+						firstErr = err
+					}
+					mu.Unlock()
+
+					return
+				}
+
+				if rc.FileExcluded(src.Path) {
+					continue
+				}
+
+				issues := n.lintOne(src.Path, src.Content, rc, rules)
+				lines := countLines(src.Content)
+
+				mu.Lock()
+				run.TotalFiles++
+				run.TotalLines += lines
+				run.Issues = append(run.Issues, issues...)
+				mu.Unlock()
+			}
+		})
+	}
+
+	wg.Wait()
+
+	if firstErr != nil {
+		return nil, firstErr
 	}
 
 	sortRunIssues(run.Issues)
