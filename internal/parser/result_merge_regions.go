@@ -59,7 +59,9 @@ func (pr *ParseResult) mergeScriptRegion(r *Region, tagScopes []FuncScope, open 
 		seed, sp.funcs = pr.seedRegionFunction(s.Start, s.Name)
 		sp.localVarSet = &localNames{}
 
-		for _, arg := range pr.argsOfFuncAt(s.Start) {
+		loopArgs := pr.argsOfFuncAt(s.Start)
+		for _ai := range loopArgs {
+			arg := &loopArgs[_ai]
 			sp.localVarSet.add(arg.Name)
 		}
 
@@ -273,7 +275,9 @@ func (pr *ParseResult) mergeTagRegion(r *Region, tagScopes []FuncScope, open *op
 		seed, tp.funcs = pr.seedRegionFunction(s.Start, s.Name)
 		tp.localVars, tp.localSet = nil, nil
 
-		for _, arg := range pr.argsOfFuncAt(s.Start) {
+		loopArgs := pr.argsOfFuncAt(s.Start)
+		for _ai := range loopArgs {
+			arg := &loopArgs[_ai]
 			tp.markVarLocal(arg.Name)
 		}
 

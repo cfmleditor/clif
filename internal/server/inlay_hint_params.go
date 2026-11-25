@@ -458,7 +458,8 @@ func userFuncParams(def *parser.FunctionDef) []paramHintSpec {
 	}
 
 	out := make([]paramHintSpec, len(def.Arguments))
-	for i, a := range def.Arguments {
+	for i := range def.Arguments {
+		a := &def.Arguments[i]
 		out[i] = paramHintSpec{name: a.Name, required: a.Required}
 	}
 

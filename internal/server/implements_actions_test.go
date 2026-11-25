@@ -297,3 +297,81 @@ func TestInterfaceStubsParseBackAsTheMethod(t *testing.T) {
 		t.Errorf("tag stub parses as %+v, want area returning numeric", tag.Funcs)
 	}
 }
+
+func TestInterfaceStubsKeepArgumentDefaults(t *testing.T) {
+	fn := &parser.FunctionDef{Name: "area", ReturnType: "void", Arguments: []parser.Argument{
+		{Name: "scale", Type: "numeric", Default: strPtr("1")},
+		{Name: "label", Type: "string", Default: strPtr(`"a, b"`)},
+		{Name: "when", Default: strPtr("now()")},
+		{Name: "must", Required: true},
+		{Name: "bare"},
+	}}
+
+	script := formatScriptMethodStub(fn)
+	if want := `public void function area( numeric scale = 1, string label = "a, b", when = now(), required must, bare ) {`; !strings.Contains(script, want) {
+		t.Errorf("script stub lacks %s:\n%s", want, script)
+	}
+
+	tag := formatTagMethodStub(fn)
+	for _, want := range []string{
+		`<cfargument name="scale" type="numeric" default="1">`,
+		`<cfargument name="label" type="string" default="a, b">`,
+		`<cfargument name="when" default="#now()#">`,
+		`<cfargument name="must" required="true">`,
+		"<cfargument name=\"bare\">\n",
+	} {
+		if !strings.Contains(tag, want) {
+			t.Errorf("tag stub lacks %s:\n%s", want, tag)
+		}
+	}
+}
+
+// A default the stub writes is the default the parser reads back, in either
+// form: whatever spelling the interface used, the implementation has the same.
+// A tag has no way to write a single-quoted string, so that one comes back
+// double-quoted, the same value; a number or a boolean is written bare for an
+// argument declared numeric or boolean, and is a string otherwise, as a tag
+// reads it.
+func TestInterfaceStubDefaultsRoundTripThroughTheParser(t *testing.T) {
+	for _, c := range []struct{ expr, typ, tag string }{
+		{"1", "numeric", ""},
+		{"-2.5", "numeric", ""},
+		{"true", "boolean", ""},
+		{"false", "boolean", ""},
+		{`"x"`, "string", ""},
+		{`""`, "string", ""},
+		{`"a, b"`, "string", ""},
+		{`"say ""hi"""`, "string", ""},
+		{`'single'`, "string", `"single"`},
+		{"now()", "", ""},
+		{"[]", "", ""},
+		{"[1, 2]", "", ""},
+		{`{ k: "v" }`, "", ""},
+		{`"a" & "b"`, "", ""},
+		{"arguments.id", "", ""},
+		{`"id-#url.id#"`, "", ""},
+	} {
+		fn := &parser.FunctionDef{Name: "m", ReturnType: "void", Arguments: []parser.Argument{{Name: "p", Type: c.typ, Default: strPtr(c.expr)}}}
+
+		script := parser.Parse("file:///w/S.cfc", "component {\n"+formatScriptMethodStub(fn)+"\n}\n")
+		if len(script.Funcs) != 1 || len(script.Funcs[0].Arguments) != 1 || script.Funcs[0].Arguments[0].DefaultExpr() != c.expr {
+			t.Errorf("script: %q reads back as %+v", c.expr, script.Funcs)
+		}
+
+		tag := parser.Parse("file:///w/T.cfc", "<cfcomponent>\n"+formatTagMethodStub(fn)+"\n</cfcomponent>\n")
+		if len(tag.Funcs) != 1 || len(tag.Funcs[0].Arguments) != 1 {
+			t.Errorf("tag: %q: parsed %+v", c.expr, tag.Funcs)
+
+			continue
+		}
+
+		want := c.tag
+		if want == "" {
+			want = c.expr
+		}
+
+		if got := tag.Funcs[0].Arguments[0].DefaultExpr(); got != want {
+			t.Errorf("tag: %q reads back as %q, want %q", c.expr, got, want)
+		}
+	}
+}

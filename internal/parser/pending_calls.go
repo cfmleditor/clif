@@ -232,7 +232,9 @@ func (pr *ParseResult) pendingArgumentShadows(c *pendingCall) bool {
 			continue
 		}
 
-		for _, arg := range pr.argsOfFuncAt(scope.Start) {
+		loopArgs := pr.argsOfFuncAt(scope.Start)
+		for _ai := range loopArgs {
+			arg := &loopArgs[_ai]
 			if strings.EqualFold(arg.Name, c.funcName) {
 				return true
 			}

@@ -34,9 +34,11 @@ func wholeArgumentComponent(chain string, inFunc fnKey, funcs []FunctionDef) str
 		return ""
 	}
 
-	for _, arg := range funcs[len(funcs)-1].Arguments {
+	loopArgs := funcs[len(funcs)-1].Arguments
+	for _ai := range loopArgs {
+		arg := &loopArgs[_ai]
 		if strings.EqualFold(arg.Name, name) {
-			return argumentComponentType(&arg)
+			return argumentComponentType(arg)
 		}
 	}
 

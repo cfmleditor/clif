@@ -62,10 +62,11 @@ func (p *scriptParser) parseBraceBody(funcLine int, args []Argument, tok Token) 
 		p.localVarSet = &localNames{}
 	}
 
-	for _, a := range args {
+	for _ai := range args {
+		a := &args[_ai]
 		p.localVarSet.add(a.Name)
 
-		if comp := argumentComponentType(&a); comp != "" {
+		if comp := argumentComponentType(a); comp != "" {
 			if p.funcRefs == nil {
 				p.funcRefs = make(map[fnKey][]ComponentRef)
 			}

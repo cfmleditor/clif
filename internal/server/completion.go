@@ -383,7 +383,9 @@ func (s *Server) scopeArgumentsCompletion(docURI uri.URI, line int) []protocol.C
 		if strings.EqualFold(d.Name, funcName) {
 			items := make([]protocol.CompletionItem, 0, len(d.Arguments))
 
-			for _, arg := range d.Arguments {
+			for _ai := range d.Arguments {
+				arg := &d.Arguments[_ai]
+
 				detail := arg.Type
 				if arg.Required {
 					detail += " required"
@@ -432,7 +434,8 @@ func (s *Server) superCompletion(docURI uri.URI) []protocol.CompletionItem {
 		detail.WriteString(d.Name)
 		detail.WriteByte('(')
 
-		for i, arg := range d.Arguments {
+		for i := range d.Arguments {
+			arg := &d.Arguments[i]
 			if i > 0 {
 				detail.WriteString(", ")
 			}
@@ -625,7 +628,8 @@ func signatureDetail(name string, args []parser.Argument) string {
 	detail.WriteString(name)
 	detail.WriteByte('(')
 
-	for i, arg := range args {
+	for i := range args {
+		arg := &args[i]
 		if i > 0 {
 			detail.WriteString(", ")
 		}
@@ -693,7 +697,9 @@ func (s *Server) argumentCompletion(content string, docURI uri.URI, line, char i
 	}
 
 	var items []protocol.CompletionItem
-	for _, arg := range def.Arguments {
+
+	for _ai := range def.Arguments {
+		arg := &def.Arguments[_ai]
 		items = append(items, protocol.CompletionItem{
 			Label:  arg.Name + "=",
 			Kind:   protocol.CompletionItemKindField,
@@ -774,7 +780,8 @@ func callSnippet(name string, required []string) string {
 func requiredArgs(args []parser.Argument) []string {
 	var out []string
 
-	for _, a := range args {
+	for _ai := range args {
+		a := &args[_ai]
 		if a.Required {
 			out = append(out, a.Name)
 		}
@@ -786,7 +793,8 @@ func requiredArgs(args []parser.Argument) []string {
 // writeArgDetail writes the argument list a function's completion item shows
 // as its detail, every argument included, and the closing parenthesis.
 func writeArgDetail(detail *strings.Builder, args []parser.Argument) {
-	for i, arg := range args {
+	for i := range args {
+		arg := &args[i]
 		if i > 0 {
 			detail.WriteString(", ")
 		}

@@ -623,7 +623,9 @@ func (p *tagParser) enterFunctionScope(tagEnd, line int) {
 	p.localSet = nil
 
 	if len(p.funcs) > 0 {
-		for _, arg := range p.funcs[len(p.funcs)-1].Arguments {
+		loopArgs := p.funcs[len(p.funcs)-1].Arguments
+		for _ai := range loopArgs {
+			arg := &loopArgs[_ai]
 			p.markVarLocal(arg.Name)
 		}
 	}
@@ -737,8 +739,9 @@ func (p *tagParser) parseCFFunction(tag string, idx, tagEnd, line int) {
 	// (global), which causes cachedFuncRefs to miss them when the funcRefsMap
 	// entry already exists from resolver-derived refs in the same scope.
 	// Instead, compute the funcKey directly and write to funcRefs[key].
-	for _, a := range args {
-		if comp := argumentComponentType(&a); comp != "" {
+	for _ai := range args {
+		a := &args[_ai]
+		if comp := argumentComponentType(a); comp != "" {
 			ref := ComponentRef{
 				Variable:  a.Name,
 				Component: comp,
@@ -877,6 +880,12 @@ func (p *tagParser) parseCFArguments(block string, blockStart int) []Argument {
 			a.Hint = getAttr(tag, "hint")
 			req := getAttr(tag, "required")
 			a.Required = strings.EqualFold(req, "true") || strings.EqualFold(req, "yes")
+
+			if start, end, set := attrSpan(tag, "default"); set {
+				text := tagDefaultExpression(unescapeAttr(tag, start, end), a.Type)
+				a.Default = &text
+			}
+
 			// Promote hint to type when type is generic and hint looks like a component path
 			if isComponentType(a.Hint) && !isComponentType(a.Type) {
 				a.Type = a.Hint
@@ -909,7 +918,9 @@ func (p *tagParser) isArgument(name string) bool {
 		return false
 	}
 
-	for _, a := range p.funcs[len(p.funcs)-1].Arguments {
+	loopArgs := p.funcs[len(p.funcs)-1].Arguments
+	for _ai := range loopArgs {
+		a := &loopArgs[_ai]
 		if strings.EqualFold(a.Name, name) {
 			return true
 		}

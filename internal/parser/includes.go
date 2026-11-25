@@ -256,7 +256,8 @@ func includeWrappersIn(scopes []FuncScope, defs []FunctionDef, lines LineTable, 
 				continue
 			}
 
-			for k, a := range defs[i].Arguments {
+			for k := range defs[i].Arguments {
+				a := &defs[i].Arguments[k]
 				if strings.EqualFold(a.Name, inc.Path) {
 					if wrappers == nil {
 						wrappers = map[string]IncludeWrapper{}

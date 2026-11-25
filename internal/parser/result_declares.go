@@ -120,8 +120,9 @@ func (pr *ParseResult) seedRegionFunction(start int, name string) (int, []Functi
 			continue
 		}
 
-		for _, arg := range fn.Arguments {
-			if argumentComponentType(&arg) != "" {
+		for _ai := range fn.Arguments {
+			arg := &fn.Arguments[_ai]
+			if argumentComponentType(arg) != "" {
 				return i, []FunctionDef{*fn}
 			}
 		}

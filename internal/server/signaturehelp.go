@@ -105,7 +105,8 @@ func buildUserSignature(def *parser.FunctionDef) protocol.SignatureInformation {
 
 	paramInfos := make([]protocol.ParameterInformation, 0, len(def.Arguments))
 
-	for i, arg := range def.Arguments {
+	for i := range def.Arguments {
+		arg := &def.Arguments[i]
 		if i > 0 {
 			label.WriteString(", ")
 		}

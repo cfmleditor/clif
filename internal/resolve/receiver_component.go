@@ -842,7 +842,8 @@ func declaresArgument(pr *parser.ParseResult, caller, name string) bool {
 			continue
 		}
 
-		for _, arg := range f.Arguments {
+		for _ai := range f.Arguments {
+			arg := &f.Arguments[_ai]
 			if strings.EqualFold(arg.Name, name) {
 				return true
 			}

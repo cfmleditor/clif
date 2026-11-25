@@ -223,7 +223,8 @@ func docFunctionArguments(after string) []string {
 	}
 
 	out := make([]string, 0, len(pr.Funcs[0].Arguments))
-	for _, a := range pr.Funcs[0].Arguments {
+	for _ai := range pr.Funcs[0].Arguments {
+		a := &pr.Funcs[0].Arguments[_ai]
 		out = append(out, a.Name)
 	}
 
