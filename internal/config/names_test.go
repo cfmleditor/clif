@@ -11,10 +11,10 @@ import (
 // neither file gets the new name.
 func TestADefaultReportKeepsItsLegacyName(t *testing.T) {
 	dir := t.TempDir()
-	current := filepath.Join(dir, ".clif-cflint.txt")
+	current := filepath.Join(dir, ".clif-lint.txt")
 	legacy := filepath.Join(dir, ".cfmleditor-cflint.txt")
 
-	if got := defaultReport(dir, GenerateCFLint); got != current {
+	if got := defaultReport(dir, GenerateLint); got != current {
 		t.Errorf("with neither file: %q, want %q", got, current)
 	}
 
@@ -22,7 +22,7 @@ func TestADefaultReportKeepsItsLegacyName(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if got := GenerateTargets(nil, GenerateCFLint, dir); len(got) != 1 || got[0] != legacy {
+	if got := GenerateTargets(nil, GenerateLint, dir); len(got) != 1 || got[0] != legacy {
 		t.Errorf("with the legacy file: %v, want %q", got, legacy)
 	}
 
@@ -30,7 +30,7 @@ func TestADefaultReportKeepsItsLegacyName(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if got := defaultReport(dir, GenerateCFLint); got != current {
+	if got := defaultReport(dir, GenerateLint); got != current {
 		t.Errorf("with both files: %q, want %q", got, current)
 	}
 

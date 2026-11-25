@@ -12,7 +12,7 @@ import (
 // RegenerateHint is the CFLint report header's how-to-regenerate line. It is
 // the same whichever writes the report, so one regenerated from the editor and
 // from the command line diffs clean.
-const RegenerateHint = "clif cflint --write <project>, or the editor's clif.exportCFLint command"
+const RegenerateHint = "clif lint --write <project>, or the editor's clif.exportLint command"
 
 // Report is one generated CFLint known-issues file, before it is written.
 type Report struct {
@@ -61,7 +61,7 @@ func Reports(found map[string][]protocol.Diagnostic, targets []string, version s
 		knownissues.Write(&b, []string{
 			"CFLint issues across the project, one per line: path:line:col: [severity RULE] message.",
 			"Paths are relative to this file's directory. Listed under knownIssues in .clif.json",
-			`with "generate": "cflint", the entries show as cflint diagnostics, and a file's give way`,
+			`with "generate": "lint", the entries show as lint diagnostics, and a file's give way`,
 			"to CFLint's own results once it is linted on save. Regenerate with:",
 			"  " + RegenerateHint,
 			fmt.Sprintf("%d entries; clif %s.", len(rows[t]), version),

@@ -50,14 +50,14 @@ func TestKnownIssuesMergeWithOtherDiagnosticsAndReload(t *testing.T) {
 	}
 
 	// CFLint reports on a; both are published together.
-	s.storeDiagnostics(aURI, sourceCFLint, []protocol.Diagnostic{{Message: protocol.String("lint")}})
+	s.storeDiagnostics(aURI, sourceLint, []protocol.Diagnostic{{Message: protocol.String("lint")}})
 
 	if got := s.diagnosticsFor(aURI); len(got) != 2 {
 		t.Fatalf("a with lint: %d diagnostics, want 2", len(got))
 	}
 
 	// Closing a's buffer drops the lint and keeps the known issue.
-	s.storeDiagnostics(aURI, sourceCFLint, nil)
+	s.storeDiagnostics(aURI, sourceLint, nil)
 	s.storeDiagnostics(aURI, sourceParse, nil)
 
 	if got := s.diagnosticsFor(aURI); len(got) != 1 || got[0].Code != protocol.String("known-issue") {
@@ -147,7 +147,7 @@ func TestCFLintReportGivesWayToALiveRun(t *testing.T) {
 	}
 
 	s := newTestServer()
-	s.KnownIssues = []config.KnownIssues{{File: report, Generate: config.GenerateCFLint, Scope: "workspace"}}
+	s.KnownIssues = []config.KnownIssues{{File: report, Generate: config.GenerateLint, Scope: "workspace"}}
 
 	ctx := context.Background()
 	s.loadKnownIssues(ctx)
@@ -155,14 +155,14 @@ func TestCFLintReportGivesWayToALiveRun(t *testing.T) {
 	aURI, bURI := uri.File(a), uri.File(b)
 
 	got := s.diagnosticsFor(aURI)
-	if len(got) != 1 || got[0].Source != protocol.NewOptional(sourceCFLint) || got[0].Code != protocol.String("MISSING_VAR") {
+	if len(got) != 1 || got[0].Source != protocol.NewOptional(sourceLint) || got[0].Code != protocol.String("MISSING_VAR") {
 		t.Fatalf("a from the report: %+v", got)
 	}
 
 	// a is opened and linted clean: the report's entry goes.
 	s.diagnosticsOpened(ctx, aURI)
-	s.diagnosticsRan(aURI, sourceCFLint)
-	s.storeDiagnostics(aURI, sourceCFLint, []protocol.Diagnostic{})
+	s.diagnosticsRan(aURI, sourceLint)
+	s.storeDiagnostics(aURI, sourceLint, []protocol.Diagnostic{})
 
 	if got := s.diagnosticsFor(aURI); len(got) != 0 {
 		t.Errorf("a after a clean run: %+v", got)
@@ -174,7 +174,7 @@ func TestCFLintReportGivesWayToALiveRun(t *testing.T) {
 
 	// Closing a keeps the report's stale entry hidden.
 	s.diagnosticsClosed(aURI)
-	s.storeDiagnostics(aURI, sourceCFLint, nil)
+	s.storeDiagnostics(aURI, sourceLint, nil)
 
 	if got := s.diagnosticsFor(aURI); len(got) != 0 {
 		t.Errorf("a after close: %+v", got)

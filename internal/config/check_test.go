@@ -25,8 +25,8 @@ func TestResolveCheckDefaults(t *testing.T) {
 		}
 	}
 
-	if !slices.Equal(DefaultChecks(), []string{CheckCFLint}) {
-		t.Errorf("DefaultChecks() = %v, want [cflint]", DefaultChecks())
+	if !slices.Equal(DefaultChecks(), []string{CheckLint}) {
+		t.Errorf("DefaultChecks() = %v, want [lint]", DefaultChecks())
 	}
 }
 
@@ -51,7 +51,7 @@ func TestResolveCheckReadsEveryKey(t *testing.T) {
 	got := Resolve(&cfg, dir).Check
 	want := ResolvedCheck{
 		Checks:     []string{CheckFormat, CheckUnresolved},
-		CFLint:     ResolvedCheckRule{MinSeverity: "WARNING", MaxFindings: 3, Baseline: BaselineNone},
+		Lint:       ResolvedCheckRule{MinSeverity: "WARNING", MaxFindings: 3, Baseline: BaselineNone},
 		Unresolved: ResolvedCheckRule{Baseline: filepath.Join(dir, "reports", "unresolved.txt")},
 		Scan:       ResolvedCheckRule{MaxFindings: 1},
 		Format:     ResolvedCheckRule{MaxFindings: 2},
@@ -78,8 +78,8 @@ func TestCheckRuleFieldsMerge(t *testing.T) {
 		Format: &CheckRule{MaxFindings: &three},
 	}}
 	over := &JSON{Check: &Check{
-		CFLint: &CheckRule{MaxFindings: &zero},
-		Scan:   &CheckRule{MaxFindings: &three},
+		Lint: &CheckRule{MaxFindings: &zero},
+		Scan: &CheckRule{MaxFindings: &three},
 	}}
 
 	got := Merge(base, over).Check
@@ -88,8 +88,8 @@ func TestCheckRuleFieldsMerge(t *testing.T) {
 		t.Errorf("checks = %v, want the parent's", got.Checks)
 	}
 
-	if got.CFLint.MinSeverity != "ERROR" || got.CFLint.Baseline != "a.txt" || *got.CFLint.MaxFindings != 0 {
-		t.Errorf("cflint = %+v, want the parent's severity and baseline with the child's zero", got.CFLint)
+	if got.Lint.MinSeverity != "ERROR" || got.Lint.Baseline != "a.txt" || *got.Lint.MaxFindings != 0 {
+		t.Errorf("lint = %+v, want the parent's severity and baseline with the child's zero", got.Lint)
 	}
 
 	if got.Format == nil || *got.Format.MaxFindings != 3 || got.Scan == nil || *got.Scan.MaxFindings != 3 {
@@ -123,7 +123,7 @@ func TestCheckRuleFieldsMerge(t *testing.T) {
 }
 
 func TestUnknownChecks(t *testing.T) {
-	if got := UnknownChecks([]string{"cflint", "lint", "format"}); !slices.Equal(got, []string{"lint"}) {
-		t.Errorf("UnknownChecks = %v, want [lint]", got)
+	if got := UnknownChecks([]string{"lint", "bogus", "format"}); !slices.Equal(got, []string{"bogus"}) {
+		t.Errorf("UnknownChecks = %v, want [bogus]", got)
 	}
 }

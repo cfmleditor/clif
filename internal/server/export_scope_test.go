@@ -53,7 +53,7 @@ func TestExportCFLintLintsTheFoldersOpen(t *testing.T) {
 			t.Errorf("linted %v, want %v", roots, want)
 		}
 
-		if want := []string{filepath.Join(tassweb, ".clif-cflint.txt")}; !slices.Equal(targets, want) {
+		if want := []string{filepath.Join(tassweb, ".clif-lint.txt")}; !slices.Equal(targets, want) {
 			t.Errorf("writes %v, want %v", targets, want)
 		}
 
@@ -64,7 +64,7 @@ func TestExportCFLintLintsTheFoldersOpen(t *testing.T) {
 	})
 
 	t.Run("the workspace root", func(t *testing.T) {
-		roots, targets, _, err := session(ws, tassweb, prs).exportScope(config.GenerateCFLint)
+		roots, targets, _, err := session(ws, tassweb, prs).exportScope(config.GenerateLint)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -73,7 +73,7 @@ func TestExportCFLintLintsTheFoldersOpen(t *testing.T) {
 			t.Errorf("linted %v, want %v", roots, want)
 		}
 
-		if want := []string{filepath.Join(ws, ".clif-cflint.txt")}; !slices.Equal(targets, want) {
+		if want := []string{filepath.Join(ws, ".clif-lint.txt")}; !slices.Equal(targets, want) {
 			t.Errorf("writes %v, want %v", targets, want)
 		}
 	})
@@ -81,8 +81,8 @@ func TestExportCFLintLintsTheFoldersOpen(t *testing.T) {
 	t.Run("a project with no config of its own", func(t *testing.T) {
 		// prs is governed by the workspace config, whose report covers tassweb
 		// too: rewriting it from a prs lint would delete tassweb's entries.
-		_, _, _, err := session(prs, tassweb, prs).exportScope(config.GenerateCFLint)
-		if err == nil || !strings.Contains(err.Error(), filepath.Join(ws, ".clif-cflint.txt")) {
+		_, _, _, err := session(prs, tassweb, prs).exportScope(config.GenerateLint)
+		if err == nil || !strings.Contains(err.Error(), filepath.Join(ws, ".clif-lint.txt")) {
 			t.Errorf("err = %v, want a refusal naming the workspace report", err)
 		}
 	})

@@ -32,27 +32,33 @@ func CandidatesIn(dir string) []string {
 }
 
 // defaultGenerated is where each kind is written when no knownIssues entry is
-// marked to receive it, beside the config file: the new name and the legacy
-// one. See defaultReport.
-var defaultGenerated = map[string][2]string{
+// marked to receive it, beside the config file: the current name first, then
+// legacy names in preference order. See defaultReport.
+var defaultGenerated = map[string][]string{
 	GenerateUnresolved: {".clif-unresolved.txt", ".cfmleditor-unresolved.txt"},
-	GenerateCFLint:     {".clif-cflint.txt", ".cfmleditor-cflint.txt"},
+	GenerateLint:       {".clif-lint.txt", ".clif-cflint.txt", ".cfmleditor-cflint.txt"},
 }
 
-// defaultReport is a kind's implicit report file in dir: the legacy name when
-// a file of that name exists and none of the new one does, so a project that
-// committed its report under the old name keeps it, and the new name
+// defaultReport is a kind's implicit report file in dir: the first existing
+// legacy file when none of the current name exists, so a project that
+// committed its report under an old name keeps it, and the current name
 // otherwise. "" for a kind with no default.
 func defaultReport(dir, kind string) string {
-	names, ok := defaultGenerated[kind]
-	if !ok {
+	names, ok := defaultGenerated[normalizeGenerateKind(kind)]
+	if !ok || len(names) == 0 {
 		return ""
 	}
 
-	current, legacy := filepath.Join(dir, names[0]), filepath.Join(dir, names[1])
+	current := filepath.Join(dir, names[0])
+	if exists(current) {
+		return current
+	}
 
-	if !exists(current) && exists(legacy) {
-		return legacy
+	for _, legacyName := range names[1:] {
+		legacy := filepath.Join(dir, legacyName)
+		if exists(legacy) {
+			return legacy
+		}
 	}
 
 	return current

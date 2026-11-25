@@ -202,7 +202,7 @@ func (s *Server) instructions() string {
 		"configured framework routes; check_format previews formatting changes without writing."
 
 	if s.Lint != nil {
-		text += " lint runs CFLint over files or directories."
+		text += " lint runs the linter over files or directories."
 	}
 
 	if s.Store == nil {

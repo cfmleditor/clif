@@ -27,9 +27,9 @@ const hookUsage = `usage: clif hook install [--dir <dir>] [--changed-lines] [--l
        clif hook run pre-commit [--changed-lines] [--log <file>]
        clif hook run post-commit [--log <file>]
 
-A git pre-commit hook that runs CFLint over what is being committed, through
-clif cflint --staged --strict: the staged content, not the working tree, every
-CFLint level failing the commit.
+A git pre-commit hook that runs lint over what is being committed, through
+clif lint --staged --strict: the staged content, not the working tree, every
+lint severity level failing the commit.
 
   install     write pre-commit (and, with --log, post-commit) into <dir>
               (default .githooks, at the repository's root) and point this
@@ -55,7 +55,7 @@ CFLint level failing the commit.
                     name. A skipped commit is logged as SKIP.
                     CLIF_COMMIT_LOG (or CFLINT_COMMIT_LOG) overrides the path
 
-Skip the hook for one commit with SKIP=cflint (or clif), or PREK_SKIP=cflint.
+Skip the hook for one commit with SKIP=lint (or clif), or PREK_SKIP=lint.
 
 Exit status:
   0  passed, skipped, or done
@@ -223,10 +223,10 @@ func hookScript(name string, args []string) string {
 	run := strings.TrimSpace("clif hook run " + name + " " + strings.Join(quoted, " "))
 
 	missing := `  case ",${SKIP:-},${PREK_SKIP:-}," in
-    *,cflint,*|*,clif,*) exit 0 ;;
+    *,lint,*|*,cflint,*|*,clif,*) exit 0 ;;
   esac
   echo "clif is not on PATH, and this repository's pre-commit hook runs it." >&2
-  echo "Install it (https://github.com/cfmleditor/clif#install), or skip this once with SKIP=cflint." >&2
+  echo "Install it (https://github.com/cfmleditor/clif#install), or skip this once with SKIP=lint." >&2
   exit 1`
 	if name == "post-commit" {
 		// After the commit there is nothing to block: say nothing.
@@ -354,7 +354,10 @@ func hookUninstall(args []string) {
 // runsClif reports whether a hook file, or a hook manager's config, runs clif.
 func runsClif(data []byte) bool {
 	return bytes.Contains(data, []byte("clif hook run pre-commit")) ||
+		bytes.Contains(data, []byte("clif lint")) ||
 		bytes.Contains(data, []byte("clif cflint")) ||
+		bytes.Contains(data, []byte("id: clif-lint")) ||
+		bytes.Contains(data, []byte(`id = "clif-lint"`)) ||
 		bytes.Contains(data, []byte("id: clif-cflint")) ||
 		bytes.Contains(data, []byte(`id = "clif-cflint"`))
 }
@@ -433,7 +436,7 @@ func hasCFLintConfig(repo string) bool {
 func skipped() bool {
 	for _, env := range []string{"SKIP", "PREK_SKIP"} {
 		for id := range strings.SplitSeq(os.Getenv(env), ",") {
-			if id = strings.TrimSpace(id); id == "cflint" || id == "clif" {
+			if id = strings.TrimSpace(id); id == "lint" || id == "cflint" || id == "clif" {
 				return true
 			}
 		}
@@ -449,7 +452,7 @@ func hookPreCommit(args []string) int {
 	repo := hookRepo()
 
 	if skipped() {
-		fmt.Fprintln(os.Stderr, "clif: CFLint skipped (SKIP)")
+		fmt.Fprintln(os.Stderr, "clif: lint skipped (SKIP)")
 		appendCommitLog(fl.log, repo, "SKIP")
 
 		return 0
@@ -460,7 +463,7 @@ func hookPreCommit(args []string) int {
 		cflintFailf("%v\n", err)
 	}
 
-	lint := []string{"cflint", "--staged", "--strict", "-q"}
+	lint := []string{"lint", "--staged", "--strict", "-q"}
 	if fl.lines {
 		lint = append(lint, "--changed-lines")
 	}
@@ -478,7 +481,7 @@ func hookPreCommit(args []string) int {
 	if err := cmd.Run(); err != nil {
 		var exit *exec.ExitError
 		if !errors.As(err, &exit) {
-			cflintFailf("running clif cflint: %v\n", err)
+			cflintFailf("running clif lint: %v\n", err)
 		}
 
 		code = exit.ExitCode()
@@ -501,7 +504,7 @@ func hookPreCommit(args []string) int {
 	appendCommitLog(fl.log, repo, status)
 
 	if code == exitCFLintFindings {
-		fmt.Fprintln(os.Stderr, "\nclif: CFLint found issues in the staged files, so the commit was stopped. Fix them, or, for one that predates this change, suppress it where it is with <!--- @CFLintIgnore RULE ---> on the line above (// cflint ignore:RULE at the end of a script line).")
+		fmt.Fprintln(os.Stderr, "\nclif: lint found issues in the staged files, so the commit was stopped. Fix them, or, for one that predates this change, suppress it where it is with <!--- @CFLintIgnore RULE ---> on the line above (// cflint ignore:RULE at the end of a script line).")
 	}
 
 	return code

@@ -183,7 +183,7 @@ func eachDiagnostic(result Result, minRank int, fn func(file string, d protocol.
 					End:   protocol.Position{Line: conv.Uint32(line), Character: conv.Uint32(col)},
 				},
 				Severity: sev,
-				Source:   protocol.NewOptional("cflint"),
+				Source:   protocol.NewOptional("lint"),
 				Code:     protocol.String(issue.ID),
 				Message:  protocol.String(loc.Message),
 			})

@@ -152,15 +152,26 @@ type KnownIssues struct {
 	Generate string `json:"generate"`
 }
 
-// The kinds of generated known-issues file.
+// The kinds of generated known-issues file. GenerateCFLint is the legacy alias
+// for GenerateLint, still accepted in configs.
 const (
 	GenerateUnresolved = "unresolved"
+	GenerateLint       = "lint"
 	GenerateCFLint     = "cflint"
 )
 
+func normalizeGenerateKind(kind string) string {
+	k := strings.ToLower(strings.TrimSpace(kind))
+	if k == GenerateCFLint {
+		return GenerateLint
+	}
+
+	return k
+}
+
 // IsGenerated reports whether k is regenerated as kind.
 func (k *KnownIssues) IsGenerated(kind string) bool {
-	return strings.EqualFold(strings.TrimSpace(k.Generate), kind)
+	return normalizeGenerateKind(k.Generate) == normalizeGenerateKind(kind)
 }
 
 // GenerateTargets returns the files a kind of report is written to: the
@@ -262,6 +273,8 @@ func ResolveKnownIssues(block *KnownIssuesConfig, dir string) []KnownIssues {
 			if kind, ok := isDefaultReport(k.File, dir); ok {
 				k.Generate = kind
 			}
+		} else {
+			k.Generate = normalizeGenerateKind(k.Generate)
 		}
 
 		out = append(out, k)
@@ -271,7 +284,7 @@ func ResolveKnownIssues(block *KnownIssuesConfig, dir string) []KnownIssues {
 		return out
 	}
 
-	for _, kind := range []string{GenerateUnresolved, GenerateCFLint} {
+	for _, kind := range []string{GenerateUnresolved, GenerateLint} {
 		if !slices.ContainsFunc(out, func(k KnownIssues) bool { return k.IsGenerated(kind) }) {
 			out = append(out, KnownIssues{
 				File:     defaultReport(dir, kind),

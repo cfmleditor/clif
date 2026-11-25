@@ -114,8 +114,8 @@ func (s *Server) handleExecuteCommand(ctx context.Context, rawParams []byte) (an
 		return s.handleGenerateCodeMap(params.Arguments)
 	case "clif.exportUnresolved":
 		return s.handleExport(config.GenerateUnresolved)
-	case "clif.exportCFLint":
-		return s.handleExport(config.GenerateCFLint)
+	case "clif.exportLint", "clif.exportCFLint":
+		return s.handleExport(config.GenerateLint)
 	case "clif.showCodeMapStats":
 		return s.handleCodeMapStats(ctx, params.Arguments)
 	case "clif.explainCall":

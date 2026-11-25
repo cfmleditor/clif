@@ -14,9 +14,9 @@ import (
 
 const suppressionsUsage = `usage: clif suppressions [--format text|json] [--baseline <file> [--update-baseline]] [-q] <path> [...]
 
-Count the CFLint suppressions in the .cfm/.cfc files under the paths given, by
+Count the lint suppressions in the .cfm/.cfc files under the paths given, by
 rule: @CFLintIgnore tags and "// cflint ignore:" comments, each code a comment
-names counting once. A code list ends at the first space, as CFLint reads it,
+names counting once. A code list ends at the first space,
 so "@CFLintIgnore A, B" counts (and suppresses) A only.
 
   --format <f>        text (default) or json

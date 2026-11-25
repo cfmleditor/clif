@@ -8,6 +8,7 @@
 
 ### Changed
 
+- **Unified external lint naming (`lint` instead of `cflint`).** Renamed external CLI, LSP, MCP, and config surfaces to `lint`: `clif lint` (with silent `clif cflint` alias), `clif check` default/check name `lint` and `check.lint` config key (with silent `cflint` alias), `"generate": "lint"` and `.clif-lint.txt` default report (with `.clif-cflint.txt` / `.cfmleditor-cflint.txt` fallback), LSP command `clif.exportLint` (with `clif.exportCFLint` alias), diagnostic source `"lint"`, progress token/title `"lint"`/`"Lint"`, `SKIP=lint` pre-commit hook support, and MCP `lint` tool descriptions.
 - **Coordinated hierarchy rename for `renameCrossFile`.** Renaming a component or interface method now renames the declaration across the entire `extends`/`implements` polymorphic family (ancestor interfaces/bases, sibling implementers, and overriding subclasses) together with all workspace callers, while still refusing safely on any name collision or ambiguous caller.
 - **Graduated LSP features to default-on.** `features.inlayHints`, `features.rename`, `features.renameCrossFile`, `features.semanticTokens`, and `features.structureDiagnostics` now default to `true` (all remain opt-out via `.clif.json` / initialization options).
 
