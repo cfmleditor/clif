@@ -233,3 +233,50 @@ func TestCrossFileRenameRefusesAcrossImplements(t *testing.T) {
 		t.Errorf("rename on the implementer: err = %v, want refusal naming IShape.cfc", err)
 	}
 }
+
+func TestCrossFileRenameRefusesAcrossSubInterfaceAndAncestorImplements(t *testing.T) {
+	dir := t.TempDir()
+
+	files := map[string]string{
+		"IBase.cfc":  "interface {\n\tpublic numeric function area();\n}\n",
+		"ISub.cfc":   "interface extends=\"IBase\" {\n\tpublic numeric function perimeter();\n}\n",
+		"Square.cfc": "component implements=\"ISub\" {\n\tpublic numeric function area() { return 1; }\n\tpublic numeric function perimeter() { return 4; }\n}\n",
+		"Parent.cfc": "component implements=\"IBase\" {\n}\n",
+		"Child.cfc":  "component extends=\"Parent\" {\n\tpublic numeric function area() { return 2; }\n}\n",
+	}
+
+	for name, src := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(src), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	s := newTestServer()
+	s.Features.Rename = true
+	s.Features.RenameCrossFile = true
+	s.WorkspaceFolders = []string{dir}
+	s.indexWorkspace()
+
+	baseURI := cfpath.ToURI(filepath.Join(dir, "IBase.cfc"))
+	squareURI := cfpath.ToURI(filepath.Join(dir, "Square.cfc"))
+	childURI := cfpath.ToURI(filepath.Join(dir, "Child.cfc"))
+
+	openDoc(t, s, baseURI, files["IBase.cfc"])
+	openDoc(t, s, squareURI, files["Square.cfc"])
+	openDoc(t, s, childURI, files["Child.cfc"])
+
+	// Renaming IBase.area must refuse because Square implements it via ISub (and Child via Parent).
+	if _, err := renameTo(t, s, baseURI, 1, 25, "size"); err == nil || !strings.Contains(err.Error(), "implemented in component") {
+		t.Errorf("rename on IBase: err = %v, want refusal naming an implementing component", err)
+	}
+
+	// Renaming Square.area must refuse because ISub extends IBase which declares area.
+	if _, err := renameTo(t, s, squareURI, 1, 25, "size"); err == nil || !strings.Contains(err.Error(), "implements method in interface 'IBase.cfc'") {
+		t.Errorf("rename on Square: err = %v, want refusal naming IBase.cfc", err)
+	}
+
+	// Renaming Child.area must refuse because Parent implements IBase which declares area.
+	if _, err := renameTo(t, s, childURI, 1, 25, "size"); err == nil || !strings.Contains(err.Error(), "implements method in interface 'IBase.cfc'") {
+		t.Errorf("rename on Child: err = %v, want refusal naming IBase.cfc", err)
+	}
+}

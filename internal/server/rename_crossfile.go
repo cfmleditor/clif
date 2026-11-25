@@ -514,26 +514,52 @@ func dedupSortEdits(list []protocol.TextEdit) []protocol.TextEdit {
 	return out
 }
 
-// implementsRenameConflict refuses a rename across `implements`: an
-// interface's method and the method that satisfies it are renamed together or
-// not at all.
+// implementsRenameConflict refuses a rename across `implements` (including
+// through sub-interfaces and ancestor components): an interface's method and
+// the method that satisfies it are renamed together or not at all.
 func (s *Server) implementsRenameConflict(t *crossFileRenameTarget) error {
 	res := s.getResolver()
 
-	for _, iface := range s.index.ImplementsForFile(cfpath.ToURI(t.filePath)) {
-		ifacePath := res.ComponentPath(iface, filepath.Dir(t.filePath))
-		if ifacePath == "" {
-			continue
+	type ancestor struct {
+		path     string
+		viaIface bool
+	}
+
+	seen := map[string]bool{strings.ToLower(t.filePath): true}
+	pending := []ancestor{{path: t.filePath}}
+
+	enqueue := func(path string, viaIface bool) {
+		if path == "" || seen[strings.ToLower(path)] {
+			return
 		}
 
-		for _, fn := range res.EnsureIndexed(ifacePath) {
-			if strings.EqualFold(fn.Name, t.name) {
-				return fmt.Errorf("cannot rename '%s': implements method in interface '%s'", t.name, filepath.Base(ifacePath))
+		seen[strings.ToLower(path)] = true
+		pending = append(pending, ancestor{path: path, viaIface: viaIface})
+	}
+
+	for hops := 0; len(pending) > 0 && hops < 64; hops++ {
+		cur := pending[0]
+		pending = pending[1:]
+
+		if cur.viaIface {
+			for _, fn := range res.EnsureIndexed(cur.path) {
+				if strings.EqualFold(fn.Name, t.name) {
+					return fmt.Errorf("cannot rename '%s': implements method in interface '%s'", t.name, filepath.Base(cur.path))
+				}
 			}
+		}
+
+		curURI := cfpath.ToURI(cur.path)
+		for _, iface := range s.index.ImplementsForFile(curURI) {
+			enqueue(res.ComponentPath(iface, filepath.Dir(cur.path)), true)
+		}
+
+		if ext, _ := s.index.ExtendsForFile(curURI); ext != "" {
+			enqueue(res.ComponentPath(ext, filepath.Dir(cur.path)), cur.viaIface)
 		}
 	}
 
-	for _, implPath := range s.collectImplementers(t.filePath) {
+	for _, implPath := range s.collectTransitiveImplementers(t.filePath) {
 		for _, fn := range res.EnsureIndexed(implPath) {
 			if strings.EqualFold(fn.Name, t.name) {
 				return fmt.Errorf("cannot rename '%s': implemented in component '%s'", t.name, filepath.Base(implPath))

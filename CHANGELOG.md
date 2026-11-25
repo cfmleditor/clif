@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Transitive sub-interface implementers in Go to Implementation, references, and cross-file rename.** `collectTransitiveSubtypes` now follows `implements` on sub-interfaces discovered via `extends` (so `IBase` ← `ISub extends IBase` ← `Square implements ISub` ← `Cube extends Square` resolves end-to-end for Go to Implementation, find-references, call hierarchy, and code lens), and `implementsRenameConflict` walks upward through `extends`/`implements` and downward through transitive implementers.
+
 ## [0.7.6]
 
 ### Added

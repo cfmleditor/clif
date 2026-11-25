@@ -8,8 +8,10 @@ import (
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/conv"
+	"github.com/cfmleditor/clif/internal/index"
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
+	"github.com/cfmleditor/clif/internal/resolve"
 	"go.lsp.dev/protocol"
 	"go.lsp.dev/uri"
 )
@@ -157,19 +159,17 @@ func cursorInDeclaration(content string, line int) bool {
 	return line >= first && line <= lines.LineOf(openOff)
 }
 
-// collectImplementers finds the components whose implements attribute names
-// the interface at ifaceFile, from the index's record of it: the candidates
-// are the files sharing the interface's name, and each is kept only when one of
-// its names resolves to ifaceFile.
-func (s *Server) collectImplementers(ifaceFile string) []string {
+// collectImplementersFrom finds the components whose implements attribute names
+// the interface at ifaceFile using a pre-fetched ImplementersByName snapshot:
+// the candidates are the files sharing the interface's name, and each is kept
+// only when one of its names resolves to ifaceFile.
+func collectImplementersFrom(ifaceFile string, byName map[string][]index.Implementer, res *resolve.Resolver) []string {
 	base := strings.ToLower(strings.TrimSuffix(filepath.Base(ifaceFile), filepath.Ext(ifaceFile)))
-	cands := s.index.ImplementersByName()[base]
+	cands := byName[base]
 
 	if len(cands) == 0 {
 		return nil
 	}
-
-	res := s.getResolver()
 
 	var out []string
 
@@ -192,54 +192,51 @@ func (s *Server) collectImplementers(ifaceFile string) []string {
 }
 
 // collectTransitiveSubtypes performs a cycle-guarded BFS over Index.ExtendersByName()
-// to find all direct and transitive subtypes of rootFile. For an interface the
-// components implementing it are the first level. A child counts only when its
-// extends resolves to the file it extends from: a bare name shared by several
-// components is not evidence.
-func (s *Server) collectTransitiveSubtypes(rootFile string, isInterface bool) []string {
+// (and Index.ImplementersByName() when followImplements is true) to find all
+// direct and transitive subtypes of rootFile, including components that
+// implement a sub-interface extending rootFile. A child counts only when its
+// extends or implements resolves to the file it derives from: a bare name
+// shared by several components is not evidence.
+func (s *Server) collectTransitiveSubtypes(rootFile string, followImplements bool) []string {
+	extenders := s.index.ExtendersByName()
+
+	var implementers map[string][]index.Implementer
+	if followImplements {
+		implementers = s.index.ImplementersByName()
+	}
+
+	res := s.getResolver()
 	visited := map[string]bool{strings.ToLower(rootFile): true}
 	queue := []string{rootFile}
 
 	var out []string
 
-	if isInterface {
-		for _, impl := range s.collectImplementers(rootFile) {
-			key := strings.ToLower(impl)
-			if visited[key] {
-				continue
-			}
-
-			visited[key] = true
-
-			out = append(out, impl)
-			queue = append(queue, impl)
+	enqueue := func(path string) {
+		key := strings.ToLower(path)
+		if visited[key] {
+			return
 		}
+
+		visited[key] = true
+
+		out = append(out, path)
+		queue = append(queue, path)
 	}
-
-	return append(out, s.walkExtenders(queue, visited)...)
-}
-
-// walkExtenders is the breadth-first walk down `extends` from the files in
-// queue, skipping those in visited (which it updates), and returns the
-// components it reaches. A child counts only when its extends resolves to the
-// file it extends from: a bare name shared by several components is not
-// evidence.
-func (s *Server) walkExtenders(queue []string, visited map[string]bool) []string {
-	extenders := s.index.ExtendersByName()
-	res := s.getResolver()
-
-	var out []string
 
 	for len(queue) > 0 {
 		cur := queue[0]
 		queue = queue[1:]
 
+		if followImplements {
+			for _, impl := range collectImplementersFrom(cur, implementers, res) {
+				enqueue(impl)
+			}
+		}
+
 		compName := strings.TrimSuffix(filepath.Base(cur), filepath.Ext(cur))
 		for _, child := range extenders[strings.ToLower(compName)] {
 			childPath := cfpath.FromURI(child.URI)
-			key := strings.ToLower(childPath)
-
-			if visited[key] {
+			if visited[strings.ToLower(childPath)] {
 				continue
 			}
 
@@ -248,10 +245,68 @@ func (s *Server) walkExtenders(queue []string, visited map[string]bool) []string
 				continue
 			}
 
-			visited[key] = true
+			enqueue(childPath)
+		}
+	}
 
-			out = append(out, childPath)
-			queue = append(queue, childPath)
+	return out
+}
+
+// collectTransitiveImplementers returns every component that implements
+// rootFile directly, implements a sub-interface extending rootFile, or extends
+// such an implementing component. Pure `extends` descendants of a non-interface
+// component are excluded because no `implements` edge is crossed.
+func (s *Server) collectTransitiveImplementers(rootFile string) []string {
+	extenders := s.index.ExtendersByName()
+	implementers := s.index.ImplementersByName()
+	res := s.getResolver()
+
+	type node struct {
+		path    string
+		viaImpl bool
+	}
+
+	visited := map[string]bool{strings.ToLower(rootFile): true}
+	queue := []node{{path: rootFile}}
+
+	var out []string
+
+	enqueue := func(path string, viaImpl bool) {
+		key := strings.ToLower(path)
+		if visited[key] {
+			return
+		}
+
+		visited[key] = true
+
+		if viaImpl {
+			out = append(out, path)
+		}
+
+		queue = append(queue, node{path: path, viaImpl: viaImpl})
+	}
+
+	for len(queue) > 0 {
+		cur := queue[0]
+		queue = queue[1:]
+
+		for _, impl := range collectImplementersFrom(cur.path, implementers, res) {
+			enqueue(impl, true)
+		}
+
+		compName := strings.TrimSuffix(filepath.Base(cur.path), filepath.Ext(cur.path))
+		for _, child := range extenders[strings.ToLower(compName)] {
+			childPath := cfpath.FromURI(child.URI)
+			if visited[strings.ToLower(childPath)] {
+				continue
+			}
+
+			resolvedParent := res.ComponentPath(child.Extends, filepath.Dir(childPath))
+			if resolvedParent == "" || !cfpath.SamePath(resolvedParent, cur.path) {
+				continue
+			}
+
+			enqueue(childPath, cur.viaImpl)
 		}
 	}
 
