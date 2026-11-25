@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"go.lsp.dev/protocol"
@@ -308,5 +309,25 @@ func TestInlayHintSubSwitchesGateEachKindIndependently(t *testing.T) {
 
 	if len(paramsOnly) != 3 {
 		t.Fatalf("params only = %d hints (%+v), want 3", len(paramsOnly), paramsOnly)
+	}
+}
+
+func TestInlayHintPathologicalInputsStayLinear(t *testing.T) {
+	dir := t.TempDir()
+	s := newTestServer()
+	s.WorkspaceFolders = []string{dir}
+	s.Features.InlayHints = true
+
+	// 1,500 nested calls and 1,500 unclosed calls must not go quadratic or panic.
+	nested := "component {\nfunction f(a) {}\nfunction run() {\n" +
+		strings.Repeat("f(", 1500) + "1" + strings.Repeat(")", 1500) + ";\n" +
+		strings.Repeat("f(", 1500) + "\n}\n}\n"
+
+	u := uri.File(filepath.Join(dir, "Deep.cfc"))
+	openDoc(t, s, u, nested)
+
+	hints := inlayHints(t, s, u, wholeDocument)
+	if len(hints) == 0 {
+		t.Error("expected hints for nested calls, got none")
 	}
 }

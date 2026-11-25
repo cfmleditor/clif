@@ -2,6 +2,7 @@ package server
 
 import (
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/conv"
@@ -47,6 +48,7 @@ func (s *Server) parameterInlayHints(docURI uri.URI, file, content string, want 
 	}
 
 	baseDir := filepath.Dir(file)
+	wantEndOff := positionToByteOffset(content, lines, want.End)
 
 	var hints []protocol.InlayHint
 
@@ -58,9 +60,9 @@ func (s *Server) parameterInlayHints(docURI uri.URI, file, content string, want 
 
 		switch r.Kind {
 		case parser.RegionScript:
-			hints = s.appendCallHints(hints, docURI, baseDir, r.Text, r.Offset, posOf, want)
+			hints = s.appendCallHints(hints, docURI, baseDir, r.Text, r.Offset, wantEndOff, posOf, want)
 		case parser.RegionTag:
-			hints = s.appendTagExprHints(hints, docURI, baseDir, r.Text, r.Offset, posOf, want)
+			hints = s.appendTagExprHints(hints, docURI, baseDir, r.Text, r.Offset, wantEndOff, posOf, want)
 		default:
 		}
 	}
@@ -68,7 +70,7 @@ func (s *Server) parameterInlayHints(docURI uri.URI, file, content string, want 
 	return hints
 }
 
-func (s *Server) appendTagExprHints(hints []protocol.InlayHint, docURI uri.URI, baseDir, text string, baseOffset int, posOf func(int) protocol.Position, want protocol.Range) []protocol.InlayHint {
+func (s *Server) appendTagExprHints(hints []protocol.InlayHint, docURI uri.URI, baseDir, text string, baseOffset, wantEndOff int, posOf func(int) protocol.Position, want protocol.Range) []protocol.InlayHint {
 	for i := 0; i < len(text); {
 		lt := strings.IndexByte(text[i:], '<')
 		if lt < 0 {
@@ -76,6 +78,10 @@ func (s *Server) appendTagExprHints(hints []protocol.InlayHint, docURI uri.URI, 
 		}
 
 		tagStart := i + lt
+		if baseOffset+tagStart > wantEndOff {
+			break
+		}
+
 		// Skip CFML and HTML comments.
 		if strings.HasPrefix(text[tagStart:], "<!---") {
 			if end := strings.Index(text[tagStart+5:], "--->"); end >= 0 {
@@ -115,7 +121,7 @@ func (s *Server) appendTagExprHints(hints []protocol.InlayHint, docURI uri.URI, 
 		}
 
 		if bodyEnd > exprStart {
-			hints = s.appendCallHints(hints, docURI, baseDir, text[exprStart:bodyEnd], baseOffset+exprStart, posOf, want)
+			hints = s.appendCallHints(hints, docURI, baseDir, text[exprStart:bodyEnd], baseOffset+exprStart, wantEndOff, posOf, want)
 		}
 
 		i = tagEnd + 1
@@ -168,11 +174,16 @@ func findExprTagClose(text string, from int) int {
 	return -1
 }
 
-func (s *Server) appendCallHints(hints []protocol.InlayHint, docURI uri.URI, baseDir, text string, baseOffset int, posOf func(int) protocol.Position, want protocol.Range) []protocol.InlayHint {
+func (s *Server) appendCallHints(hints []protocol.InlayHint, docURI uri.URI, baseDir, text string, baseOffset, wantEndOff int, posOf func(int) protocol.Position, want protocol.Range) []protocol.InlayHint {
 	toks := scanAllTokens(text)
+	matchClose := buildBracketMatches(toks)
 	padRight := true
 
 	for i := range toks {
+		if baseOffset+toks[i].Offset > wantEndOff {
+			break
+		}
+
 		if toks[i].Kind != parser.TokIdent || i+1 >= len(toks) || toks[i+1].Kind != parser.TokLParen {
 			continue
 		}
@@ -186,7 +197,7 @@ func (s *Server) appendCallHints(hints []protocol.InlayHint, docURI uri.URI, bas
 			continue
 		}
 
-		closeIdx := matchingParenIndex(toks, i+1)
+		closeIdx := matchClose[i+1]
 		if closeIdx < 0 {
 			continue
 		}
@@ -198,7 +209,7 @@ func (s *Server) appendCallHints(hints []protocol.InlayHint, docURI uri.URI, bas
 			continue
 		}
 
-		args, ok := collectCallArgs(toks, i+2, closeIdx, baseOffset, posOf)
+		args, ok := collectCallArgs(toks, i+2, closeIdx, matchClose, baseOffset, posOf)
 		if !ok || len(args) == 0 {
 			continue
 		}
@@ -272,41 +283,82 @@ func isInlaySkipKeyword(name string) bool {
 	}
 }
 
-func matchingParenIndex(toks []parser.Token, openIdx int) int {
-	depth := 0
+// buildBracketMatches precomputes the matching closing-token index for every
+// `(`, `[`, and `{` in toks in a single O(N) pass (-1 when unmatched). This
+// keeps both call matching and nested argument splitting strictly linear even
+// on deeply nested closures or unclosed calls.
+func buildBracketMatches(toks []parser.Token) []int {
+	matches := make([]int, len(toks))
+	for i := range matches {
+		matches[i] = -1
+	}
 
-	for i := openIdx; i < len(toks); i++ {
+	type openItem struct {
+		kind parser.TokenKind
+		idx  int
+	}
+
+	var stack []openItem
+
+	var openCount [3]int
+
+	for i := range toks {
 		switch toks[i].Kind {
-		case parser.TokLParen, parser.TokLBracket, parser.TokLBrace:
-			depth++
+		case parser.TokLParen:
+			stack = append(stack, openItem{kind: parser.TokLParen, idx: i})
+			openCount[0]++
+		case parser.TokLBracket:
+			stack = append(stack, openItem{kind: parser.TokLBracket, idx: i})
+			openCount[1]++
+		case parser.TokLBrace:
+			stack = append(stack, openItem{kind: parser.TokLBrace, idx: i})
+			openCount[2]++
 		case parser.TokRParen, parser.TokRBracket, parser.TokRBrace:
-			depth--
-			if depth == 0 {
-				if toks[i].Kind == parser.TokRParen {
-					return i
-				}
+			want := matchingOpenKind(toks[i].Kind)
+			slot := bracketSlot(want)
 
-				return -1
+			if openCount[slot] == 0 {
+				continue
+			}
+
+			for j, op := range slices.Backward(stack) {
+				openCount[bracketSlot(op.kind)]--
+				if op.kind == want {
+					matches[op.idx] = i
+					stack = stack[:j]
+
+					break
+				}
 			}
 		default:
 		}
 	}
 
-	return -1
+	return matches
 }
 
-func collectCallArgs(toks []parser.Token, start, end, baseOffset int, posOf func(int) protocol.Position) ([]callArgSpan, bool) {
+func bracketSlot(openKind parser.TokenKind) int {
+	switch openKind {
+	case parser.TokLParen:
+		return 0
+	case parser.TokLBracket:
+		return 1
+	default:
+		return 2
+	}
+}
+
+func collectCallArgs(toks []parser.Token, start, end int, matchClose []int, baseOffset int, posOf func(int) protocol.Position) ([]callArgSpan, bool) {
 	if start >= end {
 		return nil, true
 	}
 
 	var args []callArgSpan
 
-	depth := 0
 	argStart := start
 
 	for i := start; i <= end; i++ {
-		if i == end || (depth == 0 && toks[i].Kind == parser.TokComma) {
+		if i == end || toks[i].Kind == parser.TokComma {
 			if argStart >= i {
 				return nil, false
 			}
@@ -321,12 +373,10 @@ func collectCallArgs(toks []parser.Token, start, end, baseOffset int, posOf func
 			continue
 		}
 
-		switch toks[i].Kind {
-		case parser.TokLParen, parser.TokLBracket, parser.TokLBrace:
-			depth++
-		case parser.TokRParen, parser.TokRBracket, parser.TokRBrace:
-			depth--
-		default:
+		// Jump over any matched inner (...), [...], or {...} in O(1) so nested
+		// calls and closure bodies are never re-walked by outer calls.
+		if c := matchClose[i]; c > i && c < end {
+			i = c
 		}
 	}
 

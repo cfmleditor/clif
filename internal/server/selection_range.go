@@ -109,17 +109,23 @@ func utf16ColToByte(line string, utf16Col int) int {
 }
 
 func byteSpanToRange(content string, lines parser.LineTable, sp byteSpan) protocol.Range {
-	sLine := lines.LineOf(sp.start)
-	eLine := lines.LineOf(sp.end)
+	if len(lines) == 0 {
+		return protocol.Range{}
+	}
+
+	start := max(0, min(sp.start, len(content)))
+	end := max(start, min(sp.end, len(content)))
+	sLine := lines.LineOf(start)
+	eLine := lines.LineOf(end)
 
 	return protocol.Range{
 		Start: protocol.Position{
 			Line:      conv.Uint32(sLine),
-			Character: conv.Uint32(lex.UTF16Len(content[lines[sLine]:sp.start])),
+			Character: conv.Uint32(lex.UTF16Len(content[lines[sLine]:start])),
 		},
 		End: protocol.Position{
 			Line:      conv.Uint32(eLine),
-			Character: conv.Uint32(lex.UTF16Len(content[lines[eLine]:sp.end])),
+			Character: conv.Uint32(lex.UTF16Len(content[lines[eLine]:end])),
 		},
 	}
 }
@@ -260,6 +266,8 @@ func appendScriptSelectionSpans(spans []byteSpan, text string, baseOffset int) [
 
 	var stack []openBracket
 
+	var openCount [3]int
+
 	sc := parser.NewSourceScanner(text)
 
 	for {
@@ -279,9 +287,15 @@ func appendScriptSelectionSpans(spans []byteSpan, text string, baseOffset int) [
 			}
 		case parser.TokLParen, parser.TokLBracket, parser.TokLBrace:
 			stack = append(stack, openBracket{kind: t.Kind, off: baseOffset + t.Offset})
+			openCount[bracketSlot(t.Kind)]++
 		case parser.TokRParen, parser.TokRBracket, parser.TokRBrace:
 			want := matchingOpenKind(t.Kind)
+			if openCount[bracketSlot(want)] == 0 {
+				continue
+			}
+
 			for idx, op := range slices.Backward(stack) {
+				openCount[bracketSlot(op.kind)]--
 				if op.kind == want {
 					openOff := op.off
 					closeOff := baseOffset + t.Offset
@@ -324,6 +338,8 @@ func appendTagSelectionSpans(spans []byteSpan, text string, baseOffset int) []by
 	}
 
 	var stack []openTag
+
+	openCount := make(map[string]int)
 
 	spans = appendInterpolationSpans(spans, text, baseOffset)
 
@@ -378,8 +394,9 @@ func appendTagSelectionSpans(spans []byteSpan, text string, baseOffset int) []by
 
 		if trimmed[0] == '/' {
 			name := strings.ToLower(tagIdent(trimmed[1:]))
-			if name != "" {
+			if name != "" && openCount[name] > 0 {
 				for idx, op := range slices.Backward(stack) {
+					openCount[op.name]--
 					if op.name == name {
 						spans = append(spans, byteSpan{start: op.openStart, end: fullEnd})
 
@@ -397,6 +414,7 @@ func appendTagSelectionSpans(spans []byteSpan, text string, baseOffset int) []by
 			name := strings.ToLower(tagIdent(trimmed))
 			if name != "" && !isVoidSelectionTag(name) {
 				stack = append(stack, openTag{name: name, openStart: fullStart, openEnd: fullEnd})
+				openCount[name]++
 			}
 		}
 
