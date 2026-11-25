@@ -281,9 +281,30 @@ func formatScriptMethodStub(fn *parser.FunctionDef) string {
 		b.WriteByte(' ')
 	}
 
-	b.WriteString(") {\n\t// TODO: implement\n}")
+	b.WriteString(") {\n\t// TODO: implement")
+
+	// A method that returns a value cannot be left empty: CFML refuses a
+	// function whose return type is not void or any and which returns nothing.
+	// A made-up value (an empty string, 0) would let a caller carry on as if
+	// the method worked, so the stub says plainly that it does not yet.
+	if returnsValue(fn.ReturnType) {
+		b.WriteString("\n\tthrow( type = \"NotImplemented\", message = \"" + fn.Name + "() is not implemented\" );")
+	}
+
+	b.WriteString("\n}")
 
 	return b.String()
+}
+
+// returnsValue reports whether a function declared to return returnType must
+// return one: any type but void, any and none.
+func returnsValue(returnType string) bool {
+	switch strings.ToLower(strings.TrimSpace(returnType)) {
+	case "", "void", "any":
+		return false
+	default:
+		return true
+	}
 }
 
 func formatTagMethodStub(fn *parser.FunctionDef) string {
@@ -317,6 +338,10 @@ func formatTagMethodStub(fn *parser.FunctionDef) string {
 		}
 
 		b.WriteString(">\n")
+	}
+
+	if returnsValue(fn.ReturnType) {
+		b.WriteString("\t<cfthrow type=\"NotImplemented\" message=\"" + fn.Name + "() is not implemented\">\n")
 	}
 
 	b.WriteString("</cffunction>")

@@ -240,3 +240,60 @@ func TestCursorInDeclarationAgreesWithTheOutlineOnEveryLine(t *testing.T) {
 		}
 	}
 }
+
+func TestInterfaceStubsOfAMethodThatReturnsAValueThrow(t *testing.T) {
+	arg := []parser.Argument{{Name: "scale", Type: "numeric", Required: true}}
+
+	for _, c := range []struct {
+		returnType string
+		throws     bool
+	}{
+		{"numeric", true},
+		{"string", true},
+		{"models.User", true},
+		{"Struct", true},
+		{"void", false},
+		{"VOID", false},
+		{"any", false},
+		{" Any ", false},
+		{"", false},
+	} {
+		fn := &parser.FunctionDef{Name: "area", ReturnType: c.returnType, Arguments: arg}
+
+		script := formatScriptMethodStub(fn)
+		tag := formatTagMethodStub(fn)
+
+		const (
+			scriptThrow = `throw( type = "NotImplemented", message = "area() is not implemented" );`
+			tagThrow    = `<cfthrow type="NotImplemented" message="area() is not implemented">`
+		)
+
+		if got := strings.Contains(script, scriptThrow); got != c.throws {
+			t.Errorf("return type %q: script stub throws = %v, want %v:\n%s", c.returnType, got, c.throws, script)
+		}
+
+		if got := strings.Contains(tag, tagThrow); got != c.throws {
+			t.Errorf("return type %q: tag stub throws = %v, want %v:\n%s", c.returnType, got, c.throws, tag)
+		}
+
+		if !strings.Contains(script, "// TODO: implement") {
+			t.Errorf("return type %q: script stub lost its TODO:\n%s", c.returnType, script)
+		}
+	}
+}
+
+// What the action inserts is CFML the parser reads back as the method it stands
+// for: a stub that does not parse would be worse than none.
+func TestInterfaceStubsParseBackAsTheMethod(t *testing.T) {
+	fn := &parser.FunctionDef{Name: "area", ReturnType: "numeric", Arguments: []parser.Argument{{Name: "scale", Type: "numeric", Required: true}}}
+
+	script := parser.Parse("file:///w/S.cfc", "component {\n"+formatScriptMethodStub(fn)+"\n}\n")
+	if len(script.Funcs) != 1 || script.Funcs[0].Name != "area" || script.Funcs[0].ReturnType != "numeric" {
+		t.Errorf("script stub parses as %+v, want area returning numeric", script.Funcs)
+	}
+
+	tag := parser.Parse("file:///w/T.cfc", "<cfcomponent>\n"+formatTagMethodStub(fn)+"\n</cfcomponent>\n")
+	if len(tag.Funcs) != 1 || tag.Funcs[0].Name != "area" || tag.Funcs[0].ReturnType != "numeric" {
+		t.Errorf("tag stub parses as %+v, want area returning numeric", tag.Funcs)
+	}
+}

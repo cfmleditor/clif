@@ -7,7 +7,6 @@ import (
 
 	"github.com/cfmleditor/clif/internal/conv"
 	"github.com/cfmleditor/clif/internal/docs"
-	"github.com/cfmleditor/clif/internal/lex"
 	"github.com/cfmleditor/clif/internal/parser"
 	"go.lsp.dev/protocol"
 	"go.lsp.dev/uri"
@@ -30,37 +29,12 @@ func (s *Server) parameterInlayHints(docURI uri.URI, file, content string, want 
 
 	lines := parser.NewLineTable(content)
 
-	// A column is the UTF-16 length of the line up to the offset. Measured from
-	// the line's start for every hint, a long line (a data literal written on
-	// one line, minified or generated code) made the pass quadratic: one
-	// measurement of the line per call on it. A line of ASCII, which is nearly
-	// every line, has a column that is the byte distance, so whether a line is
-	// ASCII is learned once and kept.
-	asciiLine := map[int]bool{}
+	columns := newUTF16Columns(content, lines)
 	posOf := func(off int) protocol.Position {
-		if off < 0 {
-			off = 0
-		}
-
-		if off > len(content) {
-			off = len(content)
-		}
-
+		off = max(0, min(off, len(content)))
 		line := lines.LineOf(off)
-		lineStart := int(lines[line])
 
-		ascii, known := asciiLine[line]
-		if !known {
-			ascii = isASCII(content[lineStart:lineEnd(content, lineStart)])
-			asciiLine[line] = ascii
-		}
-
-		col := off - lineStart
-		if !ascii {
-			col = lex.UTF16Len(content[lineStart:off])
-		}
-
-		return protocol.Position{Line: conv.Uint32(line), Character: conv.Uint32(col)}
+		return protocol.Position{Line: conv.Uint32(line), Character: conv.Uint32(columns.column(line, off))}
 	}
 
 	baseDir := filepath.Dir(file)
@@ -518,25 +492,4 @@ func arityMatches(args []callArgSpan, params []paramHintSpec) bool {
 	}
 
 	return len(args) >= required
-}
-
-// lineEnd is the offset of the newline that ends the line starting at start, or
-// the end of content.
-func lineEnd(content string, start int) int {
-	if i := strings.IndexByte(content[start:], '\n'); i >= 0 {
-		return start + i
-	}
-
-	return len(content)
-}
-
-// isASCII reports whether s holds no byte of a multi-byte character.
-func isASCII(s string) bool {
-	for i := range len(s) {
-		if s[i] >= 0x80 {
-			return false
-		}
-	}
-
-	return true
 }
