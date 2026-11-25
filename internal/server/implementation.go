@@ -144,19 +144,18 @@ func (s *Server) handleImplementation(_ context.Context, rawParams []byte) (any,
 // interface declaration, from its keyword to the `{` or `>` that ends it, so a
 // header split over several lines answers on each of them.
 func cursorInDeclaration(content string, line int) bool {
-	openOff, _, found := parser.ComponentDeclarationBounds(content)
+	start, open, found := parser.ComponentDeclarationSpan(content)
 	if !found {
 		return false
 	}
 
-	lines := parser.NewLineTable(content)
-	first := lines.LineOf(openOff)
+	// Lines are counted up to the declaration, which is at the top of the file:
+	// no line table of the whole text, no search for the end of the body. This
+	// is asked on every cursor move.
+	first := strings.Count(content[:start], "\n")
+	last := strings.Count(content[:open], "\n")
 
-	if header, ok := parser.ComponentOutline(content); ok && header.NameStart <= openOff {
-		first = lines.LineOf(header.NameStart)
-	}
-
-	return line >= first && line <= lines.LineOf(openOff)
+	return line >= first && line <= last
 }
 
 // collectImplementersFrom finds the components whose implements attribute names
