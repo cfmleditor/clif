@@ -199,78 +199,69 @@ func checkCrossFileIdentifier(name string) error {
 }
 
 func (s *Server) renameComponentMethod(docURI uri.URI, t *crossFileRenameTarget, newName string) (*protocol.WorkspaceEdit, error) {
-	// Refuse collision with an existing method in the same CFC (unless case-only change).
-	if !strings.EqualFold(t.name, newName) {
-		for i := range t.pr.Funcs {
-			if strings.EqualFold(t.pr.Funcs[i].Name, newName) {
-				return nil, fmt.Errorf("component already declares a method named '%s'", newName)
-			}
-		}
-	}
-
 	res := s.getResolver()
-
-	// Refuse if any ancestor component (parent, grandparent, ...) or direct
-	// subtype declares the same method (renaming one side would silently break
-	// polymorphism).
-	visited := map[string]bool{strings.ToLower(t.filePath): true}
-	curDir := filepath.Dir(t.filePath)
-	curExtends := t.pr.Extends
-
-	for curExtends != "" {
-		parentPath := res.ComponentPath(curExtends, curDir)
-		if parentPath == "" {
-			break
-		}
-
-		key := strings.ToLower(parentPath)
-		if visited[key] {
-			break
-		}
-
-		visited[key] = true
-
-		for _, fn := range res.EnsureIndexed(parentPath) {
-			if strings.EqualFold(fn.Name, t.name) {
-				return nil, fmt.Errorf("cannot rename '%s': overrides method in ancestor component '%s'", t.name, curExtends)
-			}
-		}
-
-		parentExtends, _ := s.index.ExtendsForFile(cfpath.ToURI(parentPath))
-		curDir = filepath.Dir(parentPath)
-		curExtends = parentExtends
-	}
-
-	compName := strings.TrimSuffix(filepath.Base(t.filePath), filepath.Ext(t.filePath))
-	for _, child := range s.index.ExtendersByName()[strings.ToLower(compName)] {
-		childPath := cfpath.FromURI(child.URI)
-		if strings.EqualFold(childPath, t.filePath) {
-			continue
-		}
-
-		for _, fn := range res.EnsureIndexed(childPath) {
-			if strings.EqualFold(fn.Name, t.name) {
-				return nil, fmt.Errorf("cannot rename '%s': overridden in child component '%s'", t.name, filepath.Base(childPath))
-			}
-		}
-	}
-
-	if err := s.implementsRenameConflict(t); err != nil {
-		return nil, err
-	}
+	familyFiles := s.methodHierarchyFiles(t.filePath, t.name)
 
 	editsByURI := map[uri.URI][]protocol.TextEdit{
 		docURI: {{Range: t.declRng, NewText: newName}},
 	}
 
-	// Collect workspace-wide call sites targeting this component's method using
-	// refs.Trace (full parse, not ByResolversOnly) so local `new` / `createObject`
-	// receivers resolve accurately.
+	// Rename every declaration of t.name across the entire extends/implements
+	// hierarchy, refusing if any member already declares newName or lacks a
+	// located declaration range.
+	for _, path := range familyFiles {
+		fileURI := cfpath.ToURI(path)
+		funcs := s.funcsForFile(fileURI, path)
+
+		var declFn *parser.FunctionDef
+
+		for _, fn := range funcs {
+			if fn.Generated {
+				continue
+			}
+
+			if !strings.EqualFold(t.name, newName) && strings.EqualFold(fn.Name, newName) {
+				return nil, fmt.Errorf("component '%s' already declares a method named '%s'", filepath.Base(path), newName)
+			}
+
+			if strings.EqualFold(fn.Name, t.name) && declFn == nil {
+				declFn = fn
+			}
+		}
+
+		if declFn == nil || cfpath.SamePath(path, t.filePath) {
+			continue
+		}
+
+		if !declFn.HasNameRange() {
+			return nil, fmt.Errorf("cannot safely rename '%s': declaration range unavailable in '%s'", t.name, filepath.Base(path))
+		}
+
+		editsByURI[fileURI] = append(editsByURI[fileURI], protocol.TextEdit{
+			Range: protocol.Range{
+				Start: protocol.Position{Line: declFn.NameLine, Character: declFn.NameCol},
+				End:   protocol.Position{Line: declFn.NameLine, Character: declFn.NameEndCol},
+			},
+			NewText: newName,
+		})
+	}
+
+	alsoSources := make([]string, 0, len(familyFiles))
+	for _, path := range familyFiles {
+		if !cfpath.SamePath(path, t.filePath) {
+			alsoSources = append(alsoSources, path)
+		}
+	}
+
+	// Collect workspace-wide call sites targeting any type in the method's
+	// hierarchy using refs.Trace (full parse, not ByResolversOnly) so local
+	// `new` / `createObject` receivers resolve accurately.
 	entries := refs.Trace(s.refsFS(), s.searchRoots(), &refs.Options{
-		FuncName:   t.name,
-		SourceFile: t.filePath,
-		Resolver:   res,
-		Explain:    true,
+		FuncName:    t.name,
+		SourceFile:  t.filePath,
+		AlsoSources: alsoSources,
+		Resolver:    res,
+		Explain:     true,
 	})
 
 	for i := range entries {
@@ -514,58 +505,128 @@ func dedupSortEdits(list []protocol.TextEdit) []protocol.TextEdit {
 	return out
 }
 
-// implementsRenameConflict refuses a rename across `implements` (including
-// through sub-interfaces and ancestor components): an interface's method and
-// the method that satisfies it are renamed together or not at all.
-func (s *Server) implementsRenameConflict(t *crossFileRenameTarget) error {
+// methodHierarchyFiles returns every file in the polymorphic family of
+// (rootFile, methodName): all ancestor interfaces/components declaring
+// methodName (reached via extends/implements) and all transitive subtypes below
+// them, expanded to a fixed point so sibling implementers and multi-interface
+// diamonds are included together.
+func (s *Server) methodHierarchyFiles(rootFile, methodName string) []string {
 	res := s.getResolver()
 
-	type ancestor struct {
-		path     string
-		viaIface bool
+	declaresMethod := func(path string) bool {
+		for _, fn := range s.funcsForFile(cfpath.ToURI(path), path) {
+			if !fn.Generated && strings.EqualFold(fn.Name, methodName) {
+				return true
+			}
+		}
+
+		return false
 	}
 
-	seen := map[string]bool{strings.ToLower(t.filePath): true}
-	pending := []ancestor{{path: t.filePath}}
+	var (
+		roots      = map[string]bool{}
+		rootQueue  []string
+		familySeen = map[string]bool{}
+		family     []string
+	)
 
-	enqueue := func(path string, viaIface bool) {
-		if path == "" || seen[strings.ToLower(path)] {
+	addRoot := func(path string) {
+		key := strings.ToLower(path)
+		if path == "" || roots[key] {
 			return
 		}
 
-		seen[strings.ToLower(path)] = true
-		pending = append(pending, ancestor{path: path, viaIface: viaIface})
+		roots[key] = true
+
+		rootQueue = append(rootQueue, path)
 	}
 
-	for hops := 0; len(pending) > 0 && hops < 64; hops++ {
-		cur := pending[0]
-		pending = pending[1:]
+	addFamily := func(path string) {
+		key := strings.ToLower(path)
+		if path == "" || familySeen[key] {
+			return
+		}
 
-		if cur.viaIface {
-			for _, fn := range res.EnsureIndexed(cur.path) {
-				if strings.EqualFold(fn.Name, t.name) {
-					return fmt.Errorf("cannot rename '%s': implements method in interface '%s'", t.name, filepath.Base(cur.path))
+		familySeen[key] = true
+
+		family = append(family, path)
+	}
+
+	// Collect all ancestors declaring methodName starting from startFile.
+	addDeclaringAncestors := func(startFile string) {
+		seen := map[string]bool{strings.ToLower(startFile): true}
+		pending := []string{startFile}
+
+		for hops := 0; len(pending) > 0 && hops < 64; hops++ {
+			cur := pending[0]
+			pending = pending[1:]
+
+			curURI := cfpath.ToURI(cur)
+			if ext, _ := s.index.ExtendsForFile(curURI); ext != "" {
+				if p := res.ComponentPath(ext, filepath.Dir(cur)); p != "" && !seen[strings.ToLower(p)] {
+					seen[strings.ToLower(p)] = true
+					pending = append(pending, p)
+
+					if declaresMethod(p) {
+						addRoot(p)
+					}
+				}
+			}
+
+			for _, iface := range s.index.ImplementsForFile(curURI) {
+				if p := res.ComponentPath(iface, filepath.Dir(cur)); p != "" && !seen[strings.ToLower(p)] {
+					seen[strings.ToLower(p)] = true
+					pending = append(pending, p)
+
+					if declaresMethod(p) {
+						addRoot(p)
+					}
 				}
 			}
 		}
-
-		curURI := cfpath.ToURI(cur.path)
-		for _, iface := range s.index.ImplementsForFile(curURI) {
-			enqueue(res.ComponentPath(iface, filepath.Dir(cur.path)), true)
-		}
-
-		if ext, _ := s.index.ExtendsForFile(curURI); ext != "" {
-			enqueue(res.ComponentPath(ext, filepath.Dir(cur.path)), cur.viaIface)
-		}
 	}
 
-	for _, implPath := range s.collectTransitiveImplementers(t.filePath) {
-		for _, fn := range res.EnsureIndexed(implPath) {
-			if strings.EqualFold(fn.Name, t.name) {
-				return fmt.Errorf("cannot rename '%s': implemented in component '%s'", t.name, filepath.Base(implPath))
+	addRoot(rootFile)
+	addDeclaringAncestors(rootFile)
+
+	for len(rootQueue) > 0 {
+		r := rootQueue[0]
+		rootQueue = rootQueue[1:]
+
+		addFamily(r)
+
+		for _, sub := range s.collectTransitiveSubtypes(r, true) {
+			if familySeen[strings.ToLower(sub)] {
+				continue
+			}
+
+			addFamily(sub)
+
+			if declaresMethod(sub) {
+				addDeclaringAncestors(sub)
 			}
 		}
 	}
 
-	return nil
+	return family
+}
+
+// funcsForFile returns the function definitions for path, preferring the open
+// editor buffer so unsaved declaration ranges are up to date.
+func (s *Server) funcsForFile(fileURI uri.URI, path string) []*parser.FunctionDef {
+	if content, ok := s.getDocument(fileURI); ok {
+		pr := s.parseResultOf(fileURI)
+		if pr == nil || pr.Content != content {
+			pr = parser.Parse(fileURI, content)
+		}
+
+		out := make([]*parser.FunctionDef, len(pr.Funcs))
+		for i := range pr.Funcs {
+			out[i] = &pr.Funcs[i]
+		}
+
+		return out
+	}
+
+	return s.getResolver().EnsureIndexed(path)
 }

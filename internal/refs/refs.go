@@ -507,8 +507,8 @@ func callEntry(call *parser.CallSite, pr *parser.ParseResult, f string, resolved
 
 	return Entry{
 		File: f, Function: call.Caller, Call: callText,
-		Component: call.Component,
-		Line:      call.Line, Resolved: resolved, Reason: reason,
+		Component: call.Component, Variable: call.Variable,
+		Line: call.Line, Resolved: resolved, Reason: reason,
 	}
 }
 

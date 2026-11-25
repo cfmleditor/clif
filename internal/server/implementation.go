@@ -252,67 +252,6 @@ func (s *Server) collectTransitiveSubtypes(rootFile string, followImplements boo
 	return out
 }
 
-// collectTransitiveImplementers returns every component that implements
-// rootFile directly, implements a sub-interface extending rootFile, or extends
-// such an implementing component. Pure `extends` descendants of a non-interface
-// component are excluded because no `implements` edge is crossed.
-func (s *Server) collectTransitiveImplementers(rootFile string) []string {
-	extenders := s.index.ExtendersByName()
-	implementers := s.index.ImplementersByName()
-	res := s.getResolver()
-
-	type node struct {
-		path    string
-		viaImpl bool
-	}
-
-	visited := map[string]bool{strings.ToLower(rootFile): true}
-	queue := []node{{path: rootFile}}
-
-	var out []string
-
-	enqueue := func(path string, viaImpl bool) {
-		key := strings.ToLower(path)
-		if visited[key] {
-			return
-		}
-
-		visited[key] = true
-
-		if viaImpl {
-			out = append(out, path)
-		}
-
-		queue = append(queue, node{path: path, viaImpl: viaImpl})
-	}
-
-	for len(queue) > 0 {
-		cur := queue[0]
-		queue = queue[1:]
-
-		for _, impl := range collectImplementersFrom(cur.path, implementers, res) {
-			enqueue(impl, true)
-		}
-
-		compName := strings.TrimSuffix(filepath.Base(cur.path), filepath.Ext(cur.path))
-		for _, child := range extenders[strings.ToLower(compName)] {
-			childPath := cfpath.FromURI(child.URI)
-			if visited[strings.ToLower(childPath)] {
-				continue
-			}
-
-			resolvedParent := res.ComponentPath(child.Extends, filepath.Dir(childPath))
-			if resolvedParent == "" || !cfpath.SamePath(resolvedParent, cur.path) {
-				continue
-			}
-
-			enqueue(childPath, cur.viaImpl)
-		}
-	}
-
-	return out
-}
-
 // relatedSources are the files whose calls to name are references to the same
 // function as file's, along the lines a call can dispatch down or a method
 // overrides up:

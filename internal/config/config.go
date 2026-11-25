@@ -592,20 +592,20 @@ const foldingDefault = true
 // typeDefinitionDefault is on, and named for the same reason.
 const typeDefinitionDefault = true
 
-// structureDiagnosticsDefault is off, for the reason the field gives.
-const structureDiagnosticsDefault = false
+// structureDiagnosticsDefault is on.
+const structureDiagnosticsDefault = true
 
-// inlayHintsDefault is off, for the reason the field gives.
-const inlayHintsDefault = false
+// inlayHintsDefault is on.
+const inlayHintsDefault = true
 
-// renameDefault is off, for the reason the field gives.
-const renameDefault = false
+// renameDefault is on.
+const renameDefault = true
 
-// renameCrossFileDefault is off, for the reason the field gives.
-const renameCrossFileDefault = false
+// renameCrossFileDefault is on.
+const renameCrossFileDefault = true
 
-// semanticTokensDefault is off, for the reason the field gives.
-const semanticTokensDefault = false
+// semanticTokensDefault is on.
+const semanticTokensDefault = true
 
 // ResolveFeatures applies the defaults for a `features` block: absent means
 // every feature is on except structureDiagnostics, inlayHints, rename and

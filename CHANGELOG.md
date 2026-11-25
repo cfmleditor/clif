@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Implement missing interface methods code action (`refactor`).** On a CFC's declaration header or closing line when it declares `implements`, `textDocument/codeAction` offers refactor actions to generate CFScript or `<cffunction>` stubs for missing methods from all declared and transitive parent interfaces (excluding methods already declared or inherited via `extends`), both individually and in bulk.
+
+### Changed
+
+- **Coordinated hierarchy rename for `renameCrossFile`.** Renaming a component or interface method now renames the declaration across the entire `extends`/`implements` polymorphic family (ancestor interfaces/bases, sibling implementers, and overriding subclasses) together with all workspace callers, while still refusing safely on any name collision or ambiguous caller.
+- **Graduated LSP features to default-on.** `features.inlayHints`, `features.rename`, `features.renameCrossFile`, `features.semanticTokens`, and `features.structureDiagnostics` now default to `true` (all remain opt-out via `.clif.json` / initialization options).
+
 ### Fixed
 
 - **Transitive sub-interface implementers in Go to Implementation, references, and cross-file rename.** `collectTransitiveSubtypes` now follows `implements` on sub-interfaces discovered via `extends` (so `IBase` ← `ISub extends IBase` ← `Square implements ISub` ← `Cube extends Square` resolves end-to-end for Go to Implementation, find-references, call hierarchy, and code lens), and `implementsRenameConflict` walks upward through `extends`/`implements` and downward through transitive implementers.

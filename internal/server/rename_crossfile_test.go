@@ -8,15 +8,16 @@ import (
 
 	cfpath "github.com/cfmleditor/clif/internal/path"
 	"go.lsp.dev/protocol"
+	"go.lsp.dev/uri"
 )
 
-func TestCrossFileRenameOffByDefault(t *testing.T) {
+func TestCrossFileRenameOnByDefaultAndCanBeDisabled(t *testing.T) {
 	s := newTestServer()
-	if s.Features.RenameCrossFile {
-		t.Fatal("expected RenameCrossFile to be off by default")
+	if !s.Features.RenameCrossFile {
+		t.Fatal("expected RenameCrossFile to be on by default")
 	}
 
-	s.Features.Rename = true
+	s.Features.RenameCrossFile = false
 
 	dir := t.TempDir()
 	svcPath := filepath.Join(dir, "UserService.cfc")
@@ -197,52 +198,17 @@ func TestCrossFileRenameRefusesAmbiguousAndAccessorProperties(t *testing.T) {
 	}
 }
 
-func TestCrossFileRenameRefusesAcrossImplements(t *testing.T) {
-	dir := t.TempDir()
-
-	files := map[string]string{
-		"IShape.cfc": "interface {\n\tpublic numeric function area();\n}\n",
-		"Square.cfc": "component implements=\"IShape\" {\n\tpublic numeric function area() { return 1; }\n}\n",
-	}
-
-	for name, src := range files {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(src), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	s := newTestServer()
-	s.Features.Rename = true
-	s.Features.RenameCrossFile = true
-	s.WorkspaceFolders = []string{dir}
-	s.indexWorkspace()
-
-	ifaceURI := cfpath.ToURI(filepath.Join(dir, "IShape.cfc"))
-	implURI := cfpath.ToURI(filepath.Join(dir, "Square.cfc"))
-
-	openDoc(t, s, ifaceURI, files["IShape.cfc"])
-	openDoc(t, s, implURI, files["Square.cfc"])
-
-	// Renaming the interface's method would leave Square.area unsatisfying it.
-	if _, err := renameTo(t, s, ifaceURI, 1, 25, "size"); err == nil || !strings.Contains(err.Error(), "implemented in component 'Square.cfc'") {
-		t.Errorf("rename on the interface: err = %v, want refusal naming Square.cfc", err)
-	}
-
-	// And the other way round.
-	if _, err := renameTo(t, s, implURI, 1, 25, "size"); err == nil || !strings.Contains(err.Error(), "implements method in interface 'IShape.cfc'") {
-		t.Errorf("rename on the implementer: err = %v, want refusal naming IShape.cfc", err)
-	}
-}
-
-func TestCrossFileRenameRefusesAcrossSubInterfaceAndAncestorImplements(t *testing.T) {
+func TestCrossFileRenameCoordinatesAcrossImplementsAndExtends(t *testing.T) {
 	dir := t.TempDir()
 
 	files := map[string]string{
 		"IBase.cfc":  "interface {\n\tpublic numeric function area();\n}\n",
 		"ISub.cfc":   "interface extends=\"IBase\" {\n\tpublic numeric function perimeter();\n}\n",
 		"Square.cfc": "component implements=\"ISub\" {\n\tpublic numeric function area() { return 1; }\n\tpublic numeric function perimeter() { return 4; }\n}\n",
-		"Parent.cfc": "component implements=\"IBase\" {\n}\n",
-		"Child.cfc":  "component extends=\"Parent\" {\n\tpublic numeric function area() { return 2; }\n}\n",
+		"Circle.cfc": "component implements=\"IBase\" {\n\tpublic numeric function area() { return 3; }\n}\n",
+		"Cube.cfc":   "component extends=\"Square\" {\n\tpublic numeric function area() { return 6; }\n}\n",
+		"Other.cfc":  "component {\n\tpublic numeric function area() { return 0; }\n}\n",
+		"Caller.cfc": "component {\n\tpublic numeric function run() {\n\t\tvar s = new Square();\n\t\tvar o = new Other();\n\t\treturn s.area() + o.area();\n\t}\n}\n",
 	}
 
 	for name, src := range files {
@@ -252,31 +218,47 @@ func TestCrossFileRenameRefusesAcrossSubInterfaceAndAncestorImplements(t *testin
 	}
 
 	s := newTestServer()
-	s.Features.Rename = true
-	s.Features.RenameCrossFile = true
 	s.WorkspaceFolders = []string{dir}
 	s.indexWorkspace()
 
 	baseURI := cfpath.ToURI(filepath.Join(dir, "IBase.cfc"))
 	squareURI := cfpath.ToURI(filepath.Join(dir, "Square.cfc"))
-	childURI := cfpath.ToURI(filepath.Join(dir, "Child.cfc"))
+	circleURI := cfpath.ToURI(filepath.Join(dir, "Circle.cfc"))
+	cubeURI := cfpath.ToURI(filepath.Join(dir, "Cube.cfc"))
+	otherURI := cfpath.ToURI(filepath.Join(dir, "Other.cfc"))
+	callerURI := cfpath.ToURI(filepath.Join(dir, "Caller.cfc"))
 
-	openDoc(t, s, baseURI, files["IBase.cfc"])
 	openDoc(t, s, squareURI, files["Square.cfc"])
-	openDoc(t, s, childURI, files["Child.cfc"])
 
-	// Renaming IBase.area must refuse because Square implements it via ISub (and Child via Parent).
-	if _, err := renameTo(t, s, baseURI, 1, 25, "size"); err == nil || !strings.Contains(err.Error(), "implemented in component") {
-		t.Errorf("rename on IBase: err = %v, want refusal naming an implementing component", err)
+	// Renaming Square.area must rename IBase, Square, Circle (sibling), Cube (subclass),
+	// and Caller's `s.area()`, while leaving Other.cfc and `o.area()` untouched.
+	edit, err := renameTo(t, s, squareURI, 1, 25, "size")
+	if err != nil {
+		t.Fatalf("hierarchy rename error: %v", err)
 	}
 
-	// Renaming Square.area must refuse because ISub extends IBase which declares area.
-	if _, err := renameTo(t, s, squareURI, 1, 25, "size"); err == nil || !strings.Contains(err.Error(), "implements method in interface 'IBase.cfc'") {
-		t.Errorf("rename on Square: err = %v, want refusal naming IBase.cfc", err)
+	for _, want := range []struct {
+		name string
+		u    uri.URI
+		n    int
+	}{
+		{"IBase", baseURI, 1},
+		{"Square", squareURI, 1},
+		{"Circle", circleURI, 1},
+		{"Cube", cubeURI, 1},
+		{"Caller", callerURI, 1},
+	} {
+		if got := edit.Changes[want.u]; len(got) != want.n {
+			t.Errorf("%s edits = %+v, want %d", want.name, got, want.n)
+		}
 	}
 
-	// Renaming Child.area must refuse because Parent implements IBase which declares area.
-	if _, err := renameTo(t, s, childURI, 1, 25, "size"); err == nil || !strings.Contains(err.Error(), "implements method in interface 'IBase.cfc'") {
-		t.Errorf("rename on Child: err = %v, want refusal naming IBase.cfc", err)
+	if got := edit.Changes[otherURI]; len(got) != 0 {
+		t.Errorf("Other.cfc must not be edited, got %+v", got)
+	}
+
+	// Collision in any member of the hierarchy (e.g. perimeter already exists on Square/ISub) must refuse.
+	if _, err := renameTo(t, s, squareURI, 1, 25, "perimeter"); err == nil || !strings.Contains(err.Error(), "already declares a method named 'perimeter'") {
+		t.Errorf("rename colliding in hierarchy: err = %v, want collision error", err)
 	}
 }

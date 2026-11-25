@@ -125,6 +125,13 @@ func TestRenameRefusesWhatItCannotMakeSafe(t *testing.T) {
 func TestRenameNeedsTheFeature(t *testing.T) {
 	s := newTestServer()
 
+	opts, ok := s.capabilities().RenameProvider.(*protocol.RenameOptions)
+	if !ok || opts.PrepareProvider == nil || !*opts.PrepareProvider {
+		t.Errorf("rename is advertised as %#v by default, want one that asks to be prepared", s.capabilities().RenameProvider)
+	}
+
+	s.Features.Rename = false
+
 	if p, _ := s.capabilities().RenameProvider.(protocol.Boolean); bool(p) {
 		t.Error("rename advertised with the feature off")
 	}
@@ -134,13 +141,6 @@ func TestRenameNeedsTheFeature(t *testing.T) {
 
 	if _, err := renameTo(t, s, docURI, 2, 8, "total"); err == nil {
 		t.Error("a rename was done with the feature off")
-	}
-
-	s.Features.Rename = true
-
-	opts, ok := s.capabilities().RenameProvider.(*protocol.RenameOptions)
-	if !ok || opts.PrepareProvider == nil || !*opts.PrepareProvider {
-		t.Errorf("rename is advertised as %#v with the feature on, want one that asks to be prepared", s.capabilities().RenameProvider)
 	}
 }
 

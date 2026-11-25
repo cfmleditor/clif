@@ -39,15 +39,16 @@ func (s *Server) handleCodeAction(_ context.Context, rawParams []byte) (any, err
 		actions = append(actions, s.quickFixActions(params.TextDocument.URI, content, params.Context.Diagnostics)...)
 	}
 
-	// An Application.cfc is offered the application events it does not declare.
-	// They are refactorings: a client asking only for quick fixes has no use
+	// An Application.cfc is offered the application events it does not declare,
+	// and a CFC with `implements` is offered stubs for missing interface methods.
+	// Both are refactorings: a client asking only for quick fixes has no use
 	// for the scan that finds them.
 	if wantsKind(params.Context.Only, protocol.CodeActionKindRefactor) {
 		u := params.TextDocument.URI
-		lifecycle := s.lifecycleActions(u, content, params.Range)
+		refactors := append(s.lifecycleActions(u, content, params.Range), s.implementsActions(u, content, params.Range)...)
 
-		for i := range lifecycle {
-			action := lifecycle[i]
+		for i := range refactors {
+			action := refactors[i]
 			action.Edit = s.documentEdit(u, action.Edit.Changes[u])
 			actions = append(actions, action)
 		}
