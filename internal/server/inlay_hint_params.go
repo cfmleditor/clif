@@ -29,6 +29,14 @@ func (s *Server) parameterInlayHints(docURI uri.URI, file, content string, want 
 	}
 
 	lines := parser.NewLineTable(content)
+
+	// A column is the UTF-16 length of the line up to the offset. Measured from
+	// the line's start for every hint, a long line (a data literal written on
+	// one line, minified or generated code) made the pass quadratic: one
+	// measurement of the line per call on it. A line of ASCII, which is nearly
+	// every line, has a column that is the byte distance, so whether a line is
+	// ASCII is learned once and kept.
+	asciiLine := map[int]bool{}
 	posOf := func(off int) protocol.Position {
 		if off < 0 {
 			off = 0
@@ -39,12 +47,20 @@ func (s *Server) parameterInlayHints(docURI uri.URI, file, content string, want 
 		}
 
 		line := lines.LineOf(off)
-		lineStart := lines[line]
+		lineStart := int(lines[line])
 
-		return protocol.Position{
-			Line:      conv.Uint32(line),
-			Character: conv.Uint32(lex.UTF16Len(content[lineStart:off])),
+		ascii, known := asciiLine[line]
+		if !known {
+			ascii = isASCII(content[lineStart:lineEnd(content, lineStart)])
+			asciiLine[line] = ascii
 		}
+
+		col := off - lineStart
+		if !ascii {
+			col = lex.UTF16Len(content[lineStart:off])
+		}
+
+		return protocol.Position{Line: conv.Uint32(line), Character: conv.Uint32(col)}
 	}
 
 	baseDir := filepath.Dir(file)
@@ -502,4 +518,25 @@ func arityMatches(args []callArgSpan, params []paramHintSpec) bool {
 	}
 
 	return len(args) >= required
+}
+
+// lineEnd is the offset of the newline that ends the line starting at start, or
+// the end of content.
+func lineEnd(content string, start int) int {
+	if i := strings.IndexByte(content[start:], '\n'); i >= 0 {
+		return start + i
+	}
+
+	return len(content)
+}
+
+// isASCII reports whether s holds no byte of a multi-byte character.
+func isASCII(s string) bool {
+	for i := range len(s) {
+		if s[i] >= 0x80 {
+			return false
+		}
+	}
+
+	return true
 }

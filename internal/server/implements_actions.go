@@ -30,6 +30,15 @@ func (s *Server) implementsActions(docURI uri.URI, content string, at protocol.R
 		return nil
 	}
 
+	// Asked on every cursor move. The declaration test is bounded; finding the
+	// component's end is a scan of the whole body, so it is made only where the
+	// closer can be: on the declaration, or on lines that hold a closing
+	// token at all.
+	onHeader := cursorInDeclaration(content, int(at.Start.Line))
+	if !onHeader && !rangeMayHoldComponentClose(content, int(at.Start.Line), int(at.End.Line)) {
+		return nil
+	}
+
 	end, tags, ok := parser.ComponentBodyEnd(content)
 	if !ok {
 		return nil
@@ -38,7 +47,6 @@ func (s *Server) implementsActions(docURI uri.URI, content string, at protocol.R
 	lines := parser.NewLineTable(content)
 	endLine := lines.LineOf(end)
 
-	onHeader := cursorInDeclaration(content, int(at.Start.Line))
 	onCloser := int(at.Start.Line) <= endLine && endLine <= int(at.End.Line)
 
 	if !onHeader && !onCloser {
@@ -80,6 +88,50 @@ func (s *Server) implementsActions(docURI uri.URI, content string, at protocol.R
 	}
 
 	return s.withCRLineBreaks(docURI, actions)
+}
+
+// maxClosePrefilterLines bounds the lines rangeMayHoldComponentClose reads; a
+// selection wider than that is answered "maybe" without looking.
+const maxClosePrefilterLines = 256
+
+// rangeMayHoldComponentClose reports whether lines startLine to endLine (0-based,
+// inclusive) could hold the end of a component's body. ComponentBodyEnd answers
+// with the `}` that closes a script component or the start of the last
+// `</cfcomponent>` or `</cfinterface>`, so a line that has neither a `}` nor
+// `</cf` cannot be that line. A line is found by counting newlines, a scan
+// orders of magnitude cheaper than tokenizing the component.
+func rangeMayHoldComponentClose(content string, startLine, endLine int) bool {
+	if startLine < 0 || endLine < startLine || endLine-startLine > maxClosePrefilterLines {
+		return true
+	}
+
+	from := 0
+
+	for range startLine {
+		i := strings.IndexByte(content[from:], '\n')
+		if i < 0 {
+			return false
+		}
+
+		from += i + 1
+	}
+
+	to := from
+
+	for range endLine - startLine + 1 {
+		i := strings.IndexByte(content[to:], '\n')
+		if i < 0 {
+			to = len(content)
+
+			break
+		}
+
+		to += i + 1
+	}
+
+	seg := content[from:to]
+
+	return strings.IndexByte(seg, '}') >= 0 || parser.IndexFold(seg, "</cf") >= 0
 }
 
 func (s *Server) implementsForOpenDoc(docURI uri.URI, content string) []string {

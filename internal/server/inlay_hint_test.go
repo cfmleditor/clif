@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+	"unicode/utf16"
 
 	"go.lsp.dev/protocol"
 	"go.lsp.dev/uri"
@@ -329,5 +331,73 @@ func TestInlayHintPathologicalInputsStayLinear(t *testing.T) {
 	hints := inlayHints(t, s, u, wholeDocument)
 	if len(hints) == 0 {
 		t.Error("expected hints for nested calls, got none")
+	}
+}
+
+// A hint's column counts UTF-16 units, and a line of ASCII is told apart from
+// one that is not once per line: both kinds sit in one document, and a call
+// after a multi-byte character (two UTF-16 units for the emoji) lands where
+// the editor counts it.
+func TestInlayHintColumnsCountUTF16OnNonASCIILines(t *testing.T) {
+	dir := t.TempDir()
+	s := newTestServer()
+	s.WorkspaceFolders = []string{dir}
+	s.Features.InlayHints = true
+
+	page := uri.File(filepath.Join(dir, "unicode.cfm"))
+	lines := []string{
+		"<cfscript>",
+		"function greet(required string name) {}",
+		`greet("plain");`,
+		`x = "é😀"; greet("wide");`,
+		`greet("plain again");`,
+		"</cfscript>",
+	}
+	openDoc(t, s, page, strings.Join(lines, "\n")+"\n")
+
+	want := map[uint32]uint32{
+		2: uint32(len(utf16.Encode([]rune(`greet(`)))),
+		3: uint32(len(utf16.Encode([]rune(`x = "é😀"; greet(`)))),
+		4: uint32(len(utf16.Encode([]rune(`greet(`)))),
+	}
+
+	got := map[uint32]uint32{}
+
+	for _, h := range inlayHints(t, s, page, wholeDocument) {
+		if h.Kind == protocol.InlayHintKindParameter {
+			got[h.Position.Line] = h.Position.Character
+		}
+	}
+
+	for line, col := range want {
+		if got[line] != col {
+			t.Errorf("line %d: hint at column %d, want %d (hints: %v)", line, got[line], col, got)
+		}
+	}
+}
+
+// Calls on one very long line (a data literal written out on a line, generated
+// or minified code) cost the line once, not once per call on it: doubling the
+// calls doubled the time on the first version and quadrupled it on the second.
+// The bound is generous: 20,000 calls took 3.7 s then and take milliseconds now.
+func TestInlayHintCostOnALongLineIsLinear(t *testing.T) {
+	dir := t.TempDir()
+	s := newTestServer()
+	s.WorkspaceFolders = []string{dir}
+	s.Features.InlayHints = true
+
+	src := "component {\nfunction f(a) {}\nfunction run() {\nx = [" + strings.Repeat("f(1), ", 20000) + "f(2)];\n}\n}\n"
+	u := uri.File(filepath.Join(dir, "Long.cfc"))
+	openDoc(t, s, u, src)
+
+	start := time.Now()
+	hints := inlayHints(t, s, u, wholeDocument)
+
+	if took := time.Since(start); took > time.Second {
+		t.Errorf("20,000 calls on one line took %v, want well under a second", took)
+	}
+
+	if len(hints) < 20000 {
+		t.Errorf("got %d hints, want one per call", len(hints))
 	}
 }

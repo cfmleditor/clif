@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
 	"go.lsp.dev/protocol"
 	"go.lsp.dev/uri"
@@ -128,5 +129,114 @@ func TestImplementsActionsOnlyOnHeaderOrCloser(t *testing.T) {
 	// Line 2 is the closing brace.
 	if actions := refactorActionsAt(t, s, u["Square.cfc"], 2); len(actions) != 1 {
 		t.Errorf("expected 1 action on closing brace, got %+v", actions)
+	}
+}
+
+func TestRangeMayHoldComponentClose(t *testing.T) {
+	src := "component implements=\"I\" {\n\tfunction a() {\n\t\treturn 1;\n\t}\n\n\tfunction b() { return 2; }\n}\n"
+	// Lines: 0 header, 1 `function a() {`, 2 return, 3 `}`, 4 blank, 5 `function b() { ... }`, 6 `}`.
+	cases := []struct {
+		name       string
+		start, end int
+		want       bool
+	}{
+		{"a line with no closing token", 2, 2, false},
+		{"a blank line", 4, 4, false},
+		{"a line holding a brace", 3, 3, true},
+		{"the closing line", 6, 6, true},
+		{"a range that reaches a brace", 2, 3, true},
+		{"a range past the text", 20, 20, false},
+		{"an inverted range", 3, 1, true},
+		{"a very wide range is not read", 0, 10_000, true},
+	}
+
+	for _, c := range cases {
+		if got := rangeMayHoldComponentClose(src, c.start, c.end); got != c.want {
+			t.Errorf("%s: lines %d-%d = %v, want %v", c.name, c.start, c.end, got, c.want)
+		}
+	}
+
+	tags := "<cfcomponent implements=\"I\">\n\t<cffunction name=\"a\">\n\t</cffunction>\n</CFCOMPONENT>\n"
+	if !rangeMayHoldComponentClose(tags, 3, 3) {
+		t.Error("the closing </CFCOMPONENT> line is not found, whatever its case")
+	}
+
+	if rangeMayHoldComponentClose(tags, 1, 1) {
+		t.Error("a line with an opening tag only was taken for the closer")
+	}
+}
+
+// The closing-line prefilter only skips work: on every line of components
+// written as script and as tags, the actions offered are exactly those of the
+// declaration and the closing line, the places the unfiltered test chose.
+func TestImplementsActionsOfferedOnlyOnTheDeclarationAndTheCloser(t *testing.T) {
+	dir := t.TempDir()
+	s := newTestServer()
+	s.WorkspaceFolders = []string{dir}
+
+	files := map[string]string{
+		"IShape.cfc": "interface {\n\tpublic numeric function area();\n}\n",
+		"Script.cfc": "component\n\timplements=\"IShape\"\n{\n\tfunction other() {\n\t\treturn { a = 1 };\n\t}\n\n\t// }\n}\n",
+		"Tags.cfc":   "<cfcomponent\n\timplements=\"IShape\">\n\t<cffunction name=\"other\">\n\t</cffunction>\n\n</CFCOMPONENT>\n",
+	}
+
+	u := writeCFCs(t, s, dir, files)
+
+	// Script.cfc: the declaration spans lines 0-2, the closing brace is line 8.
+	// Tags.cfc: the declaration spans lines 0-1, the closing tag is line 5.
+	want := map[string]map[int]bool{
+		"Script.cfc": {0: true, 1: true, 2: true, 8: true},
+		"Tags.cfc":   {0: true, 1: true, 5: true},
+	}
+
+	for name, onLines := range want {
+		for line := range strings.Count(files[name], "\n") + 1 {
+			got := len(refactorActionsAt(t, s, u[name], uint32(line))) > 0
+			if got != onLines[line] {
+				t.Errorf("%s line %d: actions offered = %v, want %v", name, line, got, onLines[line])
+			}
+		}
+	}
+}
+
+// cursorInDeclarationBefore is cursorInDeclaration as it was written first,
+// from the outline of the whole component: the oracle for the bounded one.
+func cursorInDeclarationBefore(content string, line int) bool {
+	openOff, _, found := parser.ComponentDeclarationBounds(content)
+	if !found {
+		return false
+	}
+
+	lines := parser.NewLineTable(content)
+	first := lines.LineOf(openOff)
+
+	if header, ok := parser.ComponentOutline(content); ok && header.NameStart <= openOff {
+		first = lines.LineOf(header.NameStart)
+	}
+
+	return line >= first && line <= lines.LineOf(openOff)
+}
+
+func TestCursorInDeclarationAgreesWithTheOutlineOnEveryLine(t *testing.T) {
+	texts := map[string]string{
+		"one line":          "component extends=\"A\" {\n\tfunction f() {}\n}\n",
+		"split script":      "component\n\textends=\"A\"\n\timplements=\"I\"\n{\n\tfunction f() {}\n}\n",
+		"after a comment":   "/**\n * Docs.\n */\ncomponent {\n\tfunction f() {}\n}\n",
+		"interface":         "interface extends=\"I\" {\n\tpublic void function f();\n}\n",
+		"tag":               "<cfcomponent\n\timplements=\"I\">\n\t<cffunction name=\"f\">\n\t</cffunction>\n</cfcomponent>\n",
+		"tag after a set":   "<cfset x = {a = 1}>\n<cfcomponent output=\"false\">\n</cfcomponent>\n",
+		"crlf":              "component\r\n\timplements=\"I\"\r\n{\r\n\tfunction f() {}\r\n}\r\n",
+		"no declaration":    "<cfset x = 1>\n<cfoutput>#x#</cfoutput>\n",
+		"script page":       "<cfscript>\n\tx = 1;\n</cfscript>\n",
+		"empty":             "",
+		"keyword as member": "struct.component = 1;\n",
+	}
+
+	for name, src := range texts {
+		for line := range strings.Count(src, "\n") + 3 {
+			if got, want := cursorInDeclaration(src, line), cursorInDeclarationBefore(src, line); got != want {
+				t.Errorf("%s, line %d: cursorInDeclaration = %v, the outline's answer is %v", name, line, got, want)
+			}
+		}
 	}
 }

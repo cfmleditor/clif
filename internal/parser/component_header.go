@@ -9,12 +9,28 @@ package parser
 // scanner, so a brace or `>` in a quoted value, and anything in a comment before
 // it, is no end of it.
 func ComponentDeclarationBounds(content string) (open, textEnd int, ok bool) {
-	return componentDeclaration(content)
+	_, open, textEnd, ok = componentDeclaration(content)
+
+	return open, textEnd, ok
 }
 
-// componentDeclaration is the offset of the `{` or `>` that ends a component's
-// declaration, and the offset just past the last token before it.
-func componentDeclaration(content string) (open, textEnd int, ok bool) {
+// ComponentDeclarationSpan is where a component's declaration starts and ends:
+// start is the offset of its keyword (`component`, `interface`, or the name in
+// `<cfcomponent`) and open the offset of the `{` or `>` that ends it, as
+// ComponentDeclarationBounds finds it. Unlike ComponentOutline it does not
+// look for the end of the body, so it reads a bounded number of tokens
+// whatever the size of the file; it is what a request made on every cursor
+// move should ask. ok is false for text that declares none.
+func ComponentDeclarationSpan(content string) (start, open int, ok bool) {
+	start, open, _, ok = componentDeclaration(content)
+
+	return start, open, ok
+}
+
+// componentDeclaration is the offset of the keyword that opens a component's
+// declaration, the offset of the `{` or `>` that ends it, and the offset just
+// past the last token before that.
+func componentDeclaration(content string) (start, open, textEnd int, ok bool) {
 	sc := NewScriptScanner(content)
 	inDeclaration := false
 	depth := 0 // braces open before the declaration: `<cfset x = {}>`, a struct
@@ -29,13 +45,13 @@ func componentDeclaration(content string) (open, textEnd int, ok bool) {
 
 		switch {
 		case t.Kind == TokEOF:
-			return 0, 0, false
+			return 0, 0, 0, false
 		case t.Kind == TokLBrace && inDeclaration:
-			return t.Offset, prevEnd, true
+			return start, t.Offset, prevEnd, true
 		case t.Kind == TokGT && !inDeclaration:
 			inTag = false
 		case t.Kind == TokGT && inDeclaration:
-			return t.Offset, t.Offset + 1, true
+			return start, t.Offset, t.Offset + 1, true
 		case t.Kind == TokLBrace:
 			depth++
 		case t.Kind == TokRBrace:
@@ -46,13 +62,17 @@ func componentDeclaration(content string) (open, textEnd int, ok bool) {
 			}
 
 			inDeclaration = opensDeclaration(t, prev)
+			if inDeclaration {
+				start = t.Offset
+			}
+
 			inTag = !inDeclaration && prev.Kind == TokLT
 		}
 
 		prev, prevEnd = t, sc.Pos()
 	}
 
-	return 0, 0, false
+	return 0, 0, 0, false
 }
 
 // declarationTokens is how many tokens ComponentDeclarationBounds reads before it
