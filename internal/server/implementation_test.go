@@ -191,3 +191,29 @@ func TestImplementationAfterWorkspaceScan(t *testing.T) {
 		t.Fatalf("implementations = %+v, want Square only", locs)
 	}
 }
+
+func TestImplementationSubInterfaceFindsImplementers(t *testing.T) {
+	dir := t.TempDir()
+	s := newTestServer()
+	s.WorkspaceFolders = []string{dir}
+
+	u := writeCFCs(t, s, dir, map[string]string{
+		"IBase.cfc":  "interface {\n\tpublic numeric function area();\n}\n",
+		"ISub.cfc":   "interface extends=\"IBase\" {\n\tpublic numeric function perimeter();\n}\n",
+		"Square.cfc": "component implements=\"ISub\" {\n\tpublic numeric function area() { return 1; }\n\tpublic numeric function perimeter() { return 4; }\n}\n",
+		"Cube.cfc":   "component extends=\"Square\" {\n\tpublic numeric function area() { return 6; }\n}\n",
+		"Unrel.cfc":  "component {\n\tpublic numeric function area() { return 0; }\n}\n",
+	})
+
+	// On IBase.area: should find Cube and Square through ISub -> Square -> Cube.
+	locs := implementationsAt(t, s, u["IBase.cfc"], 1, 25)
+	if len(locs) != 2 || locs[0].URI != u["Cube.cfc"] || locs[1].URI != u["Square.cfc"] {
+		t.Fatalf("IBase.area implementations = %+v, want Cube and Square", locs)
+	}
+
+	// On IBase header: should find ISub, Square, and Cube.
+	headerLocs := implementationsAt(t, s, u["IBase.cfc"], 0, 2)
+	if len(headerLocs) != 3 {
+		t.Fatalf("IBase header implementations = %+v, want 3 (Cube, ISub, Square)", headerLocs)
+	}
+}
