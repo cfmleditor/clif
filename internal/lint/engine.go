@@ -12,6 +12,7 @@ import (
 
 	"github.com/cfmleditor/clif/internal/cflint"
 	"github.com/cfmleditor/clif/internal/language"
+	"github.com/cfmleditor/clif/internal/parser"
 	sitter "github.com/tree-sitter/go-tree-sitter"
 	"go.lsp.dev/protocol"
 )
@@ -109,11 +110,74 @@ type FileContext struct {
 	Content []byte
 	RC      *RCConfig
 
+	textOnce sync.Once
+	text     string
+
 	linesOnce sync.Once
 	lines     []string
 
+	lineTableOnce sync.Once
+	lineTable     parser.LineTable
+
+	regionsOnce sync.Once
+	regions     []parser.Region
+
 	treeOnce sync.Once
 	tree     *sitter.Tree
+}
+
+// Text returns Content as a string, cached once per file.
+func (fc *FileContext) Text() string {
+	fc.textOnce.Do(func() {
+		fc.text = string(fc.Content)
+	})
+
+	return fc.text
+}
+
+// LineTable returns the file's LineTable for O(log N) offset -> line mapping.
+func (fc *FileContext) LineTable() parser.LineTable {
+	fc.lineTableOnce.Do(func() {
+		fc.lineTable = parser.NewLineTable(fc.Text())
+	})
+
+	return fc.lineTable
+}
+
+// Regions returns the classified tag/script regions of the file.
+func (fc *FileContext) Regions() []parser.Region {
+	fc.regionsOnce.Do(func() {
+		fc.regions = parser.ClassifyRegions(fc.Text())
+	})
+
+	return fc.regions
+}
+
+// Pos1 converts a 0-based byte offset into 1-based (line, column).
+func (fc *FileContext) Pos1(offset int) (line, col int) {
+	lt := fc.LineTable()
+	l := lt.LineOf(offset)
+	start, _ := lt.Start(l)
+
+	return l + 1, offset - start + 1
+}
+
+// IssueAt constructs a single-location cflint.Issue at byte offset.
+func (fc *FileContext) IssueAt(offset int, msg, variable string) cflint.Issue {
+	line, col := fc.Pos1(offset)
+
+	return cflint.Issue{
+		Message: msg,
+		Locations: []cflint.Location{{
+			File:     fc.Path,
+			FileName: filepath.Base(fc.Path),
+			Line:     line,
+			Column:   col,
+			Message:  msg,
+			Variable: variable,
+			Offset:   offset,
+		}},
+	}
 }
 
 // Lines returns the file split into lines (with trailing \r trimmed).
