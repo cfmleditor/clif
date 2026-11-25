@@ -21,8 +21,8 @@ import (
 // published for it, so each source's diagnostics are kept apart and a file is
 // always published with all of them.
 const (
-	sourceCFLint = "cflint"
-	sourceParse  = "parse"
+	sourceLint  = "lint"
+	sourceParse = "parse"
 	// knownIssuesSource prefixes a known-issues file's own source key, one per
 	// configured file, so reloading one leaves the others alone.
 	knownIssuesSource = "known:"
@@ -329,16 +329,16 @@ func (s *Server) loadKnownIssuesFile(ctx context.Context, file string) {
 	}
 
 	cfg := s.KnownIssues[i]
-	lint := cfg.IsGenerated(config.GenerateCFLint)
+	lint := cfg.IsGenerated(config.GenerateLint)
 
 	label := cfg.Source
 	if label == "" {
 		label = "known issue"
 
-		// Labelled as CFLint labels its own, so an entry reads the same
+		// Labelled as live lint labels its own, so an entry reads the same
 		// whether the report or a run on save produced it.
 		if lint {
-			label = sourceCFLint
+			label = sourceLint
 		}
 	}
 
@@ -358,14 +358,14 @@ func (s *Server) loadKnownIssuesFile(ctx context.Context, file string) {
 	delete(s.diag.supersededBy, source)
 
 	if lint {
-		s.diag.supersededBy[source] = sourceCFLint
+		s.diag.supersededBy[source] = sourceLint
 
 		// A fresh report is as new as any run on a closed file, whose results
 		// are gone. An open file keeps its run's, which the report would only
 		// repeat.
 		for key, f := range s.diag.files {
 			if !s.diag.open[key] {
-				delete(f.ran, sourceCFLint)
+				delete(f.ran, sourceLint)
 			}
 		}
 	}

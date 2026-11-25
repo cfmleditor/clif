@@ -274,12 +274,11 @@ func (s *Server) taskTools() []tool {
 	if s.Lint != nil {
 		list = append(list, tool{
 			Name:  "lint",
-			Title: "Run CFLint",
-			Description: "Run CFLint over files or directories and return its findings: path, line, " +
+			Title: "Run lint",
+			Description: "Run the linter over files or directories and return its findings: path, line, " +
 				"column, severity, rule and message. linting.minSeverity in .clif.json sets the " +
-				"least severe level reported. It starts a CFLint process (released clif builds carry " +
-				"CFLint; others download it on first use) and writes no report. CFLint reports some rules (MISSING_VAR, IMPLICIT_SCOPE) " +
-				"once per name per run, so lint one file to see all of its findings.",
+				"least severe level reported. Writes no report. Some rules (MISSING_VAR, IMPLICIT_SCOPE) " +
+				"report once per name per run, so lint one file to see all of its findings.",
 			InputSchema: obj(map[string]any{
 				"paths": strList("Files or directories, absolute or relative to the server's working directory."),
 				"limit": num("Maximum findings listed (default 200). The result gives the total."),
@@ -337,7 +336,7 @@ func (s *Server) taskTools() []tool {
 		list = append(list, tool{
 			Name:  "check_structure",
 			Title: "Check CFML tag structure",
-			Description: "Check CFML files for structural errors without starting CFLint: unclosed " +
+			Description: "Check CFML files for structural errors without running the full linter: unclosed " +
 				"or mismatched tags, misplaced <cfcatch>/<cfelse>, duplicate tag attributes, and " +
 				"duplicate function arguments.",
 			InputSchema: obj(map[string]any{

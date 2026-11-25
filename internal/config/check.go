@@ -7,7 +7,10 @@ import (
 )
 
 // The checks `clif check` can run, by the name the config and --checks use.
+// CheckCFLint is the legacy name for CheckLint, still accepted in configs and
+// --checks and normalized to CheckLint.
 const (
+	CheckLint       = "lint"
 	CheckCFLint     = "cflint"
 	CheckUnresolved = "unresolved"
 	CheckScan       = "scan"
@@ -16,12 +19,12 @@ const (
 
 // KnownChecks lists every check `clif check` can run.
 func KnownChecks() []string {
-	return []string{CheckScan, CheckFormat, CheckCFLint, CheckUnresolved}
+	return []string{CheckScan, CheckFormat, CheckLint, CheckUnresolved}
 }
 
 // DefaultChecks is what `clif check` runs when neither the config nor the
-// command line names any: CFLint, the check a CI job most often wants.
-func DefaultChecks() []string { return []string{CheckCFLint} }
+// command line names any: lint, the check a CI job most often wants.
+func DefaultChecks() []string { return []string{CheckLint} }
 
 // BaselineNone is the baseline that turns off the default baseline (the
 // known-issues reports the config generates for that check).
@@ -30,8 +33,8 @@ const BaselineNone = "none"
 // Check is the `check` block, what `clif check` runs and what fails it:
 //
 //	"check": {
-//	  "checks": ["cflint", "unresolved", "format"],
-//	  "cflint": {"minSeverity": "WARNING"},
+//	  "checks": ["lint", "unresolved", "format"],
+//	  "lint": {"minSeverity": "WARNING"},
 //	  "unresolved": {"baseline": "unresolved.txt", "maxFindings": 10}
 //	}
 //
@@ -42,7 +45,9 @@ type Check struct {
 	// Checks names the checks to run, from KnownChecks. Absent runs
 	// DefaultChecks; a present list replaces an inherited one whole, since
 	// interleaving two lists describes neither project.
-	Checks     []string   `json:"checks"`
+	Checks []string   `json:"checks"`
+	Lint   *CheckRule `json:"lint"`
+	// CFLint is the deprecated alias for Lint; kept so older configs keep working.
 	CFLint     *CheckRule `json:"cflint"`
 	Unresolved *CheckRule `json:"unresolved"`
 	Scan       *CheckRule `json:"scan"`
@@ -58,19 +63,19 @@ type CheckRule struct {
 	// Baseline is a known-issues file, relative to the config's directory,
 	// whose entries are not counted: only findings it does not list fail the
 	// check. Absent uses the reports the config's knownIssues entries generate
-	// for this check ("generate": "cflint" or "unresolved"), which is what
-	// clif cflint --write and clif unresolved --write keep current; "none"
-	// uses no baseline. cflint and unresolved only.
+	// for this check ("generate": "lint" or "unresolved"), which is what
+	// clif lint --write and clif unresolved --write keep current; "none"
+	// uses no baseline. lint and unresolved only.
 	Baseline string `json:"baseline"`
-	// MinSeverity is the least severe CFLint level counted, on CFLint's own
-	// scale (FATAL ... COSMETIC). Absent takes linting.minSeverity. cflint only.
+	// MinSeverity is the least severe lint level counted
+	// (FATAL ... COSMETIC). Absent takes linting.minSeverity. lint only.
 	MinSeverity string `json:"minSeverity"`
 }
 
 // ResolvedCheck is the check block with defaults applied.
 type ResolvedCheck struct {
 	Checks     []string
-	CFLint     ResolvedCheckRule
+	Lint       ResolvedCheckRule
 	Unresolved ResolvedCheckRule
 	Scan       ResolvedCheckRule
 	Format     ResolvedCheckRule
@@ -89,8 +94,8 @@ type ResolvedCheckRule struct {
 // that is not a check.
 func (c *ResolvedCheck) Rule(name string) ResolvedCheckRule {
 	switch name {
-	case CheckCFLint:
-		return c.CFLint
+	case CheckLint, CheckCFLint:
+		return c.Lint
 	case CheckUnresolved:
 		return c.Unresolved
 	case CheckScan:
@@ -111,7 +116,7 @@ func ResolveCheck(c *Check, dir string) ResolvedCheck {
 
 	r := ResolvedCheck{
 		Checks:     DefaultChecks(),
-		CFLint:     resolveCheckRule(c.CFLint, dir),
+		Lint:       resolveCheckRule(mergeCheckRule(c.CFLint, c.Lint), dir),
 		Unresolved: resolveCheckRule(c.Unresolved, dir),
 		Scan:       resolveCheckRule(c.Scan, dir),
 		Format:     resolveCheckRule(c.Format, dir),
@@ -142,13 +147,17 @@ func resolveCheckRule(rule *CheckRule, dir string) ResolvedCheckRule {
 	return r
 }
 
-// NormalizeChecks lowercases and trims check names and drops blanks and
-// repeats, keeping the order given.
+// NormalizeChecks lowercases and trims check names, maps the legacy "cflint"
+// alias to "lint", and drops blanks and repeats, keeping the order given.
 func NormalizeChecks(names []string) []string {
 	out := make([]string, 0, len(names))
 
 	for _, n := range names {
 		n = strings.ToLower(strings.TrimSpace(n))
+		if n == CheckCFLint {
+			n = CheckLint
+		}
+
 		if n != "" && !slices.Contains(out, n) {
 			out = append(out, n)
 		}
@@ -187,7 +196,8 @@ func mergeCheck(base, over *Check) *Check {
 		out.Checks = over.Checks
 	}
 
-	out.CFLint = mergeCheckRule(base.CFLint, over.CFLint)
+	out.Lint = mergeCheckRule(mergeCheckRule(base.CFLint, base.Lint), mergeCheckRule(over.CFLint, over.Lint))
+	out.CFLint = nil
 	out.Unresolved = mergeCheckRule(base.Unresolved, over.Unresolved)
 	out.Scan = mergeCheckRule(base.Scan, over.Scan)
 	out.Format = mergeCheckRule(base.Format, over.Format)

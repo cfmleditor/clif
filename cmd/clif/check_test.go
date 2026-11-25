@@ -73,23 +73,23 @@ func fakeCFLint(t *testing.T, file string, rules ...string) []string {
 
 const cleanPage = "<cfset x = 1 />\n"
 
-// TestCheckRunsCFLintByDefault: with no check block, CFLint is the check, a
+// TestCheckRunsCFLintByDefault: with no check block, lint is the check, a
 // finding fails it with 1, and none passes.
 func TestCheckRunsCFLintByDefault(t *testing.T) {
 	dir, file := checkProject(t, `{"workspaceName": "w"}`, cleanPage)
 
 	out, code := runClifEnv(t, dir, fakeCFLint(t, file, "MISSING_VAR"), "check", dir)
-	if code != exitCheckFailed || !strings.Contains(out, "[cflint MISSING_VAR]") || !strings.Contains(out, "cflint      FAIL") {
-		t.Errorf("a CFLint finding: exit %d, want %d naming it; output:\n%s", code, exitCheckFailed, out)
+	if code != exitCheckFailed || !strings.Contains(out, "[lint MISSING_VAR]") || !strings.Contains(out, "lint        FAIL") {
+		t.Errorf("a lint finding: exit %d, want %d naming it; output:\n%s", code, exitCheckFailed, out)
 	}
 
 	out, code = runClifEnv(t, dir, fakeCFLint(t, file), "check", dir)
 	if code != 0 || !strings.Contains(out, "check passed") {
-		t.Errorf("no CFLint findings: exit %d, want 0; output:\n%s", code, out)
+		t.Errorf("no lint findings: exit %d, want 0; output:\n%s", code, out)
 	}
 }
 
-// TestCheckSelection: the config's checks list replaces the default, so CFLint
+// TestCheckSelection: the config's checks list replaces the default, so lint
 // (which would fail here, being unavailable) does not run, and --checks
 // replaces the config's list.
 func TestCheckSelection(t *testing.T) {
@@ -97,16 +97,16 @@ func TestCheckSelection(t *testing.T) {
 	noCFLint := []string{"CLIF_CFLINT=" + filepath.Join(dir, "missing")}
 
 	out, code := runClifEnv(t, dir, noCFLint, "check", dir)
-	if code != 0 || !strings.Contains(out, "scan ") || strings.Contains(out, "cflint") {
+	if code != 0 || !strings.Contains(out, "scan ") || strings.Contains(out, "lint ") {
 		t.Errorf("checks [scan]: exit %d, want 0 with only scan run; output:\n%s", code, out)
 	}
 
 	out, code = runClifEnv(t, dir, noCFLint, "check", "--checks", "scan,cflint", dir)
-	if code != exitCheckError || !strings.Contains(out, "cflint      ERROR") {
-		t.Errorf("--checks scan,cflint with CFLint missing: exit %d, want %d; output:\n%s", code, exitCheckError, out)
+	if code != exitCheckError || !strings.Contains(out, "lint        ERROR") {
+		t.Errorf("--checks scan,cflint (legacy alias) with linter missing: exit %d, want %d; output:\n%s", code, exitCheckError, out)
 	}
 
-	if out, code := runClif(t, dir, "check", "--checks", "lint", dir); code != exitCheckError || !strings.Contains(out, "no check named lint") {
+	if out, code := runClif(t, dir, "check", "--checks", "bogus", dir); code != exitCheckError || !strings.Contains(out, "no check named bogus") {
 		t.Errorf("an unknown check: exit %d, want %d naming it; output:\n%s", code, exitCheckError, out)
 	}
 }

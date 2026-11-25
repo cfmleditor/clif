@@ -17,17 +17,16 @@ import (
 	"github.com/cfmleditor/clif/internal/vfs"
 )
 
-const cflintUsage = `usage: clif cflint [options] <path> [...]
-       clif cflint --staged | --changed <ref> [options] [<path> ...]
+const cflintUsage = `usage: clif lint [options] <path> [...]
+       clif lint --staged | --changed <ref> [options] [<path> ...]
 
-Run CFLint over files or directories. The CFLint binary is downloaded on first
-use; .cflintrc files and @CFLintIgnore comments apply exactly as CFLint applies
-them, and a .cflintrc CFLint cannot parse is an error (exit 2) rather than
-being silently replaced by CFLint's default rules.
+Run lint checks over files or directories. Project .cflintrc rules and
+inline suppressions apply, and an unparseable .cflintrc is an error (exit 2)
+rather than being silently replaced by default rules.
 
 Only the paths given are linted. Naming the config's own directory lints the
 folders its workspacePaths list beneath it; folders outside it are there for
-resolution, which CFLint does not do, and are never linted.
+resolution and are never linted.
 
 What to lint:
   <path> ...          files and directories
@@ -46,16 +45,16 @@ Output:
   --format <f>        report (default): a known-issues report, one issue per
                       line, paths relative to the .clif.json above the first
                       path, which the editors read as diagnostics
-                      text: CFLint's -text report, ending "Total issues:N"
-                      json: CFLint's -json report (top-level "issues"), with
+                      text: text lint report, ending "Total issues:N"
+                      json: JSON lint report (top-level "issues"), with
                       totals per rule and per severity over the whole run
-                      sarif: SARIF 2.1.0, rule ids being CFLint's codes, paths
+                      sarif: SARIF 2.1.0, rule ids being lint rule codes, paths
                       relative to the repository or the config's directory
   --out <file>        write to this file instead of stdout. A report is written
                       with paths relative to the file's directory, which must
                       hold every path linted
   --write             write the report files the config's knownIssues entries
-                      with "generate": "cflint" name (report format only). A
+                      with "generate": "lint" name (report format only). A
                       report whose directory holds more than was linted is
                       refused, since rewriting it would drop the entries for
                       everything else; lint its whole directory, or use --out
@@ -64,14 +63,14 @@ Output:
 Baseline:
   --baseline <file>   report, and fail on, only findings the file does not
                       list. The file is a known-issues report, as
-                      clif cflint --out <file> writes one; a finding matches
+                      clif lint --out <file> writes one; a finding matches
                       an entry by file, rule and message, not line, so an
                       edit above it does not make it new. Entries no longer
                       found are listed on stderr: regenerate the file to drop
                       them
 
 Severity:
-  --min-severity <l>  report, and fail on, CFLint levels at or above <l>:
+  --min-severity <l>  report, and fail on, lint levels at or above <l>:
                       FATAL, CRITICAL, ERROR, WARNING, CAUTION, INFO, COSMETIC.
                       Overrides linting.minSeverity in the config
   --strict            report and fail on every level, whatever the config says
@@ -80,8 +79,8 @@ Exit status:
   0  no findings, or a known-issues report was written (--write, or --out in
      the report format: a regeneration, expected to hold findings)
   1  findings
-  2  the run could not be trusted: a path that does not exist, a .cflintrc
-     CFLint cannot parse, CFLint unavailable or failing, not a git repository
+  2  the run could not be trusted: a path that does not exist, an unparseable
+     .cflintrc, linter unavailable or failing, not a git repository
      for --staged/--changed, or a usage error
 `
 
@@ -217,13 +216,13 @@ func checkCFLintFlags(fl *cflintFlags) {
 
 	if fl.baseline != "" {
 		if _, err := os.Stat(fl.baseline); err != nil {
-			cflintFailf("--baseline %s does not exist; write one with clif cflint --out %s <path>\n", fl.baseline, fl.baseline)
+			cflintFailf("--baseline %s does not exist; write one with clif lint --out %s <path>\n", fl.baseline, fl.baseline)
 		}
 	}
 
 	if fl.minSeverity != "" {
 		if _, ok := cflint.MinSeverityRank(fl.minSeverity); !ok {
-			cflintFailf("--min-severity %q is not a CFLint level\n\n%s", fl.minSeverity, cflintUsage)
+			cflintFailf("--min-severity %q is not a lint severity level\n\n%s", fl.minSeverity, cflintUsage)
 		}
 	}
 }
@@ -556,7 +555,7 @@ func cflintTargets(fl *cflintFlags, knownIssues []config.KnownIssues, configDir 
 
 		return []string{out}
 	case fl.write:
-		targets, err := cflint.WriteTargets(config.GenerateTargets(knownIssues, config.GenerateCFLint, configDir), asked)
+		targets, err := cflint.WriteTargets(config.GenerateTargets(knownIssues, config.GenerateLint, configDir), asked)
 		if err != nil {
 			cflintFailf("--write: %v. Lint that whole directory, or write this run with --out\n", err)
 		}

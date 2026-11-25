@@ -28,9 +28,9 @@ each found and a summary line per check, and fail if any check found more than
 it allows. Made for CI. The config is the one above the first path.
 
 Checks (run in the order named):
-  cflint      CFLint, as clif cflint runs it: .cflintrc and @CFLintIgnore
-              apply, the pinned CFLint is used, and linting.minSeverity is the
-              default floor (the default check)
+  lint        lint checks, as clif lint runs them: .cflintrc and inline
+              suppressions apply, and linting.minSeverity is the default floor
+              (the default check)
   unresolved  calls clif cannot resolve, as clif unresolved reports them
   scan        files the grammar cannot parse, as clif scan reports them
   format      files clif format would change. A grammar or safety refusal
@@ -39,19 +39,19 @@ Checks (run in the order named):
 
 Configuration ("check" in .clif.json, every key optional):
   "check": {
-    "checks": ["cflint", "unresolved", "format"],
-    "cflint": {"minSeverity": "WARNING", "maxFindings": 0, "baseline": "..."},
+    "checks": ["lint", "unresolved", "format"],
+    "lint": {"minSeverity": "WARNING", "maxFindings": 0, "baseline": "..."},
     "unresolved": {"maxFindings": 0, "baseline": "none"},
     "scan": {"maxFindings": 0},
     "format": {"maxFindings": 0}
   }
   maxFindings  how many findings the check may have and still pass (0)
   baseline     a known-issues file, relative to the config, whose entries are
-               not counted. cflint and unresolved default to the reports the
+               not counted. lint and unresolved default to the reports the
                config's knownIssues entries generate for them, as
-               clif cflint --write and clif unresolved --write keep them;
+               clif lint --write and clif unresolved --write keep them;
                "none" counts every finding
-  minSeverity  cflint only: the least severe CFLint level counted
+  minSeverity  lint only: the least severe lint level counted
 
 Options:
   --checks <list>     comma-separated checks to run, replacing check.checks
@@ -59,7 +59,7 @@ Options:
                       json: {"passed": ..., "checks": [...]} with each finding
                       github: GitHub Actions ::error annotations, then the
                       summary
-  --min-severity <l>  the CFLint floor, replacing check.cflint.minSeverity
+  --min-severity <l>  the lint severity floor, replacing check.lint.minSeverity
   --no-baseline       count every finding, whatever the baselines say
   -q, --quiet         no progress on stderr (the unresolved scan still says
                       which config it read and how much it indexes)
@@ -67,8 +67,8 @@ Options:
 Exit status:
   0  every check passed
   1  a check found more than it allows
-  2  a check could not run (CFLint unavailable, a .cflintrc CFLint cannot
-     parse, a baseline that does not exist, inputs or directories that
+  2  a check could not run (linter unavailable, an unparseable .cflintrc,
+     a baseline that does not exist, inputs or directories that
      cannot be read), a path that does not exist, or a usage error
 `
 
@@ -291,7 +291,7 @@ func (env *checkEnv) run(name string) checkResult {
 	var err error
 
 	switch name {
-	case config.CheckCFLint:
+	case config.CheckLint, config.CheckCFLint:
 		err = env.runCFLint(&res, &rule)
 	case config.CheckUnresolved:
 		err = env.runUnresolved(&res, &rule)
@@ -439,7 +439,7 @@ func (env *checkEnv) runCFLint(res *checkResult, rule *config.ResolvedCheckRule)
 		return walkErr
 	}
 
-	baseline, err := env.baseline(rule, config.GenerateCFLint)
+	baseline, err := env.baseline(rule, config.GenerateLint)
 	if err != nil {
 		return err
 	}
@@ -453,7 +453,7 @@ func (env *checkEnv) runCFLint(res *checkResult, rule *config.ResolvedCheckRule)
 		return fmt.Errorf("cflint unavailable: %w", err)
 	}
 
-	env.logf("cflint: linting %d files...\n", len(files))
+	env.logf("lint: linting %d files...\n", len(files))
 
 	run, err := runner.Lint(context.Background(), files)
 	if err != nil {

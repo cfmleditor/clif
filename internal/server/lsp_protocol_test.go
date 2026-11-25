@@ -356,7 +356,7 @@ func TestWorkflowBackgroundReportsFailWithoutWedgingSession(t *testing.T) {
 			[]any{map[string]any{"out": "empty-map.json", "format": "json"}},
 			"Code map failed:", "no CFML files", "empty-map.json",
 		},
-		{"clif.exportCFLint", nil, "The cflint report failed:", "missing-cflint", ".clif-cflint.txt"},
+		{"clif.exportLint", nil, "The lint report failed:", "missing-cflint", ".clif-lint.txt"},
 	} {
 		var result struct {
 			Started bool `json:"started"`

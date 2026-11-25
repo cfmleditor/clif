@@ -706,7 +706,7 @@ func (s *Server) handleDidClose(ctx context.Context, rawParams []byte) (any, err
 	// Clear the document's own diagnostics on close. A known issue is about the
 	// file, not the buffer, and stays — unless its source is open-only.
 	s.diagnosticsClosed(docURI)
-	s.storeDiagnostics(docURI, sourceCFLint, nil)
+	s.storeDiagnostics(docURI, sourceLint, nil)
 	s.cancelStructureDiagnostics(ctx, docURI)
 	s.setDiagnostics(ctx, docURI, sourceParse, nil)
 
@@ -751,7 +751,7 @@ func (s *Server) runDiagnostics(ctx context.Context, docURI uri.URI) {
 	s.mu.RUnlock()
 
 	if linter == nil || s.conn == nil {
-		s.log.Debug("cflint diagnostics skipped", cflog.String("reason", "linter not available (linting disabled or cflint not found)"))
+		s.log.Debug("lint diagnostics skipped", cflog.String("reason", "linter not available (linting disabled or linter not found)"))
 
 		return
 	}
@@ -774,29 +774,29 @@ func (s *Server) runDiagnostics(ctx context.Context, docURI uri.URI) {
 	}()
 
 	filePath := docURI.Path()
-	s.log.Info("cflint scan starting", cflog.String("file", filePath))
+	s.log.Info("lint scan starting", cflog.String("file", filePath))
 
 	// Show progress
 	s.notify(scanCtx, protocol.MethodProgress, map[string]any{
-		"token": "cflint",
-		"value": map[string]any{"kind": "begin", "title": "CFLint", "message": filepath.Base(filePath)},
+		"token": "lint",
+		"value": map[string]any{"kind": "begin", "title": "Lint", "message": filepath.Base(filePath)},
 	})
 
 	diags, err := linter.Scan(scanCtx, filePath)
 
 	s.notify(scanCtx, protocol.MethodProgress, map[string]any{
-		"token": "cflint",
+		"token": "lint",
 		"value": map[string]any{"kind": "end"},
 	})
 
 	if scanCtx.Err() != nil {
-		s.log.Debug("cflint scan cancelled", cflog.String("file", filePath))
+		s.log.Debug("lint scan cancelled", cflog.String("file", filePath))
 
 		return
 	}
 
 	if err != nil {
-		s.log.Warn("cflint scan failed", cflog.String("file", filePath), cflog.Err(err))
+		s.log.Warn("lint scan failed", cflog.String("file", filePath), cflog.Err(err))
 
 		return
 	}
@@ -805,10 +805,10 @@ func (s *Server) runDiagnostics(ctx context.Context, docURI uri.URI) {
 		diags = []protocol.Diagnostic{}
 	}
 
-	s.log.Info("cflint scan complete", cflog.String("file", filePath), cflog.Int("issues", len(diags)))
+	s.log.Info("lint scan complete", cflog.String("file", filePath), cflog.Int("issues", len(diags)))
 
-	s.diagnosticsRan(docURI, sourceCFLint)
-	s.setDiagnostics(ctx, docURI, sourceCFLint, diags)
+	s.diagnosticsRan(docURI, sourceLint)
+	s.setDiagnostics(ctx, docURI, sourceLint, diags)
 }
 
 func (s *Server) reindexIfCFC(docURI uri.URI, content string) {

@@ -46,6 +46,9 @@ func runMain() int {
 	// Subcommand routing
 	if len(os.Args) > 1 {
 		name, args := os.Args[1], os.Args[2:]
+		if name == "cflint" {
+			name = "lint"
+		}
 
 		if cmd, ok := subcommands()[name]; ok {
 			if wantsHelp(args) {
@@ -73,7 +76,12 @@ func runMain() int {
 		case "help", "--help", "-h":
 			// "help <command>" is that command's --help.
 			if len(args) > 0 {
-				if cmd, ok := subcommands()[args[0]]; ok {
+				target := args[0]
+				if target == "cflint" {
+					target = "lint"
+				}
+
+				if cmd, ok := subcommands()[target]; ok {
 					fmt.Print(cmd.usage)
 
 					return 0
@@ -105,10 +113,10 @@ Commands:
   scan              Scan CFML files and report parse errors
   format            Format CFML files (stdout or in-place with -w)
   unresolved        Scan for unresolved component/method calls
-  cflint            Run CFLint over files, a project, or what is staged or changed
-  check             Run the configured checks (CFLint by default) and fail on findings, for CI
-  suppressions      Count CFLint suppressions by rule, and fail if they rise
-  hook              Install and run a git pre-commit hook that runs CFLint
+  lint              Run lint checks over files, a project, or what is staged or changed
+  check             Run the configured checks (lint by default) and fail on findings, for CI
+  suppressions      Count lint suppressions by rule, and fail if they rise
+  hook              Install and run a git pre-commit hook that runs lint
   refs              Find references to a component or function
   deps              Print component dependency info
   graph             Build a whole-project map of functions and their connections

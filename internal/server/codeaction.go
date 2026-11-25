@@ -169,7 +169,7 @@ func workspaceActions() []protocol.CodeAction {
 	cmds := []struct{ title, command string }{
 		{"Scan workspace for parse errors", "clif.scanWorkspace"},
 		{"Export unresolved calls report for the workspace", "clif.exportUnresolved"},
-		{"Export CFLint report for the workspace", "clif.exportCFLint"},
+		{"Export lint report for the workspace", "clif.exportLint"},
 	}
 
 	out := make([]protocol.CodeAction, 0, len(cmds))

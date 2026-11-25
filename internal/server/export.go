@@ -63,7 +63,7 @@ func (s *Server) handleExport(kind string) (any, error) {
 		)
 
 		switch kind {
-		case config.GenerateCFLint:
+		case config.GenerateLint, config.GenerateCFLint:
 			reports, left, err = s.cflintReports(ctx, files, targets)
 		default:
 			reports, left, err = s.unresolvedReports(files, targets)
@@ -147,7 +147,7 @@ func (s *Server) exportScope(kind string) (roots, targets, writeRoots []string, 
 	writeRoots = confine.Roots(append(slices.Clone(open), configDir)...)
 
 	targets = config.GenerateTargets(s.KnownIssues, kind, configDir)
-	if kind != config.GenerateCFLint {
+	if kind != config.GenerateLint && kind != config.GenerateCFLint {
 		if err := checkTargets(targets, writeRoots); err != nil {
 			return nil, nil, nil, err
 		}
@@ -161,7 +161,7 @@ func (s *Server) exportScope(kind string) (roots, targets, writeRoots []string, 
 
 	targets, err = cflint.WriteTargets(targets, open)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf(`%w. Open that folder, or list a report file under %s in knownIssues with "generate": "cflint"`,
+		return nil, nil, nil, fmt.Errorf(`%w. Open that folder, or list a report file under %s in knownIssues with "generate": "lint"`,
 			err, strings.Join(open, ", "))
 	}
 
