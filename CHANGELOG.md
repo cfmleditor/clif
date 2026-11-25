@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.7.7]
+
 ### Added
 
 - **Implement missing interface methods code action (`refactor`).** On a CFC's declaration header or closing line when it declares `implements`, `textDocument/codeAction` offers refactor actions to generate CFScript or `<cffunction>` stubs for missing methods from all declared and transitive parent interfaces (excluding methods already declared or inherited via `extends`), both individually and in bulk.
