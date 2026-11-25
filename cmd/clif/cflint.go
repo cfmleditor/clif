@@ -13,6 +13,7 @@ import (
 	"github.com/cfmleditor/clif/internal/confine"
 	"github.com/cfmleditor/clif/internal/daemon"
 	"github.com/cfmleditor/clif/internal/knownissues"
+	"github.com/cfmleditor/clif/internal/lint"
 	cfpath "github.com/cfmleditor/clif/internal/path"
 	"github.com/cfmleditor/clif/internal/vfs"
 )
@@ -119,6 +120,7 @@ type cflintFlags struct {
 	baseline    string
 	format      string
 	minSeverity string
+	engine      string
 	changed     string
 	roots       []string
 	write       bool
@@ -180,6 +182,8 @@ func parseCFLintFlags(args []string) cflintFlags {
 			fl.format = value()
 		case "--min-severity":
 			fl.minSeverity = value()
+		case "--engine":
+			fl.engine = strings.ToLower(strings.TrimSpace(value()))
 		case "--changed":
 			fl.changed = value()
 		case "--baseline":
@@ -220,6 +224,10 @@ func checkCFLintFlags(fl *cflintFlags) {
 		}
 	}
 
+	if fl.engine != "" && fl.engine != config.LintEngineCFLint && fl.engine != config.LintEngineNative && fl.engine != config.LintEngineHybrid {
+		cflintFailf("--engine %q: want one of cflint, native, hybrid\n\n%s", fl.engine, cflintUsage)
+	}
+
 	if fl.minSeverity != "" {
 		if _, ok := cflint.MinSeverityRank(fl.minSeverity); !ok {
 			cflintFailf("--min-severity %q is not a lint severity level\n\n%s", fl.minSeverity, cflintUsage)
@@ -251,12 +259,14 @@ func cmdCFLint(args []string) {
 	configDir := dir
 	scanRoots := roots
 	minSeverity := ""
+	engineName := ""
 
 	var knownIssues []config.KnownIssues
 
 	if cfg, _ := daemon.FindConfig(dir); cfg != nil {
 		configDir = filepath.Dir(cfg.Path)
 		minSeverity = cfg.LintMinSeverity()
+		engineName = cfg.LintEngine()
 		knownIssues = cfg.KnownIssues()
 		scanRoots = cflint.ScanRoots(roots, configDir, cfg.WorkspaceFolders())
 
@@ -272,6 +282,14 @@ func cmdCFLint(args []string) {
 		minSeverity = fl.minSeverity
 	}
 
+	if fl.engine != "" {
+		engineName = fl.engine
+	}
+
+	if engineName == "" {
+		engineName = config.LintEngineCFLint
+	}
+
 	var targets []string
 	if fl.format == "report" {
 		targets = cflintTargets(&fl, knownIssues, configDir, roots, scanRoots)
@@ -283,12 +301,9 @@ func cmdCFLint(args []string) {
 		cflintFailf("%v\n", err)
 	}
 
-	runner, err := cflint.NewRunner(context.Background(), minSeverity)
-	if err != nil {
-		cflintFailf("cflint unavailable: %v\n", err)
-	}
+	runner := buildLintEngine(engineName, minSeverity)
 
-	logf("Running CFLint over %d files...\n", len(sel.files))
+	logf("Running lint (%s) over %d files...\n", engineName, len(sel.files))
 
 	run, err := lintSelection(runner, &sel)
 	if err != nil {
@@ -462,7 +477,30 @@ func selectCFLintFiles(fl *cflintFlags, dir string, roots, scanRoots []string) c
 
 // lintSelection runs CFLint over a selection: the staged content when there is
 // any, the files on disk otherwise.
-func lintSelection(runner *cflint.Runner, sel *cflintSelection) (*cflint.Run, error) {
+func buildLintEngine(engineName, minSeverity string) lint.Engine {
+	switch engineName {
+	case config.LintEngineNative:
+		return lint.NewNativeRunner(lint.DefaultRegistry, minSeverity, version)
+	case config.LintEngineHybrid:
+		native := lint.NewNativeRunner(lint.DefaultRegistry, minSeverity, version)
+
+		fb, err := cflint.NewRunner(context.Background(), minSeverity)
+		if err != nil {
+			return lint.NewHybridRunner(native, nil)
+		}
+
+		return lint.NewHybridRunner(native, fb)
+	default:
+		runner, err := cflint.NewRunner(context.Background(), minSeverity)
+		if err != nil {
+			cflintFailf("linter unavailable: %v\n", err)
+		}
+
+		return runner
+	}
+}
+
+func lintSelection(runner lint.Engine, sel *cflintSelection) (*cflint.Run, error) {
 	if sel.sources != nil {
 		return runner.LintContent(context.Background(), sel.sources)
 	}
