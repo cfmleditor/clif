@@ -510,48 +510,113 @@ func checkCompareInsteadOfAssign(fc *FileContext) []cflint.Issue {
 			continue
 		}
 
-		sc := parser.NewSourceScanner(r.Text)
-
-		for cur := sc.NextSkipComments(); cur.Kind != parser.TokEOF; cur = sc.NextSkipComments() {
-			if cur.Kind != parser.TokIdent {
-				continue
-			}
-
-			if !strings.EqualFold(cur.Value, "if") && !strings.EqualFold(cur.Value, "while") {
-				continue
-			}
-
-			if lp := sc.NextSkipComments(); lp.Kind != parser.TokLParen {
-				continue
-			}
-
-			depth := 1
-
-			var prev parser.Token
-
-			tok := sc.NextSkipComments()
-			for depth > 0 && tok.Kind != parser.TokEOF {
-				next := sc.NextSkipComments()
-
-				switch tok.Kind {
-				case parser.TokLParen:
-					depth++
-				case parser.TokRParen:
-					depth--
-				case parser.TokEquals:
-					if depth == 1 && isStandaloneEquals(prev, tok, next) {
-						out = append(out, fc.IssueAt(r.Offset+tok.Offset, "Assignment operator '=' used in condition; did you mean '=='?", "="))
-					}
-				default:
-				}
-
-				prev = tok
-				tok = next
-			}
-		}
+		out = append(out, scanCompareInsteadOfAssign(fc, r.Text, r.Offset)...)
 	}
 
 	return out
+}
+
+func scanCompareInsteadOfAssign(fc *FileContext, text string, baseOffset int) []cflint.Issue {
+	sc := parser.NewSourceScanner(text)
+
+	var toks []parser.Token
+	for t := sc.NextSkipComments(); t.Kind != parser.TokEOF; t = sc.NextSkipComments() {
+		toks = append(toks, t)
+	}
+
+	var out []cflint.Issue
+
+	// Split into top-level statements separated by `;`, `{`, `}` at paren/bracket depth 0.
+	depth := 0
+	stmtStart := 0
+
+	checkStmt := func(stmt []parser.Token) {
+		if len(stmt) < 3 {
+			return
+		}
+
+		if stmt[0].Kind == parser.TokIdent && isControlOrDeclKeyword(stmt[0].Value) {
+			return
+		}
+
+		d := 0
+		cmpOff := -1
+
+		for i := range stmt {
+			t := stmt[i]
+			switch t.Kind {
+			case parser.TokLParen, parser.TokLBracket, parser.TokLBrace:
+				d++
+			case parser.TokRParen, parser.TokRBracket, parser.TokRBrace:
+				d--
+			case parser.TokEquals:
+				if d != 0 {
+					continue
+				}
+
+				var prev, next parser.Token
+				if i > 0 {
+					prev = stmt[i-1]
+				}
+
+				if i+1 < len(stmt) {
+					next = stmt[i+1]
+				}
+
+				if isStandaloneEquals(prev, t, next) {
+					// Real assignment statement (e.g. `b1 = x == y;`).
+					return
+				}
+
+				if next.Kind == parser.TokEquals && next.Offset == t.Offset+1 && cmpOff < 0 {
+					cmpOff = t.Offset
+				}
+			case parser.TokIdent:
+				if d == 0 && strings.EqualFold(t.Value, "eq") && cmpOff < 0 {
+					cmpOff = t.Offset
+				}
+			default:
+			}
+		}
+
+		if cmpOff >= 0 {
+			out = append(out, fc.IssueAt(baseOffset+cmpOff, "Comparison operator used instead of assignment.", "=="))
+		}
+	}
+
+	for i, t := range toks {
+		switch t.Kind {
+		case parser.TokLParen, parser.TokLBracket:
+			depth++
+		case parser.TokRParen, parser.TokRBracket:
+			if depth > 0 {
+				depth--
+			}
+		case parser.TokSemicolon, parser.TokLBrace, parser.TokRBrace:
+			if depth == 0 {
+				checkStmt(toks[stmtStart:i])
+				stmtStart = i + 1
+			}
+		default:
+		}
+	}
+
+	checkStmt(toks[stmtStart:])
+
+	return out
+}
+
+func isControlOrDeclKeyword(s string) bool {
+	switch strings.ToLower(s) {
+	case "if", "elseif", "else", "while", "for", "switch", "case", "default",
+		"return", "var", "function", "component", "interface", "property",
+		"import", "throw", "rethrow", "try", "catch", "finally", "break",
+		"continue", "param", "lock", "transaction", "savecontent", "include",
+		"abort", "exit", "public", "private", "package", "remote", "static", "final":
+		return true
+	default:
+		return false
+	}
 }
 
 // isStandaloneEquals reports whether tok (`=`) is a bare assignment operator

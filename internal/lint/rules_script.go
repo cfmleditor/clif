@@ -58,11 +58,14 @@ func findScriptCalls(fc *FileContext, fnName, msg string) []cflint.Issue {
 	var out []cflint.Issue
 
 	for _, r := range fc.Regions() {
-		if r.Kind != parser.RegionScript {
+		if r.Kind == parser.RegionScript {
+			out = append(out, scanScriptTextForCall(fc, r.Text, r.Offset, fnName, msg)...)
+
 			continue
 		}
 
-		out = append(out, scanScriptTextForCall(fc, r.Text, r.Offset, fnName, msg)...)
+		// Scan `#...#` expressions inside tag/output regions (e.g. `<cfoutput>#writeDump(...)#</cfoutput>`).
+		out = append(out, scanHashExprsForCall(fc, r.Text, r.Offset, fnName, msg)...)
 	}
 
 	// Also check <cfset>, <cfif>, <cfelseif>, <cfreturn> tag expressions.
@@ -79,6 +82,52 @@ func findScriptCalls(fc *FileContext, fnName, msg string) []cflint.Issue {
 		innerStart := len(tag.Name) + 1
 		inner := body[innerStart : len(body)-1]
 		out = append(out, scanScriptTextForCall(fc, inner, tag.Start+innerStart, fnName, msg)...)
+	}
+
+	return out
+}
+
+func scanHashExprsForCall(fc *FileContext, text string, baseOffset int, fnName, msg string) []cflint.Issue {
+	if parser.IndexFold(text, fnName) < 0 {
+		return nil
+	}
+
+	var out []cflint.Issue
+
+	for i := 0; i < len(text); {
+		if strings.HasPrefix(text[i:], "<!---") {
+			if end := strings.Index(text[i+5:], "--->"); end >= 0 {
+				i += 5 + end + 4
+
+				continue
+			}
+
+			return out
+		}
+
+		if text[i] != '#' {
+			i++
+
+			continue
+		}
+
+		if i+1 < len(text) && text[i+1] == '#' {
+			i += 2
+
+			continue
+		}
+
+		closeRel := strings.IndexByte(text[i+1:], '#')
+		if closeRel < 0 {
+			return out
+		}
+
+		expr := text[i+1 : i+1+closeRel]
+		if parser.IndexFold(expr, fnName) >= 0 {
+			out = append(out, scanScriptTextForCall(fc, expr, baseOffset+i+1, fnName, msg)...)
+		}
+
+		i += closeRel + 2
 	}
 
 	return out

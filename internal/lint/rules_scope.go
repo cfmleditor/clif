@@ -1,7 +1,9 @@
 package lint
 
 import (
+	"cmp"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/cflint"
@@ -60,14 +62,14 @@ var cfmlKeywords = map[string]bool{
 }
 
 type funcScopeAnalysis struct {
-	params      map[string]bool
-	vars        map[string]int // lowercased name -> first var decl offset
-	localAssign map[string]bool
-	tagBound    map[string]bool
-	catchVars   map[string]bool
-	bareWrites  []identUse
-	bareReads   []identUse
-	argScoped   map[string]bool
+	localModeModern bool
+	params          map[string]bool
+	vars            map[string]int // lowercased name -> first var decl offset
+	localAssign     map[string]bool
+	catchVars       map[string]bool
+	bareWrites      []identUse
+	bareReads       []identUse
+	argScoped       map[string]bool
 }
 
 type identUse struct {
@@ -75,14 +77,66 @@ type identUse struct {
 	offset int
 }
 
+var scriptTagOutputAttrs = map[string]map[string]bool{
+	"cfloop":        {"index": true, "item": true},
+	"cfquery":       {"name": true, "result": true},
+	"cfhttp":        {"result": true, "name": true},
+	"cffile":        {"variable": true, "result": true},
+	"cfsavecontent": {"variable": true},
+	"cfdirectory":   {"name": true},
+	"cfprocresult":  {"name": true},
+	"cfstoredproc":  {"result": true},
+	"cfinvoke":      {"returnvariable": true},
+	"cfwddx":        {"output": true},
+	"cfxml":         {"variable": true},
+	"cfpdf":         {"name": true},
+	"cfimage":       {"name": true, "structname": true},
+}
+
+func hasModernLocalMode(header string) bool {
+	low := strings.ToLower(header)
+
+	for pos := 0; pos < len(low); {
+		rel := strings.Index(low[pos:], "localmode")
+		if rel < 0 {
+			return false
+		}
+
+		idx := pos + rel
+		pos = idx + len("localmode")
+
+		if idx > 0 && isIdentChar(low[idx-1]) {
+			continue
+		}
+
+		rest := strings.TrimSpace(low[pos:])
+		if !strings.HasPrefix(rest, "=") {
+			continue
+		}
+
+		val := strings.TrimSpace(rest[1:])
+		val = strings.TrimLeft(val, `"'#`)
+
+		if strings.HasPrefix(val, "modern") || strings.HasPrefix(val, "true") {
+			return true
+		}
+	}
+
+	return false
+}
+
+func isIdentChar(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= '0' && b <= '9') || b == '_'
+}
+
 func analyzeFunctionScope(content string, span *parser.FunctionSpan) *funcScopeAnalysis {
 	a := &funcScopeAnalysis{
-		params:      make(map[string]bool),
-		vars:        make(map[string]int),
-		localAssign: make(map[string]bool),
-		tagBound:    make(map[string]bool),
-		catchVars:   make(map[string]bool),
-		argScoped:   make(map[string]bool),
+		localModeModern: span.Start >= 0 && span.Body > span.Start && hasModernLocalMode(content[span.Start:span.Body]),
+		params:          make(map[string]bool),
+		vars:            make(map[string]int),
+		localAssign:     make(map[string]bool),
+		catchVars:       make(map[string]bool),
+		argScoped:       make(map[string]bool),
 	}
 
 	body := span.BodyText(content)
@@ -103,23 +157,20 @@ func analyzeFunctionScope(content string, span *parser.FunctionSpan) *funcScopeA
 		}
 	}
 
-	// 2. Collect tag-bound variables inside the function body.
-	for _, tag := range parser.CFTags(body, "cfloop", "cfquery", "cfhttp", "cffile", "cfsavecontent", "cfdirectory", "cfprocresult") {
+	// 2. Collect tag output attributes inside the function body.
+	for _, tag := range parser.CFTags(body, "cfloop", "cfquery", "cfhttp", "cffile", "cfsavecontent", "cfdirectory", "cfprocresult", "cfstoredproc", "cfinvoke", "cfwddx", "cfxml") {
 		if tag.Close {
 			continue
 		}
 
-		for _, attr := range []string{"index", "item", "name", "result", "variable"} {
-			if val, ok := tag.Attr(attr); ok && val != "" {
-				base := strings.ToLower(strings.TrimSpace(val))
-				if prefix, after, found := strings.Cut(base, "."); found {
-					if prefix == "local" {
-						a.localAssign[after] = true
-					}
-				} else {
-					a.tagBound[base] = true
-				}
+		attrs := scriptTagOutputAttrs[strings.ToLower(tag.Name)]
+		for attr := range attrs {
+			val, ok := tag.Attr(attr)
+			if !ok {
+				continue
 			}
+
+			recordOutputVarName(val, span.Body+tag.Start, a)
 		}
 	}
 
@@ -149,7 +200,36 @@ func analyzeFunctionScope(content string, span *parser.FunctionSpan) *funcScopeA
 		}
 	}
 
+	slices.SortStableFunc(a.bareWrites, func(x, y identUse) int { return cmp.Compare(x.offset, y.offset) })
+	slices.SortStableFunc(a.bareReads, func(x, y identUse) int { return cmp.Compare(x.offset, y.offset) })
+
 	return a
+}
+
+func recordOutputVarName(raw string, offset int, a *funcScopeAnalysis) {
+	val := strings.TrimSpace(raw)
+	if val == "" || strings.Contains(val, "#") {
+		return
+	}
+
+	low := strings.ToLower(val)
+	if prefix, after, found := strings.Cut(low, "."); found {
+		if prefix == "local" && after != "" {
+			a.localAssign[after] = true
+		}
+
+		if !cfmlScopes[prefix] && !cfmlKeywords[prefix] {
+			a.bareWrites = append(a.bareWrites, identUse{name: val[:len(prefix)], offset: offset})
+		}
+
+		return
+	}
+
+	if cfmlScopes[low] || cfmlKeywords[low] {
+		return
+	}
+
+	a.bareWrites = append(a.bareWrites, identUse{name: val, offset: offset})
 }
 
 func collectScriptParamNames(paramsText string, dst map[string]bool) {
@@ -203,17 +283,37 @@ func collectScriptParamNames(paramsText string, dst map[string]bool) {
 	flush()
 }
 
+type parenFrame struct {
+	isFor    bool
+	callName string // lowercased callee name when this `(` is a call arg list
+}
+
 func scanScriptBodyScope(text string, baseOffset int, a *funcScopeAnalysis) {
 	sc := parser.NewSourceScanner(text)
 
+	var toks []parser.Token
+	for t := sc.NextSkipComments(); t.Kind != parser.TokEOF; t = sc.NextSkipComments() {
+		toks = append(toks, t)
+	}
+
 	var (
-		prev2, prev parser.Token
-		braceKinds  []bool // true = struct literal brace, false = block brace
+		braceKinds []bool // true = struct literal brace, false = block brace
+		parens     []parenFrame
 	)
 
-	cur := sc.NextSkipComments()
-	for cur.Kind != parser.TokEOF {
-		next := sc.NextSkipComments()
+	for i, cur := range toks {
+		var prev2, prev, next parser.Token
+		if i >= 2 {
+			prev2 = toks[i-2]
+		}
+
+		if i >= 1 {
+			prev = toks[i-1]
+		}
+
+		if i+1 < len(toks) {
+			next = toks[i+1]
+		}
 
 		switch cur.Kind {
 		case parser.TokLBrace:
@@ -226,19 +326,38 @@ func scanScriptBodyScope(text string, baseOffset int, a *funcScopeAnalysis) {
 			if len(braceKinds) > 0 {
 				braceKinds = braceKinds[:len(braceKinds)-1]
 			}
+		case parser.TokLParen:
+			f := parenFrame{}
+
+			if prev.Kind == parser.TokIdent {
+				lowPrev := strings.ToLower(prev.Value)
+				if lowPrev == "for" {
+					f.isFor = true
+				} else if !cfmlKeywords[lowPrev] {
+					f.callName = lowPrev
+				}
+			}
+
+			parens = append(parens, f)
+		case parser.TokRParen:
+			if len(parens) > 0 {
+				parens = parens[:len(parens)-1]
+			}
 		case parser.TokIdent:
 			inStructLit := len(braceKinds) > 0 && braceKinds[len(braceKinds)-1]
-			recordScriptIdent(baseOffset, prev2, prev, cur, next, inStructLit, a)
+
+			var topParen parenFrame
+			if len(parens) > 0 {
+				topParen = parens[len(parens)-1]
+			}
+
+			recordScriptIdent(toks, i, baseOffset, prev2, prev, cur, next, inStructLit, topParen, a)
 		default:
 		}
-
-		prev2 = prev
-		prev = cur
-		cur = next
 	}
 }
 
-func recordScriptIdent(baseOffset int, prev2, prev, cur, next parser.Token, inStructLit bool, a *funcScopeAnalysis) {
+func recordScriptIdent(toks []parser.Token, idx, baseOffset int, prev2, prev, cur, next parser.Token, inStructLit bool, topParen parenFrame, a *funcScopeAnalysis) {
 	low := strings.ToLower(cur.Value)
 
 	// Record `arguments.<name>` reads/writes.
@@ -289,13 +408,31 @@ func recordScriptIdent(baseOffset int, prev2, prev, cur, next parser.Token, inSt
 		return
 	}
 
+	// Named argument inside a function or script-tag call `fn(arg=val)`.
+	if topParen.callName != "" && next.Kind == parser.TokEquals && isStandaloneEquals(cur, next, tokAt(toks, idx+2)) {
+		if attrs := scriptTagOutputAttrs[topParen.callName]; attrs != nil && attrs[low] {
+			if valTok := tokAt(toks, idx+2); valTok.Kind == parser.TokString && len(valTok.Value) >= 2 {
+				recordOutputVarName(valTok.Value[1:len(valTok.Value)-1], baseOffset+cur.Offset, a)
+			}
+		}
+
+		return
+	}
+
+	// `for (item in expr)` without `var`.
+	if topParen.isFor && next.Kind == parser.TokIdent && strings.EqualFold(next.Value, "in") {
+		a.bareWrites = append(a.bareWrites, identUse{name: cur.Value, offset: baseOffset + cur.Offset})
+
+		return
+	}
+
 	// Struct literal key `{ a = 1 }`.
 	if inStructLit && next.Kind == parser.TokEquals {
 		return
 	}
 
-	// Bare assignment `x = ...` (exclude `==`, `!=`, etc. by checking single `=`).
-	if next.Kind == parser.TokEquals && !strings.HasPrefix(next.Value, "==") {
+	// Bare or dotted/indexed assignment `x = ...`, `x.y = ...`, `x["y"] = ...`.
+	if isAssignLHS(toks, idx) {
 		a.bareWrites = append(a.bareWrites, identUse{name: cur.Value, offset: baseOffset + cur.Offset})
 
 		return
@@ -304,8 +441,83 @@ func recordScriptIdent(baseOffset int, prev2, prev, cur, next parser.Token, inSt
 	a.bareReads = append(a.bareReads, identUse{name: cur.Value, offset: baseOffset + cur.Offset})
 }
 
+func tokAt(toks []parser.Token, i int) parser.Token {
+	if i < 0 || i >= len(toks) {
+		return parser.Token{}
+	}
+
+	return toks[i]
+}
+
+// isAssignLHS reports whether the identifier at toks[idx] is the root of an
+// assignment LHS (`x = ...`, `x.y = ...`, `x["y"] = ...`, `x.y.[z] = ...`).
+func isAssignLHS(toks []parser.Token, idx int) bool {
+	j := idx + 1
+	for j < len(toks) {
+		switch toks[j].Kind {
+		case parser.TokDot:
+			if j+1 >= len(toks) {
+				return false
+			}
+
+			if toks[j+1].Kind == parser.TokIdent {
+				j += 2
+
+				continue
+			}
+
+			if toks[j+1].Kind == parser.TokLBracket {
+				j = skipBracketGroup(toks, j+1)
+				if j < 0 {
+					return false
+				}
+
+				continue
+			}
+
+			return false
+		case parser.TokLBracket:
+			j = skipBracketGroup(toks, j)
+			if j < 0 {
+				return false
+			}
+		case parser.TokEquals:
+			return isStandaloneEquals(toks[j-1], toks[j], tokAt(toks, j+1))
+		default:
+			return false
+		}
+	}
+
+	return false
+}
+
+func skipBracketGroup(toks []parser.Token, start int) int {
+	depth := 1
+
+	for j := start + 1; j < len(toks); j++ {
+		switch toks[j].Kind {
+		case parser.TokLBracket:
+			depth++
+		case parser.TokRBracket:
+			depth--
+			if depth == 0 {
+				return j + 1
+			}
+		default:
+		}
+	}
+
+	return -1
+}
+
 func checkMissingVar(fc *FileContext) []cflint.Issue {
-	return checkUnscopedUses(fc, func(a *funcScopeAnalysis) []identUse { return a.bareWrites }, "Variable %s is not declared with a var statement.")
+	return checkUnscopedUses(fc, func(a *funcScopeAnalysis) []identUse {
+		if a.localModeModern {
+			return nil
+		}
+
+		return a.bareWrites
+	}, "Variable %s is not declared with a var statement.")
 }
 
 func checkUnscopedUses(fc *FileContext, pick func(*funcScopeAnalysis) []identUse, msgFmt string) []cflint.Issue {
@@ -316,7 +528,7 @@ func checkUnscopedUses(fc *FileContext, pick func(*funcScopeAnalysis) []identUse
 
 		for _, u := range pick(a) {
 			low := strings.ToLower(u.name)
-			if reported[low] || a.params[low] || a.localAssign[low] || a.tagBound[low] || a.catchVars[low] {
+			if reported[low] || a.params[low] || a.localAssign[low] || a.catchVars[low] {
 				continue
 			}
 

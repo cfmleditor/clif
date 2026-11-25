@@ -108,6 +108,9 @@ func replayOneFixture(t *testing.T, runner *NativeRunner, expectedPath string, b
 	}
 
 	matched := maps.Equal(gotKeys, expectedKeys)
+	if !matched && os.Getenv("CFLINT_TESTS_VERBOSE") != "" {
+		t.Logf("DIFF %s:\n  expected=%v\n  got=%v", srcFile, expectedKeys, gotKeys)
+	}
 
 	for r := range rulesInFixture {
 		st := byRule[r]

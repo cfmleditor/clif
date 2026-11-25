@@ -224,8 +224,11 @@ func checkQueryParamReq(fc *FileContext) []cflint.Issue {
 				continue
 			}
 
-			// Scan `#expr#` inside the SQL string literal.
-			out = append(out, scanQueryBodyHashes(fc, str.Value, r.Offset+str.Offset, lines, &matcher)...)
+			// Scan `#expr#` inside the SQL string literal. Report at most once
+			// per setSQL/queryExecute call to match CFLint's QUERYPARAM_REQ.
+			if issues := scanQueryBodyHashes(fc, str.Value, r.Offset+str.Offset, lines, &matcher); len(issues) > 0 {
+				out = append(out, issues[0])
+			}
 		}
 	}
 

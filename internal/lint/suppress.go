@@ -39,22 +39,67 @@ func ParseSuppressions(content string) *LineSuppressions {
 			s.addLine(lineNum, codes)
 		}
 
-		// 2. `@CFLintIgnore CODE1,CODE2` applies to this line and the next
-		// non-blank line.
+		// 2. Single-line `@CFLintIgnore CODE1,CODE2` applies to this line and
+		// the next non-blank line.
 		if codes := parseTagIgnore(line); len(codes) > 0 {
 			s.addLine(lineNum, codes)
-
-			for next := i + 1; next < len(lines); next++ {
-				if strings.TrimSpace(lines[next]) != "" {
-					s.addLine(next+1, codes)
-
-					break
-				}
-			}
+			s.addNextNonBlank(lines, i+1, codes)
 		}
 	}
 
+	// 3. Multiline `<!--- ... @CFLintIgnore CODE ... --->` comments.
+	s.parseMultilineTagIgnores(content, lines)
+
 	return s
+}
+
+func (s *LineSuppressions) addNextNonBlank(lines []string, startIdx int, codes []string) {
+	for next := startIdx; next < len(lines); next++ {
+		if strings.TrimSpace(lines[next]) != "" {
+			s.addLine(next+1, codes)
+
+			return
+		}
+	}
+}
+
+func (s *LineSuppressions) parseMultilineTagIgnores(content string, lines []string) {
+	pos := 0
+	for {
+		openIdx := strings.Index(content[pos:], "<!---")
+		if openIdx < 0 {
+			return
+		}
+
+		openIdx += pos
+
+		closeRel := strings.Index(content[openIdx+5:], "--->")
+		if closeRel < 0 {
+			return
+		}
+
+		closeEnd := openIdx + 5 + closeRel + 4
+		body := content[openIdx+5 : openIdx+5+closeRel]
+		pos = closeEnd
+
+		if !strings.Contains(body, "@CFLintIgnore") {
+			continue
+		}
+
+		codes := parseTagIgnore(body)
+		if len(codes) == 0 {
+			continue
+		}
+
+		startLine := 1 + strings.Count(content[:openIdx], "\n")
+		endLine := 1 + strings.Count(content[:closeEnd], "\n")
+
+		for l := startLine; l <= endLine; l++ {
+			s.addLine(l, codes)
+		}
+
+		s.addNextNonBlank(lines, endLine, codes)
+	}
 }
 
 func (s *LineSuppressions) addLine(line int, codes []string) {

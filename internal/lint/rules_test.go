@@ -117,8 +117,8 @@ func TestTierBStructureRules(t *testing.T) {
 		t.Errorf("NO_DEFAULT_INSIDE_SWITCH: got %v, want 1", got)
 	}
 
-	if got := runNativeRule(t, "svc.cfc", "COMPARE_INSTEAD_OF_ASSIGN", "component {\n\tfunction f(x) { if (x = 1) {} if (x == 1) {} }\n}\n"); len(got) != 1 {
-		t.Errorf("COMPARE_INSTEAD_OF_ASSIGN: got %v, want 1", got)
+	if got := runNativeRule(t, "svc.cfc", "COMPARE_INSTEAD_OF_ASSIGN", "component {\n\tfunction f(x) { x == 1; x EQ 2; if (x == 1) {} var b = x == 1; }\n}\n"); len(got) != 2 {
+		t.Errorf("COMPARE_INSTEAD_OF_ASSIGN: got %v, want 2", got)
 	}
 
 	if got := runNativeRule(t, "svc.cfc", "SQL_SELECT_STAR", `<cfcomponent><cfquery name="q">SELECT * FROM users</cfquery><cfquery name="q2">SELECT id FROM users</cfquery></cfcomponent>`); len(got) != 1 {
