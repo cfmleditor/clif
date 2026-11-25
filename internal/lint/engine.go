@@ -13,6 +13,7 @@ import (
 	"github.com/cfmleditor/clif/internal/cflint"
 	"github.com/cfmleditor/clif/internal/language"
 	"github.com/cfmleditor/clif/internal/parser"
+	cfpath "github.com/cfmleditor/clif/internal/path"
 	sitter "github.com/tree-sitter/go-tree-sitter"
 	"go.lsp.dev/protocol"
 )
@@ -122,8 +123,21 @@ type FileContext struct {
 	regionsOnce sync.Once
 	regions     []parser.Region
 
+	parseOnce sync.Once
+	parsed    *parser.ParseResult
+
 	treeOnce sync.Once
 	tree     *sitter.Tree
+}
+
+// ParseResult lazily parses the file with clif's internal parser and caches
+// the result (including FunctionSpans) for rules that inspect function scopes.
+func (fc *FileContext) ParseResult() *parser.ParseResult {
+	fc.parseOnce.Do(func() {
+		fc.parsed = parser.Parse(cfpath.ToURI(fc.Path), fc.Text())
+	})
+
+	return fc.parsed
 }
 
 // Text returns Content as a string, cached once per file.
