@@ -1207,22 +1207,17 @@ there is nothing it could honestly do with `false` short of declining to format.
 
 ### Features
 
-Most capabilities the server adds are on by default and each can be switched off
-on its own, for when one misbehaves on a real workspace and the alternative is
-downgrading the binary. **`structureDiagnostics`, `inlayHints` and `rename` are
-the exceptions: they are off unless you ask for them.**
+Every capability the server adds is on by default (`references` is the one still
+off unless asked for) and each can be switched off on its own, for when one
+misbehaves on a real workspace and the alternative is downgrading the binary.
+`structureDiagnostics`, `inlayHints`, `rename`, `renameCrossFile` and
+`semanticTokens` were opt-ins while new and are on from 0.7.7.
 
 ```json
 {
   "features": {
-    "documentHighlight": true,
-    "folding": true,
-    "watchedFiles": true,
-    "rangeFormatting": true,
-    "typeDefinition": true,
-    "structureDiagnostics": false,
     "inlayHints": false,
-    "rename": false
+    "semanticTokens": false
   }
 }
 ```
@@ -1234,9 +1229,11 @@ the exceptions: they are off unless you ask for them.**
 | `watchedFiles` | on | Re-indexing files changed outside the editor. With it off the index reflects startup plus whatever you have had open, and `clif.reindex` is the way to refresh it. |
 | `rangeFormatting` | on | "Format Selection". Switching it off leaves whole-document formatting and format-on-save working. |
 | `typeDefinition` | on | "Go to Type Definition": from a variable, argument or property to the component it holds, or from a call to the component the function returns. |
-| `structureDiagnostics` | **off** | Diagnostics for the structure of a document's CF tags (a missing attribute and a repeated argument are errors; a tag left open or closed with no opener, one outside its parent and a repeated attribute are warnings, since a template included into another page can be right to have them), published as it is opened and edited (300 ms after the last change): a tag left open (`<cfif>` with no `</cfif>`), a closing tag with no opener, a `<cfcatch>` outside a `<cftry>` (and `<cfelse>`, `<cfcase>`, `<cfargument>` outside theirs), a `<cffunction>`, `<cfargument>`, `<cfparam>` or `<cfproperty>` with no `name`, a `<cfinclude>` with no `template`, an attribute given twice (a warning), and an argument a function declares twice. Only tags that always take a body are checked for closing, and a tag that can stand alone (`<cfhttp>`, `<cftransaction action="commit">`) never is, so a page that runs reports nothing: over 10,400 pages of real code the only findings were broken test inputs and one malformed import script. Off by default because it is new, and because an editor that draws its own tag errors would show each twice. Source `clif`; the code is the kind (`unclosed-tag`, `unmatched-close`, `misplaced-tag`, `missing-attribute`, `duplicate-attribute`, `duplicate-argument`). |
-| `inlayHints` | **off** | Inlay hints: a component's own dot path beside its declaration, `Path: (models.User)`, the name `new` and `createObject` take. None in an `Application.cfc`. Off by default because it is new, and because an editor that draws its own hints would show each twice. |
-| `rename` | **off** | Rename a local variable of a script function: the variable under the cursor, every place the function writes it (`var x`, `local.x`, its uses, a use in a string's `#...#`), in that document. It does not rename an argument (callers pass it by name) or anything outside a function, and it refuses, saying why, where it cannot show it has every use: the name in a string (`structKeyExists( local, "x" )`), `evaluate()`, a closure or arrow function that declares or takes the same name, a `catch` that binds it, CF tags in the body. A new name is refused when CFML reserves it (`return`, `local`, `true`, a scope), when it is a statement word (`lock`, `param`, `thread`, `static`, …) and the variable is written at the start of a statement, where the engine would read it as that statement, and when the function already means something by it: an argument, a variable, a catch variable, a variable it reads from outside, a function it calls. The refusal says which. A struct key, a named argument's label, another object's member and a type are not names the function means anything by. A rename sent from a name that is spelled like the variable but is not it (a struct key, `o.x`, a label) is refused too. Off by default because a rename edits code. |
+| `structureDiagnostics` | on | Diagnostics for the structure of a document's CF tags (a missing attribute and a repeated argument are errors; a tag left open or closed with no opener, one outside its parent and a repeated attribute are warnings, since a template included into another page can be right to have them), published as it is opened and edited (300 ms after the last change): a tag left open (`<cfif>` with no `</cfif>`), a closing tag with no opener, a `<cfcatch>` outside a `<cftry>` (and `<cfelse>`, `<cfcase>`, `<cfargument>` outside theirs), a `<cffunction>`, `<cfargument>`, `<cfparam>` or `<cfproperty>` with no `name`, a `<cfinclude>` with no `template`, an attribute given twice (a warning), and an argument a function declares twice. Only tags that always take a body are checked for closing, and a tag that can stand alone (`<cfhttp>`, `<cftransaction action="commit">`) never is, so a page that runs reports nothing: over 10,400 pages of real code the only findings were broken test inputs and one malformed import script. An editor that draws its own tag errors would show each twice, so turn it off there. Source `clif`; the code is the kind (`unclosed-tag`, `unmatched-close`, `misplaced-tag`, `missing-attribute`, `duplicate-attribute`, `duplicate-argument`). |
+| `inlayHints` | on | Inlay hints: a component's own dot path beside its declaration, `Path: (models.User)`, the name `new` and `createObject` take. None in an `Application.cfc`. An editor that draws its own hints would show each twice, so turn it off there. |
+| `rename` | on | Rename a local variable of a script function: the variable under the cursor, every place the function writes it (`var x`, `local.x`, its uses, a use in a string's `#...#`), in that document. It does not rename an argument (callers pass it by name) or anything outside a function, and it refuses, saying why, where it cannot show it has every use: the name in a string (`structKeyExists( local, "x" )`), `evaluate()`, a closure or arrow function that declares or takes the same name, a `catch` that binds it, CF tags in the body. A new name is refused when CFML reserves it (`return`, `local`, `true`, a scope), when it is a statement word (`lock`, `param`, `thread`, `static`, …) and the variable is written at the start of a statement, where the engine would read it as that statement, and when the function already means something by it: an argument, a variable, a catch variable, a variable it reads from outside, a function it calls. The refusal says which. A struct key, a named argument's label, another object's member and a type are not names the function means anything by. A rename sent from a name that is spelled like the variable but is not it (a struct key, `o.x`, a label) is refused too. Switch it off to stop the editor offering a rename that edits code. |
+| `renameCrossFile` | on | Rename a component's method or property across the workspace (needs `rename`): a method together with every declaration of it in its `extends`/`implements` family, and every call that resolves to any of them. It refuses, saying why, where a call cannot be resolved safely, where a member already declares the new name, and where a member is bundled framework code or lies outside the workspace. |
+| `semanticTokens` | on | Semantic highlighting (`textDocument/semanticTokens/full` and `/range`). |
 | `outputContextInterpolation` | on | Reading `#...#` in a tag file's text only where ColdFusion evaluates it: inside `<cfoutput>`, `<cfquery>`, `<cfmail>` and `output="true"` functions, and in the attributes of CF and custom tags. Also reads a `.cfm` template with no CF tags as HTML rather than CFScript. Off, every pair of hashes in text is scanned, which finds calls in JavaScript, CSS and prose between two stray hashes. Unlike the others this changes what the parser reads, not what the server advertises. |
 
 An editor that is given folding ranges uses them in place of its own indentation

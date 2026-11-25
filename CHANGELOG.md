@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Cross-file rename no longer edits framework stubs or files outside the workspace.** Renaming a method that overrides one a bundled framework stub declares (a ColdBox handler's `onHandlerDIComplete`) returned an edit for the virtual stub file, which no client can apply, and renamed a method the framework calls by name. A family reaching a file outside the workspace roots left callers unseen. Both are refused now, naming the file, as an ancestor's method was before the family rename. Tests: `TestCrossFileRenameRefusesFrameworkStubs`, `TestCrossFileRenameRefusesFamilyOutsideTheWorkspace`.
+- **Docs state the real `features` defaults.** `README.md`, `CLAUDE.md` and `.ai/docs/guide/lsp.md` still called `structureDiagnostics`, `inlayHints` and `rename` opt-in after 0.7.7 turned them, `renameCrossFile` and `semanticTokens` on; the README's table now lists the last two.
+
 ## [0.7.7]
 
 ### Added
