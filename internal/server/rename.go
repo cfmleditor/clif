@@ -131,7 +131,9 @@ func (s *Server) handleRename(_ context.Context, rawParams []byte) (any, error) 
 
 	req, err := s.renameAt(docURI, params.Position)
 	if errors.Is(err, parser.ErrNoVariable) && s.Features.RenameCrossFile {
-		return s.performCrossFileRename(docURI, params.Position, params.NewName)
+		if edit, cerr := s.performCrossFileRename(docURI, params.Position, params.NewName); !errors.Is(cerr, parser.ErrNoVariable) {
+			return edit, cerr
+		}
 	}
 
 	if err != nil {

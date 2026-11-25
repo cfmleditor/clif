@@ -64,6 +64,7 @@ func TestInlayHintNeedsTheFeatureAndAComponent(t *testing.T) {
 	dir := t.TempDir()
 	s := newTestServer()
 	s.WorkspaceFolders = []string{dir}
+	s.Features.InlayHints = false
 
 	user := uri.File(filepath.Join(dir, "User.cfc"))
 	openDoc(t, s, user, "component {\n}\n")
@@ -93,14 +94,14 @@ func TestInlayHintNeedsTheFeatureAndAComponent(t *testing.T) {
 
 func TestInlayHintIsAdvertisedOnlyWhenOn(t *testing.T) {
 	s := newTestServer()
-	if p, _ := s.capabilities().InlayHintProvider.(protocol.Boolean); bool(p) {
-		t.Error("inlay hints advertised with the feature off")
+	if p, _ := s.capabilities().InlayHintProvider.(protocol.Boolean); !bool(p) {
+		t.Error("inlay hints not advertised by default")
 	}
 
-	s.Features.InlayHints = true
+	s.Features.InlayHints = false
 
-	if p, _ := s.capabilities().InlayHintProvider.(protocol.Boolean); !bool(p) {
-		t.Error("inlay hints not advertised with the feature on")
+	if p, _ := s.capabilities().InlayHintProvider.(protocol.Boolean); bool(p) {
+		t.Error("inlay hints advertised with the feature off")
 	}
 }
 

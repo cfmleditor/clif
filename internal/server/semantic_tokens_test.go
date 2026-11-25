@@ -73,11 +73,13 @@ func decodeSemanticTokens(t *testing.T, content string, data []uint32) []decoded
 	return out
 }
 
-func TestSemanticTokensOffByDefault(t *testing.T) {
+func TestSemanticTokensOnByDefaultAndCanBeDisabled(t *testing.T) {
 	s := newTestServer()
-	if s.Features.SemanticTokens {
-		t.Fatal("expected SemanticTokens to be off by default")
+	if !s.Features.SemanticTokens {
+		t.Fatal("expected SemanticTokens to be on by default")
 	}
+
+	s.Features.SemanticTokens = false
 
 	caps := s.capabilities()
 	if caps.SemanticTokensProvider != nil {

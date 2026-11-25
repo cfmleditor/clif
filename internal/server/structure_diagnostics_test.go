@@ -145,10 +145,14 @@ func TestStructureDiagnosticsFollowTheDocument(t *testing.T) {
 	waitForStructure(t, s, docURI, nil)
 }
 
-// The feature is off unless asked for: an editor that draws its own errors
-// would show each twice.
-func TestStructureDiagnosticsAreOffByDefault(t *testing.T) {
+func TestStructureDiagnosticsOnByDefaultAndCanBeDisabled(t *testing.T) {
 	s := newTestServer()
+	if !s.Features.StructureDiagnostics {
+		t.Fatal("expected StructureDiagnostics to be on by default")
+	}
+
+	s.Features.StructureDiagnostics = false
+
 	docURI := uri.File("/tmp/structure_off.cfc")
 
 	openDoc(t, s, docURI, "<cfcomponent><cfif a></cfcomponent>")

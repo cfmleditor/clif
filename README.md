@@ -853,7 +853,7 @@ The same settings can also be supplied by your editor as LSP `initializationOpti
 | `completions` | No | `tagSnippets`, `functionSnippets`, `globalFunctionResolution`. All three default to `true`; set the block only to turn one off. |
 | `docBlock` | No | What `/**` expands to: `gap` (default `true`) puts a blank ` *` line between the hint and the tags, and `extra` is a list of `{ "name", "default", "types" }` tags added to every block (`types` limits them to `component`, `interface`, `function` or `property`). Inside a doc block, `@` completes the attributes of the tag being documented and a function's argument names. |
 | `references` | No | `textDocument/references` support, off by default. See below. |
-| `features` | No | Per-capability switches. `documentHighlight`, `folding`, `watchedFiles`, `rangeFormatting`, `typeDefinition`, `variableDefinitions`, `routes` and `outputContextInterpolation` default to `true`; `structureDiagnostics`, `inlayHints` and `rename` default to `false` (opt-in). See below. |
+| `features` | No | Per-capability switches. All feature switches (`documentHighlight`, `folding`, `watchedFiles`, `rangeFormatting`, `typeDefinition`, `variableDefinitions`, `routes`, `outputContextInterpolation`, `structureDiagnostics`, `inlayHints`, `rename`, `renameCrossFile`, and `semanticTokens`) default to `true`; set any switch to `false` to opt out. See below. |
 | `check` | No | What `clif check` runs in CI and what fails it. See [Checks for CI](#checks-for-ci). |
 | `debug` | No | Enable debug logging (`zap.NewDevelopment`). Outputs verbose logs to stderr. |
 
