@@ -195,6 +195,17 @@ func (n *NativeRunner) Scan(ctx context.Context, filePath string) ([]protocol.Di
 	return diags, nil
 }
 
+// ScanFiles lints multiple files from disk and returns LSP diagnostics keyed by
+// file path.
+func (n *NativeRunner) ScanFiles(ctx context.Context, files []string) (map[string][]protocol.Diagnostic, error) {
+	run, err := n.Lint(ctx, files)
+	if err != nil {
+		return nil, err
+	}
+
+	return run.Diagnostics(), nil
+}
+
 func (n *NativeRunner) lintOne(filePath string, content []byte, rc *RCConfig, rules []Rule) []cflint.RunIssue {
 	fc := &FileContext{
 		Path:    filePath,

@@ -12,6 +12,7 @@ import (
 	"github.com/cfmleditor/clif/internal/cflint"
 	"github.com/cfmleditor/clif/internal/config"
 	"github.com/cfmleditor/clif/internal/confine"
+	"github.com/cfmleditor/clif/internal/lint"
 	cflog "github.com/cfmleditor/clif/internal/log"
 	"github.com/cfmleditor/clif/internal/unresolved"
 )
@@ -226,7 +227,7 @@ func (s *Server) cflintReports(ctx context.Context, files, targets []string) ([]
 	s.mu.RUnlock()
 
 	if runner == nil {
-		r, err := cflint.NewRunner(ctx, s.LintMinSeverity)
+		r, err := lint.NewEngine(ctx, s.LintEngine, s.LintMinSeverity, s.Version)
 		if err != nil {
 			return nil, 0, err
 		}

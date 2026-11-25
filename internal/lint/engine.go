@@ -25,6 +25,7 @@ type Engine interface {
 	Lint(ctx context.Context, files []string) (*cflint.Run, error)
 	LintContent(ctx context.Context, sources []cflint.Source) (*cflint.Run, error)
 	Scan(ctx context.Context, filePath string) ([]protocol.Diagnostic, error)
+	ScanFiles(ctx context.Context, files []string) (map[string][]protocol.Diagnostic, error)
 }
 
 // Rule describes one native lint rule.

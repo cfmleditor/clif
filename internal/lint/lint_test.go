@@ -195,6 +195,12 @@ func (f *fakeFallbackEngine) Scan(_ context.Context, _ string) ([]protocol.Diagn
 	return nil, nil
 }
 
+func (f *fakeFallbackEngine) ScanFiles(_ context.Context, _ []string) (map[string][]protocol.Diagnostic, error) {
+	f.called = true
+
+	return nil, nil
+}
+
 func TestHybridRunnerSkipsFallbackWhenAllRulesAreNative(t *testing.T) {
 	dir := t.TempDir()
 	rcBody := `{"inheritParent": false, "includes": [{"code": "ONLY_NATIVE"}]}`

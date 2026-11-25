@@ -520,26 +520,12 @@ func runLintComparison(sel *cflintSelection, minSeverity string, logf func(strin
 }
 
 func buildLintEngine(engineName, minSeverity string) lint.Engine {
-	switch engineName {
-	case config.LintEngineNative:
-		return lint.NewNativeRunner(lint.DefaultRegistry, minSeverity, version)
-	case config.LintEngineHybrid:
-		native := lint.NewNativeRunner(lint.DefaultRegistry, minSeverity, version)
-
-		fb, err := cflint.NewRunner(context.Background(), minSeverity)
-		if err != nil {
-			return lint.NewHybridRunner(native, nil)
-		}
-
-		return lint.NewHybridRunner(native, fb)
-	default:
-		runner, err := cflint.NewRunner(context.Background(), minSeverity)
-		if err != nil {
-			cflintFailf("linter unavailable: %v\n", err)
-		}
-
-		return runner
+	runner, err := lint.NewEngine(context.Background(), engineName, minSeverity, version)
+	if err != nil {
+		cflintFailf("linter unavailable: %v\n", err)
 	}
+
+	return runner
 }
 
 func lintSelection(runner lint.Engine, sel *cflintSelection) (*cflint.Run, error) {

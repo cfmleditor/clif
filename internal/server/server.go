@@ -14,6 +14,7 @@ import (
 	"github.com/cfmleditor/clif/internal/cflint"
 	"github.com/cfmleditor/clif/internal/config"
 	"github.com/cfmleditor/clif/internal/index"
+	"github.com/cfmleditor/clif/internal/lint"
 	cflog "github.com/cfmleditor/clif/internal/log"
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
@@ -92,7 +93,7 @@ type Server struct {
 	beansResolver         *resolve.Resolver // resolver whose bean roots the index contains
 	index                 *index.Index
 	resolver              *resolve.Resolver
-	linter                *cflint.Runner
+	linter                lint.Engine
 	lintCancels           map[uri.URI]context.CancelFunc
 	compCache             *cache.Cache
 	funcRanges            map[uri.URI][]cache.FuncRange   // cached function line ranges per file
@@ -247,17 +248,22 @@ func (s *Server) initLinter() {
 
 	// No request context reaches here: initLinter runs once, in the
 	// background, after initialize. The clients' own timeouts bound it.
-	runner, err := cflint.NewRunner(context.Background(), s.LintMinSeverity)
+	runner, err := lint.NewEngine(context.Background(), s.LintEngine, s.LintMinSeverity, s.Version)
 	if err != nil {
-		s.log.Warn("cflint unavailable", cflog.Err(err))
+		s.log.Warn("lint engine unavailable", cflog.Err(err))
 
 		return
+	}
+
+	engineName := s.LintEngine
+	if engineName == "" {
+		engineName = config.LintEngineCFLint
 	}
 
 	s.mu.Lock()
 	s.linter = runner
 	s.mu.Unlock()
-	s.log.Info("cflint ready")
+	s.log.Info("lint engine ready", cflog.String("engine", engineName))
 }
 
 // ensureFuncRefsIndexed lazily indexes resolver refs for the function enclosing the given line.

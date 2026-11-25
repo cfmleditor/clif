@@ -16,6 +16,7 @@ import (
 	"github.com/cfmleditor/clif/internal/config"
 	"github.com/cfmleditor/clif/internal/daemon"
 	"github.com/cfmleditor/clif/internal/knownissues"
+	"github.com/cfmleditor/clif/internal/lint"
 	cfpath "github.com/cfmleditor/clif/internal/path"
 	"github.com/cfmleditor/clif/internal/unresolved"
 	"github.com/cfmleditor/clif/internal/vfs"
@@ -415,10 +416,12 @@ func firstDifferentLine(a, b []byte) int {
 func (env *checkEnv) runCFLint(res *checkResult, rule *config.ResolvedCheckRule) error {
 	scanRoots := env.roots
 	minSeverity := ""
+	engineName := ""
 
 	if env.cfg != nil {
 		scanRoots = cflint.ScanRoots(env.roots, env.configDir, env.cfg.WorkspaceFolders())
 		minSeverity = env.cfg.LintMinSeverity()
+		engineName = env.cfg.LintEngine()
 	}
 
 	switch {
@@ -448,9 +451,9 @@ func (env *checkEnv) runCFLint(res *checkResult, rule *config.ResolvedCheckRule)
 		return err
 	}
 
-	runner, err := cflint.NewRunner(context.Background(), minSeverity)
+	runner, err := lint.NewEngine(context.Background(), engineName, minSeverity, version)
 	if err != nil {
-		return fmt.Errorf("cflint unavailable: %w", err)
+		return fmt.Errorf("linter unavailable: %w", err)
 	}
 
 	env.logf("lint: linting %d files...\n", len(files))

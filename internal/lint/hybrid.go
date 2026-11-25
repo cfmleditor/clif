@@ -101,6 +101,17 @@ func (h *HybridRunner) Scan(ctx context.Context, filePath string) ([]protocol.Di
 	return out, nil
 }
 
+// ScanFiles lints multiple files from disk and merges native + fallback LSP
+// diagnostics keyed by file path.
+func (h *HybridRunner) ScanFiles(ctx context.Context, files []string) (map[string][]protocol.Diagnostic, error) {
+	run, err := h.Lint(ctx, files)
+	if err != nil {
+		return nil, err
+	}
+
+	return run.Diagnostics(), nil
+}
+
 // needsFallback reports whether any file's .cflintrc enables a rule not
 // registered in the native runner. When a .cflintrc has no explicit includes
 // list (all default rules active), fallback is needed until full parity.
