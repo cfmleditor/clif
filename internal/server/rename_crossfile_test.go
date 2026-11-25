@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cfmleditor/clif/internal/config"
 	cfpath "github.com/cfmleditor/clif/internal/path"
 	"go.lsp.dev/protocol"
 	"go.lsp.dev/uri"
@@ -260,5 +261,79 @@ func TestCrossFileRenameCoordinatesAcrossImplementsAndExtends(t *testing.T) {
 	// Collision in any member of the hierarchy (e.g. perimeter already exists on Square/ISub) must refuse.
 	if _, err := renameTo(t, s, squareURI, 1, 25, "perimeter"); err == nil || !strings.Contains(err.Error(), "already declares a method named 'perimeter'") {
 		t.Errorf("rename colliding in hierarchy: err = %v, want collision error", err)
+	}
+}
+
+// A rename must not reach into code the project does not own. A handler's
+// override of a framework method has the bundled stub in its family, a virtual
+// file: the edit would name a file that is not there, and the framework calls
+// the method by its name.
+func TestCrossFileRenameRefusesFrameworkStubs(t *testing.T) {
+	dir := t.TempDir()
+	src := "component extends=\"coldbox.system.EventHandler\" {\n\tfunction onHandlerDIComplete() { return; }\n}\n"
+	path := filepath.Join(dir, "Main.cfc")
+
+	if err := os.WriteFile(path, []byte(src), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	s := newTestServer()
+	s.Features.Rename = true
+	s.Features.RenameCrossFile = true
+	s.Frameworks = []string{"coldbox"}
+	s.ComponentResolvers = config.FrameworkResolvers(s.Frameworks)
+	s.WorkspaceFolders = []string{dir}
+	s.indexWorkspace()
+
+	docURI := cfpath.ToURI(path)
+	openDoc(t, s, docURI, src)
+
+	edit, err := renameTo(t, s, docURI, 1, 12, "afterDI")
+	if err == nil || !strings.Contains(err.Error(), "framework code (EventHandler.cfc)") {
+		t.Fatalf("rename of a framework override: err = %v, want a refusal naming EventHandler.cfc", err)
+	}
+
+	if edit != nil {
+		t.Errorf("a refused rename returned edits: %+v", edit.Changes)
+	}
+}
+
+// The workspace search cannot see the callers of a method declared outside it,
+// so a family reaching out of the workspace is refused, not half renamed.
+func TestCrossFileRenameRefusesFamilyOutsideTheWorkspace(t *testing.T) {
+	root := t.TempDir()
+	app := filepath.Join(root, "app")
+	lib := filepath.Join(root, "lib")
+
+	for _, d := range []string{app, lib} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	baseSrc := "component {\n\tfunction save() { return; }\n}\n"
+	childSrc := "component extends=\"lib.Base\" {\n\tfunction save() { return; }\n}\n"
+
+	if err := os.WriteFile(filepath.Join(lib, "Base.cfc"), []byte(baseSrc), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	childPath := filepath.Join(app, "Child.cfc")
+	if err := os.WriteFile(childPath, []byte(childSrc), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	s := newTestServer()
+	s.Features.Rename = true
+	s.Features.RenameCrossFile = true
+	s.Mappings = map[string]string{"lib": lib}
+	s.WorkspaceFolders = []string{app}
+	s.indexWorkspace()
+
+	childURI := cfpath.ToURI(childPath)
+	openDoc(t, s, childURI, childSrc)
+
+	if _, err := renameTo(t, s, childURI, 1, 12, "persist"); err == nil || !strings.Contains(err.Error(), "outside the workspace") {
+		t.Fatalf("rename with a family member outside the workspace: err = %v, want a refusal", err)
 	}
 }

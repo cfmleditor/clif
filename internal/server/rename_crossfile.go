@@ -7,7 +7,9 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/cfmleditor/clif/internal/confine"
 	"github.com/cfmleditor/clif/internal/conv"
+	"github.com/cfmleditor/clif/internal/frameworkapi"
 	"github.com/cfmleditor/clif/internal/lex"
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
@@ -201,6 +203,10 @@ func checkCrossFileIdentifier(name string) error {
 func (s *Server) renameComponentMethod(docURI uri.URI, t *crossFileRenameTarget, newName string) (*protocol.WorkspaceEdit, error) {
 	res := s.getResolver()
 	familyFiles := s.methodHierarchyFiles(t.filePath, t.name)
+
+	if err := s.renameFamilyBlocker(familyFiles, t); err != nil {
+		return nil, err
+	}
 
 	editsByURI := map[uri.URI][]protocol.TextEdit{
 		docURI: {{Range: t.declRng, NewText: newName}},
@@ -629,4 +635,33 @@ func (s *Server) funcsForFile(fileURI uri.URI, path string) []*parser.FunctionDe
 	}
 
 	return s.getResolver().EnsureIndexed(path)
+}
+
+// renameFamilyBlocker refuses a rename whose family holds a file the rename
+// must not edit: a bundled framework stub (a virtual file standing in for
+// code the project does not own, whose methods the framework itself calls), or
+// a file outside the workspace, whose callers the search of the workspace
+// cannot see. The source file is the user's own request and is not asked.
+func (s *Server) renameFamilyBlocker(family []string, t *crossFileRenameTarget) error {
+	roots := confine.Roots(s.searchRoots()...)
+
+	for _, path := range family {
+		if cfpath.SamePath(path, t.filePath) {
+			continue
+		}
+
+		if frameworkapi.IsStub(path) {
+			return fmt.Errorf("cannot rename '%s': it overrides or implements a method of framework code (%s)", t.name, filepath.Base(path))
+		}
+
+		if len(roots) == 0 {
+			continue
+		}
+
+		if _, err := confine.Check(path, roots); err != nil {
+			return fmt.Errorf("cannot rename '%s': it is also declared in %s, outside the workspace, whose callers cannot all be updated", t.name, filepath.Base(path))
+		}
+	}
+
+	return nil
 }

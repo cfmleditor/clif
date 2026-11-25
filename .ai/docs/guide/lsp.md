@@ -25,12 +25,12 @@ Declared in `Server.capabilities()` (`internal/server/server.go`):
   word is far more often `struct` than a component in the same directory.
 - `textDocument/inlayHint` (`internal/server/inlay_hint.go`) shows a component's own dot path beside
   its declaration, `Path: (models.User)`, from `parser.ComponentDeclarationBounds` and the path
-  `clif.copyPackage` answers. **Opt-in** (`features.inlayHints`, default off; advertised only when
-  on). An Application.cfc and anything that is not a .cfc has none.
+  `clif.copyPackage` answers. `features.inlayHints`, default on (advertised only when on; an editor
+  that draws its own hints shows each twice, so turn it off there). An Application.cfc and anything that is not a .cfc has none.
 - `clif.searchDocs` (query, "tag" | "function" | "all", limit) and `clif.docEntry` (name, kind)
   answer the compiled-in CFML docs, so an editor can offer a documentation browser without carrying
   a copy of them (`internal/server/docs_command.go`). A name match ranks above a description match.
-- **Rename** (`internal/server/rename.go`, `parser.PlanLocalRename`; `features.rename`, opt-in): a
+- **Rename** (`internal/server/rename.go`, `parser.PlanLocalRename`; `features.rename`, default on): a
   local variable of a script function, in its document. The plan is every place the function
   writes the variable, found by walking the body's tokens with a bracket stack, so a struct key
   (`{ x = 1 }`), a named argument (`f( x = 1 )`) and another object's member (`o.x`) are not the
@@ -60,6 +60,17 @@ Declared in `Server.capabilities()` (`internal/server/server.go`):
   variable at all, the reason only where a variable cannot be renamed.
   Function rename and cross-file rename are not here: the references engine cannot see dynamic
   calls, so a rename over it could leave a caller behind without saying so.
+- **Cross-file rename** (`internal/server/rename_crossfile.go`; `features.renameCrossFile`, default on,
+  needs `features.rename`): a component's method or property, across the workspace. A method is
+  renamed together with every declaration of it in its family (`methodHierarchyFiles`: the ancestors
+  and interfaces that declare it, and all subtypes below them, through `extends` and `implements`),
+  and every call that resolves to any member (`refs.Trace` with `Options.AlsoSources`). It
+  **refuses**, naming why, when a call cannot be resolved safely, when a family member already
+  declares the new name, when a declaration has no located name range, and, in
+  `renameFamilyBlocker`, when a family member is a bundled framework stub (`frameworkapi.IsStub`: a
+  virtual file for code the project does not own, which the framework calls by name) or lies outside
+  the workspace roots (its callers cannot all be found). A new family-wide edit must keep to files
+  the user owns: the stub case produced an edit to a file that does not exist.
 - **Query columns** complete after `name.` when the document declares the query
   (`parser.QueryColumns`, `queryColumnItems` in `completion.go`): a `<cfquery name>` whose SELECT list
   names them, `queryNew( "a,b" )`, or `queryExecute( "SELECT a, b …" )` as a string literal, the last
@@ -77,7 +88,7 @@ Declared in `Server.capabilities()` (`internal/server/server.go`):
   what is wrong with a document's CF tags as it is opened and edited, under the source `clif`:
   unclosed tags, closing tags with no opener, tags outside the tag they belong to (`<cfcatch>` in
   `<cftry>`), a missing `name`/`template`/`url`, a repeated attribute (warning) and a repeated
-  function argument. **Opt-in** (`features.structureDiagnostics`, default off). The checker walks
+  function argument. `features.structureDiagnostics`, default on. The checker walks
   the page's tag regions with the folding pass's own tag walk (comments, quoted values, `<` that
   starts no tag), and holds only tags that always take a body to a closing tag: a tag that can
   stand alone is never reported, so a page that runs reports nothing. Measured over 10,407 files of
@@ -205,7 +216,7 @@ Declared in `Server.capabilities()` (`internal/server/server.go`):
   whole-line match, because the parser also records the variables a component ref flows into
   (`report = myCtrl.getReport()` is a ref to myCtrl's component on a line that never names it).
 - **`features`** (`config.Features`/`ResolvedFeatures`) switches off individual capabilities.
-  `documentHighlight`, `folding`, `watchedFiles`, `rangeFormatting`, `typeDefinition`, `variableDefinitions`, `routes` and `outputContextInterpolation` default **on**, as opt-outs. `structureDiagnostics`, `inlayHints` and `rename` default **off**, as opt-ins. The fields are `*bool` for the reason the `completions` block documents — a
+  `documentHighlight`, `folding`, `watchedFiles`, `rangeFormatting`, `typeDefinition`, `variableDefinitions`, `routes` and `outputContextInterpolation`, `structureDiagnostics`, `inlayHints`, `rename`, `renameCrossFile` and `semanticTokens` default **on**, as opt-outs (#458 turned the last five on; they were opt-ins while new). The fields are `*bool` for the reason the `completions` block documents — a
   defaults-true flag as a plain bool cannot tell "turned off" from "not mentioned", so naming one
   key would switch off its siblings. `mergeFeatures` unions key by key for the same reason
   `mergeFormatting` does. `featureDefaults` in `features_chain_test.go` states every default and
