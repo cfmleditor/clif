@@ -123,7 +123,8 @@ func (r *Resolver) producerScalarSelfSetter(method *producerMethod, fd *parser.F
 		return false
 	}
 
-	for _, argument := range fd.Arguments {
+	for _ai := range fd.Arguments {
+		argument := &fd.Arguments[_ai]
 		if !strings.EqualFold(argument.Name, name) {
 			continue
 		}

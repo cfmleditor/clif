@@ -99,11 +99,21 @@ func (p *scriptParser) parseArgs(recordDeclarations bool) ([]Argument, int, map[
 			name = idents[2]
 		}
 
+		var defaultExpr *string
+
 		peek := p.sc.PeekSkipComments()
 		if peek.Kind == TokEquals {
 			p.sc.NextSkipComments()
 
-			if literal, ok := p.skipDefault(); ok {
+			defStart := p.sc.PeekSkipComments().Offset
+
+			literal, ok := p.skipDefault()
+			if defEnd := p.sc.PeekSkipComments().Offset; defStart < defEnd && defEnd <= len(p.sc.src) {
+				text := defaultExpression(p.sc.src[defStart:defEnd])
+				defaultExpr = &text
+			}
+
+			if ok {
 				if defaults == nil {
 					defaults = make(map[string]string, 1)
 				}
@@ -112,7 +122,7 @@ func (p *scriptParser) parseArgs(recordDeclarations bool) ([]Argument, int, map[
 			}
 		}
 
-		args = append(args, Argument{Name: name, Type: typeName, Required: required})
+		args = append(args, Argument{Name: name, Type: typeName, Required: required, Default: defaultExpr})
 		if recordDeclarations {
 			decl := VarDef{Name: name, Scope: ScopeArguments, Line: conv.Uint32(p.baseLine + int(nameTok.Line))}
 			if p.baseOffset >= 0 {

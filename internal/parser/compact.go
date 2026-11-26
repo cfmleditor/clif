@@ -64,7 +64,13 @@ func CompactDefs(defs []FunctionDef) []FunctionDef {
 				a.Name = strings.Clone(a.Name)
 				a.Type = strings.Clone(a.Type)
 				a.Component = strings.Clone(a.Component)
+
 				a.Hint = strings.Clone(a.Hint)
+				if a.Default != nil {
+					text := strings.Clone(*a.Default)
+					a.Default = &text
+				}
+
 				args[j] = a
 			}
 

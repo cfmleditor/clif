@@ -146,7 +146,8 @@ func (pr *ParseResult) collectionKeys(writes []collectionWrite) (*localSet, map[
 
 	for i := range pr.Funcs {
 		f := &pr.Funcs[i]
-		for _, a := range f.Arguments {
+		for _ai := range f.Arguments {
+			a := &f.Arguments[_ai]
 			locals.add(scopeKeys[int(f.Line)], a.Name)
 		}
 	}
@@ -253,7 +254,8 @@ func (pr *ParseResult) applyCollectionReturns(calls []pendingCall) {
 	// declaration has an empty-struct default.
 	for i := range pr.Funcs {
 		f := &pr.Funcs[i]
-		for _, arg := range f.Arguments {
+		for _ai := range f.Arguments {
+			arg := &f.Arguments[_ai]
 			if n := nodes[kt.local(keys[int(f.Line)], arg.Name)]; n != nil {
 				n.invalid = true
 			}

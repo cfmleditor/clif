@@ -8,7 +8,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/cfmleditor/clif/internal/conv"
-	"github.com/cfmleditor/clif/internal/lex"
 	"github.com/cfmleditor/clif/internal/parser"
 	"go.lsp.dev/protocol"
 )
@@ -40,12 +39,13 @@ func (s *Server) handleSelectionRange(_ context.Context, rawParams []byte) (any,
 	}
 
 	lines := parser.NewLineTable(content)
+	columns := newUTF16Columns(content, lines)
 	docSpans := collectSelectionSpans(content)
 
 	out := make([]protocol.SelectionRange, len(params.Positions))
 	for i, pos := range params.Positions {
 		off := positionToByteOffset(content, lines, pos)
-		out[i] = buildSelectionChain(content, lines, docSpans, off, pos)
+		out[i] = buildSelectionChain(content, lines, columns, docSpans, off, pos)
 	}
 
 	return out, nil
@@ -108,7 +108,7 @@ func utf16ColToByte(line string, utf16Col int) int {
 	return len(line)
 }
 
-func byteSpanToRange(content string, lines parser.LineTable, sp byteSpan) protocol.Range {
+func byteSpanToRange(content string, lines parser.LineTable, columns *utf16Columns, sp byteSpan) protocol.Range {
 	if len(lines) == 0 {
 		return protocol.Range{}
 	}
@@ -121,16 +121,16 @@ func byteSpanToRange(content string, lines parser.LineTable, sp byteSpan) protoc
 	return protocol.Range{
 		Start: protocol.Position{
 			Line:      conv.Uint32(sLine),
-			Character: conv.Uint32(lex.UTF16Len(content[lines[sLine]:start])),
+			Character: conv.Uint32(columns.column(sLine, start)),
 		},
 		End: protocol.Position{
 			Line:      conv.Uint32(eLine),
-			Character: conv.Uint32(lex.UTF16Len(content[lines[eLine]:end])),
+			Character: conv.Uint32(columns.column(eLine, end)),
 		},
 	}
 }
 
-func buildSelectionChain(content string, lines parser.LineTable, docSpans []byteSpan, off int, pos protocol.Position) protocol.SelectionRange {
+func buildSelectionChain(content string, lines parser.LineTable, columns *utf16Columns, docSpans []byteSpan, off int, pos protocol.Position) protocol.SelectionRange {
 	cands := make([]byteSpan, 0, 12)
 
 	if wStart, wEnd, ok := wordSpanAt(content, off); ok {
@@ -202,7 +202,7 @@ func buildSelectionChain(content string, lines parser.LineTable, docSpans []byte
 	var cur *protocol.SelectionRange
 	for _, sp := range slices.Backward(nested) {
 		sr := protocol.SelectionRange{
-			Range:  byteSpanToRange(content, lines, sp),
+			Range:  byteSpanToRange(content, lines, columns, sp),
 			Parent: cur,
 		}
 		cur = &sr

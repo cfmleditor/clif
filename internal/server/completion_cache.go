@@ -229,7 +229,8 @@ func (s *Server) rebuildFileCompletionCacheFromPR(docURI uri.URI, pr *parser.Par
 		detail.WriteString(f.Name)
 		detail.WriteByte('(')
 
-		for i, arg := range f.Arguments {
+		for i := range f.Arguments {
+			arg := &f.Arguments[i]
 			if i > 0 {
 				detail.WriteString(", ")
 			}

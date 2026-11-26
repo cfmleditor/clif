@@ -68,7 +68,8 @@ func mcpOutline(root, file string) (any, error) {
 		fn := &pr.Funcs[i]
 
 		args := make([]outlineArg, 0, len(fn.Arguments))
-		for _, a := range fn.Arguments {
+		for _ai := range fn.Arguments {
+			a := &fn.Arguments[_ai]
 			args = append(args, outlineArg{
 				Name:     a.Name,
 				Type:     a.Type,

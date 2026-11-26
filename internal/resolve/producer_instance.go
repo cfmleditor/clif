@@ -450,7 +450,9 @@ func instanceIndexTarget(tokens []parser.Token) (path, selector string, ok bool)
 }
 
 func instanceArgumentsCompatible(fd *parser.FunctionDef, env producerEnvironment) bool {
-	for _, argument := range fd.Arguments {
+	for _ai := range fd.Arguments {
+		argument := &fd.Arguments[_ai]
+
 		value := env["arguments."+strings.ToLower(argument.Name)]
 		if value.absent {
 			if argument.Required {

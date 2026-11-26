@@ -645,7 +645,8 @@ func (g *generator) writeFuncs(b *strings.Builder, src *source, seen map[string]
 
 		fmt.Fprintf(b, "function %s(", def.Name)
 
-		for j, a := range def.Arguments {
+		for j := range def.Arguments {
+			a := &def.Arguments[j]
 			if j > 0 {
 				b.WriteString(",")
 			}
@@ -1059,7 +1060,8 @@ func funcDoc(src *source, def *parser.FunctionDef) string {
 			parts = append(parts, h)
 		}
 
-		for _, a := range def.Arguments {
+		for _ai := range def.Arguments {
+			a := &def.Arguments[_ai]
 			if a.Hint != "" {
 				parts = append(parts, "@"+a.Name+" "+a.Hint)
 			}

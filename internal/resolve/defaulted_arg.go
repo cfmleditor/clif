@@ -69,7 +69,8 @@ func (r *Resolver) defaultedArguments(fd *parser.FunctionDef, pr *parser.ParseRe
 
 	var tokens []parser.Token
 
-	for _, a := range fd.Arguments {
+	for _ai := range fd.Arguments {
+		a := &fd.Arguments[_ai]
 		if !quotesName(text, a.Name) {
 			continue
 		}

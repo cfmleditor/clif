@@ -21,6 +21,20 @@ type Argument struct {
 	Hint      string // hint attribute value (used as supplemental type when Type is generic)
 	Component string // inferred setter dependency; separate from the declared CFML type
 	Required  bool
+	// Default is the argument's default value as a CFML expression, `1`, `"x"`,
+	// `[]`, `now()`; nil when it has none. A tag's default="..." is read into
+	// the same spelling (tagDefaultExpression). A pointer, not a string: most
+	// arguments have none, and a nil pointer is half the size of a string.
+	Default *string
+}
+
+// DefaultExpr is the argument's default as a CFML expression, "" when it has none.
+func (a *Argument) DefaultExpr() string {
+	if a.Default == nil {
+		return ""
+	}
+
+	return *a.Default
 }
 
 // ReturnSource is a component value, optionally produced by method calls.
@@ -1370,7 +1384,8 @@ func (def *FunctionDef) FormatHover() string {
 	b.WriteString(def.Name)
 	b.WriteString("(")
 
-	for i, arg := range def.Arguments {
+	for i := range def.Arguments {
+		arg := &def.Arguments[i]
 		if i > 0 {
 			b.WriteString(", ")
 		}

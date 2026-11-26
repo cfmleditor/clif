@@ -2,6 +2,7 @@ package server
 
 import (
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/cfmleditor/clif/internal/parser"
@@ -261,7 +262,8 @@ func formatScriptMethodStub(fn *parser.FunctionDef) string {
 	if len(fn.Arguments) > 0 {
 		b.WriteByte(' ')
 
-		for i, arg := range fn.Arguments {
+		for i := range fn.Arguments {
+			arg := &fn.Arguments[i]
 			if i > 0 {
 				b.WriteString(", ")
 			}
@@ -276,14 +278,40 @@ func formatScriptMethodStub(fn *parser.FunctionDef) string {
 			}
 
 			b.WriteString(arg.Name)
+
+			if def := arg.DefaultExpr(); def != "" {
+				b.WriteString(" = ")
+				b.WriteString(def)
+			}
 		}
 
 		b.WriteByte(' ')
 	}
 
-	b.WriteString(") {\n\t// TODO: implement\n}")
+	b.WriteString(") {\n\t// TODO: implement")
+
+	// A method that returns a value cannot be left empty: CFML refuses a
+	// function whose return type is not void or any and which returns nothing.
+	// A made-up value (an empty string, 0) would let a caller carry on as if
+	// the method worked, so the stub says plainly that it does not yet.
+	if returnsValue(fn.ReturnType) {
+		b.WriteString("\n\tthrow( type = \"NotImplemented\", message = \"" + fn.Name + "() is not implemented\" );")
+	}
+
+	b.WriteString("\n}")
 
 	return b.String()
+}
+
+// returnsValue reports whether a function declared to return returnType must
+// return one: any type but void, any and none.
+func returnsValue(returnType string) bool {
+	switch strings.ToLower(strings.TrimSpace(returnType)) {
+	case "", "void", "any":
+		return false
+	default:
+		return true
+	}
 }
 
 func formatTagMethodStub(fn *parser.FunctionDef) string {
@@ -301,7 +329,9 @@ func formatTagMethodStub(fn *parser.FunctionDef) string {
 
 	b.WriteString(">\n")
 
-	for _, arg := range fn.Arguments {
+	for _ai := range fn.Arguments {
+		arg := &fn.Arguments[_ai]
+
 		b.WriteString("\t<cfargument name=\"")
 		b.WriteString(arg.Name)
 		b.WriteByte('"')
@@ -316,10 +346,71 @@ func formatTagMethodStub(fn *parser.FunctionDef) string {
 			b.WriteString(` required="true"`)
 		}
 
+		if def := arg.DefaultExpr(); def != "" {
+			b.WriteString(` default="` + defaultToTagAttribute(def) + `"`)
+		}
+
 		b.WriteString(">\n")
+	}
+
+	if returnsValue(fn.ReturnType) {
+		b.WriteString("\t<cfthrow type=\"NotImplemented\" message=\"" + fn.Name + "() is not implemented\">\n")
 	}
 
 	b.WriteString("</cffunction>")
 
 	return b.String()
+}
+
+// defaultToTagAttribute is a default written as a CFML expression, as the text
+// of a <cfargument>'s default="..." attribute: a string literal is its
+// contents, a number or true or false is itself, and any other expression is
+// evaluated, in hashes. Double quotes inside are doubled.
+func defaultToTagAttribute(expr string) string {
+	text := expr
+
+	switch {
+	case len(expr) >= 2 && (expr[0] == '"' || expr[0] == '\'') && expr[len(expr)-1] == expr[0] && isOneQuotedString(expr):
+		quote := expr[:1]
+		text = strings.ReplaceAll(expr[1:len(expr)-1], quote+quote, quote)
+	case isPlainLiteral(expr):
+	default:
+		text = "#" + expr + "#"
+	}
+
+	return strings.ReplaceAll(text, `"`, `""`)
+}
+
+// isOneQuotedString reports whether expr, which starts and ends with the same
+// quote, is a single string literal: the quote does not close and open again
+// inside it (`"a" & "b"` is an expression, `"a""b"` a string).
+func isOneQuotedString(expr string) bool {
+	quote := expr[0]
+
+	for i := 1; i < len(expr)-1; i++ {
+		if expr[i] != quote {
+			continue
+		}
+
+		if expr[i+1] == quote && i+1 < len(expr)-1 {
+			i++
+
+			continue
+		}
+
+		return false
+	}
+
+	return true
+}
+
+// isPlainLiteral reports whether expr is a number or true or false.
+func isPlainLiteral(expr string) bool {
+	if lower := strings.ToLower(expr); lower == "true" || lower == "false" {
+		return true
+	}
+
+	_, err := strconv.ParseFloat(expr, 64)
+
+	return err == nil
 }
