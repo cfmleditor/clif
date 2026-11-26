@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+	"unicode/utf16"
 
 	"github.com/cfmleditor/clif/internal/config"
 	cfpath "github.com/cfmleditor/clif/internal/path"
@@ -192,7 +194,7 @@ func TestCrossFileRenameRefusesAmbiguousAndAccessorProperties(t *testing.T) {
 
 	// callNameRangesOnLine with receiver must only match that receiver's call.
 	line := "var x = other.fetchUser(1) + svc.fetchUser(2);"
-	rngs := callNameRangesOnLine(line, 0, "fetchUser", "svc")
+	rngs := callNameRangesOnLine([]string{line}, 0, "fetchUser", "svc")
 
 	if len(rngs) != 1 || rngs[0].Start.Character != 33 {
 		t.Fatalf("callNameRangesOnLine(svc) = %+v, want single match at col 33", rngs)
@@ -335,5 +337,89 @@ func TestCrossFileRenameRefusesFamilyOutsideTheWorkspace(t *testing.T) {
 
 	if _, err := renameTo(t, s, childURI, 1, 12, "persist"); err == nil || !strings.Contains(err.Error(), "outside the workspace") {
 		t.Fatalf("rename with a family member outside the workspace: err = %v, want a refusal", err)
+	}
+}
+
+// The columns of the calls on a line run on from one to the next, and are the
+// same as when each was measured from the line's start, with wide characters
+// (the emoji is two UTF-16 units) between them.
+func TestCallNameRangesOnALineKeepExactColumns(t *testing.T) {
+	line := `é svc.foo(); 😀 svc.foo(); x = svc.foo( 日本 ) ;`
+
+	rngs := callNameRangesOnLine([]string{line}, 0, "foo", "svc")
+	if len(rngs) != 3 {
+		t.Fatalf("got %d calls, want 3: %+v", len(rngs), rngs)
+	}
+
+	col := func(prefix string) uint32 { return uint32(len(utf16.Encode([]rune(prefix)))) }
+
+	for i, before := range []string{"é svc.", "é svc.foo(); 😀 svc.", "é svc.foo(); 😀 svc.foo(); x = svc."} {
+		if rngs[i].Start.Character != col(before) || rngs[i].End.Character != col(before)+3 {
+			t.Errorf("call %d spans %d-%d, want %d-%d", i, rngs[i].Start.Character, rngs[i].End.Character, col(before), col(before)+3)
+		}
+	}
+}
+
+// Calls to one name written on one very long line (16,000 of them took 2.2 s
+// when each column was measured from the line's start).
+func TestCallNameRangesOnALongLineAreLinear(t *testing.T) {
+	line := strings.Repeat("svc.foo(); ", 16000)
+
+	start := time.Now()
+	rngs := callNameRangesOnLine([]string{line}, 0, "foo", "svc")
+
+	if took := time.Since(start); took > time.Second {
+		t.Errorf("16,000 calls on one line took %v, want well under a second", took)
+	}
+
+	if len(rngs) != 16000 {
+		t.Errorf("found %d calls, want 16000", len(rngs))
+	}
+}
+
+// A caller file is read once for a rename, not once for each call site in it:
+// with a call to rename on each of 300 lines, the file was read for every one
+// of them and split into lines again each time (313 ms for 4,000 calls, which
+// grew with the square of the file), and a line with two calls was answered
+// twice. The reads are counted, not timed, so the test cannot flake.
+func TestCrossFileRenameReadsACallerOnce(t *testing.T) {
+	dir := t.TempDir()
+	svcSrc := "component {\n\tpublic void function foo() {}\n}\n"
+
+	if err := os.WriteFile(filepath.Join(dir, "Svc.cfc"), []byte(svcSrc), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	page := "<cfscript>\nsvc = new Svc();\n" + strings.Repeat("svc.foo(1);\n", 300) + "svc.foo(1); svc.foo(2);\n</cfscript>\n"
+	if err := os.WriteFile(filepath.Join(dir, "page.cfm"), []byte(page), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	s := newTestServer()
+	s.Features.Rename = true
+	s.Features.RenameCrossFile = true
+	s.WorkspaceFolders = []string{dir}
+	s.indexWorkspace()
+
+	counter := &countingReadFS{FS: s.FS}
+	s.FS = counter
+
+	svcURI := cfpath.ToURI(filepath.Join(dir, "Svc.cfc"))
+	openDoc(t, s, svcURI, svcSrc)
+	counter.reads.Store(0)
+
+	edit, err := renameTo(t, s, svcURI, 1, 25, "bar")
+	if err != nil {
+		t.Fatalf("rename: %v", err)
+	}
+
+	// The declaration, 300 calls on their own lines, and the two on the last.
+	pageEdits := edit.Changes[cfpath.ToURI(filepath.Join(dir, "page.cfm"))]
+	if len(pageEdits) != 302 {
+		t.Errorf("page.cfm has %d edits, want 302 (one per call, none twice)", len(pageEdits))
+	}
+
+	if reads := counter.reads.Load(); reads > 40 {
+		t.Errorf("a rename of 302 calls made %d reads, want a few: the caller is read once", reads)
 	}
 }

@@ -3,6 +3,7 @@ package server
 import (
 	"strings"
 
+	"github.com/cfmleditor/clif/internal/conv"
 	"github.com/cfmleditor/clif/internal/lex"
 	"github.com/cfmleditor/clif/internal/parser"
 )
@@ -20,10 +21,27 @@ type utf16Columns struct {
 	content string
 	lines   parser.LineTable
 	ascii   map[int]bool
+	lineLen map[int]uint32
 }
 
 func newUTF16Columns(content string, lines parser.LineTable) *utf16Columns {
-	return &utf16Columns{content: content, lines: lines, ascii: map[int]bool{}}
+	return &utf16Columns{content: content, lines: lines, ascii: map[int]bool{}, lineLen: map[int]uint32{}}
+}
+
+// lineLength is the length of line in UTF-16 units, as an LSP range that ends
+// at the line's end counts it: the text without its line break, and without the
+// "\r" of a CRLF one. Kept per line: a pass that asks for it once per symbol
+// (the outline gives each function the end of its last line) measured a line
+// again for every function on it.
+func (c *utf16Columns) lineLength(line int) uint32 {
+	if n, ok := c.lineLen[line]; ok {
+		return n
+	}
+
+	n := conv.Uint32(lex.UTF16Len(lineTextFromTable(c.content, c.lines, line)))
+	c.lineLen[line] = n
+
+	return n
 }
 
 // column is the column of byte offset off, which lies on line.
