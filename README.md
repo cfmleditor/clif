@@ -1270,9 +1270,22 @@ the checksum compiled into clif:
 
 ```json
 {
-  "linting": { "enabled": true, "minSeverity": "WARNING" }
+  "linting": { "enabled": true, "minSeverity": "WARNING", "engine": "native" }
 }
 ```
+
+`engine` chooses the lint backend:
+
+- `"cflint"` (default) — runs the pinned `cfmleditor/cflint` subprocess on save.
+- `"native"` — runs clif's pure-Go in-process lint engine (zero JVM startup,
+  honors `.cflintrc` inheritance/parameters and inline `@CFLintIgnore` /
+  `// cflint ignore:` suppressions, and provides live debounced diagnostics as
+  you type without waiting for save).
+- `"hybrid"` — runs native rules first and falls back to `cflint` only when a
+  file's `.cflintrc` enables rules not yet implemented natively.
+
+You can compare native vs `cflint` parity and timing on any project with
+`clif lint --compare <path>`.
 
 On a machine that will not run programs from the user's cache or temp folder
 (AppLocker or WDAC default rules, a `noexec` mount), two environment variables,

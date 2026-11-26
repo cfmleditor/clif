@@ -95,6 +95,7 @@ type Server struct {
 	resolver              *resolve.Resolver
 	linter                lint.Engine
 	lintCancels           map[uri.URI]context.CancelFunc
+	lintTimers            map[uri.URI]*time.Timer
 	compCache             *cache.Cache
 	funcRanges            map[uri.URI][]cache.FuncRange   // cached function line ranges per file
 	cacheTimers           map[uri.URI]*time.Timer         // debounce timers for completion cache rebuild
@@ -147,6 +148,7 @@ func NewServer(conn jsonrpc2.Conn, log cflog.Logger, sharedIndex ...*index.Index
 		documents:                make(map[uri.URI]string),
 		index:                    idx,
 		lintCancels:              make(map[uri.URI]context.CancelFunc),
+		lintTimers:               make(map[uri.URI]*time.Timer),
 		compCache:                cache.New(),
 		funcRanges:               make(map[uri.URI][]cache.FuncRange),
 		cacheTimers:              make(map[uri.URI]*time.Timer),

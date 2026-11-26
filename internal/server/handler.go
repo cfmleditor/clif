@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cfmleditor/clif/internal/lex"
-
 	"github.com/cfmleditor/clif/internal/cache"
+	"github.com/cfmleditor/clif/internal/config"
 	"github.com/cfmleditor/clif/internal/index"
+	"github.com/cfmleditor/clif/internal/lex"
 	cflog "github.com/cfmleditor/clif/internal/log"
 	"github.com/cfmleditor/clif/internal/lspdoc"
 	"github.com/cfmleditor/clif/internal/parser"
@@ -346,6 +346,7 @@ func (s *Server) handleDidOpen(_ context.Context, rawParams []byte) (any, error)
 	// Scheduled when the lock is released: scheduling takes the server's lock,
 	// which an open has no need to hold the document's for.
 	defer s.scheduleStructureDiagnostics(docURI)
+	defer s.scheduleLiveLint(docURI)
 
 	defer s.lockDoc(docURI)()
 
@@ -409,6 +410,7 @@ func (s *Server) handleDidChange(_ context.Context, rawParams []byte) (any, erro
 	// last, after the document's lock is released: scheduling takes the
 	// server's lock, which a keystroke has no need to hold the document's for.
 	defer s.scheduleStructureDiagnostics(docURI)
+	defer s.scheduleLiveLint(docURI)
 
 	// Not lockDoc: that would run the reparse deferred by the last keystroke
 	// before this one, which is the cost deferring exists to avoid.
@@ -682,7 +684,7 @@ func (s *Server) handleDidClose(ctx context.Context, rawParams []byte) (any, err
 	// existing. Stopping them is also the only thing that bounds these maps: a
 	// long session that opens and closes many files otherwise keeps a timer and
 	// a mutex per file it has ever seen.
-	for _, timers := range []map[uri.URI]*time.Timer{s.cacheTimers, s.reindexTimers} {
+	for _, timers := range []map[uri.URI]*time.Timer{s.cacheTimers, s.reindexTimers, s.lintTimers} {
 		if t, ok := timers[docURI]; ok {
 			t.Stop()
 			delete(timers, docURI)
@@ -744,6 +746,42 @@ func (s *Server) handleDidSave(_ context.Context, rawParams []byte) (any, error)
 	return nil, nil
 }
 
+// liveLintDebounce delays native on-type linting so a burst of keystrokes
+// collapses into one sub-millisecond in-memory lint pass.
+const liveLintDebounce = 250 * time.Millisecond
+
+// scheduleLiveLint schedules a debounced in-memory lint pass for docURI when
+// the native lint engine is active. Subprocess engines (cflint/hybrid) remain
+// save-only to avoid spawning JVMs on every keystroke.
+func (s *Server) scheduleLiveLint(docURI uri.URI) {
+	if !s.Linting || s.LintEngine != config.LintEngineNative {
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.linter == nil || s.conn == nil {
+		return
+	}
+
+	if t, ok := s.lintTimers[docURI]; ok {
+		t.Stop()
+	}
+
+	s.lintTimers[docURI] = time.AfterFunc(liveLintDebounce, func() {
+		s.mu.Lock()
+		delete(s.lintTimers, docURI)
+		s.mu.Unlock()
+
+		s.safeGo("liveLint", func() { s.runDiagnostics(context.Background(), docURI) })
+	})
+}
+
+type contentLintScanner interface {
+	ScanContent(ctx context.Context, filePath string, content []byte) ([]protocol.Diagnostic, error)
+}
+
 func (s *Server) runDiagnostics(ctx context.Context, docURI uri.URI) {
 	// initLinter publishes s.linter from its own goroutine under s.mu, so this
 	// read has to take the lock too.
@@ -775,20 +813,34 @@ func (s *Server) runDiagnostics(ctx context.Context, docURI uri.URI) {
 	}()
 
 	filePath := docURI.Path()
-	s.log.Info("lint scan starting", cflog.String("file", filePath))
 
-	// Show progress
-	s.notify(scanCtx, protocol.MethodProgress, map[string]any{
-		"token": "lint",
-		"value": map[string]any{"kind": "begin", "title": "Lint", "message": filepath.Base(filePath)},
-	})
+	var (
+		diags []protocol.Diagnostic
+		err   error
+	)
 
-	diags, err := linter.Scan(scanCtx, filePath)
+	if cs, ok := linter.(contentLintScanner); ok {
+		if content, open := s.getDocument(docURI); open {
+			diags, err = cs.ScanContent(scanCtx, filePath, []byte(content))
+		} else {
+			diags, err = linter.Scan(scanCtx, filePath)
+		}
+	} else {
+		s.log.Info("lint scan starting", cflog.String("file", filePath))
 
-	s.notify(scanCtx, protocol.MethodProgress, map[string]any{
-		"token": "lint",
-		"value": map[string]any{"kind": "end"},
-	})
+		// Show progress for external subprocess scans.
+		s.notify(scanCtx, protocol.MethodProgress, map[string]any{
+			"token": "lint",
+			"value": map[string]any{"kind": "begin", "title": "Lint", "message": filepath.Base(filePath)},
+		})
+
+		diags, err = linter.Scan(scanCtx, filePath)
+
+		s.notify(scanCtx, protocol.MethodProgress, map[string]any{
+			"token": "lint",
+			"value": map[string]any{"kind": "end"},
+		})
+	}
 
 	if scanCtx.Err() != nil {
 		s.log.Debug("lint scan cancelled", cflog.String("file", filePath))

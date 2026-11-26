@@ -163,6 +163,22 @@ func (n *NativeRunner) Scan(ctx context.Context, filePath string) ([]protocol.Di
 		return nil, err
 	}
 
+	return runToDiagnostics(run), nil
+}
+
+// ScanContent lints an in-memory buffer for filePath and returns LSP
+// diagnostics without reading from disk, enabling instant live diagnostics on
+// unsaved editor buffers.
+func (n *NativeRunner) ScanContent(ctx context.Context, filePath string, content []byte) ([]protocol.Diagnostic, error) {
+	run, err := n.LintContent(ctx, []cflint.Source{{Path: filePath, Content: content}})
+	if err != nil {
+		return nil, err
+	}
+
+	return runToDiagnostics(run), nil
+}
+
+func runToDiagnostics(run *cflint.Run) []protocol.Diagnostic {
 	diags := make([]protocol.Diagnostic, 0, len(run.Issues))
 
 	for i := range run.Issues {
@@ -192,7 +208,7 @@ func (n *NativeRunner) Scan(ctx context.Context, filePath string) ([]protocol.Di
 		})
 	}
 
-	return diags, nil
+	return diags
 }
 
 // ScanFiles lints multiple files from disk and returns LSP diagnostics keyed by

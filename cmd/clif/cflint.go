@@ -77,6 +77,13 @@ Severity:
                       Overrides linting.minSeverity in the config
   --strict            report and fail on every level, whatever the config says
 
+Engine:
+  --engine <e>        lint backend: cflint (default), native (pure-Go in-process),
+                      or hybrid (native rules + cflint fallback for uncovered rules).
+                      Overrides linting.engine in the config
+  --compare           run both native and cflint over the selection and print a
+                      per-rule parity and timing comparison
+
 Exit status:
   0  no findings, or a known-issues report was written (--write, or --out in
      the report format: a regeneration, expected to hold findings)
