@@ -93,7 +93,9 @@ func dedupEntries(entries []Entry) []Entry {
 	for i := range entries {
 		e := &entries[i]
 
-		key := fmt.Sprintf("%s\t%d\t%s\t%s", e.File, e.Line, e.Function, e.Call)
+		// Two calls on one line carry the same text; where each stands tells
+		// them apart, and a repeat of one call stands in the same place.
+		key := fmt.Sprintf("%s\t%d\t%s\t%s\t%d", e.File, e.Line, e.Function, e.Call, startKey(e))
 		if seen[key] {
 			continue
 		}
@@ -288,4 +290,14 @@ func relativePath(path string, roots []string) string {
 	}
 
 	return rel
+}
+
+// startKey is where the entry's call stands in its file, or -1 when that is not
+// known, for the entries that differ only by where on a line they are.
+func startKey(e *Entry) int {
+	if !e.HasStart {
+		return -1
+	}
+
+	return e.Start
 }
