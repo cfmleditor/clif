@@ -76,7 +76,7 @@ func cloneStrings(ss []string) []string {
 // scopeKey identifies the function within the file; the caller's line range is
 // the natural choice.
 func (idx *Index) SetFuncRefs(fileURI uri.URI, scopeKey string, refs []parser.ComponentRef) {
-	// Cloned for the reason IndexFileFromResult gives. These come from an open
+	// Cloned for the reason indexFileFromResult gives. These come from an open
 	// document's ParseResult, so they would pin not the file but the version of
 	// it that was current when the function was last hovered — one superseded
 	// copy of the document per function scope, surviving every later edit.

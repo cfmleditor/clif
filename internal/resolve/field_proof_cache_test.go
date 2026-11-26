@@ -30,16 +30,14 @@ func TestFieldTextProofIsMadeOncePerRoot(t *testing.T) {
 	source := r.sourceInfo(file)
 
 	if source.derived == nil {
-		t.Skip("the source keeps no derived facts here")
+		t.Fatal("the source keeps no derived facts, so there is no cache to test")
 	}
 
 	fd := &parser.FunctionDef{URI: cfpath.ToURI(file)}
 	e := &producerEvaluation{resolver: r, fd: fd}
-	methods := sourcePlans(source).all()
-
 	for _, path := range []string{"variables.helper", "variables.other", "variables.absent"} {
-		want := e.fieldTextProvedUncached(&source, methods, variablesRoot(path))
-		if got := e.fieldTextProved(&source, methods, path); got != want {
+		want := e.fieldTextProvedUncached(&source, variablesRoot(path))
+		if got := e.fieldTextProved(&source, path); got != want {
 			t.Errorf("%s: first ask = %v, uncached = %v", path, got, want)
 		}
 
@@ -47,7 +45,7 @@ func TestFieldTextProofIsMadeOncePerRoot(t *testing.T) {
 			t.Errorf("%s: the answer was not kept", path)
 		}
 
-		if got := e.fieldTextProved(&source, methods, path); got != want {
+		if got := e.fieldTextProved(&source, path); got != want {
 			t.Errorf("%s: second ask = %v, uncached = %v", path, got, want)
 		}
 	}

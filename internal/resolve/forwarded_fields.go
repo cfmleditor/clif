@@ -53,7 +53,7 @@ func (r *Resolver) forwardedFieldReturn(fd *parser.FunctionDef) string {
 	methods := sourcePlans(source).all()
 
 	eval := producerEvaluation{resolver: r, fd: fd}
-	if !eval.fieldTextProved(&source, methods, path) {
+	if !eval.fieldTextProved(&source, path) {
 		return ""
 	}
 

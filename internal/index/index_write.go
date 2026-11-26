@@ -28,16 +28,6 @@ func (idx *Index) IndexParsed(fileURI uri.URI, content string, pr *parser.ParseR
 }
 
 func (idx *Index) indexParseResult(fileURI uri.URI, content string, pr *parser.ParseResult) {
-	// Every string below is cloned, for the reason IndexFileFromResult
-	// documents at length: a parsed string is a slice of the file's source,
-	// and one retained substring keeps the whole file alive. This door is the
-	// one the resolver's lazy EnsureIndexed and the CLI scans go through, and
-	// it stored the parse's own strings — so each file it indexed stayed in
-	// memory whole for the life of the index.
-	funcs := parser.CompactDefs(pr.Funcs)
-	refs := parser.CompactRefs(pr.ComponentRefs)
-	thisVars := cloneStrings(pr.ThisVars())
-
 	// The includes the parse's walk recorded, when it parsed this text.
 	var includes []string
 	if pr.Content == content {
@@ -46,46 +36,7 @@ func (idx *Index) indexParseResult(fileURI uri.URI, content string, pr *parser.P
 		includes = parser.ExtractIncludes(content)
 	}
 
-	idx.mu.Lock()
-	defer idx.mu.Unlock()
-
-	fk := uriKey(fileURI)
-	mark := idx.shapeBegin(fk)
-
-	defer idx.shapeEnd(fk, &mark)
-
-	idx.removeFileEntries(fileURI)
-	idx.thisVars[fk] = thisVars
-	idx.setExtendsLocked(fk, strings.Clone(pr.Extends))
-	idx.delegates[fk] = cloneDelegates(pr.Delegates)
-	idx.setImplementsLocked(fk, pr.Implements)
-
-	// An ORM entity is named by its entityname attribute, which is often not
-	// its file's name: ContentBox's Author.cfc is cbAuthor, and
-	// entityNew( "cbAuthor" ) names it.
-	persistent, entityName := entityOf(fileURI, pr)
-	idx.setFileEntityLocked(uri.URI(strings.Clone(string(fileURI))), persistent, entityName)
-
-	if isComponent(fileURI) {
-		idx.entityRead[fk] = struct{}{}
-	}
-
-	idx.setIncludesLocked(fileURI, includes)
-
-	idx.storeFileFunctionsLocked(fk, funcs)
-	idx.fileURIs[fk] = uri.URI(strings.Clone(string(fileURI)))
-	idx.markDiskRevision(fk)
-
-	fileRefsList := make([]*parser.ComponentRef, 0, len(refs))
-
-	for i := range refs {
-		r := &refs[i]
-		key := strings.ToLower(r.Variable)
-		idx.comprefs[key] = append(idx.comprefs[key], r)
-		fileRefsList = append(fileRefsList, r)
-	}
-
-	idx.fileRefs[fk] = fileRefsList
+	idx.indexWhole(fileURI, ParsedFile{PR: pr, Disk: true, DelegatesKnown: true}, includes)
 }
 
 func (idx *Index) storeFileFunctionsLocked(fk string, funcs []parser.FunctionDef) {
@@ -132,11 +83,25 @@ type ParsedFile struct {
 // found a function but none of its this-scoped variables (a completion list
 // missing a property), or a file whose extends had been forgotten.
 func (idx *Index) IndexParsedFile(fileURI uri.URI, f ParsedFile) {
+	idx.indexWhole(fileURI, f, f.PR.Includes())
+}
+
+// indexWhole is the one write of a whole file's facts, which every door that
+// has a parse goes through (IndexFile, IndexParsed, IndexParsedFile). Adding a
+// per-file map or counter means adding it here, once.
+func (idx *Index) indexWhole(fileURI uri.URI, f ParsedFile, includes []string) {
 	pr := f.PR
+
+	// Every string below is cloned, for the reason indexFileFromResult
+	// documents at length: a parsed string is a slice of the file's source,
+	// and one retained substring keeps the whole file alive.
 	funcs := parser.CompactDefs(pr.Funcs)
 	refs := parser.CompactRefs(pr.ComponentRefs)
 	thisVars := cloneStrings(pr.ThisVars())
-	includes := pr.Includes()
+
+	// An ORM entity is named by its entityname attribute, which is often not
+	// its file's name: ContentBox's Author.cfc is cbAuthor, and
+	// entityNew( "cbAuthor" ) names it.
 	persistent, entityName := entityOf(fileURI, pr)
 
 	var delegates []parser.Delegate
@@ -163,17 +128,27 @@ func (idx *Index) IndexParsedFile(fileURI uri.URI, f ParsedFile) {
 
 	idx.setIncludesLocked(fileURI, includes)
 
-	if isComponent(fileURI) {
-		if _, read := idx.entityRead[fk]; !f.EntityIfRead || read {
-			idx.setFileEntityLocked(uri.URI(strings.Clone(string(fileURI))), persistent, entityName)
+	component := isComponent(fileURI)
+	if _, read := idx.entityRead[fk]; !f.EntityIfRead || component && read {
+		idx.setFileEntityLocked(uri.URI(strings.Clone(string(fileURI))), persistent, entityName)
+
+		if component {
 			idx.entityRead[fk] = struct{}{}
 		}
 	}
 
+	idx.storeFileLocked(fileURI, fk, funcs, refs, f.Disk)
+}
+
+// storeFileLocked stores a file's functions and component refs in both views
+// of the index, the name buckets and the per-file lists, which every writer
+// must fill together. The caller holds mu, has removed the file's earlier
+// entries, and has compacted funcs and refs.
+func (idx *Index) storeFileLocked(fileURI uri.URI, fk string, funcs []parser.FunctionDef, refs []parser.ComponentRef, disk bool) {
 	idx.storeFileFunctionsLocked(fk, funcs)
 	idx.fileURIs[fk] = uri.URI(strings.Clone(string(fileURI)))
 
-	if f.Disk {
+	if disk {
 		idx.markDiskRevision(fk)
 	}
 
@@ -223,25 +198,7 @@ func (idx *Index) indexFileFromResult(fileURI uri.URI, funcs []parser.FunctionDe
 	defer idx.mu.Unlock()
 
 	idx.removeFileEntries(fileURI)
-	fk := uriKey(fileURI)
-
-	idx.storeFileFunctionsLocked(fk, funcs)
-	idx.fileURIs[fk] = uri.URI(strings.Clone(string(fileURI)))
-
-	if disk {
-		idx.markDiskRevision(fk)
-	}
-
-	fileRefsList := make([]*parser.ComponentRef, 0, len(refs))
-
-	for i := range refs {
-		r := &refs[i]
-		key := strings.ToLower(r.Variable)
-		idx.comprefs[key] = append(idx.comprefs[key], r)
-		fileRefsList = append(fileRefsList, r)
-	}
-
-	idx.fileRefs[fk] = fileRefsList
+	idx.storeFileLocked(fileURI, uriKey(fileURI), funcs, refs, disk)
 }
 
 // RemoveFile drops every entry the index holds for one file — its functions,
