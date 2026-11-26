@@ -270,6 +270,21 @@ func (s *Server) renameComponentMethod(docURI uri.URI, t *crossFileRenameTarget,
 		Explain:     true,
 	})
 
+	// Each caller file is read and split once, and each line of it asked once
+	// per receiver: an entry per call, with many calls on a file or on one line,
+	// otherwise read the file and split it again for every one of them, and
+	// answered a line's every call again for each call on it.
+	type callLine struct {
+		file     uri.URI
+		line     uint32
+		receiver string
+	}
+
+	var (
+		callerLines = map[uri.URI][]string{}
+		asked       = map[callLine]bool{}
+	)
+
 	for i := range entries {
 		e := &entries[i]
 		if !e.Resolved && e.Component == "" && e.Reason != "" {
@@ -277,18 +292,35 @@ func (s *Server) renameComponentMethod(docURI uri.URI, t *crossFileRenameTarget,
 		}
 
 		callerURI := cfpath.ToURI(e.File)
-		callerContent, ok := s.getDocument(callerURI)
 
-		if !ok {
-			data, rerr := s.FS.ReadFile(e.File)
-			if rerr != nil {
-				continue
+		lines, read := callerLines[callerURI]
+		if !read {
+			callerContent, ok := s.getDocument(callerURI)
+			if !ok {
+				if data, rerr := s.FS.ReadFile(e.File); rerr == nil {
+					callerContent, ok = string(data), true
+				}
 			}
 
-			callerContent = string(data)
+			if ok {
+				lines = strings.Split(callerContent, "\n")
+			}
+
+			callerLines[callerURI] = lines
 		}
 
-		rngs := callNameRangesOnLine(callerContent, e.Line, t.name, e.Variable)
+		if lines == nil {
+			continue
+		}
+
+		key := callLine{callerURI, e.Line, e.Variable}
+		if asked[key] {
+			continue
+		}
+
+		asked[key] = true
+
+		rngs := callNameRangesOnLine(lines, e.Line, t.name, e.Variable)
 		if len(rngs) > 1 && e.Variable == "" {
 			return nil, fmt.Errorf("cannot safely rename '%s': multiple calls on %s:%d", t.name, filepath.Base(e.File), e.Line+1)
 		}
@@ -372,8 +404,7 @@ func (s *Server) renameComponentProperty(docURI uri.URI, t *crossFileRenameTarge
 // by '(' on the 0-based line in content. When receiver is non-empty, only calls
 // qualified by `<receiver>.<targetName>(` are matched; when receiver is empty,
 // only bare (non-member) calls are matched.
-func callNameRangesOnLine(content string, targetLine uint32, targetName, receiver string) []protocol.Range {
-	lines := strings.Split(content, "\n")
+func callNameRangesOnLine(lines []string, targetLine uint32, targetName, receiver string) []protocol.Range {
 	if int(targetLine) >= len(lines) {
 		return nil
 	}
@@ -384,6 +415,8 @@ func callNameRangesOnLine(content string, targetLine uint32, targetName, receive
 	var (
 		prev2, prev1 parser.Token
 		out          []protocol.Range
+		prevByte     int
+		prevCol      uint32
 	)
 
 	cur := sc.NextSkipComments()
@@ -403,12 +436,16 @@ func callNameRangesOnLine(content string, targetLine uint32, targetName, receive
 			}
 
 			if match {
-				sCol := conv.Uint32(lex.UTF16Len(lineText[:cur.Offset]))
-				eCol := conv.Uint32(lex.UTF16Len(lineText[:cur.Offset+len(cur.Value)]))
+				// Columns run on from the match before, not from the line's
+				// start: a line of many calls was measured once per call.
+				sCol := prevCol + conv.Uint32(lex.UTF16Len(lineText[prevByte:cur.Offset]))
+				eCol := sCol + conv.Uint32(lex.UTF16Len(lineText[cur.Offset:cur.Offset+len(cur.Value)]))
 				out = append(out, protocol.Range{
 					Start: protocol.Position{Line: targetLine, Character: sCol},
 					End:   protocol.Position{Line: targetLine, Character: eCol},
 				})
+
+				prevByte, prevCol = cur.Offset+len(cur.Value), eCol
 			}
 		}
 

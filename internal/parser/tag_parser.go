@@ -9,6 +9,7 @@ import (
 
 // tagParser extracts definitions from CFML tag-based source.
 type tagParser struct {
+	cols           columnCursor // columns of declarations asked in order; see columnCursor
 	src            string
 	fileURI        string
 	funcs          []FunctionDef
@@ -799,7 +800,7 @@ func (p *tagParser) parseCFFunction(tag string, idx, tagEnd, line int) {
 		nameLine = p.lineAt(absStart)
 	}
 
-	nLine, nCol, nEndCol := nameRangeAt(p.src, absStart, nameLine, name)
+	nLine, nCol, nEndCol := p.cols.nameRange(p.src, absStart, nameLine, name)
 
 	p.funcs = append(p.funcs, FunctionDef{
 		Name:       name,

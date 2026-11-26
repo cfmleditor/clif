@@ -386,7 +386,7 @@ func (p *scriptParser) recordFunctionValue(nameTok, startTok Token, args []Argum
 }
 
 func (p *scriptParser) tokenNameRange(tok Token) (line, col, endCol uint32) {
-	return nameRangeAt(p.sc.src, tok.Offset, p.baseLine+int(tok.Line), tok.Value)
+	return p.ensureExtras().cols.nameRange(p.sc.src, tok.Offset, p.baseLine+int(tok.Line), tok.Value)
 }
 
 // declareLoopVar declares the loop variable of `for (var row in qry)`.

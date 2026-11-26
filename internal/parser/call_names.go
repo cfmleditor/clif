@@ -112,6 +112,9 @@ func (l *localNames) clone() *localNames {
 // one pointer: a slice here moved the struct up a size class
 // (TestParserStructsKeepTheirSize).
 type scriptExtras struct {
+	// cols turns the offsets of declarations into columns in order, so many
+	// on one line do not each measure it (columnCursor).
+	cols columnCursor
 	// implements is the implements attribute of the component header.
 	implements     string
 	instantiations []Instantiation

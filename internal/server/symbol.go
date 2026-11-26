@@ -53,6 +53,7 @@ func (s *Server) handleDocumentSymbol(_ context.Context, rawParams []byte) (any,
 func buildDocumentSymbols(docURI uri.URI, pr *parser.ParseResult) []protocol.DocumentSymbol {
 	content := pr.Content
 	lines := parser.NewLineTable(content)
+	columns := newUTF16Columns(content, lines)
 	header, isComp := parser.ComponentOutline(content)
 
 	ctorName := "init"
@@ -69,7 +70,7 @@ func buildDocumentSymbols(docURI uri.URI, pr *parser.ParseResult) []protocol.Doc
 		}
 
 		selRange := funcDefRange(d)
-		fullRange := functionOutlineRange(content, lines, d, pr.Scopes, selRange)
+		fullRange := functionOutlineRange(content, lines, columns, d, pr.Scopes, selRange)
 
 		kind := protocol.SymbolKindFunction
 
@@ -164,7 +165,7 @@ func propertySelectionRange(p *parser.PropertySymbol) protocol.Range {
 	}
 }
 
-func functionOutlineRange(content string, lines parser.LineTable, d *parser.FunctionDef, scopes []parser.FuncScope, sel protocol.Range) protocol.Range {
+func functionOutlineRange(content string, lines parser.LineTable, columns *utf16Columns, d *parser.FunctionDef, scopes []parser.FuncScope, sel protocol.Range) protocol.Range {
 	endLine := int(d.Line)
 	if d.HasNameRange() && int(d.NameLine) > endLine {
 		endLine = int(d.NameLine)
@@ -181,7 +182,7 @@ func functionOutlineRange(content string, lines parser.LineTable, d *parser.Func
 	}
 
 	startCol := firstNonSpaceCol(content, lines, int(d.Line))
-	endCol := lineUTF16Len(content, lines, endLine)
+	endCol := columns.lineLength(endLine)
 
 	return containRange(protocol.Range{
 		Start: protocol.Position{Line: d.Line, Character: startCol},
@@ -220,10 +221,6 @@ func firstNonSpaceCol(content string, lines parser.LineTable, line int) uint32 {
 	}
 
 	return conv.Uint32(lex.UTF16Len(text[:i]))
-}
-
-func lineUTF16Len(content string, lines parser.LineTable, line int) uint32 {
-	return conv.Uint32(lex.UTF16Len(lineTextFromTable(content, lines, line)))
 }
 
 func lineTextFromTable(content string, lines parser.LineTable, line int) string {

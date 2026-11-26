@@ -90,3 +90,11 @@ measure `lex.UTF16Len(content[lineStart:off])` once per offset: three requests t
 cursor move or edit did, and were quadratic on a minified line. `internal/parser/arg_defaults.go` reads an
 argument's default into `Argument.Default`, a CFML expression, from a script list (comments left out) or a
 tag's `default="..."`.
+
+A request that answers many sites in one file (rename, call hierarchy, the outline) reads that file and finds
+its lines **once**, then answers each site from them; `utf16Columns.lineLength` keeps a line's length for the
+outline. The parser's own columns (a function's, a property's, a tag's) go through `columnCursor`
+(`internal/parser/column_cursor.go`), one per parser, which extends the column of the last offset it was asked
+and falls back to measuring from the line's start: do not call `nameRangeAt` or `linePrefixUTF16` in a loop
+over declarations. `TestParseOfManyFunctionsOnOneLineIsLinear` and
+`TestParseOfManyDeclarationsOnOneLineIsLinear` hold it.
