@@ -143,6 +143,25 @@ func (e *producerEvaluation) fieldTextProved(source *sourceInfo, methods map[str
 		return false
 	}
 
+	// The answer depends on the file and the root alone, and the walk is every
+	// method of the file: asked once per guarded field each call reads, it
+	// was most of the time a 15,000-line component took to open.
+	if source.derived != nil {
+		if proved, ok := source.derived.fieldProofs.Load(root); ok {
+			return proved.(bool)
+		}
+	}
+
+	proved := e.fieldTextProvedUncached(source, methods, root)
+
+	if source.derived != nil {
+		source.derived.fieldProofs.Store(root, proved)
+	}
+
+	return proved
+}
+
+func (e *producerEvaluation) fieldTextProvedUncached(source *sourceInfo, methods map[string]*producerMethod, root string) bool {
 	read := 0
 	planned := map[string]bool{}
 

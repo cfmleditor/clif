@@ -317,6 +317,7 @@ type sourceDerived struct {
 	startup         []parser.StartupVariableAssignment
 	fieldsOnce      sync.Once
 	fields          variablesReferences
+	fieldProofs     sync.Map // variables root → bool, fieldTextProved's answer for it
 	methodsOnce     sync.Once
 	methods         map[string]wheelsMethod
 	tagBodiesOnce   sync.Once
