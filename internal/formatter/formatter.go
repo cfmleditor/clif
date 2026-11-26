@@ -16,7 +16,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -1536,9 +1535,24 @@ func (f *Formatter) formatComment(n *sitter.Node) {
 	f.write("\n")
 }
 
-// commentedMarkupPattern matches the start of a tag or an end tag: a less-than sign
-// followed by a letter or a slash. `a < b` does not match.
-var commentedMarkupPattern = regexp.MustCompile(`</?[A-Za-z]`)
+// holdsMarkupStart reports whether s holds the start of a tag or an end tag: a
+// less-than sign followed by a letter, or by a slash and a letter. `a < b` and
+// `a </ b` do not match.
+func holdsMarkupStart(s string) bool {
+	for {
+		i := strings.IndexByte(s, '<')
+		if i < 0 {
+			return false
+		}
+
+		s = s[i+1:]
+		s = strings.TrimPrefix(s, "/")
+
+		if s != "" && (s[0] >= 'A' && s[0] <= 'Z' || s[0] >= 'a' && s[0] <= 'z') {
+			return true
+		}
+	}
+}
 
 // normalizeCFComment collapses extra internal whitespace in <!--- ... ---> comments.
 //
@@ -1556,7 +1570,7 @@ func (f *Formatter) normalizeCFComment(raw string) string {
 
 	inner := raw[5 : len(raw)-4]
 
-	if strings.Contains(inner, "\n") && commentedMarkupPattern.MatchString(inner) {
+	if strings.Contains(inner, "\n") && holdsMarkupStart(inner) {
 		return raw
 	}
 

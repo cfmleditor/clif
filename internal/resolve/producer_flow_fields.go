@@ -147,8 +147,10 @@ func (e *producerEvaluation) fieldTextProved(source *sourceInfo, methods map[str
 	// method of the file: asked once per guarded field each call reads, it
 	// was most of the time a 15,000-line component took to open.
 	if source.derived != nil {
-		if proved, ok := source.derived.fieldProofs.Load(root); ok {
-			return proved.(bool)
+		if kept, ok := source.derived.fieldProofs.Load(root); ok {
+			if proved, isBool := kept.(bool); isBool {
+				return proved
+			}
 		}
 	}
 
