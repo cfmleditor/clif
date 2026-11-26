@@ -705,5 +705,116 @@ func checkArgVarMixed(fc *FileContext) []cflint.Issue {
 }
 
 func checkImplicitScope(fc *FileContext) []cflint.Issue {
-	return checkUnscopedUses(fc, func(a *funcScopeAnalysis) []identUse { return a.bareReads }, "Variable %s is not explicitly scoped.")
+	compVars := collectComponentVars(fc)
+
+	var out []cflint.Issue
+
+	for _, a := range fc.functionScopes() {
+		reported := map[string]bool{}
+
+		for _, u := range a.bareReads {
+			low := strings.ToLower(u.name)
+			if reported[low] || a.params[low] || a.localAssign[low] || a.catchVars[low] || compVars[low] {
+				continue
+			}
+
+			if _, hasVar := a.vars[low]; hasVar {
+				continue
+			}
+
+			reported[low] = true
+
+			msg := fmt.Sprintf("Variable %s is not explicitly scoped.", u.name)
+			out = append(out, fc.IssueAt(u.offset, msg, u.name))
+		}
+	}
+
+	return out
+}
+
+// collectComponentVars collects declared component properties (`property foo;`,
+// `property name="foo";`, `<cfproperty name="foo">`) and `variables.<name> = ...`
+// assignments so references to declared component fields are not flagged as
+// IMPLICIT_SCOPE.
+func collectComponentVars(fc *FileContext) map[string]bool {
+	vars := map[string]bool{}
+	src := fc.Text()
+
+	for _, tag := range parser.CFTags(src, "cfproperty") {
+		if !tag.Close {
+			if name, ok := tag.Attr("name"); ok && name != "" {
+				vars[strings.ToLower(strings.TrimSpace(name))] = true
+			}
+		}
+	}
+
+	for _, r := range fc.Regions() {
+		if r.Kind != parser.RegionScript {
+			continue
+		}
+
+		sc := parser.NewSourceScanner(r.Text)
+
+		var prev2, prev parser.Token
+
+		cur := sc.NextSkipComments()
+		for cur.Kind != parser.TokEOF {
+			next := sc.NextSkipComments()
+
+			// `variables.<name> = ...`
+			if cur.Kind == parser.TokIdent && prev.Kind == parser.TokDot &&
+				prev2.Kind == parser.TokIdent && strings.EqualFold(prev2.Value, "variables") &&
+				next.Kind == parser.TokEquals {
+				vars[strings.ToLower(cur.Value)] = true
+			}
+
+			// Script `property [type] name;` or `property name="foo" ...;`
+			if cur.Kind == parser.TokIdent && strings.EqualFold(cur.Value, "property") && prev.Kind != parser.TokDot {
+				collectScriptPropertyName(next, sc, vars)
+
+				prev2 = prev
+				prev = cur
+				cur = sc.NextSkipComments()
+
+				continue
+			}
+
+			prev2 = prev
+			prev = cur
+			cur = next
+		}
+	}
+
+	return vars
+}
+
+func collectScriptPropertyName(first parser.Token, sc *parser.Scanner, dst map[string]bool) {
+	var head []parser.Token
+
+	for t := first; t.Kind != parser.TokEOF && t.Kind != parser.TokSemicolon && t.Kind != parser.TokLBrace; t = sc.NextSkipComments() {
+		if t.Kind == parser.TokIdent && strings.EqualFold(t.Value, "name") {
+			if eq := sc.NextSkipComments(); eq.Kind == parser.TokEquals {
+				if val := sc.NextSkipComments(); val.Kind == parser.TokString && len(val.Value) >= 2 {
+					dst[strings.ToLower(strings.TrimSpace(val.Value[1:len(val.Value)-1]))] = true
+
+					return
+				}
+			}
+
+			continue
+		}
+
+		if t.Kind == parser.TokEquals {
+			break
+		}
+
+		head = append(head, t)
+	}
+
+	if len(head) > 0 {
+		last := head[len(head)-1]
+		if last.Kind == parser.TokIdent {
+			dst[strings.ToLower(last.Value)] = true
+		}
+	}
 }

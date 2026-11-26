@@ -129,28 +129,6 @@ func checkOutputAttr(fc *FileContext) []cflint.Issue {
 	return out
 }
 
-func skipParenGroup(sc *parser.Scanner) bool {
-	if lp := sc.NextSkipComments(); lp.Kind != parser.TokLParen {
-		return false
-	}
-
-	depth := 1
-	for depth > 0 {
-		t := sc.NextSkipComments()
-		switch t.Kind {
-		case parser.TokEOF:
-			return true
-		case parser.TokLParen:
-			depth++
-		case parser.TokRParen:
-			depth--
-		default:
-		}
-	}
-
-	return true
-}
-
 func checkNestedCFOutput(fc *FileContext) []cflint.Issue {
 	src := fc.Text()
 	if parser.IndexFold(src, "<cfoutput") < 0 {
@@ -397,50 +375,69 @@ func checkNoDefaultInsideSwitch(fc *FileContext) []cflint.Issue {
 func checkScriptSwitchDefault(fc *FileContext, text string, baseOffset int) []cflint.Issue {
 	sc := parser.NewSourceScanner(text)
 
+	var toks []parser.Token
+	for t := sc.NextSkipComments(); t.Kind != parser.TokEOF; t = sc.NextSkipComments() {
+		toks = append(toks, t)
+	}
+
 	var out []cflint.Issue
 
-	for cur := sc.NextSkipComments(); cur.Kind != parser.TokEOF; cur = sc.NextSkipComments() {
+	for i := range toks {
+		cur := toks[i]
 		if cur.Kind != parser.TokIdent || !strings.EqualFold(cur.Value, "switch") {
 			continue
 		}
 
-		swOffset := baseOffset + cur.Offset
+		if i > 0 && toks[i-1].Kind == parser.TokDot {
+			continue
+		}
+
+		if i+1 >= len(toks) || toks[i+1].Kind != parser.TokLParen {
+			continue
+		}
 
 		// Advance past `(...)` to `{`.
-		if !skipParenGroup(sc) {
+		j := i + 2
+		pDepth := 1
+
+		for j < len(toks) && pDepth > 0 {
+			switch toks[j].Kind {
+			case parser.TokLParen:
+				pDepth++
+			case parser.TokRParen:
+				pDepth--
+			default:
+			}
+
+			j++
+		}
+
+		if j >= len(toks) || toks[j].Kind != parser.TokLBrace {
 			continue
 		}
 
-		if t := sc.NextSkipComments(); t.Kind != parser.TokLBrace {
-			continue
-		}
-
+		// Scan the switch body at brace depth 1 for `default:`, without
+		// advancing `i` so nested switches are checked too.
 		bDepth := 1
 		hasDefault := false
 
-		for bDepth > 0 {
-			tok := sc.NextSkipComments()
-			if tok.Kind == parser.TokEOF {
-				break
-			}
-
-			switch tok.Kind {
+		for k := j + 1; k < len(toks) && bDepth > 0; k++ {
+			switch toks[k].Kind {
 			case parser.TokLBrace:
 				bDepth++
 			case parser.TokRBrace:
 				bDepth--
 			case parser.TokIdent:
-				if bDepth == 1 && strings.EqualFold(tok.Value, "default") {
-					if next := sc.NextSkipComments(); next.Kind == parser.TokColon {
-						hasDefault = true
-					}
+				if bDepth == 1 && strings.EqualFold(toks[k].Value, "default") &&
+					k+1 < len(toks) && toks[k+1].Kind == parser.TokColon {
+					hasDefault = true
 				}
 			default:
 			}
 		}
 
 		if !hasDefault {
-			out = append(out, fc.IssueAt(swOffset, "Switch statement has no default case.", "switch"))
+			out = append(out, fc.IssueAt(baseOffset+cur.Offset, "Switch statement has no default case.", "switch"))
 		}
 	}
 
