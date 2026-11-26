@@ -36,6 +36,14 @@ type Entry struct {
 	// traced target (e.g. "variable 'x' has no component ref"). Empty when
 	// Resolved is true, or when Options.Reason wasn't supplied.
 	Reason string `json:"reason,omitempty"`
+
+	// Start is the byte offset in the file's text of the called name, and
+	// HasStart whether it is known (a call the parser could not place has
+	// none). Line alone cannot tell two calls of one name on a line apart; a
+	// caller wanting the place of each reads it from here. Not part of the
+	// JSON report, which keeps the shape it had.
+	Start    int  `json:"-"`
+	HasStart bool `json:"-"`
 }
 
 // Options configures what to search for.
@@ -509,6 +517,7 @@ func callEntry(call *parser.CallSite, pr *parser.ParseResult, f string, resolved
 		File: f, Function: call.Caller, Call: callText,
 		Component: call.Component, Variable: call.Variable,
 		Line: call.Line, Resolved: resolved, Reason: reason,
+		Start: int(call.StartByte), HasStart: call.HasSpan,
 	}
 }
 

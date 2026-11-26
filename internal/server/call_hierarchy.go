@@ -118,6 +118,7 @@ func (s *Server) handleCallHierarchyIncomingCalls(_ context.Context, rawParams [
 		content string
 		lines   parser.LineTable
 		ok      bool
+		file    *entryFile // for the place of each call, from its offset
 	}
 
 	callerTexts := map[string]*callerText{}
@@ -125,7 +126,7 @@ func (s *Server) handleCallHierarchyIncomingCalls(_ context.Context, rawParams [
 	rangeOf := func(e *refs.Entry) protocol.Range {
 		ct, seen := callerTexts[e.File]
 		if !seen {
-			ct = &callerText{}
+			ct = &callerText{file: s.entryFile(e.File)}
 			ct.content, ct.ok = s.readFileContent(uri.File(e.File), e.File)
 
 			if ct.ok {
@@ -133,6 +134,14 @@ func (s *Server) handleCallHierarchyIncomingCalls(_ context.Context, rawParams [
 			}
 
 			callerTexts[e.File] = ct
+		}
+
+		// Where this call stands, when the parse knew: a line with two calls
+		// has two ranges, not the first one twice.
+		if e.HasStart {
+			if rng, found := ct.file.spanRange(e.Start, name); found {
+				return rng
+			}
 		}
 
 		if !ct.ok {
@@ -226,6 +235,9 @@ func (s *Server) handleCallHierarchyOutgoingCalls(_ context.Context, rawParams [
 	// The file's lines once, not once per call in the function.
 	contentLines := parser.NewLineTable(content)
 
+	// The calls were found in this text, so their offsets are places in it.
+	contentFile := &entryFile{text: content}
+
 	for i := range calls {
 		c := &calls[i]
 		def := s.resolveOutgoingCallee(c, docURI, file, baseDir)
@@ -244,7 +256,18 @@ func (s *Server) handleCallHierarchyOutgoingCalls(_ context.Context, rawParams [
 			order = append(order, k)
 		}
 
-		outCall.FromRanges = append(outCall.FromRanges, s.callSiteRangeInContent(content, contentLines, c.Line, c.FuncName))
+		// Where this call stands, when the parse knew: a line with two calls
+		// has two ranges, not the first one twice.
+		rng, placed := protocol.Range{}, false
+		if c.HasSpan {
+			rng, placed = contentFile.spanRange(int(c.StartByte), c.FuncName)
+		}
+
+		if !placed {
+			rng = s.callSiteRangeInContent(content, contentLines, c.Line, c.FuncName)
+		}
+
+		outCall.FromRanges = append(outCall.FromRanges, rng)
 	}
 
 	out := make([]protocol.CallHierarchyOutgoingCall, 0, len(order))

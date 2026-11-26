@@ -464,17 +464,30 @@ func (s *Server) entryLocations(entries []refs.Entry, name string, useVariable b
 		return nil
 	}
 
-	lines := make(map[string][]string, 8)
+	files := make(map[string]*entryFile, 8)
 	locs := make([]protocol.Location, 0, len(entries))
 
 	for i := range entries {
 		e := &entries[i]
 
-		text, ok := lines[e.File]
+		file, ok := files[e.File]
 		if !ok {
-			text = s.fileLines(e.File)
-			lines[e.File] = text
+			file = s.entryFile(e.File)
+			files[e.File] = file
 		}
+
+		// Where the call stands, when the parse knew: two calls of one name on
+		// a line are two places, which the first match of the name on the line
+		// cannot tell apart.
+		if e.HasStart {
+			if rng, found := file.spanRange(e.Start, name); found {
+				locs = append(locs, protocol.Location{URI: cfpath.ToURI(e.File), Range: rng})
+
+				continue
+			}
+		}
+
+		text := file.splitLines()
 
 		rng, exact := entryRange(text, e.Line, name)
 
@@ -494,6 +507,22 @@ func (s *Server) entryLocations(entries []refs.Entry, name string, useVariable b
 // scan used, so the column and the line number it belongs to always come from
 // one version of the file.
 func (s *Server) fileLines(path string) []string {
+	return s.entryFile(path).splitLines()
+}
+
+// entryFile is a file as the references to it are placed: its text as the scan
+// read it, found once for all the references in it, and what turns a byte
+// offset in that text into a position. A nil entryFile is a file that could not
+// be read, and answers nothing.
+type entryFile struct {
+	text  string
+	lines []string
+	table parser.LineTable
+	cols  *utf16Columns
+}
+
+// entryFile reads path through the filesystem the scan used.
+func (s *Server) entryFile(path string) *entryFile {
 	data, err := s.refsFS().ReadFile(path)
 	if err != nil {
 		return nil
@@ -504,7 +533,43 @@ func (s *Server) fileLines(path string) []string {
 		return nil
 	}
 
-	return strings.Split(text, "\n")
+	return &entryFile{text: text}
+}
+
+// splitLines is the text by line, for a reference whose place is only known to
+// its line.
+func (f *entryFile) splitLines() []string {
+	if f == nil {
+		return nil
+	}
+
+	if f.lines == nil {
+		f.lines = strings.Split(f.text, "\n")
+	}
+
+	return f.lines
+}
+
+// spanRange is the range of name where the parse placed a call, at byte offset
+// start in the text. It answers only where name stands there: a file changed
+// since the scan no longer has it, and the caller falls back to the line.
+func (f *entryFile) spanRange(start int, name string) (protocol.Range, bool) {
+	if f == nil || name == "" || start < 0 || start+len(name) > len(f.text) || !strings.EqualFold(f.text[start:start+len(name)], name) {
+		return protocol.Range{}, false
+	}
+
+	if f.cols == nil {
+		f.table = parser.NewLineTable(f.text)
+		f.cols = newUTF16Columns(f.text, f.table)
+	}
+
+	line := f.table.LineOf(start)
+	col := f.cols.column(line, start)
+
+	return protocol.Range{
+		Start: protocol.Position{Line: conv.Uint32(line), Character: conv.Uint32(col)},
+		End:   protocol.Position{Line: conv.Uint32(line), Character: conv.Uint32(col + lex.UTF16Len(f.text[start:start+len(name)]))},
+	}, true
 }
 
 // nameRange spans name where it appears on the given line, so the client

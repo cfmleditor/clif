@@ -98,3 +98,9 @@ outline. The parser's own columns (a function's, a property's, a tag's) go throu
 and falls back to measuring from the line's start: do not call `nameRangeAt` or `linePrefixUTF16` in a loop
 over declarations. `TestParseOfManyFunctionsOnOneLineIsLinear` and
 `TestParseOfManyDeclarationsOnOneLineIsLinear` hold it.
+
+**A reference is placed from its call's offset, not from its line.** `refs.Entry.Start` is the byte offset of the
+called name (`CallSite.StartByte`, `HasStart` when the parse knew it), and `entryFile.spanRange` makes the range
+from it, after checking the name is there. A line holds as many calls as it holds; "the first match of the name on
+the line" put every one of them at the first, and the list then dropped the rest as repeats. A call the parser
+could not place (some in tag expressions) is still placed by the line.
