@@ -1,6 +1,9 @@
 package formatter
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // A comment that holds tags or HTML is code someone switched off, and is meant to be
 // switched back on: the editor's toggle-comment shortcut removes the markers and the
@@ -172,4 +175,28 @@ func TestProseCommentInAQueryIsNotMoved(t *testing.T) {
 	src := "<div>\n<cfquery name=\"q\">\nSELECT * FROM t WHERE a + <!--- first\n    second\n  third ---> 1 > 0\n</cfquery>\n</div>\n"
 
 	assertContains(t, formatStable(t, src), "\n        <!--- first\n    second\n  third --->\n")
+}
+
+// A comparison is not a tag, whether or not spaces surround the sign.
+func TestComparisonInACommentIsNotMarkup(t *testing.T) {
+	for _, inner := range []string{"if a<b then\n  x\n  y", "when x<limit\n  keep"} {
+		if holdsCommentedMarkup("<!---" + inner + "--->") {
+			t.Errorf("%q was taken for markup", inner)
+		}
+	}
+
+	for _, inner := range []string{" <li>\n x", " <cfif a<b>\n x", "\n</div>\n x", " <br/>\n x"} {
+		if !holdsCommentedMarkup("<!---" + inner + "--->") {
+			t.Errorf("%q was not taken for markup", inner)
+		}
+	}
+}
+
+// The block is written as it was typed, but its lines end as every other line does.
+func TestCommentedOutMarkupLosesTrailingBlanksAndCRs(t *testing.T) {
+	got := formatStable(t, "<div>\r\n<!--- <li>  \r\n   x\t\r\n </li> --->\r\n</div>\r\n")
+
+	if strings.ContainsAny(got, "\r") || strings.Contains(got, " \n") || strings.Contains(got, "\t\n") {
+		t.Errorf("trailing whitespace or CR left: %q", got)
+	}
 }

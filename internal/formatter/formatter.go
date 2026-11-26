@@ -1577,13 +1577,15 @@ func holdsCommentedMarkup(raw string) bool {
 // are: neither can be said to have moved with the comment.
 func (f *Formatter) rebaseComment(raw, sourceIndent string) string {
 	indent := f.opts.indent(f.level)
-	if indent == sourceIndent {
-		return raw
-	}
+	shift := indent != sourceIndent
 
 	lines := strings.Split(raw, "\n")
-	for i := 1; i < len(lines); i++ {
-		if trimSpace(lines[i]) != "" && strings.HasPrefix(lines[i], sourceIndent) {
+	for i := range lines {
+		// Trailing blanks and the CR of a CRLF file go, as they do from every other line the
+		// formatter writes, which end in a bare LF.
+		lines[i] = strings.TrimRight(lines[i], " \t\r")
+
+		if i > 0 && shift && lines[i] != "" && strings.HasPrefix(lines[i], sourceIndent) {
 			lines[i] = indent + lines[i][len(sourceIndent):]
 		}
 	}
@@ -1591,9 +1593,10 @@ func (f *Formatter) rebaseComment(raw, sourceIndent string) string {
 	return strings.Join(lines, "\n")
 }
 
-// commentedMarkupPattern matches the start of a tag or an end tag: a less-than sign
-// followed by a letter or a slash. `a < b` does not match.
-var commentedMarkupPattern = regexp.MustCompile(`</?[A-Za-z]`)
+// commentedMarkupPattern matches a tag or an end tag: a less-than sign that does not follow
+// a word character, a letter or a slash and then a name, and a space, a slash or `>` after it.
+// `a < b` and `a<b` do not match.
+var commentedMarkupPattern = regexp.MustCompile(`(?:^|\W)</?[A-Za-z][\w:.-]*(?:[\s/>]|$)`)
 
 // normalizeCFComment collapses extra internal whitespace in <!--- ... ---> comments.
 //
