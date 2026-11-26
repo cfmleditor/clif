@@ -35,11 +35,7 @@ func TestAReaderNeverSeesAFileHalfIndexed(t *testing.T) {
 				readers sync.WaitGroup
 			)
 
-			readers.Add(1)
-
-			go func() {
-				defer readers.Done()
-
+			readers.Go(func() {
 				for !stop.Load() {
 					if len(s.index.FunctionsForFile(docURI)) == 0 {
 						continue
@@ -52,7 +48,7 @@ func TestAReaderNeverSeesAFileHalfIndexed(t *testing.T) {
 						torn.Add(1)
 					}
 				}
-			}()
+			})
 
 			for range 20000 {
 				write(s, pr)
