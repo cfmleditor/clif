@@ -82,6 +82,7 @@ type Server struct {
 	routeScanRefs         []route.Ref           // memoised whole-document scan; see routeLinks
 	cachedResolvers       []parser.Resolver     // cached parser.Resolver slice
 	cachedResolverSet     *parser.ResolverSet   // pre-grouped for fast matching
+	resolversBuilt        bool                  // buildResolvers has run since the last invalidation, even if it found no rules
 	ConfigPath            string                // the .clif.json the daemon configured this session from, if any
 	changeCount           map[uri.URI]int       // rapid change counter per file
 	changeWindowStart     map[uri.URI]time.Time // start of current rapid-change window
@@ -526,6 +527,7 @@ func (s *Server) invalidateResolver() {
 	s.mappingJSONDirs = nil
 	s.cachedResolvers = nil
 	s.cachedResolverSet = nil
+	s.resolversBuilt = false
 	s.resolverMu.Unlock()
 }
 
@@ -831,7 +833,7 @@ func (s *Server) cfResolverSet() *parser.ResolverSet {
 // slice first was how a concurrent cfResolverSet came to see the slice present,
 // skip the build, and return a still-nil set.
 func (s *Server) buildResolvers() []parser.Resolver {
-	if s.cachedResolvers != nil {
+	if s.resolversBuilt {
 		return s.cachedResolvers
 	}
 
@@ -840,7 +842,13 @@ func (s *Server) buildResolvers() []parser.Resolver {
 		rules = append(rules, assumed.ComponentResolvers...)
 	}
 
+	// A workspace with no rules is an answer too, kept like any other until the
+	// next invalidation. Left unkept, every caller found nothing built and read
+	// the project's files again to rediscover that there were none: once per
+	// call site of every inlay hint, hover and completion.
 	if len(rules) == 0 {
+		s.resolversBuilt = true
+
 		return nil
 	}
 
@@ -860,6 +868,7 @@ func (s *Server) buildResolvers() []parser.Resolver {
 
 	s.cachedResolverSet = parser.BuildResolverSet(r)
 	s.cachedResolvers = r
+	s.resolversBuilt = true
 
 	return r
 }

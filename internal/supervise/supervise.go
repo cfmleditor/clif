@@ -26,6 +26,13 @@ import (
 	"go.lsp.dev/protocol"
 )
 
+// ExitBrokenPipe is the code a Child's Wait reports for a server that a broken
+// pipe killed (SIGPIPE), by the shell's convention of 128 and the signal's
+// number. A server that writes to its output after the supervisor has closed
+// the pipe, as the session ends, dies this way, and that is the end of the
+// session, not a crash.
+const ExitBrokenPipe = 128 + 13
+
 // Child is one running language server.
 type Child interface {
 	// Stream is the server's stdio as an LSP stream.
@@ -196,6 +203,12 @@ func (s *supervisor) watch(ctx context.Context, editorDone <-chan struct{}) (cod
 
 		if ended {
 			s.answerShutdown(ctx)
+
+			// A server that was still writing when the session ended died of
+			// the pipe the supervisor closed: it ended, as it was asked to.
+			if ev.code == ExitBrokenPipe {
+				return 0
+			}
 
 			return ev.code
 		}

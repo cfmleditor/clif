@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cfmleditor/clif/internal/index"
 	cflog "github.com/cfmleditor/clif/internal/log"
 	"github.com/cfmleditor/clif/internal/parser"
 	cfpath "github.com/cfmleditor/clif/internal/path"
@@ -191,27 +192,21 @@ func mb(b uint64) string {
 // up by a watcher would then be indexed differently from the identical file
 // that happened to exist at startup.
 func (s *Server) applyIndexResult(fileURI uri.URI, pr *parser.ParseResult) {
-	s.index.IndexFileFromResult(fileURI, pr.Funcs, pr.ComponentRefs)
-	s.index.SetThisVars(fileURI, pr.ThisVars())
-	s.index.SetIncludes(fileURI, pr.Includes())
-
-	// Extends and delegates, which IndexFileFromResult forgets: left unset,
-	// the resolver read and fully parsed each component the first time a
-	// lookup walked through it, and each of those writes to the index cleared
-	// its lookup cache. Opening a large file paid for hundreds of them. A
-	// shallow parse reads extends as a full one does, but not properties, so
-	// its delegates are known only for a file that never says "delegate",
-	// which every delegation needs. Both held over 13,636 components.
-	s.index.SetExtends(fileURI, pr.Extends)
-	s.index.SetImplements(fileURI, pr.Implements)
-
-	if !pr.IsShallow() {
-		s.index.SetDelegates(fileURI, pr.Delegates)
-	} else if parser.IndexFold(pr.Content, "delegate") < 0 {
-		s.index.SetDelegates(fileURI, nil)
-	}
-
-	s.index.IndexEntity(fileURI, pr)
+	// Written in one step (Index.IndexParsedFile): a reader must not find the
+	// file's functions without its this-scoped variables, extends or includes.
+	//
+	// Extends and delegates are written from the parse, since a lookup that
+	// finds them forgotten reads and fully parses the component, and each of
+	// those writes cleared the lookup cache: opening a large file paid for
+	// hundreds. A shallow parse reads extends as a full one does, but not
+	// properties, so its delegates are known only for a file that never says
+	// "delegate", which every delegation needs. Both held over 13,636
+	// components.
+	s.index.IndexParsedFile(fileURI, index.ParsedFile{
+		PR:             pr,
+		Disk:           true,
+		DelegatesKnown: !pr.IsShallow() || parser.IndexFold(pr.Content, "delegate") < 0,
+	})
 }
 
 // collectCFCFiles walks root and returns all .cfc file paths, by the rule the

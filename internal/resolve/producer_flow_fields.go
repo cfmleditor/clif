@@ -105,7 +105,7 @@ func (e *producerEvaluation) sharedFieldContract(path string, allowPrimitive boo
 		}
 	}
 
-	if unread && !e.fieldTextProved(&source, methods, path) {
+	if unread && !e.fieldTextProved(&source, path) {
 		valid = false
 	}
 
@@ -137,12 +137,39 @@ func (e *producerEvaluation) sharedFieldContract(path string, allowPrimitive boo
 // component-body assignment, and the scope is never used whole. A large
 // component always holds a statement the plans cannot read, and the
 // cfwheels CLI's 8,000-line Module.cfc lost every guarded field to one.
-func (e *producerEvaluation) fieldTextProved(source *sourceInfo, methods map[string]*producerMethod, path string) bool {
+//
+// The answer is the file's and the root's alone: the methods are the source's
+// own plans (sourcePlans) and the startup assignments its own, so neither is a
+// parameter, and the answer is kept on the source under the root. A caller
+// that wanted another method set would need another key.
+func (e *producerEvaluation) fieldTextProved(source *sourceInfo, path string) bool {
 	root := variablesRoot(path)
 	if root == "" {
 		return false
 	}
 
+	// The answer depends on the file and the root alone, and the walk is every
+	// method of the file: asked once per guarded field each call reads, it
+	// was most of the time a 15,000-line component took to open.
+	if source.derived != nil {
+		if kept, ok := source.derived.fieldProofs.Load(root); ok {
+			if proved, isBool := kept.(bool); isBool {
+				return proved
+			}
+		}
+	}
+
+	proved := e.fieldTextProvedUncached(source, root)
+
+	if source.derived != nil {
+		source.derived.fieldProofs.Store(root, proved)
+	}
+
+	return proved
+}
+
+func (e *producerEvaluation) fieldTextProvedUncached(source *sourceInfo, root string) bool {
+	methods := sourcePlans(*source).all()
 	read := 0
 	planned := map[string]bool{}
 

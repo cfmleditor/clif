@@ -27,7 +27,11 @@ const watchedFilesRegistrationID = "cfmleditor-watched-files"
 // `.cfc`, because Application.cfm carries mappings, beans and ORM locations
 // that cfpath caches; a change to one has to invalidate that cache the same way
 // saving it in the editor does.
-var watchedGlobs = []string{"**/*.cfc", "**/*.cfm", "**/*.cfml", "**/*.cfs", "**/*.json"}
+//
+// `plugin/config.xml` is the one file that is neither: a Mura plugin's mappings
+// are read from it, and the session keeps what discovery found until a file it
+// read changes.
+var watchedGlobs = []string{"**/*.cfc", "**/*.cfm", "**/*.cfml", "**/*.cfs", "**/*.json", "**/plugin/config.xml"}
 
 // registerFileWatchers asks the client to watch the workspace for CFML files
 // changing outside the editor.
@@ -133,6 +137,14 @@ func (s *Server) applyWatchedFileChanges(changes []protocol.FileEvent) {
 			continue
 		}
 
+		// A file discovery read changes what the session resolves with, whether
+		// or not it is one the index holds: the project's markers (a JSON
+		// config, a plugin's config.xml) are not CFML, and a session that found
+		// no framework keeps that answer until something it read changes.
+		if s.getResolver().DiscoveryAffected(path) {
+			discoveryChanged = true
+		}
+
 		if strings.EqualFold(filepath.Ext(path), ".json") {
 			if s.isMappingJSON(path) {
 				mappingChanged++
@@ -159,14 +171,14 @@ func (s *Server) applyWatchedFileChanges(changes []protocol.FileEvent) {
 			appChanged++
 		}
 
-		discoveryChanged = discoveryChanged || application || s.getResolver().DiscoveryAffected(path)
+		discoveryChanged = discoveryChanged || application
 	}
 
 	for file := range reload {
 		s.loadKnownIssuesFile(context.Background(), file)
 	}
 
-	if indexed == 0 && removed == 0 && mappingChanged == 0 && openChanged == 0 {
+	if indexed == 0 && removed == 0 && mappingChanged == 0 && openChanged == 0 && !discoveryChanged {
 		s.log.Debug("watched files: nothing to apply", cflog.Int("skipped", skipped))
 
 		return

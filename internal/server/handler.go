@@ -12,6 +12,7 @@ import (
 	"github.com/cfmleditor/clif/internal/lex"
 
 	"github.com/cfmleditor/clif/internal/cache"
+	"github.com/cfmleditor/clif/internal/index"
 	cflog "github.com/cfmleditor/clif/internal/log"
 	"github.com/cfmleditor/clif/internal/lspdoc"
 	"github.com/cfmleditor/clif/internal/parser"
@@ -832,26 +833,21 @@ func (s *Server) reindexFromParseResult(docURI uri.URI, pr *parser.ParseResult) 
 		return
 	}
 
-	s.index.IndexBufferFromResult(docURI, pr.Funcs, pr.ComponentRefs)
-	s.index.SetThisVars(docURI, pr.ThisVars())
-	s.index.SetIncludes(docURI, pr.Includes())
-	// The re-index above forgets the file's extends and delegates, and the
-	// resolver's answer to a forgotten one is to read the file from disk and
-	// parse it: the saved text rather than the buffer, and on a 65,000-line
-	// component twice per keystroke, once for each. The document's own full
-	// parse already holds both.
-	s.index.SetExtends(docURI, pr.Extends)
-	s.index.SetImplements(docURI, pr.Implements)
-	s.index.SetDelegates(docURI, pr.Delegates)
 	// The entity by the index's own rule. A component outside the workspace,
 	// which reindexIfCFC does not index either, adds none (an open file from
 	// another project would otherwise name entities for every client), but
 	// one the resolver registered follows the buffer.
-	if !cfpath.IsCFCFile(string(docURI)) || len(s.WorkspaceFolders) == 0 || s.isIncludedPath(string(docURI)) {
-		s.index.IndexEntity(docURI, pr)
-	} else {
-		s.index.RefreshEntity(docURI, pr)
-	}
+	//
+	// Written in one step, extends and delegates included: a re-index forgets
+	// both, and the resolver's answer to a forgotten one is to read the file
+	// from disk and parse it, the saved text rather than the buffer, and on a
+	// 65,000-line component twice per keystroke. The document's own full parse
+	// already holds them.
+	s.index.IndexParsedFile(docURI, index.ParsedFile{
+		PR:             pr,
+		DelegatesKnown: true,
+		EntityIfRead:   cfpath.IsCFCFile(string(docURI)) && len(s.WorkspaceFolders) > 0 && !s.isIncludedPath(string(docURI)),
+	})
 }
 
 // resolverRefs scans content for assignments whose RHS matches a component resolver.

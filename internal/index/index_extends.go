@@ -62,12 +62,11 @@ func (idx *Index) FindFilesByBasename(name string) []string {
 // knows. An empty string with ok true means the component extends nothing; ok
 // false means nobody has recorded it yet.
 //
-// The distinction matters because only one of the two doors into the index can
-// fill this in for free. IndexFile parses, so it knows; IndexFileFromResult is
-// handed funcs and refs by a caller that already parsed, and threading the
-// value through it would touch every call site in the tree for a value almost
-// none of them care about. So "unknown" is a real state, and the reader is
-// expected to establish the value and record it with SetExtends.
+// The distinction matters because a door that is handed only funcs and refs
+// (IndexFileFromResult, which tests and benchmarks use) cannot fill this in,
+// while the doors that have a parse (IndexFile, IndexParsed, IndexParsedFile)
+// write it with the rest of the file. So "unknown" is a real state, and the
+// reader is expected to establish the value and record it with SetExtends.
 func (idx *Index) ExtendsForFile(fileURI uri.URI) (string, bool) {
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()

@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"syscall"
 
 	"github.com/cfmleditor/clif/internal/supervise"
 	"github.com/cfmleditor/clif/internal/vfs"
@@ -92,8 +93,18 @@ func (c *execChild) Wait() int {
 	}
 
 	var exit *exec.ExitError
-	if errors.As(err, &exit) && exit.ExitCode() >= 0 {
+	if !errors.As(err, &exit) {
+		return 1
+	}
+
+	if exit.ExitCode() >= 0 {
 		return exit.ExitCode()
+	}
+
+	// Ended by a signal. A broken pipe is told apart, because after the
+	// session has ended it is how a server that was still writing dies.
+	if status, ok := exit.Sys().(syscall.WaitStatus); ok && status.Signaled() && status.Signal() == syscall.SIGPIPE {
+		return supervise.ExitBrokenPipe
 	}
 
 	return 1
