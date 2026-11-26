@@ -82,19 +82,34 @@ func highlightsOf(content, word string) []protocol.DocumentHighlight {
 			rest = ""
 		}
 
+		// The columns run on from the match before: measured from the start of
+		// the line for every match, a long line (minified code, a generated
+		// data literal) cost the line's length once per occurrence, 390 ms for
+		// an identifier on an 84,000-character line, on a request the editor
+		// sends on every cursor move.
+		var (
+			prevByte int
+			prevCol  uint32
+		)
+
 		for at := 0; ; {
 			start, end, found := identSpanFrom(text, word, at)
 			if !found {
 				break
 			}
 
+			startCol := prevCol + utf16Len(text[prevByte:start])
+			endCol := startCol + utf16Len(text[start:end])
+
 			out = append(out, protocol.DocumentHighlight{
 				Range: protocol.Range{
-					Start: protocol.Position{Line: uint32(i), Character: utf16Len(text[:start])},
-					End:   protocol.Position{Line: uint32(i), Character: utf16Len(text[:end])},
+					Start: protocol.Position{Line: uint32(i), Character: startCol},
+					End:   protocol.Position{Line: uint32(i), Character: endCol},
 				},
 				Kind: protocol.DocumentHighlightKindText,
 			})
+
+			prevByte, prevCol = end, endCol
 
 			// Resume after this match, not one byte on: overlapping matches of
 			// the same identifier are impossible, and restarting at start+1

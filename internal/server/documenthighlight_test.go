@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"go.lsp.dev/protocol"
 )
@@ -140,5 +141,61 @@ func TestHighlightsCostTheAnswerNotTheFile(t *testing.T) {
 	if large > small*2 {
 		t.Errorf("memory scales with the file, not the answer: %d B/op for 101 lines, %d B/op for 10001 lines",
 			small, large)
+	}
+}
+
+// highlightsBefore is highlightsOf as it was written first, measuring every
+// column from the start of its line: the oracle for the running columns.
+func highlightsBefore(content, word string) []string {
+	var out []string
+
+	for i, text := range strings.Split(content, "\n") {
+		for at := 0; ; {
+			start, end, found := identSpanFrom(text, word, at)
+			if !found {
+				break
+			}
+
+			out = append(out, fmt.Sprintf("%d:%d-%d", i, utf16Len(text[:start]), utf16Len(text[:end])))
+			at = end
+		}
+	}
+
+	return out
+}
+
+func TestHighlightColumnsAgreeWithMeasuringFromTheLineStart(t *testing.T) {
+	for name, src := range map[string]string{
+		"ascii":           "x = foo + foo(foo);\nfoo\n  foo foo\n",
+		"wide characters": "é = foo; 😀 foo 😀😀 foo(\"日本語\", foo)\nplain foo\n😀foo foo😀\n",
+		"crlf":            "foo foo\r\nbar foo\r\n",
+		"adjacent":        "foo,foo;foo\n",
+		"no match":        "bar baz\n",
+		"empty lines":     "\n\nfoo\n\n",
+	} {
+		got := highlightSet(highlightsOf(src, "foo"))
+
+		want := highlightsBefore(src, "foo")
+		if strings.Join(got, " ") != strings.Join(want, " ") {
+			t.Errorf("%s: columns = %v, want %v", name, got, want)
+		}
+	}
+}
+
+// An identifier that occurs thousands of times on one very long line is found
+// in time proportional to the line, not to the line times the occurrences: 20,000
+// of them took 3.3 s when each column was measured from the line's start.
+func TestHighlightsOnALongLineAreLinear(t *testing.T) {
+	src := "var x = [" + strings.Repeat("item, é, ", 20000) + "item];\n"
+
+	start := time.Now()
+	hs := highlightsOf(src, "item")
+
+	if took := time.Since(start); took > time.Second {
+		t.Errorf("20,001 occurrences on one line took %v, want well under a second", took)
+	}
+
+	if len(hs) != 20001 {
+		t.Errorf("found %d occurrences, want 20001", len(hs))
 	}
 }

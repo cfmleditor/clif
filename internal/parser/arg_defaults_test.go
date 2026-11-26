@@ -78,3 +78,19 @@ func TestTagArgumentDefaultsReadAsExpressions(t *testing.T) {
 		}
 	}
 }
+
+// A comment is not part of a default: written back by a stub it would swallow
+// what follows it on the line.
+func TestScriptArgumentDefaultsLeaveOutComments(t *testing.T) {
+	got := defaultsOf(t, "component {\n\tfunction f(\n\t\ta = 1 // note\n\t\t, b = {\n\t\t\tk: 1, // c1\n\t\t\tn: 2 /* c2 */\n\t\t},\n\t\tc = \"http://x//y\",\n\t\td = /* first */ 5,\n\t\te = [1, /* two */ 2]\n\t) {}\n}")
+
+	want := map[string]string{
+		"a": "1", "b": "{ k: 1, n: 2 }", "c": `"http://x//y"`, "d": "5", "e": "[1, 2]",
+	}
+
+	for name, w := range want {
+		if got[name] != w {
+			t.Errorf("argument %s: default = %q, want %q", name, got[name], w)
+		}
+	}
+}
