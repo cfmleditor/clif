@@ -772,6 +772,12 @@ func scanGlobalVarScript(fc *FileContext, text string, baseOffset int, reported 
 	for cur.Kind != parser.TokEOF {
 		next := sc.NextSkipComments()
 
+		if cur.Kind == parser.TokString {
+			forEachStringHashExpr(cur, func(expr string, relOff int) {
+				out = append(out, scanGlobalVarScript(fc, expr, baseOffset+cur.Offset+relOff, reported)...)
+			})
+		}
+
 		if cur.Kind == parser.TokIdent && (next.Kind == parser.TokDot || next.Kind == parser.TokLBracket) && prev.Kind != parser.TokDot {
 			low := strings.ToLower(cur.Value)
 			if globalScopes[low] && !reported[low] {

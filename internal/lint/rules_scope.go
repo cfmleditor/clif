@@ -367,6 +367,12 @@ func scanScriptBodyScope(text string, baseOffset int, a *funcScopeAnalysis) {
 			if len(parens) > 0 {
 				parens = parens[:len(parens)-1]
 			}
+		case parser.TokString:
+			// Scan `#expr#` interpolations inside script string literals
+			// (e.g. `"hello #event.getCurrentEvent()#"`).
+			forEachStringHashExpr(cur, func(expr string, relOff int) {
+				scanScriptBodyScope(expr, baseOffset+cur.Offset+relOff, a)
+			})
 		case parser.TokIdent:
 			// Detect script-tag statement header: `lock type="..." name="..." {`.
 			if len(parens) == 0 && tagStmtName == "" && prev.Kind != parser.TokDot && next.Kind == parser.TokIdent {
@@ -496,6 +502,46 @@ func tokAt(toks []parser.Token, i int) parser.Token {
 	}
 
 	return toks[i]
+}
+
+// forEachStringHashExpr invokes fn for each unescaped `#expr#` interpolation
+// inside a CFML string literal token, passing the expression text and its byte
+// offset relative to tok.Offset.
+func forEachStringHashExpr(tok parser.Token, fn func(expr string, relOff int)) {
+	val := tok.Value
+	if len(val) < 4 || !strings.ContainsRune(val, '#') {
+		return
+	}
+
+	// Strip surrounding quotes; track offset 1 for the opening quote.
+	inner := val[1 : len(val)-1]
+
+	for i := 0; i < len(inner); {
+		if inner[i] != '#' {
+			i++
+
+			continue
+		}
+
+		// Escaped `##`.
+		if i+1 < len(inner) && inner[i+1] == '#' {
+			i += 2
+
+			continue
+		}
+
+		closeRel := strings.IndexByte(inner[i+1:], '#')
+		if closeRel < 0 {
+			return
+		}
+
+		expr := inner[i+1 : i+1+closeRel]
+		if strings.TrimSpace(expr) != "" {
+			fn(expr, 1+i+1)
+		}
+
+		i += closeRel + 2
+	}
 }
 
 // collectClosureParamNames extracts parameter names from a `function(...)`
