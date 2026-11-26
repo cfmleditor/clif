@@ -175,6 +175,10 @@ func checkFileStartsLowercase(fc *FileContext) []cflint.Issue {
 	}
 
 	base := filepath.Base(fc.Path)
+	if strings.EqualFold(base, "Application.cfm") || strings.EqualFold(base, "OnRequestEnd.cfm") {
+		return nil
+	}
+
 	if base != "" && base[0] >= 'A' && base[0] <= 'Z' {
 		return []cflint.Issue{fc.IssueAt(0, fmt.Sprintf("File %s should start with a lowercase letter.", base), base)}
 	}

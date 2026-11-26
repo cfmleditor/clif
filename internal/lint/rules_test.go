@@ -97,7 +97,7 @@ func TestTierBStructureRules(t *testing.T) {
 		t.Error("PARSE_ERROR: expected error on broken CFML")
 	}
 
-	if got := runNativeRule(t, "svc.cfc", "OUTPUT_ATTR", "component output=\"false\" {\n\tfunction a() {}\n\tfunction b() output=\"false\" {}\n}\n"); len(got) != 1 {
+	if got := runNativeRule(t, "svc.cfc", "OUTPUT_ATTR", "<cfcomponent>\n\t<cffunction name=\"a\"></cffunction>\n\t<cffunction name=\"b\" output=\"false\"></cffunction>\n</cfcomponent>\n"); len(got) != 1 {
 		t.Errorf("OUTPUT_ATTR: got %v, want 1 (only function a)", got)
 	}
 

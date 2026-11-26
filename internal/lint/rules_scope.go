@@ -288,6 +288,18 @@ type parenFrame struct {
 	callName string // lowercased callee name when this `(` is a call arg list
 }
 
+var controlParenKeywords = map[string]bool{
+	"if": true, "elseif": true, "while": true, "switch": true, "catch": true, "for": true, "function": true,
+}
+
+var scriptTagStmtKeywords = map[string]bool{
+	"lock": true, "transaction": true, "param": true, "savecontent": true,
+	"setting": true, "mail": true, "http": true, "query": true, "storedproc": true,
+	"wddx": true, "file": true, "directory": true, "thread": true, "cookie": true,
+	"header": true, "content": true, "location": true, "log": true, "trace": true,
+	"cache": true, "document": true, "pdf": true, "zip": true, "ftp": true,
+}
+
 func scanScriptBodyScope(text string, baseOffset int, a *funcScopeAnalysis) {
 	sc := parser.NewSourceScanner(text)
 
@@ -297,8 +309,9 @@ func scanScriptBodyScope(text string, baseOffset int, a *funcScopeAnalysis) {
 	}
 
 	var (
-		braceKinds []bool // true = struct literal brace, false = block brace
-		parens     []parenFrame
+		braceKinds  []bool // true = struct literal brace, false = block brace
+		parens      []parenFrame
+		tagStmtName string // non-empty inside `lock type="exclusive" name="..." {`
 	)
 
 	for i, cur := range toks {
@@ -316,7 +329,12 @@ func scanScriptBodyScope(text string, baseOffset int, a *funcScopeAnalysis) {
 		}
 
 		switch cur.Kind {
+		case parser.TokSemicolon:
+			if len(parens) == 0 {
+				tagStmtName = ""
+			}
 		case parser.TokLBrace:
+			tagStmtName = ""
 			isStruct := prev.Kind == parser.TokEquals || prev.Kind == parser.TokLParen ||
 				prev.Kind == parser.TokComma || prev.Kind == parser.TokLBracket ||
 				prev.Kind == parser.TokColon || prev.Kind == parser.TokQuestion ||
@@ -333,7 +351,7 @@ func scanScriptBodyScope(text string, baseOffset int, a *funcScopeAnalysis) {
 				lowPrev := strings.ToLower(prev.Value)
 				if lowPrev == "for" {
 					f.isFor = true
-				} else if !cfmlKeywords[lowPrev] {
+				} else if !controlParenKeywords[lowPrev] {
 					f.callName = lowPrev
 				}
 			}
@@ -344,6 +362,15 @@ func scanScriptBodyScope(text string, baseOffset int, a *funcScopeAnalysis) {
 				parens = parens[:len(parens)-1]
 			}
 		case parser.TokIdent:
+			// Detect script-tag statement header: `lock type="..." name="..." {`.
+			if len(parens) == 0 && tagStmtName == "" && prev.Kind != parser.TokDot && next.Kind == parser.TokIdent {
+				if low := strings.ToLower(cur.Value); scriptTagStmtKeywords[low] {
+					tagStmtName = "cf" + low
+
+					continue
+				}
+			}
+
 			inStructLit := len(braceKinds) > 0 && braceKinds[len(braceKinds)-1]
 
 			var topParen parenFrame
@@ -351,13 +378,13 @@ func scanScriptBodyScope(text string, baseOffset int, a *funcScopeAnalysis) {
 				topParen = parens[len(parens)-1]
 			}
 
-			recordScriptIdent(toks, i, baseOffset, prev2, prev, cur, next, inStructLit, topParen, a)
+			recordScriptIdent(toks, i, baseOffset, prev2, prev, cur, next, inStructLit, topParen, tagStmtName, a)
 		default:
 		}
 	}
 }
 
-func recordScriptIdent(toks []parser.Token, idx, baseOffset int, prev2, prev, cur, next parser.Token, inStructLit bool, topParen parenFrame, a *funcScopeAnalysis) {
+func recordScriptIdent(toks []parser.Token, idx, baseOffset int, prev2, prev, cur, next parser.Token, inStructLit bool, topParen parenFrame, tagStmtName string, a *funcScopeAnalysis) {
 	low := strings.ToLower(cur.Value)
 
 	// Record `arguments.<name>` reads/writes.
@@ -376,8 +403,13 @@ func recordScriptIdent(toks []parser.Token, idx, baseOffset int, prev2, prev, cu
 		return
 	}
 
-	// Skip member accesses (`.foo`), function calls (`foo(`), struct keys (`foo:`), and keywords.
+	// Skip member accesses (`.foo`), function calls (`foo(`), struct keys (`foo:`),
+	// `new pkg.Component(...)`, and keywords/scopes.
 	if prev.Kind == parser.TokDot || next.Kind == parser.TokLParen || next.Kind == parser.TokColon {
+		return
+	}
+
+	if prev.Kind == parser.TokIdent && strings.EqualFold(prev.Value, "new") {
 		return
 	}
 
@@ -403,6 +435,17 @@ func recordScriptIdent(toks []parser.Token, idx, baseOffset int, prev2, prev, cu
 	if prev.Kind == parser.TokIdent && strings.EqualFold(prev.Value, "var") {
 		if _, exists := a.vars[low]; !exists {
 			a.vars[low] = baseOffset + cur.Offset
+		}
+
+		return
+	}
+
+	// Script-tag statement attribute (`lock type="exclusive" name="..." {`).
+	if tagStmtName != "" && next.Kind == parser.TokEquals && isStandaloneEquals(cur, next, tokAt(toks, idx+2)) {
+		if attrs := scriptTagOutputAttrs[tagStmtName]; attrs != nil && attrs[low] {
+			if valTok := tokAt(toks, idx+2); valTok.Kind == parser.TokString && len(valTok.Value) >= 2 {
+				recordOutputVarName(valTok.Value[1:len(valTok.Value)-1], baseOffset+cur.Offset, a)
+			}
 		}
 
 		return
@@ -550,11 +593,27 @@ func checkArgVarConflict(fc *FileContext) []cflint.Issue {
 	var out []cflint.Issue
 
 	for _, a := range fc.functionScopes() {
+		reported := map[string]bool{}
+
 		for name, off := range a.vars {
 			if a.params[name] {
+				reported[name] = true
 				msg := fmt.Sprintf("Variable %s conflicts with function argument of the same name.", name)
 				out = append(out, fc.IssueAt(off, msg, name))
 			}
+		}
+
+		// Matching ArgVarChecker: unscoped assignment to an argument name in a
+		// function body also triggers ARG_VAR_CONFLICT.
+		for _, w := range a.bareWrites {
+			low := strings.ToLower(w.name)
+			if !a.params[low] || reported[low] {
+				continue
+			}
+
+			reported[low] = true
+			msg := fmt.Sprintf("Variable %s conflicts with function argument of the same name.", w.name)
+			out = append(out, fc.IssueAt(w.offset, msg, w.name))
 		}
 	}
 
@@ -567,24 +626,18 @@ func checkArgVarMixed(fc *FileContext) []cflint.Issue {
 	for _, a := range fc.functionScopes() {
 		reported := map[string]bool{}
 
-		checkUse := func(u identUse) {
-			low := strings.ToLower(u.name)
-			if reported[low] || !a.params[low] || !a.argScoped[low] {
-				return
+		// Matching ArgVarChecker: referencing a function argument without the
+		// `arguments.` scope triggers ARG_VAR_MIXED once per argument per function.
+		for _, r := range a.bareReads {
+			low := strings.ToLower(r.name)
+			if reported[low] || !a.params[low] {
+				continue
 			}
 
 			reported[low] = true
 
-			msg := fmt.Sprintf("Argument %s is used both scoped (arguments.%s) and unscoped.", u.name, u.name)
-			out = append(out, fc.IssueAt(u.offset, msg, u.name))
-		}
-
-		for _, r := range a.bareReads {
-			checkUse(r)
-		}
-
-		for _, w := range a.bareWrites {
-			checkUse(w)
+			msg := fmt.Sprintf("Variable %s should not be referenced in local and argument scope.", r.name)
+			out = append(out, fc.IssueAt(r.offset, msg, r.name))
 		}
 	}
 

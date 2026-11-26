@@ -101,13 +101,17 @@ func checkParseError(fc *FileContext) []cflint.Issue {
 	return out
 }
 
+// checkOutputAttr matches CFLint's OutputParmMissing: flags <cffunction> tags
+// that omit the `output` attribute.
 func checkOutputAttr(fc *FileContext) []cflint.Issue {
 	src := fc.Text()
+	if parser.IndexFold(src, "<cffunction") < 0 {
+		return nil
+	}
 
 	var out []cflint.Issue
 
-	// Tag form: <cfcomponent> and <cffunction>.
-	for _, tag := range parser.CFTags(src, "cfcomponent", "cffunction") {
+	for _, tag := range parser.CFTags(src, "cffunction") {
 		if tag.Close {
 			continue
 		}
@@ -119,49 +123,6 @@ func checkOutputAttr(fc *FileContext) []cflint.Issue {
 			}
 
 			out = append(out, fc.IssueAt(tag.Start, fmt.Sprintf("<%s> is missing the output attribute.", tag.Name), name))
-		}
-	}
-
-	// Script form: `component ... {` and `function name(...) ... {`.
-	for _, r := range fc.Regions() {
-		if r.Kind != parser.RegionScript {
-			continue
-		}
-
-		out = append(out, checkScriptOutputAttr(fc, r.Text, r.Offset)...)
-	}
-
-	return out
-}
-
-func checkScriptOutputAttr(fc *FileContext, text string, baseOffset int) []cflint.Issue {
-	sc := parser.NewSourceScanner(text)
-
-	var out []cflint.Issue
-
-	for cur := sc.NextSkipComments(); cur.Kind != parser.TokEOF; cur = sc.NextSkipComments() {
-		if cur.Kind != parser.TokIdent {
-			continue
-		}
-
-		switch {
-		case strings.EqualFold(cur.Value, "component"):
-			if !scanHeaderForOutput(sc, false) {
-				out = append(out, fc.IssueAt(baseOffset+cur.Offset, "Component is missing the output attribute.", "component"))
-			}
-		case strings.EqualFold(cur.Value, "function"):
-			nameTok := sc.NextSkipComments()
-			if nameTok.Kind != parser.TokIdent {
-				continue // anonymous closure
-			}
-
-			if !skipParenGroup(sc) {
-				continue
-			}
-
-			if !scanHeaderForOutput(sc, true) {
-				out = append(out, fc.IssueAt(baseOffset+nameTok.Offset, fmt.Sprintf("Function %s is missing the output attribute.", nameTok.Value), nameTok.Value))
-			}
 		}
 	}
 
@@ -188,22 +149,6 @@ func skipParenGroup(sc *parser.Scanner) bool {
 	}
 
 	return true
-}
-
-func scanHeaderForOutput(sc *parser.Scanner, stopAtSemi bool) bool {
-	hasOutput := false
-
-	for t := sc.NextSkipComments(); t.Kind != parser.TokEOF && t.Kind != parser.TokLBrace; t = sc.NextSkipComments() {
-		if stopAtSemi && t.Kind == parser.TokSemicolon {
-			break
-		}
-
-		if t.Kind == parser.TokIdent && strings.EqualFold(t.Value, "output") {
-			hasOutput = true
-		}
-	}
-
-	return hasOutput
 }
 
 func checkNestedCFOutput(fc *FileContext) []cflint.Issue {
@@ -313,7 +258,7 @@ func checkScriptArgTypes(fc *FileContext, text string, baseOffset int) []cflint.
 
 			// Only one identifier means untyped (`a` or `required a`); 2+ tokens means typed (`string a` or `models.User a`).
 			if len(head) == 1 && head[0].Kind == parser.TokIdent {
-				out = append(out, fc.IssueAt(baseOffset+head[0].Offset, fmt.Sprintf("Argument %s is missing a type.", head[0].Value), head[0].Value))
+				out = append(out, fc.IssueAt(baseOffset+cur.Offset, fmt.Sprintf("Argument %s is missing a type.", head[0].Value), head[0].Value))
 			}
 
 			paramTokens = paramTokens[:0]
@@ -691,6 +636,7 @@ func checkSQLSelectStar(fc *FileContext) []cflint.Issue {
 	return out
 }
 
+// globalScopes matches CFLint's CFScopes.isCFScoped && !isFunctionScoped.
 var globalScopes = map[string]bool{
 	"application": true,
 	"session":     true,
@@ -701,16 +647,21 @@ var globalScopes = map[string]bool{
 	"cookie":      true,
 	"cgi":         true,
 	"client":      true,
+	"this":        true,
+	"cfthread":    true,
 }
 
+// checkGlobalVar matches CFLint's GlobalVarChecker: flags each global scope
+// referenced inside a component (or function) at most once per scope per file.
 func checkGlobalVar(fc *FileContext) []cflint.Issue {
-	// CFLint flags global scope access inside CFCs (skip Application.cfc where
-	// application/session lifecycle hooks legitimately access them).
-	if !strings.EqualFold(filepath.Ext(fc.Path), ".cfc") || strings.EqualFold(filepath.Base(fc.Path), "Application.cfc") {
+	if !strings.EqualFold(filepath.Ext(fc.Path), ".cfc") {
 		return nil
 	}
 
-	var out []cflint.Issue
+	var (
+		out      []cflint.Issue
+		reported = map[string]bool{}
+	)
 
 	for _, r := range fc.Regions() {
 		if r.Kind != parser.RegionScript {
@@ -725,10 +676,13 @@ func checkGlobalVar(fc *FileContext) []cflint.Issue {
 		for cur.Kind != parser.TokEOF {
 			next := sc.NextSkipComments()
 
-			if cur.Kind == parser.TokIdent && globalScopes[strings.ToLower(cur.Value)] &&
-				(next.Kind == parser.TokDot || next.Kind == parser.TokLBracket) &&
-				prev.Kind != parser.TokDot {
-				out = append(out, fc.IssueAt(r.Offset+cur.Offset, fmt.Sprintf("Avoid referencing global scope '%s' directly in a component.", cur.Value), cur.Value))
+			if cur.Kind == parser.TokIdent && (next.Kind == parser.TokDot || next.Kind == parser.TokLBracket) && prev.Kind != parser.TokDot {
+				low := strings.ToLower(cur.Value)
+				if globalScopes[low] && !reported[low] {
+					reported[low] = true
+
+					out = append(out, fc.IssueAt(r.Offset+cur.Offset, fmt.Sprintf("Identifier %s is global. Referencing in a CFC or function should be avoided.", cur.Value), cur.Value))
+				}
 			}
 
 			prev = cur
