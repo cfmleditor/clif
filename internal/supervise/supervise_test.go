@@ -23,6 +23,7 @@ type behaviour struct {
 	dieOnShutdown bool          // exits with code 2 on shutdown, unanswered
 	capacity      int           // the stream's buffer, in messages; 64 when zero
 	ignoreExit    bool          // ends, with code 0, only when its input does
+	brokenPipe    bool          // dies of a broken pipe, not cleanly, on exit
 }
 
 // fakeServer is an in-process language server: it answers initialize and
@@ -175,6 +176,10 @@ func (f *fakeServer) notification(ctx context.Context, s jsonrpc2.Stream, m *jso
 			f.versions[u] = p.TextDocument.Version
 		}
 	case protocol.MethodExit:
+		if f.b.brokenPipe {
+			return ExitBrokenPipe, true
+		}
+
 		return 0, !f.b.ignoreExit
 	}
 
@@ -813,5 +818,20 @@ func TestARestartDropsQueuedStateTheReplayCarries(t *testing.T) {
 	want := []string{"call:" + protocol.MethodTextDocumentHover, protocol.MethodTextDocumentDidSave, protocol.MethodExit}
 	if fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Fatalf("kept %v, want %v", got, want)
+	}
+}
+
+// A server that dies of a broken pipe as the session ends, still writing to a
+// pipe the supervisor has closed, ended as it was asked to: the supervisor
+// exits 0 rather than 1 (TestServerOverStdioEndsAfterExit, under load).
+func TestAServerKilledByTheClosedPipeAfterExitEndsCleanly(t *testing.T) {
+	e, editorEnd := newEditor(t, 64)
+	sv := &servers{plan: []behaviour{{brokenPipe: true}}}
+	done := run(t, editorEnd, sv, Options{})
+
+	e.start()
+
+	if code := endSession(t, e, done, 2); code != 0 {
+		t.Fatalf("exit code %d, want 0: a broken pipe after exit is the end of the session", code)
 	}
 }
