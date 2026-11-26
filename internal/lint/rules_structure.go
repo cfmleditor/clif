@@ -224,11 +224,11 @@ func checkScriptArgTypes(fc *FileContext, text string, baseOffset int) []cflint.
 		}
 
 		next := sc.NextSkipComments()
-		if next.Kind == parser.TokIdent {
-			next = sc.NextSkipComments()
+		if next.Kind != parser.TokIdent {
+			continue // skip anonymous closures `function(...)` to match CFLint's ArgTypeChecker
 		}
 
-		if next.Kind != parser.TokLParen {
+		if lp := sc.NextSkipComments(); lp.Kind != parser.TokLParen {
 			continue
 		}
 
@@ -652,16 +652,55 @@ var globalScopes = map[string]bool{
 }
 
 // checkGlobalVar matches CFLint's GlobalVarChecker: flags each global scope
-// referenced inside a component (or function) at most once per scope per file.
+// referenced inside a component or function at most once per scope per function.
 func checkGlobalVar(fc *FileContext) []cflint.Issue {
 	if !strings.EqualFold(filepath.Ext(fc.Path), ".cfc") {
 		return nil
 	}
 
-	var (
-		out      []cflint.Issue
-		reported = map[string]bool{}
-	)
+	src := fc.Text()
+	spans := parser.FunctionSpansOf(fc.Path, src)
+
+	var out []cflint.Issue
+
+	// Scan each function body with its own per-function dedup map.
+	for i := range spans {
+		sp := &spans[i]
+
+		body := sp.BodyText(src)
+		if body == "" {
+			continue
+		}
+
+		reported := map[string]bool{}
+		if sp.Params >= 0 {
+			out = append(out, scanGlobalVarScript(fc, body, sp.Body, reported)...)
+		} else {
+			for _, r := range parser.ClassifyRegions(body) {
+				if r.Kind == parser.RegionScript {
+					out = append(out, scanGlobalVarScript(fc, r.Text, sp.Body+r.Offset, reported)...)
+				}
+			}
+
+			for _, tag := range parser.CFTags(body, "cfset", "cfif", "cfelseif", "cfreturn") {
+				if tag.Close {
+					continue
+				}
+
+				txt := tag.Text()
+				if len(txt) <= len(tag.Name)+2 {
+					continue
+				}
+
+				innerStart := len(tag.Name) + 1
+				inner := txt[innerStart : len(txt)-1]
+				out = append(out, scanGlobalVarScript(fc, inner, sp.Body+tag.Start+innerStart, reported)...)
+			}
+		}
+	}
+
+	// Also scan component top-level script outside any function body.
+	topReported := map[string]bool{}
 
 	for _, r := range fc.Regions() {
 		if r.Kind != parser.RegionScript {
@@ -677,17 +716,58 @@ func checkGlobalVar(fc *FileContext) []cflint.Issue {
 			next := sc.NextSkipComments()
 
 			if cur.Kind == parser.TokIdent && (next.Kind == parser.TokDot || next.Kind == parser.TokLBracket) && prev.Kind != parser.TokDot {
-				low := strings.ToLower(cur.Value)
-				if globalScopes[low] && !reported[low] {
-					reported[low] = true
+				absOff := r.Offset + cur.Offset
+				if !offsetInsideAnySpan(absOff, spans) {
+					low := strings.ToLower(cur.Value)
+					if globalScopes[low] && !topReported[low] {
+						topReported[low] = true
 
-					out = append(out, fc.IssueAt(r.Offset+cur.Offset, fmt.Sprintf("Identifier %s is global. Referencing in a CFC or function should be avoided.", cur.Value), cur.Value))
+						out = append(out, fc.IssueAt(absOff, fmt.Sprintf("Identifier %s is global. Referencing in a CFC or function should be avoided.", cur.Value), cur.Value))
+					}
 				}
 			}
 
 			prev = cur
 			cur = next
 		}
+	}
+
+	return out
+}
+
+func offsetInsideAnySpan(off int, spans []parser.FunctionSpan) bool {
+	for i := range spans {
+		if spans[i].Body >= 0 && off >= spans[i].Body && off < spans[i].BodyEnd {
+			return true
+		}
+	}
+
+	return false
+}
+
+func scanGlobalVarScript(fc *FileContext, text string, baseOffset int, reported map[string]bool) []cflint.Issue {
+	sc := parser.NewSourceScanner(text)
+
+	var (
+		prev parser.Token
+		out  []cflint.Issue
+	)
+
+	cur := sc.NextSkipComments()
+	for cur.Kind != parser.TokEOF {
+		next := sc.NextSkipComments()
+
+		if cur.Kind == parser.TokIdent && (next.Kind == parser.TokDot || next.Kind == parser.TokLBracket) && prev.Kind != parser.TokDot {
+			low := strings.ToLower(cur.Value)
+			if globalScopes[low] && !reported[low] {
+				reported[low] = true
+
+				out = append(out, fc.IssueAt(baseOffset+cur.Offset, fmt.Sprintf("Identifier %s is global. Referencing in a CFC or function should be avoided.", cur.Value), cur.Value))
+			}
+		}
+
+		prev = cur
+		cur = next
 	}
 
 	return out

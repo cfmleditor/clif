@@ -349,9 +349,15 @@ func scanScriptBodyScope(text string, baseOffset int, a *funcScopeAnalysis) {
 
 			if prev.Kind == parser.TokIdent {
 				lowPrev := strings.ToLower(prev.Value)
-				if lowPrev == "for" {
+				switch {
+				case lowPrev == "for":
 					f.isFor = true
-				} else if !controlParenKeywords[lowPrev] {
+				case lowPrev == "function":
+					// Anonymous closure `function( key, value ) { ... }`: record
+					// its parameter names so references inside the closure are
+					// not flagged as IMPLICIT_SCOPE or MISSING_VAR.
+					collectClosureParamNames(toks, i, a.catchVars)
+				case !controlParenKeywords[lowPrev]:
 					f.callName = lowPrev
 				}
 			}
@@ -490,6 +496,60 @@ func tokAt(toks []parser.Token, i int) parser.Token {
 	}
 
 	return toks[i]
+}
+
+// collectClosureParamNames extracts parameter names from a `function(...)`
+// token sequence starting at the `(` token index lpIdx.
+func collectClosureParamNames(toks []parser.Token, lpIdx int, dst map[string]bool) {
+	depth := 1
+
+	var param []parser.Token
+
+	flush := func() {
+		var head []parser.Token
+
+		for _, t := range param {
+			if t.Kind == parser.TokEquals {
+				break
+			}
+
+			head = append(head, t)
+		}
+
+		if len(head) > 0 {
+			last := head[len(head)-1]
+			if last.Kind == parser.TokIdent {
+				dst[strings.ToLower(last.Value)] = true
+			}
+		}
+
+		param = param[:0]
+	}
+
+	for j := lpIdx + 1; j < len(toks) && depth > 0; j++ {
+		t := toks[j]
+		switch t.Kind {
+		case parser.TokLParen, parser.TokLBracket, parser.TokLBrace:
+			depth++
+
+			param = append(param, t)
+		case parser.TokRParen, parser.TokRBracket, parser.TokRBrace:
+			depth--
+			if depth == 0 {
+				flush()
+			} else {
+				param = append(param, t)
+			}
+		case parser.TokComma:
+			if depth == 1 {
+				flush()
+			} else {
+				param = append(param, t)
+			}
+		default:
+			param = append(param, t)
+		}
+	}
 }
 
 // isAssignLHS reports whether the identifier at toks[idx] is the root of an

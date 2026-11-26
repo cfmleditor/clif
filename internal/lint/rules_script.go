@@ -155,6 +155,21 @@ func scanScriptTextForCall(fc *FileContext, text string, baseOffset int, fnName,
 			isDecl := prev.Kind == parser.TokIdent && strings.EqualFold(prev.Value, "function")
 
 			if !isMember && !isDecl {
+				// Matching CreateObjectChecker: only flag createObject("component", ...),
+				// not createObject("java", ...).
+				if strings.EqualFold(fnName, "createObject") {
+					arg := sc.NextSkipComments()
+					if arg.Kind == parser.TokString && len(arg.Value) >= 2 &&
+						strings.EqualFold(arg.Value[1:len(arg.Value)-1], "component") {
+						out = append(out, fc.IssueAt(baseOffset+cur.Offset, msg, cur.Value))
+					}
+
+					prev = next
+					cur = arg
+
+					continue
+				}
+
 				out = append(out, fc.IssueAt(baseOffset+cur.Offset, msg, cur.Value))
 			}
 		}

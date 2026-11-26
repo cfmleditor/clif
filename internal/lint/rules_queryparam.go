@@ -225,9 +225,9 @@ func checkQueryParamReq(fc *FileContext) []cflint.Issue {
 			}
 
 			// Scan `#expr#` inside the SQL string literal. Report at most once
-			// per setSQL/queryExecute call to match CFLint's QUERYPARAM_REQ.
+			// per setSQL/queryExecute call at the call site to match CFLint's QUERYPARAM_REQ.
 			if issues := scanQueryBodyHashes(fc, str.Value, r.Offset+str.Offset, lines, &matcher); len(issues) > 0 {
-				out = append(out, issues[0])
+				out = append(out, fc.IssueAt(r.Offset+cur.Offset, fmt.Sprintf("setSql/queryExecute '%s' should use query parameters.", cur.Value), cur.Value))
 			}
 		}
 	}
