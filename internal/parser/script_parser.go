@@ -193,6 +193,7 @@ func (p *scriptParser) reset(src, fileURI string, baseLine int, resolvers []Reso
 	if extras != nil {
 		extras.instantiations = extras.instantiations[:0]
 		extras.callNames = nil
+		extras.cols = columnCursor{}
 	}
 
 	p.sc, p.funcRefs, p.funcLinks, p.funcCalls = sc, funcRefs, funcLinks, funcCalls

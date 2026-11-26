@@ -93,5 +93,8 @@ tag's `default="..."`.
 
 A request that answers many sites in one file (rename, call hierarchy, the outline) reads that file and finds
 its lines **once**, then answers each site from them; `utf16Columns.lineLength` keeps a line's length for the
-outline. The parser has the same cost left in `nameRangeAt` (each function's name column is measured from the
-start of its line), which only shows past about 5,000 functions written on one line.
+outline. The parser's own columns (a function's, a property's, a tag's) go through `columnCursor`
+(`internal/parser/column_cursor.go`), one per parser, which extends the column of the last offset it was asked
+and falls back to measuring from the line's start: do not call `nameRangeAt` or `linePrefixUTF16` in a loop
+over declarations. `TestParseOfManyFunctionsOnOneLineIsLinear` and
+`TestParseOfManyDeclarationsOnOneLineIsLinear` hold it.

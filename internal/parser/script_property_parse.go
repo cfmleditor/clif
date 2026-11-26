@@ -162,9 +162,9 @@ func positionalPropertyName(tokens []Token, flags int) (typeName, name string, n
 }
 
 func (p *scriptParser) buildPropertyDef(name, typeName string, line uint32, startTok, endTok, nameTok Token, hasNameTok bool, attrs map[string]string) propertyDef {
-	col := linePrefixUTF16(p.sc.src, startTok.Offset)
+	col := p.ensureExtras().cols.prefix(p.sc.src, startTok.Offset)
 	endLine := conv.Uint32(p.baseLine + int(endTok.Line))
-	endCol := linePrefixUTF16(p.sc.src, endTok.Offset+len(endTok.Value))
+	endCol := p.ensureExtras().cols.prefix(p.sc.src, endTok.Offset+len(endTok.Value))
 
 	var nameLine, nameCol, nameEndCol uint32
 
@@ -174,7 +174,7 @@ func (p *scriptParser) buildPropertyDef(name, typeName string, line uint32, star
 			off++
 		}
 
-		nameLine, nameCol, nameEndCol = nameRangeAt(p.sc.src, off, p.baseLine+int(nameTok.Line), name)
+		nameLine, nameCol, nameEndCol = p.ensureExtras().cols.nameRange(p.sc.src, off, p.baseLine+int(nameTok.Line), name)
 	}
 
 	return propertyDef{

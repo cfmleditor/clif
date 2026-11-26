@@ -464,14 +464,14 @@ func (p *tagParser) parseCFProperty(tag string, idx, tagEnd, line int) {
 	attrs := extractAllAttrs(tag)
 	addBareFlags(tag, attrs)
 
-	col := linePrefixUTF16(p.src, idx)
+	col := p.cols.prefix(p.src, idx)
 
 	endLine := line
 	if strings.IndexByte(tag, '\n') >= 0 {
 		endLine = p.lineAt(tagEnd - 1)
 	}
 
-	endCol := linePrefixUTF16(p.src, tagEnd)
+	endCol := p.cols.prefix(p.src, tagEnd)
 
 	absName := idx + nameStart
 
@@ -480,7 +480,7 @@ func (p *tagParser) parseCFProperty(tag string, idx, tagEnd, line int) {
 		nameLine = p.lineAt(absName)
 	}
 
-	nLine, nCol, nEndCol := nameRangeAt(p.src, absName, nameLine, name)
+	nLine, nCol, nEndCol := p.cols.nameRange(p.src, absName, nameLine, name)
 
 	p.properties = append(p.properties, propertyDef{
 		name:       name,
