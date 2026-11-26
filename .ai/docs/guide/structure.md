@@ -81,3 +81,12 @@ function(){}` at component level a method of the component. `sharedScopeOf` maps
 `collection_cache.go`; `rename_local.go` is `rename_{local,scope,walk,words}.go`;
 `internal/index/index.go` is `index{,_files,_write,_refs,_entities,_extends,_includes}.go`;
 `internal/resolve/producer_source.go` is `producer_{source,script,script_stmt,tags,analysis}.go`.
+
+**Column conversion and argument defaults.** `internal/server/utf16_columns.go` is the one place a byte
+offset becomes an LSP column for a pass that converts many offsets (inlay hints, selection ranges): it
+tells an ASCII line apart once and counts the rest exactly, so a long line costs once and not once per
+offset. A pass that walks matches in order (`highlightsOf`) carries its running column instead. Do not
+measure `lex.UTF16Len(content[lineStart:off])` once per offset: three requests the editor sends on every
+cursor move or edit did, and were quadratic on a minified line. `internal/parser/arg_defaults.go` reads an
+argument's default into `Argument.Default`, a CFML expression, from a script list (comments left out) or a
+tag's `default="..."`.

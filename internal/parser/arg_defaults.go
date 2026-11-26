@@ -9,8 +9,20 @@ import (
 // list: its source text, a line break and the indentation after it read as one
 // space (a struct literal written over several lines stays one expression), and
 // "" when nothing is written.
+//
+// A comment inside it is dropped. Kept, a line comment would swallow whatever
+// the default is written next to once the lines are joined (`1 // note` ahead
+// of the next argument), and a stub that writes the default back would be
+// broken. The text is then rebuilt from the scanner's tokens, which keep a
+// string whole (`"http://x"` holds no comment) and skip the comments; a
+// default with no comment marker in it is its source, as written.
 func defaultExpression(src string) string {
 	src = strings.TrimSpace(src)
+
+	if strings.Contains(src, "//") || strings.Contains(src, "/*") {
+		return withoutComments(src)
+	}
+
 	if !strings.ContainsAny(src, "\r\n") {
 		return src
 	}
@@ -21,6 +33,36 @@ func defaultExpression(src string) string {
 	}
 
 	return strings.Join(lines, " ")
+}
+
+// withoutComments is src with its comments left out and each gap between two
+// tokens (whitespace, a line break, a comment) read as one space, as the
+// scanner sees it.
+func withoutComments(src string) string {
+	sc := NewScriptScanner(src)
+
+	var b strings.Builder
+
+	prevEnd := 0
+
+	for {
+		tok := sc.NextSkipComments()
+		if tok.Kind == TokEOF {
+			break
+		}
+
+		end := sc.Pos()
+
+		if b.Len() > 0 && tok.Offset > prevEnd {
+			b.WriteByte(' ')
+		}
+
+		b.WriteString(src[tok.Offset:end])
+
+		prevEnd = end
+	}
+
+	return b.String()
 }
 
 // tagDefaultExpression reads a <cfargument>'s default="..." as the expression a
