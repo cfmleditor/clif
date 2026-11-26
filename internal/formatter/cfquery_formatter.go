@@ -173,7 +173,15 @@ func (f *Formatter) formatQueryNode(n *sitter.Node, first *bool) {
 		}
 
 		f.writeIndent()
-		f.write(trimSpace(f.text(n)))
+
+		// Written as it was typed, which for a block of commented-out markup would leave
+		// every line after the first where it was while the first moves.
+		comment := trimSpace(f.text(n))
+		if holdsCommentedMarkup(comment) {
+			comment = f.rebaseComment(comment, f.sourceIndent(n))
+		}
+
+		f.write(comment)
 		f.write("\n")
 
 		*first = true
@@ -1103,7 +1111,7 @@ func (f *Formatter) emitQueryExtrasAndRight(n *sitter.Node, right *sitter.Node, 
 
 			f.level++
 			f.writeIndent()
-			f.write(f.normalizeCFComment(trimSpace(f.text(c))))
+			f.write(f.normalizeCFComment(trimSpace(f.text(c)), f.sourceIndent(c)))
 			f.write("\n")
 
 			f.level--
