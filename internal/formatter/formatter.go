@@ -1525,7 +1525,7 @@ func (f *Formatter) formatDoctype(n *sitter.Node) {
 }
 
 func (f *Formatter) formatComment(n *sitter.Node) {
-	raw := f.normalizeCFComment(trimSpace(f.text(n)))
+	raw := f.normalizeCFComment(trimSpace(f.text(n)), f.sourceIndent(n))
 	if raw == "" {
 		return
 	}
@@ -1536,9 +1536,67 @@ func (f *Formatter) formatComment(n *sitter.Node) {
 	f.write("\n")
 }
 
-// commentedMarkupPattern matches the start of a tag or an end tag: a less-than sign
-// followed by a letter or a slash. `a < b` does not match.
-var commentedMarkupPattern = regexp.MustCompile(`</?[A-Za-z]`)
+// sourceIndent returns the whitespace that leads the line a node's text starts on in the
+// source: the indentation the node, and what follows it on later lines, was typed at.
+//
+// A comment node takes in the whitespace before it, newline included, which callers trim, so
+// the text starts at the first byte that is not whitespace.
+func (f *Formatter) sourceIndent(n *sitter.Node) string {
+	start, stop := int(n.StartByte()), int(n.EndByte())
+	for start < stop && (f.src[start] == ' ' || f.src[start] == '\t' || f.src[start] == '\r' || f.src[start] == '\n') {
+		start++
+	}
+
+	lineStart := start
+	for lineStart > 0 && f.src[lineStart-1] != '\n' {
+		lineStart--
+	}
+
+	end := lineStart
+	for end < start && (f.src[end] == ' ' || f.src[end] == '\t') {
+		end++
+	}
+
+	return string(f.src[lineStart:end])
+}
+
+// holdsCommentedMarkup reports whether a comment spans more than one line and holds a tag or
+// HTML: the kind that is kept as written. It does not look at the markers, so a caller that
+// has not checked for them must.
+func holdsCommentedMarkup(raw string) bool {
+	return strings.HasPrefix(raw, "<!---") && strings.HasSuffix(raw, "--->") && strings.Contains(raw, "\n") && commentedMarkupPattern.MatchString(raw[5:len(raw)-4])
+}
+
+// rebaseComment moves a comment that is kept as written to the depth it is being written at.
+//
+// Its first line is written at the current indent by the caller, wherever it was typed, so
+// the lines after it have to move by the same amount or the block comes out ragged. Each one
+// that begins with the indentation the comment was typed at has that swapped for the one it
+// is written at, which keeps what is inside the block exactly as it was relative to the first
+// line. A blank line, and a line that does not begin with that indentation, are left as they
+// are: neither can be said to have moved with the comment.
+func (f *Formatter) rebaseComment(raw, sourceIndent string) string {
+	indent := f.opts.indent(f.level)
+	shift := indent != sourceIndent
+
+	lines := strings.Split(raw, "\n")
+	for i := range lines {
+		// Trailing blanks and the CR of a CRLF file go, as they do from every other line the
+		// formatter writes, which end in a bare LF.
+		lines[i] = strings.TrimRight(lines[i], " \t\r")
+
+		if i > 0 && shift && lines[i] != "" && strings.HasPrefix(lines[i], sourceIndent) {
+			lines[i] = indent + lines[i][len(sourceIndent):]
+		}
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+// commentedMarkupPattern matches a tag or an end tag: a less-than sign that does not follow
+// a word character, a letter or a slash and then a name, and a space, a slash or `>` after it.
+// `a < b` and `a<b` do not match.
+var commentedMarkupPattern = regexp.MustCompile(`(?:^|\W)</?[A-Za-z][\w:.-]*(?:[\s/>]|$)`)
 
 // normalizeCFComment collapses extra internal whitespace in <!--- ... ---> comments.
 //
@@ -1549,15 +1607,15 @@ var commentedMarkupPattern = regexp.MustCompile(`</?[A-Za-z]`)
 // and the indent it stripped was the common one across every line, first line included,
 // though the first line sits after the marker at a depth of its own, so the rest of
 // the block came out ragged.
-func (f *Formatter) normalizeCFComment(raw string) string {
+func (f *Formatter) normalizeCFComment(raw, sourceIndent string) string {
 	if !strings.HasPrefix(raw, "<!---") || !strings.HasSuffix(raw, "--->") {
 		return raw
 	}
 
 	inner := raw[5 : len(raw)-4]
 
-	if strings.Contains(inner, "\n") && commentedMarkupPattern.MatchString(inner) {
-		return raw
+	if holdsCommentedMarkup(raw) {
+		return f.rebaseComment(raw, sourceIndent)
 	}
 
 	lines := strings.Split(inner, "\n")

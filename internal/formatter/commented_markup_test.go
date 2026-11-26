@@ -1,6 +1,9 @@
 package formatter
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // A comment that holds tags or HTML is code someone switched off, and is meant to be
 // switched back on: the editor's toggle-comment shortcut removes the markers and the
@@ -84,5 +87,116 @@ func TestProseStartingOnTheMarkerLineIsAligned(t *testing.T) {
 				t.Errorf("got:\n%s\nwant:\n%s", got, tc.want)
 			}
 		})
+	}
+}
+
+// A commented-out block is returned as written, but the comment as a whole still sits where
+// the formatter puts it. When that depth is not the one it was typed at, the first line moves
+// and the lines after it must move with it, or the block comes out ragged: toggling the
+// comment off then leaves its tags misaligned, which is what returning it as written was
+// meant to avoid.
+func TestCommentedOutMarkupMovesAsAUnit(t *testing.T) {
+	// The block is typed at column 0 and lands one level in; the same block typed two levels
+	// deep and brought out to one level lands the same way, whatever its inside was indented by.
+	want := "<div>\n    <p>x</p>\n    <!--- <li>\n            Purple\n        </li> --->\n</div>\n"
+
+	for name, src := range map[string]string{
+		"typed shallower than it lands": "<div>\n<p>x</p>\n<!--- <li>\n        Purple\n    </li> --->\n</div>\n",
+		"typed deeper than it lands":    "<div>\n        <p>x</p>\n        <!--- <li>\n                Purple\n            </li> --->\n</div>\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := formatStable(t, src); got != want {
+				t.Errorf("got:\n%s\nwant:\n%s", got, want)
+			}
+		})
+	}
+}
+
+func TestCommentedOutMarkupKeepsBlankLinesAndShorterLines(t *testing.T) {
+	// A blank line stays empty rather than gaining the indent, and a line indented less than the
+	// comment's own line is not one that could move with it, so it is left as written.
+	src := "<div>\n        <!--- <li>\n\nPurple\n    </li> --->\n        <p>x</p>\n</div>\n"
+	want := "<div>\n    <!--- <li>\n\nPurple\n    </li> --->\n    <p>x</p>\n</div>\n"
+
+	if got := formatStable(t, src); got != want {
+		t.Errorf("got:\n%q\nwant:\n%q", got, want)
+	}
+}
+
+func TestCommentedOutMarkupInsideANestedTag(t *testing.T) {
+	// Each block moves by what its own first line moves by.
+	src := "<div>\n<div>\n<!--- <b>\n  x\n</b> --->\n</div>\n<!--- <i>\n  y\n</i> --->\n</div>\n"
+	want := "<div>\n    <div>\n        <!--- <b>\n          x\n        </b> --->\n    </div>\n    <!--- <i>\n      y\n    </i> --->\n</div>\n"
+
+	if got := formatStable(t, src); got != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+// The same, with the tab indentation the formatter uses by default.
+func TestCommentedOutMarkupMovesAsAUnitWithTabs(t *testing.T) {
+	opts := testOpts()
+	opts.UseTabs = true
+
+	src := "<div>\n<p>x</p>\n<!--- <li>\n        Purple\n    </li> --->\n</div>\n"
+	want := "<div>\n\t<p>x</p>\n\t<!--- <li>\n\t        Purple\n\t    </li> --->\n</div>\n"
+
+	got := mustFormatWith(t, src, &opts)
+	if got != want {
+		t.Errorf("got:\n%q\nwant:\n%q", got, want)
+	}
+
+	if again := mustFormatWith(t, got, &opts); again != got {
+		t.Errorf("not idempotent:\n%q\n%q", got, again)
+	}
+}
+
+// The comments inside a <cfquery> body, when query formatting is on. A comment inside an
+// expression, and one between an operator and its operand, are written by different code.
+func TestCommentedOutMarkupInAQueryMovesAsAUnit(t *testing.T) {
+	for name, tc := range map[string]struct{ src, want string }{
+		"inside an expression": {
+			"<div>\n<cfquery name=\"q\">\nSELECT * FROM t WHERE a = <!--- <b>\n    x\n  </b> ---> 1\n</cfquery>\n</div>\n",
+			"\n            <!--- <b>\n                x\n              </b> --->\n",
+		},
+		"after an operator": {
+			"<div>\n<cfquery name=\"q\">\nSELECT * FROM t WHERE a + <!--- <b>\n    x\n  </b> ---> 1 > 0\n</cfquery>\n</div>\n",
+			"\n        <!--- <b>\n            x\n          </b> --->\n",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			assertContains(t, formatStable(t, tc.src), tc.want)
+		})
+	}
+}
+
+// A comment in a query that holds no markup is written as it always was.
+func TestProseCommentInAQueryIsNotMoved(t *testing.T) {
+	src := "<div>\n<cfquery name=\"q\">\nSELECT * FROM t WHERE a + <!--- first\n    second\n  third ---> 1 > 0\n</cfquery>\n</div>\n"
+
+	assertContains(t, formatStable(t, src), "\n        <!--- first\n    second\n  third --->\n")
+}
+
+// A comparison is not a tag, whether or not spaces surround the sign.
+func TestComparisonInACommentIsNotMarkup(t *testing.T) {
+	for _, inner := range []string{"if a<b then\n  x\n  y", "when x<limit\n  keep"} {
+		if holdsCommentedMarkup("<!---" + inner + "--->") {
+			t.Errorf("%q was taken for markup", inner)
+		}
+	}
+
+	for _, inner := range []string{" <li>\n x", " <cfif a<b>\n x", "\n</div>\n x", " <br/>\n x"} {
+		if !holdsCommentedMarkup("<!---" + inner + "--->") {
+			t.Errorf("%q was not taken for markup", inner)
+		}
+	}
+}
+
+// The block is written as it was typed, but its lines end as every other line does.
+func TestCommentedOutMarkupLosesTrailingBlanksAndCRs(t *testing.T) {
+	got := formatStable(t, "<div>\r\n<!--- <li>  \r\n   x\t\r\n </li> --->\r\n</div>\r\n")
+
+	if strings.ContainsAny(got, "\r") || strings.Contains(got, " \n") || strings.Contains(got, "\t\n") {
+		t.Errorf("trailing whitespace or CR left: %q", got)
 	}
 }
