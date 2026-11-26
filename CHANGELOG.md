@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Opt-in native pure-Go lint engine (`linting.engine: "native"` / `"hybrid"`).** Implements all 41 rules from a production `.cflintrc` in-process (zero JVM startup) with hierarchical `.cflintrc` inheritance and `QueryParamChecker` regex parameters, single-line and multiline `@CFLintIgnore` / `// cflint ignore:` suppressions, parallel execution across `GOMAXPROCS`, live debounced in-memory LSP diagnostics on `didOpen`/`didChange`, `clif lint --engine cflint|native|hybrid`, `clif lint --compare` parity/timing reports, and fixture replay harnesses for `cfmleditor/cflint` and `cfmleditor/cfparser`. `linting.engine` remains `"cflint"` by default during migration.
+
 ### Fixed
 
 - **The supervisor no longer reports a clean shutdown as a failure.** A server that was still writing to its output when the session ended died of the broken pipe the supervisor had closed (SIGPIPE), and the supervisor, which reported any signal death as exit status 1, exited 1 for a session the editor had ended properly. It showed as `TestServerOverStdioEndsAfterExit` failing about 1 run in 75 under load, with a race-detector build, on main as much as on a branch (4 of 300 and 5 of 300). `Wait` now tells a broken pipe apart (`supervise.ExitBrokenPipe`, 128 + 13), and after a shutdown or the editor's close the supervisor ends 0 for it; before that it is still a crash and the server is restarted. Test: `TestAServerKilledByTheClosedPipeAfterExitEndsCleanly` (exit 141 on the old code).

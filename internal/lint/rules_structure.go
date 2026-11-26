@@ -659,7 +659,7 @@ func checkGlobalVar(fc *FileContext) []cflint.Issue {
 	}
 
 	src := fc.Text()
-	spans := parser.FunctionSpansOf(fc.Path, src)
+	spans := fc.ParseResult().FunctionSpans()
 
 	var out []cflint.Issue
 
@@ -735,10 +735,28 @@ func checkGlobalVar(fc *FileContext) []cflint.Issue {
 	return out
 }
 
+// offsetInsideAnySpan reports whether off falls within any FunctionSpan body.
+// Spans are sorted by Start, so we binary search for the last span starting at
+// or before off (O(log F)) rather than scanning linearly on every token.
 func offsetInsideAnySpan(off int, spans []parser.FunctionSpan) bool {
-	for i := range spans {
+	lo, hi := 0, len(spans)
+	for lo < hi {
+		mid := lo + (hi-lo)/2
+		if spans[mid].Start <= off {
+			lo = mid + 1
+		} else {
+			hi = mid
+		}
+	}
+
+	// Check the candidate span (and any enclosing outer span if nested).
+	for i := lo - 1; i >= 0; i-- {
 		if spans[i].Body >= 0 && off >= spans[i].Body && off < spans[i].BodyEnd {
 			return true
+		}
+
+		if spans[i].End <= off {
+			break
 		}
 	}
 

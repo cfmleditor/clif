@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/cfmleditor/clif/internal/cflint"
 	"github.com/cfmleditor/clif/internal/parser"
@@ -31,6 +32,23 @@ type queryParamMatcher struct {
 	allowLineTm string
 }
 
+// compiledAllowVarCache caches compiled QueryParamChecker.allowVariableExpression
+// regexes across files so a project-wide regex is compiled once per process.
+var compiledAllowVarCache sync.Map // string -> *regexp.Regexp (or nil on invalid pattern)
+
+func compileCachedRegexp(pat string) *regexp.Regexp {
+	if v, ok := compiledAllowVarCache.Load(pat); ok {
+		re, _ := v.(*regexp.Regexp)
+
+		return re
+	}
+
+	re, _ := regexp.Compile(pat)
+	compiledAllowVarCache.Store(pat, re)
+
+	return re
+}
+
 func newQueryParamMatcher(rc *RCConfig) queryParamMatcher {
 	var m queryParamMatcher
 
@@ -39,9 +57,7 @@ func newQueryParamMatcher(rc *RCConfig) queryParamMatcher {
 	}
 
 	if pat := rc.ParamString("QueryParamChecker.allowVariableExpression"); pat != "" {
-		if re, err := regexp.Compile(pat); err == nil {
-			m.allowVarRe = re
-		}
+		m.allowVarRe = compileCachedRegexp(pat)
 	}
 
 	m.allowLineTm = rc.ParamString("QueryParamChecker.allowLineExpression")

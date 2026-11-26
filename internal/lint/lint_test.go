@@ -310,3 +310,19 @@ func TestCompareRuns(t *testing.T) {
 		t.Fatalf("CompareRuns = %+v, want Matched=1 OnlyNative=1 OnlyCFLint=1", cmp)
 	}
 }
+
+func TestSuppressionsOnManyCommentsAreLinear(t *testing.T) {
+	var b strings.Builder
+
+	const n = 2000
+	for range n {
+		b.WriteString("<!---\n@CFLintIgnore MISSING_VAR\n--->\nx = 1;\n")
+	}
+
+	sup := ParseSuppressions(b.String())
+
+	// First block: lines 1-3 comment, line 4 code. Last block: line n*4.
+	if !sup.IsSuppressed(4, "MISSING_VAR") || !sup.IsSuppressed(n*4, "MISSING_VAR") {
+		t.Fatalf("expected first (line 4) and last (line %d) lines to be suppressed", n*4)
+	}
+}

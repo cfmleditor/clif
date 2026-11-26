@@ -65,13 +65,16 @@ func (s *LineSuppressions) addNextNonBlank(lines []string, startIdx int, codes [
 
 func (s *LineSuppressions) parseMultilineTagIgnores(content string, lines []string) {
 	pos := 0
+	lineNum := 1 // 1-based line at pos; advanced incrementally so scanning is O(N)
+
 	for {
-		openIdx := strings.Index(content[pos:], "<!---")
-		if openIdx < 0 {
+		openRel := strings.Index(content[pos:], "<!---")
+		if openRel < 0 {
 			return
 		}
 
-		openIdx += pos
+		openIdx := pos + openRel
+		startLine := lineNum + strings.Count(content[pos:openIdx], "\n")
 
 		closeRel := strings.Index(content[openIdx+5:], "--->")
 		if closeRel < 0 {
@@ -80,7 +83,10 @@ func (s *LineSuppressions) parseMultilineTagIgnores(content string, lines []stri
 
 		closeEnd := openIdx + 5 + closeRel + 4
 		body := content[openIdx+5 : openIdx+5+closeRel]
+		endLine := startLine + strings.Count(content[openIdx:closeEnd], "\n")
+
 		pos = closeEnd
+		lineNum = endLine
 
 		if !strings.Contains(body, "@CFLintIgnore") {
 			continue
@@ -90,9 +96,6 @@ func (s *LineSuppressions) parseMultilineTagIgnores(content string, lines []stri
 		if len(codes) == 0 {
 			continue
 		}
-
-		startLine := 1 + strings.Count(content[:openIdx], "\n")
-		endLine := 1 + strings.Count(content[:closeEnd], "\n")
 
 		for l := startLine; l <= endLine; l++ {
 			s.addLine(l, codes)
