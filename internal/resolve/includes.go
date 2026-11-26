@@ -412,11 +412,16 @@ const maxNamedTemplates = 3
 func (r *Resolver) templatesNamed(name string) []string {
 	o := r.owner()
 
+	// The file system is read before the lock: fs takes the resolver's own
+	// lock, and when o is r that is this one, which a sync.RWMutex does not let
+	// its holder take again.
+	fsys := r.fs()
+
 	o.mu.Lock()
 	if o.templateNames == nil {
 		o.templateNames = map[string][]string{}
 
-		for _, f := range cfpath.CollectCFML(r.fs(), r.WorkspaceFolders) {
+		for _, f := range cfpath.CollectCFML(fsys, r.WorkspaceFolders) {
 			if strings.EqualFold(filepath.Ext(f), ".cfm") {
 				key := strings.ToLower(filepath.Base(f))
 				o.templateNames[key] = append(o.templateNames[key], f)
