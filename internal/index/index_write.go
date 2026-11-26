@@ -105,6 +105,90 @@ func (idx *Index) storeFileFunctionsLocked(fk string, funcs []parser.FunctionDef
 	idx.fileFuncs[fk] = fileDefs
 }
 
+// ParsedFile is a parse a caller indexes whole: IndexParsedFile writes every
+// fact about the file in one step.
+type ParsedFile struct {
+	PR *parser.ParseResult
+
+	// Disk is a parse of the file as it is on disk, which marks the disk
+	// revision source metadata is validated against; false for an editor buffer.
+	Disk bool
+
+	// DelegatesKnown is whether PR's delegates are the file's. A shallow parse
+	// does not read them, and a file it cannot vouch for is left with none
+	// recorded, which a reader takes as "work them out from the file".
+	DelegatesKnown bool
+
+	// EntityIfRead registers the file's ORM entity only when the index has read
+	// it before (RefreshEntity), instead of always (IndexEntity).
+	EntityIfRead bool
+}
+
+// IndexParsedFile indexes a file from a parse the caller made: its functions
+// and component refs, this-scoped variables, includes, extends, implements,
+// delegates and ORM entity, all under one hold of the lock. The writes it
+// replaces were one call each, and the first made the file's functions visible
+// while the rest were still to come, so a reader that arrived between them
+// found a function but none of its this-scoped variables (a completion list
+// missing a property), or a file whose extends had been forgotten.
+func (idx *Index) IndexParsedFile(fileURI uri.URI, f ParsedFile) {
+	pr := f.PR
+	funcs := parser.CompactDefs(pr.Funcs)
+	refs := parser.CompactRefs(pr.ComponentRefs)
+	thisVars := cloneStrings(pr.ThisVars())
+	includes := pr.Includes()
+	persistent, entityName := entityOf(fileURI, pr)
+
+	var delegates []parser.Delegate
+	if f.DelegatesKnown {
+		delegates = cloneDelegates(pr.Delegates)
+	}
+
+	idx.mu.Lock()
+	defer idx.mu.Unlock()
+
+	fk := uriKey(fileURI)
+	mark := idx.shapeBegin(fk)
+
+	defer idx.shapeEnd(fk, &mark)
+
+	idx.removeFileEntries(fileURI)
+	idx.thisVars[fk] = thisVars
+	idx.setExtendsLocked(fk, strings.Clone(pr.Extends))
+	idx.setImplementsLocked(fk, pr.Implements)
+
+	if f.DelegatesKnown {
+		idx.delegates[fk] = delegates
+	}
+
+	idx.setIncludesLocked(fileURI, includes)
+
+	if isComponent(fileURI) {
+		if _, read := idx.entityRead[fk]; !f.EntityIfRead || read {
+			idx.setFileEntityLocked(uri.URI(strings.Clone(string(fileURI))), persistent, entityName)
+			idx.entityRead[fk] = struct{}{}
+		}
+	}
+
+	idx.storeFileFunctionsLocked(fk, funcs)
+	idx.fileURIs[fk] = uri.URI(strings.Clone(string(fileURI)))
+
+	if f.Disk {
+		idx.markDiskRevision(fk)
+	}
+
+	fileRefsList := make([]*parser.ComponentRef, 0, len(refs))
+
+	for i := range refs {
+		r := &refs[i]
+		key := strings.ToLower(r.Variable)
+		idx.comprefs[key] = append(idx.comprefs[key], r)
+		fileRefsList = append(fileRefsList, r)
+	}
+
+	idx.fileRefs[fk] = fileRefsList
+}
+
 // IndexFileFromResult updates the index using pre-parsed function defs and refs
 // read from disk.
 func (idx *Index) IndexFileFromResult(fileURI uri.URI, funcs []parser.FunctionDef, refs []parser.ComponentRef) {
