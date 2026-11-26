@@ -35,6 +35,7 @@ func TestFieldTextProofIsMadeOncePerRoot(t *testing.T) {
 
 	fd := &parser.FunctionDef{URI: cfpath.ToURI(file)}
 	e := &producerEvaluation{resolver: r, fd: fd}
+
 	for _, path := range []string{"variables.helper", "variables.other", "variables.absent"} {
 		want := e.fieldTextProvedUncached(&source, variablesRoot(path))
 		if got := e.fieldTextProved(&source, path); got != want {
