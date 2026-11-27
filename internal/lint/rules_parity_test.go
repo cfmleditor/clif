@@ -227,4 +227,18 @@ func TestRuleParityClosureAndTagFixes(t *testing.T) {
 	if got := runNativeRule(t, "closure.cfc", "ARG_VAR_MIXED", closureCaptureSrc); len(got) != 0 {
 		t.Errorf("ARG_VAR_MIXED on outer arg captured in closure = %v, want 0", got)
 	}
+
+	// Dynamic string constructor `new "#cls#"(argumentCollection = arguments)`
+	// should treat named args as call arguments, not MISSING_VAR.
+	dynNewSrc := "component {\n\tfunction build(required string cls) {\n\t\treturn new \"#arguments.cls#\"(argumentCollection = arguments);\n\t}\n}\n"
+	if got := runNativeRule(t, "factory.cfc", "MISSING_VAR", dynNewSrc); len(got) != 0 {
+		t.Errorf("MISSING_VAR on dynamic new string constructor = %v, want 0", got)
+	}
+
+	// Struct initialized on `arguments.<name> = {}` should not trigger MISSING_VAR
+	// when populated via `memento[k] = v` inside the function.
+	argAssignSrc := "component {\n\tfunction populate(required array items) {\n\t\targuments.memento = {};\n\t\targuments.items.each(function(item) {\n\t\t\tmemento[item] = true;\n\t\t});\n\t\treturn arguments.memento;\n\t}\n}\n"
+	if got := runNativeRule(t, "pop.cfc", "MISSING_VAR", argAssignSrc); len(got) != 0 {
+		t.Errorf("MISSING_VAR on arguments-assigned struct = %v, want 0", got)
+	}
 }

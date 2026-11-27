@@ -69,6 +69,7 @@ type funcScopeAnalysis struct {
 	params          map[string]bool
 	vars            map[string]int // lowercased name -> first var decl offset
 	localAssign     map[string]bool
+	argAssign       map[string]bool
 	catchVars       map[string]bool
 	bareWrites      []identUse
 	bareReads       []identUse // all unscoped reads (used by ARG_VAR_MIXED)
@@ -147,6 +148,7 @@ func analyzeFunctionScope(content string, span *parser.FunctionSpan) *funcScopeA
 		params:          make(map[string]bool),
 		vars:            make(map[string]int),
 		localAssign:     make(map[string]bool),
+		argAssign:       make(map[string]bool),
 		catchVars:       make(map[string]bool),
 		argScoped:       make(map[string]bool),
 	}
@@ -527,7 +529,7 @@ func classifyScriptLParen(toks []parser.Token, lpIdx int, prev parser.Token, a *
 	switch {
 	case isArrowParamList(toks, lpIdx):
 		collectClosureParamNames(toks, lpIdx, a.catchVars)
-	case prev.Kind == parser.TokRBracket || prev.Kind == parser.TokRParen:
+	case prev.Kind == parser.TokRBracket || prev.Kind == parser.TokRParen || prev.Kind == parser.TokString:
 		f.callName = "<call>"
 	case prev.Kind == parser.TokIdent:
 		lowPrev := strings.ToLower(prev.Value)
@@ -664,6 +666,9 @@ func recordScopedMemberIdent(toks []parser.Token, idx, baseOffset int, prev2, pr
 	switch strings.ToLower(prev2.Value) {
 	case "arguments":
 		a.argScoped[low] = true
+		if isAssign {
+			a.argAssign[low] = true
+		}
 
 		return true
 	case "local":
@@ -1074,7 +1079,7 @@ func checkUnscopedUses(fc *FileContext, pick func(*funcScopeAnalysis) []identUse
 
 		for _, u := range pick(a) {
 			low := strings.ToLower(u.name)
-			if reported[low] || a.params[low] || a.localAssign[low] || a.catchVars[low] || compVars[low] {
+			if reported[low] || a.params[low] || a.localAssign[low] || a.argAssign[low] || a.catchVars[low] || compVars[low] {
 				continue
 			}
 
