@@ -324,4 +324,11 @@ func TestRuleParityClosureAndTagFixes(t *testing.T) {
 	if got := runNativeRule(t, "doc.cfc", "IMPLICIT_SCOPE", pseudoCtor); len(got) != 0 {
 		t.Errorf("IMPLICIT_SCOPE on pseudo-constructor field = %v, want 0", got)
 	}
+
+	// Reading a variable before its first assignment in source order (e.g. loop
+	// carry-over) must still trigger IMPLICIT_SCOPE on the first read only.
+	readBeforeWrite := "<cfscript>\nfor (i = 1; i LTE 3; i++) {\n\tif (i NEQ 1) {\n\t\ts[k] = StructNew();\n\t\ts[k].n = p;\n\t}\n\tk = i;\n\tp = 1;\n}\n</cfscript>\n"
+	if got := runNativeRule(t, "loop.cfm", "IMPLICIT_SCOPE", readBeforeWrite); len(got) != 2 {
+		t.Errorf("IMPLICIT_SCOPE on read-before-write = %v, want 2 (k at line 4, p at line 5)", got)
+	}
 }

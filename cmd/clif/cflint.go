@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"time"
@@ -502,7 +503,8 @@ func runLintComparison(sel *cflintSelection, minSeverity string, logf func(strin
 		cflintFailf("cflint unavailable for --compare: %v\n", err)
 	}
 
-	logf("Comparing native vs cflint over %d files...\n", len(sel.files))
+	workers := min(max(1, runtime.GOMAXPROCS(0)), 8)
+	logf("Comparing native vs cflint (per-file, %d workers) over %d files...\n", workers, len(sel.files))
 
 	t0 := time.Now()
 
@@ -515,7 +517,7 @@ func runLintComparison(sel *cflintSelection, minSeverity string, logf func(strin
 
 	t1 := time.Now()
 
-	cflintRun, err := lintSelection(cflintRunner, sel)
+	cflintRun, err := lint.RunPerFile(context.Background(), cflintRunner, sel.files, sel.sources, workers)
 	if err != nil {
 		cflintFailf("cflint failed: %v\n", err)
 	}
@@ -523,6 +525,8 @@ func runLintComparison(sel *cflintSelection, minSeverity string, logf func(strin
 	cflintDur := time.Since(t1)
 
 	cmp := lint.CompareRuns(nativeRun, cflintRun)
+
+	fmt.Printf("CFLint mode: per-file (%d workers)\n", workers)
 	fmt.Print(lint.FormatComparison(&cmp, nativeDur, cflintDur, 10))
 }
 

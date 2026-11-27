@@ -1187,15 +1187,17 @@ func checkImplicitScope(fc *FileContext) []cflint.Issue {
 		reported := map[string]bool{}
 
 		// Matching ImplicitScopeChecker: bare writes establish variables/local
-		// scope so subsequent bare reads of the same name are not implicit-scope.
-		written := make(map[string]bool, len(a.bareWrites))
-		for _, w := range a.bareWrites {
-			written[strings.ToLower(w.name)] = true
-		}
+		// scope in source order, so a read before the first write is still
+		// flagged as IMPLICIT_SCOPE.
+		firstWrite := firstWriteOffsets(a.bareWrites)
 
 		for _, u := range a.implicitReads {
 			low := strings.ToLower(u.name)
-			if reported[low] || a.params[low] || a.localAssign[low] || a.catchVars[low] || compVars[low] || written[low] || offsetInAnyRange(u.offset, qSpans) {
+			if reported[low] || a.params[low] || a.localAssign[low] || a.catchVars[low] || compVars[low] || offsetInAnyRange(u.offset, qSpans) {
+				continue
+			}
+
+			if wOff, ok := firstWrite[low]; ok && wOff <= u.offset {
 				continue
 			}
 
@@ -1279,10 +1281,7 @@ func checkCFMImplicitScope(fc *FileContext, compVars map[string]bool, qSpans [][
 
 	slices.SortStableFunc(a.implicitReads, func(x, y identUse) int { return cmp.Compare(x.offset, y.offset) })
 
-	written := make(map[string]bool, len(a.bareWrites))
-	for _, w := range a.bareWrites {
-		written[strings.ToLower(w.name)] = true
-	}
+	firstWrite := firstWriteOffsets(a.bareWrites)
 
 	var out []cflint.Issue
 
@@ -1290,7 +1289,11 @@ func checkCFMImplicitScope(fc *FileContext, compVars map[string]bool, qSpans [][
 
 	for _, u := range a.implicitReads {
 		low := strings.ToLower(u.name)
-		if reported[low] || a.params[low] || a.localAssign[low] || a.catchVars[low] || compVars[low] || written[low] || offsetInAnyRange(u.offset, qSpans) {
+		if reported[low] || a.params[low] || a.localAssign[low] || a.catchVars[low] || compVars[low] || offsetInAnyRange(u.offset, qSpans) {
+			continue
+		}
+
+		if wOff, ok := firstWrite[low]; ok && wOff <= u.offset {
 			continue
 		}
 
@@ -1305,6 +1308,20 @@ func checkCFMImplicitScope(fc *FileContext, compVars map[string]bool, qSpans [][
 	}
 
 	return out
+}
+
+// firstWriteOffsets returns the earliest byte offset at which each lowercased
+// variable name is assigned.
+func firstWriteOffsets(writes []identUse) map[string]int {
+	first := make(map[string]int, len(writes))
+	for _, w := range writes {
+		low := strings.ToLower(w.name)
+		if prev, ok := first[low]; !ok || w.offset < prev {
+			first[low] = w.offset
+		}
+	}
+
+	return first
 }
 
 func scanTagHashesForScope(text string, baseOffset int, cfoutputDepth *int, a *funcScopeAnalysis) {

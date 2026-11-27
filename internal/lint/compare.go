@@ -1,11 +1,14 @@
 package lint
 
 import (
+	"context"
 	"fmt"
 	"maps"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cfmleditor/clif/internal/cflint"
@@ -176,4 +179,76 @@ func FormatComparison(cmp *Comparison, nativeDur, cflintDur time.Duration, showS
 	}
 
 	return b.String()
+}
+
+// RunPerFile runs engine on each file (or in-memory source) independently
+// using up to workers goroutines and merges the results in input order.
+//
+// Running CFLint one file at a time avoids cross-file state leaks in CFLint
+// 1.5.9 that silently drop findings in large batch runs.
+func RunPerFile(ctx context.Context, engine Engine, files []string, sources []cflint.Source, workers int) (*cflint.Run, error) {
+	n := len(files)
+	if sources != nil {
+		n = len(sources)
+	}
+
+	if n == 0 {
+		return &cflint.Run{}, nil
+	}
+
+	if workers <= 0 {
+		workers = min(max(1, runtime.GOMAXPROCS(0)), 8)
+	}
+
+	workers = min(workers, n)
+
+	results := make([]*cflint.Run, n)
+	errs := make([]error, n)
+
+	jobs := make(chan int, n)
+	for i := range n {
+		jobs <- i
+	}
+
+	close(jobs)
+
+	var wg sync.WaitGroup
+
+	for range workers {
+		wg.Go(func() {
+			for idx := range jobs {
+				if ctx.Err() != nil {
+					errs[idx] = ctx.Err()
+
+					continue
+				}
+
+				if sources != nil {
+					results[idx], errs[idx] = engine.LintContent(ctx, []cflint.Source{sources[idx]})
+				} else {
+					results[idx], errs[idx] = engine.Lint(ctx, []string{files[idx]})
+				}
+			}
+		})
+	}
+
+	wg.Wait()
+
+	merged := &cflint.Run{}
+
+	for i := range n {
+		if errs[i] != nil {
+			return nil, errs[i]
+		}
+
+		if results[i] != nil {
+			if merged.Version == "" {
+				merged.Version = results[i].Version
+			}
+
+			merged.Issues = append(merged.Issues, results[i].Issues...)
+		}
+	}
+
+	return merged, nil
 }

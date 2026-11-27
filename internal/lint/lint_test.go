@@ -326,3 +326,33 @@ func TestSuppressionsOnManyCommentsAreLinear(t *testing.T) {
 		t.Fatalf("expected first (line 4) and last (line %d) lines to be suppressed", n*4)
 	}
 }
+
+func TestRunPerFile(t *testing.T) {
+	t.Parallel()
+
+	sources := []cflint.Source{
+		{Path: "/tmp/a.cfm", Content: []byte(`<cfdump var="#x#">`)},
+		{Path: "/tmp/b.cfm", Content: []byte(`<cfdump var="#y#">`)},
+		{Path: "/tmp/c.cfm", Content: []byte(`<cfdump var="#z#">`)},
+	}
+
+	runner := NewNativeRunner(DefaultRegistry, "INFO", "test")
+
+	run, err := RunPerFile(t.Context(), runner, nil, sources, 2)
+	if err != nil {
+		t.Fatalf("RunPerFile: %v", err)
+	}
+
+	var got []string
+
+	for _, iss := range run.Issues {
+		if iss.ID == "AVOID_USING_CFDUMP_TAG" && len(iss.Locations) > 0 {
+			got = append(got, iss.Locations[0].File)
+		}
+	}
+
+	want := []string{"/tmp/a.cfm", "/tmp/b.cfm", "/tmp/c.cfm"}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] || got[2] != want[2] {
+		t.Fatalf("RunPerFile order = %v, want %v", got, want)
+	}
+}
