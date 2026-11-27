@@ -452,6 +452,8 @@ func (p *scriptParser) parse() {
 			p.parsePropertyWord(tok)
 		case "var":
 			p.parseVarDecl(tok)
+		case "static", "final":
+			p.parseStaticOrFinalTopLevel(tok)
 		case "local":
 			p.parseScopedVar(tok, ScopeLocal)
 		case "arguments":
@@ -504,6 +506,31 @@ func (p *scriptParser) parse() {
 				p.checkAssignRef(tok)
 			}
 		}
+	}
+}
+
+// parseStaticOrFinalTopLevel handles top-level `static` / `final` modifiers:
+// function modifiers (`static numeric function f()`), variable modifiers
+// (`static x = 1;`, `final var x = 1;`), and plain variable/call uses
+// (`final = getValue();`, `static.x = 1;`).
+func (p *scriptParser) parseStaticOrFinalTopLevel(tok Token) {
+	peek := p.sc.PeekSkipComments()
+	switch {
+	case peek.Kind == TokIdent && startsDeclaration(p.sc):
+		p.parseAccessModified(tok, "")
+	case peek.Kind == TokIdent && identEq(peek.Value, "var"):
+		varTok := p.sc.NextSkipComments()
+		p.parseVarDecl(varTok)
+	case peek.Kind == TokIdent:
+		p.parseVarDecl(tok)
+	case peek.Kind == TokDot:
+		p.parseDottedStatement(tok)
+	case peek.Kind == TokDoubleColon:
+		p.parseStaticCall(tok)
+	case peek.Kind == TokLParen:
+		p.recordBareCallAndChain(tok)
+	default:
+		p.checkAssignRef(tok)
 	}
 }
 

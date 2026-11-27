@@ -133,9 +133,15 @@ func (p *scriptParser) parseProperty(startTok Token) {
 }
 
 func positionalPropertyName(tokens []Token, flags int) (typeName, name string, nameTok Token, hasNameTok bool) {
-	idents := make([]Token, 0, 2)
+	type segment struct {
+		text string
+		tok  Token
+	}
 
-	for i, tok := range tokens {
+	segs := make([]segment, 0, 2)
+
+	for i := 0; i < len(tokens); {
+		tok := tokens[i]
 		if tok.Kind != TokIdent {
 			break
 		}
@@ -148,14 +154,31 @@ func positionalPropertyName(tokens []Token, flags int) (typeName, name string, n
 			break
 		}
 
-		idents = append(idents, tok)
+		seg := segment{text: tok.Value, tok: tok}
+		i++
+
+		// Join dotted type or scoped property names (`models.User`, `variables.displays`).
+		if i+1 < len(tokens) && tokens[i].Kind == TokDot && tokens[i+1].Kind == TokIdent {
+			var b strings.Builder
+			b.WriteString(seg.text)
+
+			for i+1 < len(tokens) && tokens[i].Kind == TokDot && tokens[i+1].Kind == TokIdent {
+				b.WriteByte('.')
+				b.WriteString(tokens[i+1].Value)
+				i += 2
+			}
+
+			seg.text = b.String()
+		}
+
+		segs = append(segs, seg)
 	}
 
-	switch len(idents) {
+	switch len(segs) {
 	case 1:
-		return "", idents[0].Value, idents[0], true
+		return "", segs[0].text, segs[0].tok, true
 	case 2:
-		return idents[0].Value, idents[1].Value, idents[1], true
+		return segs[0].text, segs[1].text, segs[1].tok, true
 	default:
 		return "", "", Token{}, false
 	}
