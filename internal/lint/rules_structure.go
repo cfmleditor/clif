@@ -648,8 +648,10 @@ var globalScopes = map[string]bool{
 	"cfthread":    true,
 }
 
-// checkGlobalVar matches CFLint's GlobalVarChecker: flags each global scope
-// referenced inside a component or function at most once per scope per function.
+// checkGlobalVar matches CFLint's GlobalVarChecker: in tag CFCs (<cffunction>),
+// CFLint pushes a StackHandler frame per <cffunction> so each scope is reported
+// once per function; in script CFCs, functions share the component frame so
+// each scope is reported once per component.
 func checkGlobalVar(fc *FileContext) []cflint.Issue {
 	if !strings.EqualFold(filepath.Ext(fc.Path), ".cfc") {
 		return nil
@@ -658,9 +660,52 @@ func checkGlobalVar(fc *FileContext) []cflint.Issue {
 	src := fc.Text()
 	spans := fc.ParseResult().FunctionSpans()
 
-	var out []cflint.Issue
+	var (
+		out            []cflint.Issue
+		scriptReported = map[string]bool{}
+	)
 
-	// Scan each function body with its own per-function dedup map.
+	// Scan component top-level script outside any function body first so
+	// top-level references seed scriptReported in source order.
+	for _, r := range fc.Regions() {
+		if r.Kind != parser.RegionScript {
+			continue
+		}
+
+		sc := parser.NewSourceScanner(r.Text)
+
+		var prev parser.Token
+
+		cur := sc.NextSkipComments()
+		for cur.Kind != parser.TokEOF {
+			next := sc.NextSkipComments()
+
+			if cur.Kind == parser.TokString {
+				absOff := r.Offset + cur.Offset
+				if !offsetInsideAnySpan(absOff, spans) {
+					forEachStringHashExpr(cur, func(expr string, relOff int) {
+						out = append(out, scanGlobalVarScript(fc, expr, absOff+relOff, scriptReported)...)
+					})
+				}
+			}
+
+			if cur.Kind == parser.TokIdent && (next.Kind == parser.TokDot || next.Kind == parser.TokLBracket) && prev.Kind != parser.TokDot {
+				absOff := r.Offset + cur.Offset
+				if !offsetInsideAnySpan(absOff, spans) {
+					low := strings.ToLower(cur.Value)
+					if globalScopes[low] && !scriptReported[low] {
+						scriptReported[low] = true
+
+						out = append(out, fc.IssueAt(absOff, fmt.Sprintf("Identifier %s is global. Referencing in a CFC or function should be avoided.", cur.Value), cur.Value))
+					}
+				}
+			}
+
+			prev = cur
+			cur = next
+		}
+	}
+
 	for i := range spans {
 		sp := &spans[i]
 
@@ -669,13 +714,14 @@ func checkGlobalVar(fc *FileContext) []cflint.Issue {
 			continue
 		}
 
-		reported := map[string]bool{}
 		if sp.Params >= 0 {
-			out = append(out, scanGlobalVarScript(fc, body, sp.Body, reported)...)
+			out = append(out, scanGlobalVarScript(fc, body, sp.Body, scriptReported)...)
 		} else {
+			tagReported := map[string]bool{}
+
 			for _, r := range parser.ClassifyRegions(body) {
 				if r.Kind == parser.RegionScript {
-					out = append(out, scanGlobalVarScript(fc, r.Text, sp.Body+r.Offset, reported)...)
+					out = append(out, scanGlobalVarScript(fc, r.Text, sp.Body+r.Offset, tagReported)...)
 				}
 			}
 
@@ -691,41 +737,8 @@ func checkGlobalVar(fc *FileContext) []cflint.Issue {
 
 				innerStart := len(tag.Name) + 1
 				inner := txt[innerStart : len(txt)-1]
-				out = append(out, scanGlobalVarScript(fc, inner, sp.Body+tag.Start+innerStart, reported)...)
+				out = append(out, scanGlobalVarScript(fc, inner, sp.Body+tag.Start+innerStart, tagReported)...)
 			}
-		}
-	}
-
-	// Also scan component top-level script outside any function body.
-	topReported := map[string]bool{}
-
-	for _, r := range fc.Regions() {
-		if r.Kind != parser.RegionScript {
-			continue
-		}
-
-		sc := parser.NewSourceScanner(r.Text)
-
-		var prev parser.Token
-
-		cur := sc.NextSkipComments()
-		for cur.Kind != parser.TokEOF {
-			next := sc.NextSkipComments()
-
-			if cur.Kind == parser.TokIdent && (next.Kind == parser.TokDot || next.Kind == parser.TokLBracket) && prev.Kind != parser.TokDot {
-				absOff := r.Offset + cur.Offset
-				if !offsetInsideAnySpan(absOff, spans) {
-					low := strings.ToLower(cur.Value)
-					if globalScopes[low] && !topReported[low] {
-						topReported[low] = true
-
-						out = append(out, fc.IssueAt(absOff, fmt.Sprintf("Identifier %s is global. Referencing in a CFC or function should be avoided.", cur.Value), cur.Value))
-					}
-				}
-			}
-
-			prev = cur
-			cur = next
 		}
 	}
 

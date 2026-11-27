@@ -69,6 +69,7 @@ type funcScopeAnalysis struct {
 	catchVars       map[string]bool
 	bareWrites      []identUse
 	bareReads       []identUse
+	localOrVarReads []identUse // non-assignment `local.<name>` / `variables.<name>` reads for ARG_VAR_MIXED
 	argScoped       map[string]bool
 }
 
@@ -202,6 +203,7 @@ func analyzeFunctionScope(content string, span *parser.FunctionSpan) *funcScopeA
 
 	slices.SortStableFunc(a.bareWrites, func(x, y identUse) int { return cmp.Compare(x.offset, y.offset) })
 	slices.SortStableFunc(a.bareReads, func(x, y identUse) int { return cmp.Compare(x.offset, y.offset) })
+	slices.SortStableFunc(a.localOrVarReads, func(x, y identUse) int { return cmp.Compare(x.offset, y.offset) })
 
 	return a
 }
@@ -347,11 +349,22 @@ func scanScriptBodyScope(text string, baseOffset int, a *funcScopeAnalysis) {
 		case parser.TokLParen:
 			f := parenFrame{}
 
-			if prev.Kind == parser.TokIdent {
+			switch {
+			case isArrowParamList(toks, i):
+				// Arrow closure `( a, b ) => ...`: record its parameter names.
+				collectClosureParamNames(toks, i, a.catchVars)
+			case prev.Kind == parser.TokRBracket || prev.Kind == parser.TokRParen:
+				// Dynamic call `this["fn"]( arg = val )` or `getFn()( arg = val )`.
+				f.callName = "<call>"
+			case prev.Kind == parser.TokIdent:
 				lowPrev := strings.ToLower(prev.Value)
 				switch {
 				case lowPrev == "for":
 					f.isFor = true
+				case lowPrev == "catch":
+					// `catch (e)`, `catch (any e)`, `catch ("Custom.Type" e)`, `catch (any var e)`:
+					// record the last identifier inside `(...)` as the catch variable.
+					collectCatchVarName(toks, i, a.catchVars)
 				case lowPrev == "function":
 					// Anonymous closure `function( key, value ) { ... }`: record
 					// its parameter names so references inside the closure are
@@ -399,19 +412,7 @@ func scanScriptBodyScope(text string, baseOffset int, a *funcScopeAnalysis) {
 func recordScriptIdent(toks []parser.Token, idx, baseOffset int, prev2, prev, cur, next parser.Token, inStructLit bool, topParen parenFrame, tagStmtName string, a *funcScopeAnalysis) {
 	low := strings.ToLower(cur.Value)
 
-	// Record `arguments.<name>` reads/writes.
-	if prev.Kind == parser.TokDot && prev2.Kind == parser.TokIdent && strings.EqualFold(prev2.Value, "arguments") {
-		a.argScoped[low] = true
-
-		return
-	}
-
-	// Record `local.<name> = ...`.
-	if prev.Kind == parser.TokDot && prev2.Kind == parser.TokIdent && strings.EqualFold(prev2.Value, "local") {
-		if next.Kind == parser.TokEquals {
-			a.localAssign[low] = true
-		}
-
+	if recordScopedMemberIdent(toks, idx, baseOffset, prev2, prev, cur, next, a) {
 		return
 	}
 
@@ -496,6 +497,38 @@ func recordScriptIdent(toks []parser.Token, idx, baseOffset int, prev2, prev, cu
 	a.bareReads = append(a.bareReads, identUse{name: cur.Value, offset: baseOffset + cur.Offset})
 }
 
+func recordScopedMemberIdent(toks []parser.Token, idx, baseOffset int, prev2, prev, cur, next parser.Token, a *funcScopeAnalysis) bool {
+	if prev.Kind != parser.TokDot || prev2.Kind != parser.TokIdent {
+		return false
+	}
+
+	low := strings.ToLower(cur.Value)
+	isAssign := next.Kind == parser.TokEquals && isStandaloneEquals(cur, next, tokAt(toks, idx+2))
+
+	switch strings.ToLower(prev2.Value) {
+	case "arguments":
+		a.argScoped[low] = true
+
+		return true
+	case "local":
+		if isAssign {
+			a.localAssign[low] = true
+		} else {
+			a.localOrVarReads = append(a.localOrVarReads, identUse{name: cur.Value, offset: baseOffset + cur.Offset})
+		}
+
+		return true
+	case "variables":
+		if !isAssign {
+			a.localOrVarReads = append(a.localOrVarReads, identUse{name: cur.Value, offset: baseOffset + cur.Offset})
+		}
+
+		return true
+	default:
+		return false
+	}
+}
+
 func tokAt(toks []parser.Token, i int) parser.Token {
 	if i < 0 || i >= len(toks) {
 		return parser.Token{}
@@ -541,6 +574,58 @@ func forEachStringHashExpr(tok parser.Token, fn func(expr string, relOff int)) {
 		}
 
 		i += closeRel + 2
+	}
+}
+
+// isArrowParamList reports whether the `(` at lpIdx is an arrow-function
+// parameter list `( a, b ) => ...`.
+func isArrowParamList(toks []parser.Token, lpIdx int) bool {
+	depth := 1
+	j := lpIdx + 1
+
+	for j < len(toks) && depth > 0 {
+		switch toks[j].Kind {
+		case parser.TokLParen:
+			depth++
+		case parser.TokRParen:
+			depth--
+		default:
+		}
+
+		j++
+	}
+
+	if depth != 0 || j+1 >= len(toks) {
+		return false
+	}
+
+	return toks[j].Kind == parser.TokEquals && toks[j+1].Kind == parser.TokGT && toks[j+1].Offset == toks[j].Offset+1
+}
+
+// collectCatchVarName records the catch variable from a `catch (...)` header
+// starting at the `(` token index lpIdx (handles `catch (e)`, `catch (any e)`,
+// `catch ("Custom.Type" e)`, `catch (java.lang.Exception e)`, `catch (any var e)`).
+func collectCatchVarName(toks []parser.Token, lpIdx int, dst map[string]bool) {
+	depth := 1
+
+	var lastIdent string
+
+	for j := lpIdx + 1; j < len(toks) && depth > 0; j++ {
+		switch toks[j].Kind {
+		case parser.TokLParen:
+			depth++
+		case parser.TokRParen:
+			depth--
+		case parser.TokIdent:
+			if depth == 1 {
+				lastIdent = toks[j].Value
+			}
+		default:
+		}
+	}
+
+	if lastIdent != "" {
+		dst[strings.ToLower(lastIdent)] = true
 	}
 }
 
@@ -732,9 +817,14 @@ func checkArgVarMixed(fc *FileContext) []cflint.Issue {
 	for _, a := range fc.functionScopes() {
 		reported := map[string]bool{}
 
-		// Matching ArgVarChecker: referencing a function argument without the
-		// `arguments.` scope triggers ARG_VAR_MIXED once per argument per function.
-		for _, r := range a.bareReads {
+		// Merge bareReads and localOrVarReads in source order so the first
+		// offending reference wins per argument (matching ArgVarChecker).
+		all := make([]identUse, 0, len(a.bareReads)+len(a.localOrVarReads))
+		all = append(all, a.bareReads...)
+		all = append(all, a.localOrVarReads...)
+		slices.SortStableFunc(all, func(x, y identUse) int { return cmp.Compare(x.offset, y.offset) })
+
+		for _, r := range all {
 			low := strings.ToLower(r.name)
 			if reported[low] || !a.params[low] {
 				continue
