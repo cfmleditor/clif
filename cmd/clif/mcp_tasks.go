@@ -15,6 +15,7 @@ import (
 	"github.com/cfmleditor/clif/internal/codemap/mcp"
 	"github.com/cfmleditor/clif/internal/confine"
 	"github.com/cfmleditor/clif/internal/daemon"
+	"github.com/cfmleditor/clif/internal/lint"
 	"github.com/cfmleditor/clif/internal/refs"
 	"github.com/cfmleditor/clif/internal/resolve"
 	"github.com/cfmleditor/clif/internal/unresolved"
@@ -217,7 +218,7 @@ func mcpFindRefsWithWorkspace(ws *mcpWorkspace, root, target string, paths []str
 func newMCPLinter(root string) mcp.Linter {
 	var (
 		mu     sync.Mutex
-		runner *cflint.Runner
+		runner lint.Engine
 	)
 
 	return func(paths []string, limit int) (any, error) {
@@ -231,6 +232,7 @@ func newMCPLinter(root string) mcp.Linter {
 
 		if runner == nil {
 			minSeverity := ""
+			engineName := ""
 
 			dir := abs[0]
 			if info, err := os.Stat(dir); err == nil && !info.IsDir() {
@@ -239,11 +241,12 @@ func newMCPLinter(root string) mcp.Linter {
 
 			if cfg, _ := daemon.FindConfig(dir); cfg != nil {
 				minSeverity = cfg.LintMinSeverity()
+				engineName = cfg.LintEngine()
 			}
 
-			r, err := cflint.NewRunner(context.Background(), minSeverity)
+			r, err := lint.NewEngine(context.Background(), engineName, minSeverity, version)
 			if err != nil {
-				return nil, fmt.Errorf("cflint unavailable: %w", err)
+				return nil, fmt.Errorf("linter unavailable: %w", err)
 			}
 
 			runner = r

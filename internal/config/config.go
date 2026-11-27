@@ -445,11 +445,19 @@ func JavaStubResolver(javaStubsPath string) Resolver {
 // "the config turned linting off" from "the config named minSeverity and said
 // nothing about enabled". Without that distinction a child config setting only
 // `minSeverity` would switch linting off in the course of tuning it.
+// Supported linting.engine values.
+const (
+	LintEngineCFLint = "cflint"
+	LintEngineNative = "native"
+	LintEngineHybrid = "hybrid"
+)
+
+// Linting holds linting configuration.
 type Linting struct {
 	Enabled *bool `json:"enabled"`
 
-	// MinSeverity is the least severe CFLint level still reported, named on
-	// CFLint's own scale: FATAL, CRITICAL, ERROR, WARNING, CAUTION, INFO,
+	// MinSeverity is the least severe lint level still reported, named on
+	// the standard scale: FATAL, CRITICAL, ERROR, WARNING, CAUTION, INFO,
 	// COSMETIC. Empty — the default — reports everything.
 	//
 	// It exists because mapSeverity folds INFO and COSMETIC up onto Warning so
@@ -459,6 +467,11 @@ type Linting struct {
 	// back to only the rules worth acting on, and it drops those issues rather
 	// than merely making them quiet.
 	MinSeverity string `json:"minSeverity"`
+
+	// Engine selects the lint backend: "cflint" (default during migration),
+	// "native" (pure-Go clif rules), or "hybrid" (native rules where
+	// implemented, falling back to cflint for remaining .cflintrc rules).
+	Engine string `json:"engine"`
 }
 
 // References holds textDocument/references configuration.
@@ -821,6 +834,7 @@ type Resolved struct {
 	Features                 ResolvedFeatures
 	Linting                  bool
 	LintMinSeverity          string
+	LintEngine               string
 	References               bool
 	TagSnippets              bool
 	FunctionSnippets         bool
@@ -924,6 +938,7 @@ func Resolve(cfg *JSON, dir string) *Resolved {
 	if cfg.Linting != nil {
 		r.Linting = BoolDefault(cfg.Linting.Enabled, false)
 		r.LintMinSeverity = cfg.Linting.MinSeverity
+		r.LintEngine = strings.ToLower(strings.TrimSpace(cfg.Linting.Engine))
 	}
 
 	if cfg.References != nil {
@@ -1211,6 +1226,10 @@ func mergeLinting(base, over *Linting) *Linting {
 
 	if over.MinSeverity != "" {
 		out.MinSeverity = over.MinSeverity
+	}
+
+	if over.Engine != "" {
+		out.Engine = over.Engine
 	}
 
 	return &out

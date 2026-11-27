@@ -37,6 +37,7 @@ func TestAConfigWithoutABlockLeavesItAlone(t *testing.T) {
 	srv.Features = config.ResolveFeatures(&config.Features{Routes: &off, Folding: &on})
 	srv.Linting = true
 	srv.LintMinSeverity = "ERROR"
+	srv.LintEngine = config.LintEngineNative
 	srv.References = true
 	srv.TagSnippets = false
 	srv.GlobalFunctionResolution = false
@@ -61,6 +62,10 @@ func TestAConfigWithoutABlockLeavesItAlone(t *testing.T) {
 
 	if srv.LintMinSeverity != "ERROR" {
 		t.Errorf("linting.minSeverity = %q, want ERROR", srv.LintMinSeverity)
+	}
+
+	if srv.LintEngine != config.LintEngineNative {
+		t.Errorf("linting.engine = %q, want %q", srv.LintEngine, config.LintEngineNative)
 	}
 
 	if !srv.References {

@@ -161,6 +161,9 @@ func (c *Config) Linting() bool { return c.Resolved().Linting }
 // LintMinSeverity returns the configured CFLint severity floor, or "" for none.
 func (c *Config) LintMinSeverity() string { return c.Resolved().LintMinSeverity }
 
+// LintEngine returns the configured lint backend ("cflint", "native", "hybrid", or "").
+func (c *Config) LintEngine() string { return c.Resolved().LintEngine }
+
 // References returns whether textDocument/references is enabled in config.
 func (c *Config) References() bool { return c.Resolved().References }
 

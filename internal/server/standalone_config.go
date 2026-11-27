@@ -129,6 +129,7 @@ type optionalBlockState struct {
 	Features                 config.ResolvedFeatures
 	Linting                  bool
 	LintMinSeverity          string
+	LintEngine               string
 	References               bool
 	TagSnippets              bool
 	FunctionSnippets         bool
@@ -145,6 +146,7 @@ func (s *Server) optionalBlocks() optionalBlockState {
 		Features:                 s.Features,
 		Linting:                  s.Linting,
 		LintMinSeverity:          s.LintMinSeverity,
+		LintEngine:               s.LintEngine,
 		References:               s.References,
 		TagSnippets:              s.TagSnippets,
 		FunctionSnippets:         s.FunctionSnippets,
@@ -179,6 +181,7 @@ func (s *Server) restoreUnmentionedBlocks(merged *config.JSON, prev *optionalBlo
 	if merged.Linting == nil {
 		s.Linting = prev.Linting
 		s.LintMinSeverity = prev.LintMinSeverity
+		s.LintEngine = prev.LintEngine
 	}
 
 	if merged.References == nil {
@@ -369,6 +372,7 @@ func (s *Server) applyConfig(r *config.Resolved) {
 	s.Features = r.Features
 	s.Linting = r.Linting
 	s.LintMinSeverity = r.LintMinSeverity
+	s.LintEngine = r.LintEngine
 	s.References = r.References
 	s.TagSnippets = r.TagSnippets
 	s.FunctionSnippets = r.FunctionSnippets
