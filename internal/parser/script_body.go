@@ -361,6 +361,21 @@ func (p *scriptParser) handleBodyToken(tok Token, depth int, afterLT bool) {
 	switch string(buf.lowerFold(tok.Value)) {
 	case "var":
 		p.parseBodyVarDecl(tok)
+	case "static", "final":
+		peek := p.sc.PeekSkipComments()
+		switch {
+		case peek.Kind == TokIdent && identEq(peek.Value, "var"):
+			varTok := p.sc.NextSkipComments()
+			p.parseBodyVarDecl(varTok)
+		case peek.Kind == TokIdent:
+			p.parseBodyVarDecl(tok)
+		case peek.Kind == TokDoubleColon:
+			p.parseStaticCall(tok)
+		case peek.Kind == TokLParen:
+			p.recordBareCallAndChain(tok)
+		default:
+			p.checkAssignRef(tok)
+		}
 	case "local":
 		p.parseBodyScopedVar(tok, ScopeLocal)
 	case "arguments":

@@ -78,14 +78,15 @@ func readingCFTag(s string, from int) bool {
 }
 
 // arrowContinues reports whether the '>' at gt in s is an arrow function's
-// `=>`, which ends no tag: `<cfset double = (x) => x * 2>` is one tag, as the
-// grammar reads it, where the walk ended it at the arrow and read `x * 2>`
-// as text. An arrow follows its parameters' ')' or a space; an attribute's
-// `=` follows its name, so `default=>` still ends at its '>'. The walk over
-// a document (tagEnds.at) asks this of CF tags alone, so markup's
-// `<input value =>` ends at its '>' too.
+// `=>` or lambda's `->`, which ends no tag: `<cfset double = (x) => x * 2>`
+// and `<cfset lambda = t -> t.b()>` are each one tag, as the grammar reads
+// them, where the walk ended them at the arrow and read the body as text.
+// An arrow follows its parameters' ')' or a space; an attribute's `=` follows
+// its name (`default=>`) and a decrement's `--` precedes `>` (`i-->`), so
+// both still end at their '>'. The walk over a document (tagEnds.at) asks
+// this of CF tags alone, so markup's `<input value =>` ends at its '>' too.
 func arrowContinues(s string, gt int) bool {
-	if gt < 2 || s[gt-1] != '=' {
+	if gt < 2 || (s[gt-1] != '=' && s[gt-1] != '-') {
 		return false
 	}
 

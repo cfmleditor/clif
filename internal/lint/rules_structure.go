@@ -124,8 +124,12 @@ func checkOutputAttr(fc *FileContext) []cflint.Issue {
 			continue
 		}
 
+		// Collect expression-bearing tags so `<cffunction` inside a `<cfset>`
+		// regex string literal is not mistaken for a real `<cffunction>` tag.
+		exprTags := parser.CFTags(r.Text, "cfset", "cfif", "cfelseif", "cfreturn")
+
 		for _, tag := range parser.CFTags(r.Text, "cffunction") {
-			if tag.Close {
+			if tag.Close || insideAnyTag(tag.Start, exprTags) {
 				continue
 			}
 
@@ -141,6 +145,16 @@ func checkOutputAttr(fc *FileContext) []cflint.Issue {
 	}
 
 	return out
+}
+
+func insideAnyTag(offset int, tags []parser.CFTag) bool {
+	for i := range tags {
+		if offset > tags[i].Start && offset < tags[i].End {
+			return true
+		}
+	}
+
+	return false
 }
 
 func checkNestedCFOutput(fc *FileContext) []cflint.Issue {
@@ -253,15 +267,18 @@ func checkScriptArgTypes(fc *FileContext, text string, baseOffset int) []cflint.
 				return
 			}
 
-			// Strip leading `required` and anything from `=` onward.
+			// Strip leading `required` modifier (only when followed by another
+			// identifier, not when the parameter itself is named `required = ...`)
+			// and anything from `=` onward.
 			var head []parser.Token
 
-			for _, pt := range paramTokens {
+			for i, pt := range paramTokens {
 				if pt.Kind == parser.TokEquals {
 					break
 				}
 
-				if len(head) == 0 && pt.Kind == parser.TokIdent && strings.EqualFold(pt.Value, "required") {
+				if len(head) == 0 && pt.Kind == parser.TokIdent && strings.EqualFold(pt.Value, "required") &&
+					i+1 < len(paramTokens) && paramTokens[i+1].Kind != parser.TokEquals {
 					continue
 				}
 
@@ -676,7 +693,8 @@ func checkSQLSelectStar(fc *FileContext) []cflint.Issue {
 	return out
 }
 
-// globalScopes matches CFLint's CFScopes.isCFScoped && !isFunctionScoped.
+// globalScopes matches CFLint's GlobalVarChecker global scopes (excluding
+// component-owned `this`, which CFLint does not flag in CFCs).
 var globalScopes = map[string]bool{
 	"application": true,
 	"session":     true,
@@ -687,7 +705,6 @@ var globalScopes = map[string]bool{
 	"cookie":      true,
 	"cgi":         true,
 	"client":      true,
-	"this":        true,
 	"cfthread":    true,
 }
 

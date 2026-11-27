@@ -3,6 +3,7 @@ package lint
 import (
 	"cmp"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -41,7 +42,8 @@ var cfmlScopes = map[string]bool{
 	"local": true, "arguments": true, "variables": true, "this": true, "super": true,
 	"application": true, "session": true, "request": true, "server": true,
 	"form": true, "url": true, "cookie": true, "cgi": true, "client": true,
-	"cfcatch": true, "caller": true, "attributes": true, "thistag": true, "thread": true,
+	"cfcatch": true, "caller": true, "attributes": true, "thistag": true,
+	"thread": true, "cfthread": true, "file": true,
 	"cffile": true, "cfhttp": true, "cfquery": true, "cfstoredproc": true,
 }
 
@@ -67,6 +69,7 @@ type funcScopeAnalysis struct {
 	params          map[string]bool
 	vars            map[string]int // lowercased name -> first var decl offset
 	localAssign     map[string]bool
+	argAssign       map[string]bool
 	catchVars       map[string]bool
 	bareWrites      []identUse
 	bareReads       []identUse // all unscoped reads (used by ARG_VAR_MIXED)
@@ -145,6 +148,7 @@ func analyzeFunctionScope(content string, span *parser.FunctionSpan) *funcScopeA
 		params:          make(map[string]bool),
 		vars:            make(map[string]int),
 		localAssign:     make(map[string]bool),
+		argAssign:       make(map[string]bool),
 		catchVars:       make(map[string]bool),
 		argScoped:       make(map[string]bool),
 	}
@@ -194,8 +198,10 @@ func analyzeFunctionScope(content string, span *parser.FunctionSpan) *funcScopeA
 			}
 		}
 
-		for _, tag := range parser.CFTags(body, "cfset") {
-			if tag.Close {
+		// Include cfif/cfelseif/cfreturn so CFTags advances past their quoted
+		// string literals (e.g. regexes containing `"<cfset..."`).
+		for _, tag := range parser.CFTags(body, "cfset", "cfif", "cfelseif", "cfreturn") {
+			if tag.Close || tag.Name != "cfset" {
 				continue
 			}
 
@@ -253,19 +259,20 @@ func collectScriptParamNames(paramsText string, dst map[string]bool) {
 	flush := func() {
 		var head []parser.Token
 
+		hasEq := false
+
 		for _, t := range toks {
 			if t.Kind == parser.TokEquals {
+				hasEq = true
+
 				break
 			}
 
 			head = append(head, t)
 		}
 
-		if len(head) > 0 {
-			last := head[len(head)-1]
-			if last.Kind == parser.TokIdent {
-				dst[strings.ToLower(last.Value)] = true
-			}
+		if name := extractScriptParamName(head, hasEq); name != "" {
+			dst[strings.ToLower(name)] = true
 		}
 
 		toks = toks[:0]
@@ -295,31 +302,101 @@ func collectScriptParamNames(paramsText string, dst map[string]bool) {
 	flush()
 }
 
-type parenFrame struct {
-	isFor    bool
-	callName string // lowercased callee name when this `(` is a call arg list
+// extractScriptParamName extracts the parameter name from the tokens before `=`
+// in a script parameter declaration, handling optional `required`, dotted types
+// (`models.User u`), and trailing metadata attributes (`string beanPath hint="..."`).
+func extractScriptParamName(head []parser.Token, hasEq bool) string {
+	if len(head) > 0 && head[0].Kind == parser.TokIdent && strings.EqualFold(head[0].Value, "required") {
+		head = head[1:]
+	}
+
+	if len(head) == 0 {
+		return ""
+	}
+
+	// Skip an optional dotted type `ident(.ident)*` when followed by at least
+	// one more identifier (the parameter name).
+	idx := 0
+
+	if head[0].Kind == parser.TokIdent {
+		typeEnd := 1
+		for typeEnd+1 < len(head) && head[typeEnd].Kind == parser.TokDot && head[typeEnd+1].Kind == parser.TokIdent {
+			typeEnd += 2
+		}
+
+		if typeEnd < len(head) && head[typeEnd].Kind == parser.TokIdent {
+			// Distinguish `[type, paramName, ...]` from untyped `[paramName, hint]`
+			// followed by `="..."`.
+			isUntypedHint := typeEnd == 1 && len(head) == 2 && hasEq && strings.EqualFold(head[1].Value, "hint")
+			if !isUntypedHint {
+				idx = typeEnd
+			}
+		}
+	}
+
+	if idx < len(head) && head[idx].Kind == parser.TokIdent {
+		return head[idx].Value
+	}
+
+	return ""
 }
+
+type parenFrame struct {
+	isFor           bool
+	isClosureParams bool
+	callName        string // lowercased callee name when this `(` is a call arg list
+}
+
+type braceKind uint8
+
+const (
+	braceBlock braceKind = iota
+	braceStruct
+	braceClosure
+)
 
 var controlParenKeywords = map[string]bool{
 	"if": true, "elseif": true, "while": true, "switch": true, "catch": true, "for": true, "function": true,
 }
 
 var scriptTagStmtKeywords = map[string]bool{
-	"lock": true, "transaction": true, "param": true, "savecontent": true,
+	"application": true, "lock": true, "transaction": true, "param": true, "savecontent": true,
 	"setting": true, "mail": true, "http": true, "query": true, "storedproc": true,
 	"wddx": true, "file": true, "directory": true, "thread": true, "cookie": true,
 	"header": true, "content": true, "location": true, "log": true, "trace": true,
 	"cache": true, "document": true, "pdf": true, "zip": true, "ftp": true,
+	"schedule": true, "htmlhead": true, "htmlbody": true, "processingdirective": true,
+	"flush": true, "exit": true, "abort": true, "throw": true, "invoke": true,
+	"module": true, "execute": true, "dbinfo": true, "ldap": true, "imap": true,
+	"pop": true, "feed": true, "image": true, "spreadsheet": true, "xml": true,
+	"objectcache": true, "silent": true, "timer": true, "login": true,
+	"loginuser": true, "logout": true, "registry": true, "index": true,
+	"collection": true, "search": true, "exchange": true, "chart": true,
+	"report": true, "print": true, "presentation": true, "sharepoint": true,
 }
 
 func scanScriptBodyScope(text string, baseOffset int, a *funcScopeAnalysis) {
+	scanScriptBodyScopeDepth(text, baseOffset, a, 0)
+}
+
+func scanScriptBodyScopeDepth(text string, baseOffset int, a *funcScopeAnalysis, initClosureDepth int) {
 	toks := scanCFMLScriptTokens(text)
 
 	var (
-		braceKinds  []bool // true = struct literal brace, false = block brace
-		parens      []parenFrame
-		tagStmtName string // non-empty inside `lock type="exclusive" name="..." {`
+		braceKinds          []braceKind
+		parens              []parenFrame
+		tagStmtName         string // non-empty inside `lock type="exclusive" name="..." {`
+		closureDepth        = initClosureDepth
+		pendingClosureBrace bool
+		arrowExprParenDepth []int
 	)
+
+	popArrowExprs := func(maxParenDepth int) {
+		for len(arrowExprParenDepth) > 0 && arrowExprParenDepth[len(arrowExprParenDepth)-1] >= maxParenDepth {
+			arrowExprParenDepth = arrowExprParenDepth[:len(arrowExprParenDepth)-1]
+			closureDepth--
+		}
+	}
 
 	for i, cur := range toks {
 		var prev2, prev, next parser.Token
@@ -339,85 +416,150 @@ func scanScriptBodyScope(text string, baseOffset int, a *funcScopeAnalysis) {
 		case parser.TokSemicolon:
 			if len(parens) == 0 {
 				tagStmtName = ""
+				pendingClosureBrace = false
+
+				popArrowExprs(0)
+			}
+		case parser.TokComma:
+			popArrowExprs(len(parens))
+		case parser.TokEquals:
+			// Arrow operator `=>` starts either a block closure (`=> { ... }`) or
+			// an expression-bodied closure (`=> expr`).
+			if next.Kind == parser.TokGT && next.Offset == cur.Offset+1 {
+				if tokAt(toks, i+2).Kind == parser.TokLBrace {
+					pendingClosureBrace = true
+				} else {
+					arrowExprParenDepth = append(arrowExprParenDepth, len(parens))
+					closureDepth++
+				}
 			}
 		case parser.TokLBrace:
 			tagStmtName = ""
-			isStruct := prev.Kind == parser.TokEquals || prev.Kind == parser.TokLParen ||
-				prev.Kind == parser.TokComma || prev.Kind == parser.TokLBracket ||
-				prev.Kind == parser.TokColon || prev.Kind == parser.TokQuestion ||
-				(prev.Kind == parser.TokIdent && strings.EqualFold(prev.Value, "return"))
-			braceKinds = append(braceKinds, isStruct)
+
+			kind := classifyScriptLBrace(prev, pendingClosureBrace)
+			if kind == braceClosure {
+				pendingClosureBrace = false
+				closureDepth++
+			}
+
+			braceKinds = append(braceKinds, kind)
 		case parser.TokRBrace:
 			if len(braceKinds) > 0 {
+				if braceKinds[len(braceKinds)-1] == braceClosure && closureDepth > initClosureDepth {
+					closureDepth--
+				}
+
 				braceKinds = braceKinds[:len(braceKinds)-1]
 			}
 		case parser.TokLParen:
-			f := parenFrame{}
-
-			switch {
-			case isArrowParamList(toks, i):
-				// Arrow closure `( a, b ) => ...`: record its parameter names.
-				collectClosureParamNames(toks, i, a.catchVars)
-			case prev.Kind == parser.TokRBracket || prev.Kind == parser.TokRParen:
-				// Dynamic call `this["fn"]( arg = val )` or `getFn()( arg = val )`.
-				f.callName = "<call>"
-			case prev.Kind == parser.TokIdent:
-				lowPrev := strings.ToLower(prev.Value)
-				switch {
-				case lowPrev == "for":
-					f.isFor = true
-				case lowPrev == "catch":
-					// `catch (e)`, `catch (any e)`, `catch ("Custom.Type" e)`, `catch (any var e)`:
-					// record the last identifier inside `(...)` as the catch variable.
-					collectCatchVarName(toks, i, a.catchVars)
-				case lowPrev == "function":
-					// Anonymous closure `function( key, value ) { ... }`: record
-					// its parameter names so references inside the closure are
-					// not flagged as IMPLICIT_SCOPE or MISSING_VAR.
-					collectClosureParamNames(toks, i, a.catchVars)
-				case !controlParenKeywords[lowPrev]:
-					f.callName = lowPrev
-				}
-			}
-
-			parens = append(parens, f)
+			parens = append(parens, classifyScriptLParen(toks, i, prev2, prev, a))
 		case parser.TokRParen:
 			if len(parens) > 0 {
+				top := parens[len(parens)-1]
 				parens = parens[:len(parens)-1]
+
+				if top.isClosureParams {
+					pendingClosureBrace = true
+				}
+
+				popArrowExprs(len(parens) + 1)
 			}
 		case parser.TokString:
 			// Scan `#expr#` interpolations inside script string literals
 			// (e.g. `"hello #event.getCurrentEvent()#"`).
 			forEachStringHashExpr(cur, func(expr string, relOff int) {
-				scanScriptBodyScope(expr, baseOffset+cur.Offset+relOff, a)
+				scanScriptBodyScopeDepth(expr, baseOffset+cur.Offset+relOff, a, closureDepth)
 			})
 		case parser.TokIdent:
-			// Detect script-tag statement header: `lock type="..." name="..." {`.
-			if len(parens) == 0 && tagStmtName == "" && prev.Kind != parser.TokDot && next.Kind == parser.TokIdent {
-				if low := strings.ToLower(cur.Value); scriptTagStmtKeywords[low] {
-					tagStmtName = "cf" + low
-
-					continue
-				}
+			if handleScriptIdentToken(toks, i, baseOffset, prev2, prev, cur, next, braceKinds, parens, &tagStmtName, closureDepth > 0, a) {
+				continue
 			}
-
-			inStructLit := len(braceKinds) > 0 && braceKinds[len(braceKinds)-1]
-
-			var topParen parenFrame
-			if len(parens) > 0 {
-				topParen = parens[len(parens)-1]
-			}
-
-			recordScriptIdent(toks, i, baseOffset, prev2, prev, cur, next, inStructLit, topParen, tagStmtName, a)
 		default:
 		}
 	}
 }
 
-func recordScriptIdent(toks []parser.Token, idx, baseOffset int, prev2, prev, cur, next parser.Token, inStructLit bool, topParen parenFrame, tagStmtName string, a *funcScopeAnalysis) {
+func handleScriptIdentToken(toks []parser.Token, idx, baseOffset int, prev2, prev, cur, next parser.Token, braceKinds []braceKind, parens []parenFrame, tagStmtName *string, inClosure bool, a *funcScopeAnalysis) bool {
+	// Single-parameter arrow closure `item => ...`.
+	if next.Kind == parser.TokEquals && tokAt(toks, idx+2).Kind == parser.TokGT && tokAt(toks, idx+2).Offset == next.Offset+1 {
+		a.catchVars[strings.ToLower(cur.Value)] = true
+
+		return true
+	}
+
+	// Detect script-tag statement header: `lock type="..." name="..." {` or
+	// `application action="update" ...;`.
+	if len(parens) == 0 && *tagStmtName == "" && prev.Kind != parser.TokDot &&
+		next.Kind == parser.TokIdent && tokAt(toks, idx+2).Kind == parser.TokEquals {
+		if low := strings.ToLower(cur.Value); scriptTagStmtKeywords[low] {
+			*tagStmtName = "cf" + low
+
+			return true
+		}
+	}
+
+	inStructLit := len(braceKinds) > 0 && braceKinds[len(braceKinds)-1] == braceStruct
+
+	var topParen parenFrame
+	if len(parens) > 0 {
+		topParen = parens[len(parens)-1]
+	}
+
+	recordScriptIdent(toks, idx, baseOffset, prev2, prev, cur, next, inStructLit, inClosure, topParen, *tagStmtName, a)
+
+	return false
+}
+
+func classifyScriptLBrace(prev parser.Token, pendingClosureBrace bool) braceKind {
+	if pendingClosureBrace {
+		return braceClosure
+	}
+
+	if prev.Kind == parser.TokEquals || prev.Kind == parser.TokLParen ||
+		prev.Kind == parser.TokComma || prev.Kind == parser.TokLBracket ||
+		prev.Kind == parser.TokColon || prev.Kind == parser.TokQuestion ||
+		(prev.Kind == parser.TokIdent && strings.EqualFold(prev.Value, "return")) {
+		return braceStruct
+	}
+
+	return braceBlock
+}
+
+func classifyScriptLParen(toks []parser.Token, lpIdx int, prev2, prev parser.Token, a *funcScopeAnalysis) parenFrame {
+	f := parenFrame{}
+
+	switch {
+	case isArrowParamList(toks, lpIdx):
+		collectClosureParamNames(toks, lpIdx, a.catchVars)
+	case prev.Kind == parser.TokRBracket || prev.Kind == parser.TokRParen || prev.Kind == parser.TokString:
+		f.callName = "<call>"
+	case prev.Kind == parser.TokIdent:
+		lowPrev := strings.ToLower(prev.Value)
+		switch {
+		case lowPrev == "for":
+			f.isFor = true
+		case lowPrev == "catch":
+			collectCatchVarName(toks, lpIdx, a.catchVars)
+		case lowPrev == "function":
+			collectClosureParamNames(toks, lpIdx, a.catchVars)
+
+			f.isClosureParams = true
+		case prev2.Kind == parser.TokIdent && strings.EqualFold(prev2.Value, "function"):
+			// Named function declaration inside a .cfm <cfscript> block:
+			// `function helper(any a, any b) { ... }`.
+			collectClosureParamNames(toks, lpIdx, a.catchVars)
+		case !controlParenKeywords[lowPrev]:
+			f.callName = lowPrev
+		}
+	}
+
+	return f
+}
+
+func recordScriptIdent(toks []parser.Token, idx, baseOffset int, prev2, prev, cur, next parser.Token, inStructLit, inClosure bool, topParen parenFrame, tagStmtName string, a *funcScopeAnalysis) {
 	low := strings.ToLower(cur.Value)
 
-	if recordScopedMemberIdent(toks, idx, baseOffset, prev2, prev, cur, next, a) {
+	if recordScopedMemberIdent(toks, idx, baseOffset, prev2, prev, cur, a) {
 		return
 	}
 
@@ -504,7 +646,12 @@ func recordScriptIdent(toks []parser.Token, idx, baseOffset int, prev2, prev, cu
 		return
 	}
 
-	a.bareReads = append(a.bareReads, identUse{name: cur.Value, offset: baseOffset + cur.Offset})
+	// Inside an inner closure, `arguments` refers to the closure's own arguments,
+	// so referencing an enclosing function's parameter unscoped is required by
+	// CFML lexical capture and is not ARG_VAR_MIXED.
+	if !inClosure {
+		a.bareReads = append(a.bareReads, identUse{name: cur.Value, offset: baseOffset + cur.Offset})
+	}
 
 	// Matching ImplicitScopeChecker: only single-identifier reads (not dotted
 	// object/member chains like `persist.getThing(...)` or `_objInit.valLeft(...)`)
@@ -514,17 +661,20 @@ func recordScriptIdent(toks []parser.Token, idx, baseOffset int, prev2, prev, cu
 	}
 }
 
-func recordScopedMemberIdent(toks []parser.Token, idx, baseOffset int, prev2, prev, cur, next parser.Token, a *funcScopeAnalysis) bool {
+func recordScopedMemberIdent(toks []parser.Token, idx, baseOffset int, prev2, prev, cur parser.Token, a *funcScopeAnalysis) bool {
 	if prev.Kind != parser.TokDot || prev2.Kind != parser.TokIdent {
 		return false
 	}
 
 	low := strings.ToLower(cur.Value)
-	isAssign := next.Kind == parser.TokEquals && isStandaloneEquals(cur, next, tokAt(toks, idx+2))
+	isAssign := isAssignLHS(toks, idx)
 
 	switch strings.ToLower(prev2.Value) {
 	case "arguments":
 		a.argScoped[low] = true
+		if isAssign {
+			a.argAssign[low] = true
+		}
 
 		return true
 	case "local":
@@ -558,7 +708,7 @@ func tokAt(toks []parser.Token, i int) parser.Token {
 // keeping CFML string literals with nested quotes inside `#...#` interpolations
 // (e.g. `"#result[i]["item#j#_desc"]#"`) as single TokString tokens.
 func scanCFMLScriptTokens(text string) []parser.Token {
-	if !strings.ContainsRune(text, '#') {
+	if !strings.ContainsRune(text, '#') && !strings.Contains(text, "<!---") {
 		sc := parser.NewSourceScanner(text)
 
 		var toks []parser.Token
@@ -583,6 +733,12 @@ func scanCFMLScriptTokens(text string) []parser.Token {
 
 		if qIdx > pos {
 			toks = appendScannerTokens(toks, text[pos:qIdx], pos)
+		}
+
+		if strings.HasPrefix(text[qIdx:], "<!---") {
+			pos = parser.SkipCFMLComment(text, qIdx)
+
+			continue
 		}
 
 		if strings.HasPrefix(text[qIdx:], "//") {
@@ -634,6 +790,10 @@ func findNextQuoteOrComment(s string, start int) int {
 			return i
 		case '/':
 			if i+1 < len(s) && (s[i+1] == '/' || s[i+1] == '*') {
+				return i
+			}
+		case '<':
+			if strings.HasPrefix(s[i:], "<!---") {
 				return i
 			}
 		}
@@ -926,6 +1086,8 @@ func issueInFunc(fc *FileContext, offset int, msg, variable, funcName string) cf
 }
 
 func checkUnscopedUses(fc *FileContext, pick func(*funcScopeAnalysis) []identUse, msgFmt string) []cflint.Issue {
+	compVars := collectComponentVars(fc)
+
 	var out []cflint.Issue
 
 	for _, a := range fc.functionScopes() {
@@ -933,7 +1095,7 @@ func checkUnscopedUses(fc *FileContext, pick func(*funcScopeAnalysis) []identUse
 
 		for _, u := range pick(a) {
 			low := strings.ToLower(u.name)
-			if reported[low] || a.params[low] || a.localAssign[low] || a.catchVars[low] {
+			if reported[low] || a.params[low] || a.localAssign[low] || a.argAssign[low] || a.catchVars[low] || compVars[low] {
 				continue
 			}
 
@@ -1013,6 +1175,11 @@ func checkArgVarMixed(fc *FileContext) []cflint.Issue {
 
 func checkImplicitScope(fc *FileContext) []cflint.Issue {
 	compVars := collectComponentVars(fc)
+	qSpans := queryLoopSpans(fc.Text())
+
+	if strings.EqualFold(filepath.Ext(fc.Path), ".cfm") {
+		return checkCFMImplicitScope(fc, compVars, qSpans)
+	}
 
 	var out []cflint.Issue
 
@@ -1020,15 +1187,17 @@ func checkImplicitScope(fc *FileContext) []cflint.Issue {
 		reported := map[string]bool{}
 
 		// Matching ImplicitScopeChecker: bare writes establish variables/local
-		// scope so subsequent bare reads of the same name are not implicit-scope.
-		written := make(map[string]bool, len(a.bareWrites))
-		for _, w := range a.bareWrites {
-			written[strings.ToLower(w.name)] = true
-		}
+		// scope in source order, so a read before the first write is still
+		// flagged as IMPLICIT_SCOPE.
+		firstWrite := firstWriteOffsets(a.bareWrites)
 
 		for _, u := range a.implicitReads {
 			low := strings.ToLower(u.name)
-			if reported[low] || a.params[low] || a.localAssign[low] || a.catchVars[low] || compVars[low] || written[low] {
+			if reported[low] || a.params[low] || a.localAssign[low] || a.catchVars[low] || compVars[low] || offsetInAnyRange(u.offset, qSpans) {
+				continue
+			}
+
+			if wOff, ok := firstWrite[low]; ok && wOff <= u.offset {
 				continue
 			}
 
@@ -1046,13 +1215,339 @@ func checkImplicitScope(fc *FileContext) []cflint.Issue {
 	return out
 }
 
+// checkCFMImplicitScope matches ImplicitScopeChecker's file-wide mode for .cfm
+// templates: scans script blocks, expression tags, and #...# interpolations in
+// the template and flags single-identifier reads never established in the file.
+func checkCFMImplicitScope(fc *FileContext, compVars map[string]bool, qSpans [][2]int) []cflint.Issue {
+	src := fc.Text()
+	a := &funcScopeAnalysis{
+		params:      make(map[string]bool),
+		vars:        make(map[string]int),
+		localAssign: make(map[string]bool),
+		argAssign:   make(map[string]bool),
+		catchVars:   make(map[string]bool),
+		argScoped:   make(map[string]bool),
+	}
+
+	// Collect tag-bound variables (<cfparam name>, <cfquery name>, <cfloop index/item>, etc.).
+	for _, tag := range parser.CFTags(src, "cfparam", "cfloop", "cfquery", "cfhttp", "cffile", "cfsavecontent", "cfdirectory", "cfprocresult", "cfstoredproc", "cfinvoke", "cfwddx", "cfxml") {
+		if tag.Close {
+			continue
+		}
+
+		if strings.EqualFold(tag.Name, "cfparam") {
+			if name, ok := tag.Attr("name"); ok {
+				recordOutputVarName(name, tag.Start, a)
+			}
+
+			continue
+		}
+
+		for attr := range scriptTagOutputAttrs[strings.ToLower(tag.Name)] {
+			if val, ok := tag.Attr(attr); ok {
+				recordOutputVarName(val, tag.Start, a)
+			}
+		}
+	}
+
+	cfoutputDepth := 0
+
+	for _, r := range fc.Regions() {
+		if r.Kind == parser.RegionScript {
+			scanScriptBodyScope(r.Text, r.Offset, a)
+
+			continue
+		}
+
+		// Scan expression tags (<cfset>, <cfif>, <cfelseif>, <cfreturn>).
+		for _, tag := range parser.CFTags(r.Text, "cfset", "cfif", "cfelseif", "cfreturn") {
+			if tag.Close {
+				continue
+			}
+
+			txt := tag.Text()
+			if len(txt) <= len(tag.Name)+2 {
+				continue
+			}
+
+			innerStart := len(tag.Name) + 1
+			scanScriptBodyScope(txt[innerStart:len(txt)-1], r.Offset+tag.Start+innerStart, a)
+		}
+
+		// Scan `#expr#` interpolations only inside `<cfoutput>` blocks and
+		// CF tag attributes (never in raw HTML outside `<cfoutput>`).
+		scanTagHashesForScope(r.Text, r.Offset, &cfoutputDepth, a)
+	}
+
+	slices.SortStableFunc(a.implicitReads, func(x, y identUse) int { return cmp.Compare(x.offset, y.offset) })
+
+	firstWrite := firstWriteOffsets(a.bareWrites)
+
+	var out []cflint.Issue
+
+	reported := map[string]bool{}
+
+	for _, u := range a.implicitReads {
+		low := strings.ToLower(u.name)
+		if reported[low] || a.params[low] || a.localAssign[low] || a.catchVars[low] || compVars[low] || offsetInAnyRange(u.offset, qSpans) {
+			continue
+		}
+
+		if wOff, ok := firstWrite[low]; ok && wOff <= u.offset {
+			continue
+		}
+
+		if _, hasVar := a.vars[low]; hasVar {
+			continue
+		}
+
+		reported[low] = true
+
+		msg := fmt.Sprintf("Variable %s is not explicitly scoped.", u.name)
+		out = append(out, fc.IssueAt(u.offset, msg, u.name))
+	}
+
+	return out
+}
+
+// firstWriteOffsets returns the earliest byte offset at which each lowercased
+// variable name is assigned.
+func firstWriteOffsets(writes []identUse) map[string]int {
+	first := make(map[string]int, len(writes))
+	for _, w := range writes {
+		low := strings.ToLower(w.name)
+		if prev, ok := first[low]; !ok || w.offset < prev {
+			first[low] = w.offset
+		}
+	}
+
+	return first
+}
+
+func scanTagHashesForScope(text string, baseOffset int, cfoutputDepth *int, a *funcScopeAnalysis) {
+	for i := 0; i < len(text); {
+		if strings.HasPrefix(text[i:], "<!---") {
+			i = parser.SkipCFMLComment(text, i)
+
+			continue
+		}
+
+		if text[i] == '<' {
+			if next, handled := scanCFTagForScope(text, i, baseOffset, cfoutputDepth, a); handled {
+				i = next
+
+				continue
+			}
+		}
+
+		if *cfoutputDepth <= 0 || text[i] != '#' {
+			i++
+
+			continue
+		}
+
+		if i+1 < len(text) && text[i+1] == '#' {
+			i += 2
+
+			continue
+		}
+
+		end := skipHashExprInString(text, i+1)
+		if end <= i+1 || text[end-1] != '#' {
+			return
+		}
+
+		expr := text[i+1 : end-1]
+		if strings.TrimSpace(expr) != "" {
+			scanScriptBodyScope(expr, baseOffset+i+1, a)
+		}
+
+		i = end
+	}
+}
+
+// scanCFTagForScope handles a `<cf...>` or `</cf...>` tag starting at pos:
+// updates cfoutputDepth for `<cfoutput>` / `</cfoutput>` and scans `#expr#`
+// interpolations inside opening CF tag attributes (skipping `<cfset>`, `<cfif>`,
+// `<cfelseif>`, `<cfreturn>` which are already scanned as expressions).
+func scanCFTagForScope(text string, pos, baseOffset int, cfoutputDepth *int, a *funcScopeAnalysis) (int, bool) {
+	j := pos + 1
+	closing := false
+
+	if j < len(text) && text[j] == '/' {
+		closing = true
+		j++
+	}
+
+	if j+2 > len(text) || !strings.EqualFold(text[j:j+2], "cf") {
+		return pos, false
+	}
+
+	nameStart := j
+	for j < len(text) && (isIdentChar(text[j]) || (text[j] >= 'A' && text[j] <= 'Z') || text[j] == '_') {
+		j++
+	}
+
+	tagName := strings.ToLower(text[nameStart:j])
+	end := findTagCloseOffset(text, j)
+
+	if closing {
+		if tagName == "cfoutput" && *cfoutputDepth > 0 {
+			*cfoutputDepth--
+		}
+
+		return end, true
+	}
+
+	selfClosing := end >= 2 && text[end-2] == '/'
+	if tagName == "cfoutput" && !selfClosing {
+		*cfoutputDepth++
+	}
+
+	if tagName != "cfset" && tagName != "cfif" && tagName != "cfelseif" && tagName != "cfreturn" && end > j {
+		attrEnd := end
+		if text[end-1] == '>' {
+			attrEnd--
+		}
+
+		attrText := text[j:attrEnd]
+		if strings.ContainsRune(attrText, '#') {
+			scanHashExprsInRange(attrText, baseOffset+j, a)
+		}
+	}
+
+	return end, true
+}
+
+func findTagCloseOffset(text string, start int) int {
+	var quote byte
+
+	for i := start; i < len(text); i++ {
+		c := text[i]
+		if quote != 0 {
+			if c == quote {
+				quote = 0
+			}
+
+			continue
+		}
+
+		if c == '"' || c == '\'' {
+			quote = c
+
+			continue
+		}
+
+		if c == '>' {
+			return i + 1
+		}
+	}
+
+	return len(text)
+}
+
+func scanHashExprsInRange(text string, baseOffset int, a *funcScopeAnalysis) {
+	for i := 0; i < len(text); {
+		if text[i] != '#' {
+			i++
+
+			continue
+		}
+
+		if i+1 < len(text) && text[i+1] == '#' {
+			i += 2
+
+			continue
+		}
+
+		end := skipHashExprInString(text, i+1)
+		if end <= i+1 || text[end-1] != '#' {
+			return
+		}
+
+		expr := text[i+1 : end-1]
+		if strings.TrimSpace(expr) != "" {
+			scanScriptBodyScope(expr, baseOffset+i+1, a)
+		}
+
+		i = end
+	}
+}
+
+// queryLoopSpans returns the body byte ranges [openEnd, closeStart) of every
+// `<cfloop query="...">...</cfloop>` and `<cfoutput query="...">...</cfoutput>`
+// in src. Inside these spans, unscoped identifiers resolve to query columns and
+// should not trigger IMPLICIT_SCOPE.
+func queryLoopSpans(src string) [][2]int {
+	if parser.IndexFold(src, "query") < 0 {
+		return nil
+	}
+
+	type frame struct {
+		openEnd int
+		isQuery bool
+	}
+
+	var (
+		loopStack []frame
+		outStack  []frame
+		spans     [][2]int
+	)
+
+	for _, tag := range parser.CFTags(src, "cfloop", "cfoutput") {
+		stack := &loopStack
+		if tag.Name == "cfoutput" {
+			stack = &outStack
+		}
+
+		if tag.Close {
+			if n := len(*stack); n > 0 {
+				top := (*stack)[n-1]
+				*stack = (*stack)[:n-1]
+
+				if top.isQuery && tag.Start > top.openEnd {
+					spans = append(spans, [2]int{top.openEnd, tag.Start})
+				}
+			}
+
+			continue
+		}
+
+		if strings.HasSuffix(strings.TrimSpace(tag.Text()), "/>") {
+			continue
+		}
+
+		_, hasQuery := tag.Attr("query")
+		*stack = append(*stack, frame{openEnd: tag.End, isQuery: hasQuery})
+	}
+
+	return spans
+}
+
+func offsetInAnyRange(off int, ranges [][2]int) bool {
+	for _, r := range ranges {
+		if off >= r[0] && off < r[1] {
+			return true
+		}
+	}
+
+	return false
+}
+
 // collectComponentVars collects declared component properties (`property foo;`,
-// `property name="foo";`, `<cfproperty name="foo">`) and `variables.<name>`
-// references across script blocks and `<cfset>` tags so component fields are
-// not flagged as IMPLICIT_SCOPE (matching ImplicitScopeChecker).
+// `property name="foo";`, `<cfproperty name="foo">`), pseudo-constructor
+// variables in `.cfc` files, and `variables.<name>` references across script
+// blocks and `<cfset>` tags so component fields are not flagged as
+// IMPLICIT_SCOPE (matching ImplicitScopeChecker).
 func collectComponentVars(fc *FileContext) map[string]bool {
 	vars := map[string]bool{}
 	src := fc.Text()
+
+	if strings.EqualFold(filepath.Ext(fc.Path), ".cfc") {
+		for _, name := range fc.ParseResult().VariablesVars() {
+			vars[strings.ToLower(name)] = true
+		}
+	}
 
 	for _, tag := range parser.CFTags(src, "cfproperty") {
 		if !tag.Close {
@@ -1100,8 +1595,8 @@ func collectComponentVars(fc *FileContext) map[string]bool {
 		}
 	}
 
-	for _, tag := range parser.CFTags(src, "cfset") {
-		if tag.Close {
+	for _, tag := range parser.CFTags(src, "cfset", "cfif", "cfelseif", "cfreturn") {
+		if tag.Close || tag.Name != "cfset" {
 			continue
 		}
 

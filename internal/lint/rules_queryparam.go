@@ -95,6 +95,13 @@ func checkCFQueryParamReq(fc *FileContext) []cflint.Issue {
 
 	for _, tag := range parser.CFTags(src, "cfquery") {
 		if !tag.Close {
+			// Match QueryParamChecker: skip Query-of-Queries (`dbtype="query"`).
+			if dbtype, ok := tag.Attr("dbtype"); ok && strings.EqualFold(strings.TrimSpace(dbtype), "query") {
+				openEnd = -1
+
+				continue
+			}
+
 			openEnd = tag.End
 
 			continue

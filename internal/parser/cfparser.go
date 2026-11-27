@@ -176,7 +176,8 @@ func skipFunctionAttrs(sc *Scanner, value func(name, v Token)) {
 	for sc.PeekSkipComments().Kind == TokIdent {
 		name := sc.NextSkipComments()
 
-		if k := sc.PeekSkipComments().Kind; k != TokEquals && k != TokColon {
+		k := sc.PeekSkipComments().Kind
+		if k != TokEquals && k != TokColon {
 			continue
 		}
 
@@ -188,6 +189,18 @@ func skipFunctionAttrs(sc *Scanner, value func(name, v Token)) {
 		}
 
 		sc.NextSkipComments()
+
+		// Namespaced metadata attribute with value: `my:role="support:admin"`.
+		if k == TokColon && v.Kind == TokIdent && sc.PeekSkipComments().Kind == TokEquals {
+			sc.NextSkipComments() // consume `=`
+
+			rhs := sc.PeekSkipComments()
+			if rhs.Kind == TokString || rhs.Kind == TokIdent || rhs.Kind == TokNumber {
+				sc.NextSkipComments()
+
+				v = rhs
+			}
+		}
 
 		switch {
 		case value != nil:

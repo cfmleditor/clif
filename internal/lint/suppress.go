@@ -39,9 +39,14 @@ func ParseSuppressions(content string) *LineSuppressions {
 			s.addLine(lineNum, codes)
 		}
 
-		// 2. Single-line `@CFLintIgnore CODE1,CODE2` applies to this line and
-		// the next non-blank line.
+		// 2. Single-line `@CFLintIgnore CODE1,CODE2` or `<!--- CFLINT-DISABLE CODE1, CODE2 --->`
+		// applies to this line and the next non-blank line.
 		if codes := parseTagIgnore(line); len(codes) > 0 {
+			s.addLine(lineNum, codes)
+			s.addNextNonBlank(lines, i+1, codes)
+		}
+
+		if codes := parseCFLintDisable(line); len(codes) > 0 {
 			s.addLine(lineNum, codes)
 			s.addNextNonBlank(lines, i+1, codes)
 		}
@@ -239,6 +244,35 @@ func parseTagIgnore(line string) []string {
 
 		i = at + 1
 	}
+}
+
+// parseCFLintDisable parses `<!--- CFLINT-DISABLE [CODE1, CODE2] --->`
+// matching CFLint's CFLINT_DISABLE_PATTERN. An empty code list disables all
+// rules ("LINE") on the following element.
+func parseCFLintDisable(line string) []string {
+	_, rest, ok := strings.Cut(strings.ToUpper(line), "CFLINT-DISABLE")
+	if !ok {
+		return nil
+	}
+
+	if before, _, found := strings.Cut(rest, "---"); found {
+		rest = before
+	}
+
+	rest = strings.TrimSpace(rest)
+	if rest == "" {
+		return []string{"LINE"}
+	}
+
+	var out []string
+
+	for part := range strings.SplitSeq(rest, ",") {
+		if code := strings.TrimSpace(part); code != "" {
+			out = append(out, code)
+		}
+	}
+
+	return out
 }
 
 func parseLineIgnore(line string) []string {
