@@ -160,6 +160,18 @@ func TestRuleParityFixes(t *testing.T) {
 			t.Errorf("MISSING_VAR on declared component field = %v, want 0", got)
 		}
 
+		// Parameter with trailing hint="..." metadata still extracts the real parameter name for ARG_VAR_MIXED.
+		paramHint := "component {\n\tpublic void function load(required string beanPath hint=\"Folder path\") {\n\t\tlocal.x = local.beanPath;\n\t}\n}\n"
+		if got := runNativeRule(t, "factory.cfc", "ARG_VAR_MIXED", paramHint); len(got) != 1 {
+			t.Errorf("ARG_VAR_MIXED with param hint attribute = %v, want 1", got)
+		}
+
+		// Top-level .cfm template IMPLICIT_SCOPE flags unscoped reads not established in the file.
+		cfmSrc := `<cfset localVal = 1><cfoutput>#localVal# #externalVal#</cfoutput>`
+		if got := runNativeRule(t, "view.cfm", "IMPLICIT_SCOPE", cfmSrc); len(got) != 1 {
+			t.Errorf("IMPLICIT_SCOPE in .cfm template = %v, want 1", got)
+		}
+
 		// Built-in scopes cfthread and file should not trigger IMPLICIT_SCOPE.
 		if got := runNativeRule(t, "svc.cfc", "IMPLICIT_SCOPE", "component {\n\tfunction f() {\n\t\treturn structKeyExists(cfthread, 't1') && structKeyExists(file, 'name');\n\t}\n}\n"); len(got) != 0 {
 			t.Errorf("IMPLICIT_SCOPE on cfthread/file scopes = %v, want 0", got)

@@ -3,6 +3,7 @@ package lint
 import (
 	"cmp"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -254,19 +255,20 @@ func collectScriptParamNames(paramsText string, dst map[string]bool) {
 	flush := func() {
 		var head []parser.Token
 
+		hasEq := false
+
 		for _, t := range toks {
 			if t.Kind == parser.TokEquals {
+				hasEq = true
+
 				break
 			}
 
 			head = append(head, t)
 		}
 
-		if len(head) > 0 {
-			last := head[len(head)-1]
-			if last.Kind == parser.TokIdent {
-				dst[strings.ToLower(last.Value)] = true
-			}
+		if name := extractScriptParamName(head, hasEq); name != "" {
+			dst[strings.ToLower(name)] = true
 		}
 
 		toks = toks[:0]
@@ -294,6 +296,45 @@ func collectScriptParamNames(paramsText string, dst map[string]bool) {
 	}
 
 	flush()
+}
+
+// extractScriptParamName extracts the parameter name from the tokens before `=`
+// in a script parameter declaration, handling optional `required`, dotted types
+// (`models.User u`), and trailing metadata attributes (`string beanPath hint="..."`).
+func extractScriptParamName(head []parser.Token, hasEq bool) string {
+	if len(head) > 0 && head[0].Kind == parser.TokIdent && strings.EqualFold(head[0].Value, "required") {
+		head = head[1:]
+	}
+
+	if len(head) == 0 {
+		return ""
+	}
+
+	// Skip an optional dotted type `ident(.ident)*` when followed by at least
+	// one more identifier (the parameter name).
+	idx := 0
+
+	if head[0].Kind == parser.TokIdent {
+		typeEnd := 1
+		for typeEnd+1 < len(head) && head[typeEnd].Kind == parser.TokDot && head[typeEnd+1].Kind == parser.TokIdent {
+			typeEnd += 2
+		}
+
+		if typeEnd < len(head) && head[typeEnd].Kind == parser.TokIdent {
+			// Distinguish `[type, paramName, ...]` from untyped `[paramName, hint]`
+			// followed by `="..."`.
+			isUntypedHint := typeEnd == 1 && len(head) == 2 && hasEq && strings.EqualFold(head[1].Value, "hint")
+			if !isUntypedHint {
+				idx = typeEnd
+			}
+		}
+	}
+
+	if idx < len(head) && head[idx].Kind == parser.TokIdent {
+		return head[idx].Value
+	}
+
+	return ""
 }
 
 type parenFrame struct {
@@ -1017,6 +1058,10 @@ func checkArgVarMixed(fc *FileContext) []cflint.Issue {
 func checkImplicitScope(fc *FileContext) []cflint.Issue {
 	compVars := collectComponentVars(fc)
 
+	if strings.EqualFold(filepath.Ext(fc.Path), ".cfm") {
+		return checkCFMImplicitScope(fc, compVars)
+	}
+
 	var out []cflint.Issue
 
 	for _, a := range fc.functionScopes() {
@@ -1047,6 +1092,134 @@ func checkImplicitScope(fc *FileContext) []cflint.Issue {
 	}
 
 	return out
+}
+
+// checkCFMImplicitScope matches ImplicitScopeChecker's file-wide mode for .cfm
+// templates: scans script blocks, expression tags, and #...# interpolations in
+// the template and flags single-identifier reads never established in the file.
+func checkCFMImplicitScope(fc *FileContext, compVars map[string]bool) []cflint.Issue {
+	src := fc.Text()
+	a := &funcScopeAnalysis{
+		params:      make(map[string]bool),
+		vars:        make(map[string]int),
+		localAssign: make(map[string]bool),
+		catchVars:   make(map[string]bool),
+		argScoped:   make(map[string]bool),
+	}
+
+	// Collect tag-bound variables (<cfparam name>, <cfquery name>, <cfloop index/item>, etc.).
+	for _, tag := range parser.CFTags(src, "cfparam", "cfloop", "cfquery", "cfhttp", "cffile", "cfsavecontent", "cfdirectory", "cfprocresult", "cfstoredproc", "cfinvoke", "cfwddx", "cfxml") {
+		if tag.Close {
+			continue
+		}
+
+		if strings.EqualFold(tag.Name, "cfparam") {
+			if name, ok := tag.Attr("name"); ok {
+				recordOutputVarName(name, tag.Start, a)
+			}
+
+			continue
+		}
+
+		for attr := range scriptTagOutputAttrs[strings.ToLower(tag.Name)] {
+			if val, ok := tag.Attr(attr); ok {
+				recordOutputVarName(val, tag.Start, a)
+			}
+		}
+	}
+
+	for _, r := range fc.Regions() {
+		if r.Kind == parser.RegionScript {
+			scanScriptBodyScope(r.Text, r.Offset, a)
+
+			continue
+		}
+
+		// Scan expression tags (<cfset>, <cfif>, <cfelseif>, <cfreturn>).
+		for _, tag := range parser.CFTags(r.Text, "cfset", "cfif", "cfelseif", "cfreturn") {
+			if tag.Close {
+				continue
+			}
+
+			txt := tag.Text()
+			if len(txt) <= len(tag.Name)+2 {
+				continue
+			}
+
+			innerStart := len(tag.Name) + 1
+			scanScriptBodyScope(txt[innerStart:len(txt)-1], r.Offset+tag.Start+innerStart, a)
+		}
+
+		// Scan `#expr#` interpolations in tag markup and attributes.
+		scanTagHashesForScope(r.Text, r.Offset, a)
+	}
+
+	slices.SortStableFunc(a.implicitReads, func(x, y identUse) int { return cmp.Compare(x.offset, y.offset) })
+
+	written := make(map[string]bool, len(a.bareWrites))
+	for _, w := range a.bareWrites {
+		written[strings.ToLower(w.name)] = true
+	}
+
+	var out []cflint.Issue
+
+	reported := map[string]bool{}
+
+	for _, u := range a.implicitReads {
+		low := strings.ToLower(u.name)
+		if reported[low] || a.params[low] || a.localAssign[low] || a.catchVars[low] || compVars[low] || written[low] {
+			continue
+		}
+
+		if _, hasVar := a.vars[low]; hasVar {
+			continue
+		}
+
+		reported[low] = true
+
+		msg := fmt.Sprintf("Variable %s is not explicitly scoped.", u.name)
+		out = append(out, fc.IssueAt(u.offset, msg, u.name))
+	}
+
+	return out
+}
+
+func scanTagHashesForScope(text string, baseOffset int, a *funcScopeAnalysis) {
+	if !strings.ContainsRune(text, '#') {
+		return
+	}
+
+	for i := 0; i < len(text); {
+		if strings.HasPrefix(text[i:], "<!---") {
+			i = parser.SkipCFMLComment(text, i)
+
+			continue
+		}
+
+		if text[i] != '#' {
+			i++
+
+			continue
+		}
+
+		if i+1 < len(text) && text[i+1] == '#' {
+			i += 2
+
+			continue
+		}
+
+		end := skipHashExprInString(text, i+1)
+		if end <= i+1 || text[end-1] != '#' {
+			return
+		}
+
+		expr := text[i+1 : end-1]
+		if strings.TrimSpace(expr) != "" {
+			scanScriptBodyScope(expr, baseOffset+i+1, a)
+		}
+
+		i = end
+	}
 }
 
 // collectComponentVars collects declared component properties (`property foo;`,
