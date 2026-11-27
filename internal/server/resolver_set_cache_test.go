@@ -177,3 +177,24 @@ func TestSavingAnUnrelatedFileBuildsNoResolver(t *testing.T) {
 		t.Error("saving a README built the resolver")
 	}
 }
+
+// TestAWatchedUnrelatedFileBuildsNoResolver is TestSavingAnUnrelatedFileBuilds
+// NoResolver for the watcher's door: a batch for a file that is no source
+// asked whether discovery read it by building the resolver.
+func TestAWatchedUnrelatedFileBuildsNoResolver(t *testing.T) {
+	root := t.TempDir()
+
+	s := newTestServer()
+	s.FS = vfs.OS{}
+	s.WorkspaceFolders = []string{root}
+	s.Features.WatchedFiles = true
+
+	s.applyWatchedFileChanges([]protocol.FileEvent{
+		{URI: cfpath.ToURI(root + "/README.md"), Type: protocol.FileChangeTypeChanged},
+		{URI: cfpath.ToURI(root + "/node_modules/pkg/package.json"), Type: protocol.FileChangeTypeChanged},
+	})
+
+	if s.resolver != nil || s.resolversBuilt {
+		t.Error("a watched batch of unrelated files built the resolver")
+	}
+}

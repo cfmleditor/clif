@@ -138,8 +138,10 @@ func (r *Resolver) DiscoveryReadsFile(file string) bool {
 	// What discovery reads that is not CFML it probes by exact path: the
 	// JSON configs up the directory chain and plugin/config.xml. Its walks of
 	// a project read .cfc files, which are sources (DiscoveryAffected). A
-	// managed bean root is configuration, so anything under it counts.
-	return r.Discovery.reads(file) || confine.Within(file, slices.Collect(maps.Values(r.managedBeanPaths())))
+	// managed bean root is no exception: what a bean root holds that bean
+	// discovery reads is .cfc, so a file that is no source under one is read
+	// by nothing, and it does not count.
+	return r.Discovery.reads(file)
 }
 
 // InvalidatePaths drops source/path caches while retaining immutable discovery

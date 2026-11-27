@@ -219,7 +219,10 @@ const (
 // a file that is no source, one it read itself or listed the directory of
 // (DiscoveryReadsFile), so that a JSON file nothing read does not count.
 func (s *Server) discoveryReads(path string) bool {
-	r := s.getResolver()
+	r := s.discoveryResolver()
+	if r == nil {
+		return false
+	}
 
 	if cfpath.IsCFMLFile(path) {
 		return r.DiscoveryAffected(path)
