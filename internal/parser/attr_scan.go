@@ -63,6 +63,10 @@ func (a *attrScanner) next() (tagAttr, bool) {
 		c := s[a.i]
 
 		switch {
+		case c == '<' && a.mode == cfAttrs && strings.HasPrefix(s[a.i:], "<!---"):
+			a.i = SkipCFMLComment(s, a.i)
+
+			continue
 		case c == '>':
 			a.i = len(s)
 
