@@ -81,6 +81,12 @@ func registerTagRules(reg *Registry) {
 }
 
 func checkBannedTag(fc *FileContext, tagName string) []cflint.Issue {
+	// AVOID_USING_CFINCLUDE_TAG applies to .cfc components only (.cfm templates
+	// legitimately use <cfinclude> for partials and layouts).
+	if tagName == "cfinclude" && !strings.EqualFold(filepath.Ext(fc.Path), ".cfc") {
+		return nil
+	}
+
 	src := fc.Text()
 	if parser.IndexFold(src, tagName) < 0 {
 		return nil

@@ -338,4 +338,20 @@ func TestRuleParityClosureAndTagFixes(t *testing.T) {
 	if got := runNativeRule(t, "svc.cfc", "ARG_TYPE_MISSING", cfargInlineComment); len(got) != 0 {
 		t.Errorf("ARG_TYPE_MISSING on <cfargument> with inline comment = %v, want 0", got)
 	}
+
+	// AVOID_USING_CFINCLUDE_TAG applies to .cfc files only, not .cfm templates.
+	if got := runNativeRule(t, "view.cfm", "AVOID_USING_CFINCLUDE_TAG", `<cfinclude template="partial.cfm">`); len(got) != 0 {
+		t.Errorf("AVOID_USING_CFINCLUDE_TAG on .cfm = %v, want 0", got)
+	}
+
+	if got := runNativeRule(t, "svc.cfc", "AVOID_USING_CFINCLUDE_TAG", `<cfcomponent><cfinclude template="mixin.cfm"></cfcomponent>`); len(got) != 1 {
+		t.Errorf("AVOID_USING_CFINCLUDE_TAG on .cfc = %v, want 1", got)
+	}
+
+	// AVOID_USING_CREATEOBJECT flags createObject("component", ...) and 1-arg
+	// shorthand createObject("models.User"), but not createObject("java", ...).
+	createObjSrc := "component {\n\tfunction f() {\n\t\tvar a = createObject('component', 'models.User');\n\t\tvar b = createObject('models.User');\n\t\tvar c = createObject('java', 'java.lang.String');\n\t}\n}\n"
+	if got := runNativeRule(t, "svc.cfc", "AVOID_USING_CREATEOBJECT", createObjSrc); len(got) != 2 {
+		t.Errorf("AVOID_USING_CREATEOBJECT on component/shorthand/java = %v, want 2", got)
+	}
 }
