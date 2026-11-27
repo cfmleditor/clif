@@ -198,8 +198,10 @@ func analyzeFunctionScope(content string, span *parser.FunctionSpan) *funcScopeA
 			}
 		}
 
-		for _, tag := range parser.CFTags(body, "cfset") {
-			if tag.Close {
+		// Include cfif/cfelseif/cfreturn so CFTags advances past their quoted
+		// string literals (e.g. regexes containing `"<cfset..."`).
+		for _, tag := range parser.CFTags(body, "cfset", "cfif", "cfelseif", "cfreturn") {
+			if tag.Close || tag.Name != "cfset" {
 				continue
 			}
 
@@ -1173,9 +1175,10 @@ func checkArgVarMixed(fc *FileContext) []cflint.Issue {
 
 func checkImplicitScope(fc *FileContext) []cflint.Issue {
 	compVars := collectComponentVars(fc)
+	qSpans := queryLoopSpans(fc.Text())
 
 	if strings.EqualFold(filepath.Ext(fc.Path), ".cfm") {
-		return checkCFMImplicitScope(fc, compVars)
+		return checkCFMImplicitScope(fc, compVars, qSpans)
 	}
 
 	var out []cflint.Issue
@@ -1192,7 +1195,7 @@ func checkImplicitScope(fc *FileContext) []cflint.Issue {
 
 		for _, u := range a.implicitReads {
 			low := strings.ToLower(u.name)
-			if reported[low] || a.params[low] || a.localAssign[low] || a.catchVars[low] || compVars[low] || written[low] {
+			if reported[low] || a.params[low] || a.localAssign[low] || a.catchVars[low] || compVars[low] || written[low] || offsetInAnyRange(u.offset, qSpans) {
 				continue
 			}
 
@@ -1213,7 +1216,7 @@ func checkImplicitScope(fc *FileContext) []cflint.Issue {
 // checkCFMImplicitScope matches ImplicitScopeChecker's file-wide mode for .cfm
 // templates: scans script blocks, expression tags, and #...# interpolations in
 // the template and flags single-identifier reads never established in the file.
-func checkCFMImplicitScope(fc *FileContext, compVars map[string]bool) []cflint.Issue {
+func checkCFMImplicitScope(fc *FileContext, compVars map[string]bool, qSpans [][2]int) []cflint.Issue {
 	src := fc.Text()
 	a := &funcScopeAnalysis{
 		params:      make(map[string]bool),
@@ -1244,9 +1247,6 @@ func checkCFMImplicitScope(fc *FileContext, compVars map[string]bool) []cflint.I
 			}
 		}
 	}
-
-	// Collect `returnVariable="..."` bindings from custom tags (`<prefix:tag ...>` / `<cf_tag ...>`).
-	collectCustomTagReturnVars(src, a)
 
 	cfoutputDepth := 0
 
@@ -1290,7 +1290,7 @@ func checkCFMImplicitScope(fc *FileContext, compVars map[string]bool) []cflint.I
 
 	for _, u := range a.implicitReads {
 		low := strings.ToLower(u.name)
-		if reported[low] || a.params[low] || a.localAssign[low] || a.catchVars[low] || compVars[low] || written[low] {
+		if reported[low] || a.params[low] || a.localAssign[low] || a.catchVars[low] || compVars[low] || written[low] || offsetInAnyRange(u.offset, qSpans) {
 			continue
 		}
 
@@ -1457,52 +1457,80 @@ func scanHashExprsInRange(text string, baseOffset int, a *funcScopeAnalysis) {
 	}
 }
 
-// collectCustomTagReturnVars extracts `returnVariable="name"` bindings from
-// custom tags (`<ns:tag ...>` or `<cf_tag ...>`) so variables populated by
-// custom tags are recognized as established in `.cfm` templates.
-func collectCustomTagReturnVars(src string, a *funcScopeAnalysis) {
-	if parser.IndexFold(src, "returnvariable") < 0 {
-		return
+// queryLoopSpans returns the body byte ranges [openEnd, closeStart) of every
+// `<cfloop query="...">...</cfloop>` and `<cfoutput query="...">...</cfoutput>`
+// in src. Inside these spans, unscoped identifiers resolve to query columns and
+// should not trigger IMPLICIT_SCOPE.
+func queryLoopSpans(src string) [][2]int {
+	if parser.IndexFold(src, "query") < 0 {
+		return nil
 	}
 
-	pos := 0
-	for {
-		rel := parser.IndexFold(src[pos:], "returnvariable")
-		if rel < 0 {
-			return
+	type frame struct {
+		openEnd int
+		isQuery bool
+	}
+
+	var (
+		loopStack []frame
+		outStack  []frame
+		spans     [][2]int
+	)
+
+	for _, tag := range parser.CFTags(src, "cfloop", "cfoutput") {
+		stack := &loopStack
+		if tag.Name == "cfoutput" {
+			stack = &outStack
 		}
 
-		idx := pos + rel
-		pos = idx + len("returnvariable")
+		if tag.Close {
+			if n := len(*stack); n > 0 {
+				top := (*stack)[n-1]
+				*stack = (*stack)[:n-1]
 
-		if idx > 0 && isIdentChar(src[idx-1]) {
+				if top.isQuery && tag.Start > top.openEnd {
+					spans = append(spans, [2]int{top.openEnd, tag.Start})
+				}
+			}
+
 			continue
 		}
 
-		rest := strings.TrimLeft(src[pos:], " \t\r\n")
-		if !strings.HasPrefix(rest, "=") {
+		if strings.HasSuffix(strings.TrimSpace(tag.Text()), "/>") {
 			continue
 		}
 
-		rest = strings.TrimLeft(rest[1:], " \t\r\n")
-		if len(rest) < 2 || (rest[0] != '"' && rest[0] != '\'') {
-			continue
-		}
+		_, hasQuery := tag.Attr("query")
+		*stack = append(*stack, frame{openEnd: tag.End, isQuery: hasQuery})
+	}
 
-		q := rest[0]
-		if end := strings.IndexByte(rest[1:], q); end > 0 {
-			recordOutputVarName(rest[1:1+end], idx, a)
+	return spans
+}
+
+func offsetInAnyRange(off int, ranges [][2]int) bool {
+	for _, r := range ranges {
+		if off >= r[0] && off < r[1] {
+			return true
 		}
 	}
+
+	return false
 }
 
 // collectComponentVars collects declared component properties (`property foo;`,
-// `property name="foo";`, `<cfproperty name="foo">`) and `variables.<name>`
-// references across script blocks and `<cfset>` tags so component fields are
-// not flagged as IMPLICIT_SCOPE (matching ImplicitScopeChecker).
+// `property name="foo";`, `<cfproperty name="foo">`), pseudo-constructor
+// variables in `.cfc` files, and `variables.<name>` references across script
+// blocks and `<cfset>` tags so component fields are not flagged as
+// IMPLICIT_SCOPE (matching ImplicitScopeChecker).
 func collectComponentVars(fc *FileContext) map[string]bool {
 	vars := map[string]bool{}
 	src := fc.Text()
+
+	if strings.EqualFold(filepath.Ext(fc.Path), ".cfc") {
+		for _, name := range fc.ParseResult().VariablesVars() {
+			vars[strings.ToLower(name)] = true
+		}
+	}
 
 	for _, tag := range parser.CFTags(src, "cfproperty") {
 		if !tag.Close {
@@ -1550,8 +1578,8 @@ func collectComponentVars(fc *FileContext) map[string]bool {
 		}
 	}
 
-	for _, tag := range parser.CFTags(src, "cfset") {
-		if tag.Close {
+	for _, tag := range parser.CFTags(src, "cfset", "cfif", "cfelseif", "cfreturn") {
+		if tag.Close || tag.Name != "cfset" {
 			continue
 		}
 

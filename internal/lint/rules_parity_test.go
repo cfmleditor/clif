@@ -292,10 +292,36 @@ func TestRuleParityClosureAndTagFixes(t *testing.T) {
 		t.Errorf("ARG_VAR_CONFLICT on cfset call with inline comment = %v, want 0", got)
 	}
 
-	// Named UDF params in `.cfm <cfscript>` and custom-tag `returnVariable`
-	// should not trigger IMPLICIT_SCOPE.
-	cfmUDFAndCustom := "<ns:lock returnVariable=\"isLocked\"></ns:lock><cfif isLocked><cfscript>function sortIt(any a, any k){ return a; }</cfscript></cfif>\n"
-	if got := runNativeRule(t, "page.cfm", "IMPLICIT_SCOPE", cfmUDFAndCustom); len(got) != 0 {
-		t.Errorf("IMPLICIT_SCOPE on .cfm UDF params / custom-tag returnVariable = %v, want 0", got)
+	// Named UDF params in `.cfm <cfscript>` should not trigger IMPLICIT_SCOPE,
+	// while custom-tag `returnVariable` still lands unscoped in VARIABLES.
+	cfmUDF := "<cfscript>function sortIt(any a, any k){ return a; }</cfscript>\n"
+	if got := runNativeRule(t, "page.cfm", "IMPLICIT_SCOPE", cfmUDF); len(got) != 0 {
+		t.Errorf("IMPLICIT_SCOPE on .cfm UDF params = %v, want 0", got)
+	}
+
+	cfmCustomTag := "<ns:lock returnVariable=\"isLocked\"></ns:lock><cfif isLocked></cfif>\n"
+	if got := runNativeRule(t, "page.cfm", "IMPLICIT_SCOPE", cfmCustomTag); len(got) != 1 {
+		t.Errorf("IMPLICIT_SCOPE on custom-tag returnVariable = %v, want 1", got)
+	}
+
+	// Unscoped column names inside `<cfloop query="q">` and `<cfoutput query="q">`
+	// resolve to the current row and must not trigger IMPLICIT_SCOPE.
+	queryLoopSrc := "<cfset q = queryNew(\"a\",\"varchar\")>\n<cfloop query=\"q\"><cfoutput>#a#</cfoutput></cfloop>\n<cfoutput query=\"q\">#a#</cfoutput>\n"
+	if got := runNativeRule(t, "q.cfm", "IMPLICIT_SCOPE", queryLoopSrc); len(got) != 0 {
+		t.Errorf("IMPLICIT_SCOPE inside query loops = %v, want 0", got)
+	}
+
+	// A `<cfset` inside a regex string literal in `<cfif REFindNoCase("<cfset...", ...)>`
+	// must not be misparsed as a `<cfset>` tag and trigger IMPLICIT_SCOPE.
+	regexCFSet := "<cffunction name=\"t\">\n\t<cfset var file = {source: ''} />\n\t<cfif REFindNoCase(\"<cfset\\s+popupurl\\s*=[^>\r\n]*=##[A-Za-z_]+##\", file.source) GT 0></cfif>\n</cffunction>\n"
+	if got := runNativeRule(t, "regex.cfc", "IMPLICIT_SCOPE", regexCFSet); len(got) != 0 {
+		t.Errorf("IMPLICIT_SCOPE on <cfset inside <cfif> regex string = %v, want 0", got)
+	}
+
+	// Pseudo-constructor `<cfset _doc = ArrayNew(1) />` outside any function in a
+	// `.cfc` establishes a VARIABLES field and should not trigger IMPLICIT_SCOPE.
+	pseudoCtor := "<cfcomponent>\n\t<cfset _doc = ArrayNew(1) />\n\t<cffunction name=\"get\">\n\t\t<cfreturn _doc />\n\t</cffunction>\n</cfcomponent>\n"
+	if got := runNativeRule(t, "doc.cfc", "IMPLICIT_SCOPE", pseudoCtor); len(got) != 0 {
+		t.Errorf("IMPLICIT_SCOPE on pseudo-constructor field = %v, want 0", got)
 	}
 }
