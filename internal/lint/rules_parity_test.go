@@ -200,3 +200,31 @@ func TestRuleParityFixes(t *testing.T) {
 		}
 	})
 }
+
+func TestRuleParityClosureAndTagFixes(t *testing.T) {
+	t.Parallel()
+
+	// UTF-8 BOM-only files should still trigger AVOID_EMPTY_FILES.
+	if got := runNativeRule(t, "empty.cfm", "AVOID_EMPTY_FILES", "\uFEFF"); len(got) != 1 {
+		t.Errorf("AVOID_EMPTY_FILES on UTF-8 BOM-only file = %v, want 1", got)
+	}
+
+	// CFScript tag-as-statement (`application action="update" mappings=...;`)
+	// should not treat tag attributes as MISSING_VAR or ARG_VAR_CONFLICT.
+	appTagSrc := "component {\n\tfunction addMappings(required struct mappings) {\n\t\tapplication action=\"update\" customTagPaths=\"/x\" mappings=arguments.mappings;\n\t}\n}\n"
+	if got := runNativeRule(t, "helper.cfc", "MISSING_VAR", appTagSrc); len(got) != 0 {
+		t.Errorf("MISSING_VAR on script application tag = %v, want 0", got)
+	}
+
+	if got := runNativeRule(t, "helper.cfc", "ARG_VAR_CONFLICT", appTagSrc); len(got) != 0 {
+		t.Errorf("ARG_VAR_CONFLICT on script application tag = %v, want 0", got)
+	}
+
+	// Outer function arguments captured inside closures (anonymous function,
+	// block arrow, or expression arrow) must be referenced unscoped in CFML
+	// and should not trigger ARG_VAR_MIXED.
+	closureCaptureSrc := "component {\n\tfunction run(required array items, string prefix = '', boolean sensitive = false) {\n\t\targuments.items.filter(function(k) {\n\t\t\treturn sensitive && len(prefix);\n\t\t});\n\t\targuments.items.each((k) => {\n\t\t\twriteOutput(prefix & k);\n\t\t});\n\t\treturn arguments.items.map(k => prefix & k);\n\t}\n}\n"
+	if got := runNativeRule(t, "closure.cfc", "ARG_VAR_MIXED", closureCaptureSrc); len(got) != 0 {
+		t.Errorf("ARG_VAR_MIXED on outer arg captured in closure = %v, want 0", got)
+	}
+}

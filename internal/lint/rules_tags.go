@@ -199,7 +199,8 @@ func checkFileStartsLowercase(fc *FileContext) []cflint.Issue {
 }
 
 func checkEmptyFile(fc *FileContext) []cflint.Issue {
-	if strings.TrimSpace(fc.Text()) == "" {
+	src := strings.TrimPrefix(fc.Text(), "\uFEFF")
+	if strings.TrimSpace(src) == "" {
 		return []cflint.Issue{fc.IssueAt(0, "File is empty.", filepath.Base(fc.Path))}
 	}
 

@@ -338,30 +338,61 @@ func extractScriptParamName(head []parser.Token, hasEq bool) string {
 }
 
 type parenFrame struct {
-	isFor    bool
-	callName string // lowercased callee name when this `(` is a call arg list
+	isFor           bool
+	isClosureParams bool
+	callName        string // lowercased callee name when this `(` is a call arg list
 }
+
+type braceKind uint8
+
+const (
+	braceBlock braceKind = iota
+	braceStruct
+	braceClosure
+)
 
 var controlParenKeywords = map[string]bool{
 	"if": true, "elseif": true, "while": true, "switch": true, "catch": true, "for": true, "function": true,
 }
 
 var scriptTagStmtKeywords = map[string]bool{
-	"lock": true, "transaction": true, "param": true, "savecontent": true,
+	"application": true, "lock": true, "transaction": true, "param": true, "savecontent": true,
 	"setting": true, "mail": true, "http": true, "query": true, "storedproc": true,
 	"wddx": true, "file": true, "directory": true, "thread": true, "cookie": true,
 	"header": true, "content": true, "location": true, "log": true, "trace": true,
 	"cache": true, "document": true, "pdf": true, "zip": true, "ftp": true,
+	"schedule": true, "htmlhead": true, "htmlbody": true, "processingdirective": true,
+	"flush": true, "exit": true, "abort": true, "throw": true, "invoke": true,
+	"module": true, "execute": true, "dbinfo": true, "ldap": true, "imap": true,
+	"pop": true, "feed": true, "image": true, "spreadsheet": true, "xml": true,
+	"objectcache": true, "silent": true, "timer": true, "login": true,
+	"loginuser": true, "logout": true, "registry": true, "index": true,
+	"collection": true, "search": true, "exchange": true, "chart": true,
+	"report": true, "print": true, "presentation": true, "sharepoint": true,
 }
 
 func scanScriptBodyScope(text string, baseOffset int, a *funcScopeAnalysis) {
+	scanScriptBodyScopeDepth(text, baseOffset, a, 0)
+}
+
+func scanScriptBodyScopeDepth(text string, baseOffset int, a *funcScopeAnalysis, initClosureDepth int) {
 	toks := scanCFMLScriptTokens(text)
 
 	var (
-		braceKinds  []bool // true = struct literal brace, false = block brace
-		parens      []parenFrame
-		tagStmtName string // non-empty inside `lock type="exclusive" name="..." {`
+		braceKinds          []braceKind
+		parens              []parenFrame
+		tagStmtName         string // non-empty inside `lock type="exclusive" name="..." {`
+		closureDepth        = initClosureDepth
+		pendingClosureBrace bool
+		arrowExprParenDepth []int
 	)
+
+	popArrowExprs := func(maxParenDepth int) {
+		for len(arrowExprParenDepth) > 0 && arrowExprParenDepth[len(arrowExprParenDepth)-1] >= maxParenDepth {
+			arrowExprParenDepth = arrowExprParenDepth[:len(arrowExprParenDepth)-1]
+			closureDepth--
+		}
+	}
 
 	for i, cur := range toks {
 		var prev2, prev, next parser.Token
@@ -381,82 +412,143 @@ func scanScriptBodyScope(text string, baseOffset int, a *funcScopeAnalysis) {
 		case parser.TokSemicolon:
 			if len(parens) == 0 {
 				tagStmtName = ""
+				pendingClosureBrace = false
+
+				popArrowExprs(0)
+			}
+		case parser.TokComma:
+			popArrowExprs(len(parens))
+		case parser.TokEquals:
+			// Arrow operator `=>` starts either a block closure (`=> { ... }`) or
+			// an expression-bodied closure (`=> expr`).
+			if next.Kind == parser.TokGT && next.Offset == cur.Offset+1 {
+				if tokAt(toks, i+2).Kind == parser.TokLBrace {
+					pendingClosureBrace = true
+				} else {
+					arrowExprParenDepth = append(arrowExprParenDepth, len(parens))
+					closureDepth++
+				}
 			}
 		case parser.TokLBrace:
 			tagStmtName = ""
-			isStruct := prev.Kind == parser.TokEquals || prev.Kind == parser.TokLParen ||
-				prev.Kind == parser.TokComma || prev.Kind == parser.TokLBracket ||
-				prev.Kind == parser.TokColon || prev.Kind == parser.TokQuestion ||
-				(prev.Kind == parser.TokIdent && strings.EqualFold(prev.Value, "return"))
-			braceKinds = append(braceKinds, isStruct)
+
+			kind := classifyScriptLBrace(prev, pendingClosureBrace)
+			if kind == braceClosure {
+				pendingClosureBrace = false
+				closureDepth++
+			}
+
+			braceKinds = append(braceKinds, kind)
 		case parser.TokRBrace:
 			if len(braceKinds) > 0 {
+				if braceKinds[len(braceKinds)-1] == braceClosure && closureDepth > initClosureDepth {
+					closureDepth--
+				}
+
 				braceKinds = braceKinds[:len(braceKinds)-1]
 			}
 		case parser.TokLParen:
-			f := parenFrame{}
-
-			switch {
-			case isArrowParamList(toks, i):
-				// Arrow closure `( a, b ) => ...`: record its parameter names.
-				collectClosureParamNames(toks, i, a.catchVars)
-			case prev.Kind == parser.TokRBracket || prev.Kind == parser.TokRParen:
-				// Dynamic call `this["fn"]( arg = val )` or `getFn()( arg = val )`.
-				f.callName = "<call>"
-			case prev.Kind == parser.TokIdent:
-				lowPrev := strings.ToLower(prev.Value)
-				switch {
-				case lowPrev == "for":
-					f.isFor = true
-				case lowPrev == "catch":
-					// `catch (e)`, `catch (any e)`, `catch ("Custom.Type" e)`, `catch (any var e)`:
-					// record the last identifier inside `(...)` as the catch variable.
-					collectCatchVarName(toks, i, a.catchVars)
-				case lowPrev == "function":
-					// Anonymous closure `function( key, value ) { ... }`: record
-					// its parameter names so references inside the closure are
-					// not flagged as IMPLICIT_SCOPE or MISSING_VAR.
-					collectClosureParamNames(toks, i, a.catchVars)
-				case !controlParenKeywords[lowPrev]:
-					f.callName = lowPrev
-				}
-			}
-
-			parens = append(parens, f)
+			parens = append(parens, classifyScriptLParen(toks, i, prev, a))
 		case parser.TokRParen:
 			if len(parens) > 0 {
+				top := parens[len(parens)-1]
 				parens = parens[:len(parens)-1]
+
+				if top.isClosureParams {
+					pendingClosureBrace = true
+				}
+
+				popArrowExprs(len(parens) + 1)
 			}
 		case parser.TokString:
 			// Scan `#expr#` interpolations inside script string literals
 			// (e.g. `"hello #event.getCurrentEvent()#"`).
 			forEachStringHashExpr(cur, func(expr string, relOff int) {
-				scanScriptBodyScope(expr, baseOffset+cur.Offset+relOff, a)
+				scanScriptBodyScopeDepth(expr, baseOffset+cur.Offset+relOff, a, closureDepth)
 			})
 		case parser.TokIdent:
-			// Detect script-tag statement header: `lock type="..." name="..." {`.
-			if len(parens) == 0 && tagStmtName == "" && prev.Kind != parser.TokDot && next.Kind == parser.TokIdent {
-				if low := strings.ToLower(cur.Value); scriptTagStmtKeywords[low] {
-					tagStmtName = "cf" + low
-
-					continue
-				}
+			if handleScriptIdentToken(toks, i, baseOffset, prev2, prev, cur, next, braceKinds, parens, &tagStmtName, closureDepth > 0, a) {
+				continue
 			}
-
-			inStructLit := len(braceKinds) > 0 && braceKinds[len(braceKinds)-1]
-
-			var topParen parenFrame
-			if len(parens) > 0 {
-				topParen = parens[len(parens)-1]
-			}
-
-			recordScriptIdent(toks, i, baseOffset, prev2, prev, cur, next, inStructLit, topParen, tagStmtName, a)
 		default:
 		}
 	}
 }
 
-func recordScriptIdent(toks []parser.Token, idx, baseOffset int, prev2, prev, cur, next parser.Token, inStructLit bool, topParen parenFrame, tagStmtName string, a *funcScopeAnalysis) {
+func handleScriptIdentToken(toks []parser.Token, idx, baseOffset int, prev2, prev, cur, next parser.Token, braceKinds []braceKind, parens []parenFrame, tagStmtName *string, inClosure bool, a *funcScopeAnalysis) bool {
+	// Single-parameter arrow closure `item => ...`.
+	if next.Kind == parser.TokEquals && tokAt(toks, idx+2).Kind == parser.TokGT && tokAt(toks, idx+2).Offset == next.Offset+1 {
+		a.catchVars[strings.ToLower(cur.Value)] = true
+
+		return true
+	}
+
+	// Detect script-tag statement header: `lock type="..." name="..." {` or
+	// `application action="update" ...;`.
+	if len(parens) == 0 && *tagStmtName == "" && prev.Kind != parser.TokDot &&
+		next.Kind == parser.TokIdent && tokAt(toks, idx+2).Kind == parser.TokEquals {
+		if low := strings.ToLower(cur.Value); scriptTagStmtKeywords[low] {
+			*tagStmtName = "cf" + low
+
+			return true
+		}
+	}
+
+	inStructLit := len(braceKinds) > 0 && braceKinds[len(braceKinds)-1] == braceStruct
+
+	var topParen parenFrame
+	if len(parens) > 0 {
+		topParen = parens[len(parens)-1]
+	}
+
+	recordScriptIdent(toks, idx, baseOffset, prev2, prev, cur, next, inStructLit, inClosure, topParen, *tagStmtName, a)
+
+	return false
+}
+
+func classifyScriptLBrace(prev parser.Token, pendingClosureBrace bool) braceKind {
+	if pendingClosureBrace {
+		return braceClosure
+	}
+
+	if prev.Kind == parser.TokEquals || prev.Kind == parser.TokLParen ||
+		prev.Kind == parser.TokComma || prev.Kind == parser.TokLBracket ||
+		prev.Kind == parser.TokColon || prev.Kind == parser.TokQuestion ||
+		(prev.Kind == parser.TokIdent && strings.EqualFold(prev.Value, "return")) {
+		return braceStruct
+	}
+
+	return braceBlock
+}
+
+func classifyScriptLParen(toks []parser.Token, lpIdx int, prev parser.Token, a *funcScopeAnalysis) parenFrame {
+	f := parenFrame{}
+
+	switch {
+	case isArrowParamList(toks, lpIdx):
+		collectClosureParamNames(toks, lpIdx, a.catchVars)
+	case prev.Kind == parser.TokRBracket || prev.Kind == parser.TokRParen:
+		f.callName = "<call>"
+	case prev.Kind == parser.TokIdent:
+		lowPrev := strings.ToLower(prev.Value)
+		switch {
+		case lowPrev == "for":
+			f.isFor = true
+		case lowPrev == "catch":
+			collectCatchVarName(toks, lpIdx, a.catchVars)
+		case lowPrev == "function":
+			collectClosureParamNames(toks, lpIdx, a.catchVars)
+
+			f.isClosureParams = true
+		case !controlParenKeywords[lowPrev]:
+			f.callName = lowPrev
+		}
+	}
+
+	return f
+}
+
+func recordScriptIdent(toks []parser.Token, idx, baseOffset int, prev2, prev, cur, next parser.Token, inStructLit, inClosure bool, topParen parenFrame, tagStmtName string, a *funcScopeAnalysis) {
 	low := strings.ToLower(cur.Value)
 
 	if recordScopedMemberIdent(toks, idx, baseOffset, prev2, prev, cur, next, a) {
@@ -546,7 +638,12 @@ func recordScriptIdent(toks []parser.Token, idx, baseOffset int, prev2, prev, cu
 		return
 	}
 
-	a.bareReads = append(a.bareReads, identUse{name: cur.Value, offset: baseOffset + cur.Offset})
+	// Inside an inner closure, `arguments` refers to the closure's own arguments,
+	// so referencing an enclosing function's parameter unscoped is required by
+	// CFML lexical capture and is not ARG_VAR_MIXED.
+	if !inClosure {
+		a.bareReads = append(a.bareReads, identUse{name: cur.Value, offset: baseOffset + cur.Offset})
+	}
 
 	// Matching ImplicitScopeChecker: only single-identifier reads (not dotted
 	// object/member chains like `persist.getThing(...)` or `_objInit.valLeft(...)`)
