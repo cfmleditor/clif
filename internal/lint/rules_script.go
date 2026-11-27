@@ -155,12 +155,17 @@ func scanScriptTextForCall(fc *FileContext, text string, baseOffset int, fnName,
 			isDecl := prev.Kind == parser.TokIdent && strings.EqualFold(prev.Value, "function")
 
 			if !isMember && !isDecl {
-				// Matching CreateObjectChecker: only flag createObject("component", ...),
-				// not createObject("java", ...).
+				// Flag createObject("component", ...) and 1-argument shorthand
+				// createObject("path.to.Comp"), but not non-component types
+				// such as createObject("java", ...).
 				if strings.EqualFold(fnName, "createObject") {
 					arg := sc.NextSkipComments()
-					if arg.Kind == parser.TokString && len(arg.Value) >= 2 &&
-						strings.EqualFold(arg.Value[1:len(arg.Value)-1], "component") {
+					afterArg := sc.PeekSkipComments()
+					isComponent := arg.Kind == parser.TokString && len(arg.Value) >= 2 &&
+						strings.EqualFold(strings.TrimSpace(arg.Value[1:len(arg.Value)-1]), "component")
+					isShorthand := arg.Kind != parser.TokRParen && arg.Kind != parser.TokEOF && afterArg.Kind == parser.TokRParen
+
+					if isComponent || isShorthand {
 						out = append(out, fc.IssueAt(baseOffset+cur.Offset, msg, cur.Value))
 					}
 
