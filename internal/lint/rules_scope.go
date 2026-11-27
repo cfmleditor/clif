@@ -62,15 +62,23 @@ var cfmlKeywords = map[string]bool{
 }
 
 type funcScopeAnalysis struct {
+	funcName        string
 	localModeModern bool
 	params          map[string]bool
 	vars            map[string]int // lowercased name -> first var decl offset
 	localAssign     map[string]bool
 	catchVars       map[string]bool
 	bareWrites      []identUse
-	bareReads       []identUse
+	bareReads       []identUse // all unscoped reads (used by ARG_VAR_MIXED)
+	implicitReads   []identUse // single-identifier reads without `.member` (used by IMPLICIT_SCOPE)
 	localOrVarReads []identUse // non-assignment `local.<name>` / `variables.<name>` reads for ARG_VAR_MIXED
 	argScoped       map[string]bool
+}
+
+var queryLoopProperties = map[string]bool{
+	"currentrow":  true,
+	"recordcount": true,
+	"columnlist":  true,
 }
 
 type identUse struct {
@@ -132,6 +140,7 @@ func isIdentChar(b byte) bool {
 
 func analyzeFunctionScope(content string, span *parser.FunctionSpan) *funcScopeAnalysis {
 	a := &funcScopeAnalysis{
+		funcName:        span.Name,
 		localModeModern: span.Start >= 0 && span.Body > span.Start && hasModernLocalMode(content[span.Start:span.Body]),
 		params:          make(map[string]bool),
 		vars:            make(map[string]int),
@@ -203,6 +212,7 @@ func analyzeFunctionScope(content string, span *parser.FunctionSpan) *funcScopeA
 
 	slices.SortStableFunc(a.bareWrites, func(x, y identUse) int { return cmp.Compare(x.offset, y.offset) })
 	slices.SortStableFunc(a.bareReads, func(x, y identUse) int { return cmp.Compare(x.offset, y.offset) })
+	slices.SortStableFunc(a.implicitReads, func(x, y identUse) int { return cmp.Compare(x.offset, y.offset) })
 	slices.SortStableFunc(a.localOrVarReads, func(x, y identUse) int { return cmp.Compare(x.offset, y.offset) })
 
 	return a
@@ -303,12 +313,7 @@ var scriptTagStmtKeywords = map[string]bool{
 }
 
 func scanScriptBodyScope(text string, baseOffset int, a *funcScopeAnalysis) {
-	sc := parser.NewSourceScanner(text)
-
-	var toks []parser.Token
-	for t := sc.NextSkipComments(); t.Kind != parser.TokEOF; t = sc.NextSkipComments() {
-		toks = append(toks, t)
-	}
+	toks := scanCFMLScriptTokens(text)
 
 	var (
 		braceKinds  []bool // true = struct literal brace, false = block brace
@@ -416,9 +421,14 @@ func recordScriptIdent(toks []parser.Token, idx, baseOffset int, prev2, prev, cu
 		return
 	}
 
-	// Skip member accesses (`.foo`), function calls (`foo(`), struct keys (`foo:`),
-	// `new pkg.Component(...)`, and keywords/scopes.
+	// Skip member accesses (`.foo`), numeric struct key continuations (`.1.title`),
+	// function calls (`foo(`), struct keys (`foo:`), `new pkg.Component(...)`,
+	// and keywords/scopes.
 	if prev.Kind == parser.TokDot || next.Kind == parser.TokLParen || next.Kind == parser.TokColon {
+		return
+	}
+
+	if prev.Kind == parser.TokNumber && strings.HasSuffix(prev.Value, ".") {
 		return
 	}
 
@@ -495,6 +505,13 @@ func recordScriptIdent(toks []parser.Token, idx, baseOffset int, prev2, prev, cu
 	}
 
 	a.bareReads = append(a.bareReads, identUse{name: cur.Value, offset: baseOffset + cur.Offset})
+
+	// Matching ImplicitScopeChecker: only single-identifier reads (not dotted
+	// object/member chains like `persist.getThing(...)` or `_objInit.valLeft(...)`)
+	// and non-query-loop properties are candidates for IMPLICIT_SCOPE.
+	if next.Kind != parser.TokDot && !queryLoopProperties[low] {
+		a.implicitReads = append(a.implicitReads, identUse{name: cur.Value, offset: baseOffset + cur.Offset})
+	}
 }
 
 func recordScopedMemberIdent(toks []parser.Token, idx, baseOffset int, prev2, prev, cur, next parser.Token, a *funcScopeAnalysis) bool {
@@ -537,9 +554,154 @@ func tokAt(toks []parser.Token, i int) parser.Token {
 	return toks[i]
 }
 
+// scanCFMLScriptTokens tokenizes CFScript/CFML expressions while properly
+// keeping CFML string literals with nested quotes inside `#...#` interpolations
+// (e.g. `"#result[i]["item#j#_desc"]#"`) as single TokString tokens.
+func scanCFMLScriptTokens(text string) []parser.Token {
+	if !strings.ContainsRune(text, '#') {
+		sc := parser.NewSourceScanner(text)
+
+		var toks []parser.Token
+		for t := sc.NextSkipComments(); t.Kind != parser.TokEOF; t = sc.NextSkipComments() {
+			toks = append(toks, t)
+		}
+
+		return toks
+	}
+
+	var toks []parser.Token
+
+	pos := 0
+	for pos < len(text) {
+		// Find next quote or comment start; scan non-string segments with SourceScanner.
+		qIdx := findNextQuoteOrComment(text, pos)
+		if qIdx < 0 {
+			toks = appendScannerTokens(toks, text[pos:], pos)
+
+			break
+		}
+
+		if qIdx > pos {
+			toks = appendScannerTokens(toks, text[pos:qIdx], pos)
+		}
+
+		if strings.HasPrefix(text[qIdx:], "//") {
+			if nl := strings.IndexByte(text[qIdx:], '\n'); nl >= 0 {
+				pos = qIdx + nl + 1
+			} else {
+				break
+			}
+
+			continue
+		}
+
+		if strings.HasPrefix(text[qIdx:], "/*") {
+			if end := strings.Index(text[qIdx+2:], "*/"); end >= 0 {
+				pos = qIdx + 2 + end + 2
+			} else {
+				break
+			}
+
+			continue
+		}
+
+		end := readCFMLStringEnd(text, qIdx)
+		toks = append(toks, parser.Token{
+			Kind:   parser.TokString,
+			Value:  text[qIdx:end],
+			Offset: qIdx,
+		})
+		pos = end
+	}
+
+	return toks
+}
+
+func appendScannerTokens(dst []parser.Token, segment string, baseOffset int) []parser.Token {
+	sc := parser.NewSourceScanner(segment)
+	for t := sc.NextSkipComments(); t.Kind != parser.TokEOF; t = sc.NextSkipComments() {
+		t.Offset += baseOffset
+		dst = append(dst, t)
+	}
+
+	return dst
+}
+
+func findNextQuoteOrComment(s string, start int) int {
+	for i := start; i < len(s); i++ {
+		switch s[i] {
+		case '"', '\'':
+			return i
+		case '/':
+			if i+1 < len(s) && (s[i+1] == '/' || s[i+1] == '*') {
+				return i
+			}
+		}
+	}
+
+	return -1
+}
+
+// readCFMLStringEnd returns the byte offset just past the closing quote of the
+// CFML string literal starting at start, handling doubled-quote escapes and
+// nested hash expressions that may contain inner quotes.
+func readCFMLStringEnd(s string, start int) int {
+	quote := s[start]
+	i := start + 1
+
+	for i < len(s) {
+		c := s[i]
+		if c == quote {
+			if i+1 < len(s) && s[i+1] == quote {
+				i += 2
+
+				continue
+			}
+
+			return i + 1
+		}
+
+		if c == '#' {
+			if i+1 < len(s) && s[i+1] == '#' {
+				i += 2
+
+				continue
+			}
+
+			i = skipHashExprInString(s, i+1)
+
+			continue
+		}
+
+		i++
+	}
+
+	return len(s)
+}
+
+func skipHashExprInString(s string, start int) int {
+	i := start
+	for i < len(s) {
+		c := s[i]
+		if c == '#' {
+			return i + 1
+		}
+
+		if c == '"' || c == '\'' {
+			i = readCFMLStringEnd(s, i)
+
+			continue
+		}
+
+		i++
+	}
+
+	return len(s)
+}
+
 // forEachStringHashExpr invokes fn for each unescaped `#expr#` interpolation
 // inside a CFML string literal token, passing the expression text and its byte
-// offset relative to tok.Offset.
+// offset relative to tok.Offset while respecting nested quotes inside `#...#`.
 func forEachStringHashExpr(tok parser.Token, fn func(expr string, relOff int)) {
 	val := tok.Value
 	if len(val) < 4 || !strings.ContainsRune(val, '#') {
@@ -563,17 +725,17 @@ func forEachStringHashExpr(tok parser.Token, fn func(expr string, relOff int)) {
 			continue
 		}
 
-		closeRel := strings.IndexByte(inner[i+1:], '#')
-		if closeRel < 0 {
+		end := skipHashExprInString(inner, i+1)
+		if end <= i+1 || inner[end-1] != '#' {
 			return
 		}
 
-		expr := inner[i+1 : i+1+closeRel]
+		expr := inner[i+1 : end-1]
 		if strings.TrimSpace(expr) != "" {
 			fn(expr, 1+i+1)
 		}
 
-		i += closeRel + 2
+		i = end
 	}
 }
 
@@ -694,7 +856,7 @@ func isAssignLHS(toks []parser.Token, idx int) bool {
 				return false
 			}
 
-			if toks[j+1].Kind == parser.TokIdent {
+			if toks[j+1].Kind == parser.TokIdent || toks[j+1].Kind == parser.TokNumber {
 				j += 2
 
 				continue
@@ -754,6 +916,15 @@ func checkMissingVar(fc *FileContext) []cflint.Issue {
 	}, "Variable %s is not declared with a var statement.")
 }
 
+func issueInFunc(fc *FileContext, offset int, msg, variable, funcName string) cflint.Issue {
+	iss := fc.IssueAt(offset, msg, variable)
+	if len(iss.Locations) > 0 {
+		iss.Locations[0].Function = funcName
+	}
+
+	return iss
+}
+
 func checkUnscopedUses(fc *FileContext, pick func(*funcScopeAnalysis) []identUse, msgFmt string) []cflint.Issue {
 	var out []cflint.Issue
 
@@ -773,7 +944,7 @@ func checkUnscopedUses(fc *FileContext, pick func(*funcScopeAnalysis) []identUse
 			reported[low] = true
 
 			msg := fmt.Sprintf(msgFmt, u.name)
-			out = append(out, fc.IssueAt(u.offset, msg, u.name))
+			out = append(out, issueInFunc(fc, u.offset, msg, u.name, a.funcName))
 		}
 	}
 
@@ -790,7 +961,7 @@ func checkArgVarConflict(fc *FileContext) []cflint.Issue {
 			if a.params[name] {
 				reported[name] = true
 				msg := fmt.Sprintf("Variable %s conflicts with function argument of the same name.", name)
-				out = append(out, fc.IssueAt(off, msg, name))
+				out = append(out, issueInFunc(fc, off, msg, name, a.funcName))
 			}
 		}
 
@@ -804,7 +975,7 @@ func checkArgVarConflict(fc *FileContext) []cflint.Issue {
 
 			reported[low] = true
 			msg := fmt.Sprintf("Variable %s conflicts with function argument of the same name.", w.name)
-			out = append(out, fc.IssueAt(w.offset, msg, w.name))
+			out = append(out, issueInFunc(fc, w.offset, msg, w.name, a.funcName))
 		}
 	}
 
@@ -833,7 +1004,7 @@ func checkArgVarMixed(fc *FileContext) []cflint.Issue {
 			reported[low] = true
 
 			msg := fmt.Sprintf("Variable %s should not be referenced in local and argument scope.", r.name)
-			out = append(out, fc.IssueAt(r.offset, msg, r.name))
+			out = append(out, issueInFunc(fc, r.offset, msg, r.name, a.funcName))
 		}
 	}
 
@@ -848,9 +1019,16 @@ func checkImplicitScope(fc *FileContext) []cflint.Issue {
 	for _, a := range fc.functionScopes() {
 		reported := map[string]bool{}
 
-		for _, u := range a.bareReads {
+		// Matching ImplicitScopeChecker: bare writes establish variables/local
+		// scope so subsequent bare reads of the same name are not implicit-scope.
+		written := make(map[string]bool, len(a.bareWrites))
+		for _, w := range a.bareWrites {
+			written[strings.ToLower(w.name)] = true
+		}
+
+		for _, u := range a.implicitReads {
 			low := strings.ToLower(u.name)
-			if reported[low] || a.params[low] || a.localAssign[low] || a.catchVars[low] || compVars[low] {
+			if reported[low] || a.params[low] || a.localAssign[low] || a.catchVars[low] || compVars[low] || written[low] {
 				continue
 			}
 
@@ -861,7 +1039,7 @@ func checkImplicitScope(fc *FileContext) []cflint.Issue {
 			reported[low] = true
 
 			msg := fmt.Sprintf("Variable %s is not explicitly scoped.", u.name)
-			out = append(out, fc.IssueAt(u.offset, msg, u.name))
+			out = append(out, issueInFunc(fc, u.offset, msg, u.name, a.funcName))
 		}
 	}
 
@@ -869,9 +1047,9 @@ func checkImplicitScope(fc *FileContext) []cflint.Issue {
 }
 
 // collectComponentVars collects declared component properties (`property foo;`,
-// `property name="foo";`, `<cfproperty name="foo">`) and `variables.<name> = ...`
-// assignments so references to declared component fields are not flagged as
-// IMPLICIT_SCOPE.
+// `property name="foo";`, `<cfproperty name="foo">`) and `variables.<name>`
+// references across script blocks and `<cfset>` tags so component fields are
+// not flagged as IMPLICIT_SCOPE (matching ImplicitScopeChecker).
 func collectComponentVars(fc *FileContext) map[string]bool {
 	vars := map[string]bool{}
 	src := fc.Text()
@@ -884,12 +1062,8 @@ func collectComponentVars(fc *FileContext) map[string]bool {
 		}
 	}
 
-	for _, r := range fc.Regions() {
-		if r.Kind != parser.RegionScript {
-			continue
-		}
-
-		sc := parser.NewSourceScanner(r.Text)
+	scanVarsInText := func(text string) {
+		sc := parser.NewSourceScanner(text)
 
 		var prev2, prev parser.Token
 
@@ -897,10 +1071,9 @@ func collectComponentVars(fc *FileContext) map[string]bool {
 		for cur.Kind != parser.TokEOF {
 			next := sc.NextSkipComments()
 
-			// `variables.<name> = ...`
+			// `variables.<name>` (matches ImplicitScopeChecker.variableScopedVariables)
 			if cur.Kind == parser.TokIdent && prev.Kind == parser.TokDot &&
-				prev2.Kind == parser.TokIdent && strings.EqualFold(prev2.Value, "variables") &&
-				next.Kind == parser.TokEquals {
+				prev2.Kind == parser.TokIdent && strings.EqualFold(prev2.Value, "variables") {
 				vars[strings.ToLower(cur.Value)] = true
 			}
 
@@ -919,6 +1092,25 @@ func collectComponentVars(fc *FileContext) map[string]bool {
 			prev = cur
 			cur = next
 		}
+	}
+
+	for _, r := range fc.Regions() {
+		if r.Kind == parser.RegionScript {
+			scanVarsInText(r.Text)
+		}
+	}
+
+	for _, tag := range parser.CFTags(src, "cfset") {
+		if tag.Close {
+			continue
+		}
+
+		txt := tag.Text()
+		if len(txt) <= len(tag.Name)+2 {
+			continue
+		}
+
+		scanVarsInText(txt[len(tag.Name)+1 : len(txt)-1])
 	}
 
 	return vars

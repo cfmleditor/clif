@@ -77,6 +77,15 @@ func (n *NativeRunner) Lint(ctx context.Context, files []string) (*cflint.Run, e
 	return n.LintContent(ctx, sources)
 }
 
+// isLintableExt reports whether filePath has a CFML template/component
+// extension (.cfm or .cfc). Non-CFML files such as .cfs (search index files)
+// are skipped, matching CFLint.
+func isLintableExt(filePath string) bool {
+	ext := strings.ToLower(filepath.Ext(filePath))
+
+	return ext == ".cfm" || ext == ".cfc"
+}
+
 // LintContent runs native rules over in-memory sources in parallel across
 // available CPU cores, returning deterministically sorted findings.
 func (n *NativeRunner) LintContent(ctx context.Context, sources []cflint.Source) (*cflint.Run, error) {
@@ -117,6 +126,9 @@ func (n *NativeRunner) LintContent(ctx context.Context, sources []cflint.Source)
 				}
 
 				src := sources[idx]
+				if !isLintableExt(src.Path) {
+					continue
+				}
 
 				rc, err := rcCache.forFile(src.Path)
 				if err != nil {

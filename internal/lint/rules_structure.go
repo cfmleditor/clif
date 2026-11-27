@@ -81,7 +81,14 @@ func checkParseError(fc *FileContext) []cflint.Issue {
 
 	walk = func(n *sitter.Node) {
 		if n.IsError() || n.IsMissing() {
-			out = append(out, fc.IssueAt(int(n.StartByte()), "Unable to parse CFML syntax.", ""))
+			// ColdFusion accepts a closing </cfsetting> tag even though it is
+			// self-closing in the grammar; skip that false positive.
+			start, end := int(n.StartByte()), int(n.EndByte())
+			if start >= 0 && end <= len(fc.Content) && strings.EqualFold(strings.TrimSpace(string(fc.Content[start:end])), "</cfsetting>") {
+				return
+			}
+
+			out = append(out, fc.IssueAt(start, "Unable to parse CFML syntax.", ""))
 
 			return
 		}
@@ -112,18 +119,24 @@ func checkOutputAttr(fc *FileContext) []cflint.Issue {
 
 	var out []cflint.Issue
 
-	for _, tag := range parser.CFTags(src, "cffunction") {
-		if tag.Close {
+	for _, r := range fc.Regions() {
+		if r.Kind == parser.RegionScript || parser.IndexFold(r.Text, "<cffunction") < 0 {
 			continue
 		}
 
-		if _, ok := tag.Attr("output"); !ok {
-			name, _ := tag.Attr("name")
-			if name == "" {
-				name = tag.Name
+		for _, tag := range parser.CFTags(r.Text, "cffunction") {
+			if tag.Close {
+				continue
 			}
 
-			out = append(out, fc.IssueAt(tag.Start, fmt.Sprintf("<%s> is missing the output attribute.", tag.Name), name))
+			if _, ok := tag.Attr("output"); !ok {
+				name, _ := tag.Attr("name")
+				if name == "" {
+					name = tag.Name
+				}
+
+				out = append(out, fc.IssueAt(r.Offset+tag.Start, fmt.Sprintf("<%s> is missing the output attribute.", tag.Name), name))
+			}
 		}
 	}
 
@@ -136,10 +149,25 @@ func checkNestedCFOutput(fc *FileContext) []cflint.Issue {
 		return nil
 	}
 
+	type cfoutputFrame struct {
+		hasGroup bool
+		hasQuery bool
+	}
+
 	var (
-		stack []bool // true if that <cfoutput> has a `group` attribute
+		stack []cfoutputFrame
 		out   []cflint.Issue
 	)
+
+	anyHasQuery := func() bool {
+		for _, f := range stack {
+			if f.hasQuery {
+				return true
+			}
+		}
+
+		return false
+	}
 
 	for _, tag := range parser.CFTags(src, "cfoutput") {
 		if tag.Close {
@@ -151,12 +179,17 @@ func checkNestedCFOutput(fc *FileContext) []cflint.Issue {
 		}
 
 		_, hasGroup := tag.Attr("group")
-		if len(stack) > 0 && !stack[len(stack)-1] && !hasGroup {
+		_, hasQuery := tag.Attr("query")
+
+		// Matching CFLint's NestedCFOutput: only flag when the immediate parent
+		// <cfoutput> has no `group` attribute AND some enclosing <cfoutput> has
+		// a `query` attribute. Plain <cfoutput><cfoutput> nesting is valid CFML.
+		if len(stack) > 0 && !stack[len(stack)-1].hasGroup && anyHasQuery() {
 			out = append(out, fc.IssueAt(tag.Start, "Nested <cfoutput> without group attribute.", "cfoutput"))
 		}
 
 		if !strings.HasSuffix(strings.TrimSpace(tag.Text()), "/>") {
-			stack = append(stack, hasGroup)
+			stack = append(stack, cfoutputFrame{hasGroup: hasGroup, hasQuery: hasQuery})
 		}
 	}
 
@@ -473,60 +506,6 @@ func scanCompareInsteadOfAssign(fc *FileContext, text string, baseOffset int) []
 	depth := 0
 	stmtStart := 0
 
-	checkStmt := func(stmt []parser.Token) {
-		if len(stmt) < 3 {
-			return
-		}
-
-		if stmt[0].Kind == parser.TokIdent && isControlOrDeclKeyword(stmt[0].Value) {
-			return
-		}
-
-		d := 0
-		cmpOff := -1
-
-		for i := range stmt {
-			t := stmt[i]
-			switch t.Kind {
-			case parser.TokLParen, parser.TokLBracket, parser.TokLBrace:
-				d++
-			case parser.TokRParen, parser.TokRBracket, parser.TokRBrace:
-				d--
-			case parser.TokEquals:
-				if d != 0 {
-					continue
-				}
-
-				var prev, next parser.Token
-				if i > 0 {
-					prev = stmt[i-1]
-				}
-
-				if i+1 < len(stmt) {
-					next = stmt[i+1]
-				}
-
-				if isStandaloneEquals(prev, t, next) {
-					// Real assignment statement (e.g. `b1 = x == y;`).
-					return
-				}
-
-				if next.Kind == parser.TokEquals && next.Offset == t.Offset+1 && cmpOff < 0 {
-					cmpOff = t.Offset
-				}
-			case parser.TokIdent:
-				if d == 0 && strings.EqualFold(t.Value, "eq") && cmpOff < 0 {
-					cmpOff = t.Offset
-				}
-			default:
-			}
-		}
-
-		if cmpOff >= 0 {
-			out = append(out, fc.IssueAt(baseOffset+cmpOff, "Comparison operator used instead of assignment.", "=="))
-		}
-	}
-
 	for i, t := range toks {
 		switch t.Kind {
 		case parser.TokLParen, parser.TokLBracket:
@@ -537,16 +516,79 @@ func scanCompareInsteadOfAssign(fc *FileContext, text string, baseOffset int) []
 			}
 		case parser.TokSemicolon, parser.TokLBrace, parser.TokRBrace:
 			if depth == 0 {
-				checkStmt(toks[stmtStart:i])
+				if cmpOff := compareInsteadOfAssignOffset(toks[stmtStart:i]); cmpOff >= 0 {
+					out = append(out, fc.IssueAt(baseOffset+cmpOff, "Comparison operator used instead of assignment.", "=="))
+				}
+
 				stmtStart = i + 1
 			}
 		default:
 		}
 	}
 
-	checkStmt(toks[stmtStart:])
+	if cmpOff := compareInsteadOfAssignOffset(toks[stmtStart:]); cmpOff >= 0 {
+		out = append(out, fc.IssueAt(baseOffset+cmpOff, "Comparison operator used instead of assignment.", "=="))
+	}
 
 	return out
+}
+
+func compareInsteadOfAssignOffset(stmt []parser.Token) int {
+	if len(stmt) < 3 {
+		return -1
+	}
+
+	if stmt[0].Kind == parser.TokIdent && isControlOrDeclKeyword(stmt[0].Value) {
+		return -1
+	}
+
+	d := 0
+	cmpOff := -1
+
+	for i := range stmt {
+		t := stmt[i]
+		switch t.Kind {
+		case parser.TokLParen, parser.TokLBracket, parser.TokLBrace:
+			d++
+		case parser.TokRParen, parser.TokRBracket, parser.TokRBrace:
+			d--
+		case parser.TokEquals:
+			if d != 0 {
+				continue
+			}
+
+			var prev, next parser.Token
+			if i > 0 {
+				prev = stmt[i-1]
+			}
+
+			if i+1 < len(stmt) {
+				next = stmt[i+1]
+			}
+
+			if isStandaloneEquals(prev, t, next) {
+				// Real assignment statement (e.g. `b1 = x == y;`).
+				return -1
+			}
+
+			if next.Kind == parser.TokEquals && next.Offset == t.Offset+1 && cmpOff < 0 {
+				cmpOff = t.Offset
+			}
+		case parser.TokColon, parser.TokQuestion:
+			if d == 0 {
+				// Struct literal key-value entry (`"key" : x == 1 ? a : b`)
+				// or ternary expression — not a standalone comparison statement.
+				return -1
+			}
+		case parser.TokIdent:
+			if d == 0 && strings.EqualFold(t.Value, "eq") && cmpOff < 0 {
+				cmpOff = t.Offset
+			}
+		default:
+		}
+	}
+
+	return cmpOff
 }
 
 func isControlOrDeclKeyword(s string) bool {

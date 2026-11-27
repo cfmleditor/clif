@@ -55,12 +55,90 @@ func ParseSuppressions(content string) *LineSuppressions {
 
 func (s *LineSuppressions) addNextNonBlank(lines []string, startIdx int, codes []string) {
 	for next := startIdx; next < len(lines); next++ {
-		if strings.TrimSpace(lines[next]) != "" {
-			s.addLine(next+1, codes)
+		trimmed := strings.TrimSpace(lines[next])
+		if trimmed == "" {
+			continue
+		}
 
-			return
+		s.addLine(next+1, codes)
+		s.extendOverMultilineTag(lines, next, trimmed, codes)
+
+		return
+	}
+}
+
+// extendOverMultilineTag extends a suppression placed directly above a
+// multi-line opening tag (e.g. multi-line <cfif>, <cfset>, <cfloop>) to cover
+// all lines of that tag's header, and for <cfquery> covers its SQL body up to
+// </cfquery>. It intentionally does NOT extend over container blocks like
+// <cffunction>, <cftry>, or <cfcomponent>.
+func (s *LineSuppressions) extendOverMultilineTag(lines []string, startIdx int, trimmed string, codes []string) {
+	if !strings.HasPrefix(trimmed, "<") || strings.HasPrefix(trimmed, "</") || strings.HasPrefix(trimmed, "<!") {
+		return
+	}
+
+	low := strings.ToLower(trimmed)
+
+	// 1. Cover all lines of a multi-line opening tag `<cf... \n ... >`.
+	endTagIdx := findTagCloseLine(lines, startIdx)
+	for l := startIdx + 1; l <= endTagIdx; l++ {
+		s.addLine(l+1, codes)
+	}
+
+	// 2. For `<cfquery>`, cover the whole query body through `</cfquery>`.
+	if strings.HasPrefix(low, "<cfquery") && (len(low) == 8 || !isTagNameChar(low[8])) {
+		for l := startIdx; l < len(lines); l++ {
+			s.addLine(l+1, codes)
+
+			if strings.Contains(strings.ToLower(lines[l]), "</cfquery>") {
+				return
+			}
 		}
 	}
+}
+
+func isTagNameChar(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= '0' && b <= '9') || b == '_' || b == '-'
+}
+
+// findTagCloseLine returns the 0-based line index where the opening tag
+// starting on lines[startIdx] closes with `>` outside quotes.
+func findTagCloseLine(lines []string, startIdx int) int {
+	var quote byte
+
+	for l := startIdx; l < len(lines); l++ {
+		line := lines[l]
+		startCol := 0
+
+		if l == startIdx {
+			if lt := strings.IndexByte(line, '<'); lt >= 0 {
+				startCol = lt + 1
+			}
+		}
+
+		for i := startCol; i < len(line); i++ {
+			c := line[i]
+			if quote != 0 {
+				if c == quote {
+					quote = 0
+				}
+
+				continue
+			}
+
+			if c == '"' || c == '\'' {
+				quote = c
+
+				continue
+			}
+
+			if c == '>' {
+				return l
+			}
+		}
+	}
+
+	return startIdx
 }
 
 func (s *LineSuppressions) parseMultilineTagIgnores(content string, lines []string) {

@@ -101,7 +101,7 @@ func TestTierBStructureRules(t *testing.T) {
 		t.Errorf("OUTPUT_ATTR: got %v, want 1 (only function a)", got)
 	}
 
-	if got := runNativeRule(t, "page.cfm", "NESTED_CFOUTPUT", `<cfoutput><cfoutput>hi</cfoutput></cfoutput><cfoutput group="x"><cfoutput>ok</cfoutput></cfoutput>`); len(got) != 1 {
+	if got := runNativeRule(t, "page.cfm", "NESTED_CFOUTPUT", `<cfoutput query="q"><cfoutput>hi</cfoutput></cfoutput><cfoutput><cfoutput>ok</cfoutput></cfoutput><cfoutput query="q" group="x"><cfoutput>ok</cfoutput></cfoutput>`); len(got) != 1 {
 		t.Errorf("NESTED_CFOUTPUT: got %v, want 1", got)
 	}
 
