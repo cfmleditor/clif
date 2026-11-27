@@ -12,12 +12,13 @@ import (
 // IndexEntity records the ORM entity a parsed file declares (entityOf),
 // replacing what it declared before. Indexing a parse writes the entity with
 // the rest of the file (IndexParsedFile); this records it alone, for a test or
-// a tool that has only the entity to say. It applies the rule the index
-// applies to a parse it is handed,
-// so the two cannot disagree about a file: the editor once counted only a
-// component inside the Application's cfcLocation, and its reparse dropped what
-// its save had registered. A page declares no entity and never held one, so it
-// takes no lock.
+// a tool that has only the entity to say.
+//
+// It applies the rule the index applies to a parse it is handed, so the two
+// cannot disagree about a file: the editor once counted only a component
+// inside the Application's cfcLocation, and its reparse dropped what its save
+// had registered. A page declares no entity and never held one, so it takes no
+// lock.
 func (idx *Index) IndexEntity(fileURI uri.URI, pr *parser.ParseResult) {
 	idx.indexEntity(fileURI, pr, false)
 }

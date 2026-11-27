@@ -159,3 +159,21 @@ func TestAnUnrelatedJSONFileDoesNotDropTheResolver(t *testing.T) {
 		t.Error("a JSON file no discovery read dropped the resolver")
 	}
 }
+
+// TestSavingAnUnrelatedFileBuildsNoResolver: a save of a file that is no
+// source asks whether discovery read it, and with no resolver built there is
+// nothing kept to invalidate, so the answer is no without building one (and
+// reading the project to do it).
+func TestSavingAnUnrelatedFileBuildsNoResolver(t *testing.T) {
+	root := t.TempDir()
+
+	s := newTestServer()
+	s.FS = vfs.OS{}
+	s.WorkspaceFolders = []string{root}
+
+	s.invalidateSourceFile(root + "/README.md")
+
+	if s.resolver != nil || s.resolversBuilt {
+		t.Error("saving a README built the resolver")
+	}
+}

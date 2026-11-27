@@ -31,11 +31,10 @@ func (idx *Index) setImplementsLocked(key string, names []string) {
 	idx.implements[key] = cloned
 }
 
-// SetImplements records the interfaces a file implements, alone (indexing a
-// parse writes them with the rest of the file, IndexParsedFile), for a caller
-// that indexed it from funcs and refs alone (IndexFileFromResult forgets them, as it
-// does the file's extends); the doors that have a parse record them with the
-// rest of the file. Re-indexing a file drops the record.
+// SetImplements records the interfaces a file implements, for a caller that
+// indexed it from funcs and refs only: IndexFileFromResult forgets them, as it
+// does the file's extends. A door that has a parse (IndexParsedFile) records
+// them with the rest of the file. Re-indexing a file drops the record.
 func (idx *Index) SetImplements(fileURI uri.URI, names []string) {
 	idx.mu.Lock()
 	defer idx.mu.Unlock()

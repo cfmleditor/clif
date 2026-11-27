@@ -69,12 +69,22 @@ func (s *Server) isMappingJSON(path string) bool {
 	return s.mappingJSONFiles[filepath.Clean(path)]
 }
 
+// hasDiscoveryState reports whether the session holds anything discovery
+// found: a resolver, or a resolver set kept empty. Without either there is
+// nothing for a saved marker file to invalidate, and asking would build them.
+func (s *Server) hasDiscoveryState() bool {
+	s.resolverMu.Lock()
+	defer s.resolverMu.Unlock()
+
+	return s.resolver != nil || s.resolversBuilt
+}
+
 func (s *Server) invalidateSourceFile(file string) {
 	if !cfpath.IsCFMLFile(file) && !s.isMappingJSON(file) {
 		// Not source, but possibly a marker discovery read (a JSON config, a
 		// plugin's config.xml): what the session resolves with is kept until
 		// something it read changes, and that includes what it found missing.
-		if s.getResolver().DiscoveryReadsFile(file) {
+		if s.hasDiscoveryState() && s.getResolver().DiscoveryReadsFile(file) {
 			s.invalidateResolver()
 			cfpath.InvalidateAppMappingsCache()
 		}
