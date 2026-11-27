@@ -82,19 +82,31 @@ func registerTagRules(reg *Registry) {
 
 func checkBannedTag(fc *FileContext, tagName string) []cflint.Issue {
 	src := fc.Text()
-	if parser.IndexFold(src, "<"+tagName) < 0 {
+	if parser.IndexFold(src, tagName) < 0 {
 		return nil
 	}
 
+	msg := fmt.Sprintf("Avoid using the %s tag.", tagName)
+
 	var out []cflint.Issue
 
-	for _, tag := range parser.CFTags(src, tagName) {
-		if tag.Close {
+	if parser.IndexFold(src, "<"+tagName) >= 0 {
+		for _, tag := range parser.CFTags(src, tagName) {
+			if tag.Close {
+				continue
+			}
+
+			out = append(out, fc.IssueAt(tag.Start, msg, tagName))
+		}
+	}
+
+	// Also detect script-tag calls such as `cfmodule(...)` or `cfhttp(...)`.
+	for _, r := range fc.Regions() {
+		if r.Kind != parser.RegionScript || parser.IndexFold(r.Text, tagName) < 0 {
 			continue
 		}
 
-		msg := fmt.Sprintf("Avoid using the %s tag.", tagName)
-		out = append(out, fc.IssueAt(tag.Start, msg, tagName))
+		out = append(out, scanScriptTextForCall(fc, r.Text, r.Offset, tagName, msg)...)
 	}
 
 	return out

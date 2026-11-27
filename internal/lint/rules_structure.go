@@ -267,15 +267,18 @@ func checkScriptArgTypes(fc *FileContext, text string, baseOffset int) []cflint.
 				return
 			}
 
-			// Strip leading `required` and anything from `=` onward.
+			// Strip leading `required` modifier (only when followed by another
+			// identifier, not when the parameter itself is named `required = ...`)
+			// and anything from `=` onward.
 			var head []parser.Token
 
-			for _, pt := range paramTokens {
+			for i, pt := range paramTokens {
 				if pt.Kind == parser.TokEquals {
 					break
 				}
 
-				if len(head) == 0 && pt.Kind == parser.TokIdent && strings.EqualFold(pt.Value, "required") {
+				if len(head) == 0 && pt.Kind == parser.TokIdent && strings.EqualFold(pt.Value, "required") &&
+					i+1 < len(paramTokens) && paramTokens[i+1].Kind != parser.TokEquals {
 					continue
 				}
 

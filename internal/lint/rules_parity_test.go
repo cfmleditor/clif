@@ -172,6 +172,16 @@ func TestRuleParityFixes(t *testing.T) {
 			t.Errorf("IMPLICIT_SCOPE in .cfm template = %v, want 1", got)
 		}
 
+		// Script-tag form of banned tags (e.g. `cfmodule(...)`) should also be flagged.
+		if got := runNativeRule(t, "svc.cfc", "AVOID_USING_CFMODULE_TAG", "component {\n\tfunction f() {\n\t\tcfmodule(template='a.cfm');\n\t}\n}\n"); len(got) != 1 {
+			t.Errorf("AVOID_USING_CFMODULE_TAG on script cfmodule() = %v, want 1", got)
+		}
+
+		// Untyped parameter literally named `required` (`required = true`) should trigger ARG_TYPE_MISSING.
+		if got := runNativeRule(t, "svc.cfc", "ARG_TYPE_MISSING", "component {\n\tfunction f(required = true) {}\n}\n"); len(got) != 1 {
+			t.Errorf("ARG_TYPE_MISSING on param named required = %v, want 1", got)
+		}
+
 		// Built-in scopes cfthread and file should not trigger IMPLICIT_SCOPE.
 		if got := runNativeRule(t, "svc.cfc", "IMPLICIT_SCOPE", "component {\n\tfunction f() {\n\t\treturn structKeyExists(cfthread, 't1') && structKeyExists(file, 'name');\n\t}\n}\n"); len(got) != 0 {
 			t.Errorf("IMPLICIT_SCOPE on cfthread/file scopes = %v, want 0", got)
