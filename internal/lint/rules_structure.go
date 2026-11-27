@@ -2,6 +2,7 @@ package lint
 
 import (
 	"fmt"
+	"maps"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -648,10 +649,10 @@ var globalScopes = map[string]bool{
 	"cfthread":    true,
 }
 
-// checkGlobalVar matches CFLint's GlobalVarChecker: in tag CFCs (<cffunction>),
-// CFLint pushes a StackHandler frame per <cffunction> so each scope is reported
-// once per function; in script CFCs, functions share the component frame so
-// each scope is reported once per component.
+// checkGlobalVar matches CFLint's GlobalVarChecker (without CFLint's
+// cross-file StackHandler state leak): flags each global scope referenced
+// inside a component's top-level body or inside each function at most once per
+// scope per function.
 func checkGlobalVar(fc *FileContext) []cflint.Issue {
 	if !strings.EqualFold(filepath.Ext(fc.Path), ".cfc") {
 		return nil
@@ -661,12 +662,11 @@ func checkGlobalVar(fc *FileContext) []cflint.Issue {
 	spans := fc.ParseResult().FunctionSpans()
 
 	var (
-		out            []cflint.Issue
-		scriptReported = map[string]bool{}
+		out         []cflint.Issue
+		topReported = map[string]bool{}
 	)
 
-	// Scan component top-level script outside any function body first so
-	// top-level references seed scriptReported in source order.
+	// Scan component top-level script outside any function body.
 	for _, r := range fc.Regions() {
 		if r.Kind != parser.RegionScript {
 			continue
@@ -684,7 +684,7 @@ func checkGlobalVar(fc *FileContext) []cflint.Issue {
 				absOff := r.Offset + cur.Offset
 				if !offsetInsideAnySpan(absOff, spans) {
 					forEachStringHashExpr(cur, func(expr string, relOff int) {
-						out = append(out, scanGlobalVarScript(fc, expr, absOff+relOff, scriptReported)...)
+						out = append(out, scanGlobalVarScript(fc, expr, absOff+relOff, topReported)...)
 					})
 				}
 			}
@@ -693,8 +693,8 @@ func checkGlobalVar(fc *FileContext) []cflint.Issue {
 				absOff := r.Offset + cur.Offset
 				if !offsetInsideAnySpan(absOff, spans) {
 					low := strings.ToLower(cur.Value)
-					if globalScopes[low] && !scriptReported[low] {
-						scriptReported[low] = true
+					if globalScopes[low] && !topReported[low] {
+						topReported[low] = true
 
 						out = append(out, fc.IssueAt(absOff, fmt.Sprintf("Identifier %s is global. Referencing in a CFC or function should be avoided.", cur.Value), cur.Value))
 					}
@@ -706,6 +706,9 @@ func checkGlobalVar(fc *FileContext) []cflint.Issue {
 		}
 	}
 
+	// Scan each function body with its own per-function dedup map (inheriting
+	// any scope already reported at component top-level, matching StackHandler's
+	// per-file component -> function stack).
 	for i := range spans {
 		sp := &spans[i]
 
@@ -714,14 +717,14 @@ func checkGlobalVar(fc *FileContext) []cflint.Issue {
 			continue
 		}
 
-		if sp.Params >= 0 {
-			out = append(out, scanGlobalVarScript(fc, body, sp.Body, scriptReported)...)
-		} else {
-			tagReported := map[string]bool{}
+		fnReported := maps.Clone(topReported)
 
+		if sp.Params >= 0 {
+			out = append(out, scanGlobalVarScript(fc, body, sp.Body, fnReported)...)
+		} else {
 			for _, r := range parser.ClassifyRegions(body) {
 				if r.Kind == parser.RegionScript {
-					out = append(out, scanGlobalVarScript(fc, r.Text, sp.Body+r.Offset, tagReported)...)
+					out = append(out, scanGlobalVarScript(fc, r.Text, sp.Body+r.Offset, fnReported)...)
 				}
 			}
 
@@ -737,7 +740,7 @@ func checkGlobalVar(fc *FileContext) []cflint.Issue {
 
 				innerStart := len(tag.Name) + 1
 				inner := txt[innerStart : len(txt)-1]
-				out = append(out, scanGlobalVarScript(fc, inner, sp.Body+tag.Start+innerStart, tagReported)...)
+				out = append(out, scanGlobalVarScript(fc, inner, sp.Body+tag.Start+innerStart, fnReported)...)
 			}
 		}
 	}
