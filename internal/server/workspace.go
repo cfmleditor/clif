@@ -183,7 +183,7 @@ func mb(b uint64) string {
 
 // applyIndexResult writes one parsed file into the index: its signatures and
 // component refs, its this-scoped vars, and its ORM entity registration when
-// the component is persistent (Index.IndexEntity).
+// the component is persistent: all in one write (Index.IndexParsedFile).
 //
 // This is the single definition of "what indexing a file means", called by the
 // startup walk (indexWorkspace, indexRoot) and by the watched-file handler. It

@@ -5,7 +5,9 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -827,11 +829,29 @@ func TestARestartDropsQueuedStateTheReplayCarries(t *testing.T) {
 func TestAServerKilledByTheClosedPipeAfterExitEndsCleanly(t *testing.T) {
 	e, editorEnd := newEditor(t, 64)
 	sv := &servers{plan: []behaviour{{brokenPipe: true}}}
-	done := run(t, editorEnd, sv, Options{})
+
+	var (
+		mu     sync.Mutex
+		logged []string
+	)
+
+	done := run(t, editorEnd, sv, Options{Log: func(msg string) {
+		mu.Lock()
+		logged = append(logged, msg)
+		mu.Unlock()
+	}})
 
 	e.start()
 
 	if code := endSession(t, e, done, 2); code != 0 {
 		t.Fatalf("exit code %d, want 0: a broken pipe after exit is the end of the session", code)
+	}
+
+	// Taken as an end, not hidden: the log says what was reinterpreted.
+	mu.Lock()
+	defer mu.Unlock()
+
+	if !slices.ContainsFunc(logged, func(m string) bool { return strings.Contains(m, "broken pipe") }) {
+		t.Errorf("the supervisor did not say it took a broken pipe for the end; logged %q", logged)
 	}
 }

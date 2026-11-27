@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	cfpath "github.com/cfmleditor/clif/internal/path"
+	"github.com/cfmleditor/clif/internal/resolve"
 	"github.com/cfmleditor/clif/internal/vfs"
 	"go.lsp.dev/protocol"
 )
@@ -99,5 +100,62 @@ func TestAFileDiscoveryReadInvalidatesTheKeptAnswer(t *testing.T) {
 
 	if !slices.Contains(watchedGlobs, "**/plugin/config.xml") {
 		t.Error("the client is not asked to watch plugin/config.xml")
+	}
+}
+
+// TestSavingADiscoveryFileInTheEditorInvalidatesTheKeptAnswer is the editor's
+// twin of TestAFileDiscoveryReadInvalidatesTheKeptAnswer: a save reaches
+// invalidateSourceFile, which asked about CFML and mapping JSON alone, so a
+// plugin's config.xml or a JSON marker saved in an editor that does not watch
+// files left the empty answer standing.
+func TestSavingADiscoveryFileInTheEditorInvalidatesTheKeptAnswer(t *testing.T) {
+	root := t.TempDir()
+	writeCFC(t, root+"/Plain.cfc", "component { function run() {} }")
+
+	s := newTestServer()
+	s.FS = vfs.OS{}
+	s.WorkspaceFolders = []string{root}
+
+	s.cfResolverSet()
+
+	if !s.resolversBuilt {
+		t.Fatal("the resolver set was not built, so there is no answer to keep")
+	}
+
+	s.invalidateSourceFile(root + "/plugin/config.xml")
+
+	if s.resolversBuilt {
+		t.Error("saving a file discovery read left the kept answer in place")
+	}
+}
+
+// TestAnUnrelatedJSONFileDoesNotDropTheResolver: the project's markers are
+// exact files, but discovery lists directories, and everything under a listed
+// directory counts for DiscoveryAffected. A JSON file nobody reads (an npm
+// install, a build's output) must not drop the resolver for that.
+func TestAnUnrelatedJSONFileDoesNotDropTheResolver(t *testing.T) {
+	root := t.TempDir()
+	writeCFC(t, root+"/Plain.cfc", "component { function run() {} }")
+
+	s := newTestServer()
+	s.FS = vfs.OS{}
+	s.WorkspaceFolders = []string{root}
+	s.Features.WatchedFiles = true
+
+	s.cfResolverSet()
+
+	// A project whose root discovery listed, as a ColdBox application's is.
+	_, _ = resolve.TrackDiscoveryFS(s.FS, s.discoveryDependencies).ReadDir(root)
+
+	unrelated := root + "/node_modules/pkg/package.json"
+	if !s.getResolver().DiscoveryAffected(unrelated) {
+		t.Fatal("the broad check does not cover the file here, so this test shows nothing")
+	}
+
+	s.applyWatchedFileChanges([]protocol.FileEvent{{URI: cfpath.ToURI(unrelated), Type: protocol.FileChangeTypeChanged}})
+	s.invalidateSourceFile(unrelated)
+
+	if !s.resolversBuilt {
+		t.Error("a JSON file no discovery read dropped the resolver")
 	}
 }

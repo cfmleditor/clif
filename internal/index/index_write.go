@@ -101,8 +101,22 @@ func (idx *Index) indexWhole(fileURI uri.URI, f ParsedFile, includes []string) {
 
 	// An ORM entity is named by its entityname attribute, which is often not
 	// its file's name: ContentBox's Author.cfc is cbAuthor, and
-	// entityNew( "cbAuthor" ) names it.
-	persistent, entityName := entityOf(fileURI, pr)
+	// entityNew( "cbAuthor" ) names it. Reading it scans the header, so it is
+	// read only when it will be stored: always, or for a file the index has
+	// read the entity of before (EntityIfRead).
+	component := isComponent(fileURI)
+	fk := uriKey(fileURI)
+
+	var (
+		persistent bool
+		entityName string
+		entityDone bool
+	)
+
+	if !f.EntityIfRead || component && idx.entityWasRead(fk) {
+		persistent, entityName = entityOf(fileURI, pr)
+		entityDone = true
+	}
 
 	var delegates []parser.Delegate
 	if f.DelegatesKnown {
@@ -112,7 +126,6 @@ func (idx *Index) indexWhole(fileURI uri.URI, f ParsedFile, includes []string) {
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
 
-	fk := uriKey(fileURI)
 	mark := idx.shapeBegin(fk)
 
 	defer idx.shapeEnd(fk, &mark)
@@ -128,8 +141,12 @@ func (idx *Index) indexWhole(fileURI uri.URI, f ParsedFile, includes []string) {
 
 	idx.setIncludesLocked(fileURI, includes)
 
-	component := isComponent(fileURI)
 	if _, read := idx.entityRead[fk]; !f.EntityIfRead || component && read {
+		if !entityDone {
+			// Read since the peek above: rare, and then read under the lock.
+			persistent, entityName = entityOf(fileURI, pr)
+		}
+
 		idx.setFileEntityLocked(uri.URI(strings.Clone(string(fileURI))), persistent, entityName)
 
 		if component {
@@ -138,6 +155,16 @@ func (idx *Index) indexWhole(fileURI uri.URI, f ParsedFile, includes []string) {
 	}
 
 	idx.storeFileLocked(fileURI, fk, funcs, refs, f.Disk)
+}
+
+// entityWasRead reports whether the index has read this file's ORM entity.
+func (idx *Index) entityWasRead(fk string) bool {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+
+	_, read := idx.entityRead[fk]
+
+	return read
 }
 
 // storeFileLocked stores a file's functions and component refs in both views

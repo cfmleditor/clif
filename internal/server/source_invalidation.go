@@ -71,6 +71,14 @@ func (s *Server) isMappingJSON(path string) bool {
 
 func (s *Server) invalidateSourceFile(file string) {
 	if !cfpath.IsCFMLFile(file) && !s.isMappingJSON(file) {
+		// Not source, but possibly a marker discovery read (a JSON config, a
+		// plugin's config.xml): what the session resolves with is kept until
+		// something it read changes, and that includes what it found missing.
+		if s.getResolver().DiscoveryReadsFile(file) {
+			s.invalidateResolver()
+			cfpath.InvalidateAppMappingsCache()
+		}
+
 		return
 	}
 

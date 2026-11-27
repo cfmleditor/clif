@@ -141,7 +141,7 @@ func (s *Server) applyWatchedFileChanges(changes []protocol.FileEvent) {
 		// or not it is one the index holds: the project's markers (a JSON
 		// config, a plugin's config.xml) are not CFML, and a session that found
 		// no framework keeps that answer until something it read changes.
-		if s.getResolver().DiscoveryAffected(path) {
+		if s.discoveryReads(path) {
 			discoveryChanged = true
 		}
 
@@ -213,6 +213,20 @@ const (
 	watchedRemoved
 	watchedOpenChanged
 )
+
+// discoveryReads reports whether a changed file is one discovery depends on:
+// a source file inside what it listed or manages (DiscoveryAffected), or, for
+// a file that is no source, one it read itself or listed the directory of
+// (DiscoveryReadsFile), so that a JSON file nothing read does not count.
+func (s *Server) discoveryReads(path string) bool {
+	r := s.getResolver()
+
+	if cfpath.IsCFMLFile(path) {
+		return r.DiscoveryAffected(path)
+	}
+
+	return r.DiscoveryReadsFile(path)
+}
 
 func (s *Server) applyWatchedFileChange(path string, kind protocol.FileChangeType) watchedOutcome {
 	if !cfpath.IsCFMLFile(path) {

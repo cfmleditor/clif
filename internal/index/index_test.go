@@ -573,3 +573,35 @@ func TestAMuraBeanORMComponentIsAnEntityByItsName(t *testing.T) {
 		t.Fatalf("a Quick model is an entity: %v", got)
 	}
 }
+
+// TestIndexParsedFileFollowsOnlyAnEntityItHolds is TestRefreshEntityFollows...
+// through the one write production indexes by: with EntityIfRead a file the
+// index holds no entity for registers none, and one it does follows an edit.
+func TestIndexParsedFileFollowsOnlyAnEntityItHolds(t *testing.T) {
+	idx := New()
+	held, stray := uri.URI("file:///a/Writer.cfc"), uri.URI("file:///b/Writer.cfc")
+
+	idx.IndexFile(held, `component persistent="true" entityName="Author" {}`)
+
+	idx.IndexParsedFile(stray, ParsedFile{PR: parser.Parse(stray, `component persistent="true" entityName="Poet" {}`), EntityIfRead: true})
+
+	if got := idx.EntityCandidates("poet"); len(got) != 0 {
+		t.Fatalf("a file the index held no entity for registered Poet: %v", got)
+	}
+
+	idx.IndexParsedFile(held, ParsedFile{PR: parser.Parse(held, `component persistent="true" entityName="Poet" {}`), EntityIfRead: true})
+
+	if got := idx.EntityCandidates("author"); len(got) != 0 {
+		t.Errorf("after the rename, Author is declared by %v", got)
+	}
+
+	if got := idx.EntityCandidates("poet"); !slices.Equal(got, []uri.URI{held}) {
+		t.Errorf("after the rename, Poet is declared by %v", got)
+	}
+
+	idx.IndexParsedFile(stray, ParsedFile{PR: parser.Parse(stray, `component persistent="true" entityName="Poet" {}`)})
+
+	if got := idx.EntityCandidates("poet"); len(got) != 2 {
+		t.Errorf("an indexing that always registers left Poet declared by %v", got)
+	}
+}
