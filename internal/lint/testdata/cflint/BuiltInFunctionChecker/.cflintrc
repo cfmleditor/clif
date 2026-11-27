@@ -1,0 +1,10 @@
+{
+  "rule" : [ ],
+  "excludes" : [ ],
+  "includes" : [ {
+    "code" : "AVOID_USING_ISDATE",
+    "messageText" : null,
+    "severity" : null
+  } ],
+  "inheritParent" : false
+}

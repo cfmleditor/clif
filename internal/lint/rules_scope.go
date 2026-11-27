@@ -163,11 +163,21 @@ func analyzeFunctionScope(content string, span *parser.FunctionSpan) *funcScopeA
 		collectScriptParamNames(pText, a.params)
 	}
 
-	for _, tag := range parser.CFTags(body, "cfargument") {
-		if !tag.Close {
-			if name, ok := tag.Attr("name"); ok && name != "" {
-				a.params[strings.ToLower(strings.TrimSpace(name))] = true
-			}
+	for _, tag := range parser.CFTags(body, "cfargument", "cfcatch") {
+		if tag.Close {
+			continue
+		}
+
+		name, ok := tag.Attr("name")
+		if !ok || name == "" {
+			continue
+		}
+
+		low := strings.ToLower(strings.TrimSpace(name))
+		if strings.EqualFold(tag.Name, "cfcatch") {
+			a.catchVars[low] = true
+		} else {
+			a.params[low] = true
 		}
 	}
 
@@ -1067,12 +1077,25 @@ func skipBracketGroup(toks []parser.Token, start int) int {
 }
 
 func checkMissingVar(fc *FileContext) []cflint.Issue {
+	qSpans := queryLoopSpans(fc.Text())
+
 	return checkUnscopedUses(fc, func(a *funcScopeAnalysis) []identUse {
 		if a.localModeModern {
 			return nil
 		}
 
-		return a.bareWrites
+		if len(qSpans) == 0 {
+			return a.bareWrites
+		}
+
+		filtered := make([]identUse, 0, len(a.bareWrites))
+		for _, u := range a.bareWrites {
+			if !offsetInAnyRange(u.offset, qSpans) {
+				filtered = append(filtered, u)
+			}
+		}
+
+		return filtered
 	}, "Variable %s is not declared with a var statement.")
 }
 
@@ -1544,8 +1567,10 @@ func collectComponentVars(fc *FileContext) map[string]bool {
 	src := fc.Text()
 
 	if strings.EqualFold(filepath.Ext(fc.Path), ".cfc") {
-		for _, name := range fc.ParseResult().VariablesVars() {
-			vars[strings.ToLower(name)] = true
+		for _, v := range fc.ParseResult().AllVars() {
+			if v.FuncStart < 0 && v.Scope == parser.ScopeVariables {
+				vars[strings.ToLower(v.Name)] = true
+			}
 		}
 	}
 

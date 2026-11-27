@@ -1,0 +1,34 @@
+{
+  "version" : "",
+  "timestamp" : 1526095022,
+  "issues" : [ {
+    "severity" : "INFO",
+    "id" : "COMPONENT_INVALID_NAME",
+    "message" : "COMPONENT_INVALID_NAME",
+    "category" : "CFLINT",
+    "abbrev" : "CI",
+    "locations" : [ {
+      "file" : "src\\test\\resources\\com\\cflint\\tests\\ComponentNameChecker\\foo.cfc",
+      "fileName" : "foo.cfc",
+      "function" : "",
+      "offset" : 0,
+      "column" : 0,
+      "line" : 1,
+      "message" : "Component name foo is not a valid name. Please use PascalCase and start with a capital letter.",
+      "variable" : "",
+      "expression" : "component {\n}"
+    } ]
+  } ],
+  "counts" : {
+    "totalFiles" : 0,
+    "totalLines" : 0,
+    "countByCode" : [ {
+      "code" : "COMPONENT_INVALID_NAME",
+      "count" : 1
+    } ],
+    "countBySeverity" : [ {
+      "severity" : "INFO",
+      "count" : 1
+    } ]
+  }
+}

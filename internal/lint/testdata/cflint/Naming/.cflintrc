@@ -1,0 +1,14 @@
+{
+  "includes" : [ 
+    {"code" : "VAR_INVALID_NAME"}, 
+    {"code" : "VAR_ALLCAPS_NAME"}, 
+    {"code" : "SCOPE_ALLCAPS_NAME"}, 
+    {"code" : "METHOD_ALLCAPS_NAME"}, 
+    {"code" : "VAR_TOO_SHORT"}, 
+    {"code" : "VAR_TOO_LONG"}, 
+    {"code" : "VAR_TOO_WORDY"}, 
+    {"code" : "VAR_IS_TEMPORARY"}, 
+    {"code" : "VAR_HAS_PREFIX_OR_POSTFIX"}
+    ],
+  "inheritParent" : false
+}

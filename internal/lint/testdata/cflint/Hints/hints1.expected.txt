@@ -1,0 +1,34 @@
+{
+  "version" : "",
+  "timestamp" : 1526095024,
+  "issues" : [ {
+    "severity" : "WARNING",
+    "id" : "COMPONENT_HINT_MISSING",
+    "message" : "COMPONENT_HINT_MISSING",
+    "category" : "CFLINT",
+    "abbrev" : "CH",
+    "locations" : [ {
+      "file" : "src\\test\\resources\\com\\cflint\\tests\\Hints\\hints1.cfc",
+      "fileName" : "hints1.cfc",
+      "function" : "",
+      "offset" : 0,
+      "column" : 1,
+      "line" : 1,
+      "message" : "Component hints1 is missing a hint.",
+      "variable" : "hints1",
+      "expression" : "component {\n  public void function function1(arg1, arg2) hint='test hint attribute'    {\nsomeVar = '';\n\n    }\n}"
+    } ]
+  } ],
+  "counts" : {
+    "totalFiles" : 0,
+    "totalLines" : 0,
+    "countByCode" : [ {
+      "code" : "COMPONENT_HINT_MISSING",
+      "count" : 1
+    } ],
+    "countBySeverity" : [ {
+      "severity" : "WARNING",
+      "count" : 1
+    } ]
+  }
+}

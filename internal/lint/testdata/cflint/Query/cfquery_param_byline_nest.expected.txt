@@ -1,0 +1,34 @@
+{
+  "version" : "",
+  "timestamp" : 1526095031,
+  "issues" : [ {
+    "severity" : "WARNING",
+    "id" : "CFQUERYPARAM_REQ",
+    "message" : "CFQUERYPARAM_REQ",
+    "category" : "CFLINT",
+    "abbrev" : "CR",
+    "locations" : [ {
+      "file" : "src\\test\\resources\\com\\cflint\\tests\\Query\\cfquery_param_byline_nest.cfc",
+      "fileName" : "cfquery_param_byline_nest.cfc",
+      "function" : "foo",
+      "offset" : 619,
+      "column" : 29,
+      "line" : 15,
+      "message" : "<cfquery> should use <cfqueryparam/> for variable 'application.linkedServerName'.",
+      "variable" : "application.linkedServerName",
+      "expression" : "<cfquery name=\"fooQry\" datasource=\"#arguments.siteDomain#com\" cachedwithin=\"#createTimeSpan(0,0,5,0)#\">\n            SELECT\n                M.firstName\n                <cfif>\n                <!--- @CFL"
+    } ]
+  } ],
+  "counts" : {
+    "totalFiles" : 0,
+    "totalLines" : 0,
+    "countByCode" : [ {
+      "code" : "CFQUERYPARAM_REQ",
+      "count" : 1
+    } ],
+    "countBySeverity" : [ {
+      "severity" : "WARNING",
+      "count" : 1
+    } ]
+  }
+}
