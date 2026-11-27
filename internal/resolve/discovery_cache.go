@@ -59,6 +59,19 @@ func (d *DiscoveryDependencies) contains(file string) bool {
 	return false
 }
 
+// reads reports whether file was read or probed as a file, or is an entry of a
+// directory that was listed.
+func (d *DiscoveryDependencies) reads(file string) bool {
+	if d == nil {
+		return false
+	}
+
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	return d.files[pathKey(file)] || d.dirs[pathKey(filepath.Dir(file))]
+}
+
 type discoveryFS struct {
 	vfs.FS
 	dependencies *DiscoveryDependencies
@@ -109,6 +122,20 @@ func (r *Resolver) DiscoveryAffected(file string) bool {
 	}
 
 	return confine.Within(file, slices.Collect(maps.Values(r.managedBeanPaths())))
+}
+
+// DiscoveryReadsFile reports whether discovery read this file itself, or listed
+// the directory it is in: the files a project's markers are made of, which
+// are not CFML (a JSON config, a plugin's config.xml). It is exact where
+// DiscoveryAffected is broad, which a file that is no source cannot afford:
+// the whole of a directory discovery listed counts for DiscoveryAffected, so an
+// unrelated JSON file anywhere under the workspace root would drop the
+// resolver, and a file is created or removed in a listed directory only to
+// change that listing.
+func (r *Resolver) DiscoveryReadsFile(file string) bool {
+	r.configurationOnce.Do(r.recordConfigurationSources)
+
+	return r.Discovery.reads(file)
 }
 
 // InvalidatePaths drops source/path caches while retaining immutable discovery

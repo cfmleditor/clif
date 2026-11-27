@@ -207,6 +207,8 @@ func (s *supervisor) watch(ctx context.Context, editorDone <-chan struct{}) (cod
 			// A server that was still writing when the session ended died of
 			// the pipe the supervisor closed: it ended, as it was asked to.
 			if ev.code == ExitBrokenPipe {
+				s.logf("the server ended of a broken pipe after the session ended; taking that as its end")
+
 				return 0
 			}
 

@@ -10,8 +10,10 @@ import (
 )
 
 // IndexEntity records the ORM entity a parsed file declares (entityOf),
-// replacing what it declared before. It is how the editor records one for a
-// parse it made itself, by the rule the index applies to a parse it is handed,
+// replacing what it declared before. Indexing a parse writes the entity with
+// the rest of the file (IndexParsedFile); this records it alone, for a test or
+// a tool that has only the entity to say. It applies the rule the index
+// applies to a parse it is handed,
 // so the two cannot disagree about a file: the editor once counted only a
 // component inside the Application's cfcLocation, and its reparse dropped what
 // its save had registered. A page declares no entity and never held one, so it
@@ -21,10 +23,11 @@ func (idx *Index) IndexEntity(fileURI uri.URI, pr *parser.ParseResult) {
 }
 
 // RefreshEntity is IndexEntity for a file whose entity the index has read
-// before, and does nothing for one it has not. The editor uses it for a
-// component outside the workspace: a buffer opened from another project must
-// not add entities, but one the resolver's lazy index took in must follow its
-// edits, since that index never reads a file twice.
+// before, and does nothing for one it has not. IndexParsedFile does the same
+// for ParsedFile.EntityIfRead, which the editor uses for a component outside
+// the workspace: a buffer opened from another project must not add entities,
+// but one the resolver's lazy index took in must follow its edits, since that
+// index never reads a file twice.
 func (idx *Index) RefreshEntity(fileURI uri.URI, pr *parser.ParseResult) {
 	idx.indexEntity(fileURI, pr, true)
 }
@@ -102,8 +105,9 @@ func isComponent(fileURI uri.URI) bool {
 // setFileEntityLocked records what ORM entity fileURI declares, replacing
 // what it declared before: entityName when it names one, else an entity
 // called after the file, and nothing when the component is not persistent;
-// idx.mu is held. Outside the index a file's entity is recorded through
-// IndexEntity or RefreshEntity, which read both from a parse (entityOf).
+// idx.mu is held. Outside the index a file's entity is recorded by indexing
+// its parse (IndexParsedFile), or alone through IndexEntity or RefreshEntity;
+// each reads both from the parse (entityOf).
 func (idx *Index) setFileEntityLocked(fileURI uri.URI, persistent bool, entityName string) {
 	key := uriKey(fileURI)
 	idx.dropEntitiesLocked(key)

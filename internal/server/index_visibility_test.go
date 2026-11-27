@@ -28,6 +28,12 @@ func TestAReaderNeverSeesAFileHalfIndexed(t *testing.T) {
 			docURI := cfpath.ToURI("/w/Product.cfc")
 			pr := parser.Parse(docURI, src)
 
+			// Indexed before the reader starts, and the reader makes a pass
+			// after the writer is done: on one CPU the writer may finish before
+			// the reader is ever scheduled, and a reader that never read shows
+			// nothing.
+			write(s, pr)
+
 			var (
 				stop    atomic.Bool
 				seen    atomic.Int64
@@ -36,7 +42,7 @@ func TestAReaderNeverSeesAFileHalfIndexed(t *testing.T) {
 			)
 
 			readers.Go(func() {
-				for !stop.Load() {
+				for first := true; first || !stop.Load(); first = false {
 					if len(s.index.FunctionsForFile(docURI)) == 0 {
 						continue
 					}
