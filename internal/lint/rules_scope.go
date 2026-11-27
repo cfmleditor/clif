@@ -1205,6 +1205,7 @@ func checkCFMImplicitScope(fc *FileContext, compVars map[string]bool) []cflint.I
 		params:      make(map[string]bool),
 		vars:        make(map[string]int),
 		localAssign: make(map[string]bool),
+		argAssign:   make(map[string]bool),
 		catchVars:   make(map[string]bool),
 		argScoped:   make(map[string]bool),
 	}
@@ -1230,6 +1231,8 @@ func checkCFMImplicitScope(fc *FileContext, compVars map[string]bool) []cflint.I
 		}
 	}
 
+	cfoutputDepth := 0
+
 	for _, r := range fc.Regions() {
 		if r.Kind == parser.RegionScript {
 			scanScriptBodyScope(r.Text, r.Offset, a)
@@ -1252,8 +1255,9 @@ func checkCFMImplicitScope(fc *FileContext, compVars map[string]bool) []cflint.I
 			scanScriptBodyScope(txt[innerStart:len(txt)-1], r.Offset+tag.Start+innerStart, a)
 		}
 
-		// Scan `#expr#` interpolations in tag markup and attributes.
-		scanTagHashesForScope(r.Text, r.Offset, a)
+		// Scan `#expr#` interpolations only inside `<cfoutput>` blocks and
+		// CF tag attributes (never in raw HTML outside `<cfoutput>`).
+		scanTagHashesForScope(r.Text, r.Offset, &cfoutputDepth, a)
 	}
 
 	slices.SortStableFunc(a.implicitReads, func(x, y identUse) int { return cmp.Compare(x.offset, y.offset) })
@@ -1286,11 +1290,7 @@ func checkCFMImplicitScope(fc *FileContext, compVars map[string]bool) []cflint.I
 	return out
 }
 
-func scanTagHashesForScope(text string, baseOffset int, a *funcScopeAnalysis) {
-	if !strings.ContainsRune(text, '#') {
-		return
-	}
-
+func scanTagHashesForScope(text string, baseOffset int, cfoutputDepth *int, a *funcScopeAnalysis) {
 	for i := 0; i < len(text); {
 		if strings.HasPrefix(text[i:], "<!---") {
 			i = parser.SkipCFMLComment(text, i)
@@ -1298,6 +1298,122 @@ func scanTagHashesForScope(text string, baseOffset int, a *funcScopeAnalysis) {
 			continue
 		}
 
+		if text[i] == '<' {
+			if next, handled := scanCFTagForScope(text, i, baseOffset, cfoutputDepth, a); handled {
+				i = next
+
+				continue
+			}
+		}
+
+		if *cfoutputDepth <= 0 || text[i] != '#' {
+			i++
+
+			continue
+		}
+
+		if i+1 < len(text) && text[i+1] == '#' {
+			i += 2
+
+			continue
+		}
+
+		end := skipHashExprInString(text, i+1)
+		if end <= i+1 || text[end-1] != '#' {
+			return
+		}
+
+		expr := text[i+1 : end-1]
+		if strings.TrimSpace(expr) != "" {
+			scanScriptBodyScope(expr, baseOffset+i+1, a)
+		}
+
+		i = end
+	}
+}
+
+// scanCFTagForScope handles a `<cf...>` or `</cf...>` tag starting at pos:
+// updates cfoutputDepth for `<cfoutput>` / `</cfoutput>` and scans `#expr#`
+// interpolations inside opening CF tag attributes (skipping `<cfset>`, `<cfif>`,
+// `<cfelseif>`, `<cfreturn>` which are already scanned as expressions).
+func scanCFTagForScope(text string, pos, baseOffset int, cfoutputDepth *int, a *funcScopeAnalysis) (int, bool) {
+	j := pos + 1
+	closing := false
+
+	if j < len(text) && text[j] == '/' {
+		closing = true
+		j++
+	}
+
+	if j+2 > len(text) || !strings.EqualFold(text[j:j+2], "cf") {
+		return pos, false
+	}
+
+	nameStart := j
+	for j < len(text) && (isIdentChar(text[j]) || (text[j] >= 'A' && text[j] <= 'Z') || text[j] == '_') {
+		j++
+	}
+
+	tagName := strings.ToLower(text[nameStart:j])
+	end := findTagCloseOffset(text, j)
+
+	if closing {
+		if tagName == "cfoutput" && *cfoutputDepth > 0 {
+			*cfoutputDepth--
+		}
+
+		return end, true
+	}
+
+	selfClosing := end >= 2 && text[end-2] == '/'
+	if tagName == "cfoutput" && !selfClosing {
+		*cfoutputDepth++
+	}
+
+	if tagName != "cfset" && tagName != "cfif" && tagName != "cfelseif" && tagName != "cfreturn" && end > j {
+		attrEnd := end
+		if text[end-1] == '>' {
+			attrEnd--
+		}
+
+		attrText := text[j:attrEnd]
+		if strings.ContainsRune(attrText, '#') {
+			scanHashExprsInRange(attrText, baseOffset+j, a)
+		}
+	}
+
+	return end, true
+}
+
+func findTagCloseOffset(text string, start int) int {
+	var quote byte
+
+	for i := start; i < len(text); i++ {
+		c := text[i]
+		if quote != 0 {
+			if c == quote {
+				quote = 0
+			}
+
+			continue
+		}
+
+		if c == '"' || c == '\'' {
+			quote = c
+
+			continue
+		}
+
+		if c == '>' {
+			return i + 1
+		}
+	}
+
+	return len(text)
+}
+
+func scanHashExprsInRange(text string, baseOffset int, a *funcScopeAnalysis) {
+	for i := 0; i < len(text); {
 		if text[i] != '#' {
 			i++
 

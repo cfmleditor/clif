@@ -241,4 +241,29 @@ func TestRuleParityClosureAndTagFixes(t *testing.T) {
 	if got := runNativeRule(t, "pop.cfc", "MISSING_VAR", argAssignSrc); len(got) != 0 {
 		t.Errorf("MISSING_VAR on arguments-assigned struct = %v, want 0", got)
 	}
+
+	// Assigning to an ARGUMENTS member inside a .cfm <cfscript> function must not panic.
+	cfmArgAssign := "<cfscript>\nfunction f(any a) {\n\tARGUMENTS.a = 1;\n}\n</cfscript>\n"
+	if got := runNativeRule(t, "page.cfm", "IMPLICIT_SCOPE", cfmArgAssign); len(got) != 0 {
+		t.Errorf("IMPLICIT_SCOPE on .cfm ARGUMENTS.a = 1 = %v, want 0", got)
+	}
+
+	// HTML `#` characters outside <cfoutput> and CF tags must not trigger IMPLICIT_SCOPE,
+	// while `#expr#` inside <cfoutput> or CF tag attributes still does.
+	cfmHTMLHash := `<a href="#">hidden btn</a><div style="color:#fff">text</div><cfoutput>#realVar#</cfoutput><cfloop collection="#cfgVar#" item="k"></cfloop>`
+	if got := runNativeRule(t, "view.cfm", "IMPLICIT_SCOPE", cfmHTMLHash); len(got) != 2 {
+		t.Errorf("IMPLICIT_SCOPE on .cfm with HTML # outside cfoutput = %v, want 2 (realVar, cfgVar)", got)
+	}
+
+	// Pure-HTML .cfm partials with no CF tags must not be misclassified as CFScript.
+	cfmPureHTML := "<!--- comment --->\n<div class=\"modal-body\">\n\t<button type=\"button\">Cancel</button>\n</div>\n"
+	if got := runNativeRule(t, "partial.cfm", "IMPLICIT_SCOPE", cfmPureHTML); len(got) != 0 {
+		t.Errorf("IMPLICIT_SCOPE on pure-HTML .cfm partial = %v, want 0", got)
+	}
+
+	// GLOBAL_VAR should not flag component-owned `this`, while still flagging `request`.
+	globalThisSrc := "component {\n\tthis.name = 'app';\n\tfunction f() {\n\t\treturn this.name & request.id;\n\t}\n}\n"
+	if got := runNativeRule(t, "app.cfc", "GLOBAL_VAR", globalThisSrc); len(got) != 1 {
+		t.Errorf("GLOBAL_VAR on this + request = %v, want 1 (request only)", got)
+	}
 }

@@ -184,7 +184,19 @@ func (fc *FileContext) LineTable() parser.LineTable {
 // Regions returns the classified tag/script regions of the file.
 func (fc *FileContext) Regions() []parser.Region {
 	fc.regionsOnce.Do(func() {
-		fc.regions = parser.ClassifyRegions(fc.Text())
+		src := fc.Text()
+		regions := parser.ClassifyRegions(src)
+
+		// A .cfm template is never pure CFScript outside explicit <cfscript>
+		// tags; ClassifyRegions falls back to RegionScript when a file has no
+		// <cf...> tags at all (e.g. a pure HTML partial), so keep it RegionTag.
+		if strings.EqualFold(filepath.Ext(fc.Path), ".cfm") &&
+			len(regions) == 1 && regions[0].Kind == parser.RegionScript &&
+			parser.IndexFold(src, "<cfscript") < 0 {
+			regions[0].Kind = parser.RegionTag
+		}
+
+		fc.regions = regions
 	})
 
 	return fc.regions

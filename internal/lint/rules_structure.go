@@ -693,7 +693,8 @@ func checkSQLSelectStar(fc *FileContext) []cflint.Issue {
 	return out
 }
 
-// globalScopes matches CFLint's CFScopes.isCFScoped && !isFunctionScoped.
+// globalScopes matches CFLint's GlobalVarChecker global scopes (excluding
+// component-owned `this`, which CFLint does not flag in CFCs).
 var globalScopes = map[string]bool{
 	"application": true,
 	"session":     true,
@@ -704,7 +705,6 @@ var globalScopes = map[string]bool{
 	"cookie":      true,
 	"cgi":         true,
 	"client":      true,
-	"this":        true,
 	"cfthread":    true,
 }
 
