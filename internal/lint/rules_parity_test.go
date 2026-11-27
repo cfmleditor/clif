@@ -331,4 +331,11 @@ func TestRuleParityClosureAndTagFixes(t *testing.T) {
 	if got := runNativeRule(t, "loop.cfm", "IMPLICIT_SCOPE", readBeforeWrite); len(got) != 2 {
 		t.Errorf("IMPLICIT_SCOPE on read-before-write = %v, want 2 (k at line 4, p at line 5)", got)
 	}
+
+	// Inline `<!--- ... --->` comment inside `<cfargument>` must not hide
+	// subsequent attributes like `type="string"` from ARG_TYPE_MISSING.
+	cfargInlineComment := "<cffunction name=\"f\" output=\"false\">\n\t<cfargument\n\t\tname=\"orderBy\" <!--- note --->\n\t\trequired=\"no\"\n\t\ttype=\"string\">\n</cffunction>\n"
+	if got := runNativeRule(t, "svc.cfc", "ARG_TYPE_MISSING", cfargInlineComment); len(got) != 0 {
+		t.Errorf("ARG_TYPE_MISSING on <cfargument> with inline comment = %v, want 0", got)
+	}
 }
