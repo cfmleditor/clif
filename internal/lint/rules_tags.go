@@ -187,65 +187,11 @@ func checkFileStartsLowercase(fc *FileContext) []cflint.Issue {
 }
 
 func checkEmptyFile(fc *FileContext) []cflint.Issue {
-	src := fc.Text()
-	if strings.TrimSpace(src) == "" {
+	if strings.TrimSpace(fc.Text()) == "" {
 		return []cflint.Issue{fc.IssueAt(0, "File is empty.", filepath.Base(fc.Path))}
 	}
 
-	// Check if file contains only comments and whitespace.
-	for i := 0; i < len(src); {
-		switch src[i] {
-		case ' ', '\t', '\r', '\n':
-			i++
-		case '<':
-			if strings.HasPrefix(src[i:], "<!---") {
-				i = parser.SkipCFMLComment(src, i)
-
-				continue
-			}
-
-			if strings.HasPrefix(src[i:], "<!--") {
-				end := strings.Index(src[i+4:], "-->")
-				if end < 0 {
-					return []cflint.Issue{fc.IssueAt(0, "File is empty.", filepath.Base(fc.Path))}
-				}
-
-				i += 4 + end + 3
-
-				continue
-			}
-
-			return nil
-		case '/':
-			if i+1 < len(src) && src[i+1] == '/' {
-				nl := strings.IndexByte(src[i:], '\n')
-				if nl < 0 {
-					return []cflint.Issue{fc.IssueAt(0, "File is empty.", filepath.Base(fc.Path))}
-				}
-
-				i += nl + 1
-
-				continue
-			}
-
-			if i+1 < len(src) && src[i+1] == '*' {
-				end := strings.Index(src[i+2:], "*/")
-				if end < 0 {
-					return []cflint.Issue{fc.IssueAt(0, "File is empty.", filepath.Base(fc.Path))}
-				}
-
-				i += 2 + end + 2
-
-				continue
-			}
-
-			return nil
-		default:
-			return nil
-		}
-	}
-
-	return []cflint.Issue{fc.IssueAt(0, "File is empty.", filepath.Base(fc.Path))}
+	return nil
 }
 
 func checkQueryInCFM(fc *FileContext) []cflint.Issue {

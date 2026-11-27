@@ -79,8 +79,12 @@ func TestTierAAttributeAndFileRules(t *testing.T) {
 		t.Errorf("FILE_SHOULD_START_WITH_LOWERCASE(lower.cfm): got %v, want 0", got)
 	}
 
-	if got := runNativeRule(t, "empty.cfm", "AVOID_EMPTY_FILES", "<!--- only a comment --->\n  \n"); len(got) != 1 {
-		t.Errorf("AVOID_EMPTY_FILES: got %v, want 1", got)
+	if got := runNativeRule(t, "empty.cfm", "AVOID_EMPTY_FILES", "   \n\t\n"); len(got) != 1 {
+		t.Errorf("AVOID_EMPTY_FILES(whitespace): got %v, want 1", got)
+	}
+
+	if got := runNativeRule(t, "commented.cfm", "AVOID_EMPTY_FILES", "<!--- only a comment --->\n  \n"); len(got) != 0 {
+		t.Errorf("AVOID_EMPTY_FILES(comment-only): got %v, want 0", got)
 	}
 
 	if got := runNativeRule(t, "page.cfm", "NEVER_USE_QUERY_IN_CFM", `<cfquery name="q">SELECT 1</cfquery>`); len(got) != 1 {
