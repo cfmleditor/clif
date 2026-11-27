@@ -450,7 +450,7 @@ func scanScriptBodyScopeDepth(text string, baseOffset int, a *funcScopeAnalysis,
 				braceKinds = braceKinds[:len(braceKinds)-1]
 			}
 		case parser.TokLParen:
-			parens = append(parens, classifyScriptLParen(toks, i, prev, a))
+			parens = append(parens, classifyScriptLParen(toks, i, prev2, prev, a))
 		case parser.TokRParen:
 			if len(parens) > 0 {
 				top := parens[len(parens)-1]
@@ -523,7 +523,7 @@ func classifyScriptLBrace(prev parser.Token, pendingClosureBrace bool) braceKind
 	return braceBlock
 }
 
-func classifyScriptLParen(toks []parser.Token, lpIdx int, prev parser.Token, a *funcScopeAnalysis) parenFrame {
+func classifyScriptLParen(toks []parser.Token, lpIdx int, prev2, prev parser.Token, a *funcScopeAnalysis) parenFrame {
 	f := parenFrame{}
 
 	switch {
@@ -542,6 +542,10 @@ func classifyScriptLParen(toks []parser.Token, lpIdx int, prev parser.Token, a *
 			collectClosureParamNames(toks, lpIdx, a.catchVars)
 
 			f.isClosureParams = true
+		case prev2.Kind == parser.TokIdent && strings.EqualFold(prev2.Value, "function"):
+			// Named function declaration inside a .cfm <cfscript> block:
+			// `function helper(any a, any b) { ... }`.
+			collectClosureParamNames(toks, lpIdx, a.catchVars)
 		case !controlParenKeywords[lowPrev]:
 			f.callName = lowPrev
 		}
@@ -553,7 +557,7 @@ func classifyScriptLParen(toks []parser.Token, lpIdx int, prev parser.Token, a *
 func recordScriptIdent(toks []parser.Token, idx, baseOffset int, prev2, prev, cur, next parser.Token, inStructLit, inClosure bool, topParen parenFrame, tagStmtName string, a *funcScopeAnalysis) {
 	low := strings.ToLower(cur.Value)
 
-	if recordScopedMemberIdent(toks, idx, baseOffset, prev2, prev, cur, next, a) {
+	if recordScopedMemberIdent(toks, idx, baseOffset, prev2, prev, cur, a) {
 		return
 	}
 
@@ -655,13 +659,13 @@ func recordScriptIdent(toks []parser.Token, idx, baseOffset int, prev2, prev, cu
 	}
 }
 
-func recordScopedMemberIdent(toks []parser.Token, idx, baseOffset int, prev2, prev, cur, next parser.Token, a *funcScopeAnalysis) bool {
+func recordScopedMemberIdent(toks []parser.Token, idx, baseOffset int, prev2, prev, cur parser.Token, a *funcScopeAnalysis) bool {
 	if prev.Kind != parser.TokDot || prev2.Kind != parser.TokIdent {
 		return false
 	}
 
 	low := strings.ToLower(cur.Value)
-	isAssign := next.Kind == parser.TokEquals && isStandaloneEquals(cur, next, tokAt(toks, idx+2))
+	isAssign := isAssignLHS(toks, idx)
 
 	switch strings.ToLower(prev2.Value) {
 	case "arguments":
@@ -702,7 +706,7 @@ func tokAt(toks []parser.Token, i int) parser.Token {
 // keeping CFML string literals with nested quotes inside `#...#` interpolations
 // (e.g. `"#result[i]["item#j#_desc"]#"`) as single TokString tokens.
 func scanCFMLScriptTokens(text string) []parser.Token {
-	if !strings.ContainsRune(text, '#') {
+	if !strings.ContainsRune(text, '#') && !strings.Contains(text, "<!---") {
 		sc := parser.NewSourceScanner(text)
 
 		var toks []parser.Token
@@ -727,6 +731,12 @@ func scanCFMLScriptTokens(text string) []parser.Token {
 
 		if qIdx > pos {
 			toks = appendScannerTokens(toks, text[pos:qIdx], pos)
+		}
+
+		if strings.HasPrefix(text[qIdx:], "<!---") {
+			pos = parser.SkipCFMLComment(text, qIdx)
+
+			continue
 		}
 
 		if strings.HasPrefix(text[qIdx:], "//") {
@@ -778,6 +788,10 @@ func findNextQuoteOrComment(s string, start int) int {
 			return i
 		case '/':
 			if i+1 < len(s) && (s[i+1] == '/' || s[i+1] == '*') {
+				return i
+			}
+		case '<':
+			if strings.HasPrefix(s[i:], "<!---") {
 				return i
 			}
 		}
@@ -1231,6 +1245,9 @@ func checkCFMImplicitScope(fc *FileContext, compVars map[string]bool) []cflint.I
 		}
 	}
 
+	// Collect `returnVariable="..."` bindings from custom tags (`<prefix:tag ...>` / `<cf_tag ...>`).
+	collectCustomTagReturnVars(src, a)
+
 	cfoutputDepth := 0
 
 	for _, r := range fc.Regions() {
@@ -1437,6 +1454,45 @@ func scanHashExprsInRange(text string, baseOffset int, a *funcScopeAnalysis) {
 		}
 
 		i = end
+	}
+}
+
+// collectCustomTagReturnVars extracts `returnVariable="name"` bindings from
+// custom tags (`<ns:tag ...>` or `<cf_tag ...>`) so variables populated by
+// custom tags are recognized as established in `.cfm` templates.
+func collectCustomTagReturnVars(src string, a *funcScopeAnalysis) {
+	if parser.IndexFold(src, "returnvariable") < 0 {
+		return
+	}
+
+	pos := 0
+	for {
+		rel := parser.IndexFold(src[pos:], "returnvariable")
+		if rel < 0 {
+			return
+		}
+
+		idx := pos + rel
+		pos = idx + len("returnvariable")
+
+		if idx > 0 && isIdentChar(src[idx-1]) {
+			continue
+		}
+
+		rest := strings.TrimLeft(src[pos:], " \t\r\n")
+		if !strings.HasPrefix(rest, "=") {
+			continue
+		}
+
+		rest = strings.TrimLeft(rest[1:], " \t\r\n")
+		if len(rest) < 2 || (rest[0] != '"' && rest[0] != '\'') {
+			continue
+		}
+
+		q := rest[0]
+		if end := strings.IndexByte(rest[1:], q); end > 0 {
+			recordOutputVarName(rest[1:1+end], idx, a)
+		}
 	}
 }
 

@@ -266,4 +266,36 @@ func TestRuleParityClosureAndTagFixes(t *testing.T) {
 	if got := runNativeRule(t, "app.cfc", "GLOBAL_VAR", globalThisSrc); len(got) != 1 {
 		t.Errorf("GLOBAL_VAR on this + request = %v, want 1 (request only)", got)
 	}
+
+	// `<!--- CFLINT-DISABLE RULE --->` suppresses the following tag.
+	disableSrc := "<cfsavecontent variable=\"x\">\n\t<!--- CFLINT-DISABLE AVOID_USING_CFDUMP_TAG --->\n\t<cfdump var=\"#x#\" />\n</cfsavecontent>\n"
+	if got := runNativeRule(t, "dbg.cfc", "AVOID_USING_CFDUMP_TAG", disableSrc); len(got) != 0 {
+		t.Errorf("AVOID_USING_CFDUMP_TAG under CFLINT-DISABLE = %v, want 0", got)
+	}
+
+	// Query-of-Queries (`dbtype="query"`) should not trigger CFQUERYPARAM_REQ.
+	qoqSrc := "<cfquery name=\"q\" dbtype=\"query\">SELECT id FROM src ORDER BY #arguments.col#</cfquery>\n"
+	if got := runNativeRule(t, "q.cfc", "CFQUERYPARAM_REQ", qoqSrc); len(got) != 0 {
+		t.Errorf("CFQUERYPARAM_REQ on dbtype=query = %v, want 0", got)
+	}
+
+	// Dotted assignment `VARIABLES.persist.fn = ...` is an assignment, not an ARG_VAR_MIXED read.
+	dottedVarAssign := "<cffunction name=\"init\"><cfargument name=\"persist\" type=\"any\"><cfset VARIABLES.persist = ARGUMENTS.persist><cfset VARIABLES.persist.helper = VARIABLES.helper></cffunction>\n"
+	if got := runNativeRule(t, "svc.cfc", "ARG_VAR_MIXED", dottedVarAssign); len(got) != 0 {
+		t.Errorf("ARG_VAR_MIXED on VARIABLES.persist.helper = ... = %v, want 0", got)
+	}
+
+	// Inline `<!--- ... --->` comment inside a multi-line `<cfset fn(...)>` call
+	// must not break paren tracking and trigger ARG_VAR_CONFLICT on named args.
+	cfsetCommentCall := "<cffunction name=\"run\"><cfargument name=\"ctx\" type=\"any\"><cfset helper(\n\t<!--- disabled arg --->\n\tctx=ARGUMENTS.ctx)></cffunction>\n"
+	if got := runNativeRule(t, "svc.cfc", "ARG_VAR_CONFLICT", cfsetCommentCall); len(got) != 0 {
+		t.Errorf("ARG_VAR_CONFLICT on cfset call with inline comment = %v, want 0", got)
+	}
+
+	// Named UDF params in `.cfm <cfscript>` and custom-tag `returnVariable`
+	// should not trigger IMPLICIT_SCOPE.
+	cfmUDFAndCustom := "<ns:lock returnVariable=\"isLocked\"></ns:lock><cfif isLocked><cfscript>function sortIt(any a, any k){ return a; }</cfscript></cfif>\n"
+	if got := runNativeRule(t, "page.cfm", "IMPLICIT_SCOPE", cfmUDFAndCustom); len(got) != 0 {
+		t.Errorf("IMPLICIT_SCOPE on .cfm UDF params / custom-tag returnVariable = %v, want 0", got)
+	}
 }
