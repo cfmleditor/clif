@@ -52,8 +52,9 @@ func ParseSuppressions(content string) *LineSuppressions {
 		}
 	}
 
-	// 3. Multiline `<!--- ... @CFLintIgnore CODE ... --->` comments.
-	s.parseMultilineTagIgnores(content, lines)
+	// 3. Multiline `<!--- ... @CFLintIgnore CODE ... --->` and `/* ... @CFLintIgnore CODE ... */` comments.
+	s.parseMultilineBlockIgnores(content, lines, "<!---", "--->")
+	s.parseMultilineBlockIgnores(content, lines, "/*", "*/")
 
 	return s
 }
@@ -66,23 +67,40 @@ func (s *LineSuppressions) addNextNonBlank(lines []string, startIdx int, codes [
 		}
 
 		s.addLine(next+1, codes)
-		s.extendOverMultilineTag(lines, next, trimmed, codes)
+		s.extendOverTarget(lines, next, trimmed, codes)
 
 		return
 	}
 }
 
-// extendOverMultilineTag extends a suppression placed directly above a
-// multi-line opening tag (e.g. multi-line <cfif>, <cfset>, <cfloop>) to cover
-// all lines of that tag's header, and for <cfquery> covers its SQL body up to
-// </cfquery>. It intentionally does NOT extend over container blocks like
-// <cffunction>, <cftry>, or <cfcomponent>.
-func (s *LineSuppressions) extendOverMultilineTag(lines []string, startIdx int, trimmed string, codes []string) {
-	if !strings.HasPrefix(trimmed, "<") || strings.HasPrefix(trimmed, "</") || strings.HasPrefix(trimmed, "<!") {
+// extendOverTarget extends a suppression placed directly above a multi-line
+// opening tag (e.g. `<cfif>`, `<cfset>`, `<cfloop>`), a `<cfquery>`,
+// `<cfscript>`, `<cffunction>`, `<cfcomponent>`, or a script `component`/`function`
+// declaration to cover that target's body. It intentionally does NOT extend over
+// arbitrary container tags like `<cftry>`.
+func (s *LineSuppressions) extendOverTarget(lines []string, startIdx int, trimmed string, codes []string) {
+	low := strings.ToLower(trimmed)
+
+	// Script `component ... {` suppresses the whole component file.
+	if isScriptComponentHeader(low) {
+		s.addFileWide(codes)
+
 		return
 	}
 
-	low := strings.ToLower(trimmed)
+	// Script `[access] [returntype] function name(...) {` covers the function body.
+	if isScriptFunctionHeader(low) {
+		endIdx := findBraceBlockEndLine(lines, startIdx)
+		for l := startIdx; l <= endIdx; l++ {
+			s.addLine(l+1, codes)
+		}
+
+		return
+	}
+
+	if !strings.HasPrefix(trimmed, "<") || strings.HasPrefix(trimmed, "</") || strings.HasPrefix(trimmed, "<!") {
+		return
+	}
 
 	// 1. Cover all lines of a multi-line opening tag `<cf... \n ... >`.
 	endTagIdx := findTagCloseLine(lines, startIdx)
@@ -90,15 +108,87 @@ func (s *LineSuppressions) extendOverMultilineTag(lines []string, startIdx int, 
 		s.addLine(l+1, codes)
 	}
 
-	// 2. For `<cfquery>`, cover the whole query body through `</cfquery>`.
-	if strings.HasPrefix(low, "<cfquery") && (len(low) == 8 || !isTagNameChar(low[8])) {
-		for l := startIdx; l < len(lines); l++ {
-			s.addLine(l+1, codes)
+	// 2. `<cfcomponent>` suppresses the entire component file.
+	if hasTagPrefix(low, "<cfcomponent") {
+		s.addFileWide(codes)
 
-			if strings.Contains(strings.ToLower(lines[l]), "</cfquery>") {
-				return
+		return
+	}
+
+	// 3. Cover body of `<cfquery>`, `<cffunction>`, and `<cfscript>` through closing tag.
+	for _, pair := range [][2]string{
+		{"<cfquery", "</cfquery>"},
+		{"<cffunction", "</cffunction>"},
+		{"<cfscript", "</cfscript>"},
+	} {
+		if hasTagPrefix(low, pair[0]) {
+			for l := startIdx; l < len(lines); l++ {
+				s.addLine(l+1, codes)
+
+				if strings.Contains(strings.ToLower(lines[l]), pair[1]) {
+					return
+				}
 			}
 		}
+	}
+}
+
+func hasTagPrefix(low, prefix string) bool {
+	return strings.HasPrefix(low, prefix) && (len(low) == len(prefix) || !isTagNameChar(low[len(prefix)]))
+}
+
+func isScriptComponentHeader(low string) bool {
+	if !strings.HasPrefix(low, "component") {
+		return false
+	}
+
+	return len(low) == len("component") || !isTagNameChar(low[len("component")])
+}
+
+func isScriptFunctionHeader(low string) bool {
+	idx := strings.Index(low, "function")
+	if idx < 0 {
+		return false
+	}
+
+	if idx > 0 && isTagNameChar(low[idx-1]) {
+		return false
+	}
+
+	after := idx + len("function")
+	if after < len(low) && isTagNameChar(low[after]) {
+		return false
+	}
+
+	return strings.Contains(low[after:], "(")
+}
+
+func findBraceBlockEndLine(lines []string, startIdx int) int {
+	depth := 0
+	opened := false
+
+	for l := startIdx; l < len(lines); l++ {
+		line := lines[l]
+		for i := range len(line) {
+			switch line[i] {
+			case '{':
+				depth++
+				opened = true
+			case '}':
+				depth--
+				if opened && depth == 0 {
+					return l
+				}
+			}
+		}
+	}
+
+	return startIdx
+}
+
+func (s *LineSuppressions) addFileWide(codes []string) {
+	for _, c := range codes {
+		s.fileWide[c] = true
 	}
 }
 
@@ -146,12 +236,12 @@ func findTagCloseLine(lines []string, startIdx int) int {
 	return startIdx
 }
 
-func (s *LineSuppressions) parseMultilineTagIgnores(content string, lines []string) {
+func (s *LineSuppressions) parseMultilineBlockIgnores(content string, lines []string, openTok, closeTok string) {
 	pos := 0
 	lineNum := 1 // 1-based line at pos; advanced incrementally so scanning is O(N)
 
 	for {
-		openRel := strings.Index(content[pos:], "<!---")
+		openRel := strings.Index(content[pos:], openTok)
 		if openRel < 0 {
 			return
 		}
@@ -159,13 +249,13 @@ func (s *LineSuppressions) parseMultilineTagIgnores(content string, lines []stri
 		openIdx := pos + openRel
 		startLine := lineNum + strings.Count(content[pos:openIdx], "\n")
 
-		closeRel := strings.Index(content[openIdx+5:], "--->")
+		closeRel := strings.Index(content[openIdx+len(openTok):], closeTok)
 		if closeRel < 0 {
 			return
 		}
 
-		closeEnd := openIdx + 5 + closeRel + 4
-		body := content[openIdx+5 : openIdx+5+closeRel]
+		closeEnd := openIdx + len(openTok) + closeRel + len(closeTok)
+		body := content[openIdx+len(openTok) : openIdx+len(openTok)+closeRel]
 		endLine := startLine + strings.Count(content[openIdx:closeEnd], "\n")
 
 		pos = closeEnd

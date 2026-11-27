@@ -1,0 +1,34 @@
+{
+  "version" : "",
+  "timestamp" : 1526095031,
+  "issues" : [ {
+    "severity" : "WARNING",
+    "id" : "CFQUERYPARAM_REQ",
+    "message" : "CFQUERYPARAM_REQ",
+    "category" : "CFLINT",
+    "abbrev" : "CR",
+    "locations" : [ {
+      "file" : "src\\test\\resources\\com\\cflint\\tests\\Query\\cfquery_param3.cfc",
+      "fileName" : "cfquery_param3.cfc",
+      "function" : "foo",
+      "offset" : 123,
+      "column" : 20,
+      "line" : 4,
+      "message" : "<cfquery> should use <cfqueryparam/> for variable 'arguments.count'.",
+      "variable" : "arguments.count",
+      "expression" : "<cfquery name=\"local.something\" datasource=\"#variables.DSN#\">\n\t\t      SELECT top #arguments.count#\n\t\t      \tfooCol1, siteID, fooCol3\n\t\t      FROM\n\t\t      FooTable\n\t\t</cfquery>"
+    } ]
+  } ],
+  "counts" : {
+    "totalFiles" : 0,
+    "totalLines" : 0,
+    "countByCode" : [ {
+      "code" : "CFQUERYPARAM_REQ",
+      "count" : 1
+    } ],
+    "countBySeverity" : [ {
+      "severity" : "WARNING",
+      "count" : 1
+    } ]
+  }
+}

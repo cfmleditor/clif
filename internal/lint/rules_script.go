@@ -24,6 +24,7 @@ var bannedCallRules = []bannedCallRule{
 	{"AVOID_USING_CREATEOBJECT", "createObject", "INFO"},
 	{"AVOID_USING_EVALUATE", "evaluate", "WARNING"},
 	{"AVOID_USING_ISDEFINED", "isDefined", "WARNING"},
+	{"AVOID_USING_ISDATE", "isDate", "WARNING"},
 }
 
 func registerScriptRules(reg *Registry) {

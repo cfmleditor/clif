@@ -1,0 +1,12 @@
+{
+  "rule" : [ ],
+  "excludes" : [ ],
+  "includes" : [ {
+    "code" : "MISSING_VAR"
+  }, {
+    "code" : "QUERYPARAM_REQ"
+  }, {
+    "code" : "CFQUERYPARAM_REQ"
+  }],
+  "inheritParent" : false
+}

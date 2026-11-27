@@ -1,0 +1,34 @@
+{
+  "version" : "",
+  "timestamp" : 1526095019,
+  "issues" : [ {
+    "severity" : "WARNING",
+    "id" : "AVOID_USING_ISDATE",
+    "message" : "AVOID_USING_ISDATE",
+    "category" : "CFLINT",
+    "abbrev" : "AU",
+    "locations" : [ {
+      "file" : "src\\test\\resources\\com\\cflint\\tests\\BuiltInFunctionChecker\\isDate1.cfm",
+      "fileName" : "isDate1.cfm",
+      "function" : "foo",
+      "offset" : 47,
+      "column" : 17,
+      "line" : 3,
+      "message" : "Avoid using the isDate built-in function.  It is too permissive.  Use isValid() instead.",
+      "variable" : "",
+      "expression" : "isDate(1.5)"
+    } ]
+  } ],
+  "counts" : {
+    "totalFiles" : 0,
+    "totalLines" : 0,
+    "countByCode" : [ {
+      "code" : "AVOID_USING_ISDATE",
+      "count" : 1
+    } ],
+    "countBySeverity" : [ {
+      "severity" : "WARNING",
+      "count" : 1
+    } ]
+  }
+}

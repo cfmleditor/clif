@@ -1,0 +1,10 @@
+{
+  "rule" : [ ],
+  "excludes" : [ ],
+  "includes" : [ {
+    "code" : "AVOID_USING_WRITEDUMP",
+    "messageText" : null,
+    "severity" : null
+  } ],
+  "inheritParent" : false
+}

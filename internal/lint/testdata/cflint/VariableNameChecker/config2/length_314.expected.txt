@@ -1,0 +1,54 @@
+{
+  "version" : "",
+  "timestamp" : 1526095035,
+  "issues" : [ {
+    "severity" : "INFO",
+    "id" : "VAR_TOO_LONG",
+    "message" : "VAR_TOO_LONG",
+    "category" : "CFLINT",
+    "abbrev" : "VT",
+    "locations" : [ {
+      "file" : "src\\test\\resources\\com\\cflint\\tests\\VariableNameChecker\\config2\\length_314.cfc",
+      "fileName" : "length_314.cfc",
+      "function" : "init",
+      "offset" : 94,
+      "column" : 10,
+      "line" : 7,
+      "message" : "Variable asdfghjklasdfghj should be shorter than 15 characters.",
+      "variable" : "asdfghjklasdfghj",
+      "expression" : "var asdfghjklasdfghj = 10"
+    } ]
+  }, {
+    "severity" : "INFO",
+    "id" : "VAR_TOO_SHORT",
+    "message" : "VAR_TOO_SHORT",
+    "category" : "CFLINT",
+    "abbrev" : "VT",
+    "locations" : [ {
+      "file" : "src\\test\\resources\\com\\cflint\\tests\\VariableNameChecker\\config2\\length_314.cfc",
+      "fileName" : "length_314.cfc",
+      "function" : "init",
+      "offset" : 58,
+      "column" : 9,
+      "line" : 5,
+      "message" : "Variable q12 should be longer than 4 characters.",
+      "variable" : "q12",
+      "expression" : "var q12 = 123"
+    } ]
+  } ],
+  "counts" : {
+    "totalFiles" : 0,
+    "totalLines" : 0,
+    "countByCode" : [ {
+      "code" : "VAR_TOO_SHORT",
+      "count" : 1
+    }, {
+      "code" : "VAR_TOO_LONG",
+      "count" : 1
+    } ],
+    "countBySeverity" : [ {
+      "severity" : "INFO",
+      "count" : 2
+    } ]
+  }
+}

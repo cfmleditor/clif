@@ -1,0 +1,68 @@
+{
+  "version" : "",
+  "timestamp" : 1526095026,
+  "issues" : [ {
+    "severity" : "INFO",
+    "id" : "GLOBAL_LITERAL_VALUE_USED_TOO_OFTEN",
+    "message" : "GLOBAL_LITERAL_VALUE_USED_TOO_OFTEN",
+    "category" : "CFLINT",
+    "abbrev" : "GL",
+    "locations" : [ {
+      "file" : "src\\test\\resources\\com\\cflint\\tests\\Includes\\Header.cfm",
+      "fileName" : "Header.cfm",
+      "function" : "",
+      "offset" : 169,
+      "column" : 71,
+      "line" : 2,
+      "message" : "Literal companyName occurs several times in one or more files. Consider giving it a name and not hard coding values.",
+      "variable" : "companyName",
+      "expression" : "'companyName'"
+    } ]
+  }, {
+    "severity" : "INFO",
+    "id" : "GLOBAL_LITERAL_VALUE_USED_TOO_OFTEN",
+    "message" : "GLOBAL_LITERAL_VALUE_USED_TOO_OFTEN",
+    "category" : "CFLINT",
+    "abbrev" : "GL",
+    "locations" : [ {
+      "file" : "src\\test\\resources\\com\\cflint\\tests\\Includes\\Header.cfm",
+      "fileName" : "Header.cfm",
+      "function" : "",
+      "offset" : 230,
+      "column" : 33,
+      "line" : 3,
+      "message" : "Literal companyName occurs several times in one or more files. Consider giving it a name and not hard coding values.",
+      "variable" : "companyName",
+      "expression" : "'companyName'"
+    } ]
+  }, {
+    "severity" : "INFO",
+    "id" : "GLOBAL_LITERAL_VALUE_USED_TOO_OFTEN",
+    "message" : "GLOBAL_LITERAL_VALUE_USED_TOO_OFTEN",
+    "category" : "CFLINT",
+    "abbrev" : "GL",
+    "locations" : [ {
+      "file" : "src\\test\\resources\\com\\cflint\\tests\\Includes\\Header.cfm",
+      "fileName" : "Header.cfm",
+      "function" : "",
+      "offset" : 268,
+      "column" : 71,
+      "line" : 3,
+      "message" : "Literal companyName occurs several times in one or more files. Consider giving it a name and not hard coding values.",
+      "variable" : "companyName",
+      "expression" : "'companyName'"
+    } ]
+  } ],
+  "counts" : {
+    "totalFiles" : 0,
+    "totalLines" : 0,
+    "countByCode" : [ {
+      "code" : "GLOBAL_LITERAL_VALUE_USED_TOO_OFTEN",
+      "count" : 3
+    } ],
+    "countBySeverity" : [ {
+      "severity" : "INFO",
+      "count" : 3
+    } ]
+  }
+}

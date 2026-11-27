@@ -1,0 +1,9 @@
+{
+  "rule" : [ ],
+  "excludes" : [ ],
+  "includes" : [ {
+    "code" : "MISSING_VAR"
+  },
+  { "code" : "PARSE_ERROR"} ],
+  "inheritParent" : false
+}

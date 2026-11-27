@@ -22,8 +22,22 @@ type rcEntry struct {
 	Severity string `json:"severity,omitempty"`
 }
 
+// rcParam represents one `{name, value}` entry in a `.cflintrc` rule's parameter list.
+type rcParam struct {
+	Name  string `json:"name"`
+	Value any    `json:"value"`
+}
+
+// rcRule represents one entry in a `.cflintrc` "rule" array.
+type rcRule struct {
+	Name      string    `json:"name"`
+	ClassName string    `json:"className"`
+	Parameter []rcParam `json:"parameter"`
+}
+
 // rcFile is the on-disk JSON schema of a .cflintrc file.
 type rcFile struct {
+	Rule          []rcRule       `json:"rule"`
 	Includes      []rcEntry      `json:"includes"`
 	Excludes      []rcEntry      `json:"excludes"`
 	InheritParent *bool          `json:"inheritParent"`
@@ -117,6 +131,24 @@ func LoadRCForDir(dir string) (*RCConfig, error) {
 		}
 
 		maps.Copy(cfg.Parameters, rc.Parameters)
+
+		for _, r := range rc.Rule {
+			ruleKey := strings.TrimSpace(r.Name)
+			if ruleKey == "" {
+				ruleKey = strings.TrimSpace(r.ClassName)
+			}
+
+			if ruleKey == "" {
+				continue
+			}
+
+			for _, p := range r.Parameter {
+				pName := strings.TrimSpace(p.Name)
+				if pName != "" {
+					cfg.Parameters[ruleKey+"."+pName] = p.Value
+				}
+			}
+		}
 
 		for _, pat := range rc.ExcludeFiles {
 			if strings.TrimSpace(pat) == "" {

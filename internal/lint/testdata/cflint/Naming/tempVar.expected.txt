@@ -1,0 +1,34 @@
+{
+  "version" : "",
+  "timestamp" : 1526095027,
+  "issues" : [ {
+    "severity" : "INFO",
+    "id" : "VAR_IS_TEMPORARY",
+    "message" : "VAR_IS_TEMPORARY",
+    "category" : "CFLINT",
+    "abbrev" : "VI",
+    "locations" : [ {
+      "file" : "src\\test\\resources\\com\\cflint\\tests\\Naming\\tempVar.cfc",
+      "fileName" : "tempVar.cfc",
+      "function" : "foo",
+      "offset" : 45,
+      "column" : 12,
+      "line" : 3,
+      "message" : "Temporary variable tempStruct could be named better.",
+      "variable" : "tempStruct",
+      "expression" : "var tempStruct = {}"
+    } ]
+  } ],
+  "counts" : {
+    "totalFiles" : 0,
+    "totalLines" : 0,
+    "countByCode" : [ {
+      "code" : "VAR_IS_TEMPORARY",
+      "count" : 1
+    } ],
+    "countBySeverity" : [ {
+      "severity" : "INFO",
+      "count" : 1
+    } ]
+  }
+}

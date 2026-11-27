@@ -130,6 +130,15 @@ type FileContext struct {
 	scopesOnce sync.Once
 	scopes     []*funcScopeAnalysis
 
+	unusedOnce sync.Once
+	unused     []*unusedFuncAnalysis
+
+	varSitesOnce sync.Once
+	varSites     []varNameSite
+
+	funcArgsOnce sync.Once
+	funcArgs     []namedArg
+
 	treeOnce sync.Once
 	tree     *sitter.Tree
 }
@@ -151,6 +160,49 @@ func (fc *FileContext) functionScopes() []*funcScopeAnalysis {
 	})
 
 	return fc.scopes
+}
+
+// unusedAnalyses lazily computes per-function unused-variable/argument analysis
+// once so UNUSED_LOCAL_VARIABLE and UNUSED_METHOD_ARGUMENT share a single pass.
+func (fc *FileContext) unusedAnalyses() []*unusedFuncAnalysis {
+	fc.unusedOnce.Do(func() {
+		src := fc.Text()
+		spans := fc.ParseResult().FunctionSpans()
+		out := make([]*unusedFuncAnalysis, 0, len(spans))
+
+		for i := range spans {
+			sp := &spans[i]
+			if sp.Body < 0 || sp.End <= sp.Body {
+				continue
+			}
+
+			out = append(out, analyzeFuncUnused(src, sp))
+		}
+
+		fc.unused = out
+	})
+
+	return fc.unused
+}
+
+// varNameSites lazily collects variable naming sites once so all 7 VAR_* rules
+// share a single pass over the file.
+func (fc *FileContext) varNameSites() []varNameSite {
+	fc.varSitesOnce.Do(func() {
+		fc.varSites = collectVarNameSites(fc)
+	})
+
+	return fc.varSites
+}
+
+// functionArgs lazily collects function argument declarations once so ARGUMENT_*
+// naming rules share a single pass.
+func (fc *FileContext) functionArgs() []namedArg {
+	fc.funcArgsOnce.Do(func() {
+		fc.funcArgs = collectAllFunctionArgs(fc)
+	})
+
+	return fc.funcArgs
 }
 
 // ParseResult lazily parses the file with clif's internal parser and caches
@@ -187,12 +239,13 @@ func (fc *FileContext) Regions() []parser.Region {
 		src := fc.Text()
 		regions := parser.ClassifyRegions(src)
 
-		// A .cfm template is never pure CFScript outside explicit <cfscript>
+		// A .cfm template is normally tag-mode outside explicit <cfscript>
 		// tags; ClassifyRegions falls back to RegionScript when a file has no
-		// <cf...> tags at all (e.g. a pure HTML partial), so keep it RegionTag.
+		// <cf...> tags at all (e.g. a pure HTML partial), so keep it RegionTag
+		// unless it explicitly starts with a script `component`/`interface` header.
 		if strings.EqualFold(filepath.Ext(fc.Path), ".cfm") &&
 			len(regions) == 1 && regions[0].Kind == parser.RegionScript &&
-			parser.IndexFold(src, "<cfscript") < 0 {
+			parser.IndexFold(src, "<cfscript") < 0 && !startsWithScriptComponent(src) {
 			regions[0].Kind = parser.RegionTag
 		}
 
@@ -200,6 +253,13 @@ func (fc *FileContext) Regions() []parser.Region {
 	})
 
 	return fc.regions
+}
+
+func startsWithScriptComponent(src string) bool {
+	sc := parser.NewSourceScanner(src)
+	tok := sc.NextSkipComments()
+
+	return tok.Kind == parser.TokIdent && (strings.EqualFold(tok.Value, "component") || strings.EqualFold(tok.Value, "interface"))
 }
 
 // Pos1 converts a 0-based byte offset into 1-based (line, column).

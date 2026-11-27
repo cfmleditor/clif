@@ -1,0 +1,34 @@
+{
+  "version" : "",
+  "timestamp" : 1526095027,
+  "issues" : [ {
+    "severity" : "ERROR",
+    "id" : "MISSING_SEMI",
+    "message" : "MISSING_SEMI",
+    "category" : "CFLINT",
+    "abbrev" : "MS",
+    "locations" : [ {
+      "file" : "src\\test\\resources\\com\\cflint\\tests\\MissingSemiColon\\missingSemis1.cfc",
+      "fileName" : "missingSemis1.cfc",
+      "function" : "",
+      "offset" : 37,
+      "column" : 6,
+      "line" : 3,
+      "message" : "End of statement(;) expected after name_1",
+      "variable" : "name_1",
+      "expression" : ""
+    } ]
+  } ],
+  "counts" : {
+    "totalFiles" : 0,
+    "totalLines" : 0,
+    "countByCode" : [ {
+      "code" : "MISSING_SEMI",
+      "count" : 1
+    } ],
+    "countBySeverity" : [ {
+      "severity" : "ERROR",
+      "count" : 1
+    } ]
+  }
+}

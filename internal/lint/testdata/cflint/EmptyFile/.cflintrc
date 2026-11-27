@@ -1,0 +1,10 @@
+{
+  "rule" : [ ],
+  "excludes" : [ ],
+  "includes" : [ {
+    "code" : "AVOID_EMPTY_FILES",
+    "messageText" : null,
+    "severity" : null
+  }],
+  "inheritParent" : false
+}

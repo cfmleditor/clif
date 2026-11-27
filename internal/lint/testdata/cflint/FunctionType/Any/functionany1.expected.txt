@@ -1,0 +1,34 @@
+{
+  "version" : "",
+  "timestamp" : 1526095023,
+  "issues" : [ {
+    "severity" : "INFO",
+    "id" : "FUNCTION_TYPE_ANY",
+    "message" : "FUNCTION_TYPE_ANY",
+    "category" : "CFLINT",
+    "abbrev" : "FT",
+    "locations" : [ {
+      "file" : "src\\test\\resources\\com\\cflint\\tests\\FunctionType\\Any\\functionany1.cfc",
+      "fileName" : "functionany1.cfc",
+      "function" : "x",
+      "offset" : 24,
+      "column" : 11,
+      "line" : 3,
+      "message" : "Function x return type is any. Please change to be a more specific type.",
+      "variable" : "x",
+      "expression" : "public any function x()   {\nx = 123;\n\n  }"
+    } ]
+  } ],
+  "counts" : {
+    "totalFiles" : 0,
+    "totalLines" : 0,
+    "countByCode" : [ {
+      "code" : "FUNCTION_TYPE_ANY",
+      "count" : 1
+    } ],
+    "countBySeverity" : [ {
+      "severity" : "INFO",
+      "count" : 1
+    } ]
+  }
+}
