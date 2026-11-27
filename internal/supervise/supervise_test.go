@@ -837,8 +837,9 @@ func TestAServerKilledByTheClosedPipeAfterExitEndsCleanly(t *testing.T) {
 
 	done := run(t, editorEnd, sv, Options{Log: func(msg string) {
 		mu.Lock()
+		defer mu.Unlock()
+
 		logged = append(logged, msg)
-		mu.Unlock()
 	}})
 
 	e.start()
