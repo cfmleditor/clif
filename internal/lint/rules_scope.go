@@ -41,7 +41,8 @@ var cfmlScopes = map[string]bool{
 	"local": true, "arguments": true, "variables": true, "this": true, "super": true,
 	"application": true, "session": true, "request": true, "server": true,
 	"form": true, "url": true, "cookie": true, "cgi": true, "client": true,
-	"cfcatch": true, "caller": true, "attributes": true, "thistag": true, "thread": true,
+	"cfcatch": true, "caller": true, "attributes": true, "thistag": true,
+	"thread": true, "cfthread": true, "file": true,
 	"cffile": true, "cfhttp": true, "cfquery": true, "cfstoredproc": true,
 }
 
@@ -926,6 +927,8 @@ func issueInFunc(fc *FileContext, offset int, msg, variable, funcName string) cf
 }
 
 func checkUnscopedUses(fc *FileContext, pick func(*funcScopeAnalysis) []identUse, msgFmt string) []cflint.Issue {
+	compVars := collectComponentVars(fc)
+
 	var out []cflint.Issue
 
 	for _, a := range fc.functionScopes() {
@@ -933,7 +936,7 @@ func checkUnscopedUses(fc *FileContext, pick func(*funcScopeAnalysis) []identUse
 
 		for _, u := range pick(a) {
 			low := strings.ToLower(u.name)
-			if reported[low] || a.params[low] || a.localAssign[low] || a.catchVars[low] {
+			if reported[low] || a.params[low] || a.localAssign[low] || a.catchVars[low] || compVars[low] {
 				continue
 			}
 

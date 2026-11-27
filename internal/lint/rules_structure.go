@@ -124,8 +124,12 @@ func checkOutputAttr(fc *FileContext) []cflint.Issue {
 			continue
 		}
 
+		// Collect expression-bearing tags so `<cffunction` inside a `<cfset>`
+		// regex string literal is not mistaken for a real `<cffunction>` tag.
+		exprTags := parser.CFTags(r.Text, "cfset", "cfif", "cfelseif", "cfreturn")
+
 		for _, tag := range parser.CFTags(r.Text, "cffunction") {
-			if tag.Close {
+			if tag.Close || insideAnyTag(tag.Start, exprTags) {
 				continue
 			}
 
@@ -141,6 +145,16 @@ func checkOutputAttr(fc *FileContext) []cflint.Issue {
 	}
 
 	return out
+}
+
+func insideAnyTag(offset int, tags []parser.CFTag) bool {
+	for i := range tags {
+		if offset > tags[i].Start && offset < tags[i].End {
+			return true
+		}
+	}
+
+	return false
 }
 
 func checkNestedCFOutput(fc *FileContext) []cflint.Issue {

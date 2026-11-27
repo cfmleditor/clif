@@ -145,9 +145,24 @@ func TestRuleParityFixes(t *testing.T) {
 			t.Errorf("PARSE_ERROR on </cfsetting> = %v, want 0", got)
 		}
 
-		// <cffunction inside a cfscript regex string literal should not trigger OUTPUT_ATTR.
+		// <cffunction inside a cfscript or <cfset> regex string literal should not trigger OUTPUT_ATTR.
 		if got := runNativeRule(t, "lib.cfc", "OUTPUT_ATTR", "component {\n\tfunction f() {\n\t\tvar re = \"<cffunction[^>]+>\";\n\t}\n}\n"); len(got) != 0 {
 			t.Errorf("OUTPUT_ATTR on <cffunction in script string = %v, want 0", got)
+		}
+
+		if got := runNativeRule(t, "lib.cfm", "OUTPUT_ATTR", `<cfset re = "<cffunction name=""init""[^>]*>">`); len(got) != 0 {
+			t.Errorf("OUTPUT_ATTR on <cffunction in <cfset> string = %v, want 0", got)
+		}
+
+		// Updating a declared component VARIABLES field inside a method is not MISSING_VAR.
+		compField := "<cfcomponent output=\"false\">\n\t<cfset VARIABLES.ready = false />\n\t<cffunction name=\"markReady\" output=\"false\">\n\t\t<cfset ready = true />\n\t</cffunction>\n</cfcomponent>\n"
+		if got := runNativeRule(t, "svc.cfc", "MISSING_VAR", compField); len(got) != 0 {
+			t.Errorf("MISSING_VAR on declared component field = %v, want 0", got)
+		}
+
+		// Built-in scopes cfthread and file should not trigger IMPLICIT_SCOPE.
+		if got := runNativeRule(t, "svc.cfc", "IMPLICIT_SCOPE", "component {\n\tfunction f() {\n\t\treturn structKeyExists(cfthread, 't1') && structKeyExists(file, 'name');\n\t}\n}\n"); len(got) != 0 {
+			t.Errorf("IMPLICIT_SCOPE on cfthread/file scopes = %v, want 0", got)
 		}
 
 		// Numeric struct key `.1.title` should not trigger MISSING_VAR on `title`.
