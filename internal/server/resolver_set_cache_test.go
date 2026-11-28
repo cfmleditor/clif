@@ -198,3 +198,43 @@ func TestAWatchedUnrelatedFileBuildsNoResolver(t *testing.T) {
 		t.Error("a watched batch of unrelated files built the resolver")
 	}
 }
+
+// TestAKeptEmptyResolverSetIsAnsweredByOneResolver: a session that kept an
+// empty resolver set holds no resolver of its own, and an unrelated save asks
+// the one it is answered by. That builds it once; the saves after it must not
+// read the project again.
+func TestAKeptEmptyResolverSetIsAnsweredByOneResolver(t *testing.T) {
+	root := t.TempDir()
+	writeCFC(t, root+"/Plain.cfc", "component { function run() {} }")
+
+	counting := &readCountingFS{FS: vfs.OS{}}
+	s := newTestServer()
+	s.FS = counting
+	s.WorkspaceFolders = []string{root}
+
+	s.cfResolverSet()
+
+	if s.resolver != nil || !s.resolversBuilt {
+		t.Fatalf("want a kept empty set and no resolver, got resolver %v and built %v", s.resolver != nil, s.resolversBuilt)
+	}
+
+	s.invalidateSourceFile(root + "/README.md")
+
+	if s.resolver == nil {
+		t.Fatal("the save did not use a resolver to answer")
+	}
+
+	first := counting.reads.Load()
+
+	for range 20 {
+		s.invalidateSourceFile(root + "/README.md")
+	}
+
+	if got := counting.reads.Load(); got != first {
+		t.Errorf("20 more unrelated saves read the file system %d more times; want none", got-first)
+	}
+
+	if !s.resolversBuilt {
+		t.Error("an unrelated save dropped the kept resolver set")
+	}
+}

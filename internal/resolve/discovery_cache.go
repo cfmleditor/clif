@@ -59,8 +59,10 @@ func (d *DiscoveryDependencies) contains(file string) bool {
 	return false
 }
 
-// reads reports whether file was read or probed as a file, or is an entry of a
-// directory that was listed.
+// reads reports whether file was read or probed as a file. A directory listing
+// does not count: discovery lists directories to find sources and the names it
+// compares (config/ColdBox.cfc, ModuleConfig.cfc), never to find a file that is
+// no source, which it probes by exact path.
 func (d *DiscoveryDependencies) reads(file string) bool {
 	if d == nil {
 		return false
@@ -69,7 +71,7 @@ func (d *DiscoveryDependencies) reads(file string) bool {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 
-	return d.files[pathKey(file)] || d.dirs[pathKey(filepath.Dir(file))]
+	return d.files[pathKey(file)]
 }
 
 type discoveryFS struct {
@@ -124,23 +126,21 @@ func (r *Resolver) DiscoveryAffected(file string) bool {
 	return confine.Within(file, slices.Collect(maps.Values(r.managedBeanPaths())))
 }
 
-// DiscoveryReadsFile reports whether discovery read this file itself, or listed
-// the directory it is in: the files a project's markers are made of, which
-// are not CFML (a JSON config, a plugin's config.xml). It is exact where
-// DiscoveryAffected is broad, which a file that is no source cannot afford:
-// the whole of a directory discovery listed counts for DiscoveryAffected, so an
-// unrelated JSON file anywhere under the workspace root would drop the
-// resolver, and a file is created or removed in a listed directory only to
-// change that listing.
+// DiscoveryReadsFile reports whether discovery read or probed this file
+// itself: the files a project's markers are made of, which are not CFML (a
+// JSON config, a plugin's config.xml). It is exact where DiscoveryAffected is
+// broad, which a file that is no source cannot afford: the whole of a
+// directory discovery listed counts for DiscoveryAffected, so an unrelated JSON
+// file anywhere under the workspace root would drop the resolver. A probe of a
+// file that does not exist is recorded, so creating the marker is noticed.
 func (r *Resolver) DiscoveryReadsFile(file string) bool {
 	r.configurationOnce.Do(r.recordConfigurationSources)
 
 	// What discovery reads that is not CFML it probes by exact path: the
 	// JSON configs up the directory chain and plugin/config.xml. Its walks of
-	// a project read .cfc files, which are sources (DiscoveryAffected). A
-	// managed bean root is no exception: what a bean root holds that bean
-	// discovery reads is .cfc, so a file that is no source under one is read
-	// by nothing, and it does not count.
+	// a project, bean roots included, read .cfc files, which are sources
+	// (DiscoveryAffected), so a file that is no source counts only when it was
+	// itself read or probed, whatever directory it is in.
 	return r.Discovery.reads(file)
 }
 

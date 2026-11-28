@@ -216,8 +216,12 @@ const (
 
 // discoveryReads reports whether a changed file is one discovery depends on:
 // a source file inside what it listed or manages (DiscoveryAffected), or, for
-// a file that is no source, one it read itself or listed the directory of
-// (DiscoveryReadsFile), so that a JSON file nothing read does not count.
+// a file that is no source, one it read or probed (DiscoveryReadsFile), so
+// that a JSON file nothing read does not count.
+//
+// A session that holds no resolver and no kept resolver set has discovered
+// nothing, so nothing depends on any file and the answer is no, without
+// building one: a resolver built later discovers from the files as they are.
 func (s *Server) discoveryReads(path string) bool {
 	r := s.discoveryResolver()
 	if r == nil {
