@@ -354,4 +354,11 @@ func TestRuleParityClosureAndTagFixes(t *testing.T) {
 	if got := runNativeRule(t, "svc.cfc", "AVOID_USING_CREATEOBJECT", createObjSrc); len(got) != 2 {
 		t.Errorf("AVOID_USING_CREATEOBJECT on component/shorthand/java = %v, want 2", got)
 	}
+
+	// Reading `variables.<argName>` in a constructor (e.g. after `variables.x = arguments.x`)
+	// references component scope, not local scope, so it must not trigger ARG_VAR_MIXED.
+	argVarMixedVarsSrc := "component {\n\tfunction init(required any controller) {\n\t\tvariables.controller = arguments.controller;\n\t\tvariables.wirebox = variables.controller.getWireBox();\n\t\treturn this;\n\t}\n}\n"
+	if got := runNativeRule(t, "svc.cfc", "ARG_VAR_MIXED", argVarMixedVarsSrc); len(got) != 0 {
+		t.Errorf("ARG_VAR_MIXED on variables.<argName> = %v, want 0", got)
+	}
 }

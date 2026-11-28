@@ -74,7 +74,7 @@ type funcScopeAnalysis struct {
 	bareWrites      []identUse
 	bareReads       []identUse // all unscoped reads (used by ARG_VAR_MIXED)
 	implicitReads   []identUse // single-identifier reads without `.member` (used by IMPLICIT_SCOPE)
-	localOrVarReads []identUse // non-assignment `local.<name>` / `variables.<name>` reads for ARG_VAR_MIXED
+	localOrVarReads []identUse // non-assignment `local.<name>` reads for ARG_VAR_MIXED
 	argScoped       map[string]bool
 }
 
@@ -696,10 +696,8 @@ func recordScopedMemberIdent(toks []parser.Token, idx, baseOffset int, prev2, pr
 
 		return true
 	case "variables":
-		if !isAssign {
-			a.localOrVarReads = append(a.localOrVarReads, identUse{name: cur.Value, offset: baseOffset + cur.Offset})
-		}
-
+		// Component `variables.<name>` is component scope, not local scope;
+		// do not flag it as ARG_VAR_MIXED when an argument shares the name.
 		return true
 	default:
 		return false
