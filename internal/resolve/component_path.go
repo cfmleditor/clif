@@ -409,9 +409,14 @@ func (r *Resolver) lucliModuleRoot(component, baseDir string) (root, rest string
 func (r *Resolver) lucliModuleName(dir string) string {
 	key := "module.json\x00" + dir
 
-	r.mu.RLock()
-	name, ok := r.slugCache[key]
-	r.mu.RUnlock()
+	// On the owner, shared by every caller's view (forCaller): a module.json's
+	// name is the file's, whoever asks, and an invalidation asks the owner
+	// (PathCachesRead) and starts the views again with it.
+	o := r.owner()
+
+	o.mu.RLock()
+	name, ok := o.slugCache[key]
+	o.mu.RUnlock()
 
 	if ok {
 		return name
@@ -428,35 +433,37 @@ func (r *Resolver) lucliModuleName(dir string) string {
 		}
 	}
 
-	r.mu.Lock()
-	if r.slugCache == nil {
-		r.slugCache = make(map[string]string)
+	o.mu.Lock()
+	if o.slugCache == nil {
+		o.slugCache = make(map[string]string)
 	}
 
-	r.slugCache[key] = name
-	r.mu.Unlock()
+	o.slugCache[key] = name
+	o.mu.Unlock()
 
 	return name
 }
 
 // PathCachesRead reports whether the resolver's path caches hold what they
 // read from this file, which is no source: a box.json's slug or a LuCLI
-// module.json's name (boxSlug, lucliModuleName), a missing one included, so
+// module.json's name (boxSlug, lucliModuleName, kept on the owner for every
+// caller's view), a missing one included, so
 // that creating it is noticed. A change to it is a reason for InvalidatePaths;
 // nothing else asks, since the file is neither CFML nor a mapping.
 func (r *Resolver) PathCachesRead(file string) bool {
 	dir, base := filepath.Dir(file), filepath.Base(file)
+	o := r.owner()
 
-	r.mu.RLock()
-	defer r.mu.RUnlock()
+	o.mu.RLock()
+	defer o.mu.RUnlock()
 
 	switch {
 	case strings.EqualFold(base, "box.json"):
-		_, ok := r.slugCache[dir]
+		_, ok := o.slugCache[dir]
 
 		return ok
 	case strings.EqualFold(base, "module.json"):
-		_, ok := r.slugCache["module.json\x00"+dir]
+		_, ok := o.slugCache["module.json\x00"+dir]
 
 		return ok
 	}
@@ -467,9 +474,12 @@ func (r *Resolver) PathCachesRead(file string) bool {
 // boxSlug is the slug of dir's box.json, "" when it has none; remembered per
 // directory, since every unresolved path walks the same ancestors.
 func (r *Resolver) boxSlug(dir string) string {
-	r.mu.RLock()
-	slug, ok := r.slugCache[dir]
-	r.mu.RUnlock()
+	// On the owner, as lucliModuleName's: see there.
+	o := r.owner()
+
+	o.mu.RLock()
+	slug, ok := o.slugCache[dir]
+	o.mu.RUnlock()
 
 	if ok {
 		return slug
@@ -485,13 +495,13 @@ func (r *Resolver) boxSlug(dir string) string {
 		}
 	}
 
-	r.mu.Lock()
-	if r.slugCache == nil {
-		r.slugCache = make(map[string]string)
+	o.mu.Lock()
+	if o.slugCache == nil {
+		o.slugCache = make(map[string]string)
 	}
 
-	r.slugCache[dir] = slug
-	r.mu.Unlock()
+	o.slugCache[dir] = slug
+	o.mu.Unlock()
 
 	return slug
 }

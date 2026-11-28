@@ -328,7 +328,7 @@ func TestAChangedBoxSlugIsNoticed(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			writeCFC(t, lib+"/Foo.cfc", "component {}")
+			writeCFC(t, lib+"/Foo.cfc", "component { function run() {} }")
 
 			if err := os.WriteFile(box, []byte(`{"slug":"pone"}`), 0o600); err != nil {
 				t.Fatal(err)
@@ -338,8 +338,11 @@ func TestAChangedBoxSlugIsNoticed(t *testing.T) {
 			s.FS = vfs.OS{}
 			s.WorkspaceFolders = []string{root}
 
+			// ResolveFunc, as go-to-definition asks: it resolves on the view of
+			// the caller's application (forCaller), not on the resolver itself,
+			// and a slug kept on the view alone was not one an invalidation saw.
 			r := s.getResolver()
-			if got := r.ComponentPath("pone.Foo", lib); got == "" {
+			if got := r.ResolveFunc("pone.Foo", "run", lib); got == nil {
 				t.Fatal("the slug does not name the component here, so this test shows nothing")
 			}
 
@@ -350,11 +353,11 @@ func TestAChangedBoxSlugIsNoticed(t *testing.T) {
 			change(s, box)
 
 			r = s.getResolver()
-			if got := r.ComponentPath("pone.Foo", lib); got != "" {
-				t.Errorf("the old slug still resolves, to %s", got)
+			if got := r.ResolveFunc("pone.Foo", "run", lib); got != nil {
+				t.Errorf("the old slug still resolves, to %s", got.URI)
 			}
 
-			if got := r.ComponentPath("ptwo.Foo", lib); got == "" {
+			if got := r.ResolveFunc("ptwo.Foo", "run", lib); got == nil {
 				t.Error("the new slug does not resolve")
 			}
 		})
