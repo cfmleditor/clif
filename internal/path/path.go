@@ -40,6 +40,16 @@ type probeResult struct {
 	err  error
 }
 
+// WasProbed reports whether the mapping walk has read, or tried to read, this
+// file. What it found, a missing file included, is kept until
+// InvalidateAppMappingsCache, and survives a resolver that is dropped: a marker
+// that changes after it was probed is a reason to clear it.
+func WasProbed(file string) bool {
+	_, ok := probeReads.Load(filepath.Clean(file))
+
+	return ok
+}
+
 // probeRead is DefaultFS.ReadFile, remembered until
 // InvalidateAppMappingsCache, as the mappings read through it are. Working
 // out an application's mappings walks every directory above it and reads a

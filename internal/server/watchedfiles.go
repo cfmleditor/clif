@@ -143,6 +143,10 @@ func (s *Server) applyWatchedFileChanges(changes []protocol.FileEvent) {
 		// no framework keeps that answer until something it read changes.
 		if s.discoveryReads(path) {
 			discoveryChanged = true
+		} else if !cfpath.IsCFMLFile(path) {
+			// Done here, not at the end: a batch of nothing else returns below
+			// before the end is reached.
+			s.invalidateNonSourceCaches(path)
 		}
 
 		if strings.EqualFold(filepath.Ext(path), ".json") {
@@ -190,7 +194,12 @@ func (s *Server) applyWatchedFileChanges(changes []protocol.FileEvent) {
 	if discoveryChanged || mappingChanged > 0 {
 		s.invalidateResolver()
 	} else {
-		s.getResolver().InvalidatePaths()
+		// A batch that only removed files or changed open ones has nothing to
+		// drop from a resolver that is not built, and must not build one.
+		if r := s.peekResolver(); r != nil {
+			r.InvalidatePaths()
+		}
+
 		s.invalidateRoutes()
 	}
 
@@ -216,10 +225,19 @@ const (
 
 // discoveryReads reports whether a changed file is one discovery depends on:
 // a source file inside what it listed or manages (DiscoveryAffected), or, for
-// a file that is no source, one it read itself or listed the directory of
-// (DiscoveryReadsFile), so that a JSON file nothing read does not count.
+// a file that is no source, one it read or probed (DiscoveryReadsFile), so
+// that a JSON file nothing read does not count.
+//
+// A session that holds no resolver and no kept resolver set holds no answer of
+// discovery's, so the answer is no, without building one: a resolver built
+// later discovers from the files as they are. What the mapping walk kept of a
+// marker is held process-wide, outside the resolver, and the caller clears it
+// (cfpath.WasProbed).
 func (s *Server) discoveryReads(path string) bool {
-	r := s.getResolver()
+	r := s.discoveryResolver()
+	if r == nil {
+		return false
+	}
 
 	if cfpath.IsCFMLFile(path) {
 		return r.DiscoveryAffected(path)

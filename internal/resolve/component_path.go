@@ -409,9 +409,15 @@ func (r *Resolver) lucliModuleRoot(component, baseDir string) (root, rest string
 func (r *Resolver) lucliModuleName(dir string) string {
 	key := "module.json\x00" + dir
 
-	r.mu.RLock()
-	name, ok := r.slugCache[key]
-	r.mu.RUnlock()
+	// On the owner, shared by every caller's view (forCaller): a module.json's
+	// name is the file's, whoever asks, and the owner's invalidation starts
+	// the views again with it.
+	o := r.owner()
+
+	o.mu.RLock()
+	name, ok := o.slugCache[key]
+	epoch := o.pathCacheEpoch
+	o.mu.RUnlock()
 
 	if ok {
 		return name
@@ -428,13 +434,20 @@ func (r *Resolver) lucliModuleName(dir string) string {
 		}
 	}
 
-	r.mu.Lock()
-	if r.slugCache == nil {
-		r.slugCache = make(map[string]string)
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	// Read before an invalidation that ran while it was read: the answer for
+	// this lookup, but not one to keep, as adoptSourceInfo's rule is.
+	if o.pathCacheEpoch != epoch {
+		return name
 	}
 
-	r.slugCache[key] = name
-	r.mu.Unlock()
+	if o.slugCache == nil {
+		o.slugCache = make(map[string]string)
+	}
+
+	o.slugCache[key] = name
 
 	return name
 }
@@ -442,9 +455,13 @@ func (r *Resolver) lucliModuleName(dir string) string {
 // boxSlug is the slug of dir's box.json, "" when it has none; remembered per
 // directory, since every unresolved path walks the same ancestors.
 func (r *Resolver) boxSlug(dir string) string {
-	r.mu.RLock()
-	slug, ok := r.slugCache[dir]
-	r.mu.RUnlock()
+	// On the owner, as lucliModuleName's: see there.
+	o := r.owner()
+
+	o.mu.RLock()
+	slug, ok := o.slugCache[dir]
+	epoch := o.pathCacheEpoch
+	o.mu.RUnlock()
 
 	if ok {
 		return slug
@@ -460,13 +477,20 @@ func (r *Resolver) boxSlug(dir string) string {
 		}
 	}
 
-	r.mu.Lock()
-	if r.slugCache == nil {
-		r.slugCache = make(map[string]string)
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	// Read before an invalidation that ran while it was read: the answer for
+	// this lookup, but not one to keep, as adoptSourceInfo's rule is.
+	if o.pathCacheEpoch != epoch {
+		return slug
 	}
 
-	r.slugCache[dir] = slug
-	r.mu.Unlock()
+	if o.slugCache == nil {
+		o.slugCache = make(map[string]string)
+	}
+
+	o.slugCache[dir] = slug
 
 	return slug
 }

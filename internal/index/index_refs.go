@@ -31,10 +31,10 @@ func (idx *Index) ThisVarsForFile(fileURI uri.URI) []string {
 	return snapshot(idx.thisVars[uriKey(fileURI)])
 }
 
-// SetThisVars stores this-scoped variable names for a file, alone. Indexing a
-// parse writes them with the rest of the file (IndexParsedFile): a fact a
-// reader can ask for is written there, not in a call of its own after it,
-// which would let a reader in between find the file without it.
+// SetThisVars stores this-scoped variable names for a file. Indexing a parse
+// writes them with the rest of the file (IndexParsedFile), and a fact a reader
+// can ask for belongs there: written in a call of its own after the file is
+// indexed, it lets a reader in between find the file without it.
 func (idx *Index) SetThisVars(fileURI uri.URI, vars []string) {
 	// Owned, for the reason ownFunc gives: the caller's slice is a live
 	// ParseResult's, and the index must be the only writer of what it stores.

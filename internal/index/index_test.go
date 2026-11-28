@@ -604,4 +604,13 @@ func TestIndexParsedFileFollowsOnlyAnEntityItHolds(t *testing.T) {
 	if got := idx.EntityCandidates("poet"); len(got) != 2 {
 		t.Errorf("an indexing that always registers left Poet declared by %v", got)
 	}
+
+	// A file removed is no longer one the index holds an entity for, so a
+	// buffer indexed after it registers none.
+	idx.RemoveFile(held)
+	idx.IndexParsedFile(held, ParsedFile{PR: parser.Parse(held, `component persistent="true" entityName="Poet" {}`), EntityIfRead: true})
+
+	if got := idx.EntityCandidates("poet"); !slices.Equal(got, []uri.URI{stray}) {
+		t.Errorf("a removed file registered an entity as a buffer: Poet is declared by %v", got)
+	}
 }

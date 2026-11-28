@@ -142,6 +142,10 @@ func serverConfig(appDir string) (path string, data []byte, ok bool) {
 				if !filepath.IsAbs(config) {
 					config = filepath.Join(dir, filepath.FromSlash(config))
 				}
+
+				// Clean, as every path probeRead is given: it is the key WasProbed
+				// looks up, and an event names the file cleaned.
+				config = filepath.Clean(config)
 			}
 		}
 
