@@ -410,12 +410,13 @@ func (r *Resolver) lucliModuleName(dir string) string {
 	key := "module.json\x00" + dir
 
 	// On the owner, shared by every caller's view (forCaller): a module.json's
-	// name is the file's, whoever asks, and an invalidation asks the owner
-	// (PathCachesRead) and starts the views again with it.
+	// name is the file's, whoever asks, and the owner's invalidation starts
+	// the views again with it.
 	o := r.owner()
 
 	o.mu.RLock()
 	name, ok := o.slugCache[key]
+	epoch := o.pathCacheEpoch
 	o.mu.RUnlock()
 
 	if ok {
@@ -434,41 +435,21 @@ func (r *Resolver) lucliModuleName(dir string) string {
 	}
 
 	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	// Read before an invalidation that ran while it was read: the answer for
+	// this lookup, but not one to keep, as adoptSourceInfo's rule is.
+	if o.pathCacheEpoch != epoch {
+		return name
+	}
+
 	if o.slugCache == nil {
 		o.slugCache = make(map[string]string)
 	}
 
 	o.slugCache[key] = name
-	o.mu.Unlock()
 
 	return name
-}
-
-// PathCachesRead reports whether the resolver's path caches hold what they
-// read from this file, which is no source: a box.json's slug or a LuCLI
-// module.json's name (boxSlug, lucliModuleName, kept on the owner for every
-// caller's view), a missing one included, so
-// that creating it is noticed. A change to it is a reason for InvalidatePaths;
-// nothing else asks, since the file is neither CFML nor a mapping.
-func (r *Resolver) PathCachesRead(file string) bool {
-	dir, base := filepath.Dir(file), filepath.Base(file)
-	o := r.owner()
-
-	o.mu.RLock()
-	defer o.mu.RUnlock()
-
-	switch {
-	case strings.EqualFold(base, "box.json"):
-		_, ok := o.slugCache[dir]
-
-		return ok
-	case strings.EqualFold(base, "module.json"):
-		_, ok := o.slugCache["module.json\x00"+dir]
-
-		return ok
-	}
-
-	return false
 }
 
 // boxSlug is the slug of dir's box.json, "" when it has none; remembered per
@@ -479,6 +460,7 @@ func (r *Resolver) boxSlug(dir string) string {
 
 	o.mu.RLock()
 	slug, ok := o.slugCache[dir]
+	epoch := o.pathCacheEpoch
 	o.mu.RUnlock()
 
 	if ok {
@@ -496,12 +478,19 @@ func (r *Resolver) boxSlug(dir string) string {
 	}
 
 	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	// Read before an invalidation that ran while it was read: the answer for
+	// this lookup, but not one to keep, as adoptSourceInfo's rule is.
+	if o.pathCacheEpoch != epoch {
+		return slug
+	}
+
 	if o.slugCache == nil {
 		o.slugCache = make(map[string]string)
 	}
 
 	o.slugCache[dir] = slug
-	o.mu.Unlock()
 
 	return slug
 }

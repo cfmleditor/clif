@@ -92,10 +92,22 @@ func (s *Server) invalidateNonSourceCaches(file string) {
 		cfpath.InvalidateAppMappingsCache()
 	}
 
-	if r := s.peekResolver(); r != nil && (probed || r.PathCachesRead(file)) {
+	if r := s.peekResolver(); r != nil && (probed || isSlugFile(file)) {
 		r.InvalidatePaths()
 		s.invalidateRoutes()
 	}
+}
+
+// isSlugFile reports whether file is one the resolver reads a slug from: a
+// box.json's slug or a LuCLI module.json's name (boxSlug, lucliModuleName).
+// Judged by name, not by what the cache holds: a lookup that has read the file
+// and not yet stored its answer leaves nothing to find, and the change would
+// be missed. They are rarely written, so dropping the path caches for each is
+// cheap.
+func isSlugFile(file string) bool {
+	base := filepath.Base(file)
+
+	return strings.EqualFold(base, "box.json") || strings.EqualFold(base, "module.json")
 }
 
 // discoveryResolver is the resolver that holds what discovery found, or nil

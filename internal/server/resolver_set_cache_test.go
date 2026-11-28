@@ -445,3 +445,76 @@ func TestAChangedMarkerIsNoticedInASessionWithAConfigFile(t *testing.T) {
 		t.Error("the plugin's new package does not resolve")
 	}
 }
+
+// TestAChangedLuCLIModuleNameIsNoticed is TestAChangedBoxSlugIsNoticed for a
+// LuCLI module.json: `modules.<name>.Foo` resolves through the module.json that
+// names it, read on the view of the caller's application, and a changed name
+// must be seen at both doors.
+func TestAChangedLuCLIModuleNameIsNoticed(t *testing.T) {
+	module := func(name string) string { return `{"name":"` + name + `","main":"Module.cfc"}` }
+
+	for name, change := range map[string]func(s *Server, file string){
+		"save": func(s *Server, file string) { s.invalidateSourceFile(file) },
+		"watch": func(s *Server, file string) {
+			s.Features.WatchedFiles = true
+			s.applyWatchedFileChanges([]protocol.FileEvent{{URI: cfpath.ToURI(file), Type: protocol.FileChangeTypeChanged}})
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			lib := root + "/lib"
+			file := lib + "/module.json"
+
+			if err := os.MkdirAll(lib, 0o755); err != nil {
+				t.Fatal(err)
+			}
+
+			writeCFC(t, lib+"/Foo.cfc", "component { function run() {} }")
+
+			if err := os.WriteFile(file, []byte(module("mone")), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			s := newTestServer()
+			s.FS = vfs.OS{}
+			s.WorkspaceFolders = []string{root}
+
+			r := s.getResolver()
+			if got := r.ResolveFunc("modules.mone.Foo", "run", lib); got == nil {
+				t.Fatal("the module.json does not name the component here, so this test shows nothing")
+			}
+
+			if err := os.WriteFile(file, []byte(module("mtwo")), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			change(s, file)
+
+			r = s.getResolver()
+			if got := r.ResolveFunc("modules.mone.Foo", "run", lib); got != nil {
+				t.Errorf("the old module name still resolves, to %s", got.URI)
+			}
+
+			if got := r.ResolveFunc("modules.mtwo.Foo", "run", lib); got == nil {
+				t.Error("the new module name does not resolve")
+			}
+		})
+	}
+}
+
+// TestSlugFilesAreJudgedByName: a lookup that has read box.json and not yet
+// stored its slug leaves nothing in the cache to find, so a check of what the
+// cache holds would miss a change that lands in between. A file a slug is read
+// from is judged by its name.
+func TestSlugFilesAreJudgedByName(t *testing.T) {
+	for file, want := range map[string]bool{
+		"/w/lib/box.json":             true,
+		"/w/modules/x/MODULE.JSON":    true,
+		"/w/package.json":             false,
+		"/w/node_modules/a/box.json5": false,
+	} {
+		if got := isSlugFile(file); got != want {
+			t.Errorf("isSlugFile(%q) = %v, want %v", file, got, want)
+		}
+	}
+}
