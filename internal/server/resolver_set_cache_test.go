@@ -2,6 +2,7 @@ package server
 
 import (
 	"io/fs"
+	"os"
 	"slices"
 	"sync/atomic"
 	"testing"
@@ -87,8 +88,11 @@ func TestAFileDiscoveryReadInvalidatesTheKeptAnswer(t *testing.T) {
 		t.Fatal("the resolver set was not built, so there is no answer to keep")
 	}
 
+	// Asked of a resolver of its own, so the session holds none and the event
+	// meets the kept answer alone: the branch discoveryResolver answers with the
+	// one a kept set is answered by.
 	marker := root + "/plugin/config.xml"
-	if !s.getResolver().DiscoveryAffected(marker) {
+	if !(&resolve.Resolver{Discovery: s.discoveryDependencies}).DiscoveryReadsFile(marker) {
 		t.Fatalf("discovery did not record %s as a file it read", marker)
 	}
 
@@ -236,5 +240,69 @@ func TestAKeptEmptyResolverSetIsAnsweredByOneResolver(t *testing.T) {
 
 	if !s.resolversBuilt {
 		t.Error("an unrelated save dropped the kept resolver set")
+	}
+}
+
+// TestAChangedMarkerClearsWhatTheMappingWalkKeptWithNoResolver: what cfpath
+// read from a marker (a Mura plugin's config.xml) is kept process-wide, and
+// outlives the resolver, which invalidateResolver drops. With no resolver
+// there is nothing to ask whether discovery read the file, and the change must
+// still clear what the walk kept, at the editor's save and at the watcher.
+func TestAChangedMarkerClearsWhatTheMappingWalkKeptWithNoResolver(t *testing.T) {
+	plugin := func(pkg string) string { return "<plugin><package>" + pkg + "</package></plugin>" }
+
+	for name, change := range map[string]func(s *Server, file string){
+		"save": func(s *Server, file string) { s.invalidateSourceFile(file) },
+		"watch": func(s *Server, file string) {
+			s.Features.WatchedFiles = true
+			s.applyWatchedFileChanges([]protocol.FileEvent{{URI: cfpath.ToURI(file), Type: protocol.FileChangeTypeChanged}})
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			file := root + "/plugin/config.xml"
+			writeCFC(t, root+"/Plain.cfc", "component {}")
+
+			if err := os.MkdirAll(root+"/plugin", 0o755); err != nil {
+				t.Fatal(err)
+			}
+
+			if err := os.WriteFile(file, []byte(plugin("pone")), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			cfpath.InvalidateAppMappingsCache()
+			t.Cleanup(cfpath.InvalidateAppMappingsCache)
+
+			if _, ok := cfpath.LoadAppMappings(root)["pone"]; !ok {
+				t.Fatal("the mapping walk did not read the plugin's package, so there is no kept answer to go stale")
+			}
+
+			if !cfpath.WasProbed(file) {
+				t.Fatal("the mapping walk did not record the marker as probed")
+			}
+
+			if err := os.WriteFile(file, []byte(plugin("ptwo")), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			s := newTestServer()
+			s.FS = vfs.OS{}
+			s.WorkspaceFolders = []string{root}
+			change(s, file)
+
+			if s.resolver != nil {
+				t.Error("the change built a resolver to answer")
+			}
+
+			got := cfpath.LoadAppMappings(root)
+			if _, stale := got["pone"]; stale {
+				t.Errorf("the mapping walk still holds the plugin's old package: %v", got)
+			}
+
+			if _, ok := got["ptwo"]; !ok {
+				t.Errorf("the mapping walk does not hold the plugin's new package: %v", got)
+			}
+		})
 	}
 }

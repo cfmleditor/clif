@@ -145,6 +145,13 @@ func (s *Server) applyWatchedFileChanges(changes []protocol.FileEvent) {
 			discoveryChanged = true
 		}
 
+		// What the mapping walk read from a marker is kept process-wide, and
+		// outlives a resolver: a batch of nothing else returns below before the
+		// cache is cleared at its end.
+		if !cfpath.IsCFMLFile(path) && cfpath.WasProbed(path) {
+			cfpath.InvalidateAppMappingsCache()
+		}
+
 		if strings.EqualFold(filepath.Ext(path), ".json") {
 			if s.isMappingJSON(path) {
 				mappingChanged++
@@ -219,9 +226,11 @@ const (
 // a file that is no source, one it read or probed (DiscoveryReadsFile), so
 // that a JSON file nothing read does not count.
 //
-// A session that holds no resolver and no kept resolver set has discovered
-// nothing, so nothing depends on any file and the answer is no, without
-// building one: a resolver built later discovers from the files as they are.
+// A session that holds no resolver and no kept resolver set holds no answer of
+// discovery's, so the answer is no, without building one: a resolver built
+// later discovers from the files as they are. What the mapping walk kept of a
+// marker is held process-wide, outside the resolver, and the caller clears it
+// (cfpath.WasProbed).
 func (s *Server) discoveryReads(path string) bool {
 	r := s.discoveryResolver()
 	if r == nil {

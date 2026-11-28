@@ -103,9 +103,9 @@ func (idx *Index) indexWhole(fileURI uri.URI, f ParsedFile, includes []string) {
 	// its file's name: ContentBox's Author.cfc is cbAuthor, and
 	// entityNew( "cbAuthor" ) names it. Reading it scans the header, so it is
 	// read only when it will be stored: always, or for a file the index has
-	// read the entity of before (EntityIfRead). That is decided from a peek, and
-	// again under the lock for the one case the peek can miss: a first read that
-	// lands in between.
+	// read the entity of before (EntityIfRead). The peek here only saves the scan
+	// when the answer is no; the decision is made again under the lock, where
+	// the index's removals and first reads cannot change it.
 	component := isComponent(fileURI)
 	fk := uriKey(fileURI)
 	wantEntity := !f.EntityIfRead || component && idx.entityWasRead(fk)
@@ -142,16 +142,13 @@ func (idx *Index) indexWhole(fileURI uri.URI, f ParsedFile, includes []string) {
 
 	idx.setIncludesLocked(fileURI, includes)
 
-	if !wantEntity && f.EntityIfRead && component {
-		// A first read that landed between the peek and this lock: the entity
-		// it stored is of another parse, and this one is the buffer's.
-		if _, read := idx.entityRead[fk]; read {
+	_, read := idx.entityRead[fk]
+	if want := !f.EntityIfRead || component && read; want {
+		if !wantEntity {
+			// The file was read since the peek: it is the buffer's entity.
 			persistent, entityName = entityOf(fileURI, pr)
-			wantEntity = true
 		}
-	}
 
-	if wantEntity {
 		idx.setFileEntityLocked(uri.URI(strings.Clone(string(fileURI))), persistent, entityName)
 
 		if component {

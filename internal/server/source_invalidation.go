@@ -95,6 +95,10 @@ func (s *Server) invalidateSourceFile(file string) {
 		if r := s.discoveryResolver(); r != nil && r.DiscoveryReadsFile(file) {
 			s.invalidateResolver()
 			cfpath.InvalidateAppMappingsCache()
+		} else if cfpath.WasProbed(file) {
+			// What the mapping walk found in it outlives the resolver: it is
+			// kept process-wide, so a session with no resolver still holds it.
+			cfpath.InvalidateAppMappingsCache()
 		}
 
 		return
