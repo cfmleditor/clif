@@ -306,3 +306,139 @@ func TestAChangedMarkerClearsWhatTheMappingWalkKeptWithNoResolver(t *testing.T) 
 		})
 	}
 }
+
+// TestAChangedBoxSlugIsNoticed: a component named by a box.json slug resolves
+// through the resolver's slug cache, and box.json is neither CFML nor a
+// mapping, so nothing invalidated the cache when it changed: the old slug went
+// on resolving and the new one did not, at the editor's save and the watcher.
+func TestAChangedBoxSlugIsNoticed(t *testing.T) {
+	for name, change := range map[string]func(s *Server, file string){
+		"save": func(s *Server, file string) { s.invalidateSourceFile(file) },
+		"watch": func(s *Server, file string) {
+			s.Features.WatchedFiles = true
+			s.applyWatchedFileChanges([]protocol.FileEvent{{URI: cfpath.ToURI(file), Type: protocol.FileChangeTypeChanged}})
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			lib := root + "/lib"
+			box := lib + "/box.json"
+
+			if err := os.MkdirAll(lib, 0o755); err != nil {
+				t.Fatal(err)
+			}
+
+			writeCFC(t, lib+"/Foo.cfc", "component {}")
+
+			if err := os.WriteFile(box, []byte(`{"slug":"pone"}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			s := newTestServer()
+			s.FS = vfs.OS{}
+			s.WorkspaceFolders = []string{root}
+
+			r := s.getResolver()
+			if got := r.ComponentPath("pone.Foo", lib); got == "" {
+				t.Fatal("the slug does not name the component here, so this test shows nothing")
+			}
+
+			if err := os.WriteFile(box, []byte(`{"slug":"ptwo"}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			change(s, box)
+
+			r = s.getResolver()
+			if got := r.ComponentPath("pone.Foo", lib); got != "" {
+				t.Errorf("the old slug still resolves, to %s", got)
+			}
+
+			if got := r.ComponentPath("ptwo.Foo", lib); got == "" {
+				t.Error("the new slug does not resolve")
+			}
+		})
+	}
+}
+
+// TestAWatchedRemovalBuildsNoResolver: a batch that only removed a file has
+// nothing to drop from a resolver that is not built, and dropped it by
+// building one.
+func TestAWatchedRemovalBuildsNoResolver(t *testing.T) {
+	root := t.TempDir()
+	gone := root + "/Gone.cfc"
+	writeCFC(t, gone, "component { function run() {} }")
+
+	s := newTestServer()
+	s.FS = vfs.OS{}
+	s.WorkspaceFolders = []string{root}
+	s.Features.WatchedFiles = true
+	s.index.IndexFile(cfpath.ToURI(gone), "component { function run() {} }")
+
+	if err := os.Remove(gone); err != nil {
+		t.Fatal(err)
+	}
+
+	s.applyWatchedFileChanges([]protocol.FileEvent{{URI: cfpath.ToURI(gone), Type: protocol.FileChangeTypeDeleted}})
+
+	if s.index.HasFile(cfpath.ToURI(gone)) {
+		t.Fatal("the removal was not applied, so the batch did not reach the end")
+	}
+
+	if s.peekResolver() != nil {
+		t.Error("a batch that only removed a file built the resolver")
+	}
+}
+
+// TestAChangedMarkerIsNoticedInASessionWithAConfigFile: a session with a
+// config file never runs the discovery that would record a Mura plugin's
+// config.xml, so the resolver is not dropped when it changes; but its path
+// caches hold resolutions made from the mappings the marker gave, and those
+// must go with what the mapping walk kept.
+func TestAChangedMarkerIsNoticedInASessionWithAConfigFile(t *testing.T) {
+	plugin := func(pkg string) string { return "<plugin><package>" + pkg + "</package></plugin>" }
+
+	root := t.TempDir()
+	file := root + "/plugin/config.xml"
+	writeCFC(t, root+"/Foo.cfc", "component {}")
+
+	if err := os.MkdirAll(root+"/plugin", 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(file, []byte(plugin("pone")), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfpath.InvalidateAppMappingsCache()
+	t.Cleanup(cfpath.InvalidateAppMappingsCache)
+
+	s := newTestServer()
+	s.FS = vfs.OS{}
+	s.WorkspaceFolders = []string{root}
+	s.ConfigPath = root + "/.clif.json"
+
+	r := s.getResolver()
+	if got := r.ComponentPath("pone.Foo", root); got == "" {
+		t.Fatal("the plugin's package does not name the component here, so this test shows nothing")
+	}
+
+	if r.DiscoveryReadsFile(file) {
+		t.Fatal("discovery recorded the marker, so the resolver is dropped for it and this test shows nothing")
+	}
+
+	if err := os.WriteFile(file, []byte(plugin("ptwo")), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	s.invalidateSourceFile(file)
+
+	r = s.getResolver()
+	if got := r.ComponentPath("pone.Foo", root); got != "" {
+		t.Errorf("the plugin's old package still resolves, to %s", got)
+	}
+
+	if got := r.ComponentPath("ptwo.Foo", root); got == "" {
+		t.Error("the plugin's new package does not resolve")
+	}
+}

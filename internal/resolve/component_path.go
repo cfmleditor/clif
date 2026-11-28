@@ -439,6 +439,31 @@ func (r *Resolver) lucliModuleName(dir string) string {
 	return name
 }
 
+// PathCachesRead reports whether the resolver's path caches hold what they
+// read from this file, which is no source: a box.json's slug or a LuCLI
+// module.json's name (boxSlug, lucliModuleName), a missing one included, so
+// that creating it is noticed. A change to it is a reason for InvalidatePaths;
+// nothing else asks, since the file is neither CFML nor a mapping.
+func (r *Resolver) PathCachesRead(file string) bool {
+	dir, base := filepath.Dir(file), filepath.Base(file)
+
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	switch {
+	case strings.EqualFold(base, "box.json"):
+		_, ok := r.slugCache[dir]
+
+		return ok
+	case strings.EqualFold(base, "module.json"):
+		_, ok := r.slugCache["module.json\x00"+dir]
+
+		return ok
+	}
+
+	return false
+}
+
 // boxSlug is the slug of dir's box.json, "" when it has none; remembered per
 // directory, since every unresolved path walks the same ancestors.
 func (r *Resolver) boxSlug(dir string) string {

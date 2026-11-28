@@ -70,6 +70,34 @@ func (s *Server) isMappingJSON(path string) bool {
 	return s.mappingJSONFiles[filepath.Clean(path)]
 }
 
+// peekResolver is the session's resolver, or nil when none is built; it never
+// builds one. For dropping what a resolver holds: with none, it holds nothing.
+func (s *Server) peekResolver() *resolve.Resolver {
+	s.resolverMu.Lock()
+	defer s.resolverMu.Unlock()
+
+	return s.resolver
+}
+
+// invalidateNonSourceCaches drops what a changed file that is no source can
+// have made stale, short of what discovery found (the callers drop the
+// resolver for that): what the mapping walk kept of a marker it probed, which
+// is held process-wide and outlives the resolver, and the resolver's path
+// caches, which hold answers made from those mappings (a session with a config
+// file never runs the discovery that would record the marker) and the slugs
+// read from box.json and module.json.
+func (s *Server) invalidateNonSourceCaches(file string) {
+	probed := cfpath.WasProbed(file)
+	if probed {
+		cfpath.InvalidateAppMappingsCache()
+	}
+
+	if r := s.peekResolver(); r != nil && (probed || r.PathCachesRead(file)) {
+		r.InvalidatePaths()
+		s.invalidateRoutes()
+	}
+}
+
 // discoveryResolver is the resolver that holds what discovery found, or nil
 // when the session holds none: no resolver and no resolver set kept empty. A
 // saved or changed file that is no source has nothing to invalidate then, and
@@ -95,10 +123,8 @@ func (s *Server) invalidateSourceFile(file string) {
 		if r := s.discoveryResolver(); r != nil && r.DiscoveryReadsFile(file) {
 			s.invalidateResolver()
 			cfpath.InvalidateAppMappingsCache()
-		} else if cfpath.WasProbed(file) {
-			// What the mapping walk found in it outlives the resolver: it is
-			// kept process-wide, so a session with no resolver still holds it.
-			cfpath.InvalidateAppMappingsCache()
+		} else {
+			s.invalidateNonSourceCaches(file)
 		}
 
 		return

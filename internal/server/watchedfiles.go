@@ -143,13 +143,10 @@ func (s *Server) applyWatchedFileChanges(changes []protocol.FileEvent) {
 		// no framework keeps that answer until something it read changes.
 		if s.discoveryReads(path) {
 			discoveryChanged = true
-		}
-
-		// What the mapping walk read from a marker is kept process-wide, and
-		// outlives a resolver: a batch of nothing else returns below before the
-		// cache is cleared at its end.
-		if !cfpath.IsCFMLFile(path) && cfpath.WasProbed(path) {
-			cfpath.InvalidateAppMappingsCache()
+		} else if !cfpath.IsCFMLFile(path) {
+			// Done here, not at the end: a batch of nothing else returns below
+			// before the end is reached.
+			s.invalidateNonSourceCaches(path)
 		}
 
 		if strings.EqualFold(filepath.Ext(path), ".json") {
@@ -197,7 +194,12 @@ func (s *Server) applyWatchedFileChanges(changes []protocol.FileEvent) {
 	if discoveryChanged || mappingChanged > 0 {
 		s.invalidateResolver()
 	} else {
-		s.getResolver().InvalidatePaths()
+		// A batch that only removed files or changed open ones has nothing to
+		// drop from a resolver that is not built, and must not build one.
+		if r := s.peekResolver(); r != nil {
+			r.InvalidatePaths()
+		}
+
 		s.invalidateRoutes()
 	}
 
